@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── 직원 ───────────────────────────────────────────────────
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String
+  name        String
+  phone       String?
+  role        Role     @default(EMPLOYEE)
+  department  String?
+  position    String?
+  hireDate    DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attendances   Attendance[]
+  schedules     Schedule[]
+  leaveRequests LeaveRequest[]
+  leaveBalance  LeaveBalance?
+  contracts     Contract[]
+  approvedLeaves LeaveRequest[] @relation("Approver")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+// ─── 출퇴근 ─────────────────────────────────────────────────
+model Attendance {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  date       DateTime         @db.Date
+  clockIn    DateTime?
+  clockOut   DateTime?
+  status     AttendanceStatus @default(NORMAL)
+  note       String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+enum AttendanceStatus {
+  NORMAL      // 정상
+  LATE        // 지각
+  EARLY_LEAVE // 조기퇴근
+  ABSENT      // 결근
+  HOLIDAY     // 휴일
+}
+
+// ─── 근무일정 ───────────────────────────────────────────────
+model Schedule {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  date      DateTime       @db.Date
+  startTime String         // "09:00"
+  endTime   String         // "18:00"
+  type      ScheduleType   @default(WORK)
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([userId, date])
+}
+
+enum ScheduleType {
+  WORK     // 근무
+  OFF      // 휴무
+  HOLIDAY  // 공휴일
+}
+
+// ─── 휴가 ───────────────────────────────────────────────────
+model LeaveRequest {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  approverId  String?
+  approver    User?         @relation("Approver", fields: [approverId], references: [id])
+  type        LeaveType
+  startDate   DateTime      @db.Date
+  endDate     DateTime      @db.Date
+  days        Float
+  reason      String?
+  status      LeaveStatus   @default(PENDING)
+  rejectedReason String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId, status])
+}
+
+enum LeaveType {
+  ANNUAL       // 연차
+  HALF_AM      // 오전 반차
+  HALF_PM      // 오후 반차
+  SICK         // 병가
+  SPECIAL      // 특별휴가
+}
+
+enum LeaveStatus {
+  PENDING    // 대기
+  APPROVED   // 승인
+  REJECTED   // 반려
+  CANCELLED  // 취소
+}
+
+model LeaveBalance {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+  year        Int
+  total       Float    @default(15)
+  used        Float    @default(0)
+  remaining   Float    @default(15)
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── 전자 계약 ──────────────────────────────────────────────
+model Contract {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  title       String
+  type        ContractType
+  fileUrl     String
+  signedUrl   String?
+  status      ContractStatus @default(DRAFT)
+  startDate   DateTime?      @db.Date
+  endDate     DateTime?      @db.Date
+  signedAt    DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+enum ContractType {
+  EMPLOYMENT     // 근로계약서
+  PART_TIME      // 단시간근로계약서
+  CONFIDENTIAL   // 비밀유지계약
+  OTHER
+}
+
+enum ContractStatus {
+  DRAFT      // 초안
+  SENT       // 발송됨
+  SIGNED     // 서명완료
+  EXPIRED    // 만료
+}
