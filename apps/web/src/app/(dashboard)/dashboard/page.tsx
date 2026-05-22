@@ -233,10 +233,10 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map(({ title, value, icon: Icon, color, bg }) => {
           const links: Record<string, string> = {
-            "전체 직원": "/dashboard/employees",
-            "오늘 출근": "/dashboard/attendance",
-            "휴가 대기": "/dashboard/leave",
-            "계약 서명 대기": "/dashboard/contracts",
+            "전체 직원": "/employees",
+            "오늘 출근": "/attendance",
+            "휴가 대기": "/leave",
+            "계약 서명 대기": "/contracts",
           };
           const href = links[title] || "#";
 
@@ -266,7 +266,7 @@ export default async function DashboardPage() {
       {isEmployee && (
         <>
           {/* 내 계약서 현황 */}
-          <Link href="/dashboard/contracts">
+          <Link href="/contracts">
             <div className="cursor-pointer hover:shadow-lg transition-shadow">
               <Card>
                 <CardHeader>
@@ -301,7 +301,7 @@ export default async function DashboardPage() {
           </Link>
 
           {/* 내 휴가 잔여 */}
-          <Link href="/dashboard/leave">
+          <Link href="/leave">
             <div className="cursor-pointer hover:shadow-lg transition-shadow">
               <Card>
                 <CardHeader>
@@ -366,7 +366,7 @@ export default async function DashboardPage() {
           </Card>
 
           {/* 팀 휴가 신청 */}
-          <Link href="/dashboard/leave">
+          <Link href="/leave">
             <div className="cursor-pointer hover:shadow-lg transition-shadow">
               <Card>
                 <CardHeader>
@@ -404,7 +404,7 @@ export default async function DashboardPage() {
           </Link>
 
           {/* 팀 계약서 서명 대기 */}
-          <Link href="/dashboard/contracts">
+          <Link href="/contracts">
             <div className="cursor-pointer hover:shadow-lg transition-shadow">
               <Card>
                 <CardHeader>
@@ -464,7 +464,7 @@ export default async function DashboardPage() {
       </Card>
 
       {/* 최근 휴가 신청 (전체) */}
-      <Link href="/dashboard/leave">
+      <Link href="/leave">
         <div className="cursor-pointer hover:shadow-lg transition-shadow">
           <Card>
             <CardHeader>
