@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
@@ -230,28 +231,41 @@ export default async function DashboardPage() {
 
       {/* 통계 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map(({ title, value, icon: Icon, color, bg }) => (
-          <Card key={title}>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">{title}</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-                </div>
-                <div className={`w-12 h-12 rounded-xl ${bg} flex items-center justify-center`}>
-                  <Icon className={color} size={22} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {stats.map(({ title, value, icon: Icon, color, bg }) => {
+          const links: Record<string, string> = {
+            "전체 직원": "/dashboard/employees",
+            "오늘 출근": "/dashboard/attendance",
+            "휴가 대기": "/dashboard/leave",
+            "계약 서명 대기": "/dashboard/contracts",
+          };
+          const href = links[title] || "#";
+
+          return (
+            <Link key={title} href={href}>
+              <Card className="cursor-pointer hover:shadow-lg transition-shadow h-full">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500">{title}</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+                    </div>
+                    <div className={`w-12 h-12 rounded-xl ${bg} flex items-center justify-center`}>
+                      <Icon className={color} size={22} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
 
       {/* EMPLOYEE 전용 위젯 */}
       {isEmployee && (
         <>
           {/* 내 계약서 현황 */}
-          <Card>
+          <Link href="/dashboard/contracts">
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileSignature size={18} />
@@ -280,9 +294,11 @@ export default async function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </Link>
 
           {/* 내 휴가 잔여 */}
-          <Card>
+          <Link href="/dashboard/leave">
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <UmbrellaOff size={18} />
@@ -306,6 +322,7 @@ export default async function DashboardPage() {
               </div>
             </CardContent>
           </Card>
+          </Link>
         </>
       )}
 
@@ -343,7 +360,8 @@ export default async function DashboardPage() {
           </Card>
 
           {/* 팀 휴가 신청 */}
-          <Card>
+          <Link href="/dashboard/leave">
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <UmbrellaOff size={18} />
@@ -375,9 +393,11 @@ export default async function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </Link>
 
           {/* 팀 계약서 서명 대기 */}
-          <Card>
+          <Link href="/dashboard/contracts">
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileSignature size={18} />
@@ -404,6 +424,7 @@ export default async function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </Link>
         </>
       )}
 
@@ -433,7 +454,8 @@ export default async function DashboardPage() {
       </Card>
 
       {/* 최근 휴가 신청 (전체) */}
-      <Card>
+      <Link href="/dashboard/leave">
+      <Card className="cursor-pointer hover:shadow-lg transition-shadow">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <AlertCircle size={18} />
@@ -465,6 +487,7 @@ export default async function DashboardPage() {
           )}
         </CardContent>
       </Card>
+      </Link>
     </div>
   );
 }
