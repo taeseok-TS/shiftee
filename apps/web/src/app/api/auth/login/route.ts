@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       name: user.name,
+      branch: user.branch ?? null,
     });
 
     return NextResponse.json({
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
   } catch (error) {
-    console.error(error);
+    console.error("LOGIN ERROR:", error);
     return NextResponse.json({ error: "서버 오류가 발생했습니다." }, { status: 500 });
   }
 }

@@ -55,22 +55,31 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const period = (searchParams.get("period") || "monthly") as Period;
   const userId = searchParams.get("userId") || session.userId;
-  const baseDate = new Date();
+  const dateParam = searchParams.get("date");
+  const baseDate = dateParam ? new Date(dateParam) : new Date();
 
-  // 직원은 본인 것만
-  const targetUserId = session.role === "EMPLOYEE" ? session.userId : userId;
+  // 접근 범위 결정
+  let userWhere: Record<string, unknown>;
+  if (session.role === "EMPLOYEE") {
+    userWhere = { userId: session.userId };
+  } else if (session.role === "MANAGER") {
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { branch: true } });
+    userWhere = (target && target.branch === session.branch) ? { userId } : { user: { branch: session.branch } };
+  } else {
+    userWhere = { userId };
+  }
 
   const { start, end } = getDateRange(period, baseDate);
   const { start: prevStart, end: prevEnd } = getPrevDateRange(period, baseDate);
 
   const [records, prevRecords] = await Promise.all([
     prisma.attendance.findMany({
-      where: { userId: targetUserId, date: { gte: start, lte: end } },
+      where: { ...userWhere, date: { gte: start, lte: end } },
       include: { user: { select: { name: true } } },
       orderBy: { date: "asc" },
     }),
     prisma.attendance.findMany({
-      where: { userId: targetUserId, date: { gte: prevStart, lte: prevEnd } },
+      where: { ...userWhere, date: { gte: prevStart, lte: prevEnd } },
       orderBy: { date: "asc" },
     }),
   ]);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { haversineDistance } from "@/lib/geofence";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -12,7 +13,6 @@ export async function POST(request: NextRequest) {
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },
   });
-
   if (!existing?.clockIn) {
     return NextResponse.json({ error: "출근 기록이 없습니다." }, { status: 400 });
   }
@@ -20,10 +20,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다." }, { status: 400 });
   }
 
-  const now = new Date();
   const body = await request.json().catch(() => ({}));
+  const { latitude, longitude } = body;
 
-  // 18시 이전이면 조기퇴근
+  // ADMIN 외에는 지점 지오펜스 적용
+  if (session.role !== "ADMIN" && session.branch) {
+    const branchData = await prisma.branch.findFirst({
+      where: { name: session.branch, isActive: true },
+    });
+
+    if (branchData?.latitude != null && branchData?.longitude != null) {
+      if (latitude == null || longitude == null) {
+        return NextResponse.json(
+          { error: "위치 정보가 필요합니다. GPS를 허용해주세요.", needsLocation: true },
+          { status: 400 }
+        );
+      }
+      const dist = haversineDistance(latitude, longitude, branchData.latitude, branchData.longitude);
+      if (dist > branchData.radius) {
+        return NextResponse.json(
+          {
+            error: `지점 반경 밖에서는 퇴근 처리가 불가합니다.\n현재 위치: ${Math.round(dist)}m / 허용 반경: ${branchData.radius}m`,
+            distance: Math.round(dist),
+            radius: branchData.radius,
+            outsideGeofence: true,
+          },
+          { status: 403 }
+        );
+      }
+    }
+  }
+
+  const now = new Date();
   const isEarlyLeave = now.getHours() < 18;
   const status = existing.status === "LATE"
     ? (isEarlyLeave ? "EARLY_LEAVE" : "LATE")
@@ -34,8 +62,8 @@ export async function POST(request: NextRequest) {
     data: {
       clockOut: now,
       status,
-      latitude: body.latitude ?? existing.latitude,
-      longitude: body.longitude ?? existing.longitude,
+      latitude: latitude ?? existing.latitude,
+      longitude: longitude ?? existing.longitude,
     },
   });
 

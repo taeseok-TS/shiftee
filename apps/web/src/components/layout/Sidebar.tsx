@@ -10,16 +10,18 @@ import {
   UmbrellaOff,
   FileSignature,
   Users,
+  Building2,
   LogOut,
 } from "lucide-react";
 
 const navItems = [
-  { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+  { href: "/dashboard",  label: "대시보드",   icon: LayoutDashboard },
   { href: "/attendance", label: "출퇴근 관리", icon: Clock },
-  { href: "/schedule", label: "근무일정", icon: Calendar },
-  { href: "/leave", label: "휴가 관리", icon: UmbrellaOff },
-  { href: "/contracts", label: "전자계약", icon: FileSignature },
-  { href: "/employees", label: "직원 관리", icon: Users },
+  { href: "/schedule",   label: "근무일정",   icon: Calendar },
+  { href: "/leave",      label: "휴가 관리",  icon: UmbrellaOff },
+  { href: "/contracts",  label: "전자계약",   icon: FileSignature },
+  { href: "/employees",  label: "직원 관리",  icon: Users },
+  { href: "/branches",   label: "지점 관리",  icon: Building2 },
 ];
 
 export function Sidebar() {

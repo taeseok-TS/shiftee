@@ -16,18 +16,26 @@ model User {
   phone       String?
   role        Role     @default(EMPLOYEE)
   department  String?
-  position    String?
+  jobGroup    String?   // 직군 (원장 | CM | TM | 코디)
+  position    String?   // 직급 (인턴매니저, 주임교실장 등)
+  branch      String?   // 지점 (예: "A지점", "B지점")
   hireDate    DateTime?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  attendances   Attendance[]
-  schedules     Schedule[]
-  leaveRequests LeaveRequest[]
-  leaveBalance  LeaveBalance?
-  contracts     Contract[]
-  approvedLeaves LeaveRequest[] @relation("Approver")
+  attendances        Attendance[]
+  schedules          Schedule[]
+  leaveRequests      LeaveRequest[]
+  leaveBalance       LeaveBalance?
+  contracts          Contract[]
+  approvedLeaves     LeaveRequest[]     @relation("Approver")
+  approvalLine       ApprovalLine?      @relation("ApprovalLineTarget")
+  approvalLineSteps  ApprovalLineStep[] @relation("ApprovalLineApprover")
+  leaveApprovalSteps LeaveApprovalStep[] @relation("LeaveApprovalApprover")
+  contractApprovalSteps ContractApprovalStep[] @relation("ContractApprover")
+  contractTemplates  ContractTemplate[] @relation("TemplateCreator")
+  contractVersions   ContractVersion[]  @relation("VersionCreator")
 }
 
 enum Role {
@@ -99,18 +107,22 @@ model LeaveRequest {
   reason      String?
   status      LeaveStatus   @default(PENDING)
   rejectedReason String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  approvalSteps  LeaveApprovalStep[]
 
   @@index([userId, status])
 }
 
 enum LeaveType {
-  ANNUAL       // 연차
-  HALF_AM      // 오전 반차
-  HALF_PM      // 오후 반차
-  SICK         // 병가
-  SPECIAL      // 특별휴가
+  ANNUAL        // 연차
+  HALF_AM       // 오전 반차 (0.5일)
+  HALF_PM       // 오후 반차 (0.5일)
+  QUARTER_AM    // 오전 반반차 (0.25일)
+  QUARTER_PM    // 오후 반반차 (0.25일)
+  COMPENSATORY  // 대체휴무
+  SICK          // 병가
+  SPECIAL       // 특별휴가
 }
 
 enum LeaveStatus {
@@ -133,19 +145,25 @@ model LeaveBalance {
 
 // ─── 전자 계약 ──────────────────────────────────────────────
 model Contract {
-  id          String         @id @default(cuid())
-  userId      String
-  user        User           @relation(fields: [userId], references: [id])
-  title       String
-  type        ContractType
-  fileUrl     String
-  signedUrl   String?
-  status      ContractStatus @default(DRAFT)
-  startDate   DateTime?      @db.Date
-  endDate     DateTime?      @db.Date
-  signedAt    DateTime?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  templateId      String?
+  template        ContractTemplate? @relation("TemplateToContract", fields: [templateId], references: [id], onDelete: SetNull)
+  title           String
+  type            ContractType
+  fileUrl         String
+  signedUrl       String?
+  version         Int      @default(1)
+  status          ContractStatus @default(DRAFT)
+  startDate       DateTime?      @db.Date
+  endDate         DateTime?      @db.Date
+  employeeSignedAt DateTime?  // 직원 서명 시간
+  signedAt        DateTime?     // 최종 서명 시간 (모든 승인자 완료)
+  approvalLine    ContractApprovalLine?
+  versions        ContractVersion[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 enum ContractType {
@@ -157,7 +175,135 @@ enum ContractType {
 
 enum ContractStatus {
   DRAFT      // 초안
-  SENT       // 발송됨
-  SIGNED     // 서명완료
+  SENT       // 발송됨 (직원 서명 대기)
+  APPROVED   // 승인 중 (결재자 승인 대기)
+  SIGNED     // 서명완료 (모든 승인 완료)
   EXPIRED    // 만료
+}
+
+// ─── 계약 결재 라인 ──────────────────────────────────────────
+model ContractApprovalLine {
+  id        String                 @id @default(cuid())
+  contractId String                @unique
+  contract  Contract               @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  steps     ContractApprovalStep[]
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+}
+
+model ContractApprovalStep {
+  id             String   @id @default(cuid())
+  approvalLineId String
+  approvalLine   ContractApprovalLine @relation(fields: [approvalLineId], references: [id], onDelete: Cascade)
+  order          Int
+  approverId     String
+  approver       User     @relation("ContractApprover", fields: [approverId], references: [id])
+  status         ApprovalStepStatus @default(WAITING)
+  comment        String?
+  decidedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([approvalLineId, order])
+  @@index([approverId, status])
+}
+
+// ─── 결재 라인 ──────────────────────────────────────────────
+model ApprovalLine {
+  id        String             @id @default(cuid())
+  userId    String             @unique
+  user      User               @relation("ApprovalLineTarget", fields: [userId], references: [id])
+  steps     ApprovalLineStep[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model ApprovalLineStep {
+  id             String       @id @default(cuid())
+  approvalLineId String
+  approvalLine   ApprovalLine @relation(fields: [approvalLineId], references: [id], onDelete: Cascade)
+  order          Int
+  approverId     String
+  approver       User         @relation("ApprovalLineApprover", fields: [approverId], references: [id])
+
+  @@unique([approvalLineId, order])
+}
+
+// ─── 휴가 결재 현황 ──────────────────────────────────────────
+model LeaveApprovalStep {
+  id             String             @id @default(cuid())
+  leaveRequestId String
+  leaveRequest   LeaveRequest       @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  order          Int
+  approverId     String
+  approver       User               @relation("LeaveApprovalApprover", fields: [approverId], references: [id])
+  status         ApprovalStepStatus @default(PENDING)
+  comment        String?
+  decidedAt      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([leaveRequestId, order])
+  @@index([approverId, status])
+}
+
+enum ApprovalStepStatus {
+  WAITING  // 이전 단계 미완료 (순서 아직 안됨)
+  PENDING  // 현재 결재 대기 중
+  APPROVED // 승인
+  REJECTED // 반려
+}
+
+// ─── 계약 템플릿 ──────────────────────────────────────────────
+model ContractTemplate {
+  id              String   @id @default(cuid())
+  name            String   @unique  // "2025 신입사원 근로계약서"
+  description     String?
+  type            ContractType
+  fileUrl         String
+  version         Int      @default(1)
+  isActive        Boolean  @default(true)
+  createdBy       String
+  createdByUser   User     @relation("TemplateCreator", fields: [createdBy], references: [id])
+  approverIds     String   @default("[]")  // JSON array: ["id1", "id2"]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contracts       Contract[] @relation("TemplateToContract")
+
+  @@index([type])
+  @@index([isActive, type])
+}
+
+// ─── 계약 버전 관리 ───────────────────────────────────────────
+model ContractVersion {
+  id              String   @id @default(cuid())
+  contractId      String
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  version         Int
+  fileUrl         String
+  title           String
+  type            ContractType
+  status          ContractStatus
+  startDate       DateTime?  @db.Date
+  endDate         DateTime?  @db.Date
+  createdBy       String
+  createdByUser   User     @relation("VersionCreator", fields: [createdBy], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@unique([contractId, version])
+  @@index([contractId, version])
+}
+
+// ─── 지점 ───────────────────────────────────────────────────
+model Branch {
+  id        String   @id @default(cuid())
+  name      String   @unique  // User.branch 문자열과 일치
+  address   String?
+  latitude  Float?
+  longitude Float?
+  radius    Int      @default(100) // 허용 반경(미터)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

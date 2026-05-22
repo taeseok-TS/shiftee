@@ -1,13 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, LogIn, LogOut, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { format } from "date-fns";
+import { Input } from "@/components/ui/input";
+import {
+  Clock, LogIn, LogOut, TrendingUp, TrendingDown, Minus,
+  ChevronLeft, ChevronRight, RotateCcw,
+} from "lucide-react";
+import {
+  format, startOfDay, isSameDay,
+  addDays, addWeeks, addMonths, addYears,
+  subDays, subWeeks, subMonths, subYears,
+  startOfWeek, endOfWeek,
+} from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import {
@@ -32,12 +41,12 @@ type Employee = { id: string; name: string; department: string | null };
 
 /* ── 상수 ── */
 const PERIODS: { value: Period; label: string }[] = [
-  { value: "daily", label: "일간" },
-  { value: "weekly", label: "주간" },
-  { value: "monthly", label: "월간" },
-  { value: "quarterly", label: "분기" },
+  { value: "daily",      label: "일간" },
+  { value: "weekly",     label: "주간" },
+  { value: "monthly",    label: "월간" },
+  { value: "quarterly",  label: "분기" },
   { value: "semiannual", label: "반기" },
-  { value: "annual", label: "연간" },
+  { value: "annual",     label: "연간" },
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "destructive" | "secondary" | "outline"; bar: string }> = {
@@ -48,6 +57,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "destr
   HOLIDAY:     { label: "휴일",     variant: "outline",     bar: "#94a3b8" },
 };
 
+/* ── 헬퍼 ── */
 function fmtMin(min: number) {
   if (!min) return "0시간";
   const h = Math.floor(min / 60), m = min % 60;
@@ -63,6 +73,42 @@ function Trend({ curr, prev }: { curr: number; prev: number }) {
   return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />0%</span>;
 }
 
+/** baseDate 기준으로 period 레이블 계산 */
+function getPeriodLabel(period: Period, date: Date): string {
+  switch (period) {
+    case "daily":
+      return format(date, "yyyy년 MM월 dd일 (EEEE)", { locale: ko });
+    case "weekly": {
+      const s = startOfWeek(date, { weekStartsOn: 1 });
+      const e = endOfWeek(date, { weekStartsOn: 1 });
+      return `${format(s, "yyyy.MM.dd")} ~ ${format(e, "MM.dd")}`;
+    }
+    case "monthly":
+      return format(date, "yyyy년 MM월", { locale: ko });
+    case "quarterly":
+      return `${format(date, "yyyy년")} ${Math.ceil((date.getMonth() + 1) / 3)}분기`;
+    case "semiannual":
+      return `${format(date, "yyyy년")} ${date.getMonth() < 6 ? "상반기" : "하반기"}`;
+    case "annual":
+      return format(date, "yyyy년", { locale: ko });
+  }
+}
+
+/** 다음 기간 시작이 오늘을 초과하는지 */
+function isNextFuture(period: Period, date: Date): boolean {
+  const next = (() => {
+    switch (period) {
+      case "daily":      return addDays(date, 1);
+      case "weekly":     return addWeeks(date, 1);
+      case "monthly":    return addMonths(date, 1);
+      case "quarterly":  return addMonths(date, 3);
+      case "semiannual": return addMonths(date, 6);
+      case "annual":     return addYears(date, 1);
+    }
+  })();
+  return startOfDay(next) > startOfDay(new Date());
+}
+
 export default function AttendancePage() {
   /* 출퇴근 탭 */
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
@@ -70,12 +116,16 @@ export default function AttendancePage() {
   const [now, setNow] = useState(new Date());
 
   /* 통계 탭 */
-  const [period, setPeriod] = useState<Period>("monthly");
-  const [statsData, setStatsData] = useState<StatsResponse | null>(null);
+  const [period, setPeriod]           = useState<Period>("monthly");
+  const [baseDate, setBaseDate]       = useState(() => startOfDay(new Date()));
+  const [statsData, setStatsData]     = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employees, setEmployees]     = useState<Employee[]>([]);
   const [selectedUser, setSelectedUser] = useState("me");
-  const [myRole, setMyRole] = useState("EMPLOYEE");
+  const [myRole, setMyRole]           = useState("EMPLOYEE");
+
+  /* 날짜 직접 입력 (input[type=date] 용) */
+  const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
 
   /* ── 오늘 출퇴근 조회 ── */
   const fetchToday = useCallback(async () => {
@@ -90,11 +140,12 @@ export default function AttendancePage() {
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     const uid = selectedUser === "me" ? "" : `&userId=${selectedUser}`;
-    const res = await fetch(`/api/attendance/stats?period=${period}${uid}`);
+    const dateStr = format(baseDate, "yyyy-MM-dd");
+    const res = await fetch(`/api/attendance/stats?period=${period}&date=${dateStr}${uid}`);
     const data = await res.json();
     setStatsData(data);
     setStatsLoading(false);
-  }, [period, selectedUser]);
+  }, [period, baseDate, selectedUser]);
 
   useEffect(() => {
     fetchToday();
@@ -102,43 +153,104 @@ export default function AttendancePage() {
     return () => clearInterval(timer);
   }, [fetchToday]);
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE"));
     fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
   }, []);
 
+  /* ── 기간 이동 ── */
+  function navigate(dir: -1 | 1) {
+    setBaseDate(prev => {
+      const next = dir === 1
+        ? (() => {
+            switch (period) {
+              case "daily":      return addDays(prev, 1);
+              case "weekly":     return addWeeks(prev, 1);
+              case "monthly":    return addMonths(prev, 1);
+              case "quarterly":  return addMonths(prev, 3);
+              case "semiannual": return addMonths(prev, 6);
+              case "annual":     return addYears(prev, 1);
+            }
+          })()
+        : (() => {
+            switch (period) {
+              case "daily":      return subDays(prev, 1);
+              case "weekly":     return subWeeks(prev, 1);
+              case "monthly":    return subMonths(prev, 1);
+              case "quarterly":  return subMonths(prev, 3);
+              case "semiannual": return subMonths(prev, 6);
+              case "annual":     return subYears(prev, 1);
+            }
+          })();
+      if (startOfDay(next) > startOfDay(new Date())) return prev;
+      setDateInput(format(next, "yyyy-MM-dd"));
+      return next;
+    });
+  }
+
+  /* ── 날짜 직접 입력 ── */
+  function applyDateInput() {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) { toast.error("올바른 날짜를 입력해주세요."); return; }
+    const clamped = startOfDay(d) > startOfDay(new Date()) ? startOfDay(new Date()) : startOfDay(d);
+    setBaseDate(clamped);
+    setDateInput(format(clamped, "yyyy-MM-dd"));
+  }
+
+  /* ── 오늘로 초기화 ── */
+  function resetToToday() {
+    const today = startOfDay(new Date());
+    setBaseDate(today);
+    setDateInput(format(today, "yyyy-MM-dd"));
+  }
+
+  const nextDisabled = useMemo(() => isNextFuture(period, baseDate), [period, baseDate]);
+  const isToday      = useMemo(() => isSameDay(baseDate, new Date()), [baseDate]);
+
+  const c = statsData?.current;
+  const p = statsData?.previous;
+
   /* ── 출근/퇴근 ── */
   async function handleClock(type: "in" | "out") {
     setClockLoading(true);
     try {
-      const res = await fetch(`/api/attendance/clock-${type}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      // GPS 좌표 취득 (실패 시 null 전송 → 서버에서 지오펜스 미설정이면 허용)
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      if (navigator.geolocation) {
+        try {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true, timeout: 10000,
+            });
+          });
+          latitude  = pos.coords.latitude;
+          longitude = pos.coords.longitude;
+        } catch {
+          // 위치 거부 / 타임아웃 → 서버가 geofence 설정 여부에 따라 판단
+        }
+      }
+
+      const res = await fetch(`/api/attendance/clock-${type}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude, longitude }),
+      });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error); return; }
+      if (!res.ok) {
+        if (data.outsideGeofence) {
+          toast.error(`📍 ${data.error}`, { duration: 5000 });
+        } else {
+          toast.error(data.error);
+        }
+        return;
+      }
       toast.success(type === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
       fetchToday();
     } finally { setClockLoading(false); }
   }
-
-  /* ── 기간 레이블 ── */
-  function periodLabel() {
-    if (!statsData) return "";
-    const s = new Date(statsData.range.start), e = new Date(statsData.range.end);
-    switch (period) {
-      case "daily":      return format(s, "yyyy년 MM월 dd일 (EEEE)", { locale: ko });
-      case "weekly":     return `${format(s, "MM/dd")} ~ ${format(e, "MM/dd")} (주간)`;
-      case "monthly":    return format(s, "yyyy년 MM월", { locale: ko });
-      case "quarterly":  return `${format(s, "yyyy년")} ${Math.ceil((s.getMonth() + 1) / 3)}분기`;
-      case "semiannual": return `${format(s, "yyyy년")} ${s.getMonth() < 6 ? "상반기" : "하반기"}`;
-      case "annual":     return format(s, "yyyy년", { locale: ko });
-    }
-  }
-
-  const c = statsData?.current;
-  const p = statsData?.previous;
 
   return (
     <div className="space-y-6">
@@ -204,20 +316,24 @@ export default function AttendancePage() {
 
         {/* ── 기간별 통계 탭 ── */}
         <TabsContent value="stats" className="space-y-4 mt-4">
-          {/* 필터 */}
+
+          {/* ── 필터 행 1: 기간 단위 + 직원 선택 ── */}
           <div className="flex flex-wrap items-center gap-3">
+            {/* 기간 단위 버튼 그룹 */}
             <div className="flex bg-white border rounded-lg overflow-hidden shadow-sm">
               {PERIODS.map(({ value, label }) => (
                 <button
                   key={value}
                   onClick={() => setPeriod(value)}
-                  className={`px-4 py-2 text-sm font-medium transition-colors
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-r last:border-r-0
                     ${period === value ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
                 >
                   {label}
                 </button>
               ))}
             </div>
+
+            {/* 직원 선택 (관리자) */}
             {myRole !== "EMPLOYEE" && (
               <Select value={selectedUser} onValueChange={setSelectedUser}>
                 <SelectTrigger className="w-44 bg-white">
@@ -231,11 +347,57 @@ export default function AttendancePage() {
                 </SelectContent>
               </Select>
             )}
-            {statsData && (
-              <span className="text-sm font-semibold text-gray-700 ml-1">{periodLabel()}</span>
-            )}
           </div>
 
+          {/* ── 필터 행 2: 기간 내비게이션 ── */}
+          <div className="flex flex-wrap items-center gap-2 bg-white border rounded-xl px-4 py-2.5 shadow-sm">
+            {/* 이전 버튼 */}
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => navigate(-1)}>
+              <ChevronLeft size={16} />
+            </Button>
+
+            {/* 현재 기간 레이블 */}
+            <span className="text-sm font-semibold text-gray-800 min-w-52 text-center px-2">
+              {getPeriodLabel(period, baseDate)}
+            </span>
+
+            {/* 다음 버튼 */}
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg"
+              onClick={() => navigate(1)} disabled={nextDisabled}>
+              <ChevronRight size={16} />
+            </Button>
+
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+
+            {/* 날짜 직접 입력 */}
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={dateInput}
+                max={format(new Date(), "yyyy-MM-dd")}
+                onChange={e => setDateInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && applyDateInput()}
+                className="h-8 w-36 text-xs border-gray-200"
+              />
+              <Button variant="outline" size="sm" className="h-8 text-xs px-3" onClick={applyDateInput}>
+                이동
+              </Button>
+            </div>
+
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+
+            {/* 오늘로 초기화 */}
+            <Button
+              variant="ghost" size="sm"
+              className={`h-8 text-xs gap-1 ${isToday ? "text-gray-300 cursor-default" : "text-blue-600 hover:text-blue-700 hover:bg-blue-50"}`}
+              onClick={resetToToday}
+              disabled={isToday}
+            >
+              <RotateCcw size={12} />오늘
+            </Button>
+          </div>
+
+          {/* ── 통계 본문 ── */}
           {statsLoading ? (
             <div className="text-center py-16 text-gray-400">불러오는 중...</div>
           ) : c && (
@@ -243,10 +405,10 @@ export default function AttendancePage() {
               {/* 요약 카드 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: "총 출근일",     val: `${c.total}일`,          prev: p?.total ?? 0,      curr: c.total,       unit: "일" },
-                  { label: "누적 근무시간",  val: fmtMin(c.totalMinutes), prev: p?.totalMinutes ?? 0, curr: c.totalMinutes, unit: "분" },
-                  { label: "평균 근무시간",  val: fmtMin(c.avgMinutes),   prev: p?.avgMinutes ?? 0,  curr: c.avgMinutes,  unit: "분" },
-                  { label: "정상 출퇴근",   val: `${c.normal}회`,         prev: p?.normal ?? 0,      curr: c.normal,      unit: "회" },
+                  { label: "총 출근일",    val: `${c.total}일`,          prev: p?.total ?? 0,        curr: c.total },
+                  { label: "누적 근무시간", val: fmtMin(c.totalMinutes),  prev: p?.totalMinutes ?? 0, curr: c.totalMinutes },
+                  { label: "평균 근무시간", val: fmtMin(c.avgMinutes),    prev: p?.avgMinutes ?? 0,   curr: c.avgMinutes },
+                  { label: "정상 출퇴근",  val: `${c.normal}회`,          prev: p?.normal ?? 0,       curr: c.normal },
                 ].map(({ label, val, prev: pv, curr: cv }) => (
                   <Card key={label}>
                     <CardContent className="pt-5">
@@ -258,14 +420,17 @@ export default function AttendancePage() {
                 ))}
               </div>
 
-              {/* 상태 분포 카드 */}
+              {/* 상태 분포 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                  { label: "지각",     val: c.late,      color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
-                  { label: "조기퇴근", val: c.earlyLeave, color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200" },
-                  { label: "결근",     val: c.absent,    color: "text-red-600",    bg: "bg-red-50",    border: "border-red-200" },
-                  { label: "출근율",   val: c.total > 0 ? `${Math.round((c.normal / c.total) * 100)}%` : "0%",
-                    color: "text-green-600", bg: "bg-green-50", border: "border-green-200" },
+                  { label: "지각",     val: c.late,       color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
+                  { label: "조기퇴근", val: c.earlyLeave,  color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200" },
+                  { label: "결근",     val: c.absent,     color: "text-red-600",    bg: "bg-red-50",    border: "border-red-200" },
+                  {
+                    label: "출근율",
+                    val: c.total > 0 ? `${Math.round((c.normal / c.total) * 100)}%` : "0%",
+                    color: "text-green-600", bg: "bg-green-50", border: "border-green-200",
+                  },
                 ].map(({ label, val, color, bg, border }) => (
                   <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`}>
                     <p className="text-xs font-medium text-gray-500">{label}</p>
@@ -298,14 +463,18 @@ export default function AttendancePage() {
                           contentStyle={{ borderRadius: 8, fontSize: 12 }}
                         />
                         <Bar dataKey="hours" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                          {statsData.chartData.map((_, i) => (
-                            <Cell key={i} fill={_.hours >= 8 ? "#3b82f6" : _.hours >= 4 ? "#93c5fd" : "#e2e8f0"} />
+                          {statsData.chartData.map((item, i) => (
+                            <Cell key={i} fill={item.hours >= 8 ? "#3b82f6" : item.hours >= 4 ? "#93c5fd" : "#e2e8f0"} />
                           ))}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                     <div className="flex gap-4 justify-end mt-2">
-                      {[{ color: "bg-blue-500", label: "8시간 이상" }, { color: "bg-blue-200", label: "4~8시간" }, { color: "bg-slate-200", label: "4시간 미만" }].map(({ color, label }) => (
+                      {[
+                        { color: "bg-blue-500",  label: "8시간 이상" },
+                        { color: "bg-blue-200",  label: "4~8시간" },
+                        { color: "bg-slate-200", label: "4시간 미만" },
+                      ].map(({ color, label }) => (
                         <div key={label} className="flex items-center gap-1.5">
                           <div className={`w-3 h-3 rounded-sm ${color}`} />
                           <span className="text-xs text-gray-500">{label}</span>
@@ -335,7 +504,9 @@ export default function AttendancePage() {
                       </thead>
                       <tbody>
                         {statsData.records.length === 0 ? (
-                          <tr><td colSpan={5} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td></tr>
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
+                          </tr>
                         ) : statsData.records.map(r => {
                           const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
                           return (

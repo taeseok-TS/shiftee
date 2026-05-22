@@ -10,6 +10,7 @@ export type JWTPayload = {
   email: string;
   role: "ADMIN" | "MANAGER" | "EMPLOYEE";
   name: string;
+  branch: string | null; // 소속 지점 (MANAGER: 관리 지점, EMPLOYEE: 소속 지점)
 };
 
 export async function signToken(payload: JWTPayload): Promise<string> {

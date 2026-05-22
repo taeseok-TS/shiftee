@@ -1,0 +1,66 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { normalizeBranchName } from "@/lib/branches";
+
+// 직원 정보 수정 (관리자 전용)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+
+  const { id } = await params;
+  const body = await request.json();
+  const { name, role, department, jobGroup, position, branch, phone, hireDate } = body;
+
+  // MANAGER는 자기 지점 구성원만 수정 가능
+  if (session.role === "MANAGER") {
+    const target = await prisma.user.findUnique({ where: { id }, select: { branch: true } });
+    const managerBranch = normalizeBranchName(session.branch);
+    const targetBranch = normalizeBranchName(target?.branch);
+    if (!target || targetBranch !== managerBranch) {
+      return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+    }
+    // MANAGER는 role, branch 변경 불가
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { name, department, jobGroup: jobGroup ?? null, position, phone, hireDate: hireDate ? new Date(hireDate) : undefined },
+    });
+    return NextResponse.json({ success: true, user: updated });
+  }
+
+  // ADMIN: 전체 수정 가능
+  const normalizedBranch = branch ? normalizeBranchName(branch) : null;
+  const updated = await prisma.user.update({
+    where: { id },
+    data: {
+      name,
+      role,
+      department,
+      jobGroup: jobGroup ?? null,
+      position,
+      branch: normalizedBranch,
+      phone,
+      hireDate: hireDate ? new Date(hireDate) : undefined,
+    },
+  });
+
+  return NextResponse.json({ success: true, user: updated });
+}
+
+// 직원 비활성화 (관리자 전용)
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN")
+    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+
+  const { id } = await params;
+  await prisma.user.update({ where: { id }, data: { isActive: false } });
+  return NextResponse.json({ success: true });
+}
