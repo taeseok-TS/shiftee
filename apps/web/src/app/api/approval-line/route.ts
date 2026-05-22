@@ -10,7 +10,7 @@ export async function GET() {
 
   const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
 
-  const employees = await prisma.user.findMany({
+  const employees: any = await (prisma.user as any).findMany({
     where: { isActive: true, ...branchWhere },
     select: {
       id: true,

@@ -164,11 +164,9 @@ export default function BranchesPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">지점 관리</h1>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <Button asChild variant="default">
-            <label className="cursor-pointer">
-              <Plus size={16} className="mr-2" />
-              새 지점 추가
-            </label>
+          <Button variant="default" className="gap-2">
+            <Plus size={16} />
+            새 지점 추가
           </Button>
           <DialogContent className="max-w-md">
             <DialogHeader>

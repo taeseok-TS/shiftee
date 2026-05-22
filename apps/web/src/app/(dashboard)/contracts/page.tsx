@@ -278,7 +278,7 @@ export default function ContractsPage() {
         <h1 className="text-2xl font-bold text-gray-900">전자계약</h1>
         {role !== "EMPLOYEE" && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
+            <DialogTrigger>
               <Button className="gap-2"><Plus size={16} />계약서 작성</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
@@ -286,7 +286,7 @@ export default function ContractsPage() {
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="space-y-2">
                   <Label>직원 *</Label>
-                  <Select value={createForm.userId} onValueChange={v => setCreateForm(f => ({ ...f, userId: v }))}>
+                  <Select value={createForm.userId} onValueChange={v => v && setCreateForm(f => ({ ...f, userId: v }))}>
                     <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
                     <SelectContent>
                       {employees.map(e => (
@@ -312,7 +312,7 @@ export default function ContractsPage() {
                 {useTemplate && (
                   <div className="space-y-2">
                     <Label>템플릿 선택 *</Label>
-                    <Select value={selectedTemplate} onValueChange={handleTemplateSelect}>
+                    <Select value={selectedTemplate} onValueChange={(v) => v && handleTemplateSelect(v)}>
                       <SelectTrigger><SelectValue placeholder="템플릿 선택" /></SelectTrigger>
                       <SelectContent>
                         {templates.map(t => (
@@ -338,7 +338,7 @@ export default function ContractsPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-2">
                     <Label>유형</Label>
-                    <Select value={createForm.type} onValueChange={v => setCreateForm(f => ({ ...f, type: v }))}>
+                    <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.entries(typeLabel).map(([k, v]) => (
@@ -453,7 +453,7 @@ export default function ContractsPage() {
                         </Button>
                         {role !== "EMPLOYEE" && c.status === "DRAFT" && (
                           <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
-                            <DialogTrigger asChild>
+                            <DialogTrigger>
                               <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); }}>
                                 <Send size={12} />발송
                               </Button>
@@ -468,9 +468,11 @@ export default function ContractsPage() {
                                       <div key={order} className="space-y-1">
                                         <Label className="text-xs">{order}단계 승인자</Label>
                                         <Select value={approverIds[order - 1] || ""} onValueChange={v => {
-                                          const newIds = [...approverIds];
-                                          newIds[order - 1] = v;
-                                          setApproverIds(newIds.filter(Boolean));
+                                          if (v !== null) {
+                                            const newIds = [...approverIds];
+                                            newIds[order - 1] = v;
+                                            setApproverIds(newIds.filter(Boolean));
+                                          }
                                         }}>
                                           <SelectTrigger className="h-8"><SelectValue placeholder="선택 (선택사항)" /></SelectTrigger>
                                           <SelectContent>

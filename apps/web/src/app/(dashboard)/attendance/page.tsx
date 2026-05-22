@@ -335,7 +335,7 @@ export default function AttendancePage() {
 
             {/* 직원 선택 (관리자) */}
             {myRole !== "EMPLOYEE" && (
-              <Select value={selectedUser} onValueChange={setSelectedUser}>
+              <Select value={selectedUser} onValueChange={(value) => value && setSelectedUser(value)}>
                 <SelectTrigger className="w-44 bg-white">
                   <SelectValue placeholder="직원 선택" />
                 </SelectTrigger>
@@ -458,7 +458,8 @@ export default function AttendancePage() {
                         <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                         <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} unit="h" />
                         <Tooltip
-                          formatter={(v: number) => [`${v}시간`, "근무시간"]}
+                          // @ts-ignore
+                          formatter={(v) => v !== undefined ? [`${v}시간`, "근무시간"] : ["", ""]}
                           labelStyle={{ fontWeight: 600 }}
                           contentStyle={{ borderRadius: 8, fontSize: 12 }}
                         />

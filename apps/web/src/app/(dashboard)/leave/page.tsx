@@ -397,11 +397,11 @@ export default function LeavePage() {
         {/* ═══ 신청 목록 ═══ */}
         <TabsContent value="list" className="mt-4 space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Select value={filterYear} onValueChange={v => { setFilterYear(v); setFilterMonth("all"); }}>
+            <Select value={filterYear} onValueChange={v => v && (setFilterYear(v), setFilterMonth("all"))}>
               <SelectTrigger className="w-28 h-8 text-sm bg-white"><SelectValue /></SelectTrigger>
               <SelectContent>{YEARS.map(y => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}</SelectContent>
             </Select>
-            <Select value={filterMonth} onValueChange={setFilterMonth}>
+            <Select value={filterMonth} onValueChange={v => v && setFilterMonth(v)}>
               <SelectTrigger className="w-24 h-8 text-sm bg-white"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 월</SelectItem>
@@ -689,7 +689,7 @@ export default function LeavePage() {
             <div className="space-y-2">
               <Label>휴가 유형 *</Label>
               <Select value={form.type} onValueChange={v =>
-                setForm(f => ({ ...f, type: v, endDate: SINGLE_DAY_TYPES.has(v) ? f.startDate : f.endDate }))
+                v && setForm(f => ({ ...f, type: v, endDate: SINGLE_DAY_TYPES.has(v) ? f.startDate : f.endDate }))
               }>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>

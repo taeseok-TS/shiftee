@@ -173,7 +173,7 @@ export default function TemplatesPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">계약서 템플릿</h1>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
+          <DialogTrigger>
             <Button className="gap-2"><Plus size={16} />새 템플릿</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
@@ -198,7 +198,7 @@ export default function TemplatesPage() {
               </div>
               <div className="space-y-2">
                 <Label>유형 *</Label>
-                <Select value={createForm.type} onValueChange={v => setCreateForm(f => ({ ...f, type: v }))}>
+                <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(typeLabel).map(([k, v]) => (

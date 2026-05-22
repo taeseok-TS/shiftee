@@ -30,7 +30,7 @@ type EmpRow = {
   id: string; name: string; department: string; position: string;
   scheduleType: string | null; startTime: string | null; endTime: string | null;
   clockIn: string | null; clockOut: string | null;
-  leaveType: string | null; status: string;
+  leaveType: string | null; status: string; scheduleId: string | null;
 };
 type DaySummary = {
   total: number; checkedIn: number; late: number; earlyLeave: number;
@@ -374,7 +374,7 @@ export default function SchedulePage() {
             </div>
 
             {/* 부서 필터 */}
-            <Select value={filterDept} onValueChange={setFilterDept}>
+            <Select value={filterDept} onValueChange={v => v && setFilterDept(v)}>
               <SelectTrigger className="h-8 w-36 text-sm bg-white">
                 <SelectValue placeholder="부서" />
               </SelectTrigger>
@@ -385,7 +385,7 @@ export default function SchedulePage() {
             </Select>
 
             {/* 상태 필터 */}
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <Select value={filterStatus} onValueChange={v => v && setFilterStatus(v)}>
               <SelectTrigger className="h-8 w-36 text-sm bg-white">
                 <SelectValue placeholder="상태" />
               </SelectTrigger>
@@ -517,7 +517,7 @@ export default function SchedulePage() {
           <form onSubmit={handleAddSave} className="space-y-4">
             <div className="space-y-2">
               <Label>직원 *</Label>
-              <Select value={addForm.userId} onValueChange={v => setAddForm(f => ({ ...f, userId: v }))}>
+              <Select value={addForm.userId} onValueChange={v => v && setAddForm(f => ({ ...f, userId: v }))}>
                 <SelectTrigger><SelectValue placeholder="직원 선택" /></SelectTrigger>
                 <SelectContent>
                   {employees.map(emp => (
@@ -534,7 +534,7 @@ export default function SchedulePage() {
             </div>
             <div className="space-y-2">
               <Label>유형</Label>
-              <Select value={addForm.type} onValueChange={v => setAddForm(f => ({ ...f, type: v }))}>
+              <Select value={addForm.type} onValueChange={v => v && setAddForm(f => ({ ...f, type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(TYPE_CFG).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}

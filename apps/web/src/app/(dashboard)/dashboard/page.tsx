@@ -44,7 +44,7 @@ export default async function DashboardPage() {
   ]);
 
   // EMPLOYEE 역할 전용 쿼리
-  let myContracts = [];
+  let myContracts: any[] = [];
   let myLeaveBalance = { total: 0, used: 0, remaining: 0 };
   let myPendingContracts = 0;
   let mySigningPendingContracts = 0;
@@ -73,14 +73,14 @@ export default async function DashboardPage() {
       remaining: leaveBalance?.remaining ?? 15,
     };
 
-    mySigningPendingContracts = contracts.filter(c => c.status === "SENT").length;
+    mySigningPendingContracts = contracts.filter((c: any) => c.status === "SENT").length;
     myPendingContracts = 0;
   }
 
   // MANAGER/ADMIN 역할 전용 쿼리
   let teamStats = { total: 0, absent: 0, earlyLeave: 0, pendingApprovals: 0 };
-  let recentPendingLeaves = [];
-  let recentPendingContracts = [];
+  let recentPendingLeaves: any[] = [];
+  let recentPendingContracts: any[] = [];
 
   if (isManager || isAdmin) {
     const managerBranch = isManager ? normalizeBranchName(session.branch) : null;
@@ -173,13 +173,13 @@ export default async function DashboardPage() {
   ];
 
   const getAttendanceStatus = (date: Date) => {
-    const record = weeklyAttendance.find(a => isSameDay(new Date(a.date), date));
+    const record = weeklyAttendance.find((a: any) => isSameDay(new Date(a.date), date));
     if (!record) return isToday(date) ? "예정" : "-";
     return record.status === "NORMAL" ? "정상" : record.status === "LATE" ? "지각" : record.status === "EARLY_LEAVE" ? "조기" : "결근";
   };
 
   const getAttendanceColor = (date: Date) => {
-    const record = weeklyAttendance.find(a => isSameDay(new Date(a.date), date));
+    const record = weeklyAttendance.find((a: any) => isSameDay(new Date(a.date), date));
     if (!record) return isToday(date) ? "bg-gray-100" : "bg-gray-50";
     switch (record.status) {
       case "NORMAL": return "bg-green-100";
@@ -478,7 +478,7 @@ export default async function DashboardPage() {
             <p className="text-sm text-gray-400 text-center py-4">대기 중인 휴가 신청이 없습니다.</p>
           ) : (
             <div className="space-y-3">
-              {recentLeaves.map((leave) => (
+              {recentLeaves.map((leave: any) => (
                 <div key={leave.id} className="flex items-center justify-between py-2 border-b last:border-0">
                   <div>
                     <p className="font-medium text-sm">{leave.user.name}</p>

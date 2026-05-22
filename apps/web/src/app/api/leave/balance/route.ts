@@ -31,7 +31,7 @@ export async function GET() {
   const year = new Date().getFullYear();
 
   const result = employees.map(emp => {
-    const b = balanceMap.get(emp.id);
+    const b: any = balanceMap.get(emp.id);
     return {
       userId:    emp.id,
       name:      emp.name,

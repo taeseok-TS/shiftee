@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 
   // 누적 통계 계산
   const calcStats = (recs: typeof records) => {
-    const totalMinutes = recs.reduce((acc, r) => {
+    const totalMinutes = recs.reduce((acc: number, r: any) => {
       if (r.clockIn && r.clockOut) {
         return acc + Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000);
       }
@@ -95,12 +95,12 @@ export async function GET(request: NextRequest) {
 
     return {
       total: recs.length,
-      normal: recs.filter(r => r.status === "NORMAL").length,
-      late: recs.filter(r => r.status === "LATE").length,
-      earlyLeave: recs.filter(r => r.status === "EARLY_LEAVE").length,
-      absent: recs.filter(r => r.status === "ABSENT").length,
+      normal: recs.filter((r: any) => r.status === "NORMAL").length,
+      late: recs.filter((r: any) => r.status === "LATE").length,
+      earlyLeave: recs.filter((r: any) => r.status === "EARLY_LEAVE").length,
+      absent: recs.filter((r: any) => r.status === "ABSENT").length,
       totalMinutes,
-      avgMinutes: recs.length > 0 ? Math.round(totalMinutes / recs.filter(r => r.clockIn).length || 0) : 0,
+      avgMinutes: recs.length > 0 ? Math.round(totalMinutes / recs.filter((r: any) => r.clockIn).length || 0) : 0,
     };
   };
 
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
   const allDays = eachDayOfInterval({ start, end: end > new Date() ? new Date() : end });
   const chartData = allDays.map(day => {
     const dayStr = format(day, "yyyy-MM-dd");
-    const rec = records.find(r => format(new Date(r.date), "yyyy-MM-dd") === dayStr);
+    const rec = records.find((r: any) => format(new Date(r.date), "yyyy-MM-dd") === dayStr);
     const minutes = rec?.clockIn && rec?.clockOut
       ? Math.round((rec.clockOut.getTime() - rec.clockIn.getTime()) / 60000)
       : 0;
@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
   // 월별 집계 (분기/반기/연간용)
   const monthlyData = period === "quarterly" || period === "semiannual" || period === "annual"
     ? Object.values(
-        records.reduce((acc, r) => {
+        records.reduce((acc: any, r: any) => {
           const monthKey = format(new Date(r.date), "yyyy-MM");
           const monthLabel = format(new Date(r.date), "MM월");
           if (!acc[monthKey]) acc[monthKey] = { date: monthLabel, count: 0, minutes: 0, hours: 0 };

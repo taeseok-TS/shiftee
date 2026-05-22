@@ -93,7 +93,7 @@ function PositionSelector({
         <Label>직군</Label>
         <Select
           value={jobGroup || ""}
-          onValueChange={g => { onGroupChange(g); onPositionChange(""); }}
+          onValueChange={g => g && (onGroupChange(g), onPositionChange(""))}
           disabled={disabled}
         >
           <SelectTrigger><SelectValue placeholder="직군 선택" /></SelectTrigger>
@@ -113,7 +113,7 @@ function PositionSelector({
         <Label>직급</Label>
         <Select
           value={position || ""}
-          onValueChange={onPositionChange}
+          onValueChange={(p) => p && onPositionChange(p)}
           disabled={disabled || !jobGroup}
         >
           <SelectTrigger><SelectValue placeholder="직급 선택" /></SelectTrigger>
@@ -407,7 +407,7 @@ export default function EmployeesPage() {
               <Input placeholder="이름·부서·직급 검색" value={search}
                 onChange={e => setSearch(e.target.value)} className="pl-8 w-44 h-8 text-sm" />
             </div>
-            <Select value={filterJobGroup} onValueChange={setFilterJobGroup}>
+            <Select value={filterJobGroup} onValueChange={(v) => v && setFilterJobGroup(v)}>
               <SelectTrigger className="w-36 h-8 text-sm bg-white"><SelectValue placeholder="전체 직군" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 직군</SelectItem>
@@ -544,7 +544,7 @@ export default function EmployeesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>지점</Label>
-                <Select value={form.branch} onValueChange={v => setForm(f => ({ ...f, branch: v }))}>
+                <Select value={form.branch} onValueChange={v => v !== null && setForm(f => ({ ...f, branch: v }))}>
                   <SelectTrigger><SelectValue placeholder="지점 선택" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">선택 안 함</SelectItem>
@@ -570,7 +570,7 @@ export default function EmployeesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>시스템 권한</Label>
-                <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
+                <Select value={form.role} onValueChange={v => v && setForm(f => ({ ...f, role: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="EMPLOYEE">직원</SelectItem>
@@ -658,7 +658,7 @@ export default function EmployeesPage() {
               {isAdmin && (
                 <div className="space-y-1.5">
                   <Label>지점</Label>
-                  <Select value={editForm.branch} onValueChange={v => setEditForm(f => ({ ...f, branch: v }))}>
+                  <Select value={editForm.branch} onValueChange={v => v !== null && setEditForm(f => ({ ...f, branch: v }))}>
                     <SelectTrigger><SelectValue placeholder="지점 선택" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">선택 안 함</SelectItem>
@@ -686,7 +686,7 @@ export default function EmployeesPage() {
               {isAdmin && (
                 <div className="space-y-1.5">
                   <Label>시스템 권한</Label>
-                  <Select value={editForm.role} onValueChange={v => setEditForm(f => ({ ...f, role: v }))}>
+                  <Select value={editForm.role} onValueChange={v => v && setEditForm(f => ({ ...f, role: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="EMPLOYEE">직원</SelectItem>

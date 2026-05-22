@@ -16,8 +16,8 @@ export async function POST(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    include: { approvalLine: { include: { steps: true } } },
-  });
+    include: { approvalLine: { include: { steps: { include: { approver: true } } } } },
+  }) as any;
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 

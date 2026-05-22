@@ -18,7 +18,7 @@ export async function PUT(
   if (!Array.isArray(approverIds))
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     if (approverIds.length === 0) {
       // 결재라인 삭제
       await tx.approvalLine.deleteMany({ where: { userId } });
