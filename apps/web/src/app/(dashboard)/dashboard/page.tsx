@@ -58,7 +58,6 @@ export default async function DashboardPage() {
           userId: session.userId,
           status: "SENT",
         },
-        select: { id: true, title: true, status: true, createdAt: true },
         take: 5,
       }),
       prisma.leaveBalance.findFirst({
@@ -68,9 +67,9 @@ export default async function DashboardPage() {
 
     myContracts = contracts;
     myLeaveBalance = {
-      total: leaveBalance?.total || 15,
-      used: leaveBalance?.used || 0,
-      remaining: (leaveBalance?.remaining) || 15,
+      total: leaveBalance?.total ?? 15,
+      used: leaveBalance?.used ?? 0,
+      remaining: leaveBalance?.remaining ?? 15,
     };
 
     mySigningPendingContracts = contracts.filter(c => c.status === "SENT").length;
@@ -132,7 +131,7 @@ export default async function DashboardPage() {
           status: "SENT",
           user: userWhereClause,
         },
-        select: { id: true, title: true, user: { select: { name: true } }, createdAt: true },
+        include: { user: { select: { name: true } } },
         take: 5,
       }),
     ]);
@@ -151,6 +150,7 @@ export default async function DashboardPage() {
   const weekStart = startOfWeek(today, { weekStartsOn: 1 });
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
 
   const weeklyAttendance = await prisma.attendance.findMany({
     where: {
