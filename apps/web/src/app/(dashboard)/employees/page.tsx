@@ -459,16 +459,14 @@ export default function EmployeesPage() {
                 총 {employees.length}명 · {branchOrder.length}개 지점
               </p>
             </div>
-            {(isAdmin || isManager) && (
-              <div className="flex gap-2">
-                <Button variant="outline" className="gap-2" onClick={() => setExcelUploadOpen(true)}>
-                  <Upload size={16} />엑셀 업로드
-                </Button>
-                <Button className="gap-2" onClick={() => setAddOpen(true)}>
-                  <Plus size={16} />직원 추가
-                </Button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Button variant="outline" className="gap-2" onClick={() => setExcelUploadOpen(true)}>
+                <Upload size={16} />엑셀 업로드
+              </Button>
+              <Button className="gap-2" onClick={() => setAddOpen(true)}>
+                <Plus size={16} />직원 추가
+              </Button>
+            </div>
           </div>
 
           {/* 지점 카드 그리드 */}
