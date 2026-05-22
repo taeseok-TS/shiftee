@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { normalizeBranchName } from "@/lib/branches";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Clock, Calendar, UmbrellaOff, FileSignature, Users, TrendingUp, AlertCircle, CheckCircle2, Home } from "lucide-react";
@@ -54,10 +55,8 @@ export default async function DashboardPage() {
     ] = await Promise.all([
       prisma.contract.findMany({
         where: {
-          OR: [
-            { assignedUserId: session.userId, status: "SENT" },
-            { assignedUserId: session.userId, status: "APPROVED", approvals: { some: { userId: session.userId, status: "PENDING" } } }
-          ]
+          userId: session.userId,
+          status: "SENT",
         },
         select: { id: true, title: true, status: true, createdAt: true },
         take: 5,
@@ -69,13 +68,13 @@ export default async function DashboardPage() {
 
     myContracts = contracts;
     myLeaveBalance = {
-      total: leaveBalance?.annualDays || 15,
-      used: leaveBalance?.usedDays || 0,
-      remaining: (leaveBalance?.annualDays || 15) - (leaveBalance?.usedDays || 0),
+      total: leaveBalance?.total || 15,
+      used: leaveBalance?.used || 0,
+      remaining: (leaveBalance?.remaining) || 15,
     };
 
     mySigningPendingContracts = contracts.filter(c => c.status === "SENT").length;
-    myPendingContracts = contracts.filter(c => c.status === "APPROVED").length;
+    myPendingContracts = 0;
   }
 
   // MANAGER/ADMIN 역할 전용 쿼리
@@ -84,9 +83,10 @@ export default async function DashboardPage() {
   let recentPendingContracts = [];
 
   if (isManager || isAdmin) {
-    let whereClause: any = { isActive: true };
-    if (isManager) {
-      whereClause.branch = { name: session.branch };
+    const managerBranch = isManager ? normalizeBranchName(session.branch) : null;
+    let userWhereClause: any = { isActive: true };
+    if (isManager && managerBranch) {
+      userWhereClause.branch = managerBranch;
     }
 
     const [
@@ -97,31 +97,31 @@ export default async function DashboardPage() {
       teamRecentLeaves,
       teamRecentContracts,
     ] = await Promise.all([
-      prisma.user.count({ where: whereClause }),
+      prisma.user.count({ where: userWhereClause }),
       prisma.attendance.count({
         where: {
           date: today,
           status: "ABSENT",
-          user: whereClause,
+          user: userWhereClause,
         },
       }),
       prisma.attendance.count({
         where: {
           date: today,
           status: "EARLY_LEAVE",
-          user: whereClause,
+          user: userWhereClause,
         },
       }),
       prisma.leaveRequest.count({
         where: {
           status: "PENDING",
-          user: whereClause,
+          user: userWhereClause,
         },
       }),
       prisma.leaveRequest.findMany({
         where: {
           status: "PENDING",
-          user: whereClause,
+          user: userWhereClause,
         },
         include: { user: { select: { name: true } } },
         orderBy: { createdAt: "desc" },
@@ -130,9 +130,9 @@ export default async function DashboardPage() {
       prisma.contract.findMany({
         where: {
           status: "SENT",
-          assignedUser: whereClause,
+          user: userWhereClause,
         },
-        select: { id: true, title: true, assignedUser: { select: { name: true } }, createdAt: true },
+        select: { id: true, title: true, user: { select: { name: true } }, createdAt: true },
         take: 5,
       }),
     ]);
@@ -392,7 +392,7 @@ export default async function DashboardPage() {
                   {recentPendingContracts.map((contract) => (
                     <div key={contract.id} className="flex items-center justify-between py-2 border-b last:border-0">
                       <div>
-                        <p className="font-medium text-sm">{contract.assignedUser.name}</p>
+                        <p className="font-medium text-sm">{contract.user.name}</p>
                         <p className="text-xs text-gray-500">{contract.title}</p>
                       </div>
                       <Badge variant="default" className="bg-blue-600">
