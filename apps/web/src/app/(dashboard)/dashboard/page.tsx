@@ -242,19 +242,21 @@ export default async function DashboardPage() {
 
           return (
             <Link key={title} href={href}>
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow h-full">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-500">{title}</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+              <div className="cursor-pointer hover:shadow-lg transition-shadow h-full">
+                <Card className="h-full">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-500">{title}</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+                      </div>
+                      <div className={`w-12 h-12 rounded-xl ${bg} flex items-center justify-center`}>
+                        <Icon className={color} size={22} />
+                      </div>
                     </div>
-                    <div className={`w-12 h-12 rounded-xl ${bg} flex items-center justify-center`}>
-                      <Icon className={color} size={22} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
             </Link>
           );
         })}
@@ -265,8 +267,9 @@ export default async function DashboardPage() {
         <>
           {/* 내 계약서 현황 */}
           <Link href="/dashboard/contracts">
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
+            <div className="cursor-pointer hover:shadow-lg transition-shadow">
+              <Card>
+                <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileSignature size={18} />
                 내 계약서 현황
@@ -292,14 +295,16 @@ export default async function DashboardPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </div>
           </Link>
 
           {/* 내 휴가 잔여 */}
           <Link href="/dashboard/leave">
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
+            <div className="cursor-pointer hover:shadow-lg transition-shadow">
+              <Card>
+                <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <UmbrellaOff size={18} />
                 휴가 현황 (2026년)
@@ -320,8 +325,9 @@ export default async function DashboardPage() {
                   <p className="text-2xl font-bold text-green-600 mt-1">{myLeaveBalance.remaining}일</p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </div>
           </Link>
         </>
       )}
@@ -361,8 +367,9 @@ export default async function DashboardPage() {
 
           {/* 팀 휴가 신청 */}
           <Link href="/dashboard/leave">
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
+            <div className="cursor-pointer hover:shadow-lg transition-shadow">
+              <Card>
+                <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <UmbrellaOff size={18} />
                 팀 휴가 신청 (대기중)
@@ -391,14 +398,16 @@ export default async function DashboardPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </div>
           </Link>
 
           {/* 팀 계약서 서명 대기 */}
           <Link href="/dashboard/contracts">
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-            <CardHeader>
+            <div className="cursor-pointer hover:shadow-lg transition-shadow">
+              <Card>
+                <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileSignature size={18} />
                 팀 계약서 (서명 대기)
@@ -422,8 +431,9 @@ export default async function DashboardPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </div>
           </Link>
         </>
       )}
@@ -455,8 +465,9 @@ export default async function DashboardPage() {
 
       {/* 최근 휴가 신청 (전체) */}
       <Link href="/dashboard/leave">
-      <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-        <CardHeader>
+        <div className="cursor-pointer hover:shadow-lg transition-shadow">
+          <Card>
+            <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <AlertCircle size={18} />
             전사 휴가 신청 (대기중)
@@ -485,8 +496,9 @@ export default async function DashboardPage() {
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
       </Link>
     </div>
   );
