@@ -14,7 +14,7 @@ export async function PATCH(
 
   try {
     const { id } = await params;
-    const { name, address, radius } = await request.json();
+    const { name, address, radius, latitude, longitude } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
@@ -36,9 +36,8 @@ export async function PATCH(
         name,
         address: address || null,
         radius: radius ? Number(radius) : 100,
-      },
-      include: {
-        _count: { select: { users: true } },
+        latitude: latitude !== undefined ? Number(latitude) : undefined,
+        longitude: longitude !== undefined ? Number(longitude) : undefined,
       },
     });
     return NextResponse.json({ success: true, branch });

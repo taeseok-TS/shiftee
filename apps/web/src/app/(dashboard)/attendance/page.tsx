@@ -37,7 +37,7 @@ type StatsResponse = {
   chartData: ChartItem[];
   records: AttendanceRecord[];
 };
-type Employee = { id: string; name: string; department: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null };
 
 /* ── 상수 ── */
 const PERIODS: { value: Period; label: string }[] = [
@@ -342,7 +342,9 @@ export default function AttendancePage() {
                 <SelectContent>
                   <SelectItem value="me">내 기록</SelectItem>
                   {employees.map(e => (
-                    <SelectItem key={e.id} value={e.id}>{e.name} ({e.department})</SelectItem>
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.branch ? `[${e.branch}] ` : ""}{e.name}{e.department ? ` (${e.department})` : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -27,7 +27,7 @@ type DayData = {
   checkedIn: number; late: number; earlyLeave: number; absent: number; leave: number;
 };
 type EmpRow = {
-  id: string; name: string; department: string; position: string;
+  id: string; name: string; department: string; position: string; branch: string | null;
   scheduleType: string | null; startTime: string | null; endTime: string | null;
   clockIn: string | null; clockOut: string | null;
   leaveType: string | null; status: string; scheduleId: string | null;
@@ -36,7 +36,7 @@ type DaySummary = {
   total: number; checkedIn: number; late: number; earlyLeave: number;
   absent: number; leave: number; notYet: number; off: number;
 };
-type Employee = { id: string; name: string; department: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null };
 
 /* ── 상태 설정 ── */
 const STATUS_CFG: Record<string, { label: string; badge: string; dot: string }> = {
@@ -80,7 +80,7 @@ export default function SchedulePage() {
 
   /* 상세 필터 */
   const [search,      setSearch]      = useState("");
-  const [filterDept,  setFilterDept]  = useState("all");
+  const [filterBranch,  setFilterBranch]  = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
 
   /* 일정 등록 다이얼로그 */
@@ -111,7 +111,7 @@ export default function SchedulePage() {
   /* ── 날짜 클릭 → 상세 로드 ── */
   async function openDay(dateStr: string) {
     setSelectedDay(dateStr);
-    setSearch(""); setFilterDept("all"); setFilterStatus("all");
+    setSearch(""); setFilterBranch("all"); setFilterStatus("all");
     setDayOpen(true);
     setDayLoading(true);
     try {
@@ -133,15 +133,15 @@ export default function SchedulePage() {
   }, [monthData]);
 
   /* ── 상세 필터 적용 ── */
-  const departments = useMemo(() =>
-    [...new Set(dayRows.map(r => r.department))].sort(), [dayRows]);
+  const branches = useMemo(() =>
+    [...new Set(dayRows.map(r => r.branch).filter(Boolean) as string[])].sort(), [dayRows]);
 
   const filteredRows = useMemo(() => dayRows.filter(r => {
-    const matchSearch = !search || r.name.includes(search) || r.department.includes(search);
-    const matchDept   = filterDept   === "all" || r.department === filterDept;
+    const matchSearch = !search || r.name.includes(search) || (r.branch && r.branch.includes(search));
+    const matchBranch   = filterBranch   === "all" || r.branch === filterBranch;
     const matchStatus = filterStatus === "all" || r.status === filterStatus;
-    return matchSearch && matchDept && matchStatus;
-  }), [dayRows, search, filterDept, filterStatus]);
+    return matchSearch && matchBranch && matchStatus;
+  }), [dayRows, search, filterBranch, filterStatus]);
 
   /* ── 단일 일정 등록 ── */
   async function handleAddSave(e: React.FormEvent) {
@@ -366,21 +366,21 @@ export default function SchedulePage() {
             <div className="relative flex-1 min-w-40 max-w-52">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <Input
-                placeholder="이름·부서 검색"
+                placeholder="이름 또는 지점명 검색"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="pl-8 h-8 text-sm bg-white"
               />
             </div>
 
-            {/* 부서 필터 */}
-            <Select value={filterDept} onValueChange={v => v && setFilterDept(v)}>
+            {/* 지점 필터 */}
+            <Select value={filterBranch} onValueChange={v => v && setFilterBranch(v)}>
               <SelectTrigger className="h-8 w-36 text-sm bg-white">
-                <SelectValue placeholder="부서" />
+                <SelectValue placeholder="지점" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">전체 부서</SelectItem>
-                {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                <SelectItem value="all">전체 지점</SelectItem>
+                {branches.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
               </SelectContent>
             </Select>
 
@@ -522,7 +522,7 @@ export default function SchedulePage() {
                 <SelectContent>
                   {employees.map(emp => (
                     <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name} <span className="text-gray-400">({emp.department})</span>
+                      {emp.branch ? `[${emp.branch}] ` : ""}{emp.name}{emp.department ? ` (${emp.department})` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

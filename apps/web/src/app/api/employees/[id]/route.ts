@@ -19,21 +19,22 @@ export async function PATCH(
   // MANAGER는 자기 지점 구성원만 수정 가능
   if (session.role === "MANAGER") {
     const target = await prisma.user.findUnique({ where: { id }, select: { branch: true } });
-    const managerBranch = normalizeBranchName(session.branch);
-    const targetBranch = normalizeBranchName(target?.branch);
+    // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 직접 비교
+    const managerBranch = session.branch;
+    const targetBranch = target?.branch;
     if (!target || targetBranch !== managerBranch) {
       return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     }
-    // MANAGER는 role, branch 변경 불가
+    // MANAGER는 role만 변경 불가, branch는 변경 가능
     const updated = await prisma.user.update({
       where: { id },
-      data: { name, department, jobGroup: jobGroup ?? null, position, phone, hireDate: hireDate ? new Date(hireDate) : undefined },
+      data: { name, department, jobGroup: jobGroup ?? null, position, branch: branch || null, phone, hireDate: hireDate ? new Date(hireDate) : undefined },
     });
     return NextResponse.json({ success: true, user: updated });
   }
 
   // ADMIN: 전체 수정 가능
-  const normalizedBranch = branch ? normalizeBranchName(branch) : null;
+  const finalBranch = branch || null;
   const updated = await prisma.user.update({
     where: { id },
     data: {
@@ -42,7 +43,7 @@ export async function PATCH(
       department,
       jobGroup: jobGroup ?? null,
       position,
-      branch: normalizedBranch,
+      branch: finalBranch,
       phone,
       hireDate: hireDate ? new Date(hireDate) : undefined,
     },

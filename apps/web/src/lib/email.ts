@@ -164,6 +164,143 @@ export async function sendContractCompletion(
 }
 
 /**
+ * Send leave approval request notification to approver
+ */
+export async function sendLeaveApprovalRequest(
+  approverEmail: string,
+  approverName: string,
+  requesterName: string,
+  leaveType: string,
+  startDate: string,
+  endDate: string,
+  reason: string,
+  appUrl: string
+): Promise<void> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
+      <h2>휴가 승인 요청</h2>
+      <p>안녕하세요 ${approverName}님,</p>
+      <p>${requesterName}님의 휴가 신청이 승인을 위해 도착했습니다.</p>
+
+      <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+        <p><strong>신청자:</strong> ${requesterName}</p>
+        <p><strong>휴가 유형:</strong> ${leaveType}</p>
+        <p><strong>기간:</strong> ${startDate} ~ ${endDate}</p>
+        <p><strong>사유:</strong> ${reason || '없음'}</p>
+        <p><strong>상태:</strong> 승인 대기 중</p>
+      </div>
+
+      <p>
+        <a href="${appUrl}/leave" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+          승인하기
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; color: #666; font-size: 12px;">
+        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+      </p>
+    </div>
+  `;
+
+  await sendEmail({
+    to: approverEmail,
+    subject: `[휴가 승인] ${requesterName} - ${leaveType} (${startDate}~${endDate})`,
+    html,
+  });
+}
+
+/**
+ * Send leave approval completion notification to requester
+ */
+export async function sendLeaveApprovalCompletion(
+  requesterEmail: string,
+  requesterName: string,
+  leaveType: string,
+  startDate: string,
+  endDate: string,
+  approverName: string,
+  appUrl: string
+): Promise<void> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
+      <h2>휴가 승인 완료</h2>
+      <p>안녕하세요 ${requesterName}님,</p>
+      <p>귀하의 휴가 신청이 승인되었습니다.</p>
+
+      <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #10b981;">
+        <p><strong>휴가 유형:</strong> ${leaveType}</p>
+        <p><strong>기간:</strong> ${startDate} ~ ${endDate}</p>
+        <p><strong>승인자:</strong> ${approverName}</p>
+        <p><strong>상태:</strong> 승인됨</p>
+      </div>
+
+      <p>
+        <a href="${appUrl}/leave" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+          휴가 내역 확인
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; color: #666; font-size: 12px;">
+        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+      </p>
+    </div>
+  `;
+
+  await sendEmail({
+    to: requesterEmail,
+    subject: `[휴가 승인 완료] ${leaveType} (${startDate}~${endDate})`,
+    html,
+  });
+}
+
+/**
+ * Send leave rejection notification to requester
+ */
+export async function sendLeaveRejectionNotification(
+  requesterEmail: string,
+  requesterName: string,
+  leaveType: string,
+  startDate: string,
+  endDate: string,
+  approverName: string,
+  reason: string | null,
+  appUrl: string
+): Promise<void> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
+      <h2>휴가 신청 반려</h2>
+      <p>안녕하세요 ${requesterName}님,</p>
+      <p>죄송하지만 귀하의 휴가 신청이 반려되었습니다.</p>
+
+      <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #ef4444;">
+        <p><strong>휴가 유형:</strong> ${leaveType}</p>
+        <p><strong>신청 기간:</strong> ${startDate} ~ ${endDate}</p>
+        <p><strong>반려자:</strong> ${approverName}</p>
+        ${reason ? `<p><strong>반려 사유:</strong> ${reason}</p>` : ''}
+        <p><strong>상태:</strong> 반려됨</p>
+      </div>
+
+      <p>다시 신청하시려면 아래 링크를 클릭해주세요.</p>
+      <p>
+        <a href="${appUrl}/leave" style="background: #ef4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+          휴가 신청하기
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; color: #666; font-size: 12px;">
+        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+      </p>
+    </div>
+  `;
+
+  await sendEmail({
+    to: requesterEmail,
+    subject: `[휴가 신청 반려] ${leaveType} (${startDate}~${endDate})`,
+    html,
+  });
+}
+
+/**
  * Test SMTP connection
  */
 export async function testSMTPConnection(): Promise<boolean> {

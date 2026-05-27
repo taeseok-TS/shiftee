@@ -12,6 +12,7 @@ import {
   Users,
   Building2,
   LogOut,
+  BarChart3,
 } from "lucide-react";
 
 const navItems = [
@@ -21,7 +22,9 @@ const navItems = [
   { href: "/leave",      label: "휴가 관리",  icon: UmbrellaOff },
   { href: "/contracts",  label: "전자계약",   icon: FileSignature },
   { href: "/employees",  label: "직원 관리",  icon: Users },
+  { href: "/employee-stats", label: "직원 현황", icon: BarChart3 },
   { href: "/branches",   label: "지점 관리",  icon: Building2 },
+  { href: "/test-api",   label: "🔧 API 테스트", icon: BarChart3 },
 ];
 
 export function Sidebar() {

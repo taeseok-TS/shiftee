@@ -39,10 +39,10 @@ type EmpBalance = {
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
 type LineUser = {
-  id: string; name: string; department: string | null; position: string | null;
-  approvalLine: { steps: { order: number; approver: { id: string; name: string; position: string | null; department: string | null } }[] } | null;
+  id: string; name: string; department: string | null; position: string | null; branch?: string | null;
+  approvalLine: { steps: { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } }[] } | null;
 };
-type AllUser  = { id: string; name: string; department: string | null; position: string | null };
+type AllUser  = { id: string; name: string; department: string | null; position: string | null; branch?: string | null };
 type MyStep   = {
   id: string; order: number;
   leaveRequest: LeaveRequest & { approvalSteps: ApprovalStepInfo[] };
@@ -588,7 +588,7 @@ export default function LeavePage() {
                                 <span key={s.order} className="flex items-center gap-1 text-xs">
                                   {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
                                   <span className="bg-blue-50 border border-blue-200 text-blue-700 rounded px-1.5 py-0.5">
-                                    {s.order}차. {s.approver.name}
+                                    {s.order}차. {s.approver.branch ? `[${s.approver.branch}] ` : ""}{s.approver.name}
                                     {s.approver.position && <span className="text-blue-400 ml-1">({s.approver.position})</span>}
                                   </span>
                                 </span>
@@ -819,7 +819,9 @@ export default function LeavePage() {
                     <div key={u.id} className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                       <span className="text-xs font-bold text-blue-500 w-5">{i + 1}차</span>
                       <div className="flex-1">
-                        <span className="font-medium text-sm text-gray-800">{u.name}</span>
+                        <span className="font-medium text-sm text-gray-800">
+                          {u.branch ? `[${u.branch}] ` : ""}{u.name}
+                        </span>
                         {u.position && <span className="text-xs text-gray-400 ml-1.5">{u.position}</span>}
                         {u.department && <span className="text-xs text-gray-300 ml-1">· {u.department}</span>}
                       </div>
@@ -859,7 +861,9 @@ export default function LeavePage() {
                   <button key={u.id} onClick={() => addApprover(u)}
                     className="w-full flex items-center justify-between px-3 py-1.5 rounded hover:bg-gray-50 text-left group">
                     <div>
-                      <span className="text-sm font-medium text-gray-800">{u.name}</span>
+                      <span className="text-sm font-medium text-gray-800">
+                        {u.branch ? `[${u.branch}] ` : ""}{u.name}
+                      </span>
                       {u.position && <span className="text-xs text-gray-400 ml-1.5">{u.position}</span>}
                       {u.department && <span className="text-xs text-gray-300 ml-1">· {u.department}</span>}
                     </div>

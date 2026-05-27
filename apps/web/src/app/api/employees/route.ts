@@ -8,12 +8,9 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  // MANAGER의 경우, session.branch도 정규화된 지점명으로 변환
-  const managerBranch = session.role === "MANAGER"
-    ? normalizeBranchName(session.branch)
-    : null;
-  const branchWhere = managerBranch
-    ? { branch: { in: [managerBranch, session.branch] } }  // 구 지점명과 신 지점명 모두 포함
+  // MANAGER의 경우, 자신의 지점 직원만 조회
+  const branchWhere = session.role === "MANAGER" && session.branch
+    ? { branch: session.branch }  // 지점명은 이미 DB의 실제 지점명
     : {};
 
   const employees = await prisma.user.findMany({
@@ -26,13 +23,8 @@ export async function GET() {
     orderBy: [{ branch: "asc" }, { name: "asc" }],
   });
 
-  // 지점명 정규화
-  const normalizedEmployees = employees.map(e => ({
-    ...e,
-    branch: e.branch ? normalizeBranchName(e.branch) : null,
-  }));
-
-  return NextResponse.json({ employees: normalizedEmployees });
+  // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 그대로 반환
+  return NextResponse.json({ employees });
 }
 
 export async function POST(request: NextRequest) {
@@ -43,6 +35,9 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { name, email, password, role, department, jobGroup, position, branch, phone, hireDate } = body;
 
+  // 디버깅: 받은 branch 값 확인
+  console.log("[POST /api/employees] 받은 branch 값:", branch, "| 타입:", typeof branch, "| 전체 body:", body);
+
   if (!name || !email || !password) {
     return NextResponse.json({ error: "이름, 이메일, 비밀번호는 필수입니다." }, { status: 400 });
   }
@@ -50,15 +45,15 @@ export async function POST(request: NextRequest) {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
 
-  // 지점명 정규화
-  const normalizedBranch = branch ? normalizeBranchName(branch) : null;
+  // 지점명 - UI에서 이미 데이터베이스 실제 이름을 선택했으므로 그대로 사용
+  const finalBranch = branch || null;
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
       name, email, password: hashedPassword,
       role: role || "EMPLOYEE",
-      department, jobGroup: jobGroup || null, position, branch: normalizedBranch, phone,
+      department, jobGroup: jobGroup || null, position, branch: finalBranch, phone,
       hireDate: hireDate ? new Date(hireDate) : null,
     },
   });

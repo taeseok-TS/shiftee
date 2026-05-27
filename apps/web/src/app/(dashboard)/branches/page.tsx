@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, MapPin, Navigation, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, MapPin, Navigation, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type Branch = {
@@ -17,13 +18,14 @@ type Branch = {
   latitude: number | null;
   longitude: number | null;
   radius: number;
+  _count?: { users: number };
 };
 
 const EMPTY_FORM = { name: "", address: "", latitude: "", longitude: "", radius: "100" };
 
 export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [myRole, setMyRole]     = useState("EMPLOYEE");
+  const [myRole, setMyRole]     = useState<string | null>(null);  // null = 로딩 중
 
   const [addOpen, setAddOpen]   = useState(false);
   const [form, setForm]         = useState({ ...EMPTY_FORM });
@@ -32,21 +34,33 @@ export default function BranchesPage() {
   const [editTarget, setEditTarget] = useState<Branch | null>(null);
   const [editForm, setEditForm]     = useState({ ...EMPTY_FORM });
 
+  const [deleteOpen, setDeleteOpen]     = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null);
+
   const isAdmin = myRole === "ADMIN";
+  const canAccess = myRole === "ADMIN" || myRole === "MANAGER";
 
   const fetchBranches = useCallback(async () => {
-    const data = await fetch("/api/branches").then(r => r.json());
+    const data = await fetch("/api/branches", { credentials: "include" }).then(r => r.json());
     setBranches(data.branches || []);
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE"));
+    fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE"));
     fetchBranches();
   }, [fetchBranches]);
 
   /* ── 내 위치로 좌표 채우기 ── */
   function fillMyLocation(target: "add" | "edit") {
     if (!navigator.geolocation) { toast.error("이 브라우저는 위치를 지원하지 않습니다."); return; }
+
+    // HTTPS 또는 localhost 환경 확인
+    const isSecure = window.location.protocol === "https:" || window.location.hostname === "localhost";
+    if (!isSecure) {
+      toast.error("HTTPS 연결에서만 위치 기능을 사용할 수 있습니다.");
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       pos => {
         const lat = pos.coords.latitude.toFixed(7);
@@ -55,7 +69,15 @@ export default function BranchesPage() {
         else                  setEditForm(f => ({ ...f, latitude: lat, longitude: lon }));
         toast.success("현재 위치 좌표를 불러왔습니다.");
       },
-      () => toast.error("위치 권한이 거부되었습니다.")
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          toast.error("위치 권한이 거부되었습니다.");
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          toast.error("위치 정보를 얻을 수 없습니다.");
+        } else {
+          toast.error("위치를 불러올 수 없습니다.");
+        }
+      }
     );
   }
 
@@ -64,6 +86,7 @@ export default function BranchesPage() {
     ev.preventDefault();
     const res  = await fetch("/api/branches", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name,
@@ -98,6 +121,7 @@ export default function BranchesPage() {
     if (!editTarget) return;
     const res = await fetch(`/api/branches/${editTarget.id}`, {
       method: "PATCH",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name:      editForm.name,
@@ -113,7 +137,25 @@ export default function BranchesPage() {
     setEditOpen(false); fetchBranches();
   }
 
-  if (!isAdmin && myRole !== "MANAGER") {
+  /* ── 삭제 ── */
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    const res = await fetch(`/api/branches/${deleteTarget.id}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error); return; }
+    toast.success("지점이 삭제되었습니다.");
+    setDeleteOpen(false); setDeleteTarget(null); fetchBranches();
+  }
+
+  if (myRole === null) {
+    return <div className="text-center text-gray-400 py-32">로딩 중...</div>;
+  }
+
+  if (!canAccess) {
     return <div className="text-center text-gray-400 py-32">접근 권한이 없습니다.</div>;
   }
 
@@ -176,6 +218,11 @@ export default function BranchesPage() {
                             GPS 미설정
                           </Badge>
                         )}
+                        {b._count?.users ? (
+                          <Badge variant="secondary" className="text-xs">
+                            직원 {b._count.users}명
+                          </Badge>
+                        ) : null}
                       </div>
                       {b.address && (
                         <p className="text-xs text-gray-500 mt-0.5 truncate">{b.address}</p>
@@ -189,10 +236,16 @@ export default function BranchesPage() {
                   </div>
 
                   {isAdmin && (
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0"
-                      onClick={() => openEdit(b)}>
-                      <Pencil size={14} />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0"
+                        onClick={() => openEdit(b)}>
+                        <Pencil size={14} />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => { setDeleteTarget(b); setDeleteOpen(true); }}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -325,6 +378,24 @@ export default function BranchesPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ═══ 지점 삭제 확인 다이얼로그 ═══ */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>지점 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              '{deleteTarget?.name}' 지점을 정말로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+              삭제
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

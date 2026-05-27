@@ -17,11 +17,12 @@ export async function GET() {
       name: true,
       department: true,
       position: true,
+      branch: true,
       approvalLine: {
         include: {
           steps: {
             include: {
-              approver: { select: { id: true, name: true, position: true, department: true } },
+              approver: { select: { id: true, name: true, position: true, department: true, branch: true } },
             },
             orderBy: { order: "asc" },
           },
@@ -34,7 +35,7 @@ export async function GET() {
   // 결재자로 쓸 수 있는 직원 목록 (MANAGER는 자기 지점 내)
   const allUsers = await prisma.user.findMany({
     where: { isActive: true, ...branchWhere },
-    select: { id: true, name: true, department: true, position: true },
+    select: { id: true, name: true, department: true, position: true, branch: true },
     orderBy: [{ department: "asc" }, { name: "asc" }],
   });
 

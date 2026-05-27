@@ -34,6 +34,8 @@ function getDateRange(period: Period, baseDate: Date) {
     }
     case "annual":
       return { start: startOfYear(baseDate), end: endOfYear(baseDate) };
+    default:
+      return { start: startOfMonth(baseDate), end: endOfMonth(baseDate) };
   }
 }
 
@@ -45,6 +47,7 @@ function getPrevDateRange(period: Period, baseDate: Date) {
     case "quarterly": return getDateRange(period, subQuarters(baseDate, 1));
     case "semiannual": return getDateRange(period, subMonths(baseDate, 6));
     case "annual": return getDateRange(period, subYears(baseDate, 1));
+    default: return getDateRange("monthly", subMonths(baseDate, 1));
   }
 }
 
@@ -75,7 +78,7 @@ export async function GET(request: NextRequest) {
   const [records, prevRecords] = await Promise.all([
     prisma.attendance.findMany({
       where: { ...userWhere, date: { gte: start, lte: end } },
-      include: { user: { select: { name: true } } },
+      include: { user: { select: { name: true, branch: true } } },
       orderBy: { date: "asc" },
     }),
     prisma.attendance.findMany({

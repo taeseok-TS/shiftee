@@ -5,6 +5,11 @@ const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed"];
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // API 경로: 미들웨어에서 검증하지 않음 (각 엔드포인트에서 자체 인증 처리)
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
   // 공개 경로는 통과
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();

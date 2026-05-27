@@ -13,13 +13,23 @@ export async function GET() {
   try {
     const branches = await prisma.branch.findMany({
       where: { isActive: true },
-      include: {
-        _count: { select: { users: true } },
-      },
       orderBy: { name: "asc" },
     });
 
-    return NextResponse.json({ branches });
+    // Application 레벨에서 각 지점의 직원 수 계산
+    const branchesWithCount = await Promise.all(
+      branches.map(async (branch) => {
+        const userCount = await prisma.user.count({
+          where: { branch: branch.name, isActive: true },
+        });
+        return {
+          ...branch,
+          _count: { users: userCount },
+        };
+      })
+    );
+
+    return NextResponse.json({ branches: branchesWithCount });
   } catch (error) {
     console.error("지점 조회 실패:", error);
     return NextResponse.json({ error: "지점을 조회할 수 없습니다." }, { status: 500 });

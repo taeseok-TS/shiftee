@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   const [employees, schedules, attendances, leaves] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, ...branchWhere },
-      select: { id: true, name: true, department: true, position: true },
+      select: { id: true, name: true, department: true, position: true, branch: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     prisma.schedule.findMany({
@@ -41,14 +41,14 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  const schedMap = new Map(schedules.map(s  => [s.userId, s]));
-  const attMap   = new Map(attendances.map(a => [a.userId, a]));
-  const leaveMap = new Map(leaves.map(l     => [l.userId, l]));
+  const schedMap = new Map(schedules.map(s  => [s.userId, s] as const));
+  const attMap   = new Map(attendances.map(a => [a.userId, a] as const));
+  const leaveMap = new Map(leaves.map(l     => [l.userId, l] as const));
 
   const result = employees.map(emp => {
-    const sched = schedMap.get(emp.id) ?? null;
-    const att   = attMap.get(emp.id)   ?? null;
-    const leave = leaveMap.get(emp.id) ?? null;
+    const sched = schedMap.get(emp.id) as typeof schedules[number] | undefined ?? null;
+    const att   = attMap.get(emp.id) as typeof attendances[number] | undefined ?? null;
+    const leave = leaveMap.get(emp.id) as typeof leaves[number] | undefined ?? null;
 
     // 종합 상태 결정
     let status: string;
@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
       name:        emp.name,
       department:  emp.department ?? "-",
       position:    emp.position   ?? "-",
+      branch:      emp.branch     ?? null,
       scheduleId:  sched?.id      ?? null,
       scheduleType: sched?.type   ?? null,
       startTime:   sched?.startTime ?? null,

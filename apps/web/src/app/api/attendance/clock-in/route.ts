@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { haversineDistance } from "@/lib/geofence";
+import type { Attendance } from "@shiftee/api";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();

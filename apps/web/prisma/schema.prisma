@@ -19,8 +19,11 @@ model User {
   jobGroup    String?   // 직군 (원장 | CM | TM | 코디)
   position    String?   // 직급 (인턴매니저, 주임교실장 등)
   branch      String?   // 지점 (예: "A지점", "B지점")
-  hireDate    DateTime?
-  isActive    Boolean  @default(true)
+  hireDate          DateTime?
+  isActive          Boolean              @default(true)
+  employmentStatus  EmploymentStatus     @default(ACTIVE)
+  resignDate        DateTime?
+  resignReason      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -42,6 +45,13 @@ enum Role {
   ADMIN
   MANAGER
   EMPLOYEE
+}
+
+enum EmploymentStatus {
+  ACTIVE        // 재직 중
+  RESIGNED      // 퇴직
+  ON_LEAVE      // 휴직
+  TEMPORARY     // 임시휴무
 }
 
 // ─── 출퇴근 ─────────────────────────────────────────────────
@@ -158,8 +168,8 @@ model Contract {
   status          ContractStatus @default(DRAFT)
   startDate       DateTime?      @db.Date
   endDate         DateTime?      @db.Date
-  employeeSignedAt DateTime?  // 직원 서명 시간
-  signedAt        DateTime?     // 최종 서명 시간 (모든 승인자 완료)
+  employeeSignedAt DateTime?
+  signedAt        DateTime?
   approvalLine    ContractApprovalLine?
   versions        ContractVersion[]
   createdAt       DateTime @default(now())
@@ -175,9 +185,9 @@ enum ContractType {
 
 enum ContractStatus {
   DRAFT      // 초안
-  SENT       // 발송됨 (직원 서명 대기)
-  APPROVED   // 승인 중 (결재자 승인 대기)
-  SIGNED     // 서명완료 (모든 승인 완료)
+  SENT       // 발송됨
+  APPROVED   // 승인 중
+  SIGNED     // 서명완료
   EXPIRED    // 만료
 }
 
@@ -248,10 +258,10 @@ model LeaveApprovalStep {
 }
 
 enum ApprovalStepStatus {
-  WAITING  // 이전 단계 미완료 (순서 아직 안됨)
-  PENDING  // 현재 결재 대기 중
-  APPROVED // 승인
-  REJECTED // 반려
+  WAITING
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // ─── 계약 템플릿 ──────────────────────────────────────────────
@@ -298,11 +308,11 @@ model ContractVersion {
 // ─── 지점 ───────────────────────────────────────────────────
 model Branch {
   id        String   @id @default(cuid())
-  name      String   @unique  // User.branch 문자열과 일치
+  name      String   @unique
   address   String?
   latitude  Float?
   longitude Float?
-  radius    Int      @default(100) // 허용 반경(미터)
+  radius    Int      @default(100)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

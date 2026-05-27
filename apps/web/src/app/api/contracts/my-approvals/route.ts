@@ -15,7 +15,11 @@ export async function GET(_request: NextRequest) {
       approvalLine: {
         include: {
           contract: {
-            include: { user: { select: { name: true, department: true } } },
+            include: { user: { select: { name: true, department: true, branch: true } } },
+          },
+          steps: {
+            include: { approver: { select: { id: true, name: true, branch: true } } },
+            orderBy: { order: "asc" },
           },
         },
       },
@@ -26,7 +30,7 @@ export async function GET(_request: NextRequest) {
   const contracts = pendingSteps.map((step) => ({
     ...step.approvalLine.contract,
     approvalLine: {
-      steps: [step],
+      steps: step.approvalLine.steps,
       myStep: step,
     },
   }));

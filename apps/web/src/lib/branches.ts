@@ -51,14 +51,18 @@ export function getBranchLetter(branchName: string | null | undefined): string |
 }
 
 /**
- * 모든 기본 지점 목록 반환 (정렬됨)
- * 주의: 이것은 하드코딩된 기본값입니다.
- * 실제 지점 목록은 getAllBranchesFromAPI를 사용하세요.
+ * 데이터베이스에서 실제 지점 목록을 가져옵니다
+ * 비동기 함수이므로 클라이언트 컴포넌트에서만 사용하세요
  */
-export function getAllBranches(): Array<{ letter: string; name: string }> {
-  return Object.entries(defaultBranchMapping)
-    .map(([letter, name]) => ({ letter, name }))
-    .sort((a, b) => a.letter.localeCompare(b.letter));
+export async function getAllBranches(): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const res = await fetch("/api/branches");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.branches || []).map((b: any) => ({ id: b.id, name: b.name }));
+  } catch {
+    return [];
+  }
 }
 
 /**

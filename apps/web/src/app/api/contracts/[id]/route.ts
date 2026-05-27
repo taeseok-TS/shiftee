@@ -2,6 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendContractNotification } from "@/lib/email";
+import type { Contract } from "@shiftee/api";
 
 export async function GET(
   _request: NextRequest,
@@ -14,11 +15,11 @@ export async function GET(
   const contract = await prisma.contract.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true, email: true, department: true } },
+      user: { select: { id: true, name: true, email: true, department: true, branch: true } },
       approvalLine: {
         include: {
           steps: {
-            include: { approver: { select: { id: true, name: true } } },
+            include: { approver: { select: { id: true, name: true, branch: true } } },
             orderBy: { order: "asc" },
           },
         },
@@ -48,10 +49,35 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+
+  // 계약서 내용이 변경되면 버전 저장 (title, type, startDate, endDate 중 하나라도 변경)
+  const hasContentChanges = title || type || startDate || endDate;
+  if (hasContentChanges && contract.version) {
+    // 현재 상태를 버전으로 저장
+    await prisma.contractVersion.create({
+      data: {
+        contractId: id,
+        version: contract.version,
+        fileUrl: contract.fileUrl,
+        title: contract.title,
+        type: contract.type as any,
+        status: contract.status as any,
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        createdBy: session.userId,
+      },
+    });
+
+    // 버전 증가
+    await prisma.contract.update({
+      where: { id },
+      data: { version: { increment: 1 } },
+    });
+  }
 
   // 발송(SENT) 상태로 변경 시 또는 승인라인을 추가/업데이트할 때
   if ((status === "SENT" || approverIds) && approverIds && approverIds.length > 0) {

@@ -23,7 +23,7 @@ type Contract = {
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
-  user: { name: string; department: string | null };
+  user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
     steps: Array<{
       id: string;
@@ -36,7 +36,7 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null };
 
 type ContractTemplate = {
   id: string;
@@ -73,9 +73,20 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   EXPIRED: { label: "만료", variant: "destructive" },
 };
 
-function ApprovalChain({ steps }: { steps?: any[] }) {
+// fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
+function getFileUrl(fileUrl: string): string {
+  if (!fileUrl) return "";
+  try {
+    const urls = JSON.parse(fileUrl);
+    return Array.isArray(urls) ? urls[0] : fileUrl;
+  } catch {
+    return fileUrl;
+  }
+}
+
+function ApprovalChain({ steps, onClick }: { steps?: any[]; onClick?: () => void }) {
   if (!steps || steps.length === 0) return null;
-  
+
   const stepElements = [];
   // 직원
   stepElements.push(
@@ -106,7 +117,16 @@ function ApprovalChain({ steps }: { steps?: any[] }) {
     );
   });
 
-  return <div className="flex items-center gap-2 flex-wrap text-xs">{stepElements}</div>;
+  return (
+    <div
+      className="flex items-center gap-2 flex-wrap text-xs cursor-pointer hover:opacity-70 transition-opacity"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+    >
+      {stepElements}
+    </div>
+  );
 }
 
 export default function ContractsPage() {
@@ -128,7 +148,7 @@ export default function ContractsPage() {
     startDate: "",
     endDate: "",
   });
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   const [sendOpen, setSendOpen] = useState(false);
@@ -142,6 +162,9 @@ export default function ContractsPage() {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
   const [versions, setVersions] = useState<ContractVersion[]>([]);
+
+  const [approvalDetailsOpen, setApprovalDetailsOpen] = useState(false);
+  const [approvalDetailsTarget, setApprovalDetailsTarget] = useState<Contract | null>(null);
 
   const fetchContracts = useCallback(async () => {
     const res = await fetch("/api/contracts");
@@ -208,7 +231,7 @@ export default function ContractsPage() {
     e.preventDefault();
 
     // 템플릿 사용 시에는 파일이 서버에서 처리됨
-    if (!useTemplate && !file) { toast.error("파일을 선택해주세요."); return; }
+    if (!useTemplate && files.length === 0) { toast.error("파일을 선택해주세요."); return; }
     if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
@@ -217,8 +240,11 @@ export default function ContractsPage() {
 
     if (useTemplate && selectedTemplate) {
       formData.append("templateId", selectedTemplate);
-    } else if (file) {
-      formData.append("file", file);
+    } else {
+      // 모든 파일 추가
+      files.forEach((file, index) => {
+        formData.append(`files`, file);
+      });
     }
 
     formData.append("userId", createForm.userId);
@@ -233,7 +259,7 @@ export default function ContractsPage() {
     if (!res.ok) { toast.error(data.error); return; }
     toast.success("계약서 작성됨");
     setCreateOpen(false);
-    setFile(null);
+    setFiles([]);
     setUseTemplate(false);
     setSelectedTemplate("");
     setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "" });
@@ -278,9 +304,7 @@ export default function ContractsPage() {
         <h1 className="text-2xl font-bold text-gray-900">전자계약</h1>
         {role !== "EMPLOYEE" && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger>
-              <Button className="gap-2"><Plus size={16} />계약서 작성</Button>
-            </DialogTrigger>
+            <Button className="gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} />계약서 작성</Button>
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>계약서 작성</DialogTitle></DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4">
@@ -290,7 +314,9 @@ export default function ContractsPage() {
                     <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
                     <SelectContent>
                       {employees.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.name} ({e.department})</SelectItem>
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.branch ? `[${e.branch}] ` : ""}{e.name}{e.department ? ` (${e.department})` : ""}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -326,8 +352,53 @@ export default function ContractsPage() {
                 {/* 직접 파일 업로드 */}
                 {!useTemplate && (
                   <div className="space-y-2">
-                    <Label>파일 *</Label>
-                    <Input type="file" accept=".pdf" onChange={e => setFile(e.target.files?.[0] || null)} disabled={uploading} />
+                    <Label>파일 * (최대 5개)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="file"
+                        accept=".pdf"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file && files.length < 5) {
+                            setFiles([...files, file]);
+                            e.target.value = ""; // 같은 파일 다시 선택 가능하게 초기화
+                          } else if (file && files.length >= 5) {
+                            toast.error("최대 5개까지 첨부할 수 있습니다.");
+                          }
+                        }}
+                        disabled={uploading || files.length >= 5}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          if (files.length < 5) {
+                            document.getElementById("file-input")?.click();
+                          }
+                        }}
+                        disabled={uploading || files.length >= 5}
+                      >
+                        추가 ({files.length}/5)
+                      </Button>
+                    </div>
+
+                    {/* 파일 목록 */}
+                    {files.length > 0 && (
+                      <div className="mt-2 space-y-1 border rounded p-2 bg-gray-50">
+                        {files.map((f, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border">
+                            <span className="text-gray-700">{f.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFiles(files.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 font-semibold"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -335,22 +406,45 @@ export default function ContractsPage() {
                   <Label>제목 *</Label>
                   <Input value={createForm.title} onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))} required />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <Label>유형</Label>
-                    <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(typeLabel).map(([k, v]) => (
-                          <SelectItem key={k} value={k}>{v}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-2">
+                  <Label>유형</Label>
+                  <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(typeLabel).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>계약 기간 *</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-600">시작일</label>
+                      <Input
+                        type="date"
+                        value={createForm.startDate}
+                        onChange={e => setCreateForm(f => ({ ...f, startDate: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-600">종료일</label>
+                      <Input
+                        type="date"
+                        value={createForm.endDate}
+                        onChange={e => setCreateForm(f => ({ ...f, endDate: e.target.value }))}
+                        required
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>기간</Label>
-                    <Input type="date" value={createForm.startDate} onChange={e => setCreateForm(f => ({ ...f, startDate: e.target.value }))} />
-                  </div>
+                  {createForm.startDate && createForm.endDate && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {createForm.startDate} ~ {createForm.endDate}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
@@ -398,7 +492,7 @@ export default function ContractsPage() {
                   <ApprovalChain steps={c.approvalLine?.steps} />
                 </div>
                 <div className="flex gap-2">
-                  <a href={c.fileUrl} target="_blank">
+                  <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline"><Download size={14} /></Button>
                   </a>
                   <Button size="sm" onClick={() => { setSignTarget(c); setSignName(""); setSignOpen(true); }} className="gap-1">
@@ -430,15 +524,23 @@ export default function ContractsPage() {
                 {contracts.length === 0 ? (
                   <tr><td colSpan={5} className="py-8 text-center text-gray-400">없음</td></tr>
                 ) : contracts.map(c => {
-                  const s = statusConfig[c.status];
+                  const s = statusConfig[c.status] || { label: "미정", variant: "default" };
                   return (
                     <tr key={c.id} className="border-b hover:bg-gray-50">
-                      {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.user.name}</p></td>}
+                      {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.user.branch ? `[${c.user.branch}] ` : ''}{c.user.name}</p></td>}
                       <td className="py-3 font-medium">{c.title}</td>
                       <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
-                      <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} /></td>
+                      <td className="py-3">
+                        <ApprovalChain
+                          steps={c.approvalLine?.steps}
+                          onClick={() => {
+                            setApprovalDetailsTarget(c);
+                            setApprovalDetailsOpen(true);
+                          }}
+                        />
+                      </td>
                       <td className="py-3 space-x-1">
-                        <a href={c.fileUrl} target="_blank"><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -452,47 +554,46 @@ export default function ContractsPage() {
                           <History size={12} />
                         </Button>
                         {role !== "EMPLOYEE" && c.status === "DRAFT" && (
-                          <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
-                            <DialogTrigger>
-                              <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); }}>
-                                <Send size={12} />발송
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-sm">
-                              <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
-                              {sendTarget && (
-                                <div className="space-y-4">
-                                  <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요.</p>
-                                  <div className="space-y-2">
-                                    {[1, 2, 3].map(order => (
-                                      <div key={order} className="space-y-1">
-                                        <Label className="text-xs">{order}단계 승인자</Label>
-                                        <Select value={approverIds[order - 1] || ""} onValueChange={v => {
-                                          if (v !== null) {
+                          <>
+                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); setSendOpen(true); }}>
+                              <Send size={12} />발송
+                            </Button>
+                            <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
+                              <DialogContent className="max-w-sm">
+                                <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
+                                {sendTarget && (
+                                  <div className="space-y-4">
+                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요.</p>
+                                    <div className="space-y-2">
+                                      {[1, 2, 3].map(order => (
+                                        <div key={order} className="space-y-1">
+                                          <Label className="text-xs">{order}단계 승인자</Label>
+                                          <Select value={approverIds[order - 1] || ""} onValueChange={v => {
+                                            if (!v || v === "") return; // 빈 값 무시
                                             const newIds = [...approverIds];
                                             newIds[order - 1] = v;
-                                            setApproverIds(newIds.filter(Boolean));
-                                          }
-                                        }}>
-                                          <SelectTrigger className="h-8"><SelectValue placeholder="선택 (선택사항)" /></SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="">없음</SelectItem>
-                                            {employees.filter(e => !approverIds.includes(e.id)).map(e => (
-                                              <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    ))}
+                                            setApproverIds(newIds);
+                                          }}>
+                                            <SelectTrigger className="h-8"><SelectValue placeholder="선택 (선택사항)" /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="">없음</SelectItem>
+                                              {employees.filter(e => !approverIds.includes(e.id)).map(e => (
+                                                <SelectItem key={e.id} value={e.id}>{e.branch ? `[${e.branch}] ` : ''}{e.name}</SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="flex gap-2 justify-end">
+                                      <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
+                                      <Button onClick={() => handleSend(sendTarget.id)}>발송</Button>
+                                    </div>
                                   </div>
-                                  <div className="flex gap-2 justify-end">
-                                    <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
-                                    <Button onClick={() => handleSend(sendTarget.id)}>발송</Button>
-                                  </div>
-                                </div>
-                              )}
-                            </DialogContent>
-                          </Dialog>
+                                )}
+                              </DialogContent>
+                            </Dialog>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -512,8 +613,8 @@ export default function ContractsPage() {
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
-                <p className="text-xs text-gray-500">{signTarget.user.name}</p>
-                <a href={signTarget.fileUrl} target="_blank" className="text-xs text-blue-600">파일</a>
+                <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
+                <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
               </div>
               <div className="space-y-2">
                 <Label>서명자</Label>
@@ -551,13 +652,91 @@ export default function ContractsPage() {
                         {statusConfig[v.status]?.label || v.status}
                       </Badge>
                     </div>
-                    <a href={v.fileUrl} target="_blank">
+                    <a href={getFileUrl(v.fileUrl)} target="_blank" rel="noreferrer">
                       <Button size="sm" variant="outline" className="w-full gap-1">
                         <Download size={12} />다운로드
                       </Button>
                     </a>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 결재 히스토리 모달 */}
+      <Dialog open={approvalDetailsOpen} onOpenChange={setApprovalDetailsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>결재 히스토리</DialogTitle></DialogHeader>
+          {approvalDetailsTarget && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div className="space-y-2 pb-3 border-b">
+                <p className="text-sm font-medium text-gray-600">계약서</p>
+                <p className="text-sm font-semibold">{approvalDetailsTarget.title}</p>
+                <p className="text-xs text-gray-500">
+                  작성일: {format(new Date(approvalDetailsTarget.createdAt), "yyyy-MM-dd HH:mm")}
+                </p>
+              </div>
+
+              {/* 직원 서명 */}
+              <div className="space-y-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium">직원 서명</p>
+                    <p className="text-xs text-gray-500">{approvalDetailsTarget.user.name}</p>
+                  </div>
+                  {approvalDetailsTarget.employeeSignedAt ? (
+                    <Badge className="bg-green-100 text-green-700">완료</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-orange-600">대기</Badge>
+                  )}
+                </div>
+                {approvalDetailsTarget.employeeSignedAt && (
+                  <p className="text-xs text-gray-500">
+                    {format(new Date(approvalDetailsTarget.employeeSignedAt), "yyyy-MM-dd HH:mm")}
+                  </p>
+                )}
+              </div>
+
+              {/* 결재자 목록 */}
+              {approvalDetailsTarget.approvalLine?.steps && approvalDetailsTarget.approvalLine.steps.map(step => (
+                <div key={step.id} className="space-y-2 pb-2 border-b last:border-b-0">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{step.order}단계 결재</p>
+                      <p className="text-xs text-gray-500">{step.approver.name}</p>
+                    </div>
+                    {step.status === "APPROVED" ? (
+                      <Badge className="bg-green-100 text-green-700">승인됨</Badge>
+                    ) : step.status === "PENDING" ? (
+                      <Badge variant="outline" className="text-orange-600">대기</Badge>
+                    ) : (
+                      <Badge variant="outline">미정</Badge>
+                    )}
+                  </div>
+                  {step.decidedAt && (
+                    <p className="text-xs text-gray-500">
+                      {format(new Date(step.decidedAt), "yyyy-MM-dd HH:mm")}
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {/* 최종 서명 */}
+              {approvalDetailsTarget.signedAt && (
+                <div className="space-y-2 pt-2 border-t">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-medium">최종 서명</p>
+                      <p className="text-xs text-gray-500">완료</p>
+                    </div>
+                    <Badge className="bg-green-100 text-green-700">완료</Badge>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
+                  </p>
+                </div>
               )}
             </div>
           )}

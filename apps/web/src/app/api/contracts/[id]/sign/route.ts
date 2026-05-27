@@ -17,7 +17,7 @@ export async function POST(
   const contract = await prisma.contract.findUnique({
     where: { id },
     include: { approvalLine: { include: { steps: { include: { approver: true } } } } },
-  }) as any;
+  });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
@@ -65,7 +65,7 @@ export async function POST(
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     if (approvalLine && approvalLine.steps.length > 0) {
       const firstApprover = approvalLine.steps[0];
-      if (firstApprover.approver.email) {
+      if (firstApprover.approver && firstApprover.approver.email) {
         await sendApprovalRequest(
           firstApprover.approver.email,
           firstApprover.approver.name,
@@ -137,7 +137,7 @@ export async function POST(
 
   // 이메일 알림 발송
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  if (nextStep && nextStep.approver && nextStep.approver.email) {
+  if (nextStep?.approver?.email) {
     // 다음 승인자에게 알림
     await sendApprovalRequest(
       nextStep.approver.email,

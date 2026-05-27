@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  sendLeaveApprovalRequest,
+  sendLeaveApprovalCompletion,
+  sendLeaveRejectionNotification,
+} from "@/lib/email";
 
 export async function POST(
   request: NextRequest,
@@ -15,7 +20,11 @@ export async function POST(
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
     include: {
-      approvalSteps: { orderBy: { order: "asc" } },
+      user: { select: { id: true, name: true, email: true } },
+      approvalSteps: {
+        orderBy: { order: "asc" },
+        include: { approver: { select: { id: true, name: true, email: true } } },
+      },
     },
   });
   if (!leaveRequest)
@@ -41,6 +50,9 @@ export async function POST(
     }
 
     // 단계별 처리
+    let emailAction: "approve" | "reject" | "next_approver" | null = null;
+    let nextApprover: any = null;
+
     await prisma.$transaction(async (tx) => {
       await tx.leaveApprovalStep.update({
         where: { id: myStep!.id },
@@ -66,6 +78,7 @@ export async function POST(
           where: { leaveRequestId: id, status: "WAITING" },
           data:  { status: "REJECTED" },
         });
+        emailAction = "reject";
       } else {
         // 승인: 다음 WAITING 스텝을 PENDING으로
         const nextStep = steps.find(
@@ -76,6 +89,8 @@ export async function POST(
             where: { id: nextStep.id },
             data:  { status: "PENDING" },
           });
+          emailAction = "next_approver";
+          nextApprover = nextStep.approver;
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
           // 모든 단계 승인 완료 → 전체 승인
@@ -98,9 +113,60 @@ export async function POST(
               remaining: { decrement: leaveRequest.days },
             },
           });
+          emailAction = "approve";
         }
       }
     });
+
+    // 이메일 발송 (트랜잭션 후)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const requesterName = leaveRequest.user.name;
+    const requesterEmail = leaveRequest.user.email;
+    const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
+    const leaveTypeLabel: Record<string, string> = {
+      ANNUAL: "연차",
+      SICK: "병가",
+      PERSONAL: "개인휴가",
+      MATERNITY: "출산휴가",
+      BEREAVEMENT: "상주휴가",
+    };
+    const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
+    const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
+    const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
+
+    if (emailAction === "reject") {
+      await sendLeaveRejectionNotification(
+        requesterEmail,
+        requesterName,
+        leaveTypeStr,
+        startDateStr,
+        endDateStr,
+        approverName,
+        reason || null,
+        appUrl
+      );
+    } else if (emailAction === "approve") {
+      await sendLeaveApprovalCompletion(
+        requesterEmail,
+        requesterName,
+        leaveTypeStr,
+        startDateStr,
+        endDateStr,
+        approverName,
+        appUrl
+      );
+    } else if (emailAction === "next_approver" && nextApprover) {
+      await sendLeaveApprovalRequest(
+        nextApprover.email,
+        nextApprover.name,
+        requesterName,
+        leaveTypeStr,
+        startDateStr,
+        endDateStr,
+        leaveRequest.reason || "",
+        appUrl
+      );
+    }
 
     return NextResponse.json({ success: true });
   }
@@ -121,6 +187,15 @@ async function adminOverride(
   reason: string | undefined,
   approverId: string
 ) {
+  const leaveRequest = await prisma.leaveRequest.findUnique({
+    where: { id },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+
+  if (!leaveRequest) {
+    return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+  }
+
   await prisma.leaveRequest.update({
     where: { id },
     data: {
@@ -145,6 +220,46 @@ async function adminOverride(
         remaining: { decrement: days },
       },
     });
+  }
+
+  // 이메일 발송
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const approver = await prisma.user.findUnique({ where: { id: approverId } });
+  const approverName = approver?.name || "관리자";
+  const requesterName = leaveRequest.user.name;
+  const requesterEmail = leaveRequest.user.email;
+  const leaveTypeLabel: Record<string, string> = {
+    ANNUAL: "연차",
+    SICK: "병가",
+    PERSONAL: "개인휴가",
+    MATERNITY: "출산휴가",
+    BEREAVEMENT: "상주휴가",
+  };
+  const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
+  const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
+  const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
+
+  if (action === "approve") {
+    await sendLeaveApprovalCompletion(
+      requesterEmail,
+      requesterName,
+      leaveTypeStr,
+      startDateStr,
+      endDateStr,
+      approverName,
+      appUrl
+    );
+  } else {
+    await sendLeaveRejectionNotification(
+      requesterEmail,
+      requesterName,
+      leaveTypeStr,
+      startDateStr,
+      endDateStr,
+      approverName,
+      reason || null,
+      appUrl
+    );
   }
 
   return NextResponse.json({ success: true });

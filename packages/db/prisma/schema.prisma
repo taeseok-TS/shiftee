@@ -19,10 +19,13 @@ model User {
   jobGroup    String?   // 직군 (원장 | CM | TM | 코디)
   position    String?   // 직급 (인턴매니저, 주임교실장 등)
   branch      String?   // 지점 (예: "A지점", "B지점")
-  hireDate    DateTime?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  hireDate          DateTime?
+  isActive          Boolean              @default(true)
+  employmentStatus  EmploymentStatus     @default(ACTIVE)
+  resignDate        DateTime?
+  resignReason      String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   attendances        Attendance[]
   schedules          Schedule[]
@@ -42,6 +45,13 @@ enum Role {
   ADMIN
   MANAGER
   EMPLOYEE
+}
+
+enum EmploymentStatus {
+  ACTIVE        // 재직 중
+  RESIGNED      // 퇴직
+  ON_LEAVE      // 휴직
+  TEMPORARY     // 임시휴무
 }
 
 // ─── 출퇴근 ─────────────────────────────────────────────────

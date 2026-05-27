@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { FileSignature, Plus, Download, Trash2, PenLine } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Plus, Edit2, Trash2, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -21,12 +20,13 @@ type ContractTemplate = {
   type: string;
   fileUrl: string;
   version: number;
+  isActive: boolean;
+  createdBy: string;
   createdByUser: { id: string; name: string };
+  approverIds: string[];
   createdAt: string;
-  approverIds?: string;
+  updatedAt: string;
 };
-
-type Employee = { id: string; name: string; department: string | null };
 
 const typeLabel: Record<string, string> = {
   EMPLOYMENT: "근로계약서",
@@ -35,340 +35,382 @@ const typeLabel: Record<string, string> = {
   OTHER: "기타",
 };
 
-export default function TemplatesPage() {
+export default function ContractTemplatesPage() {
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [role, setRole] = useState("EMPLOYEE");
+  const [loading, setLoading] = useState(true);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ContractTemplate | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ContractTemplate | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
-  const [createForm, setCreateForm] = useState({
+  const [form, setForm] = useState({
     name: "",
     description: "",
     type: "EMPLOYMENT",
-    approverIds: [] as string[],
+    file: null as File | null,
   });
-  const [file, setFile] = useState<File | null>(null);
+
   const [uploading, setUploading] = useState(false);
 
-  const [editForm, setEditForm] = useState({
-    name: "",
-    description: "",
-    approverIds: [] as string[],
-  });
-
-  useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => {
-      const userRole = d.user?.role || "EMPLOYEE";
-      setRole(userRole);
-      if (userRole !== "EMPLOYEE") {
-        fetchTemplates();
-      }
-    });
-    fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
-  }, []);
-
-  const fetchTemplates = async () => {
+  // 템플릿 목록 조회
+  const fetchTemplates = useCallback(async () => {
     try {
+      setLoading(true);
       const res = await fetch("/api/contract-templates");
       const data = await res.json();
       setTemplates(data.templates || []);
     } catch (error) {
       console.error("템플릿 로드 실패:", error);
-      toast.error("템플릿을 불러올 수 없습니다.");
+      toast.error("템플릿 로드 실패");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  // 템플릿 생성
+  const handleCreate = async () => {
+    if (!form.name.trim()) {
+      toast.error("템플릿명을 입력해주세요");
+      return;
+    }
+    if (!form.file) {
+      toast.error("PDF 파일을 선택해주세요");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const formData = new FormData();
+      formData.append("name", form.name);
+      formData.append("description", form.description || "");
+      formData.append("type", form.type);
+      formData.append("file", form.file);
+
+      const res = await fetch("/api/contract-templates", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "생성 실패");
+      }
+
+      toast.success("템플릿이 생성되었습니다");
+      setForm({ name: "", description: "", type: "EMPLOYMENT", file: null });
+      setCreateOpen(false);
+      fetchTemplates();
+    } catch (error) {
+      console.error("템플릿 생성 실패:", error);
+      toast.error(error instanceof Error ? error.message : "생성 실패");
+    } finally {
+      setUploading(false);
     }
   };
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!file) { toast.error("파일을 선택해주세요."); return; }
-    if (!createForm.name) { toast.error("템플릿명을 입력해주세요."); return; }
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("name", createForm.name);
-    formData.append("description", createForm.description);
-    formData.append("type", createForm.type);
-    if (createForm.approverIds.length > 0) {
-      formData.append("approverIds", JSON.stringify(createForm.approverIds));
+  // 템플릿 수정
+  const handleUpdate = async () => {
+    if (!editTarget) return;
+    if (!form.name.trim()) {
+      toast.error("템플릿명을 입력해주세요");
+      return;
     }
 
-    const res = await fetch("/api/contract-templates", { method: "POST", body: formData });
-    const data = await res.json();
-    setUploading(false);
+    try {
+      setUploading(true);
+      const body: any = {
+        name: form.name,
+        description: form.description || "",
+      };
 
-    if (!res.ok) { toast.error(data.error); return; }
-    toast.success("템플릿이 생성되었습니다.");
-    setCreateOpen(false);
-    setFile(null);
-    setCreateForm({ name: "", description: "", type: "EMPLOYMENT", approverIds: [] });
-    fetchTemplates();
-  }
+      // 파일이 변경된 경우에만 업로드
+      if (form.file) {
+        const formData = new FormData();
+        formData.append("file", form.file);
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          body.fileUrl = uploadData.fileUrl;
+        }
+      }
 
-  async function handleEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editTarget) return;
+      const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-    const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        description: editForm.description,
-        approverIds: editForm.approverIds.length > 0 ? editForm.approverIds : [],
-      }),
-    });
-    const data = await res.json();
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "수정 실패");
+      }
 
-    if (!res.ok) { toast.error(data.error); return; }
-    toast.success("템플릿이 수정되었습니다.");
-    setEditOpen(false);
-    setEditTarget(null);
-    fetchTemplates();
-  }
+      toast.success("템플릿이 수정되었습니다");
+      setForm({ name: "", description: "", type: "EMPLOYMENT", file: null });
+      setEditOpen(false);
+      setEditTarget(null);
+      fetchTemplates();
+    } catch (error) {
+      console.error("템플릿 수정 실패:", error);
+      toast.error(error instanceof Error ? error.message : "수정 실패");
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  async function handleDelete() {
-    if (!deleteTarget) return;
+  // 템플릿 삭제
+  const handleDelete = async (templateId: string) => {
+    if (!confirm("정말로 삭제하시겠습니까?")) return;
 
-    const res = await fetch(`/api/contract-templates/${deleteTarget.id}`, {
-      method: "DELETE",
-    });
-    const data = await res.json();
+    try {
+      const res = await fetch(`/api/contract-templates/${templateId}`, {
+        method: "DELETE",
+      });
 
-    if (!res.ok) { toast.error(data.error); return; }
-    toast.success("템플릿이 삭제되었습니다.");
-    setDeleteOpen(false);
-    setDeleteTarget(null);
-    fetchTemplates();
-  }
+      if (!res.ok) {
+        throw new Error("삭제 실패");
+      }
 
-  const openEdit = (template: ContractTemplate) => {
+      toast.success("템플릿이 삭제되었습니다");
+      fetchTemplates();
+    } catch (error) {
+      console.error("템플릿 삭제 실패:", error);
+      toast.error("삭제 실패");
+    }
+  };
+
+  // 수정 모달 열기
+  const openEditDialog = (template: ContractTemplate) => {
     setEditTarget(template);
-    const approverIds = template.approverIds ? JSON.parse(template.approverIds) : [];
-    setEditForm({
+    setForm({
       name: template.name,
       description: template.description || "",
-      approverIds,
+      type: template.type,
+      file: null,
     });
     setEditOpen(true);
   };
 
-  if (role === "EMPLOYEE") {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen text-center">
-        <div className="space-y-2">
-          <p className="text-gray-600">권한이 없습니다.</p>
-          <p className="text-sm text-gray-500">관리자 또는 매니저만 템플릿을 관리할 수 있습니다.</p>
-        </div>
+      <div className="flex items-center justify-center h-96">
+        <p className="text-gray-500">로드 중...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">계약서 템플릿</h1>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger>
-            <Button className="gap-2"><Plus size={16} />새 템플릿</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>템플릿 생성</DialogTitle></DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-2">
-                <Label>템플릿명 *</Label>
-                <Input
-                  value={createForm.name}
-                  onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="예: 2025 신입사원 근로계약서"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>설명</Label>
-                <Textarea
-                  value={createForm.description}
-                  onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="템플릿에 대한 설명"
-                  rows={3}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>유형 *</Label>
-                <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(typeLabel).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>파일 (PDF) *</Label>
-                <Input
-                  type="file"
-                  accept=".pdf"
-                  onChange={e => setFile(e.target.files?.[0] || null)}
-                  disabled={uploading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>기본 승인자 (선택사항)</Label>
-                <div className="space-y-1 border rounded-lg p-2 max-h-40 overflow-y-auto">
-                  {employees.map(e => (
-                    <label key={e.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                      <input
-                        type="checkbox"
-                        checked={createForm.approverIds.includes(e.id)}
-                        onChange={ev => {
-                          if (ev.target.checked) {
-                            setCreateForm(f => ({ ...f, approverIds: [...f.approverIds, e.id] }));
-                          } else {
-                            setCreateForm(f => ({ ...f, approverIds: f.approverIds.filter(id => id !== e.id) }));
-                          }
-                        }}
-                      />
-                      <span className="text-sm">{e.name} ({e.department})</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
-                <Button type="submit" disabled={uploading}>{uploading ? "업로드" : "생성"}</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">계약서 템플릿</h1>
+        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", file: null }); setCreateOpen(true); }} className="gap-2">
+          <Plus size={16} />
+          새 템플릿 만들기
+        </Button>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />템플릿 목록</CardTitle></CardHeader>
-        <CardContent>
-          {templates.length === 0 ? (
-            <div className="py-8 text-center text-gray-400">생성된 템플릿이 없습니다.</div>
-          ) : (
-            <div className="space-y-3">
-              {templates.map(t => {
-                const approverIds = t.approverIds ? JSON.parse(t.approverIds) : [];
-                const approvers = employees.filter(e => approverIds.includes(e.id));
-                return (
-                  <div key={t.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{t.name}</p>
-                        {t.description && <p className="text-xs text-gray-600 mt-1">{t.description}</p>}
-                        <div className="flex items-center gap-3 mt-2">
-                          <Badge variant="outline" className="text-xs">{typeLabel[t.type]}</Badge>
-                          <p className="text-xs text-gray-500">
-                            {t.createdByUser.name} · {format(new Date(t.createdAt), "yyyy-MM-dd")}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <a href={t.fileUrl} target="_blank">
-                          <Button size="sm" variant="ghost" className="h-8"><Download size={14} /></Button>
-                        </a>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8"
-                          onClick={() => openEdit(t)}
-                        >
-                          <PenLine size={14} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 text-red-600 hover:text-red-700"
-                          onClick={() => { setDeleteTarget(t); setDeleteOpen(true); }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    </div>
-                    {approvers.length > 0 && (
-                      <div className="text-xs text-gray-500 mt-2">
-                        기본 승인자: {approvers.map(a => a.name).join(", ")}
-                      </div>
-                    )}
+      {/* 템플릿 목록 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {templates.length === 0 ? (
+          <Card className="md:col-span-2">
+            <CardContent className="pt-10">
+              <p className="text-center text-gray-500">등록된 템플릿이 없습니다</p>
+            </CardContent>
+          </Card>
+        ) : (
+          templates.map(template => (
+            <Card key={template.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg">{template.name}</CardTitle>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {template.createdByUser.name} · {format(new Date(template.createdAt), "yyyy-MM-dd")}
+                    </p>
                   </div>
-                );
-              })}
+                  <Badge variant="outline">{typeLabel[template.type] || template.type}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {template.description && (
+                  <p className="text-sm text-gray-600">{template.description}</p>
+                )}
+                <p className="text-xs text-gray-500">v{template.version}</p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 gap-1"
+                    onClick={() => openEditDialog(template)}
+                  >
+                    <Edit2 size={14} />
+                    수정
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => handleDelete(template.id)}
+                  >
+                    <Trash2 size={14} />
+                    삭제
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* 생성 모달 */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>새 템플릿 만들기</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>템플릿명 *</Label>
+              <Input
+                placeholder="예: 2026 신입사원 근로계약서"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              />
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            <div className="space-y-2">
+              <Label>설명</Label>
+              <Textarea
+                placeholder="템플릿 설명 (선택사항)"
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                className="h-20"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>계약서 유형 *</Label>
+              <Select value={form.type} onValueChange={type => setForm(f => ({ ...f, type }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(typeLabel).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>PDF 파일 *</Label>
+              <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={e => setForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
+                  className="hidden"
+                  id="file-input-create"
+                />
+                <label htmlFor="file-input-create" className="cursor-pointer block">
+                  {form.file ? (
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">📄 {form.file.name}</p>
+                      <p className="text-xs text-gray-500">{(form.file.size / 1024 / 1024).toFixed(2)}MB</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Upload size={24} className="mx-auto text-gray-400" />
+                      <p className="text-sm font-medium">PDF 파일 선택</p>
+                      <p className="text-xs text-gray-500">또는 여기에 드래그</p>
+                    </div>
+                  )}
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
+              <Button onClick={handleCreate} disabled={uploading}>
+                {uploading ? "업로드 중..." : "생성"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 수정 모달 */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>템플릿 수정</DialogTitle></DialogHeader>
           {editTarget && (
-            <form onSubmit={handleEdit} className="space-y-4">
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label>템플릿명</Label>
-                <Input value={editForm.name} disabled className="bg-gray-100" />
+                <Label>템플릿명 *</Label>
+                <Input
+                  placeholder="예: 2026 신입사원 근로계약서"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                />
               </div>
+
               <div className="space-y-2">
                 <Label>설명</Label>
                 <Textarea
-                  value={editForm.description}
-                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                  rows={3}
+                  placeholder="템플릿 설명 (선택사항)"
+                  value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  className="h-20"
                 />
               </div>
+
               <div className="space-y-2">
-                <Label>승인자</Label>
-                <div className="space-y-1 border rounded-lg p-2 max-h-40 overflow-y-auto">
-                  {employees.map(e => (
-                    <label key={e.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                      <input
-                        type="checkbox"
-                        checked={editForm.approverIds.includes(e.id)}
-                        onChange={ev => {
-                          if (ev.target.checked) {
-                            setEditForm(f => ({ ...f, approverIds: [...f.approverIds, e.id] }));
-                          } else {
-                            setEditForm(f => ({ ...f, approverIds: f.approverIds.filter(id => id !== e.id) }));
-                          }
-                        }}
-                      />
-                      <span className="text-sm">{e.name} ({e.department})</span>
-                    </label>
-                  ))}
+                <Label>계약서 유형 (읽기 전용)</Label>
+                <Input value={typeLabel[editTarget.type] || editTarget.type} disabled />
+              </div>
+
+              <div className="space-y-2">
+                <Label>PDF 파일 (선택사항)</Label>
+                <p className="text-xs text-gray-500 mb-2">새 파일을 선택하면 기존 파일이 교체됩니다</p>
+                <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={e => setForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
+                    className="hidden"
+                    id="file-input-edit"
+                  />
+                  <label htmlFor="file-input-edit" className="cursor-pointer block">
+                    {form.file ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">📄 {form.file.name}</p>
+                        <p className="text-xs text-gray-500">{(form.file.size / 1024 / 1024).toFixed(2)}MB</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <Upload size={24} className="mx-auto text-gray-400" />
+                        <p className="text-sm font-medium">새 PDF 파일 선택</p>
+                      </div>
+                    )}
+                  </label>
                 </div>
               </div>
+
               <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>취소</Button>
-                <Button type="submit">수정</Button>
+                <Button variant="outline" onClick={() => setEditOpen(false)}>취소</Button>
+                <Button onClick={handleUpdate} disabled={uploading}>
+                  {uploading ? "업로드 중..." : "저장"}
+                </Button>
               </div>
-            </form>
+            </div>
           )}
         </DialogContent>
       </Dialog>
-
-      {/* 삭제 확인 모달 */}
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>템플릿 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              '{deleteTarget?.name}' 템플릿을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex gap-2 justify-end">
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-              삭제
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Pencil, Building2, Search, ChevronRight, ArrowLeft, Users, Upload } from "lucide-react";
+import { Plus, Pencil, Building2, Search, ChevronRight, ArrowLeft, Users, Upload, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { getAllBranches } from "@/lib/branches";
@@ -144,6 +144,7 @@ export default function EmployeesPage() {
   const [employees, setEmployees]   = useState<Employee[]>([]);
   const [myRole, setMyRole]         = useState("EMPLOYEE");
   const [myBranch, setMyBranch]     = useState<string | null>(null);
+  const [branchesFromDB, setBranchesFromDB] = useState<Array<{ id: string; name: string }>>([]);
 
   const [addOpen, setAddOpen]       = useState(false);
   const [form, setForm]             = useState({ ...EMPTY_FORM });
@@ -151,6 +152,10 @@ export default function EmployeesPage() {
   const [editOpen, setEditOpen]     = useState(false);
   const [editTarget, setEditTarget] = useState<Employee | null>(null);
   const [editForm, setEditForm]     = useState({ ...EMPTY_FORM });
+
+  const [resignOpen, setResignOpen]       = useState(false);
+  const [resignTarget, setResignTarget]   = useState<Employee | null>(null);
+  const [resignForm, setResignForm]       = useState({ resignDate: "", resignReason: "" });
 
   const [excelUploadOpen, setExcelUploadOpen] = useState(false);
   const [excelLoading, setExcelLoading] = useState(false);
@@ -173,6 +178,11 @@ export default function EmployeesPage() {
       setMyRole(d.user?.role || "EMPLOYEE");
       setMyBranch(d.user?.branch ?? null);
     });
+    // 데이터베이스에서 실제 지점 목록 로드
+    (async () => {
+      const branches = await getAllBranches();
+      setBranchesFromDB(branches);
+    })();
   }, [fetchEmployees]);
 
   const branches = useMemo(
@@ -296,6 +306,13 @@ export default function EmployeesPage() {
     setEditOpen(true);
   }
 
+  /* ── 퇴사 처리 열기 ── */
+  function openResign(emp: Employee) {
+    setResignTarget(emp);
+    setResignForm({ resignDate: "", resignReason: "" });
+    setResignOpen(true);
+  }
+
   /* ── 수정 저장 ── */
   async function handleEdit(ev: React.FormEvent) {
     ev.preventDefault();
@@ -308,7 +325,7 @@ export default function EmployeesPage() {
         department: editForm.department,
         jobGroup:   editForm.jobGroup  || null,
         position:   editForm.position  || null,
-        branch:     isAdmin ? (editForm.branch || null) : undefined,
+        branch:     editForm.branch || null,
         phone:      editForm.phone,
         hireDate:   editForm.hireDate || null,
       }),
@@ -317,6 +334,23 @@ export default function EmployeesPage() {
     if (!res.ok) { toast.error(data.error); return; }
     toast.success("정보가 수정되었습니다.");
     setEditOpen(false); fetchEmployees();
+  }
+
+  /* ── 퇴사 처리 저장 ── */
+  async function handleResign(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (!resignTarget || !resignForm.resignDate) return;
+    const res = await fetch(`/api/employees/${resignTarget.id}/resign`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resignDate: resignForm.resignDate,
+        resignReason: resignForm.resignReason || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error); return; }
+    toast.success(`${resignTarget.name} 직원이 퇴사 처리되었습니다.`);
+    setResignOpen(false); fetchEmployees();
   }
 
   /* ── 직원 카드 (공통) ── */
@@ -362,10 +396,18 @@ export default function EmployeesPage() {
                 {emp.phone && <p className="text-xs text-gray-400">{emp.phone}</p>}
               </div>
               {(isAdmin || isManager) && (
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700"
-                  onClick={() => openEdit(emp)}>
-                  <Pencil size={13} />
-                </Button>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700"
+                    onClick={() => openEdit(emp)}>
+                    <Pencil size={13} />
+                  </Button>
+                  {isAdmin && (
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-600"
+                      onClick={() => openResign(emp)}>
+                      <Trash2 size={13} />
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -469,54 +511,53 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* 지점 카드 그리드 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {branchOrder.map(b => {
-              const summary = branchSummary[b];
-              return (
-                <button key={b} type="button"
-                  onClick={() => { setSelectedBranch(b); setSearch(""); setFilterJobGroup("all"); }}
-                  className="text-left group">
-                  <Card className="hover:shadow-lg hover:border-blue-300 transition-all cursor-pointer group-hover:bg-blue-50/30">
-                    <CardContent className="py-4 px-5">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <Building2 size={16} className="text-blue-600" />
-                          </div>
-                          <span className="font-bold text-gray-900">{b}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-gray-400 group-hover:text-blue-500 transition-colors">
-                          <Users size={13} />
-                          <span className="text-sm font-semibold">{summary.total}명</span>
-                          <ChevronRight size={15} />
-                        </div>
+          {/* 지점별 직원 표시 */}
+          {branchOrder.length > 0 ? (
+            <div className="space-y-8">
+              {branchOrder.map(b => {
+                const summary = branchSummary[b];
+                const branchEmps = employees.filter(e => (e.branch || "미지정") === b);
+                return (
+                  <div key={b}>
+                    {/* 지점 헤더 */}
+                    <div className="flex items-center gap-3 mb-4 pb-3 border-b">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <Building2 size={16} className="text-blue-600" />
                       </div>
-                      {/* 직군 분포 */}
-                      <div className="flex flex-wrap gap-1.5">
-                        {JOB_GROUP_ORDER.filter(jg => summary.byJobGroup[jg]).map(jg => {
-                          const cfg = JOB_GROUPS[jg];
-                          return (
-                            <span key={jg}
-                              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${cfg.badge}`}>
-                              {cfg.label} {summary.byJobGroup[jg]}
-                            </span>
-                          );
-                        })}
-                        {summary.byJobGroup["기타"] > 0 && (
-                          <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-gray-100 text-gray-500 border-gray-200">
-                            미지정 {summary.byJobGroup["기타"]}
-                          </span>
-                        )}
+                      <div className="flex-1">
+                        <h2 className="font-bold text-lg text-gray-900">{b}</h2>
                       </div>
-                    </CardContent>
-                  </Card>
-                </button>
-              );
-            })}
-          </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Users size={14} />
+                        <span>{summary.total}명</span>
+                      </div>
+                    </div>
 
-          {branchOrder.length === 0 && (
+                    {/* 직원 목록 (직군별) */}
+                    {[...JOB_GROUP_ORDER, "기타"].map(jg => {
+                      const emps = branchEmps.filter(e => (e.jobGroup || "기타") === jg);
+                      if (emps.length === 0) return null;
+                      const cfg = JOB_GROUPS[jg as JobGroupKey];
+                      return (
+                        <div key={jg} className="mb-5">
+                          <div className="flex items-center gap-2 mb-2 ml-2">
+                            {cfg && <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />}
+                            <span className="text-sm font-semibold text-gray-600">
+                              {cfg ? cfg.label : "직군 미지정"}
+                            </span>
+                            <span className="text-xs text-gray-400">{emps.length}명</span>
+                          </div>
+                          <div className="grid gap-2">
+                            {emps.map(emp => <EmployeeCard key={emp.id} emp={emp} />)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
             <div className="text-center text-gray-400 py-20">등록된 직원이 없습니다.</div>
           )}
         </>
@@ -544,12 +585,12 @@ export default function EmployeesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>지점</Label>
-                <Select value={form.branch} onValueChange={v => v !== null && setForm(f => ({ ...f, branch: v }))}>
+                <Select value={form.branch} onValueChange={v => setForm(f => ({ ...f, branch: v }))}>
                   <SelectTrigger><SelectValue placeholder="지점 선택" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">선택 안 함</SelectItem>
-                    {getAllBranches().map(b => (
-                      <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>
+                    {branchesFromDB.map(b => (
+                      <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -607,11 +648,11 @@ export default function EmployeesPage() {
           <div className="space-y-4">
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
               <p className="text-sm text-blue-900 font-medium mb-2">📋 엑셀 파일 형식</p>
-              <p className="text-xs text-blue-700 space-y-1">
+              <div className="text-xs text-blue-700 space-y-1">
                 <div>필수 열: name (이름), email (이메일), password (비밀번호)</div>
                 <div>선택 열: phone, department, branch, jobGroup, position, role, hireDate</div>
                 <div>첫 번째 행은 헤더로 인식됩니다.</div>
-              </p>
+              </div>
             </div>
 
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
@@ -662,8 +703,8 @@ export default function EmployeesPage() {
                     <SelectTrigger><SelectValue placeholder="지점 선택" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">선택 안 함</SelectItem>
-                      {getAllBranches().map(b => (
-                        <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>
+                      {branchesFromDB.map(b => (
+                        <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -712,6 +753,49 @@ export default function EmployeesPage() {
               <Button type="submit">저장</Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ 퇴사 처리 다이얼로그 ═══ */}
+      <Dialog open={resignOpen} onOpenChange={setResignOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>퇴사 처리</DialogTitle>
+          </DialogHeader>
+          {resignTarget && (
+            <form onSubmit={handleResign} className="space-y-4">
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <p className="text-sm font-medium text-blue-900">
+                  {resignTarget.name} ({resignTarget.position})을(를) 퇴사 처리합니다.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>퇴사일 *</Label>
+                <Input
+                  type="date"
+                  value={resignForm.resignDate}
+                  onChange={e => setResignForm(f => ({ ...f, resignDate: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>퇴사사유 (선택사항)</Label>
+                <Input
+                  type="text"
+                  placeholder="예: 개인사유, 이직 등"
+                  value={resignForm.resignReason}
+                  onChange={e => setResignForm(f => ({ ...f, resignReason: e.target.value }))}
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <Button type="button" variant="outline" onClick={() => setResignOpen(false)}>취소</Button>
+                <Button type="submit" variant="destructive">퇴사 처리</Button>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

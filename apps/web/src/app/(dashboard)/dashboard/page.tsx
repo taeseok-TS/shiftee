@@ -35,7 +35,7 @@ export default async function DashboardPage() {
     prisma.leaveRequest.findMany({
       take: 5,
       where: { status: "PENDING" },
-      include: { user: { select: { name: true } } },
+      include: { user: { select: { name: true, branch: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.attendance.findFirst({
@@ -123,7 +123,7 @@ export default async function DashboardPage() {
           status: "PENDING",
           user: userWhereClause,
         },
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true, branch: true } } },
         orderBy: { createdAt: "desc" },
         take: 5,
       }),
@@ -132,7 +132,7 @@ export default async function DashboardPage() {
           status: "SENT",
           user: userWhereClause,
         },
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true, branch: true } } },
         take: 5,
       }),
     ]);
@@ -383,7 +383,7 @@ export default async function DashboardPage() {
                   {recentPendingLeaves.map((leave) => (
                     <div key={leave.id} className="flex items-center justify-between py-2 border-b last:border-0">
                       <div>
-                        <p className="font-medium text-sm">{leave.user.name}</p>
+                        <p className="font-medium text-sm">{leave.user.branch ? `[${leave.user.branch}] ` : ''}{leave.user.name}</p>
                         <p className="text-xs text-gray-500">
                           {format(new Date(leave.startDate), "MM/dd")} ~ {format(new Date(leave.endDate), "MM/dd")} ({leave.days}일)
                         </p>
@@ -421,7 +421,7 @@ export default async function DashboardPage() {
                   {recentPendingContracts.map((contract) => (
                     <div key={contract.id} className="flex items-center justify-between py-2 border-b last:border-0">
                       <div>
-                        <p className="font-medium text-sm">{contract.user.name}</p>
+                        <p className="font-medium text-sm">{contract.user.branch ? `[${contract.user.branch}] ` : ''}{contract.user.name}</p>
                         <p className="text-xs text-gray-500">{contract.title}</p>
                       </div>
                       <Badge variant="default" className="bg-blue-600">

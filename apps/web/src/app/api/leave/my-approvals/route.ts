@@ -15,10 +15,10 @@ export async function GET() {
     include: {
       leaveRequest: {
         include: {
-          user: { select: { name: true, department: true, position: true } },
+          user: { select: { name: true, department: true, position: true, branch: true } },
           approvalSteps: {
             include: {
-              approver: { select: { id: true, name: true, position: true } },
+              approver: { select: { id: true, name: true, position: true, branch: true } },
             },
             orderBy: { order: "asc" },
           },

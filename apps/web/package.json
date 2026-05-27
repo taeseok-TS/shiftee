@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma generate --schema=../packages/db/prisma/schema.prisma || true"
   },
   "dependencies": {
+    "@shiftee/api": "file:../../packages/api",
     "@base-ui/react": "^1.5.0",
     "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",

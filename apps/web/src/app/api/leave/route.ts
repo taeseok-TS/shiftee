@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
+import { sendLeaveApprovalRequest } from "@/lib/email";
+import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -33,10 +35,10 @@ export async function GET(request: NextRequest) {
   const requests = await prisma.leaveRequest.findMany({
     where,
     include: {
-      user:     { select: { name: true, department: true } },
-      approver: { select: { name: true } },
+      user:     { select: { name: true, department: true, branch: true } },
+      approver: { select: { name: true, branch: true } },
       approvalSteps: {
-        include: { approver: { select: { id: true, name: true, position: true } } },
+        include: { approver: { select: { id: true, name: true, position: true, branch: true } } },
         orderBy: { order: "asc" },
       },
     },
@@ -101,7 +103,12 @@ export async function POST(request: NextRequest) {
   // 결재라인이 설정된 경우 결재 스텝 생성
   const approvalLine = await prisma.approvalLine.findUnique({
     where: { userId: session.userId },
-    include: { steps: { orderBy: { order: "asc" } } },
+    include: {
+      steps: {
+        orderBy: { order: "asc" },
+        include: { approver: { select: { id: true, name: true, email: true } } },
+      },
+    },
   });
   if (approvalLine && approvalLine.steps.length > 0) {
     await prisma.leaveApprovalStep.createMany({
@@ -112,6 +119,37 @@ export async function POST(request: NextRequest) {
         status:         i === 0 ? "PENDING" : "WAITING",
       })),
     });
+
+    // 첫 번째 승인자에게 이메일 발송
+    const firstApprover = approvalLine.steps[0].approver;
+    if (firstApprover) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const leaveTypeLabel: Record<string, string> = {
+        ANNUAL: "연차",
+        SICK: "병가",
+        PERSONAL: "개인휴가",
+        MATERNITY: "출산휴가",
+        BEREAVEMENT: "상주휴가",
+        HALF_AM: "오전 반차",
+        HALF_PM: "오후 반차",
+        QUARTER_AM: "오전 1/4 휴가",
+        QUARTER_PM: "오후 1/4 휴가",
+      };
+      const leaveTypeStr = leaveTypeLabel[type] || type;
+      const startDateStr = start.toISOString().split('T')[0];
+      const endDateStr = end.toISOString().split('T')[0];
+
+      await sendLeaveApprovalRequest(
+        firstApprover.email,
+        firstApprover.name,
+        session.name,
+        leaveTypeStr,
+        startDateStr,
+        endDateStr,
+        reason || "",
+        appUrl
+      );
+    }
   }
 
   return NextResponse.json({ success: true, leaveRequest, days });
