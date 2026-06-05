@@ -703,12 +703,10 @@ export default function ContractsPage() {
               <Button className="gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} />계약서 작성</Button>
               {role !== "EMPLOYEE" && (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                      <FileSignature size={16} />
-                      템플릿
-                      <ChevronDown size={14} />
-                    </Button>
+                  <DropdownMenuTrigger className="px-4 py-2 border rounded-lg hover:bg-gray-50 inline-flex items-center gap-2 outline-none">
+                    <FileSignature size={16} />
+                    템플릿
+                    <ChevronDown size={14} />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={() => setUploadTemplateOpen(true)}>
