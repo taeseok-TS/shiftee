@@ -13,6 +13,7 @@ import {
   Building2,
   LogOut,
   BarChart3,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
@@ -71,8 +72,20 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* 로그아웃 */}
-      <div className="px-3 py-4 border-t border-slate-700">
+      {/* 환경설정 및 로그아웃 */}
+      <div className="px-3 py-4 border-t border-slate-700 space-y-1">
+        <Link
+          href="/profile"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+            pathname === "/profile" || pathname.startsWith("/profile/")
+              ? "bg-blue-600 text-white"
+              : "text-slate-300 hover:bg-slate-800 hover:text-white"
+          )}
+        >
+          <Settings size={18} />
+          환경설정
+        </Link>
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"

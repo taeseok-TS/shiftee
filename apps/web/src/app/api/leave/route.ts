@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
 import { sendLeaveApprovalRequest } from "@/lib/email";
+import { filterLeaveData } from "@/lib/api-response";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 
 export async function GET(request: NextRequest) {
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   const requests = await prisma.leaveRequest.findMany({
     where,
     include: {
-      user:     { select: { name: true, department: true, branch: true } },
+      user:     { select: { id: true, name: true, department: true, branch: true } },
       approver: { select: { name: true, branch: true } },
       approvalSteps: {
         include: { approver: { select: { id: true, name: true, position: true, branch: true } } },
@@ -45,7 +46,19 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ requests });
+  // 데이터 필터링 적용 (권한에 따라 민감한 정보 제외)
+  // 휴가 조회는 이미 권한 검증이 되어 있음 (EMPLOYEE는 자신, MANAGER는 자신의 지점만)
+  const filteredRequests = requests.map(req => ({
+    ...req,
+    user: {
+      id: req.user.id,
+      name: req.user.name,
+      department: req.user.department,
+      branch: req.user.branch,
+    },
+  }));
+
+  return NextResponse.json({ requests: filteredRequests });
 }
 
 export async function POST(request: NextRequest) {

@@ -9,36 +9,40 @@ datasource db {
 
 // ─── 직원 ───────────────────────────────────────────────────
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  password    String
-  name        String
-  phone       String?
-  role        Role     @default(EMPLOYEE)
-  department  String?
-  jobGroup    String?   // 직군 (원장 | CM | TM | 코디)
-  position    String?   // 직급 (인턴매니저, 주임교실장 등)
-  branch      String?   // 지점 (예: "A지점", "B지점")
-  hireDate          DateTime?
-  isActive          Boolean              @default(true)
-  employmentStatus  EmploymentStatus     @default(ACTIVE)
-  resignDate        DateTime?
-  resignReason      String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String           @id @default(cuid())
+  email                String           @unique
+  password             String
+  name                 String
+  phone                String?
+  role                 Role             @default(EMPLOYEE)
+  department           String?
+  jobGroup             String? // 직군 (원장 | CM | TM | 코디)
+  position             String? // 직급 (인턴매니저, 주임교실장 등)
+  branch               String? // 지점 (예: "A지점", "B지점")
+  hireDate             DateTime?
+  isActive             Boolean          @default(true)
+  employmentStatus     EmploymentStatus @default(ACTIVE)
+  resignDate           DateTime?
+  resignReason         String?
+  deletedAt            DateTime? // 삭제된 시간 (soft delete)
+  permanentlyDeletedAt DateTime? // 영구 삭제 예정 시간 (30일 후)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
-  attendances        Attendance[]
-  schedules          Schedule[]
-  leaveRequests      LeaveRequest[]
-  leaveBalance       LeaveBalance?
-  contracts          Contract[]
-  approvedLeaves     LeaveRequest[]     @relation("Approver")
-  approvalLine       ApprovalLine?      @relation("ApprovalLineTarget")
-  approvalLineSteps  ApprovalLineStep[] @relation("ApprovalLineApprover")
-  leaveApprovalSteps LeaveApprovalStep[] @relation("LeaveApprovalApprover")
+  attendances           Attendance[]
+  schedules             Schedule[]
+  leaveRequests         LeaveRequest[]
+  leaveBalance          LeaveBalance?
+  contracts             Contract[]
+  approvedLeaves        LeaveRequest[]         @relation("Approver")
+  approvalLine          ApprovalLine?          @relation("ApprovalLineTarget")
+  approvalLineSteps     ApprovalLineStep[]     @relation("ApprovalLineApprover")
+  leaveApprovalSteps    LeaveApprovalStep[]    @relation("LeaveApprovalApprover")
+  scheduleApprovalSteps ScheduleApprovalStep[] @relation("ScheduleApprovalApprover")
   contractApprovalSteps ContractApprovalStep[] @relation("ContractApprover")
-  contractTemplates  ContractTemplate[] @relation("TemplateCreator")
-  contractVersions   ContractVersion[]  @relation("VersionCreator")
+  scheduleRequests      ScheduleRequest[]
+  contractTemplates     ContractTemplate[]     @relation("TemplateCreator")
+  contractVersions      ContractVersion[]      @relation("VersionCreator")
 }
 
 enum Role {
@@ -48,171 +52,217 @@ enum Role {
 }
 
 enum EmploymentStatus {
-  ACTIVE        // 재직 중
-  RESIGNED      // 퇴직
-  ON_LEAVE      // 휴직
-  TEMPORARY     // 임시휴무
+  ACTIVE // 재직 중
+  RESIGNED // 퇴직
+  ON_LEAVE // 휴직
+  TEMPORARY // 임시휴무
 }
 
 // ─── 출퇴근 ─────────────────────────────────────────────────
 model Attendance {
-  id         String           @id @default(cuid())
-  userId     String
-  user       User             @relation(fields: [userId], references: [id])
-  date       DateTime         @db.Date
-  clockIn    DateTime?
-  clockOut   DateTime?
-  status     AttendanceStatus @default(NORMAL)
-  note       String?
-  latitude   Float?
-  longitude  Float?
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  date      DateTime         @db.Date
+  clockIn   DateTime?
+  clockOut  DateTime?
+  status    AttendanceStatus @default(NORMAL)
+  note      String?
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@unique([userId, date])
   @@index([userId, date])
 }
 
 enum AttendanceStatus {
-  NORMAL      // 정상
-  LATE        // 지각
+  NORMAL // 정상
+  LATE // 지각
   EARLY_LEAVE // 조기퇴근
-  ABSENT      // 결근
-  HOLIDAY     // 휴일
+  ABSENT // 결근
+  HOLIDAY // 휴일
 }
 
 // ─── 근무일정 ───────────────────────────────────────────────
 model Schedule {
-  id        String         @id @default(cuid())
+  id        String       @id @default(cuid())
   userId    String
-  user      User           @relation(fields: [userId], references: [id])
-  date      DateTime       @db.Date
-  startTime String         // "09:00"
-  endTime   String         // "18:00"
-  type      ScheduleType   @default(WORK)
+  user      User         @relation(fields: [userId], references: [id])
+  date      DateTime     @db.Date
+  startTime String // "09:00"
+  endTime   String // "18:00"
+  type      ScheduleType @default(WORK)
   note      String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   @@index([userId, date])
 }
 
 enum ScheduleType {
-  WORK     // 근무
-  OFF      // 휴무
-  HOLIDAY  // 공휴일
+  WORK // 근무
+  OFF // 휴무
+  HOLIDAY // 공휴일
+}
+
+// ─── 근무일정 신청 ──────────────────────────────────────────
+model ScheduleRequest {
+  id            String                 @id @default(cuid())
+  userId        String
+  user          User                   @relation(fields: [userId], references: [id])
+  templateId    String? // 근무 템플릿 ID (예: "10-7")
+  templateName  String? // 템플릿명 (예: "10AM-7PM")
+  startDate     DateTime               @db.Date
+  endDate       DateTime               @db.Date
+  scheduleData  Json // 날짜별 일정 데이터
+  totalHours    Float // 총 계획 근무시간
+  status        ScheduleRequestStatus  @default(PENDING)
+  reason        String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  approvalSteps ScheduleApprovalStep[]
+
+  @@index([userId, status])
+}
+
+enum ScheduleRequestStatus {
+  PENDING // 대기
+  APPROVED // 승인
+  REJECTED // 반려
+  CANCELLED // 취소
+}
+
+// ─── 근무일정 신청 결재 현황 ──────────────────────────────────
+// ─── 근무일정 신청 결재 현황 ──────────────────────────────────
+model ScheduleApprovalStep {
+  id                String             @id @default(cuid())
+  scheduleRequestId String
+  scheduleRequest   ScheduleRequest    @relation(fields: [scheduleRequestId], references: [id], onDelete: Cascade)
+  order             Int
+  approverId        String
+  approver          User               @relation("ScheduleApprovalApprover", fields: [approverId], references: [id])
+  status            ApprovalStepStatus @default(PENDING)
+  comment           String?
+  decidedAt         DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([scheduleRequestId, order])
+  @@index([approverId, status])
 }
 
 // ─── 휴가 ───────────────────────────────────────────────────
 model LeaveRequest {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-  approverId  String?
-  approver    User?         @relation("Approver", fields: [approverId], references: [id])
-  type        LeaveType
-  startDate   DateTime      @db.Date
-  endDate     DateTime      @db.Date
-  days        Float
-  reason      String?
-  status      LeaveStatus   @default(PENDING)
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id])
+  approverId     String?
+  approver       User?               @relation("Approver", fields: [approverId], references: [id])
+  type           LeaveType
+  startDate      DateTime            @db.Date
+  endDate        DateTime            @db.Date
+  days           Float
+  reason         String?
+  status         LeaveStatus         @default(PENDING)
   rejectedReason String?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   approvalSteps  LeaveApprovalStep[]
 
   @@index([userId, status])
 }
 
 enum LeaveType {
-  ANNUAL        // 연차
-  HALF_AM       // 오전 반차 (0.5일)
-  HALF_PM       // 오후 반차 (0.5일)
-  QUARTER_AM    // 오전 반반차 (0.25일)
-  QUARTER_PM    // 오후 반반차 (0.25일)
-  COMPENSATORY  // 대체휴무
-  SICK          // 병가
-  SPECIAL       // 특별휴가
+  ANNUAL // 연차
+  HALF_AM // 오전 반차 (0.5일)
+  HALF_PM // 오후 반차 (0.5일)
+  QUARTER_AM // 오전 반반차 (0.25일)
+  QUARTER_PM // 오후 반반차 (0.25일)
+  COMPENSATORY // 대체휴무
+  SICK // 병가
+  SPECIAL // 특별휴가
 }
 
 enum LeaveStatus {
-  PENDING    // 대기
-  APPROVED   // 승인
-  REJECTED   // 반려
-  CANCELLED  // 취소
+  PENDING // 대기
+  APPROVED // 승인
+  REJECTED // 반려
+  CANCELLED // 취소
 }
 
 model LeaveBalance {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-  year        Int
-  total       Float    @default(15)
-  used        Float    @default(0)
-  remaining   Float    @default(15)
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  year      Int
+  total     Float    @default(15)
+  used      Float    @default(0)
+  remaining Float    @default(15)
+  updatedAt DateTime @updatedAt
 }
 
 // ─── 전자 계약 ──────────────────────────────────────────────
 model Contract {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  templateId      String?
-  template        ContractTemplate? @relation("TemplateToContract", fields: [templateId], references: [id], onDelete: SetNull)
-  title           String
-  type            ContractType
-  fileUrl         String
-  signedUrl       String?
-  version         Int      @default(1)
-  status          ContractStatus @default(DRAFT)
-  startDate       DateTime?      @db.Date
-  endDate         DateTime?      @db.Date
+  id               String                @id @default(cuid())
+  userId           String
+  user             User                  @relation(fields: [userId], references: [id])
+  templateId       String?
+  template         ContractTemplate?     @relation("TemplateToContract", fields: [templateId], references: [id], onDelete: SetNull)
+  title            String
+  type             ContractType
+  fileUrl          String
+  signedUrl        String?
+  version          Int                   @default(1)
+  status           ContractStatus        @default(DRAFT)
+  startDate        DateTime?             @db.Date
+  endDate          DateTime?             @db.Date
   employeeSignedAt DateTime?
-  signedAt        DateTime?
-  approvalLine    ContractApprovalLine?
-  versions        ContractVersion[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  signedAt         DateTime?
+  approvalLine     ContractApprovalLine?
+  versions         ContractVersion[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 }
 
 enum ContractType {
-  EMPLOYMENT     // 근로계약서
-  PART_TIME      // 단시간근로계약서
-  CONFIDENTIAL   // 비밀유지계약
+  EMPLOYMENT // 근로계약서
+  PART_TIME // 단시간근로계약서
+  CONFIDENTIAL // 비밀유지계약
   OTHER
 }
 
 enum ContractStatus {
-  DRAFT      // 초안
-  SENT       // 발송됨
-  APPROVED   // 승인 중
-  SIGNED     // 서명완료
-  EXPIRED    // 만료
+  DRAFT // 초안
+  SENT // 발송됨
+  APPROVED // 승인 중
+  SIGNED // 서명완료
+  EXPIRED // 만료
 }
 
 // ─── 계약 결재 라인 ──────────────────────────────────────────
 model ContractApprovalLine {
-  id        String                 @id @default(cuid())
-  contractId String                @unique
-  contract  Contract               @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  steps     ContractApprovalStep[]
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  id         String                 @id @default(cuid())
+  contractId String                 @unique
+  contract   Contract               @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  steps      ContractApprovalStep[]
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
 }
 
 model ContractApprovalStep {
-  id             String   @id @default(cuid())
+  id             String               @id @default(cuid())
   approvalLineId String
   approvalLine   ContractApprovalLine @relation(fields: [approvalLineId], references: [id], onDelete: Cascade)
   order          Int
   approverId     String
-  approver       User     @relation("ContractApprover", fields: [approverId], references: [id])
-  status         ApprovalStepStatus @default(WAITING)
+  approver       User                 @relation("ContractApprover", fields: [approverId], references: [id])
+  status         ApprovalStepStatus   @default(WAITING)
   comment        String?
   decidedAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@unique([approvalLineId, order])
   @@index([approverId, status])
@@ -266,20 +316,20 @@ enum ApprovalStepStatus {
 
 // ─── 계약 템플릿 ──────────────────────────────────────────────
 model ContractTemplate {
-  id              String   @id @default(cuid())
-  name            String   @unique  // "2025 신입사원 근로계약서"
-  description     String?
-  type            ContractType
-  fileUrl         String
-  version         Int      @default(1)
-  isActive        Boolean  @default(true)
-  createdBy       String
-  createdByUser   User     @relation("TemplateCreator", fields: [createdBy], references: [id])
-  approverIds     String   @default("[]")  // JSON array: ["id1", "id2"]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String       @id @default(cuid())
+  name          String       @unique // "2025 신입사원 근로계약서"
+  description   String?
+  type          ContractType
+  fileUrl       String
+  version       Int          @default(1)
+  isActive      Boolean      @default(true)
+  createdBy     String
+  createdByUser User         @relation("TemplateCreator", fields: [createdBy], references: [id])
+  approverIds   String       @default("[]") // JSON array: ["id1", "id2"]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  contracts       Contract[] @relation("TemplateToContract")
+  contracts Contract[] @relation("TemplateToContract")
 
   @@index([type])
   @@index([isActive, type])
@@ -287,19 +337,19 @@ model ContractTemplate {
 
 // ─── 계약 버전 관리 ───────────────────────────────────────────
 model ContractVersion {
-  id              String   @id @default(cuid())
-  contractId      String
-  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  version         Int
-  fileUrl         String
-  title           String
-  type            ContractType
-  status          ContractStatus
-  startDate       DateTime?  @db.Date
-  endDate         DateTime?  @db.Date
-  createdBy       String
-  createdByUser   User     @relation("VersionCreator", fields: [createdBy], references: [id])
-  createdAt       DateTime @default(now())
+  id            String         @id @default(cuid())
+  contractId    String
+  contract      Contract       @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  version       Int
+  fileUrl       String
+  title         String
+  type          ContractType
+  status        ContractStatus
+  startDate     DateTime?      @db.Date
+  endDate       DateTime?      @db.Date
+  createdBy     String
+  createdByUser User           @relation("VersionCreator", fields: [createdBy], references: [id])
+  createdAt     DateTime       @default(now())
 
   @@unique([contractId, version])
   @@index([contractId, version])

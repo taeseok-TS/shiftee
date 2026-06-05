@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
               ],
             },
             { employmentStatus: "ACTIVE" },
+            { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },

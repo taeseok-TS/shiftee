@@ -1,0 +1,143 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+  const { id } = await params;
+  const { action, reason } = await request.json(); // action: 'approve' | 'reject'
+
+  const scheduleRequest = await prisma.scheduleRequest.findUnique({
+    where: { id },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      approvalSteps: {
+        orderBy: { order: "asc" },
+        include: { approver: { select: { id: true, name: true, email: true } } },
+      },
+    },
+  });
+
+  if (!scheduleRequest) {
+    return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  const steps = scheduleRequest.approvalSteps;
+
+  if (steps.length > 0) {
+    // 내가 결재해야 할 PENDING 스텝 찾기
+    const myStep = steps.find(
+      (s) => s.approverId === session.userId && s.status === "PENDING"
+    );
+
+    // 관리자가 아니고 결재 차례도 아닌 경우
+    if (!myStep && session.role === "EMPLOYEE") {
+      return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
+    }
+
+    // MANAGER의 지점 검증 (다른 지점 신청은 승인 불가)
+    if (session.role === "MANAGER" && scheduleRequest.user.branch !== session.branch) {
+      return NextResponse.json({ error: "다른 지점 직원의 신청은 승인할 수 없습니다.", status: 403 });
+    }
+
+    // 관리자가 직접 전체 처리하는 경우 (단계 우회)
+    if (!myStep && session.role !== "EMPLOYEE") {
+      return await adminOverride(id, action, reason, session.userId);
+    }
+
+    // 단계별 처리
+    let emailAction: "approve" | "reject" | "next_approver" | null = null;
+    let nextApprover: any = null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.scheduleApprovalStep.update({
+        where: { id: myStep!.id },
+        data: {
+          status: action === "approve" ? "APPROVED" : "REJECTED",
+          comment: reason ?? null,
+          decidedAt: new Date(),
+        },
+      });
+
+      if (action === "reject") {
+        // 반려: 전체 요청 반려
+        await tx.scheduleRequest.update({
+          where: { id },
+          data: {
+            status: "REJECTED",
+          },
+        });
+        // 나머지 WAITING 스텝 취소
+        await tx.scheduleApprovalStep.updateMany({
+          where: { scheduleRequestId: id, status: "WAITING" },
+          data: { status: "REJECTED" },
+        });
+        emailAction = "reject";
+      } else {
+        // 승인: 다음 WAITING 스텝을 PENDING으로
+        const nextStep = steps.find(
+          (s) => s.order === myStep!.order + 1 && s.status === "WAITING"
+        );
+        if (nextStep) {
+          await tx.scheduleApprovalStep.update({
+            where: { id: nextStep.id },
+            data: { status: "PENDING" },
+          });
+          emailAction = "next_approver";
+          nextApprover = nextStep.approver;
+          // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
+        } else {
+          // 모든 단계 승인 완료 → 전체 승인
+          await tx.scheduleRequest.update({
+            where: { id },
+            data: { status: "APPROVED" },
+          });
+          emailAction = "approve";
+        }
+      }
+    });
+
+    // 이메일 발송 (실제로는 여기서 이메일을 보내면 됨)
+    // 현재는 로그만 기록
+    console.log("이메일 발송:", { emailAction, nextApprover });
+
+    return NextResponse.json({ success: true });
+  }
+
+  // 결재라선 없음: 기존 방식 (관리자만)
+  if (session.role === "EMPLOYEE") {
+    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  }
+
+  return await adminOverride(id, action, reason, session.userId);
+}
+
+// 관리자 직접 승인/반려
+async function adminOverride(
+  id: string,
+  action: string,
+  reason: string | undefined,
+  approverId: string
+) {
+  const scheduleRequest = await prisma.scheduleRequest.findUnique({
+    where: { id },
+  });
+
+  if (!scheduleRequest) {
+    return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  await prisma.scheduleRequest.update({
+    where: { id },
+    data: {
+      status: action === "approve" ? "APPROVED" : "REJECTED",
+    },
+  });
+
+  return NextResponse.json({ success: true });
+}

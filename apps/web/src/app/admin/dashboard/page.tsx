@@ -1,69 +1,447 @@
-import { getSession } from "@/lib/auth";
+"use client";
 
-export default async function SharedDashboardPage() {
-  const session = await getSession();
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Users,
+  Clock,
+  AlertTriangle,
+  FileText,
+  Calendar,
+  TrendingUp,
+  Eye,
+  CheckCircle2,
+  Clock3,
+  LogOut,
+} from "lucide-react";
+import { format } from "date-fns";
+import { ko } from "date-fns/locale";
+import { toast } from "sonner";
+
+type AttendanceStats = {
+  present: number;
+  late: number;
+  absent: number;
+  earlyLeave: number;
+  onLeave: number;
+};
+
+type RecentAttendance = {
+  id: string;
+  name: string;
+  email: string;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  status: string;
+};
+
+type PendingApproval = {
+  id: string;
+  type: "leave" | "contract";
+  title: string;
+  requester: string;
+  requestedAt: string;
+};
+
+export default function AdminDashboardPage() {
+  const [attendanceStats, setAttendanceStats] = useState<AttendanceStats>({
+    present: 0,
+    late: 0,
+    absent: 0,
+    earlyLeave: 0,
+    onLeave: 0,
+  });
+
+  const [recentAttendance, setRecentAttendance] = useState<RecentAttendance[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 오늘 날짜
+  const today = new Date();
+  const dateStr = format(today, "yyyy년 M월 d일 (EEEE)", { locale: ko });
+
+  // 데이터 불러오기
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      // 1. 출퇴근 통계
+      const attendanceRes = await fetch("/api/attendance/stats");
+      if (attendanceRes.ok) {
+        const data = await attendanceRes.json();
+        setAttendanceStats(data.stats || {});
+      }
+
+      // 2. 최근 출퇴근 기록
+      const recentRes = await fetch("/api/attendance");
+      if (recentRes.ok) {
+        const data = await recentRes.json();
+        setRecentAttendance((data.records || []).slice(0, 5));
+      }
+
+      // 3. 대기 중인 승인
+      try {
+        const approvalRes = await fetch("/api/contracts/my-approvals");
+        if (approvalRes.ok) {
+          const data = await approvalRes.json();
+          const approvals = (data.contracts || []).map((c: any) => ({
+            id: c.id,
+            type: "contract",
+            title: c.title,
+            requester: c.user?.name || "미상",
+            requestedAt: c.createdAt,
+          }));
+          setPendingApprovals(approvals.slice(0, 5));
+        }
+      } catch (e) {
+        // API 없음, 무시
+      }
+    } catch (error) {
+      console.error("Dashboard data fetch error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+    // 5분마다 새로고침
+    const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
+
+  const totalEmployees = Object.values(attendanceStats).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">
-          {session?.name}님의 대시보드
-        </h2>
-        <p className="text-gray-600 mt-2">{session?.department}</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-gray-500 text-sm font-medium">나의 휴가 잔여</div>
-          <div className="text-3xl font-bold text-gray-900 mt-2">--</div>
+    <div className="space-y-6">
+      {/* 헤더 - 날짜 및 통계 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">{dateStr}</h1>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-gray-500 text-sm font-medium">대기 중인 계약</div>
-          <div className="text-3xl font-bold text-gray-900 mt-2">--</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-gray-500 text-sm font-medium">결재 대기 건수</div>
-          <div className="text-3xl font-bold text-gray-900 mt-2">--</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-gray-500 text-sm font-medium">금월 근무 시간</div>
-          <div className="text-3xl font-bold text-gray-900 mt-2">--</div>
+        <div className="flex gap-2">
+          <Button onClick={fetchDashboardData} variant="outline" className="gap-2">
+            <Eye size={16} /> 새로고침
+          </Button>
+          <Button
+            onClick={() => window.location.href = "/dashboard"}
+            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            직원 모드로 전환
+          </Button>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">나의 업무</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <a
-            href="/shared/contracts"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <div className="font-medium text-gray-900">내 계약서</div>
-            <div className="text-sm text-gray-600">내 계약서 확인</div>
-          </a>
-          <a
-            href="/shared/leave"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <div className="font-medium text-gray-900">휴가 관리</div>
-            <div className="text-sm text-gray-600">휴가 신청 및 조회</div>
-          </a>
-          <a
-            href="/shared/attendance"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <div className="font-medium text-gray-900">출퇴근</div>
-            <div className="text-sm text-gray-600">출퇴근 기록</div>
-          </a>
-          <a
-            href="/shared/schedule"
-            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
-          >
-            <div className="font-medium text-gray-900">근무 일정</div>
-            <div className="text-sm text-gray-600">내 근무 일정</div>
-          </a>
-        </div>
+      {/* 오늘의 근무 현황 */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <Users size={14} /> 출근
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">
+              {isNaN(attendanceStats.present) ? "--" : attendanceStats.present}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <AlertTriangle size={14} /> 지각
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-orange-600">
+              {isNaN(attendanceStats.late) ? "--" : attendanceStats.late}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <LogOut size={14} /> 미출근
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">
+              {isNaN(attendanceStats.absent) ? "--" : attendanceStats.absent}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <Clock3 size={14} /> 조퇴
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-yellow-600">
+              {isNaN(attendanceStats.earlyLeave) ? "--" : attendanceStats.earlyLeave}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <Calendar size={14} /> 휴가
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">
+              {isNaN(attendanceStats.onLeave) ? "--" : attendanceStats.onLeave}
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* 주요 업무 현황 */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">대기 중인 계약</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
+              {pendingApprovals.filter(p => p.type === "contract").length}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">승인 대기</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">대기 중인 휴가</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {pendingApprovals.filter(p => p.type === "leave").length}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">승인 대기</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">전체 직원</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-700">
+              {isNaN(totalEmployees) || totalEmployees === 0 ? "--" : totalEmployees}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">명</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">관리 알림</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">
+              {isNaN(attendanceStats.absent + attendanceStats.late) ? "--" : attendanceStats.absent + attendanceStats.late}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">미출근 + 지각</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 출퇴근 누락/미이행 현황 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-orange-600" />
+            출퇴근 누락 현황
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8 text-gray-500">
+              데이터를 불러오는 중...
+            </div>
+          ) : recentAttendance.filter(r => !r.checkInTime || !r.checkOutTime).length === 0 ? (
+            <div className="text-center py-8 text-green-600">
+              <CheckCircle2 className="inline-block mb-2" size={32} />
+              <p>출퇴근 누락이 없습니다.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentAttendance
+                .filter(r => !r.checkInTime || !r.checkOutTime)
+                .map(record => (
+                  <div
+                    key={record.id}
+                    className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900">{record.name}</p>
+                      <p className="text-sm text-gray-600">{record.email}</p>
+                    </div>
+                    <Badge variant="outline" className="border-orange-300 text-orange-700">
+                      {!record.checkInTime ? "입실 누락" : "퇴실 누락"}
+                    </Badge>
+                  </div>
+                ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 공지사항 및 알림 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText size={18} />
+            최근 공지사항
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-yellow-900">시스템 점검 예정</strong>
+                <p className="text-sm text-yellow-800">2026년 6월 10일 야간 중 서버 점검이 예정되어 있습니다.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <FileText className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-blue-900">새로운 기능 추가</strong>
+                <p className="text-sm text-blue-800">휴가 신청 시 증명서류 첨부 기능이 추가되었습니다.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <TrendingUp className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-green-900">월간 리포트</strong>
+                <p className="text-sm text-green-800">5월 월간 보고서가 발행되었습니다. 상세 내용을 확인하세요.</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 승인 대기 항목 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock size={18} className="text-blue-600" />
+            승인 대기 항목
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8 text-gray-500">
+              데이터를 불러오는 중...
+            </div>
+          ) : pendingApprovals.length === 0 ? (
+            <div className="text-center py-8 text-gray-600">
+              <CheckCircle2 className="inline-block mb-2 text-green-600" size={32} />
+              <p>승인 대기 항목이 없습니다.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-gray-700">항목</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-700">신청자</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-700">신청일</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-700">상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingApprovals.map(approval => (
+                    <tr key={approval.id} className="border-b hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium">{approval.title}</td>
+                      <td className="px-4 py-3 text-gray-600">{approval.requester}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {format(new Date(approval.requestedAt), "M월 d일")}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge className="bg-yellow-100 text-yellow-800">
+                          {approval.type === "contract" ? "계약 승인 대기" : "휴가 승인 대기"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 빠른 액세스 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>빠른 액세스</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <a
+              href="/admin/employees"
+              className="p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition text-center"
+            >
+              <Users className="mx-auto mb-2" size={24} />
+              <div className="font-medium text-gray-900">직원 관리</div>
+              <div className="text-xs text-gray-600">직원 조회 및 관리</div>
+            </a>
+
+            <a
+              href="/admin/leave"
+              className="p-4 border border-gray-200 rounded-lg hover:bg-green-50 hover:border-green-300 transition text-center"
+            >
+              <Calendar className="mx-auto mb-2" size={24} />
+              <div className="font-medium text-gray-900">휴가 관리</div>
+              <div className="text-xs text-gray-600">휴가 신청 및 승인</div>
+            </a>
+
+            <a
+              href="/admin/contracts"
+              className="p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition text-center"
+            >
+              <FileText className="mx-auto mb-2" size={24} />
+              <div className="font-medium text-gray-900">계약서 관리</div>
+              <div className="text-xs text-gray-600">계약서 작성 및 승인</div>
+            </a>
+
+            <a
+              href="/admin/attendance"
+              className="p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-300 transition text-center"
+            >
+              <Clock size={24} className="mx-auto mb-2" />
+              <div className="font-medium text-gray-900">출퇴근 관리</div>
+              <div className="text-xs text-gray-600">출퇴근 기록 조회</div>
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 리포트 섹션 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>월간 리포트</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <p className="text-gray-600 text-sm">
+              {format(today, "yyyy년 M월")} 월간 리포트를 다운로드할 수 있습니다.
+            </p>
+            <Button variant="outline" className="gap-2 w-full md:w-auto">
+              <FileText size={16} /> 리포트 다운로드
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -8,8 +8,8 @@ export async function PATCH(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE") {
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (session.role !== "ADMIN") {
+    return NextResponse.json({ error: "관리자만 지점을 수정할 수 있습니다." }, { status: 403 });
   }
 
   try {
@@ -53,8 +53,8 @@ export async function DELETE(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE") {
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (session.role !== "ADMIN") {
+    return NextResponse.json({ error: "관리자만 지점을 삭제할 수 있습니다." }, { status: 403 });
   }
 
   try {

@@ -172,6 +172,8 @@ model Contract {
   signedAt        DateTime?
   approvalLine    ContractApprovalLine?
   versions        ContractVersion[]
+  revocationLog   Json?              // 회수 이력: [{type: "employee"|"approval", stepOrder?: number, reason: string, revokedBy: string, revokedAt: DateTime}]
+  hideRevoked     Boolean  @default(false)  // 회수된 결재 숨김 여부
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

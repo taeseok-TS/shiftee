@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
           AND: [
             { employmentStatus: "RESIGNED" },
             { resignDate: { gte: monthStart, lte: monthEnd } },
+            { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
           AND: [
             { employmentStatus: "RESIGNED" },
             { resignDate: { gte: yearStart, lte: yearEnd } },
+            { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },

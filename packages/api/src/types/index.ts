@@ -47,6 +47,10 @@ export interface Contract {
   endDate: string | null;
   createdAt: string;
   updatedAt?: string;
+  hideRevoked?: boolean; // 회수된 결재 숨김 여부
+  revocationLog?: any[]; // 회수 이력
+  employeeSignedAt?: string | null;
+  signedAt?: string | null;
   user: {
     id: string;
     name: string;

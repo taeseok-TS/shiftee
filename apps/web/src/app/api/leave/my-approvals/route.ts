@@ -15,7 +15,7 @@ export async function GET() {
     include: {
       leaveRequest: {
         include: {
-          user: { select: { name: true, department: true, position: true, branch: true } },
+          user: { select: { id: true, name: true, department: true, position: true, branch: true } },
           approvalSteps: {
             include: {
               approver: { select: { id: true, name: true, position: true, branch: true } },

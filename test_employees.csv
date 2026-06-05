@@ -1,0 +1,4 @@
+﻿name,email,password,phone,department,branch,jobGroup,position,role
+박준호,park@company.com,test1234,010-1111-1111,교육사업부,A지점,CM,매니저,EMPLOYEE
+최지은,choi@company.com,test5678,010-2222-2222,교육사업부,B지점,TM,원장,MANAGER
+정수진,jung@company.com,test9012,010-3333-3333,행정부,A지점,코디,코디,EMPLOYEE

@@ -44,9 +44,14 @@ export async function POST(
       return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
     }
 
+    // MANAGER의 지점 검증 (다른 지점 휴가는 승인 불가)
+    if (session.role === "MANAGER" && leaveRequest.user.branch !== session.branch) {
+      return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다.", status: 403 });
+    }
+
     // 관리자가 직접 전체 처리하는 경우 (단계 우회)
     if (!myStep && session.role !== "EMPLOYEE") {
-      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId);
+      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, session.branch);
     }
 
     // 단계별 처리
@@ -171,11 +176,11 @@ export async function POST(
     return NextResponse.json({ success: true });
   }
 
-  // ── 결재라인 없음: 기존 방식 (관리자만) ────────────────────
+  // ── 결재라선 없음: 기존 방식 (관리자만) ────────────────────
   if (session.role === "EMPLOYEE")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId);
+  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, session.branch);
 }
 
 // 관리자 직접 승인/반려 (결재라인 우회)
@@ -185,15 +190,22 @@ async function adminOverride(
   days: number,
   action: string,
   reason: string | undefined,
-  approverId: string
+  approverId: string,
+  role?: string,
+  branch?: string
 ) {
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true, branch: true } } },
   });
 
   if (!leaveRequest) {
     return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  // MANAGER의 지점 검증
+  if (role === "MANAGER" && leaveRequest.user.branch !== branch) {
+    return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
   }
 
   await prisma.leaveRequest.update({

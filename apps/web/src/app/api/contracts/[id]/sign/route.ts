@@ -16,28 +16,35 @@ export async function POST(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    include: { approvalLine: { include: { steps: { include: { approver: true } } } } },
+    include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: true } } } } },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  // 직원 서명
-  if (!isApprover) {
-    if (contract.userId !== session.userId)
-      return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  const approvalLine = contract.approvalLine;
 
-    if (contract.status !== "SENT")
-      return NextResponse.json({ error: "서명 대기 중인 계약서가 아닙니다." }, { status: 400 });
+  // 현재 사용자의 대기 중인 단계 찾기 (approval line 기반)
+  const myStep = approvalLine?.steps.find(
+    (step) => step.approverId === session.userId && step.status === "PENDING"
+  );
 
-    if (!signatureName)
+  // 케이스 1: 직원이 서명할 번차 (승인라인의 순서 상 직원이 배정된 단계)
+  if (myStep && myStep.approverId === contract.userId) {
+    if (!signatureName) {
       return NextResponse.json({ error: "서명자 이름이 필요합니다." }, { status: 400 });
+    }
 
-    // 직원 서명 후 첫 승인자를 PENDING으로 변경
-    const approvalLine = contract.approvalLine;
-    if (approvalLine && approvalLine.steps.length > 0) {
-      const firstStep = approvalLine.steps[0];
+    // 현재 단계(직원 서명)를 APPROVED로 변경
+    await prisma.contractApprovalStep.update({
+      where: { id: myStep.id },
+      data: { status: "APPROVED", decidedAt: new Date() },
+    });
+
+    // 다음 단계가 있으면 PENDING으로 변경
+    const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
+    if (nextStep) {
       await prisma.contractApprovalStep.update({
-        where: { id: firstStep.id },
+        where: { id: nextStep.id },
         data: { status: "PENDING" },
       });
     }
@@ -46,8 +53,8 @@ export async function POST(
       where: { id },
       data: {
         employeeSignedAt: new Date(),
-        status: approvalLine && approvalLine.steps.length > 0 ? "APPROVED" : "SIGNED",
-        signedAt: !approvalLine || approvalLine.steps.length === 0 ? new Date() : undefined,
+        status: !nextStep ? "SIGNED" : "APPROVED",
+        signedAt: !nextStep ? new Date() : undefined,
       },
       include: {
         user: { select: { id: true, name: true, email: true } },
@@ -61,102 +68,115 @@ export async function POST(
       },
     });
 
-    // 승인자가 있으면 첫 승인자에게 알림, 없으면 완료 알림
+    // 이메일 알림 발송
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    if (approvalLine && approvalLine.steps.length > 0) {
-      const firstApprover = approvalLine.steps[0];
-      if (firstApprover.approver && firstApprover.approver.email) {
-        await sendApprovalRequest(
-          firstApprover.approver.email,
-          firstApprover.approver.name,
-          updated.title,
-          updated.user.name,
-          firstApprover.order,
-          appUrl
-        );
-      }
-    } else {
-      // 승인자가 없으면 계약 완료
-      if (updated.user.email) {
-        await sendContractCompletion(
-          updated.user.email,
-          updated.user.name,
-          updated.title,
-          updated.user.name,
-          appUrl
-        );
-      }
+    if (nextStep?.approver?.email) {
+      // 다음 승인자에게 알림
+      await sendApprovalRequest(
+        nextStep.approver.email,
+        nextStep.approver.name,
+        updated.title,
+        updated.user.name,
+        nextStep.order,
+        appUrl
+      );
+    } else if (!nextStep && updated.user.email) {
+      // 계약 완료
+      await sendContractCompletion(
+        updated.user.email,
+        updated.user.name,
+        updated.title,
+        updated.user.name,
+        appUrl
+      );
     }
 
     return NextResponse.json({ success: true, contract: updated });
   }
 
-  // 승인자 서명
-  const approvalLine = contract.approvalLine;
-  if (!approvalLine) return NextResponse.json({ error: "승인라인이 없습니다." }, { status: 400 });
-
-  // 현재 사용자의 PENDING 단계 찾기
-  const myStep = approvalLine.steps.find(
-    (step) => step.approverId === session.userId && step.status === "PENDING"
-  );
-
-  if (!myStep) return NextResponse.json({ error: "승인할 항목이 없습니다." }, { status: 403 });
-
-  // 현재 단계 승인으로 변경
-  await prisma.contractApprovalStep.update({
-    where: { id: myStep.id },
-    data: { status: "APPROVED", decidedAt: new Date() },
-  });
-
-  // 다음 단계가 있으면 PENDING으로, 없으면 계약 완료
-  const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
-  if (nextStep) {
-    await prisma.contractApprovalStep.update({
-      where: { id: nextStep.id },
-      data: { status: "PENDING" },
-    });
+  // 케이스 2: 직원이 결재라인에 등록되지 않은 경우 (에러)
+  if (!isApprover && contract.userId === session.userId && !myStep) {
+    // 직원이 명시적으로 결재라인에 등록되지 않았으므로 에러
+    return NextResponse.json(
+      { error: "직원이 결재 단계에 등록되지 않았습니다. 발송 시 직원을 1,2,3단계 중 하나에 배치하세요." },
+      { status: 400 }
+    );
   }
 
-  const finalContract = await prisma.contract.update({
-    where: { id },
-    data: {
-      status: !nextStep ? "SIGNED" : "APPROVED",
-      signedAt: !nextStep ? new Date() : undefined,
-    },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      approvalLine: {
-        include: {
-          steps: {
-            include: { approver: { select: { id: true, name: true, email: true } } },
+  // 케이스 3: 승인자 승인 (myStep이 있고, approverId가 contract.userId가 아닌 경우)
+  if (myStep) {
+    // 현재 단계 승인으로 변경
+    await prisma.contractApprovalStep.update({
+      where: { id: myStep.id },
+      data: { status: "APPROVED", decidedAt: new Date() },
+    });
+
+    // 다음 단계가 있으면 PENDING으로, 없으면 계약 완료
+    const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
+    if (nextStep) {
+      await prisma.contractApprovalStep.update({
+        where: { id: nextStep.id },
+        data: { status: "PENDING" },
+      });
+    }
+
+    const finalContract = await prisma.contract.update({
+      where: { id },
+      data: {
+        status: !nextStep ? "SIGNED" : "APPROVED",
+        signedAt: !nextStep ? new Date() : undefined,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        approvalLine: {
+          include: {
+            steps: {
+              include: { approver: { select: { id: true, name: true, email: true } } },
+            },
           },
         },
       },
-    },
-  });
+    });
 
-  // 이메일 알림 발송
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  if (nextStep?.approver?.email) {
-    // 다음 승인자에게 알림
-    await sendApprovalRequest(
-      nextStep.approver.email,
-      nextStep.approver.name,
-      finalContract.title,
-      finalContract.user.name,
-      nextStep.order,
-      appUrl
-    );
-  } else if (!nextStep && finalContract.user.email) {
-    // 계약 완료 - 모든 승인이 끝남
-    await sendContractCompletion(
-      finalContract.user.email,
-      finalContract.user.name,
-      finalContract.title,
-      finalContract.user.name,
-      appUrl
-    );
+    // 이메일 알림 발송
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    if (nextStep?.approver?.email) {
+      // 다음 단계가 직원 서명인지 확인
+      if (nextStep.approverId === finalContract.userId) {
+        // 직원에게 서명 요청 알림
+        await sendApprovalRequest(
+          finalContract.user.email,
+          finalContract.user.name,
+          finalContract.title,
+          finalContract.user.name,
+          nextStep.order,
+          appUrl
+        );
+      } else {
+        // 다음 승인자에게 알림
+        await sendApprovalRequest(
+          nextStep.approver.email,
+          nextStep.approver.name,
+          finalContract.title,
+          finalContract.user.name,
+          nextStep.order,
+          appUrl
+        );
+      }
+    } else if (!nextStep && finalContract.user.email) {
+      // 계약 완료
+      await sendContractCompletion(
+        finalContract.user.email,
+        finalContract.user.name,
+        finalContract.title,
+        finalContract.user.name,
+        appUrl
+      );
+    }
+
+    return NextResponse.json({ success: true, contract: finalContract });
   }
 
-  return NextResponse.json({ success: true, contract: finalContract });
+  // 어떤 경우도 해당하지 않음
+  return NextResponse.json({ error: "처리할 수 있는 단계가 없습니다." }, { status: 403 });
 }

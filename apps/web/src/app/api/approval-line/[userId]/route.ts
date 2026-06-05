@@ -18,6 +18,17 @@ export async function PUT(
   if (!Array.isArray(approverIds))
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
 
+  // MANAGER의 지점 검증: 자신의 지점 직원만 설정 가능
+  if (session.role === "MANAGER") {
+    const targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { branch: true }
+    });
+    if (!targetUser || targetUser.branch !== session.branch) {
+      return NextResponse.json({ error: "자신의 지점 직원만 결재라인을 설정할 수 있습니다." }, { status: 403 });
+    }
+  }
+
   await prisma.$transaction(async (tx: any) => {
     if (approverIds.length === 0) {
       // 결재라인 삭제

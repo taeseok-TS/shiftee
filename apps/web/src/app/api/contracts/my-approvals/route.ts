@@ -15,7 +15,7 @@ export async function GET(_request: NextRequest) {
       approvalLine: {
         include: {
           contract: {
-            include: { user: { select: { name: true, department: true, branch: true } } },
+            include: { user: { select: { id: true, name: true, email: true, department: true, branch: true } } },
           },
           steps: {
             include: { approver: { select: { id: true, name: true, branch: true } } },
@@ -27,10 +27,24 @@ export async function GET(_request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  // 데이터 필터링 적용: 직원 정보에서 이메일 제거
   const contracts = pendingSteps.map((step) => ({
     ...step.approvalLine.contract,
+    user: {
+      id: step.approvalLine.contract.user.id,
+      name: step.approvalLine.contract.user.name,
+      department: step.approvalLine.contract.user.department,
+      branch: step.approvalLine.contract.user.branch,
+    },
     approvalLine: {
-      steps: step.approvalLine.steps,
+      steps: step.approvalLine.steps.map(s => ({
+        ...s,
+        approver: {
+          id: s.approver.id,
+          name: s.approver.name,
+          branch: s.approver.branch,
+        },
+      })),
       myStep: step,
     },
   }));

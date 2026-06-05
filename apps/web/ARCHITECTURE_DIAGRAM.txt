@@ -1,0 +1,357 @@
+================================================================================
+                    SHIFTEE HR SYSTEM - ARCHITECTURE DIAGRAM
+                          Phase 1 Implementation
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          USER ACCESS FLOW                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              Login Page
+                                 ↓
+                          /api/auth/login
+                                 ↓
+                    ┌─────────────┴──────────────┐
+                    ↓                            ↓
+            [ADMIN Account]              [MANAGER Account]
+                    ↓                            ↓
+            /admin/dashboard              /manager/dashboard
+                    ↓                            ↓
+            (Admin Layout)                (Manager Layout)
+         session.role = "ADMIN"      session.role = "MANAGER"
+                    ↓                            ↓
+            ├─────────────┐           ├─────────────┐
+            ↓             ↓           ↓             ↓
+        Admin Pages   Other Routes  Manager Pages  Other Routes
+                    ↓                            ↓
+            [EMPLOYEE Account]
+                    ↓
+            /dashboard
+                    ↓
+            (Dashboard Layout)
+         session.role = "EMPLOYEE"
+                    ↓
+            ├─────────────┐
+            ↓             ↓
+        Dashboard Pages  Other Routes
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      ROUTE GROUP ARCHITECTURE                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+src/app/
+│
+├── (admin)/                          ← ADMIN-ONLY ROUTE GROUP
+│   ├── layout.tsx                    (Permission: role === "ADMIN")
+│   ├── dashboard/page.tsx            (Admin Overview)
+│   ├── employees/page.tsx            (All Employees)
+│   ├── branches/page.tsx             (All Branches)
+│   ├── contracts/page.tsx            (All Contracts)
+│   ├── leave/page.tsx                (All Leave Requests)
+│   ├── attendance/page.tsx           (All Attendance)
+│   ├── employee-stats/page.tsx       (Analytics)
+│   ├── contract-templates/page.tsx   (Templates)
+│   └── test-api/page.tsx             (API Testing)
+│
+├── (manager)/                        ← MANAGER + ADMIN ROUTE GROUP
+│   ├── layout.tsx                    (Permission: role in ["ADMIN", "MANAGER"])
+│   ├── dashboard/page.tsx            (Team Metrics)
+│   ├── team-employees/page.tsx       (Branch Employees)
+│   ├── team-leave/page.tsx           (Team Leave)
+│   ├── team-contracts/page.tsx       (Team Contracts)
+│   └── team-schedule/page.tsx        (Team Schedule)
+│
+├── (dashboard)/                      ← ALL AUTHENTICATED USERS
+│   ├── layout.tsx                    (Permission: session !== null)
+│   ├── dashboard/page.tsx            (Personal Dashboard)
+│   ├── contracts/page.tsx            (Personal Contracts)
+│   ├── leave/page.tsx                (Personal Leave)
+│   ├── attendance/page.tsx           (Personal Attendance)
+│   ├── schedule/page.tsx             (Personal Schedule)
+│   └── profile/page.tsx              (Profile & Settings)
+│
+├── login/
+│   └── page.tsx                      (Public Login Page)
+│
+└── api/
+    ├── auth/
+    │   ├── login/route.ts
+    │   ├── logout/route.ts
+    │   └── me/route.ts
+    ├── employees/route.ts
+    ├── contracts/route.ts
+    ├── leave/route.ts
+    ├── attendance/route.ts
+    └── ...
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     LAYOUT PERMISSION ENFORCEMENT                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+User Request for URL
+       ↓
+Next.js App Router matches route
+       ↓
+Load Layout Component (Server-Side)
+       ↓
+    ┌──────────────────────────────────┐
+    │  getSession() - Fetch JWT token  │
+    │  Verify session exists           │
+    │  Extract user role               │
+    └──────────────────────────────────┘
+       ↓
+   ┌───────────────────────────────────────────────────────┐
+   │  Check Role Permission                                │
+   │  ┌─────────────────────────────────────────────────┐  │
+   │  │ For /admin/*:    role === "ADMIN"              │  │
+   │  │ For /manager/*:  role in ["ADMIN", "MANAGER"]  │  │
+   │  │ For /(dashboard)/*: session exists (any role)  │  │
+   │  └─────────────────────────────────────────────────┘  │
+   └───────────────────────────────────────────────────────┘
+       ↓
+    ┌──┴──────────────────────────────┐
+    │                                 │
+    ↓ (Permission Granted)     ↓ (Permission Denied)
+  Render Layout                redirect("/login")
+  Render Page                   ↓
+  Fetch & Filter Data         User Redirected
+  Return to Browser           No DOM Exposure
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SIDEBAR COMPONENTS HIERARCHY                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Layout.tsx
+├── RoleSwitch (Top Right)
+│   ├── Current Role Display
+│   ├── Role Testing Menu (ADMIN only)
+│   │   ├─ Switch to Manager
+│   │   ├─ Switch to Employee
+│   │   └─ Back to Admin
+│   └─ Logout Button
+│
+└── Sidebar (Left Panel)
+    │
+    ├─ ADMIN Path: AdminSidebar
+    │   ├─ Logo: Red "A" (#DC2626)
+    │   ├─ 대시보드
+    │   ├─ 직원 관리
+    │   ├─ 지점 관리
+    │   ├─ 전자계약
+    │   ├─ 휴가 관리
+    │   ├─ 출퇴근
+    │   ├─ 직원 현황
+    │   ├─ 계약 템플릿
+    │   ├─ 🔧 API 테스트
+    │   └─ 환경설정
+    │
+    ├─ MANAGER Path: ManagerSidebar
+    │   ├─ Logo: Yellow "M" (#FCD34D)
+    │   ├─ 대시보드
+    │   ├─ 팀 직원
+    │   ├─ 팀 휴가
+    │   ├─ 팀 계약서
+    │   ├─ 팀 일정
+    │   └─ 환경설정
+    │
+    └─ EMPLOYEE Path: SharedSidebar
+        ├─ Logo: Blue "E" (#3B82F6)
+        ├─ 대시보드
+        ├─ 내 계약서
+        ├─ 휴가
+        ├─ 출퇴근
+        ├─ 일정
+        └─ 환경설정
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     DATA FLOW & FILTERING HIERARCHY                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Current State - Phase 1]
+
+Page Request
+    ↓
+Layout Permission Check (✅ Done)
+    ├─ ADMIN → All routes
+    ├─ MANAGER → /manager/* + /(dashboard)/*
+    └─ EMPLOYEE → /(dashboard)/* only
+    ↓
+Page-Level Data Query
+    ├─ ADMIN: fetch ALL data
+    ├─ MANAGER: fetch ALL data (Phase 2: filter by branch)
+    └─ EMPLOYEE: fetch ALL data (Phase 2: filter by user ID)
+    ↓
+API Validation (Phase 3)
+    └─ Role-based field filtering
+    ↓
+Render Page with Data
+
+
+[Phase 2 Target - Data Filtering]
+
+Page Request
+    ↓
+Layout Permission Check (✅ Done)
+    ↓
+Page-Level Data Query (📋 Phase 2)
+    ├─ ADMIN: await prisma.employee.findMany({})
+    │         → Returns ALL employees
+    │
+    ├─ MANAGER: await prisma.employee.findMany({
+    │             where: { branch: session.branch }
+    │           })
+    │           → Returns only branch employees
+    │
+    └─ EMPLOYEE: await prisma.employee.findMany({
+                   where: { id: session.userId }
+                 })
+                 → Returns only own record
+    ↓
+API Response Filtering (Phase 3)
+    ├─ Remove sensitive fields
+    ├─ Hide cross-role data
+    └─ Mask personal information
+    ↓
+Render Filtered Data
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           STATUS MATRIX                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Feature                          Status      Phase
+─────────────────────────────────────────────────────────────────────────────
+Route Groups (/admin, /manager)  ✅ DONE    Phase 1
+Layout Permission Checks         ✅ DONE    Phase 1
+Admin Pages (10)                 ✅ DONE    Phase 1
+Manager Pages (5)                ✅ DONE    Phase 1
+Employee Pages (7)               ✅ DONE    Phase 1
+Sidebar Components               ✅ DONE    Phase 1
+RoleSwitch Testing Component     ✅ DONE    Phase 1
+Build Verification               ✅ DONE    Phase 1
+─────────────────────────────────────────────────────────────────────────────
+Manager Branch Filtering         ⏳ TODO    Phase 2
+Employee Personal Filtering      ⏳ TODO    Phase 2
+API Response Filtering           ⏳ TODO    Phase 3
+Audit Logging                    ⏳ TODO    Phase 3
+Role-Specific Widgets            ⏳ TODO    Phase 4
+Performance Optimization         ⏳ TODO    Phase 5
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        FILE STATISTICS                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Category                Count      Status
+─────────────────────────────────────────────────────────────────────────────
+Layout Files            3          ✅ Created
+Sidebar Components      3          ✅ Created
+RoleSwitch Component    1          ✅ Created
+Admin Pages             10         ✅ Created
+Manager Pages           5          ✅ Created
+Employee Pages          7          ✅ Migrated
+Total Page Files        22         ✅ COMPLETE
+─────────────────────────────────────────────────────────────────────────────
+Build Status                       ✅ SUCCESS (0 errors)
+TypeScript Errors                  0
+Prisma Schema Errors               0 (Fixed: attendance)
+─────────────────────────────────────────────────────────────────────────────
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      SECURITY ARCHITECTURE                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Layer 1: Authentication
+    ├─ JWT Token in HTTP-Only Cookie
+    ├─ Session Validation on Every Request
+    └─ Automatic Token Refresh
+
+Layer 2: Layout-Level Authorization (✅ Phase 1 DONE)
+    ├─ Server-Side Role Check
+    ├─ Immediate Redirect if Unauthorized
+    └─ No DOM Exposure of Protected Pages
+
+Layer 3: Page-Level Data Filtering (📋 Phase 2 TODO)
+    ├─ Role-Based Query Filtering
+    ├─ Branch-Based Data Filtering
+    └─ Personal Data Isolation
+
+Layer 4: API-Level Validation (📋 Phase 3 TODO)
+    ├─ Backend Role Verification
+    ├─ Sensitive Field Filtering
+    └─ Cross-Role Access Prevention
+
+Layer 5: Audit & Monitoring (📋 Phase 4+ TODO)
+    ├─ Admin Action Logging
+    ├─ Data Access Tracking
+    └─ Security Incident Alerting
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PERMISSION MATRIX (QUICK REFERENCE)                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                      ADMIN    MANAGER    EMPLOYEE
+────────────────────────────────────────────────────────────────────────────
+/admin/*              ✅ YES   ❌ NO      ❌ NO
+/manager/*            ✅ YES   ✅ YES     ❌ NO
+/(dashboard)/*        ✅ YES   ✅ YES     ✅ YES
+/login                ✅ YES   ✅ YES     ✅ YES
+
+View all employees    ✅ YES   ❌ NO*     ❌ NO
+View branch employees ✅ YES   ✅ YES*    ❌ NO
+View own data         ✅ YES   ✅ YES     ✅ YES
+
+View all contracts    ✅ YES   ❌ NO*     ❌ NO
+View branch contracts ✅ YES   ✅ YES*    ❌ NO
+View own contracts    ✅ YES   ✅ YES     ✅ YES
+
+Approve leave         ✅ YES   ✅ YES*    ❌ NO
+Request leave         ✅ YES   ✅ YES     ✅ YES
+View all leave        ✅ YES   ❌ NO*     ❌ NO
+View branch leave     ✅ YES   ✅ YES*    ❌ NO
+View own leave        ✅ YES   ✅ YES     ✅ YES
+
+────────────────────────────────────────────────────────────────────────────
+* Phase 2 filtering will apply (currently shows all, will filter by branch)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        IMPLEMENTATION TIMELINE                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Phase 1: Route Architecture (✅ COMPLETE - June 5, 2026)
+├─ Day 1-2: Route structure planning
+├─ Day 2-3: Layout implementation
+├─ Day 3-4: Page creation
+├─ Day 4-5: Component development
+├─ Day 5-6: Testing & fixes
+└─ Day 6: Documentation
+
+Phase 2: Data Filtering (📋 IN PROGRESS)
+├─ Manager branch filtering
+├─ Employee personal filtering
+├─ Query optimization
+└─ Testing & verification
+
+Phase 3: Enhanced Security (⏳ PLANNED)
+├─ API response filtering
+├─ Audit logging
+├─ Sensitive data masking
+└─ Rate limiting
+
+Phase 4+: Features & Performance (⏳ FUTURE)
+├─ Role-specific widgets
+├─ Advanced analytics
+├─ Performance optimization
+└─ User experience enhancements
+
+
+================================================================================
+                              END OF DIAGRAM
+================================================================================

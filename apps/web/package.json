@@ -10,13 +10,14 @@
     "postinstall": "prisma generate --schema=../packages/db/prisma/schema.prisma || true"
   },
   "dependencies": {
-    "@shiftee/api": "file:../../packages/api",
     "@base-ui/react": "^1.5.0",
     "@prisma/client": "6.19.3",
+    "@shiftee/api": "file:../../packages/api",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.2.1",
+    "docx": "^9.7.1",
     "jose": "^6.2.3",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",

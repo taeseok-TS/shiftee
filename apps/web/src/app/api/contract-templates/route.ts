@@ -4,131 +4,95 @@ import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 
-/**
- * GET /api/contract-templates
- * 조직의 계약서 템플릿 목록 (ADMIN/MANAGER만)
- */
+// 템플릿 목록 조회
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
     if (!session) {
-      return NextResponse.json(
-        { error: "인증이 필요합니다." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
     }
 
-    // ADMIN 또는 MANAGER만 접근 가능
-    if (session.role !== "ADMIN" && session.role !== "MANAGER") {
-      return NextResponse.json(
-        { error: "접근 권한이 없습니다." },
-        { status: 403 }
-      );
+    // 직원(EMPLOYEE)은 조회 불가
+    if (session.role === "EMPLOYEE") {
+      return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     }
 
-    // 매니저는 같은 지점의 템플릿만 조회 가능
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get("type");
+
+    let where: any = { isActive: true };
+    if (type) {
+      where.type = type;
+    }
+
     const templates = await prisma.contractTemplate.findMany({
-      where: {
-        isActive: true,
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        type: true,
-        version: true,
-        createdBy: true,
+      where,
+      include: {
         createdByUser: {
-          select: { id: true, name: true },
-        },
-        createdAt: true,
-        updatedAt: true,
+          select: { id: true, name: true, email: true }
+        }
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: { createdAt: "desc" }
     });
 
-    return NextResponse.json({
-      success: true,
-      templates,
-      total: templates.length,
-    });
+    return NextResponse.json({ templates });
   } catch (error) {
-    console.error("템플릿 조회 오류:", error);
+    console.error("GET /api/contract-templates 에러:", error);
     return NextResponse.json(
-      { error: "템플릿 조회 중 오류가 발생했습니다." },
+      { error: "템플릿 조회에 실패했습니다." },
       { status: 500 }
     );
   }
 }
 
-/**
- * POST /api/contract-templates
- * 새 계약서 템플릿 생성 (ADMIN/MANAGER만)
- */
+// 템플릿 생성/업로드
 export async function POST(request: NextRequest) {
+  const session = await getSession();
+
+  // 관리자와 매니저만 템플릿 생성 가능
+  if (!session || session.role === "EMPLOYEE") {
+    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  }
+
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json(
-        { error: "인증이 필요합니다." },
-        { status: 401 }
-      );
-    }
-
-    // ADMIN 또는 MANAGER만 생성 가능
-    if (session.role !== "ADMIN" && session.role !== "MANAGER") {
-      return NextResponse.json(
-        { error: "접근 권한이 없습니다." },
-        { status: 403 }
-      );
-    }
-
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const file = formData.get("file") as File;
     const name = formData.get("name") as string;
-    const description = formData.get("description") as string | null;
+    const description = formData.get("description") as string;
     const type = formData.get("type") as string;
-    const approverIdsStr = formData.get("approverIds") as string | null;
 
-    if (!name || !type || !file) {
+    if (!file || !name || !type) {
       return NextResponse.json(
-        { error: "필수 항목이 누락되었습니다." },
+        { error: "파일, 이름, 타입은 필수입니다." },
         { status: 400 }
       );
     }
 
-    // 템플릿 이름 중복 확인
-    const existing = await prisma.contractTemplate.findUnique({
-      where: { name },
+    // 중복 이름 체크
+    const existingTemplate = await prisma.contractTemplate.findUnique({
+      where: { name }
     });
 
-    if (existing) {
+    if (existingTemplate) {
       return NextResponse.json(
         { error: "이미 존재하는 템플릿 이름입니다." },
-        { status: 409 }
+        { status: 400 }
       );
     }
 
-    // 파일 업로드
+    // 파일 저장
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const timestamp = Date.now();
     const filename = `${timestamp}-${Math.random().toString(36).substr(2, 9)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
     const dir = path.join(process.cwd(), "uploads", "templates");
+
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, filename), buffer);
+
     const fileUrl = `/api/uploads/templates/${filename}`;
 
-    // approverIds 파싱
-    let approverIds: string[] = [];
-    try {
-      if (approverIdsStr) {
-        approverIds = JSON.parse(approverIdsStr);
-      }
-    } catch {
-      approverIds = [];
-    }
-
+    // DB에 템플릿 저장
     const template = await prisma.contractTemplate.create({
       data: {
         name,
@@ -138,31 +102,20 @@ export async function POST(request: NextRequest) {
         version: 1,
         isActive: true,
         createdBy: session.userId,
-        approverIds: JSON.stringify(approverIds),
+        approverIds: "[]" // 기본값: 빈 배열
       },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        type: true,
-        version: true,
-        createdBy: true,
+      include: {
         createdByUser: {
-          select: { id: true, name: true },
-        },
-        createdAt: true,
-      },
+          select: { id: true, name: true, email: true }
+        }
+      }
     });
 
-    return NextResponse.json({
-      success: true,
-      message: "템플릿이 생성되었습니다.",
-      template,
-    });
+    return NextResponse.json({ success: true, template });
   } catch (error) {
-    console.error("템플릿 생성 오류:", error);
+    console.error("POST /api/contract-templates 에러:", error);
     return NextResponse.json(
-      { error: "템플릿 생성 중 오류가 발생했습니다." },
+      { error: "템플릿 업로드에 실패했습니다." },
       { status: 500 }
     );
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
+import { filterUserDataArray } from "@/lib/api-response";
 import bcrypt from "bcryptjs";
 
 export async function GET() {
@@ -14,7 +15,7 @@ export async function GET() {
     : {};
 
   const employees = await prisma.user.findMany({
-    where: { isActive: true, ...branchWhere },
+    where: { isActive: true, role: { not: "ADMIN" }, ...branchWhere },
     select: {
       id: true, name: true, email: true, role: true,
       department: true, jobGroup: true, position: true, branch: true, hireDate: true, phone: true,
@@ -23,8 +24,24 @@ export async function GET() {
     orderBy: [{ branch: "asc" }, { name: "asc" }],
   });
 
+  // 데이터 필터링 적용: MANAGER는 자신의 지점만 조회하므로 모두 상세정보 노출, ADMIN도 모두 노출
+  // (권한 검증은 위의 WHERE 절에서 이미 수행됨)
+  const filteredEmployees = employees.map(emp => ({
+    id: emp.id,
+    name: emp.name,
+    email: emp.email,
+    role: emp.role,
+    department: emp.department,
+    jobGroup: emp.jobGroup,
+    position: emp.position,
+    branch: emp.branch,
+    hireDate: emp.hireDate,
+    phone: emp.phone,
+    leaveBalance: emp.leaveBalance,
+  }));
+
   // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 그대로 반환
-  return NextResponse.json({ employees });
+  return NextResponse.json({ employees: filteredEmployees });
 }
 
 export async function POST(request: NextRequest) {

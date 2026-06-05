@@ -128,7 +128,7 @@ export default function SchedulePage() {
 
   const dayMap = useMemo(() => {
     const m: Record<string, DayData> = {};
-    monthData.forEach(d => { m[d.date] = d; });
+    (monthData || []).forEach(d => { m[d.date] = d; });
     return m;
   }, [monthData]);
 
@@ -205,16 +205,23 @@ export default function SchedulePage() {
       {/* ── 헤더 ── */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">근무일정</h1>
-        {isAdmin && (
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => { setBulkThisMonth(); setBulkOpen(true); }}>
-              <Layers size={15} />일괄 등록
+        <div className="flex gap-2">
+          {isAdmin && (
+            <>
+              <Button variant="outline" className="gap-2" onClick={() => { setBulkThisMonth(); setBulkOpen(true); }}>
+                <Layers size={15} />일괄 등록
+              </Button>
+              <Button className="gap-2" onClick={() => { setAddForm(defaultForm); setAddOpen(true); }}>
+                <Plus size={15} />일정 등록
+              </Button>
+            </>
+          )}
+          {!isAdmin && (
+            <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => window.location.href = "/schedule/request"}>
+              <Plus size={15} />근무일정 생성 요청
             </Button>
-            <Button className="gap-2" onClick={() => { setAddForm(defaultForm); setAddOpen(true); }}>
-              <Plus size={15} />일정 등록
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── 캘린더 카드 ── */}

@@ -18,6 +18,7 @@ import {
 import { format, eachDayOfInterval, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -148,7 +149,9 @@ export default function LeavePage() {
   const [editTarget, setEditTarget] = useState<EmpBalance | null>(null);
   const [editForm, setEditForm]     = useState({ total: 15, used: 0 });
 
-  const isAdmin = role !== "EMPLOYEE";
+  // 권한 요약 (통일된 권한 함수 사용)
+  const permissions = useMemo(() => getPermissionSummary(role as UserRole), [role]);
+  const isAdmin = permissions.canManageEmployees;
 
   /* ── 데이터 로드 ── */
   const fetchRequests = useCallback(async () => {
