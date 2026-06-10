@@ -28,33 +28,27 @@ type AttendanceStats = {
   onLeave: number;
 };
 
-type RecentAttendance = {
+type MissingAttendance = {
   id: string;
   name: string;
   email: string;
-  checkInTime?: string | null;
-  checkOutTime?: string | null;
-  status: string;
+  date: string;
+  type: string;
 };
 
 type PendingApproval = {
   id: string;
-  type: "leave" | "contract";
+  type: "leave" | "schedule" | "contract";
   title: string;
   requester: string;
   requestedAt: string;
 };
 
 export default function AdminDashboardPage() {
-  const [attendanceStats, setAttendanceStats] = useState<AttendanceStats>({
-    present: 0,
-    late: 0,
-    absent: 0,
-    earlyLeave: 0,
-    onLeave: 0,
-  });
-
-  const [recentAttendance, setRecentAttendance] = useState<RecentAttendance[]>([]);
+  const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
+  const [totalEmployees, setTotalEmployees] = useState<number | null>(null);
+  const [pendingCounts, setPendingCounts] = useState({ leave: 0, schedule: 0 });
+  const [missingAttendance, setMissingAttendance] = useState<MissingAttendance[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,37 +61,33 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
 
-      // 1. 출퇴근 통계
-      const attendanceRes = await fetch("/api/attendance/stats");
-      if (attendanceRes.ok) {
-        const data = await attendanceRes.json();
-        setAttendanceStats(data.stats || {});
+      // 1. 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
+      const statsRes = await fetch("/api/admin/dashboard-stats");
+      let leaveScheduleItems: PendingApproval[] = [];
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setAttendanceStats(data.attendance || null);
+        setTotalEmployees(data.totalEmployees ?? null);
+        setPendingCounts(data.pending || { leave: 0, schedule: 0 });
+        setMissingAttendance(data.missingAttendance || []);
+        leaveScheduleItems = data.pendingItems || [];
       }
 
-      // 2. 최근 출퇴근 기록
-      const recentRes = await fetch("/api/attendance");
-      if (recentRes.ok) {
-        const data = await recentRes.json();
-        setRecentAttendance((data.records || []).slice(0, 5));
+      // 2. 대기 중인 계약 결재
+      let contractItems: PendingApproval[] = [];
+      const approvalRes = await fetch("/api/contracts/my-approvals");
+      if (approvalRes.ok) {
+        const data = await approvalRes.json();
+        contractItems = (data.contracts || []).map((c: any) => ({
+          id: c.id,
+          type: "contract" as const,
+          title: c.title,
+          requester: c.user?.name || "미상",
+          requestedAt: c.createdAt,
+        }));
       }
 
-      // 3. 대기 중인 승인
-      try {
-        const approvalRes = await fetch("/api/contracts/my-approvals");
-        if (approvalRes.ok) {
-          const data = await approvalRes.json();
-          const approvals = (data.contracts || []).map((c: any) => ({
-            id: c.id,
-            type: "contract",
-            title: c.title,
-            requester: c.user?.name || "미상",
-            requestedAt: c.createdAt,
-          }));
-          setPendingApprovals(approvals.slice(0, 5));
-        }
-      } catch (e) {
-        // API 없음, 무시
-      }
+      setPendingApprovals([...contractItems, ...leaveScheduleItems].slice(0, 10));
     } catch (error) {
       console.error("Dashboard data fetch error:", error);
     } finally {
@@ -111,8 +101,6 @@ export default function AdminDashboardPage() {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
-
-  const totalEmployees = Object.values(attendanceStats).reduce((a, b) => a + b, 0);
 
   return (
     <div className="space-y-6">
@@ -144,7 +132,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-blue-600">
-              {isNaN(attendanceStats.present) ? "--" : attendanceStats.present}
+              {attendanceStats ? attendanceStats.present : "--"}
             </div>
           </CardContent>
         </Card>
@@ -157,7 +145,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-orange-600">
-              {isNaN(attendanceStats.late) ? "--" : attendanceStats.late}
+              {attendanceStats ? attendanceStats.late : "--"}
             </div>
           </CardContent>
         </Card>
@@ -170,7 +158,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-red-600">
-              {isNaN(attendanceStats.absent) ? "--" : attendanceStats.absent}
+              {attendanceStats ? attendanceStats.absent : "--"}
             </div>
           </CardContent>
         </Card>
@@ -183,7 +171,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-yellow-600">
-              {isNaN(attendanceStats.earlyLeave) ? "--" : attendanceStats.earlyLeave}
+              {attendanceStats ? attendanceStats.earlyLeave : "--"}
             </div>
           </CardContent>
         </Card>
@@ -196,7 +184,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-green-600">
-              {isNaN(attendanceStats.onLeave) ? "--" : attendanceStats.onLeave}
+              {attendanceStats ? attendanceStats.onLeave : "--"}
             </div>
           </CardContent>
         </Card>
@@ -204,7 +192,7 @@ export default function AdminDashboardPage() {
 
       {/* 주요 업무 현황 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="cursor-pointer hover:border-blue-300 transition" onClick={() => window.location.href = "/admin/contract-approvals"}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">대기 중인 계약</CardTitle>
           </CardHeader>
@@ -216,15 +204,15 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="cursor-pointer hover:border-green-300 transition" onClick={() => window.location.href = "/admin/leave-approvals"}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">대기 중인 휴가</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {pendingApprovals.filter(p => p.type === "leave").length}
+              {pendingCounts.leave}
             </div>
-            <p className="text-xs text-gray-500 mt-1">승인 대기</p>
+            <p className="text-xs text-gray-500 mt-1">승인 대기 · 근무일정 {pendingCounts.schedule}건</p>
           </CardContent>
         </Card>
 
@@ -234,9 +222,9 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-700">
-              {isNaN(totalEmployees) || totalEmployees === 0 ? "--" : totalEmployees}
+              {totalEmployees === null ? "--" : totalEmployees}
             </div>
-            <p className="text-xs text-gray-500 mt-1">명</p>
+            <p className="text-xs text-gray-500 mt-1">명 (관리자 제외)</p>
           </CardContent>
         </Card>
 
@@ -246,7 +234,7 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {isNaN(attendanceStats.absent + attendanceStats.late) ? "--" : attendanceStats.absent + attendanceStats.late}
+              {attendanceStats ? attendanceStats.absent + attendanceStats.late : "--"}
             </div>
             <p className="text-xs text-gray-500 mt-1">미출근 + 지각</p>
           </CardContent>
@@ -266,29 +254,32 @@ export default function AdminDashboardPage() {
             <div className="text-center py-8 text-gray-500">
               데이터를 불러오는 중...
             </div>
-          ) : recentAttendance.filter(r => !r.checkInTime || !r.checkOutTime).length === 0 ? (
+          ) : missingAttendance.length === 0 ? (
             <div className="text-center py-8 text-green-600">
               <CheckCircle2 className="inline-block mb-2" size={32} />
-              <p>출퇴근 누락이 없습니다.</p>
+              <p>최근 7일간 출퇴근 누락이 없습니다.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {recentAttendance
-                .filter(r => !r.checkInTime || !r.checkOutTime)
-                .map(record => (
-                  <div
-                    key={record.id}
-                    className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{record.name}</p>
-                      <p className="text-sm text-gray-600">{record.email}</p>
-                    </div>
+              {missingAttendance.map(record => (
+                <div
+                  key={record.id}
+                  className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900">{record.name}</p>
+                    <p className="text-sm text-gray-600">{record.email}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">
+                      {format(new Date(record.date), "M월 d일")}
+                    </span>
                     <Badge variant="outline" className="border-orange-300 text-orange-700">
-                      {!record.checkInTime ? "입실 누락" : "퇴실 누락"}
+                      {record.type}
                     </Badge>
                   </div>
-                ))}
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -360,7 +351,14 @@ export default function AdminDashboardPage() {
                 </thead>
                 <tbody>
                   {pendingApprovals.map(approval => (
-                    <tr key={approval.id} className="border-b hover:bg-gray-50">
+                    <tr
+                      key={approval.id}
+                      className="border-b hover:bg-gray-50 cursor-pointer"
+                      onClick={() =>
+                        window.location.href =
+                          approval.type === "contract" ? "/admin/contract-approvals" : "/admin/leave-approvals"
+                      }
+                    >
                       <td className="px-4 py-3 font-medium">{approval.title}</td>
                       <td className="px-4 py-3 text-gray-600">{approval.requester}</td>
                       <td className="px-4 py-3 text-gray-600">
@@ -368,7 +366,9 @@ export default function AdminDashboardPage() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge className="bg-yellow-100 text-yellow-800">
-                          {approval.type === "contract" ? "계약 승인 대기" : "휴가 승인 대기"}
+                          {approval.type === "contract" ? "계약 승인 대기"
+                            : approval.type === "schedule" ? "근무일정 승인 대기"
+                            : "휴가 승인 대기"}
                         </Badge>
                       </td>
                     </tr>
