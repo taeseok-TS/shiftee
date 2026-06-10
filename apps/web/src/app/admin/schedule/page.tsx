@@ -347,7 +347,12 @@ export default function AdminSchedulePage() {
                     <div key={employee.id} className="flex border-b">
                       <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50">
                         <div className="font-medium text-gray-900">{employee.name}</div>
-                        <div className="text-xs text-gray-600">{employee.position}</div>
+                        <div className="text-xs text-gray-600">
+                          {employee.position}
+                          {employee.branch && (
+                            <span className="text-blue-600"> · {employee.branch}</span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex flex-1">
                         {daysInWeek.map(day => {
@@ -371,7 +376,6 @@ export default function AdminSchedulePage() {
                                       <div className="font-medium text-blue-900">
                                         {schedule.startTime} - {schedule.endTime}
                                       </div>
-                                      <div className="text-blue-700">{schedule.branch}</div>
                                       <Badge
                                         variant="outline"
                                         className="mt-1 text-xs"
