@@ -296,8 +296,6 @@ export default function LeavePage() {
     (u.name.includes(userSearch) || (u.department ?? "").includes(userSearch) || (u.position ?? "").includes(userSearch))
   );
 
-  const pending = requests.filter(r => r.status === "PENDING");
-
   function progressColor(used: number, total: number) {
     const pct = total > 0 ? used / total : 0;
     if (pct >= 0.9) return "bg-red-500";
@@ -334,38 +332,6 @@ export default function LeavePage() {
               <div className={`h-2 rounded-full transition-all ${progressColor(balance.used, balance.total)}`}
                 style={{ width: `${Math.min((balance.used / balance.total) * 100, 100)}%` }} />
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 관리자: 대기 알림 */}
-      {isAdmin && pending.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-sm text-amber-700 flex items-center gap-2">
-              <AlertCircle size={16} />승인 대기 중 <span className="font-bold">{pending.length}건</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4 space-y-2">
-            {pending.map(r => (
-              <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-amber-100">
-                <div>
-                  <span className="font-medium text-sm">{r.user.name}</span>
-                  <span className="text-gray-400 text-xs ml-2">{r.user.department}</span>
-                  <span className="ml-3 text-sm text-gray-600">
-                    {TYPE_LABEL[r.type]} · {format(new Date(r.startDate), "MM/dd")}~{format(new Date(r.endDate), "MM/dd")} ({r.days}일)
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  <Button size="sm" className="h-7 gap-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(r.id)}>
-                    <Check size={12} />승인
-                  </Button>
-                  <Button size="sm" variant="destructive" className="h-7 gap-1" onClick={() => openReject(r.id)}>
-                    <X size={12} />반려
-                  </Button>
-                </div>
-              </div>
-            ))}
           </CardContent>
         </Card>
       )}

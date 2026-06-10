@@ -28,5 +28,34 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
   });
 
+  // 관리자: 결재라인이 없는 대기 신청도 결재함에 표시 (직접 승인/반려 대상)
+  if (session.role === "ADMIN") {
+    const noLineRequests = await prisma.leaveRequest.findMany({
+      where: {
+        status: "PENDING",
+        approvalSteps: { none: {} },
+      },
+      include: {
+        user: { select: { id: true, name: true, department: true, position: true, branch: true } },
+        approvalSteps: {
+          include: {
+            approver: { select: { id: true, name: true, position: true, branch: true } },
+          },
+          orderBy: { order: "asc" },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const directSteps = noLineRequests.map((req) => ({
+      id: `direct-${req.id}`,
+      order: 0,
+      status: "PENDING",
+      leaveRequest: req,
+    }));
+
+    return NextResponse.json({ steps: [...steps, ...directSteps] });
+  }
+
   return NextResponse.json({ steps });
 }
