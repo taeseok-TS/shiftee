@@ -28,7 +28,8 @@ type Schedule = {
   startTime: string;
   endTime: string;
   branch: string | null;
-  type: "work" | "leave" | "business_trip"; // 근무, 휴가, 출장
+  type: string; // work(근무), off(휴무), holiday(공휴일)
+  note?: string | null;
 };
 
 type ScheduleGroup = {
@@ -74,11 +75,13 @@ export default function AdminSchedulePage() {
     }
   }, []);
 
-  // 근무 일정 데이터 불러오기
+  // 근무 일정 데이터 불러오기 (현재 주 기준)
   const fetchSchedules = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/schedule");
+      const start = format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const end   = format(endOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const res = await fetch(`/api/schedule?start=${start}&end=${end}`);
       if (res.ok) {
         const data = await res.json();
         setSchedules(data.schedules || []);
@@ -88,7 +91,7 @@ export default function AdminSchedulePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentWeek]);
 
   useEffect(() => {
     fetchEmployees();
@@ -375,9 +378,9 @@ export default function AdminSchedulePage() {
                                       >
                                         {schedule.type === "work"
                                           ? "근무"
-                                          : schedule.type === "leave"
-                                          ? "휴가"
-                                          : "출장"}
+                                          : schedule.type === "off"
+                                          ? "휴무"
+                                          : "공휴일"}
                                       </Badge>
                                     </div>
                                   ))}

@@ -11,8 +11,14 @@ export async function GET(request: NextRequest) {
   const year  = parseInt(searchParams.get("year")  || String(new Date().getFullYear()));
   const month = parseInt(searchParams.get("month") || String(new Date().getMonth() + 1));
 
-  const startDate = new Date(year, month - 1, 1);
-  const endDate   = new Date(year, month, 0, 23, 59, 59, 999);
+  // start/end(yyyy-MM-dd) 지정 시 해당 기간, 없으면 해당 월
+  const startParam = searchParams.get("start");
+  const endParam   = searchParams.get("end");
+
+  const startDate = startParam ? startOfDay(new Date(startParam)) : new Date(year, month - 1, 1);
+  const endDate   = endParam
+    ? new Date(new Date(endParam).setHours(23, 59, 59, 999))
+    : new Date(year, month, 0, 23, 59, 59, 999);
 
   // 지점 필터 (MANAGER는 자기 지점만)
   const branchUserWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
@@ -29,7 +35,12 @@ export async function GET(request: NextRequest) {
   const [schedules, attendances, leaves, totalEmployees] = await Promise.all([
     prisma.schedule.findMany({
       where: { date: { gte: startDate, lte: endDate }, ...userIdFilter },
-      select: { userId: true, date: true, type: true },
+      select: {
+        id: true, userId: true, date: true, type: true,
+        startTime: true, endTime: true, note: true,
+        user: { select: { branch: true } },
+      },
+      orderBy: { date: "asc" },
     }),
     prisma.attendance.findMany({
       where: { date: { gte: startDate, lte: endDate }, ...userIdFilter },
@@ -48,7 +59,10 @@ export async function GET(request: NextRequest) {
   ]);
 
   // 날짜별 집계
-  const days = eachDayOfInterval({ start: startDate, end: new Date(year, month, 0) });
+  const days = eachDayOfInterval({
+    start: startDate,
+    end: endParam ? startOfDay(new Date(endParam)) : new Date(year, month, 0),
+  });
 
   const monthData = days.map(day => {
     const dayStr  = format(day, "yyyy-MM-dd");
@@ -78,7 +92,19 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  return NextResponse.json({ monthData, totalEmployees });
+  // 개별 일정 목록 (주간 캘린더용)
+  const scheduleList = schedules.map(s => ({
+    id: s.id,
+    userId: s.userId,
+    date: format(new Date(s.date), "yyyy-MM-dd"),
+    startTime: s.startTime,
+    endTime: s.endTime,
+    type: s.type.toLowerCase(),
+    note: s.note,
+    branch: s.user?.branch ?? null,
+  }));
+
+  return NextResponse.json({ monthData, totalEmployees, schedules: scheduleList });
 }
 
 export async function POST(request: NextRequest) {
