@@ -62,13 +62,20 @@ export async function GET(request: NextRequest) {
       employees = await prisma.user.findMany({
         where: {
           AND: [
-            { hireDate: { lte: targetEndDate } },
+            // 입사일 미입력 직원도 재직자에 포함 (직원 관리와 동일 기준)
+            {
+              OR: [
+                { hireDate: null },
+                { hireDate: { lte: targetEndDate } },
+              ],
+            },
             {
               OR: [
                 { resignDate: null },
                 { resignDate: { gt: targetEndDate } },
               ],
             },
+            { isActive: true },
             { employmentStatus: "ACTIVE" },
             { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
@@ -88,7 +95,7 @@ export async function GET(request: NextRequest) {
       throw queryError;
     }
 
-    // 직급별 집계
+    // 직군별 집계 (기본 직군 + 실제 데이터의 직군을 동적으로 포함)
     const byPosition: Record<string, number> = {
       "원장": 0,
       "CM": 0,
@@ -97,37 +104,20 @@ export async function GET(request: NextRequest) {
     };
 
     // 지점별 집계
-    const byBranch: Record<
-      string,
-      { total: number; "원장": number; CM: number; TM: number; 코디: number }
-    > = {};
+    const byBranch: Record<string, { total: number; [key: string]: number }> = {};
 
     employees.forEach((emp) => {
       const pos = emp.jobGroup || "미정";
 
-      // byPosition 증가 (알려진 직급만)
-      if (byPosition.hasOwnProperty(pos)) {
-        byPosition[pos]++;
-      }
+      byPosition[pos] = (byPosition[pos] || 0) + 1;
 
       // 지점별 집계
       if (emp.branch) {
         if (!byBranch[emp.branch]) {
-          byBranch[emp.branch] = {
-            total: 0,
-            "원장": 0,
-            CM: 0,
-            TM: 0,
-            코디: 0,
-          };
+          byBranch[emp.branch] = { total: 0 };
         }
-
         byBranch[emp.branch].total++;
-
-        // 알려진 직급인 경우에만 증가
-        if (byPosition.hasOwnProperty(pos)) {
-          (byBranch[emp.branch] as any)[pos]++;
-        }
+        byBranch[emp.branch][pos] = (byBranch[emp.branch][pos] || 0) + 1;
       }
     });
 

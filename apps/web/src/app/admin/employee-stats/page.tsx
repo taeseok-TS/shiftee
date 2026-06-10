@@ -43,6 +43,16 @@ type ResignedStatsMonthly = {
   }>;
 };
 
+// 직군 표시 순서 (기본 직군 먼저, 그 외는 가나다순)
+const JOB_ORDER = ["원장", "CM", "TM", "코디"];
+function orderedPositions(byPosition: Record<string, number>) {
+  const keys = Object.keys(byPosition);
+  return [
+    ...JOB_ORDER.filter((k) => keys.includes(k)),
+    ...keys.filter((k) => !JOB_ORDER.includes(k)).sort(),
+  ];
+}
+
 export default function EmployeeStatsPage() {
   const [activeStats, setActiveStats] = useState<ActiveStats | null>(null);
   const [activePeriod, setActivePeriod] = useState<"month" | "year">("month");
@@ -303,7 +313,7 @@ export default function EmployeeStatsPage() {
             </CardContent>
           </Card>
 
-          {["원장", "CM", "TM", "코디"].map((pos) => (
+          {orderedPositions(activeStats.byPosition).map((pos) => (
             <Card key={pos}>
               <CardContent className="pt-6">
                 <div className="text-center">
@@ -332,10 +342,9 @@ export default function EmployeeStatsPage() {
                         지점
                       </th>
                       <th className="text-center py-2 px-3">계</th>
-                      <th className="text-center py-2 px-3">원장</th>
-                      <th className="text-center py-2 px-3">CM</th>
-                      <th className="text-center py-2 px-3">TM</th>
-                      <th className="text-center py-2 px-3">코디</th>
+                      {orderedPositions(activeStats.byPosition).map((pos) => (
+                        <th key={pos} className="text-center py-2 px-3">{pos}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -347,18 +356,11 @@ export default function EmployeeStatsPage() {
                           <td className="text-center py-2 px-3 font-semibold">
                             {stats.total}
                           </td>
-                          <td className="text-center py-2 px-3">
-                            {stats["원장"] || 0}
-                          </td>
-                          <td className="text-center py-2 px-3">
-                            {stats.CM || 0}
-                          </td>
-                          <td className="text-center py-2 px-3">
-                            {stats.TM || 0}
-                          </td>
-                          <td className="text-center py-2 px-3">
-                            {stats["코디"] || 0}
-                          </td>
+                          {orderedPositions(activeStats.byPosition).map((pos) => (
+                            <td key={pos} className="text-center py-2 px-3">
+                              {stats[pos] || 0}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                   </tbody>
@@ -428,7 +430,7 @@ export default function EmployeeStatsPage() {
             </CardContent>
           </Card>
 
-          {["원장", "CM", "TM", "코디"].map((pos) => (
+          {orderedPositions(resignedStatsAnnual.byPosition).map((pos) => (
             <Card key={pos}>
               <CardContent className="pt-6">
                 <div className="text-center">

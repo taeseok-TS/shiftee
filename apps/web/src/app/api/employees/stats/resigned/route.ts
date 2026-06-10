@@ -87,11 +87,8 @@ export async function GET(request: NextRequest) {
         },
       });
 
-      // 월별/직급별 집계
-      const byMonth: Record<
-        string,
-        { total: number; "원장": number; CM: number; TM: number; 코디: number }
-      > = {};
+      // 월별/직군별 집계 (직군은 실제 데이터 기준으로 동적 포함)
+      const byMonth: Record<string, { total: number; [key: string]: number }> = {};
       const byPosition: Record<string, number> = {
         "원장": 0,
         CM: 0,
@@ -101,42 +98,27 @@ export async function GET(request: NextRequest) {
 
       allResigned.forEach((emp) => {
         const pos = emp.jobGroup || "미정";
+        // 로컬 시간대 기준 월 (toISOString은 UTC 변환으로 월이 밀릴 수 있음)
         const monthKey = emp.resignDate
-          ? emp.resignDate.toISOString().substring(0, 7)
+          ? `${emp.resignDate.getFullYear()}-${String(emp.resignDate.getMonth() + 1).padStart(2, "0")}`
           : null;
 
         if (monthKey) {
           if (!byMonth[monthKey]) {
-            byMonth[monthKey] = {
-              total: 0,
-              "원장": 0,
-              CM: 0,
-              TM: 0,
-              코디: 0,
-            };
+            byMonth[monthKey] = { total: 0 };
           }
           byMonth[monthKey].total++;
-          if (byPosition.hasOwnProperty(pos)) {
-            byMonth[monthKey][pos]++;
-          }
+          byMonth[monthKey][pos] = (byMonth[monthKey][pos] || 0) + 1;
         }
 
-        if (byPosition.hasOwnProperty(pos)) {
-          byPosition[pos]++;
-        }
+        byPosition[pos] = (byPosition[pos] || 0) + 1;
       });
 
       // 전체 12개월 기본 구조 생성
       for (let m = 1; m <= 12; m++) {
         const monthKey = `${yearParam}-${String(m).padStart(2, "0")}`;
         if (!byMonth[monthKey]) {
-          byMonth[monthKey] = {
-            total: 0,
-            "원장": 0,
-            CM: 0,
-            TM: 0,
-            코디: 0,
-          };
+          byMonth[monthKey] = { total: 0 };
         }
       }
 
