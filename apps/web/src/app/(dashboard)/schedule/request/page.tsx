@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Calendar, AlertCircle, ChevronRight } from "lucide-react";
-import { format, eachDayOfInterval, isWeekend } from "date-fns";
+import { format, eachDayOfInterval, isWeekend, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 
@@ -39,6 +39,13 @@ const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
   { id: "9-5", name: "9-5 (9AM-5PM)", startTime: "09:00", endTime: "17:00", hours: 8 },
   { id: "10-6", name: "10-6 (10AM-6PM)", startTime: "10:00", endTime: "18:00", hours: 8 },
 ];
+
+/* ── 휴게시간 계산 (근로기준법: 4.5시간 이상 30분, 9시간 이상 1시간) ── */
+function breakHours(spanHours: number) {
+  if (spanHours >= 9) return 1;
+  if (spanHours >= 4.5) return 0.5;
+  return 0;
+}
 
 /* ── 시간 직접 설정 → 템플릿 변환 ── */
 function buildCustomTemplate(start: string, end: string): ScheduleTemplate | null {
@@ -76,6 +83,36 @@ export default function ScheduleRequestPage() {
   const [approvalLine, setApprovalLine] = useState<ApprovalLineStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [myId, setMyId] = useState("");
+  // 날짜별 승인된 휴가 비율 (1=종일, 0.5=반차, 0.25=반반차)
+  const [leaveMap, setLeaveMap] = useState<Record<string, number>>({});
+
+  // 본인 ID 조회
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.json()).then(d => setMyId(d.user?.id || "")).catch(() => {});
+  }, []);
+
+  // 선택 기간의 승인된 휴가 조회 → 날짜별 차감 비율 맵 생성
+  useEffect(() => {
+    if (!startDate) { setLeaveMap({}); return; }
+    const year = new Date(startDate).getFullYear();
+    fetch(`/api/leave?status=APPROVED&year=${year}`)
+      .then(r => r.json())
+      .then(d => {
+        const map: Record<string, number> = {};
+        (d.requests || [])
+          .filter((req: any) => !myId || req.userId === myId || req.user?.id === myId)
+          .forEach((req: any) => {
+            const frac = req.type?.startsWith("HALF") ? 0.5 : req.type?.startsWith("QUARTER") ? 0.25 : 1;
+            eachDayOfInterval({ start: new Date(req.startDate), end: new Date(req.endDate) }).forEach(day => {
+              const key = format(day, "yyyy-MM-dd");
+              map[key] = Math.max(map[key] || 0, frac);
+            });
+          });
+        setLeaveMap(map);
+      })
+      .catch(() => setLeaveMap({}));
+  }, [startDate, myId]);
 
   // 사용자의 결재라인 조회
   useEffect(() => {
@@ -124,8 +161,14 @@ export default function ScheduleRequestPage() {
     setSelectedDates(dates);
   };
 
-  // 총 근무 시간 계산
-  const totalHours = (selectedTemplate?.hours || 0) * selectedDates.size;
+  // 총 근무 시간 계산 (휴게시간 + 승인된 휴가 차감)
+  const spanHours = selectedTemplate?.hours || 0;          // 출퇴근 시간 간격
+  const dailyBreak = breakHours(spanHours);                // 일일 휴게시간
+  const dailyNet = Math.max(spanHours - dailyBreak, 0);    // 일일 실근무시간
+  const leaveDeduction = Math.round(
+    Array.from(selectedDates).reduce((acc, d) => acc + (leaveMap[d] || 0) * dailyNet, 0) * 10
+  ) / 10;                                                  // 휴가 차감시간
+  const totalHours = Math.round((selectedDates.size * dailyNet - leaveDeduction) * 10) / 10;
 
   // 날짜 미선택 시에도 안전한 포맷 (빈 값이면 "-" 표시)
   const fmtDate = (value: string, pattern: string) =>
@@ -332,6 +375,11 @@ export default function ScheduleRequestPage() {
                       </div>
                     ))}
 
+                    {/* 시작 요일 위치 맞춤 (빈 칸 패딩) */}
+                    {Array.from({ length: getDay(new Date(startDate)) }).map((_, i) => (
+                      <div key={`pad-${i}`} />
+                    ))}
+
                     {/* 달력 */}
                     {startDate && endDate && eachDayOfInterval({
                       start: new Date(startDate),
@@ -340,6 +388,7 @@ export default function ScheduleRequestPage() {
                       const dateStr = format(day, "yyyy-MM-dd");
                       const isSelected = selectedDates.has(dateStr);
                       const isWeekendDay = isWeekend(day);
+                      const leaveFrac = leaveMap[dateStr] || 0;
 
                       return (
                         <button
@@ -365,6 +414,11 @@ export default function ScheduleRequestPage() {
                           }`}
                         >
                           {format(day, "d")}
+                          {leaveFrac > 0 && !isWeekendDay && (
+                            <span className={`block text-[9px] leading-tight ${isSelected ? "text-amber-200" : "text-amber-600"}`}>
+                              {leaveFrac === 1 ? "휴가" : leaveFrac === 0.5 ? "반차" : "반반차"}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -373,11 +427,27 @@ export default function ScheduleRequestPage() {
               )}
 
               {/* 선택 요약 */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-2 text-blue-700">
-                <Calendar size={16} />
-                <div>
-                  선택된 날짜: <span className="font-semibold">{selectedDates.size}일</span>
-                  {selectedTemplate && <span className="ml-4">총 근무시간: <span className="font-semibold">{totalHours}시간</span></span>}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-2 text-blue-700">
+                <Calendar size={16} className="mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <div>
+                    선택된 날짜: <span className="font-semibold">{selectedDates.size}일</span>
+                    {selectedTemplate && (
+                      <span className="ml-3 text-sm">
+                        (일 {spanHours}시간 − 휴게 {dailyBreak}시간 = 실근무 <span className="font-semibold">{dailyNet}시간</span>)
+                      </span>
+                    )}
+                  </div>
+                  {leaveDeduction > 0 && (
+                    <div className="text-sm text-amber-700">
+                      승인된 휴가 차감: <span className="font-semibold">-{leaveDeduction}시간</span>
+                    </div>
+                  )}
+                  {selectedTemplate && (
+                    <div>
+                      총 근무시간: <span className="font-semibold text-base">{totalHours}시간</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
