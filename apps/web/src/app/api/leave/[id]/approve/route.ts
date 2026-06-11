@@ -20,7 +20,7 @@ export async function POST(
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: { select: { id: true, name: true, email: true, branch: true } },
       approvalSteps: {
         orderBy: { order: "asc" },
         include: { approver: { select: { id: true, name: true, email: true } } },
@@ -44,13 +44,12 @@ export async function POST(
       return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
     }
 
-    // MANAGER의 지점 검증 (다른 지점 휴가는 승인 불가)
-    if (session.role === "MANAGER" && leaveRequest.user.branch !== session.branch) {
-      return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다.", status: 403 });
-    }
-
-    // 관리자가 직접 전체 처리하는 경우 (단계 우회)
+    // 결재라인을 우회하는 경우 (지정된 결재 차례가 아님)
     if (!myStep && session.role !== "EMPLOYEE") {
+      // MANAGER는 자기 지점 휴가만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
+      if (session.role === "MANAGER" && leaveRequest.user.branch !== session.branch) {
+        return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
+      }
       return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, session.branch);
     }
 

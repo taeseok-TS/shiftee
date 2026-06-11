@@ -2,11 +2,29 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-// 전체 직원 + 결재라인 조회 (관리자)
+// 전체 직원 + 결재라인 조회 (관리자) / 본인 결재라인 조회 (모든 역할)
 export async function GET() {
   const session = await getSession();
-  if (!session || session.role === "EMPLOYEE")
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (!session)
+    return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+  // 본인 결재라인 (근무일정/휴가 신청 페이지에서 사용)
+  const myLine = await prisma.approvalLine.findUnique({
+    where: { userId: session.userId },
+    include: {
+      steps: {
+        include: {
+          approver: { select: { id: true, name: true, position: true } },
+        },
+        orderBy: { order: "asc" },
+      },
+    },
+  });
+
+  // 직원은 본인 결재라인만 조회 가능
+  if (session.role === "EMPLOYEE") {
+    return NextResponse.json({ line: myLine });
+  }
 
   const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
 
@@ -39,5 +57,5 @@ export async function GET() {
     orderBy: [{ department: "asc" }, { name: "asc" }],
   });
 
-  return NextResponse.json({ employees, allUsers });
+  return NextResponse.json({ employees, allUsers, line: myLine });
 }

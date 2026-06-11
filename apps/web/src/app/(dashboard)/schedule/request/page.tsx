@@ -28,18 +28,48 @@ type ApprovalLineStep = {
   };
 };
 
-/* ── 근무 템플릿 ── */
+/* ── 근무 템플릿 (출근 8AM~1PM, 9시간 근무 기본) ── */
 const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
-  { id: "10-7", name: "10-7 (10AM-7PM)", startTime: "10:00", endTime: "19:00", hours: 9 },
+  { id: "8-5", name: "8-5 (8AM-5PM)", startTime: "08:00", endTime: "17:00", hours: 9 },
   { id: "9-6", name: "9-6 (9AM-6PM)", startTime: "09:00", endTime: "18:00", hours: 9 },
+  { id: "10-7", name: "10-7 (10AM-7PM)", startTime: "10:00", endTime: "19:00", hours: 9 },
   { id: "11-8", name: "11-8 (11AM-8PM)", startTime: "11:00", endTime: "20:00", hours: 9 },
-  { id: "10-6", name: "10-6 (10AM-6PM)", startTime: "10:00", endTime: "18:00", hours: 8 },
+  { id: "12-9", name: "12-9 (12PM-9PM)", startTime: "12:00", endTime: "21:00", hours: 9 },
+  { id: "1-10", name: "1-10 (1PM-10PM)", startTime: "13:00", endTime: "22:00", hours: 9 },
   { id: "9-5", name: "9-5 (9AM-5PM)", startTime: "09:00", endTime: "17:00", hours: 8 },
+  { id: "10-6", name: "10-6 (10AM-6PM)", startTime: "10:00", endTime: "18:00", hours: 8 },
 ];
+
+/* ── 시간 직접 설정 → 템플릿 변환 ── */
+function buildCustomTemplate(start: string, end: string): ScheduleTemplate | null {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const minutes = eh * 60 + em - (sh * 60 + sm);
+  if (minutes <= 0) return null;
+  const hours = Math.round((minutes / 60) * 10) / 10;
+  return {
+    id: "custom",
+    name: `직접설정 (${start}~${end})`,
+    startTime: start,
+    endTime: end,
+    hours,
+  };
+}
 
 export default function ScheduleRequestPage() {
   const [step, setStep] = useState(1); // 1: 템플릿, 2: 달력, 3: 승인권자, 4: 확인
   const [selectedTemplate, setSelectedTemplate] = useState<ScheduleTemplate | null>(null);
+  const [customStart, setCustomStart] = useState("09:00");
+  const [customEnd, setCustomEnd] = useState("18:00");
+
+  // 직접 설정 시간 변경 → 선택된 템플릿 갱신
+  const handleCustomTimeChange = (start: string, end: string) => {
+    setCustomStart(start);
+    setCustomEnd(end);
+    const custom = buildCustomTemplate(start, end);
+    if (custom) setSelectedTemplate(custom);
+  };
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
@@ -193,6 +223,49 @@ export default function ScheduleRequestPage() {
                     <div className="text-sm text-gray-600">{template.hours}시간</div>
                   </button>
                 ))}
+              </div>
+
+              {/* 원하는 템플릿이 없을 때: 시간 직접 설정 */}
+              <div
+                onClick={() => {
+                  const custom = buildCustomTemplate(customStart, customEnd);
+                  if (custom) setSelectedTemplate(custom);
+                }}
+                className={`p-4 border-2 rounded-lg transition-all cursor-pointer ${
+                  selectedTemplate?.id === "custom"
+                    ? "border-blue-600 bg-blue-50"
+                    : "border-dashed border-gray-300 hover:border-blue-300"
+                }`}
+              >
+                <div className="text-lg font-bold text-gray-900 mb-2">⚙️ 직접 설정</div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">출근</span>
+                    <input
+                      type="time"
+                      value={customStart}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleCustomTimeChange(e.target.value, customEnd)}
+                      className="px-2 py-1.5 border rounded-md text-sm"
+                    />
+                  </div>
+                  <span className="text-gray-400">~</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">퇴근</span>
+                    <input
+                      type="time"
+                      value={customEnd}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleCustomTimeChange(customStart, e.target.value)}
+                      className="px-2 py-1.5 border rounded-md text-sm"
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-blue-600">
+                    {buildCustomTemplate(customStart, customEnd)
+                      ? `${buildCustomTemplate(customStart, customEnd)!.hours}시간`
+                      : "시간을 확인해주세요"}
+                  </span>
+                </div>
               </div>
 
               <div className="flex gap-2 justify-end pt-4">
