@@ -217,10 +217,10 @@ export default function SchedulePage() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 font-semibold text-gray-800">
-              <CalendarDays size={18} className="text-blue-600" />
+            <div className="flex items-center gap-2 font-semibold text-gray-800 text-2xl">
+              <CalendarDays size={24} className="text-blue-600" />
               {year}년 {month}월
-              <span className="text-sm font-normal text-gray-400 ml-1">내 일정</span>
+              <span className="text-base font-normal text-gray-400 ml-1">내 일정</span>
             </div>
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subMonths(d, 1))}>
@@ -245,9 +245,9 @@ export default function SchedulePage() {
               { dot: "bg-red-500",    label: "결근" },
               { dot: "bg-blue-500",   label: "휴가" },
             ].map(({ dot, label }) => (
-              <div key={label} className="flex items-center gap-1">
-                <div className={`w-2 h-2 rounded-full ${dot}`} />
-                <span className="text-xs text-gray-500">{label}</span>
+              <div key={label} className="flex items-center gap-1.5">
+                <div className={`w-3 h-3 rounded-full ${dot}`} />
+                <span className="text-base text-gray-500">{label}</span>
               </div>
             ))}
           </div>
@@ -255,7 +255,7 @@ export default function SchedulePage() {
           {/* 요일 헤더 */}
           <div className="grid grid-cols-7 mb-1">
             {WEEKDAYS.map((d, i) => (
-              <div key={d} className={`text-center text-xs font-semibold py-1.5
+              <div key={d} className={`text-center text-xl font-semibold py-1.5
                 ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"}`}>{d}</div>
             ))}
           </div>
@@ -263,7 +263,7 @@ export default function SchedulePage() {
           {/* 날짜 그리드 */}
           <div className="grid grid-cols-7 gap-0.5">
             {Array.from({ length: startPad }).map((_, i) => (
-              <div key={`pad-${i}`} className="min-h-[90px] bg-gray-50/40 rounded-lg" />
+              <div key={`pad-${i}`} className="min-h-[110px] bg-gray-50/40 rounded-lg" />
             ))}
 
             {days.map(day => {
@@ -286,7 +286,7 @@ export default function SchedulePage() {
                 <div
                   key={dateStr}
                   onClick={() => inMonth && openDay(dateStr)}
-                  className={`min-h-[90px] rounded-lg p-1.5 border transition-all select-none
+                  className={`min-h-[110px] rounded-lg p-1.5 border transition-all select-none
                     ${today
                       ? "border-blue-400 bg-blue-50/60"
                       : "border-transparent hover:border-gray-300 hover:bg-gray-50/70"}
@@ -294,7 +294,7 @@ export default function SchedulePage() {
                     ${inMonth ? "cursor-pointer" : "opacity-0 pointer-events-none"}`}
                 >
                   {/* 날짜 번호 */}
-                  <p className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full mb-1
+                  <p className={`text-xl font-semibold w-10 h-10 flex items-center justify-center rounded-full mb-1
                     ${today
                       ? "bg-blue-600 text-white"
                       : dow === 0 ? "text-red-400" : dow === 6 ? "text-blue-400" : "text-gray-600"}`}>
@@ -302,17 +302,17 @@ export default function SchedulePage() {
                   </p>
 
                   {/* 집계 배지 */}
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {stats.slice(0, 4).map(s => (
-                      <div key={s.label} className="flex items-center gap-1">
-                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
-                        <span className="text-[10px] text-gray-600 leading-tight">
+                      <div key={s.label} className="flex items-center gap-1.5">
+                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot}`} />
+                        <span className="text-base text-gray-600 leading-tight">
                           {s.label} <span className="font-semibold">{s.val}</span>
                         </span>
                       </div>
                     ))}
                     {stats.length === 0 && d && (d.work > 0 || d.off > 0) && (
-                      <p className="text-[10px] text-gray-400">예정 {d.work}명</p>
+                      <p className="text-base text-gray-400">예정 {d.work}명</p>
                     )}
                   </div>
                 </div>
