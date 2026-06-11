@@ -97,6 +97,10 @@ export default function ScheduleRequestPage() {
   // 총 근무 시간 계산
   const totalHours = (selectedTemplate?.hours || 0) * selectedDates.size;
 
+  // 날짜 미선택 시에도 안전한 포맷 (빈 값이면 "-" 표시)
+  const fmtDate = (value: string, pattern: string) =>
+    value ? format(new Date(value), pattern, { locale: ko }) : "-";
+
   // 신청 제출
   const handleSubmit = async () => {
     try {
@@ -358,7 +362,7 @@ export default function ScheduleRequestPage() {
                 <h4 className="font-semibold text-gray-900">신청 요약</h4>
                 <div className="text-sm text-gray-600 space-y-1">
                   <div>근무 시간: <span className="font-medium">{selectedTemplate?.name}</span></div>
-                  <div>기간: <span className="font-medium">{format(new Date(startDate), "yyyy년 M월 d일", { locale: ko })} ~ {format(new Date(endDate), "M월 d일", { locale: ko })}</span></div>
+                  <div>기간: <span className="font-medium">{fmtDate(startDate, "yyyy년 M월 d일")} ~ {fmtDate(endDate, "M월 d일")}</span></div>
                   <div>선택 날짜: <span className="font-medium">{selectedDates.size}일</span></div>
                   <div>총 시간: <span className="font-medium text-blue-600">{totalHours}시간</span></div>
                 </div>
@@ -392,7 +396,7 @@ export default function ScheduleRequestPage() {
               <h4 className="font-semibold text-gray-900">신청 내용</h4>
               <div className="text-sm text-gray-700 space-y-1">
                 <div>• 근무 시간: {selectedTemplate?.name}</div>
-                <div>• 기간: {format(new Date(startDate), "yyyy년 M월 d일")} ~ {format(new Date(endDate), "M월 d일")}</div>
+                <div>• 기간: {fmtDate(startDate, "yyyy년 M월 d일")} ~ {fmtDate(endDate, "M월 d일")}</div>
                 <div>• 선택 날짜: {selectedDates.size}일</div>
                 <div>• 총 근무시간: <span className="font-bold text-blue-600">{totalHours}시간</span></div>
               </div>
