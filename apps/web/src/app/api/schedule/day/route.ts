@@ -15,20 +15,25 @@ export async function GET(request: NextRequest) {
   const dayStart = startOfDay(date);
   const dayEnd   = endOfDay(date);
 
+  // 본인 정보만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
+  const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+
   const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
+  const userWhere   = selfOnly ? { id: session.userId } : { isActive: true, ...branchWhere };
+  const recordWhere = selfOnly ? { userId: session.userId } : {};
 
   const [employees, schedules, attendances, leaves] = await Promise.all([
     prisma.user.findMany({
-      where: { isActive: true, ...branchWhere },
+      where: userWhere,
       select: { id: true, name: true, department: true, position: true, branch: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     prisma.schedule.findMany({
-      where: { date: { gte: dayStart, lte: dayEnd } },
+      where: { date: { gte: dayStart, lte: dayEnd }, ...recordWhere },
       select: { id: true, userId: true, type: true, startTime: true, endTime: true, note: true },
     }),
     prisma.attendance.findMany({
-      where: { date: { gte: dayStart, lte: dayEnd } },
+      where: { date: { gte: dayStart, lte: dayEnd }, ...recordWhere },
       select: { id: true, userId: true, clockIn: true, clockOut: true, status: true },
     }),
     prisma.leaveRequest.findMany({
@@ -36,6 +41,7 @@ export async function GET(request: NextRequest) {
         status: "APPROVED",
         startDate: { lte: dayEnd },
         endDate: { gte: dayStart },
+        ...recordWhere,
       },
       select: { id: true, userId: true, type: true },
     }),

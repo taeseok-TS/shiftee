@@ -20,16 +20,20 @@ export async function GET(request: NextRequest) {
     ? new Date(new Date(endParam).setHours(23, 59, 59, 999))
     : new Date(year, month, 0, 23, 59, 59, 999);
 
+  // 본인 일정만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
+  const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+
   // 지점 필터 (MANAGER는 자기 지점만)
   const branchUserWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
-  const branchRelWhere  = session.role === "MANAGER" ? { user: { branch: session.branch } } : {};
 
   // 지점 내 활성 직원 ID 목록 (집계 기준)
-  const branchUserIds = session.role === "MANAGER"
+  const branchUserIds = !selfOnly && session.role === "MANAGER"
     ? (await prisma.user.findMany({ where: { isActive: true, ...branchUserWhere }, select: { id: true } })).map(u => u.id)
     : null; // null = 전체
 
-  const userIdFilter = branchUserIds ? { userId: { in: branchUserIds } } : {};
+  const userIdFilter = selfOnly
+    ? { userId: session.userId }
+    : branchUserIds ? { userId: { in: branchUserIds } } : {};
 
   // 병렬 조회: 일정 / 출퇴근 / 승인된 휴가 / 전체 직원 수
   const [schedules, attendances, leaves, totalEmployees] = await Promise.all([
@@ -55,7 +59,9 @@ export async function GET(request: NextRequest) {
       },
       select: { userId: true, startDate: true, endDate: true },
     }),
-    prisma.user.count({ where: { isActive: true, ...branchUserWhere } }),
+    selfOnly
+      ? Promise.resolve(1)
+      : prisma.user.count({ where: { isActive: true, ...branchUserWhere } }),
   ]);
 
   // 날짜별 집계

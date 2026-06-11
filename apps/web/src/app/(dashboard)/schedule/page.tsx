@@ -96,7 +96,7 @@ export default function SchedulePage() {
 
   /* ── 월별 집계 로드 ── */
   const fetchMonth = useCallback(async () => {
-    const res  = await fetch(`/api/schedule?year=${year}&month=${month}`);
+    const res  = await fetch(`/api/schedule?year=${year}&month=${month}&scope=self`);
     const data = await res.json();
     setMonthData(data.monthData  || []);
     setTotalEmp(data.totalEmployees || 0);
@@ -115,7 +115,7 @@ export default function SchedulePage() {
     setDayOpen(true);
     setDayLoading(true);
     try {
-      const res  = await fetch(`/api/schedule/day?date=${dateStr}`);
+      const res  = await fetch(`/api/schedule/day?date=${dateStr}&scope=self`);
       const data = await res.json();
       setDayRows(data.employees || []);
       setDaySummary(data.summary || null);
@@ -206,21 +206,10 @@ export default function SchedulePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">근무일정</h1>
         <div className="flex gap-2">
-          {isAdmin && (
-            <>
-              <Button variant="outline" className="gap-2" onClick={() => { setBulkThisMonth(); setBulkOpen(true); }}>
-                <Layers size={15} />일괄 등록
-              </Button>
-              <Button className="gap-2" onClick={() => { setAddForm(defaultForm); setAddOpen(true); }}>
-                <Plus size={15} />일정 등록
-              </Button>
-            </>
-          )}
-          {!isAdmin && (
-            <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => window.location.href = "/schedule/request"}>
-              <Plus size={15} />근무일정 생성 요청
-            </Button>
-          )}
+          {/* 개인 페이지: 본인 근무일정 신청만 가능 (일정 등록/관리는 관리자 페이지에서) */}
+          <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => window.location.href = "/schedule/request"}>
+            <Plus size={15} />근무일정 생성 요청
+          </Button>
         </div>
       </div>
 
@@ -231,7 +220,7 @@ export default function SchedulePage() {
             <div className="flex items-center gap-2 font-semibold text-gray-800">
               <CalendarDays size={18} className="text-blue-600" />
               {year}년 {month}월
-              <span className="text-sm font-normal text-gray-400 ml-1">전체 {totalEmp}명</span>
+              <span className="text-sm font-normal text-gray-400 ml-1">내 일정</span>
             </div>
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subMonths(d, 1))}>
