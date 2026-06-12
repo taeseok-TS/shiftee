@@ -70,6 +70,7 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
   QUARTER_AM: "오전반반차",
   QUARTER_PM: "오후반반차",
   COMPENSATORY: "대체휴무",
+  COMPENSATORY_HALF: "대체휴무반차",
   SICK: "병가",
   SPECIAL: "특별휴가",
 };

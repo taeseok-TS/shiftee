@@ -53,11 +53,12 @@ type MyStep   = {
 const TYPE_LABEL: Record<string, string> = {
   ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
   QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  COMPENSATORY: "대체휴무", SICK: "병가", SPECIAL: "특별휴가",
+  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
+  SICK: "병가", SPECIAL: "특별휴가",
 };
-const SINGLE_DAY_TYPES = new Set(["HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM"]);
+const SINGLE_DAY_TYPES = new Set(["HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM","COMPENSATORY_HALF"]);
 const FIXED_DAYS: Record<string, number> = {
-  HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25,
+  HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25, COMPENSATORY_HALF: 0.5,
 };
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "대기중",  badge: "bg-amber-100 text-amber-700 border-amber-200" },
@@ -612,8 +613,13 @@ export default function LeavePage() {
                     </SelectItem>
                   ))}
                   <div className="px-2 py-1 text-xs text-gray-400 font-medium border-t mt-1 pt-2">기타</div>
-                  {(["COMPENSATORY","SICK","SPECIAL"] as const).map(k => (
-                    <SelectItem key={k} value={k}>{TYPE_LABEL[k]}</SelectItem>
+                  {(["COMPENSATORY","COMPENSATORY_HALF","SICK","SPECIAL"] as const).map(k => (
+                    <SelectItem key={k} value={k}>
+                      <span className="flex items-center justify-between w-full gap-8">
+                        <span>{TYPE_LABEL[k]}</span>
+                        {FIXED_DAYS[k] && <span className="text-xs text-gray-400">{FIXED_DAYS[k]}일</span>}
+                      </span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

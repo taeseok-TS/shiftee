@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
   // 근무일(평일)만 계산
   let days: number;
-  if (type === "HALF_AM" || type === "HALF_PM") {
+  if (type === "HALF_AM" || type === "HALF_PM" || type === "COMPENSATORY_HALF") {
     days = 0.5;
   } else if (type === "QUARTER_AM" || type === "QUARTER_PM") {
     days = 0.25;

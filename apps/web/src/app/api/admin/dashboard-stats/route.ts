@@ -78,7 +78,7 @@ export async function GET() {
   const LEAVE_TYPE_LABEL: Record<string, string> = {
     ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
     QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-    COMPENSATORY: "대체휴무", SICK: "병가", SPECIAL: "특별휴가",
+    COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차", SICK: "병가", SPECIAL: "특별휴가",
   };
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 

@@ -103,7 +103,7 @@ export default function ScheduleRequestPage() {
         (d.requests || [])
           .filter((req: any) => !myId || req.userId === myId || req.user?.id === myId)
           .forEach((req: any) => {
-            const frac = req.type?.startsWith("HALF") ? 0.5 : req.type?.startsWith("QUARTER") ? 0.25 : 1;
+            const frac = req.type?.startsWith("QUARTER") ? 0.25 : req.type?.includes("HALF") ? 0.5 : 1;
             eachDayOfInterval({ start: new Date(req.startDate), end: new Date(req.endDate) }).forEach(day => {
               const key = format(day, "yyyy-MM-dd");
               map[key] = Math.max(map[key] || 0, frac);
