@@ -224,6 +224,7 @@ export default function ContractsPage() {
     if (useFilters.userId) params.append("userId", useFilters.userId);
     if (useFilters.searchText) params.append("searchText", useFilters.searchText);
     if (useFilters.showHiddenRevoked) params.append("showHiddenRevoked", "true");
+    params.append("scope", "self"); // 개인 페이지: 본인 계약서만
 
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
@@ -521,11 +522,11 @@ export default function ContractsPage() {
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
-      setRole(d.user?.role || "EMPLOYEE");
+      // 개인 페이지: 역할과 무관하게 본인 계약서만 표시 (작성/관리는 관리자·원장 페이지에서)
+      setRole("EMPLOYEE");
       setMyId(d.user?.id || "");
       setMyName(d.user?.name || "");
     });
-    fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
   }, []);
 
   useEffect(() => {

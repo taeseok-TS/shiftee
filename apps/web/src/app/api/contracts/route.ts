@@ -19,13 +19,17 @@ export async function GET(request: NextRequest) {
     const searchText = searchParams.get("searchText");
     const showHiddenRevoked = searchParams.get("showHiddenRevoked") === "true";
 
+    // 본인 계약서만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
+    const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+
     // 기본 권한 필터
-    let whereBase: any =
-      session.role === "ADMIN"
-        ? {}
-        : session.role === "MANAGER"
-        ? { user: { branch: session.branch } }
-        : { userId: session.userId };
+    let whereBase: any = selfOnly
+      ? { userId: session.userId }
+      : session.role === "ADMIN"
+      ? {}
+      : session.role === "MANAGER"
+      ? { user: { branch: session.branch } }
+      : { userId: session.userId };
 
     // 추가 필터 적용
     if (year) {
@@ -47,7 +51,7 @@ export async function GET(request: NextRequest) {
       whereBase.status = status;
     }
 
-    if (userId) {
+    if (userId && !selfOnly) {
       whereBase.userId = userId;
     }
 
