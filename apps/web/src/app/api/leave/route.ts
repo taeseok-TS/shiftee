@@ -25,11 +25,14 @@ export async function GET(request: NextRequest) {
     dateFilter = { startDate: { gte: new Date(year, 0, 1) }, endDate: { lte: new Date(year, 11, 31, 23, 59, 59) } };
   }
 
+  // 본인 휴가만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
+  const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+
   const branchFilter =
     session.role === "MANAGER" ? { user: { branch: session.branch } } : {};
 
   const where =
-    session.role === "EMPLOYEE"
+    selfOnly
       ? { userId: session.userId, ...(status ? { status: status as never } : {}), ...dateFilter }
       : { ...branchFilter, ...(status ? { status: status as never } : {}), ...dateFilter };
 

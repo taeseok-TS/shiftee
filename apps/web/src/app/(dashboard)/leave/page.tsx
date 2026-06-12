@@ -149,9 +149,8 @@ export default function LeavePage() {
   const [editTarget, setEditTarget] = useState<EmpBalance | null>(null);
   const [editForm, setEditForm]     = useState({ total: 15, used: 0 });
 
-  // 권한 요약 (통일된 권한 함수 사용)
-  const permissions = useMemo(() => getPermissionSummary(role as UserRole), [role]);
-  const isAdmin = permissions.canManageEmployees;
+  // 개인 페이지: 역할과 무관하게 본인 휴가만 표시 (결재/관리는 관리자·원장 페이지에서)
+  const isAdmin = false;
 
   /* ── 데이터 로드 ── */
   const fetchRequests = useCallback(async () => {
@@ -159,19 +158,19 @@ export default function LeavePage() {
     if (filterStatus !== "all") p.set("status", filterStatus);
     p.set("year", filterYear);
     if (filterMonth !== "all") p.set("month", filterMonth);
+    p.set("scope", "self");
     const data = await fetch(`/api/leave?${p}`).then(r => r.json());
     setRequests(data.requests || []);
   }, [filterStatus, filterYear, filterMonth]);
 
   const fetchBalance = useCallback(async () => {
-    const data = await fetch("/api/leave/balance").then(r => r.json());
+    const data = await fetch("/api/leave/balance?scope=self").then(r => r.json());
     if (data.balance)  setBalance(data.balance);
     if (data.balances) setEmpBalances(data.balances);
   }, []);
 
   const fetchMySteps = useCallback(async () => {
-    const data = await fetch("/api/leave/my-approvals").then(r => r.json());
-    setMySteps(data.steps || []);
+    setMySteps([]);
   }, []);
 
   const fetchApprovalLines = useCallback(async () => {
@@ -296,8 +295,6 @@ export default function LeavePage() {
     (u.name.includes(userSearch) || (u.department ?? "").includes(userSearch) || (u.position ?? "").includes(userSearch))
   );
 
-  const pending = requests.filter(r => r.status === "PENDING");
-
   function progressColor(used: number, total: number) {
     const pct = total > 0 ? used / total : 0;
     if (pct >= 0.9) return "bg-red-500";
@@ -338,53 +335,12 @@ export default function LeavePage() {
         </Card>
       )}
 
-      {/* 관리자: 대기 알림 */}
-      {isAdmin && pending.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-sm text-amber-700 flex items-center gap-2">
-              <AlertCircle size={16} />승인 대기 중 <span className="font-bold">{pending.length}건</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4 space-y-2">
-            {pending.map(r => (
-              <div key={r.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-amber-100">
-                <div>
-                  <span className="font-medium text-sm">{r.user.name}</span>
-                  <span className="text-gray-400 text-xs ml-2">{r.user.department}</span>
-                  <span className="ml-3 text-sm text-gray-600">
-                    {TYPE_LABEL[r.type]} · {format(new Date(r.startDate), "MM/dd")}~{format(new Date(r.endDate), "MM/dd")} ({r.days}일)
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  <Button size="sm" className="h-7 gap-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(r.id)}>
-                    <Check size={12} />승인
-                  </Button>
-                  <Button size="sm" variant="destructive" className="h-7 gap-1" onClick={() => openReject(r.id)}>
-                    <X size={12} />반려
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
       {/* ── 탭 ── */}
       <Tabs defaultValue="list">
         <TabsList>
           <TabsTrigger value="list" className="gap-1.5">
             <ClipboardList size={14} />신청 관리
           </TabsTrigger>
-          {/* 내 결재함: 결재 대기가 있으면 모두에게 표시 */}
-          {mySteps.length > 0 && (
-            <TabsTrigger value="myapprovals" className="gap-1.5 relative">
-              <Inbox size={14} />내 결재함
-              <span className="ml-1 bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">
-                {mySteps.length}
-              </span>
-            </TabsTrigger>
-          )}
           {isAdmin && (
             <>
               <TabsTrigger value="approvalline" className="gap-1.5">
@@ -507,56 +463,6 @@ export default function LeavePage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* ═══ 내 결재함 ═══ */}
-        <TabsContent value="myapprovals" className="mt-4 space-y-3">
-          {mySteps.length === 0 ? (
-            <div className="text-center text-gray-400 py-16">
-              <Inbox size={32} className="mx-auto mb-2 opacity-30" />결재 대기 건이 없습니다.
-            </div>
-          ) : mySteps.map(step => {
-            const r = step.leaveRequest;
-            return (
-              <Card key={step.id} className="border-amber-200">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900">{r.user.name}</span>
-                        <span className="text-xs text-gray-400">{r.user.department}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_CFG.PENDING.badge}`}>
-                          대기중
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-700">
-                        <span className="font-medium">{TYPE_LABEL[r.type]}</span>
-                        <span className="mx-2 text-gray-400">·</span>
-                        {format(new Date(r.startDate), "yyyy.MM.dd")}
-                        {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
-                        <span className="ml-2 text-gray-500">({r.days}일)</span>
-                      </div>
-                      {r.reason && <p className="text-xs text-gray-500">사유: {r.reason}</p>}
-                      <div className="pt-1">
-                        <p className="text-xs text-gray-400 mb-1">결재 순서</p>
-                        <ApprovalChain steps={r.approvalSteps} />
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2 shrink-0">
-                      <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleApprove(r.id)}>
-                        <Check size={13} />승인
-                      </Button>
-                      <Button size="sm" variant="destructive" className="gap-1"
-                        onClick={() => openReject(r.id)}>
-                        <X size={13} />반려
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
         </TabsContent>
 
         {/* ═══ 결재라인 설정 (관리자) ═══ */}

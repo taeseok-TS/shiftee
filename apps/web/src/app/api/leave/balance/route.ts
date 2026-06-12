@@ -3,12 +3,14 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 // 잔여 휴가 조회
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  if (session.role === "EMPLOYEE") {
-    // 본인 잔여 휴가만
+  const { searchParams } = new URL(request.url);
+
+  // 본인 잔여 휴가만: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
+  if (session.role === "EMPLOYEE" || searchParams.get("scope") === "self") {
     const balance = await prisma.leaveBalance.findUnique({
       where: { userId: session.userId },
     });
