@@ -8,8 +8,9 @@ export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 오늘 날짜를 UTC 자정으로 조회 (clock-in과 동일 규칙, @db.Date 시간대 문제 방지)
+  const nowDate = new Date();
+  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
 
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },

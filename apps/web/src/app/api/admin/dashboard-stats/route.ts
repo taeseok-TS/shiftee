@@ -9,8 +9,9 @@ export async function GET() {
   if (session.role !== "ADMIN")
     return NextResponse.json({ error: "관리자만 조회할 수 있습니다." }, { status: 403 });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
+  const nowDate = new Date();
+  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
 
   // 재직 중인 직원 (관리자 제외)
   const employeeWhere = {
