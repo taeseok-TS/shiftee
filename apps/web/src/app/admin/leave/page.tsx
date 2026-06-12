@@ -62,7 +62,7 @@ const FIXED_DAYS: Record<string, number> = {
   HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25, COMPENSATORY_HALF: 0.5, CIVIL_DEFENSE: 0.5,
 };
 // 연차 미차감 유형 (승인되어도 잔여 연차에서 차감되지 않음)
-const NON_DEDUCT_TYPES = new Set(["COMPENSATORY","COMPENSATORY_HALF","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES"]);
+const NON_DEDUCT_TYPES = new Set(["COMPENSATORY","COMPENSATORY_HALF","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES","FAMILY_EVENT"]);
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "대기중",  badge: "bg-amber-100 text-amber-700 border-amber-200" },
   APPROVED:  { label: "승인",    badge: "bg-green-100 text-green-700 border-green-200" },
@@ -648,7 +648,7 @@ export default function LeavePage() {
 
       {/* ═══ 휴가 신청 다이얼로그 ═══ */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-xl sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><CalendarDays size={18} />휴가 신청</DialogTitle>
           </DialogHeader>
