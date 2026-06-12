@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
 import { sendLeaveApprovalRequest } from "@/lib/email";
 import { filterLeaveData } from "@/lib/api-response";
+import { isLeaveDeductible } from "@/lib/leave-types";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 
 export async function GET(request: NextRequest) {
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
 
   // 근무일(평일)만 계산
   let days: number;
-  if (type === "HALF_AM" || type === "HALF_PM" || type === "COMPENSATORY_HALF") {
+  if (type === "HALF_AM" || type === "HALF_PM" || type === "COMPENSATORY_HALF" || type === "CIVIL_DEFENSE") {
     days = 0.5;
   } else if (type === "QUARTER_AM" || type === "QUARTER_PM") {
     days = 0.25;
@@ -96,12 +97,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 잔여 휴가 확인
-  const balance = await prisma.leaveBalance.findUnique({ where: { userId: session.userId } });
-  if (balance && balance.remaining < days) {
-    return NextResponse.json({
-      error: `잔여 휴가가 부족합니다. (잔여 ${balance.remaining}일, 신청 ${days}일)`,
-    }, { status: 400 });
+  // 잔여 휴가 확인 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감이므로 검사 생략)
+  if (isLeaveDeductible(type)) {
+    const balance = await prisma.leaveBalance.findUnique({ where: { userId: session.userId } });
+    if (balance && balance.remaining < days) {
+      return NextResponse.json({
+        error: `잔여 휴가가 부족합니다. (잔여 ${balance.remaining}일, 신청 ${days}일)`,
+      }, { status: 400 });
+    }
   }
 
   const leaveRequest = await prisma.leaveRequest.create({

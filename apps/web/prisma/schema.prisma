@@ -184,6 +184,9 @@ enum LeaveType {
   COMPENSATORY_HALF // 대체휴무반차 (0.5일)
   SICK // 병가
   SPECIAL // 특별휴가
+  CIVIL_DEFENSE // 민방위 (0.5일, 연차 미차감)
+  RESERVE_FORCES // 예비군훈련 (연차 미차감)
+  FAMILY_EVENT // 경조사
 }
 
 enum LeaveStatus {

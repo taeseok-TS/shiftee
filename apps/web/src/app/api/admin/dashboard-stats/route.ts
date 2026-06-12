@@ -79,6 +79,7 @@ export async function GET() {
     ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
     QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
     COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차", SICK: "병가", SPECIAL: "특별휴가",
+    CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", FAMILY_EVENT: "경조사",
   };
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 

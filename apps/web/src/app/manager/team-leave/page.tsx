@@ -73,6 +73,9 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
   COMPENSATORY_HALF: "대체휴무반차",
   SICK: "병가",
   SPECIAL: "특별휴가",
+  CIVIL_DEFENSE: "민방위",
+  RESERVE_FORCES: "예비군훈련",
+  FAMILY_EVENT: "경조사",
 };
 
 /* ── 원장 결재 페이지 ── */

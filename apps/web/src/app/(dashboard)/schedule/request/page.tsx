@@ -103,7 +103,8 @@ export default function ScheduleRequestPage() {
         (d.requests || [])
           .filter((req: any) => !myId || req.userId === myId || req.user?.id === myId)
           .forEach((req: any) => {
-            const frac = req.type?.startsWith("QUARTER") ? 0.25 : req.type?.includes("HALF") ? 0.5 : 1;
+            // 하루 차감 비율: 반차/반반차/민방위 등 1일 미만 유형은 days 값(0.5, 0.25), 그 외 종일(1)
+            const frac = req.days && req.days < 1 ? req.days : 1;
             eachDayOfInterval({ start: new Date(req.startDate), end: new Date(req.endDate) }).forEach(day => {
               const key = format(day, "yyyy-MM-dd");
               map[key] = Math.max(map[key] || 0, frac);

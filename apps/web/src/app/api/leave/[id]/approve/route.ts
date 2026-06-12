@@ -6,6 +6,7 @@ import {
   sendLeaveApprovalCompletion,
   sendLeaveRejectionNotification,
 } from "@/lib/email";
+import { isLeaveDeductible } from "@/lib/leave-types";
 
 export async function POST(
   request: NextRequest,
@@ -102,21 +103,23 @@ export async function POST(
             where: { id },
             data:  { status: "APPROVED", approverId: session.userId },
           });
-          // 잔여 휴가 차감
-          await tx.leaveBalance.upsert({
-            where:  { userId: leaveRequest.userId },
-            create: {
-              userId:    leaveRequest.userId,
-              year:      new Date().getFullYear(),
-              total:     15,
-              used:      leaveRequest.days,
-              remaining: 15 - leaveRequest.days,
-            },
-            update: {
-              used:      { increment: leaveRequest.days },
-              remaining: { decrement: leaveRequest.days },
-            },
-          });
+          // 잔여 휴가 차감 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감)
+          if (isLeaveDeductible(leaveRequest.type)) {
+            await tx.leaveBalance.upsert({
+              where:  { userId: leaveRequest.userId },
+              create: {
+                userId:    leaveRequest.userId,
+                year:      new Date().getFullYear(),
+                total:     15,
+                used:      leaveRequest.days,
+                remaining: 15 - leaveRequest.days,
+              },
+              update: {
+                used:      { increment: leaveRequest.days },
+                remaining: { decrement: leaveRequest.days },
+              },
+            });
+          }
           emailAction = "approve";
         }
       }
@@ -216,7 +219,8 @@ async function adminOverride(
     },
   });
 
-  if (action === "approve") {
+  // 잔여 휴가 차감 (연차 차감 유형만)
+  if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
     await prisma.leaveBalance.upsert({
       where:  { userId },
       create: {

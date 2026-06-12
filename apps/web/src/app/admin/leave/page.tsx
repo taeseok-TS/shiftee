@@ -55,11 +55,14 @@ const TYPE_LABEL: Record<string, string> = {
   QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
   COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
   SICK: "병가", SPECIAL: "특별휴가",
+  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", FAMILY_EVENT: "경조사",
 };
-const SINGLE_DAY_TYPES = new Set(["HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM","COMPENSATORY_HALF"]);
+const SINGLE_DAY_TYPES = new Set(["HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM","COMPENSATORY_HALF","CIVIL_DEFENSE"]);
 const FIXED_DAYS: Record<string, number> = {
-  HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25, COMPENSATORY_HALF: 0.5,
+  HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25, COMPENSATORY_HALF: 0.5, CIVIL_DEFENSE: 0.5,
 };
+// 연차 미차감 유형 (승인되어도 잔여 연차에서 차감되지 않음)
+const NON_DEDUCT_TYPES = new Set(["COMPENSATORY","COMPENSATORY_HALF","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES"]);
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "대기중",  badge: "bg-amber-100 text-amber-700 border-amber-200" },
   APPROVED:  { label: "승인",    badge: "bg-green-100 text-green-700 border-green-200" },
@@ -673,11 +676,14 @@ export default function LeavePage() {
                     </SelectItem>
                   ))}
                   <div className="px-2 py-1 text-xs text-gray-400 font-medium border-t mt-1 pt-2">기타</div>
-                  {(["COMPENSATORY","COMPENSATORY_HALF","SICK","SPECIAL"] as const).map(k => (
+                  {(["COMPENSATORY","COMPENSATORY_HALF","SICK","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES","FAMILY_EVENT"] as const).map(k => (
                     <SelectItem key={k} value={k}>
                       <span className="flex items-center justify-between w-full gap-8">
                         <span>{TYPE_LABEL[k]}</span>
-                        {FIXED_DAYS[k] && <span className="text-xs text-gray-400">{FIXED_DAYS[k]}일</span>}
+                        <span className="text-xs text-gray-400">
+                          {FIXED_DAYS[k] && `${FIXED_DAYS[k]}일 `}
+                          {NON_DEDUCT_TYPES.has(k) && "· 연차 미차감"}
+                        </span>
                       </span>
                     </SelectItem>
                   ))}
