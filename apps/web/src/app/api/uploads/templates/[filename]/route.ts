@@ -17,9 +17,17 @@ export async function GET(
     const filePath = path.join(process.cwd(), "uploads", "templates", filename);
     const file = await fs.readFile(filePath);
 
+    const ext = path.extname(filename).toLowerCase();
+    const contentType =
+      ext === ".pdf"
+        ? "application/pdf"
+        : ext === ".docx"
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : "application/octet-stream";
+
     const response = new NextResponse(file);
-    response.headers.set("Content-Type", "application/pdf");
-    response.headers.set("Content-Disposition", `attachment; filename="${filename}"`);
+    response.headers.set("Content-Type", contentType);
+    response.headers.set("Content-Disposition", `${ext === ".pdf" ? "inline" : "attachment"}; filename="${filename}"`);
 
     return response;
   } catch (error) {

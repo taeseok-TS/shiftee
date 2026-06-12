@@ -148,6 +148,7 @@ export default function ContractsPage() {
     type: "EMPLOYMENT",
     startDate: "",
     endDate: "",
+    salary: "",
   });
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -628,6 +629,7 @@ export default function ContractsPage() {
     formData.append("type", createForm.type);
     formData.append("startDate", createForm.startDate);
     formData.append("endDate", createForm.endDate);
+    formData.append("salary", createForm.salary);
 
     const res = await fetch("/api/contracts", { method: "POST", body: formData });
     const data = await res.json();
@@ -904,6 +906,20 @@ export default function ContractsPage() {
                     </p>
                   )}
                 </div>
+
+                <div className="space-y-2">
+                  <Label>연봉 <span className="text-xs text-gray-400 font-normal">(선택 · 워드 템플릿의 {"{연봉}"} 필드에 입력됨)</span></Label>
+                  <Input
+                    type="number"
+                    placeholder="예: 36000000"
+                    value={createForm.salary}
+                    onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value }))}
+                  />
+                  {createForm.salary && (
+                    <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원</p>
+                  )}
+                </div>
+
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
                   <Button type="submit" disabled={uploading}>{uploading ? "업로드" : "작성"}</Button>
@@ -955,13 +971,13 @@ export default function ContractsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>PDF 파일 *</Label>
+                    <Label>파일 (PDF 또는 워드) *</Label>
                     <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50"
                       onClick={() => document.getElementById("templateFileInput")?.click()}>
                       <input
                         id="templateFileInput"
                         type="file"
-                        accept=".pdf"
+                        accept=".pdf,.docx"
                         onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
                         className="hidden"
                       />
@@ -972,11 +988,20 @@ export default function ContractsPage() {
                         </div>
                       ) : (
                         <div>
-                          <p className="text-sm text-gray-600">PDF 파일을 선택하세요</p>
+                          <p className="text-sm text-gray-600">PDF 또는 워드(.docx) 파일을 선택하세요</p>
                           <p className="text-xs text-gray-400 mt-1">클릭 또는 파일 드래그</p>
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
+                    <p className="font-semibold">💡 워드(.docx) 템플릿은 자동 입력 필드를 지원합니다</p>
+                    <p>문서 안에 아래 필드를 넣어두면 계약서 작성 시 자동으로 채워집니다:</p>
+                    <p className="font-mono text-[11px] leading-relaxed">
+                      {"{직원명} {이메일} {연락처} {지점} {직책} {직급}"}<br />
+                      {"{입사일} {제목} {계약시작일} {계약종료일} {연봉} {작성일}"}
+                    </p>
                   </div>
 
                   <div className="flex gap-2 justify-end">
@@ -1093,11 +1118,19 @@ export default function ContractsPage() {
                   </DialogHeader>
 
                   <div className="flex-1 overflow-hidden border rounded">
-                    <iframe
-                      src={`${previewTemplate.fileUrl}#toolbar=0&navpanes=0`}
-                      className="w-full h-full"
-                      title={previewTemplate.name}
-                    />
+                    {previewTemplate.fileUrl.toLowerCase().endsWith(".docx") ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 text-gray-600">
+                        <p className="text-4xl mb-3">📄</p>
+                        <p className="font-medium">워드(.docx) 템플릿은 브라우저 미리보기를 지원하지 않습니다.</p>
+                        <p className="text-sm text-gray-400 mt-1">아래 다운로드 버튼으로 파일을 확인해주세요.</p>
+                      </div>
+                    ) : (
+                      <iframe
+                        src={`${previewTemplate.fileUrl}#toolbar=0&navpanes=0`}
+                        className="w-full h-full"
+                        title={previewTemplate.name}
+                      />
+                    )}
                   </div>
 
                   <div className="flex gap-2 justify-end mt-4">

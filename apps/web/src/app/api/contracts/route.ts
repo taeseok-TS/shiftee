@@ -4,7 +4,43 @@ import { prisma } from "@/lib/db";
 import { filterContractData } from "@/lib/api-response";
 import fs from "fs/promises";
 import path from "path";
+import PizZip from "pizzip";
+import Docxtemplater from "docxtemplater";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
+
+// 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성
+async function fillDocxTemplate(
+  templateFileUrl: string,
+  data: Record<string, string>
+): Promise<string> {
+  // "/api/uploads/templates/xxx.docx" → 실제 파일 경로
+  const relPath = templateFileUrl.replace(/^\/api\/uploads\//, "");
+  const srcPath = path.join(process.cwd(), "uploads", relPath);
+  const content = await fs.readFile(srcPath);
+
+  const zip = new PizZip(content);
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: { start: "{", end: "}" },
+    nullGetter: () => "", // 값이 없는 필드는 빈 문자열
+  });
+  doc.render(data);
+
+  const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+  const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-contract.docx`;
+  const dir = path.join(process.cwd(), "uploads", "contracts");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, filename), buf);
+  return `/api/uploads/contracts/${filename}`;
+}
+
+const fmtKoreanDate = (d: string | null) => {
+  if (!d) return "";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,6 +154,7 @@ export async function POST(request: NextRequest) {
     const type = formData.get("type") as string;
     const startDate = formData.get("startDate") as string;
     const endDate = formData.get("endDate") as string;
+    const salary = formData.get("salary") as string | null;
 
     // 템플릿 없을 때는 파일 필수, 템플릿 있을 때는 파일 불필수
     if ((files.length === 0 && !templateId) || !userId || !title || !type)
@@ -171,7 +208,42 @@ export async function POST(request: NextRequest) {
       if (!template) {
         return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
       }
-      fileUrl = JSON.stringify([template.fileUrl]);
+
+      if (template.fileUrl.toLowerCase().endsWith(".docx")) {
+        // 워드 템플릿: 치환 필드({직원명}, {연봉} 등)를 입력값으로 채워 계약서 생성
+        const targetUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true },
+        });
+        const now = new Date();
+        const mergeData: Record<string, string> = {
+          직원명: targetUser?.name ?? "",
+          이름: targetUser?.name ?? "",
+          이메일: targetUser?.email ?? "",
+          연락처: targetUser?.phone ?? "",
+          지점: targetUser?.branch ?? "",
+          직책: targetUser?.jobGroup ?? "",
+          직급: targetUser?.position ?? "",
+          입사일: targetUser?.hireDate ? fmtKoreanDate(targetUser.hireDate.toISOString()) : "",
+          제목: title,
+          계약시작일: fmtKoreanDate(startDate),
+          계약종료일: fmtKoreanDate(endDate),
+          연봉: salary ? `${Number(salary).toLocaleString()}원` : "",
+          작성일: fmtKoreanDate(now.toISOString()),
+        };
+        try {
+          const filledUrl = await fillDocxTemplate(template.fileUrl, mergeData);
+          fileUrl = JSON.stringify([filledUrl]);
+        } catch (e) {
+          console.error("워드 템플릿 치환 오류:", e);
+          return NextResponse.json(
+            { error: "워드 템플릿 처리 중 오류가 발생했습니다. 템플릿의 치환 필드({직원명} 등) 형식을 확인해주세요." },
+            { status: 400 }
+          );
+        }
+      } else {
+        fileUrl = JSON.stringify([template.fileUrl]);
+      }
     }
 
     const contract = await prisma.contract.create({

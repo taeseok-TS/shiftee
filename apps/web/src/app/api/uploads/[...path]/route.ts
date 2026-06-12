@@ -16,12 +16,19 @@ export async function GET(
   try {
     const buffer = await fs.readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
-    const contentType = ext === ".pdf" ? "application/pdf" : "application/octet-stream";
-    
+    const contentType =
+      ext === ".pdf"
+        ? "application/pdf"
+        : ext === ".docx"
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : "application/octet-stream";
+    // 워드 파일은 브라우저 표시가 안 되므로 다운로드로 처리
+    const disposition = ext === ".docx" ? "attachment" : "inline";
+
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${pathParts[pathParts.length - 1]}"`,
+        "Content-Disposition": `${disposition}; filename="${pathParts[pathParts.length - 1]}"`,
       },
     });
   } catch {
