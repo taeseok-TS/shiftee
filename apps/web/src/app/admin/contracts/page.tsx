@@ -641,7 +641,7 @@ export default function ContractsPage() {
     setUseTemplate(false);
     setSelectedTemplate("");
     setEmployeeSearchText("");
-    setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "" });
+    setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
     fetchContracts();
   }
 
@@ -695,7 +695,7 @@ export default function ContractsPage() {
               setCreateOpen(open);
               if (!open) {
                 setEmployeeSearchText("");
-                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "" });
+                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
                 setFiles([]);
                 setUseTemplate(false);
                 setSelectedTemplate("");
