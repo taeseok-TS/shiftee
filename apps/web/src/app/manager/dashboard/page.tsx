@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 
 type TeamStats = {
   teamCount: number;
+  attendance: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
   pendingContracts: number;
   pendingApprovals: number;
   monthAbsent: number;
@@ -31,6 +32,43 @@ export default function ManagerDashboardPage() {
         <p className="text-gray-600 mt-2">
           {branch ? `${branch} - ` : ""}팀 관리 및 모니터링
         </p>
+      </div>
+
+      {/* 오늘 팀 근무 현황 */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-3">오늘 팀 근무 현황</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-gray-500 text-sm font-medium">출근</div>
+            <div className="text-3xl font-bold text-blue-600 mt-2">
+              {stats ? stats.attendance.present : "--"}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-gray-500 text-sm font-medium">지각</div>
+            <div className="text-3xl font-bold text-orange-600 mt-2">
+              {stats ? stats.attendance.late : "--"}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-gray-500 text-sm font-medium">미출근</div>
+            <div className="text-3xl font-bold text-red-600 mt-2">
+              {stats ? stats.attendance.absent : "--"}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-gray-500 text-sm font-medium">조퇴</div>
+            <div className="text-3xl font-bold text-yellow-600 mt-2">
+              {stats ? stats.attendance.earlyLeave : "--"}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="text-gray-500 text-sm font-medium">휴가</div>
+            <div className="text-3xl font-bold text-green-600 mt-2">
+              {stats ? stats.attendance.onLeave : "--"}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -22,11 +22,28 @@ export async function GET() {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
+  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
 
-  const [teamCount, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
+  const [teamCount, todayRecords, onLeave, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
     await Promise.all([
       // 팀 인원
       prisma.user.count({ where: memberWhere }),
+
+      // 오늘 출퇴근 기록 (지점 직원)
+      prisma.attendance.findMany({
+        where: { date: today, user: memberWhere },
+      }),
+
+      // 오늘 휴가 중 (승인된 휴가, 지점 직원)
+      prisma.leaveRequest.count({
+        where: {
+          status: "APPROVED",
+          startDate: { lte: today },
+          endDate: { gte: today },
+          user: memberWhere,
+        },
+      }),
 
       // 대기 중인 계약 (지점 직원에게 발송되어 서명 대기 중)
       prisma.contract.count({
@@ -53,8 +70,15 @@ export async function GET() {
       }),
     ]);
 
+  // 오늘 근무 현황 집계
+  const present = todayRecords.filter((r) => r.clockIn).length;
+  const late = todayRecords.filter((r) => r.status === "LATE").length;
+  const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
+  const absent = Math.max(teamCount - present - onLeave, 0);
+
   return NextResponse.json({
     teamCount,
+    attendance: { present, late, absent, earlyLeave, onLeave },
     pendingContracts,
     pendingApprovals: pendingLeaveSteps + pendingScheduleSteps,
     monthAbsent: monthAbsent.length,
