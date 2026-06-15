@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const period = (searchParams.get("period") || "monthly") as Period;
   const userId = searchParams.get("userId") || session.userId;
+  const branchParam = searchParams.get("branch"); // 지점별 집계
   const dateParam = searchParams.get("date");
   const baseDate = dateParam ? new Date(dateParam) : new Date();
 
@@ -66,10 +67,18 @@ export async function GET(request: NextRequest) {
   if (session.role === "EMPLOYEE") {
     userWhere = { userId: session.userId };
   } else if (session.role === "MANAGER") {
-    const target = await prisma.user.findUnique({ where: { id: userId }, select: { branch: true } });
-    userWhere = (target && target.branch === session.branch) ? { userId } : { user: { branch: session.branch } };
+    // 원장: 항상 자기 지점 한정. 지점별 조회면 지점 전체, 아니면 지정 직원(자기 지점일 때만)
+    if (branchParam) {
+      userWhere = { user: { branch: session.branch } };
+    } else {
+      const target = await prisma.user.findUnique({ where: { id: userId }, select: { branch: true } });
+      userWhere = (target && target.branch === session.branch) ? { userId } : { user: { branch: session.branch } };
+    }
   } else {
-    userWhere = { userId };
+    // 관리자: 지점별 조회 우선, 없으면 지정 직원
+    userWhere = branchParam
+      ? { user: { branch: branchParam, role: { not: "ADMIN" } } }
+      : { userId };
   }
 
   const { start, end } = getDateRange(period, baseDate);

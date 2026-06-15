@@ -122,6 +122,7 @@ export default function AttendancePage() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [employees, setEmployees]     = useState<Employee[]>([]);
   const [selectedUser, setSelectedUser] = useState("me");
+  const [selectedBranch, setSelectedBranch] = useState(""); // "" = 지점별 조회 안 함
   const [myRole, setMyRole]           = useState("EMPLOYEE");
 
   /* 날짜 직접 입력 (input[type=date] 용) */
@@ -139,13 +140,16 @@ export default function AttendancePage() {
   /* ── 기간별 통계 조회 ── */
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
-    const uid = selectedUser === "me" ? "" : `&userId=${selectedUser}`;
+    // 지점별 조회가 선택되면 branch 우선, 아니면 개인(userId)
+    const scope = selectedBranch
+      ? `&branch=${encodeURIComponent(selectedBranch)}`
+      : selectedUser === "me" ? "" : `&userId=${selectedUser}`;
     const dateStr = format(baseDate, "yyyy-MM-dd");
-    const res = await fetch(`/api/attendance/stats?period=${period}&date=${dateStr}${uid}`);
+    const res = await fetch(`/api/attendance/stats?period=${period}&date=${dateStr}${scope}`);
     const data = await res.json();
     setStatsData(data);
     setStatsLoading(false);
-  }, [period, baseDate, selectedUser]);
+  }, [period, baseDate, selectedUser, selectedBranch]);
 
   useEffect(() => {
     fetchToday();
@@ -208,6 +212,12 @@ export default function AttendancePage() {
 
   const nextDisabled = useMemo(() => isNextFuture(period, baseDate), [period, baseDate]);
   const isToday      = useMemo(() => isSameDay(baseDate, new Date()), [baseDate]);
+
+  // 직원 목록에서 지점 추출
+  const branchList = useMemo(
+    () => [...new Set(employees.map(e => e.branch).filter(Boolean) as string[])].sort(),
+    [employees]
+  );
 
   const c = statsData?.current;
   const p = statsData?.previous;
@@ -333,11 +343,18 @@ export default function AttendancePage() {
               ))}
             </div>
 
-            {/* 직원 선택 (관리자) */}
+            {/* 개인별 조회 (관리자) */}
             {myRole !== "EMPLOYEE" && (
-              <Select value={selectedUser} onValueChange={(value) => value && setSelectedUser(value)}>
+              <Select
+                value={selectedUser}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setSelectedUser(value);
+                  setSelectedBranch(""); // 개인 선택 시 지점 조회 해제
+                }}
+              >
                 <SelectTrigger className="w-44 bg-white">
-                  <SelectValue placeholder="직원 선택" />
+                  <SelectValue placeholder="개인별 조회" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="me">내 기록</SelectItem>
@@ -348,6 +365,37 @@ export default function AttendancePage() {
                   ))}
                 </SelectContent>
               </Select>
+            )}
+
+            {/* 지점별 조회 (관리자) */}
+            {myRole !== "EMPLOYEE" && branchList.length > 0 && (
+              <Select
+                value={selectedBranch || "NONE"}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  if (value === "NONE") {
+                    setSelectedBranch("");
+                  } else {
+                    setSelectedBranch(value);
+                    setSelectedUser("me"); // 지점 선택 시 개인 조회 해제
+                  }
+                }}
+              >
+                <SelectTrigger className="w-44 bg-white">
+                  <SelectValue placeholder="지점별 조회" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">지점별 조회 안 함</SelectItem>
+                  {branchList.map(b => (
+                    <SelectItem key={b} value={b}>{b} 전체</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* 현재 조회 대상 표시 */}
+            {selectedBranch && (
+              <span className="text-sm text-blue-600 font-medium">📍 {selectedBranch} 지점 전체 통계</span>
             )}
           </div>
 
