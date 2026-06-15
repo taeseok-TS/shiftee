@@ -38,6 +38,11 @@ type StatsResponse = {
   records: AttendanceRecord[];
 };
 type Employee = { id: string; name: string; department: string | null; branch?: string | null };
+type TodayAttendee = {
+  id: string; userId: string; name: string; branch: string | null;
+  jobGroup: string | null; position: string | null;
+  status: string; clockIn: string | null; clockOut: string | null; minutes: number;
+};
 
 /* ── 상수 ── */
 const PERIODS: { value: Period; label: string }[] = [
@@ -125,6 +130,9 @@ export default function AttendancePage() {
   const [selectedBranch, setSelectedBranch] = useState(""); // "" = 지점별 조회 안 함
   const [myRole, setMyRole]           = useState("EMPLOYEE");
 
+  /* 오늘 출퇴근한 직원 목록 (관리자/원장) */
+  const [todayList, setTodayList] = useState<TodayAttendee[]>([]);
+
   /* 날짜 직접 입력 (input[type=date] 용) */
   const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
 
@@ -135,6 +143,15 @@ export default function AttendancePage() {
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const rec = data.records?.find((r: AttendanceRecord) => r.date?.startsWith(todayStr));
     setTodayRecord(rec || null);
+  }, []);
+
+  /* ── 오늘 출퇴근한 직원 목록 조회 ── */
+  const fetchTodayList = useCallback(async () => {
+    const res = await fetch("/api/attendance/today-list");
+    if (res.ok) {
+      const data = await res.json();
+      setTodayList(data.records || []);
+    }
   }, []);
 
   /* ── 기간별 통계 조회 ── */
@@ -153,9 +170,10 @@ export default function AttendancePage() {
 
   useEffect(() => {
     fetchToday();
+    fetchTodayList();
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
-  }, [fetchToday]);
+  }, [fetchToday, fetchTodayList]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
@@ -259,6 +277,7 @@ export default function AttendancePage() {
       }
       toast.success(type === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
       fetchToday();
+      fetchTodayList();
     } finally { setClockLoading(false); }
   }
 
@@ -322,6 +341,58 @@ export default function AttendancePage() {
               )}
             </CardContent>
           </Card>
+
+          {/* 오늘 출퇴근한 직원 목록 (관리자/원장) */}
+          {myRole !== "EMPLOYEE" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  오늘 출근한 직원
+                  <Badge variant="secondary">{todayList.length}명</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {todayList.length === 0 ? (
+                  <div className="py-10 text-center text-gray-400 text-sm">아직 오늘 출근한 직원이 없습니다.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b text-left text-gray-500">
+                        <tr>
+                          <th className="pb-2 font-medium">직원</th>
+                          <th className="pb-2 font-medium">지점</th>
+                          <th className="pb-2 font-medium">출근</th>
+                          <th className="pb-2 font-medium">퇴근</th>
+                          <th className="pb-2 font-medium">상태</th>
+                          <th className="pb-2 font-medium text-right">근무시간</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {todayList.map((r) => {
+                          const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
+                          return (
+                            <tr key={r.id} className="hover:bg-gray-50">
+                              <td className="py-2.5">
+                                <span className="font-medium">{r.name}</span>
+                                {(r.jobGroup || r.position) && (
+                                  <span className="text-xs text-gray-400 ml-2">{r.jobGroup || r.position}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 text-gray-500">{r.branch || "-"}</td>
+                              <td className="py-2.5">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
+                              <td className="py-2.5">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : <span className="text-gray-400">근무 중</span>}</td>
+                              <td className="py-2.5"><Badge variant={s.variant}>{s.label}</Badge></td>
+                              <td className="py-2.5 text-right">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── 기간별 통계 탭 ── */}
