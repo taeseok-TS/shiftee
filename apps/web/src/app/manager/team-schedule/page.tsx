@@ -1,351 +1,235 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Check, X, AlertCircle, ChevronRight, Search, Loader2, Calendar,
-} from "lucide-react";
-import { format } from "date-fns";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 
-/* ── 타입 ── */
-type ApprovalStep = {
+type Employee = {
   id: string;
-  order: number;
-  status: string;
-  approver: { id: string; name: string; position: string | null };
+  name: string;
+  position: string | null;
+  jobGroup: string | null;
+  branch: string | null;
 };
 
-type ScheduleRequest = {
+type Schedule = {
   id: string;
   userId: string;
-  templateName: string;
-  startDate: string;
-  endDate: string;
-  totalHours: number;
-  status: string;
-  user: { id: string; name: string; department: string | null; position: string | null };
-  approvalSteps?: ApprovalStep[];
+  date: string;
+  startTime: string;
+  endTime: string;
+  branch: string | null;
+  type: string; // work(근무), off(휴무), holiday(공휴일)
+  note?: string | null;
 };
 
-type ScheduleApprovalStep = {
-  id: string;
-  order: number;
-  status: string;
-  scheduleRequest: ScheduleRequest;
-};
+type ScheduleGroup = { [key: string]: Schedule[] };
 
-/* ── 원장 근무일정 결재 페이지 ── */
 export default function ManagerSchedulePage() {
-  const [branch, setBranch] = useState<string>("");
-  const [scheduleSteps, setScheduleSteps] = useState<ScheduleApprovalStep[]>([]);
+  const [branch, setBranch] = useState("");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentWeek, setCurrentWeek] = useState(new Date());
   const [searchName, setSearchName] = useState("");
-  const [searchDate, setSearchDate] = useState("");
-  const [processingId, setProcessingId] = useState<string | null>(null);
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
-  // 세션에서 지점 정보 가져오기
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
+  const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+
+  // 지점 정보
   useEffect(() => {
-    const fetchSession = async () => {
-      try {
-        const res = await fetch("/api/auth/me");
-        if (res.ok) {
-          const data = await res.json();
-          setBranch(data.branch || "");
-        }
-      } catch (error) {
-        console.error("세션 조회 오류:", error);
-      }
-    };
-    fetchSession();
+    fetch("/api/auth/me")
+      .then(r => r.json())
+      .then(d => setBranch(d.user?.branch || d.branch || ""))
+      .catch(() => {});
   }, []);
 
-  // 결재 대기 요청 조회
-  const fetchApprovals = useCallback(async () => {
+  // 팀 직원 (API가 MANAGER 세션 기준 자기 지점만 반환)
+  const fetchEmployees = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await fetch("/api/schedule-requests/my-approvals");
-
+      const res = await fetch("/api/employees");
       if (res.ok) {
         const data = await res.json();
-        setScheduleSteps(data.steps || []);
+        setEmployees(data.employees || []);
       }
-    } catch (error) {
-      console.error("결재 요청 조회 오류:", error);
-      toast.error("데이터를 불러올 수 없습니다");
+    } catch {
+      toast.error("직원 목록을 불러올 수 없습니다");
+    }
+  }, []);
+
+  // 근무 일정 (현재 주 기준)
+  const fetchSchedules = useCallback(async () => {
+    try {
+      setLoading(true);
+      const start = format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const end = format(endOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const res = await fetch(`/api/schedule?start=${start}&end=${end}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSchedules(data.schedules || []);
+      }
+    } catch {
+      toast.error("근무 일정을 불러올 수 없습니다");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentWeek]);
 
   useEffect(() => {
-    fetchApprovals();
-  }, [fetchApprovals]);
+    fetchEmployees();
+    fetchSchedules();
+  }, [fetchEmployees, fetchSchedules]);
 
-  // 검색 필터링
-  const filteredScheduleSteps = useMemo(() => {
-    return scheduleSteps.filter(step => {
-      const req = step.scheduleRequest;
-      const nameMatch = req.user.name.toLowerCase().includes(searchName.toLowerCase());
-      const dateMatch = !searchDate || req.startDate.includes(searchDate) || req.endDate.includes(searchDate);
-      return nameMatch && dateMatch;
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(emp => !searchName || emp.name.includes(searchName));
+  }, [employees, searchName]);
+
+  const weekSchedules = useMemo(() => {
+    const map: ScheduleGroup = {};
+    schedules.forEach(s => {
+      const key = `${s.userId}-${s.date}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(s);
     });
-  }, [scheduleSteps, searchName, searchDate]);
+    return map;
+  }, [schedules]);
 
-  // 승인/거절 처리
-  const handleApprove = async (requestId: string) => {
-    try {
-      setProcessingId(requestId);
-      const res = await fetch(`/api/schedule-requests/${requestId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve" }),
-      });
-
-      if (res.ok) {
-        toast.success("승인되었습니다");
-        setScheduleSteps(scheduleSteps.filter(s => s.scheduleRequest.id !== requestId));
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "처리 중 오류가 발생했습니다");
-      }
-    } catch (error) {
-      toast.error("오류가 발생했습니다");
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
-  const handleRejectConfirm = async () => {
-    if (!rejectingId) return;
-
-    try {
-      setProcessingId(rejectingId);
-      const res = await fetch(`/api/schedule-requests/${rejectingId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", reason: rejectReason }),
-      });
-
-      if (res.ok) {
-        toast.success("거절되었습니다");
-        setScheduleSteps(scheduleSteps.filter(s => s.scheduleRequest.id !== rejectingId));
-        setRejectOpen(false);
-        setRejectReason("");
-        setRejectingId(null);
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "거절 처리 중 오류가 발생했습니다");
-      }
-    } catch (error) {
-      toast.error("오류가 발생했습니다");
-    } finally {
-      setProcessingId(null);
-    }
-  };
+  const getSchedules = (employeeId: string, date: string) => weekSchedules[`${employeeId}-${date}`] || [];
 
   return (
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">팀 근무일정 결재</h1>
-          <p className="text-gray-600 mt-2">{branch} - 팀의 근무일정 신청 결재</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-600">
-            대기 중: <span className="font-semibold text-amber-600">{filteredScheduleSteps.length}건</span>
-          </div>
+          <h1 className="text-3xl font-bold text-gray-900">팀 근무일정</h1>
+          <p className="text-gray-600 mt-1">{branch} - 팀원 근무일정 조회</p>
         </div>
       </div>
 
-      {/* 검색 영역 */}
+      {/* 날짜 네비게이션 + 검색 */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm mb-2 block">직원명 검색</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 text-gray-400" size={16} />
-                <Input
-                  placeholder="직원 이름으로 검색..."
-                  value={searchName}
-                  onChange={(e) => setSearchName(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm mb-2 block">날짜 검색</Label>
-              <Input
-                type="date"
-                value={searchDate}
-                onChange={(e) => setSearchDate(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchName("");
-                  setSearchDate("");
-                }}
-              >
-                초기화
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}>
+                <ChevronLeft size={16} />
               </Button>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(new Date())}>
+                오늘
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}>
+                <ChevronRight size={16} />
+              </Button>
+              <span className="text-lg font-semibold ml-4">
+                {format(weekStart, "yyyy년 M월 d일", { locale: ko })} - {format(weekEnd, "M월 d일", { locale: ko })}
+              </span>
             </div>
+          </div>
+          <div className="relative max-w-xs">
+            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+            <Input
+              placeholder="직원 이름으로 검색..."
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+              className="pl-10"
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* 근무일정 목록 */}
-      {loading ? (
-        <Card>
-          <CardContent className="pt-6 text-center text-gray-500">
-            <Loader2 className="inline-block animate-spin mb-2" />
-            <p>로드 중...</p>
-          </CardContent>
-        </Card>
-      ) : filteredScheduleSteps.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-center text-gray-500">
-            {scheduleSteps.length === 0 ? (
-              <>
-                <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
-                <p>결재 대기 중인 근무일정 요청이 없습니다</p>
-              </>
-            ) : (
-              <>
-                <Search className="inline-block mb-2 text-gray-400" size={24} />
-                <p>검색 결과가 없습니다</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">직원</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">템플릿</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">기간</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">계획시간</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">결재</th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">처리</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredScheduleSteps.map((step) => {
-                  const req = step.scheduleRequest;
-                  const startDate = new Date(req.startDate);
-                  const endDate = new Date(req.endDate);
-                  const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
-
-                  return (
-                    <tr key={step.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900">{req.user.name}</div>
-                        <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant="outline" className="bg-purple-50">{req.templateName}</Badge>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-700">{dateRange}</td>
-                      <td className="px-6 py-4 text-sm text-gray-700">{req.totalHours}시간</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1 text-xs flex-wrap">
-                          {req.approvalSteps?.map((s, idx) => (
-                            <span key={s.id} className="flex items-center gap-1">
-                              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                                "bg-gray-100 text-gray-600"
-                              }`}>
-                                {s.approver.name}
-                              </span>
-                            </span>
-                          ))}
+      {/* 일정 캘린더 */}
+      <Card className="overflow-x-auto">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-gray-500">근무 일정을 불러오는 중...</div>
+          ) : (
+            <div className="min-w-full">
+              {/* 날짜 헤더 */}
+              <div className="flex border-b sticky top-0 bg-gray-50">
+                <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50 font-medium">직원</div>
+                <div className="flex flex-1">
+                  {daysInWeek.map(day => {
+                    const dayName = format(day, "EEE", { locale: ko });
+                    const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+                    const isHoliday = dayName === "토" || dayName === "일";
+                    return (
+                      <div
+                        key={format(day, "yyyy-MM-dd")}
+                        className={`flex-1 min-w-[150px] border-r p-3 text-center font-medium ${
+                          isToday ? "bg-blue-50" : isHoliday ? "bg-red-50" : "bg-white"
+                        }`}
+                      >
+                        <div className={isToday ? "text-blue-600" : isHoliday ? "text-red-600" : ""}>
+                          {format(day, "d일(EEE)", { locale: ko })}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex gap-2 justify-end">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-green-600 hover:bg-green-50"
-                            disabled={processingId === req.id}
-                            onClick={() => handleApprove(req.id)}
-                          >
-                            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                            승인
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-red-600 hover:bg-red-50"
-                            disabled={processingId === req.id}
-                            onClick={() => {
-                              setRejectingId(req.id);
-                              setRejectOpen(true);
-                            }}
-                          >
-                            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
-                            거절
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-      {/* 거절 사유 다이얼로그 */}
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>거절 사유</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              placeholder="거절 사유를 입력해주세요"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={4}
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setRejectOpen(false)}>
-                취소
-              </Button>
-              <Button
-                className="bg-red-600 hover:bg-red-700"
-                onClick={handleRejectConfirm}
-                disabled={processingId !== null}
-              >
-                {processingId !== null ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
-                거절 확인
-              </Button>
+              {/* 직원별 일정 */}
+              <div>
+                {filteredEmployees.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">표시할 직원이 없습니다.</div>
+                ) : (
+                  filteredEmployees.map(employee => (
+                    <div key={employee.id} className="flex border-b">
+                      <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50">
+                        <div className="font-medium text-gray-900">{employee.name}</div>
+                        <div className="text-xs text-gray-600">
+                          {employee.jobGroup || employee.position}
+                          {employee.branch && <span className="text-blue-600"> · {employee.branch}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-1">
+                        {daysInWeek.map(day => {
+                          const dateStr = format(day, "yyyy-MM-dd");
+                          const daySchedules = getSchedules(employee.id, dateStr);
+                          return (
+                            <div key={dateStr} className="flex-1 min-w-[150px] border-r p-3 min-h-[120px]">
+                              {daySchedules.length === 0 ? (
+                                <div className="text-xs text-gray-400">-</div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {daySchedules.map(schedule => (
+                                    <div key={schedule.id} className="p-2 bg-blue-100 rounded text-xs">
+                                      <div className="font-medium text-blue-900">
+                                        {schedule.startTime} - {schedule.endTime}
+                                      </div>
+                                      <Badge variant="outline" className="mt-1 text-xs">
+                                        {schedule.type === "work" ? "근무" : schedule.type === "off" ? "휴무" : "공휴일"}
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-blue-100 rounded border border-blue-300" />근무
+        </div>
+        <p className="text-gray-400">※ 근무일정은 직원 신청 후 결재(휴가, 근무일정)에서 최종 승인되면 표시됩니다.</p>
+      </div>
     </div>
   );
 }

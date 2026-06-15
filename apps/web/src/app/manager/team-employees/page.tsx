@@ -16,11 +16,11 @@ export default async function ManagerEmployeesPage() {
       email: true,
       position: true,
       jobGroup: true,
-      department: true,
       branch: true,
+      hireDate: true,
       createdAt: true,
     },
-    orderBy: [{ department: "asc" }, { name: "asc" }],
+    orderBy: [{ name: "asc" }],
   });
 
   return (
@@ -36,8 +36,8 @@ export default async function ManagerEmployeesPage() {
             <tr>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">이름</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">이메일</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">직책</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">직급</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">부서</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">입사일</th>
             </tr>
           </thead>
@@ -46,10 +46,10 @@ export default async function ManagerEmployeesPage() {
               <tr key={employee.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 text-sm text-gray-900">{employee.name}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{employee.email}</td>
-                <td className="px-6 py-4 text-sm text-gray-600">{employee.position}</td>
-                <td className="px-6 py-4 text-sm text-gray-600">{employee.department}</td>
+                <td className="px-6 py-4 text-sm text-gray-600">{employee.jobGroup || "-"}</td>
+                <td className="px-6 py-4 text-sm text-gray-600">{employee.position || "-"}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">
-                  {new Date(employee.createdAt).toLocaleDateString("ko-KR")}
+                  {employee.hireDate ? new Date(employee.hireDate).toLocaleDateString("ko-KR") : "-"}
                 </td>
               </tr>
             ))}
