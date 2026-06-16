@@ -10,6 +10,24 @@ import { Megaphone, Plus, Pin, Trash2, Paperclip, ImageIcon, X } from "lucide-re
 import { format } from "date-fns";
 import { toast } from "sonner";
 
+// 본문 렌더: ![alt](url) → 인라인 이미지, 나머지는 텍스트(줄바꿈 유지)
+function renderBody(text: string) {
+  const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const out: React.ReactNode[] = [];
+  let last = 0; let m: RegExpExecArray | null; let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(<span key={`t${i}`} className="whitespace-pre-wrap">{text.slice(last, m.index)}</span>);
+    out.push(
+      <a key={`i${i}`} href={m[2]} target="_blank" rel="noreferrer" className="block my-2">
+        <img src={m[2]} alt={m[1]} className="max-h-80 rounded-lg border" />
+      </a>
+    );
+    last = m.index + m[0].length; i++;
+  }
+  if (last < text.length) out.push(<span key={`t${i}`} className="whitespace-pre-wrap">{text.slice(last)}</span>);
+  return out;
+}
+
 type Attachment = { url: string; name: string; type: string };
 type Announcement = {
   id: string;
@@ -30,16 +48,45 @@ export default function WorkAnnouncementsPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  async function uploadFile(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/work/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error || "업로드 실패"); return null; }
+    return data as { fileUrl: string; fileName: string; fileType: string };
+  }
 
   async function handleUpload(file: File) {
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/work/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error || "업로드 실패"); return; }
-      setForm((f) => ({ ...f, attachments: [...f.attachments, { url: data.fileUrl, name: data.fileName, type: data.fileType }] }));
+      const data = await uploadFile(file);
+      if (data) setForm((f) => ({ ...f, attachments: [...f.attachments, { url: data.fileUrl, name: data.fileName, type: data.fileType }] }));
+    } finally { setUploading(false); }
+  }
+
+  // 내용 textarea에 이미지 붙여넣기 → 업로드 후 본문에 ![](url) 삽입
+  async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find((it) => it.type.startsWith("image/"));
+    if (!imageItem) return; // 일반 텍스트 붙여넣기는 기본 동작
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    setUploading(true);
+    try {
+      const data = await uploadFile(new File([file], `paste-${Date.now()}.png`, { type: file.type }));
+      if (!data) return;
+      const ta = contentRef.current;
+      const token = `\n![${data.fileName}](${data.fileUrl})\n`;
+      setForm((f) => {
+        const pos = ta?.selectionStart ?? f.content.length;
+        const next = f.content.slice(0, pos) + token + f.content.slice(pos);
+        return { ...f, content: next };
+      });
+      toast.success("이미지가 본문에 삽입되었습니다.");
     } finally { setUploading(false); }
   }
 
@@ -97,7 +144,7 @@ export default function WorkAnnouncementsPage() {
                       {a.pinned && <Pin size={14} className="text-indigo-500" />}
                       <h3 className="font-semibold">{a.title}</h3>
                     </div>
-                    <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{a.content}</p>
+                    <div className="text-sm text-gray-700 mt-2">{renderBody(a.content)}</div>
                     {a.attachments?.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-3">
                         {a.attachments.map((att, i) =>
@@ -132,7 +179,9 @@ export default function WorkAnnouncementsPage() {
           <DialogHeader><DialogTitle>공지 작성</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <Input placeholder="제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />
-            <Textarea placeholder="내용" rows={14} value={form.content} onChange={(e) => setForm(f => ({ ...f, content: e.target.value }))} className="min-h-[320px]" />
+            <Textarea ref={contentRef} placeholder="내용 (이미지를 복사해 붙여넣으면 본문에 바로 삽입됩니다)" rows={14}
+              value={form.content} onChange={(e) => setForm(f => ({ ...f, content: e.target.value }))}
+              onPaste={handlePaste} className="min-h-[320px]" />
 
             {/* 첨부 */}
             <input ref={fileRef} type="file" className="hidden" accept="*/*"
