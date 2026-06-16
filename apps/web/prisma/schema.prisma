@@ -46,6 +46,7 @@ model User {
   workChannelMembers    WorkChannelMember[]
   workMessages          WorkMessage[]
   workAnnouncements     WorkAnnouncement[]
+  workMessageReactions  WorkMessageReaction[]
 }
 
 enum Role {
@@ -413,10 +414,49 @@ model WorkMessage {
   channel   WorkChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   userId    String
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content   String
+  content   String      @default("")
+  // 첨부파일 (선택)
+  fileUrl   String?
+  fileName  String?
+  fileType  String? // image | file
+  // 댓글(스레드): 부모 메시지
+  parentId  String?
+  parent    WorkMessage?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   WorkMessage[] @relation("MessageReplies")
+  reactions WorkMessageReaction[]
   createdAt DateTime    @default(now())
 
   @@index([channelId, createdAt])
+  @@index([parentId])
+}
+
+model WorkMessageReaction {
+  id        String      @id @default(cuid())
+  messageId String
+  message   WorkMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime    @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+// ─── 시프티워크: 회사/지점 전체 일정 캘린더 ────────────────────
+model WorkCalendarEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  branch      String? // null = 전사 공통, 값 있으면 해당 지점 전용
+  color       String   @default("indigo")
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startDate])
 }
 
 // ─── 시프티워크: 공지 ─────────────────────────────────────────

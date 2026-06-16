@@ -31,23 +31,37 @@ export async function GET() {
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
 
-  const result = channels.map((c) => {
-    // DM 채널은 상대방 이름으로 표시
-    let displayName = c.name;
-    if (c.type === "DM") {
-      const other = c.members.find((m) => m.userId !== session.userId);
-      displayName = other?.user.name ?? "대화";
-    }
-    const last = c.messages[0];
-    return {
-      id: c.id,
-      name: displayName,
-      type: c.type,
-      isDefault: c.isDefault,
-      memberCount: c.members.length,
-      lastMessage: last ? { content: last.content, createdAt: last.createdAt } : null,
-    };
-  });
+  // 채널별 안읽음 개수 계산 (내 멤버 행의 lastReadAt 기준, 내가 보낸 건 제외)
+  const result = await Promise.all(
+    channels.map(async (c) => {
+      let displayName = c.name;
+      if (c.type === "DM") {
+        const other = c.members.find((m) => m.userId !== session.userId);
+        displayName = other?.user.name ?? "대화";
+      }
+      const myMember = c.members.find((m) => m.userId === session.userId);
+      const unread = await prisma.workMessage.count({
+        where: {
+          channelId: c.id,
+          parentId: null,
+          userId: { not: session.userId },
+          ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
+        },
+      });
+      const last = c.messages[0];
+      return {
+        id: c.id,
+        name: displayName,
+        type: c.type,
+        isDefault: c.isDefault,
+        memberCount: c.members.length,
+        unread,
+        lastMessage: last
+          ? { content: last.fileUrl && !last.content ? "📎 첨부파일" : last.content, createdAt: last.createdAt }
+          : null,
+      };
+    })
+  );
 
   return NextResponse.json({ channels: result });
 }
