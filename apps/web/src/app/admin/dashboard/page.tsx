@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Users,
@@ -16,6 +18,8 @@ import {
   CheckCircle2,
   Clock3,
   LogOut,
+  Plus,
+  Pin,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -57,6 +61,12 @@ export default function AdminDashboardPage() {
   const [fillTarget, setFillTarget] = useState<MissingAttendance | null>(null);
   const [filling, setFilling] = useState(false);
 
+  // 공지사항
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; pinned: boolean; authorName: string; createdAt: string }[]>([]);
+  const [annOpen, setAnnOpen] = useState(false);
+  const [annForm, setAnnForm] = useState({ title: "", content: "", pinned: false });
+  const [annSaving, setAnnSaving] = useState(false);
+
   // 오늘 날짜
   const today = new Date();
   const dateStr = format(today, "yyyy년 M월 d일 (EEEE)", { locale: ko });
@@ -93,12 +103,34 @@ export default function AdminDashboardPage() {
       }
 
       setPendingApprovals([...contractItems, ...leaveScheduleItems].slice(0, 10));
+
+      // 3. 최근 공지사항 (시프티워크 공지와 동일 소스)
+      const annRes = await fetch("/api/work/announcements");
+      if (annRes.ok) {
+        const data = await annRes.json();
+        setAnnouncements((data.announcements || []).slice(0, 5));
+      }
     } catch (error) {
       console.error("Dashboard data fetch error:", error);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function saveAnnouncement() {
+    if (!annForm.title.trim() || !annForm.content.trim()) { toast.error("제목과 내용을 입력해주세요."); return; }
+    setAnnSaving(true);
+    try {
+      const res = await fetch("/api/work/announcements", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(annForm),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "등록 실패"); return; }
+      toast.success("공지가 등록되었습니다.");
+      setAnnOpen(false); setAnnForm({ title: "", content: "", pinned: false });
+      fetchDashboardData();
+    } finally { setAnnSaving(false); }
+  }
 
   useEffect(() => {
     fetchDashboardData();
@@ -308,38 +340,40 @@ export default function AdminDashboardPage() {
         </CardContent>
       </Card>
 
-      {/* 공지사항 및 알림 */}
+      {/* 공지사항 */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText size={18} />
-            최근 공지사항
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <FileText size={18} />
+              최근 공지사항
+            </CardTitle>
+            <Button size="sm" onClick={() => setAnnOpen(true)} className="gap-1">
+              <Plus size={14} />공지 작성
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <div className="flex gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-yellow-900">시스템 점검 예정</strong>
-                <p className="text-sm text-yellow-800">2026년 6월 10일 야간 중 서버 점검이 예정되어 있습니다.</p>
-              </div>
+          {announcements.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              등록된 공지가 없습니다. "공지 작성"으로 첫 공지를 등록해보세요.
             </div>
-            <div className="flex gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <FileText className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-blue-900">새로운 기능 추가</strong>
-                <p className="text-sm text-blue-800">휴가 신청 시 증명서류 첨부 기능이 추가되었습니다.</p>
-              </div>
+          ) : (
+            <div className="space-y-3">
+              {announcements.map((a) => (
+                <a key={a.id} href="/work/announcements"
+                  className={`flex gap-3 p-3 rounded-lg border transition-colors hover:bg-gray-50 ${a.pinned ? "bg-indigo-50 border-indigo-200" : "bg-white border-gray-200"}`}>
+                  {a.pinned ? <Pin size={18} className="text-indigo-500 flex-shrink-0 mt-0.5" /> : <FileText size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />}
+                  <div className="min-w-0">
+                    <strong className="text-gray-900">{a.title}</strong>
+                    <p className="text-sm text-gray-600 line-clamp-2 whitespace-pre-wrap">{a.content}</p>
+                    <p className="text-xs text-gray-400 mt-1">{a.authorName} · {format(new Date(a.createdAt), "M월 d일 HH:mm")}</p>
+                  </div>
+                </a>
+              ))}
+              <a href="/work/announcements" className="block text-center text-xs text-indigo-500 hover:underline pt-1">전체 공지 보기 →</a>
             </div>
-            <div className="flex gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <TrendingUp className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-green-900">월간 리포트</strong>
-                <p className="text-sm text-green-800">5월 월간 보고서가 발행되었습니다. 상세 내용을 확인하세요.</p>
-              </div>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -465,6 +499,26 @@ export default function AdminDashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 공지 작성 다이얼로그 */}
+      <Dialog open={annOpen} onOpenChange={setAnnOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>공지 작성</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <Input placeholder="제목" value={annForm.title} onChange={(e) => setAnnForm(f => ({ ...f, title: e.target.value }))} />
+            <Textarea placeholder="내용" rows={6} value={annForm.content} onChange={(e) => setAnnForm(f => ({ ...f, content: e.target.value }))} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={annForm.pinned} onChange={(e) => setAnnForm(f => ({ ...f, pinned: e.target.checked }))} />
+              상단 고정
+            </label>
+            <p className="text-xs text-gray-400">작성한 공지는 시프티워크 &gt; 공지에도 함께 표시됩니다.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setAnnOpen(false)} disabled={annSaving}>취소</Button>
+              <Button onClick={saveAnnouncement} disabled={annSaving}>{annSaving ? "등록 중..." : "등록"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 출퇴근 누락 자동 보정 확인 다이얼로그 */}
       <Dialog open={!!fillTarget} onOpenChange={(o) => !o && setFillTarget(null)}>
