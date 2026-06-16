@@ -15,9 +15,10 @@ export async function GET() {
     });
   }
 
-  // 공개 채널 전체 + 내가 멤버인 DM
+  // 공개 채널 전체 + 내가 멤버인 DM (회의 전용 숨김 채널 제외)
   const channels = await prisma.workChannel.findMany({
     where: {
+      hidden: false,
       OR: [
         { type: "CHANNEL" },
         { type: "DM", members: { some: { userId: session.userId } } },

@@ -20,10 +20,17 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { title } = await request.json();
+  const meetingTitle = title?.trim() || "화상회의";
   // 고유 방 이름 (Jitsi 공개 서버에서 충돌 방지 위해 prefix + 랜덤)
   const room = `shiftee-${Math.random().toString(36).slice(2, 10)}`;
+
+  // 회의 전용 사이드 채팅 채널 (메인 채널 목록에서는 숨김)
+  const channel = await prisma.workChannel.create({
+    data: { name: `회의: ${meetingTitle}`, type: "CHANNEL", hidden: true, createdBy: session.userId },
+  });
+
   const meeting = await prisma.workMeeting.create({
-    data: { room, title: title?.trim() || "화상회의", createdBy: session.userId },
+    data: { room, title: meetingTitle, channelId: channel.id, createdBy: session.userId },
   });
   return NextResponse.json({ meeting });
 }
