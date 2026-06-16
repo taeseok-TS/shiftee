@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Users,
   Clock,
@@ -51,6 +52,10 @@ export default function AdminDashboardPage() {
   const [missingAttendance, setMissingAttendance] = useState<MissingAttendance[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 출퇴근 누락 보정 확인
+  const [fillTarget, setFillTarget] = useState<MissingAttendance | null>(null);
+  const [filling, setFilling] = useState(false);
 
   // 오늘 날짜
   const today = new Date();
@@ -101,6 +106,22 @@ export default function AdminDashboardPage() {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
+
+  // 출퇴근 누락 자동 보정 (퇴실 누락→출근+9h, 입실 누락→퇴근-9h)
+  async function handleAutoFill() {
+    if (!fillTarget) return;
+    setFilling(true);
+    try {
+      const res = await fetch(`/api/attendance/${fillTarget.id}/auto-fill`, { method: "PATCH" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "보정에 실패했습니다."); return; }
+      toast.success(data.mode === "out" ? "퇴근 시간이 자동 입력되었습니다." : "출근 시간이 자동 입력되었습니다.");
+      setFillTarget(null);
+      fetchDashboardData();
+    } finally {
+      setFilling(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -261,10 +282,12 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              <p className="text-xs text-gray-500">※ 항목을 클릭하면 9시간 기준으로 출퇴근 시간을 자동 보정할 수 있습니다.</p>
               {missingAttendance.map(record => (
-                <div
+                <button
                   key={record.id}
-                  className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg"
+                  onClick={() => setFillTarget(record)}
+                  className="w-full flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg text-left hover:bg-orange-100 transition-colors"
                 >
                   <div>
                     <p className="font-medium text-gray-900">{record.name}</p>
@@ -278,7 +301,7 @@ export default function AdminDashboardPage() {
                       {record.type}
                     </Badge>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -442,6 +465,38 @@ export default function AdminDashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 출퇴근 누락 자동 보정 확인 다이얼로그 */}
+      <Dialog open={!!fillTarget} onOpenChange={(o) => !o && setFillTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>출퇴근 누락 자동 보정</DialogTitle>
+          </DialogHeader>
+          {fillTarget && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <p className="font-medium">{fillTarget.name}</p>
+                <p className="text-gray-500 text-xs">
+                  {format(new Date(fillTarget.date), "yyyy년 M월 d일")} · {fillTarget.type}
+                </p>
+              </div>
+              <p className="text-sm text-gray-700">
+                {fillTarget.type === "퇴실 누락"
+                  ? "출근 시각 기준 9시간 뒤 시간으로 퇴근 처리하겠습니까?"
+                  : "퇴근 시각 기준 9시간 전 시간으로 출근 처리하겠습니까?"}
+              </p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setFillTarget(null)} disabled={filling}>
+                  아니오
+                </Button>
+                <Button onClick={handleAutoFill} disabled={filling}>
+                  {filling ? "처리 중..." : "네"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
