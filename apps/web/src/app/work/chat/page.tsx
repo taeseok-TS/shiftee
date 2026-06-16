@@ -4,13 +4,25 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
 const EMOJIS = ["👍", "❤️", "😄", "😢", "👌", "🎉"];
+const NOTIFY_LABEL: Record<string, string> = { ALL: "모든 메시지", MENTION: "멘션만", MUTE: "음소거" };
 
-type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; lastMessage: { content: string; createdAt: string } | null };
+// @멘션 하이라이트 렌더링
+function renderContent(text: string) {
+  if (!text) return null;
+  const parts = text.split(/(@[가-힣A-Za-z0-9_]+)/g);
+  return parts.map((p, i) =>
+    p.startsWith("@")
+      ? <span key={i} className="text-indigo-300 font-semibold bg-indigo-500/20 rounded px-0.5">{p}</span>
+      : <span key={i}>{p}</span>
+  );
+}
+
+type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; lastMessage: { content: string; createdAt: string } | null };
 type Reaction = { emoji: string; count: number; mine: boolean };
 type Message = { id: string; userId: string; userName: string; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number };
 type Employee = { id: string; name: string; branch?: string | null };
@@ -32,8 +44,16 @@ export default function WorkChatPage() {
   const [empSearch, setEmpSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  // 멘션 자동완성
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  // 검색
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ id: string; channelId: string; channelName: string; userName: string; content: string; createdAt: string }[]>([]);
+  // 알림 설정 메뉴
+  const [notifyMenuOpen, setNotifyMenuOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
@@ -107,11 +127,39 @@ export default function WorkChatPage() {
 
   function onInputChange(v: string) {
     setInput(v);
+    // @멘션 자동완성: 마지막 토큰이 @로 시작하면 쿼리 추출
+    const m = v.match(/@([가-힣A-Za-z0-9_]*)$/);
+    setMentionQuery(m ? m[1] : null);
     const now = Date.now();
     if (activeId && now - lastTypingSent.current > 2000) {
       lastTypingSent.current = now;
       fetch(`/api/work/channels/${activeId}/typing`, { method: "POST" });
     }
+  }
+
+  function pickMention(name: string) {
+    setInput((cur) => cur.replace(/@([가-힣A-Za-z0-9_]*)$/, `@${name} `));
+    setMentionQuery(null);
+    inputRef.current?.focus();
+  }
+
+  // 메시지 검색 (디바운스)
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/api/work/search?q=${encodeURIComponent(searchQuery)}`);
+      if (res.ok) setSearchResults((await res.json()).results || []);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  async function setNotify(value: string) {
+    if (!activeId) return;
+    setNotifyMenuOpen(false);
+    await fetch(`/api/work/channels/${activeId}/notify`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notify: value }),
+    });
+    fetchChannels();
   }
 
   async function send() {
@@ -213,20 +261,46 @@ export default function WorkChatPage() {
           <h2 className="font-bold text-lg">채팅</h2>
           <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1"><Plus size={16} /></Button>
         </div>
+        <div className="px-3 py-2 border-b">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 text-gray-400" size={14} />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="메시지 검색"
+              className="w-full pl-8 pr-2 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            />
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto">
-          {channels.map((c) => (
+          {/* 검색 모드 */}
+          {searchQuery.trim() ? (
+            searchResults.length === 0 ? (
+              <div className="text-center text-gray-400 text-sm py-8">검색 결과가 없습니다.</div>
+            ) : (
+              searchResults.map((r) => (
+                <button key={r.id} onClick={() => { setActiveId(r.channelId); setSearchQuery(""); }}
+                  className="w-full text-left px-4 py-3 border-b hover:bg-gray-50">
+                  <div className="text-xs text-indigo-500 mb-0.5"># {r.channelName}</div>
+                  <div className="text-sm truncate">{r.content}</div>
+                  <div className="text-[10px] text-gray-400">{r.userName} · {format(new Date(r.createdAt), "MM/dd HH:mm")}</div>
+                </button>
+              ))
+            )
+          ) : (
+          channels.map((c) => (
             <button key={c.id} onClick={() => setActiveId(c.id)}
               className={`w-full text-left px-4 py-3 border-b hover:bg-gray-50 flex items-start gap-2 ${activeId === c.id ? "bg-indigo-50" : ""}`}>
               {c.type === "DM" ? <UserIcon size={16} className="mt-0.5 text-gray-400 shrink-0" /> : <Hash size={16} className="mt-0.5 text-gray-400 shrink-0" />}
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-sm truncate flex items-center justify-between gap-2">
-                  <span className="truncate">{c.name}</span>
+                  <span className="truncate flex items-center gap-1">{c.notify === "MUTE" && <BellOff size={11} className="text-gray-400" />}{c.name}</span>
                   {c.unread > 0 && <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold shrink-0">{c.unread}</span>}
                 </div>
                 {c.lastMessage && <div className="text-xs text-gray-400 truncate">{c.lastMessage.content}</div>}
               </div>
             </button>
-          ))}
+          )))}
         </div>
       </div>
 
@@ -238,6 +312,23 @@ export default function WorkChatPage() {
               {active.type === "DM" ? <UserIcon size={18} /> : <Hash size={18} />}
               <span className="font-semibold">{active.name}</span>
               {active.type === "CHANNEL" && active.memberCount > 0 && <span className="text-xs text-gray-400">멤버 {active.memberCount}명</span>}
+              {/* 알림 설정 */}
+              <div className="ml-auto relative">
+                <button onClick={() => setNotifyMenuOpen((v) => !v)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100">
+                  {active.notify === "MUTE" ? <BellOff size={15} /> : <Bell size={15} />}
+                  {NOTIFY_LABEL[active.notify] || "알림"}
+                </button>
+                {notifyMenuOpen && (
+                  <div className="absolute right-0 top-8 z-20 bg-white border rounded-lg shadow py-1 w-32">
+                    {(["ALL", "MENTION", "MUTE"] as const).map((v) => (
+                      <button key={v} onClick={() => setNotify(v)}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${active.notify === v ? "text-indigo-600 font-medium" : ""}`}>
+                        {NOTIFY_LABEL[v]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-1">
@@ -258,7 +349,7 @@ export default function WorkChatPage() {
                             </span>
                           )}
                           <div className={`rounded-2xl px-4 py-2 text-sm ${m.mine ? "bg-indigo-500 text-white" : "bg-white border"}`}>
-                            {m.content && <span className="whitespace-pre-wrap">{m.content}</span>}
+                            {m.content && <span className="whitespace-pre-wrap">{renderContent(m.content)}</span>}
                             {renderAttachment(m)}
                           </div>
                           {/* 호버 액션 */}
@@ -300,12 +391,27 @@ export default function WorkChatPage() {
               {typingUser && <div className="text-xs text-gray-400 italic mt-1">{typingUser}님이 입력 중…</div>}
             </div>
 
-            <div className="px-4 py-3 border-t bg-white flex gap-2 items-center">
+            <div className="px-4 py-3 border-t bg-white flex gap-2 items-center relative">
+              {/* @멘션 자동완성 드롭다운 */}
+              {mentionQuery !== null && (() => {
+                const cands = employees.filter((e) => e.name.includes(mentionQuery)).slice(0, 6);
+                if (cands.length === 0) return null;
+                return (
+                  <div className="absolute bottom-14 left-12 z-20 bg-white border rounded-lg shadow w-48 max-h-52 overflow-y-auto">
+                    <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b flex items-center gap-1"><AtSign size={11} />멘션할 사람</div>
+                    {cands.map((e) => (
+                      <button key={e.id} onClick={() => pickMention(e.name)} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
+                        {e.name}{e.branch && <span className="text-xs text-gray-400"> · {e.branch}</span>}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
               <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAndSend(f); e.target.value = ""; }} />
               <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} className="shrink-0"><Paperclip size={16} /></Button>
-              <Input value={input} onChange={(e) => onInputChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder="메시지를 입력하세요..." />
+              <Input ref={inputRef} value={input} onChange={(e) => onInputChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && mentionQuery === null) { e.preventDefault(); send(); } }}
+                placeholder="메시지를 입력하세요... (@로 멘션)" />
               <Button onClick={send} disabled={sending || !input.trim()} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Send size={16} /></Button>
             </div>
           </>

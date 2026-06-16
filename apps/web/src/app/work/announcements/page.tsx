@@ -1,21 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Megaphone, Plus, Pin, Trash2 } from "lucide-react";
+import { Megaphone, Plus, Pin, Trash2, Paperclip, ImageIcon, X } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
+type Attachment = { url: string; name: string; type: string };
 type Announcement = {
   id: string;
   title: string;
   content: string;
   pinned: boolean;
+  attachments: Attachment[];
   authorName: string;
   createdAt: string;
   canEdit: boolean;
@@ -25,8 +26,22 @@ export default function WorkAnnouncementsPage() {
   const [list, setList] = useState<Announcement[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", content: "", pinned: false });
+  const [form, setForm] = useState<{ title: string; content: string; pinned: boolean; attachments: Attachment[] }>({ title: "", content: "", pinned: false, attachments: [] });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/work/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "업로드 실패"); return; }
+      setForm((f) => ({ ...f, attachments: [...f.attachments, { url: data.fileUrl, name: data.fileName, type: data.fileType }] }));
+    } finally { setUploading(false); }
+  }
 
   const fetchList = useCallback(async () => {
     const res = await fetch("/api/work/announcements");
@@ -48,7 +63,7 @@ export default function WorkAnnouncementsPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "등록 실패"); return; }
       toast.success("공지가 등록되었습니다.");
-      setOpen(false); setForm({ title: "", content: "", pinned: false });
+      setOpen(false); setForm({ title: "", content: "", pinned: false, attachments: [] });
       fetchList();
     } finally { setSaving(false); }
   }
@@ -83,6 +98,21 @@ export default function WorkAnnouncementsPage() {
                       <h3 className="font-semibold">{a.title}</h3>
                     </div>
                     <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{a.content}</p>
+                    {a.attachments?.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        {a.attachments.map((att, i) =>
+                          att.type === "image" ? (
+                            <a key={i} href={att.url} target="_blank" rel="noreferrer">
+                              <img src={att.url} alt={att.name} className="max-h-48 rounded-lg border" />
+                            </a>
+                          ) : (
+                            <a key={i} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs text-indigo-600 underline border rounded-lg px-3 py-2">
+                              <Paperclip size={12} />{att.name}
+                            </a>
+                          )
+                        )}
+                      </div>
+                    )}
                     <p className="text-xs text-gray-400 mt-3">{a.authorName} · {format(new Date(a.createdAt), "yyyy.MM.dd HH:mm")}</p>
                   </div>
                   {a.canEdit && (
@@ -98,11 +128,35 @@ export default function WorkAnnouncementsPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-3xl w-[90vw]">
           <DialogHeader><DialogTitle>공지 작성</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <Input placeholder="제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />
-            <Textarea placeholder="내용" rows={6} value={form.content} onChange={(e) => setForm(f => ({ ...f, content: e.target.value }))} />
+            <Textarea placeholder="내용" rows={14} value={form.content} onChange={(e) => setForm(f => ({ ...f, content: e.target.value }))} className="min-h-[320px]" />
+
+            {/* 첨부 */}
+            <input ref={fileRef} type="file" className="hidden" accept="*/*"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                <ImageIcon size={14} />{uploading ? "업로드 중..." : "이미지 / 파일 첨부"}
+              </Button>
+              <span className="text-xs text-gray-400">이미지는 본문 아래에 미리보기로 표시됩니다.</span>
+            </div>
+            {form.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {form.attachments.map((att, i) => (
+                  <div key={i} className="relative border rounded-lg p-2">
+                    {att.type === "image"
+                      ? <img src={att.url} alt={att.name} className="max-h-28 rounded" />
+                      : <div className="flex items-center gap-1.5 text-xs px-2 py-3"><Paperclip size={12} />{att.name}</div>}
+                    <button onClick={() => setForm(f => ({ ...f, attachments: f.attachments.filter((_, idx) => idx !== i) }))}
+                      className="absolute -top-2 -right-2 bg-white border rounded-full p-0.5 text-red-500"><X size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.pinned} onChange={(e) => setForm(f => ({ ...f, pinned: e.target.checked }))} />
               상단 고정

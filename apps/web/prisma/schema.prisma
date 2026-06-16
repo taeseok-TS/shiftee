@@ -402,10 +402,17 @@ model WorkChannelMember {
   userId    String
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   lastReadAt DateTime?
+  notify    WorkNotify  @default(ALL) // 채널 알림 설정
   joinedAt  DateTime    @default(now())
 
   @@unique([channelId, userId])
   @@index([userId])
+}
+
+enum WorkNotify {
+  ALL // 모든 메시지
+  MENTION // 멘션만
+  MUTE // 음소거
 }
 
 model WorkMessage {
@@ -461,14 +468,27 @@ model WorkCalendarEvent {
 
 // ─── 시프티워크: 공지 ─────────────────────────────────────────
 model WorkAnnouncement {
-  id        String   @id @default(cuid())
-  title     String
-  content   String
-  pinned    Boolean  @default(false)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  pinned      Boolean  @default(false)
+  attachments String   @default("[]") // JSON: [{url,name,type}]
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([createdAt])
+}
+
+// ─── 시프티워크: 화상회의 ─────────────────────────────────────
+model WorkMeeting {
+  id        String    @id @default(cuid())
+  room      String    @unique // Jitsi 방 이름
+  title     String
+  createdBy String
+  createdAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  @@index([endedAt])
 }

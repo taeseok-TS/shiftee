@@ -19,6 +19,7 @@ export async function GET() {
       title: a.title,
       content: a.content,
       pinned: a.pinned,
+      attachments: (() => { try { return JSON.parse(a.attachments); } catch { return []; } })(),
       authorName: a.author.name,
       createdAt: a.createdAt,
       canEdit: a.authorId === session.userId || session.role === "ADMIN",
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
   if (session.role === "EMPLOYEE")
     return NextResponse.json({ error: "공지 작성 권한이 없습니다." }, { status: 403 });
 
-  const { title, content, pinned } = await request.json();
+  const { title, content, pinned, attachments } = await request.json();
   if (!title?.trim() || !content?.trim())
     return NextResponse.json({ error: "제목과 내용을 입력해주세요." }, { status: 400 });
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       title: title.trim(),
       content: content.trim(),
       pinned: !!pinned,
+      attachments: JSON.stringify(Array.isArray(attachments) ? attachments : []),
       authorId: session.userId,
     },
   });

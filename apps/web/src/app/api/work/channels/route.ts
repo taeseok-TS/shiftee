@@ -40,14 +40,20 @@ export async function GET() {
         displayName = other?.user.name ?? "대화";
       }
       const myMember = c.members.find((m) => m.userId === session.userId);
-      const unread = await prisma.workMessage.count({
-        where: {
-          channelId: c.id,
-          parentId: null,
-          userId: { not: session.userId },
-          ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
-        },
-      });
+      const notify = myMember?.notify ?? "ALL";
+      let unread = 0;
+      if (notify !== "MUTE") {
+        unread = await prisma.workMessage.count({
+          where: {
+            channelId: c.id,
+            parentId: null,
+            userId: { not: session.userId },
+            ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
+            // 멘션만 알림: 내 이름이 @로 멘션된 메시지만 카운트
+            ...(notify === "MENTION" ? { content: { contains: `@${session.name}` } } : {}),
+          },
+        });
+      }
       const last = c.messages[0];
       return {
         id: c.id,
@@ -56,6 +62,7 @@ export async function GET() {
         isDefault: c.isDefault,
         memberCount: c.members.length,
         unread,
+        notify,
         lastMessage: last
           ? { content: last.fileUrl && !last.content ? "📎 첨부파일" : last.content, createdAt: last.createdAt }
           : null,
