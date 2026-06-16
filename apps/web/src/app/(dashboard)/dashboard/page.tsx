@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Megaphone, Pin, FileText } from "lucide-react";
+import { format } from "date-fns";
 
 type MyStats = {
   leaveRemaining: number;
@@ -8,11 +10,13 @@ type MyStats = {
   pendingApprovals: number;
   monthWorkHours: number;
 };
+type Announcement = { id: string; title: string; content: string; pinned: boolean; authorName: string; createdAt: string };
 
 export default function SharedDashboardPage() {
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
   const [stats, setStats] = useState<MyStats | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -25,6 +29,10 @@ export default function SharedDashboardPage() {
     fetch("/api/me/dashboard-stats")
       .then(r => (r.ok ? r.json() : null))
       .then(d => d && setStats(d))
+      .catch(() => {});
+    fetch("/api/work/announcements")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d && setAnnouncements((d.announcements || []).slice(0, 5)))
       .catch(() => {});
   }, []);
 
@@ -98,6 +106,31 @@ export default function SharedDashboardPage() {
             <div className="text-sm text-gray-600">내 근무 일정</div>
           </a>
         </div>
+      </div>
+
+      {/* 공지사항 */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Megaphone size={18} className="text-indigo-500" />공지사항
+        </h3>
+        {announcements.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm">등록된 공지가 없습니다.</div>
+        ) : (
+          <div className="space-y-3">
+            {announcements.map((a) => (
+              <a key={a.id} href="/work/announcements"
+                className={`flex gap-3 p-3 rounded-lg border transition-colors hover:bg-gray-50 ${a.pinned ? "bg-indigo-50 border-indigo-200" : "bg-white border-gray-200"}`}>
+                {a.pinned ? <Pin size={18} className="text-indigo-500 flex-shrink-0 mt-0.5" /> : <FileText size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />}
+                <div className="min-w-0">
+                  <strong className="text-gray-900">{a.title}</strong>
+                  <p className="text-sm text-gray-600 line-clamp-2 whitespace-pre-wrap">{a.content}</p>
+                  <p className="text-xs text-gray-400 mt-1">{a.authorName} · {format(new Date(a.createdAt), "M월 d일 HH:mm")}</p>
+                </div>
+              </a>
+            ))}
+            <a href="/work/announcements" className="block text-center text-xs text-indigo-500 hover:underline pt-1">전체 공지 보기 →</a>
+          </div>
+        )}
       </div>
     </div>
   );
