@@ -113,7 +113,7 @@ export default function AttendancePage() {
   /* 출퇴근 탭 */
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
   const [clockLoading, setClockLoading] = useState(false);
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null); // 마운트 후에만 채워 hydration mismatch 방지
 
   /* 통계 탭 */
   const [period, setPeriod]           = useState<Period>("monthly");
@@ -153,6 +153,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     fetchToday();
+    setNow(new Date()); // 마운트 즉시 1회
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, [fetchToday]);
@@ -279,8 +280,8 @@ export default function AttendancePage() {
               <div className="flex flex-col md:flex-row items-center gap-6">
                 {/* 시계 */}
                 <div className="text-center">
-                  <p className="text-5xl font-mono font-bold text-gray-900">{format(now, "HH:mm:ss")}</p>
-                  <p className="text-gray-500 mt-1 text-sm">{format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko })}</p>
+                  <p className="text-5xl font-mono font-bold text-gray-900">{now ? format(now, "HH:mm:ss") : "--:--:--"}</p>
+                  <p className="text-gray-500 mt-1 text-sm">{now ? format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko }) : ""}</p>
                 </div>
                 {/* 현황 */}
                 <div className="flex-1 grid grid-cols-2 gap-4">
