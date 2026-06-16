@@ -126,7 +126,7 @@ export default function WorkAnnouncementsPage() {
     <div className="max-w-3xl mx-auto p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Megaphone size={22} className="text-indigo-500" />공지</h1>
-        {role !== "EMPLOYEE" && (
+        {role === "ADMIN" && (
           <Button onClick={() => setOpen(true)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Plus size={16} />공지 작성</Button>
         )}
       </div>

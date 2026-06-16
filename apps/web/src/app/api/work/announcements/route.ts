@@ -22,17 +22,17 @@ export async function GET() {
       attachments: (() => { try { return JSON.parse(a.attachments); } catch { return []; } })(),
       authorName: a.author.name,
       createdAt: a.createdAt,
-      canEdit: a.authorId === session.userId || session.role === "ADMIN",
+      canEdit: session.role === "ADMIN",
     })),
   });
 }
 
-// 공지 작성 (관리자/원장만)
+// 공지 작성 (관리자 전용)
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE")
-    return NextResponse.json({ error: "공지 작성 권한이 없습니다." }, { status: 403 });
+  if (session.role !== "ADMIN")
+    return NextResponse.json({ error: "공지 작성은 관리자만 가능합니다." }, { status: 403 });
 
   const { title, content, pinned, attachments } = await request.json();
   if (!title?.trim() || !content?.trim())
