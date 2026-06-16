@@ -21,16 +21,16 @@ import {
 
 const adminNavItems = [
   { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard },
-  { href: "/admin/employees", label: "직원 관리", icon: Users },
-  { href: "/admin/branches", label: "지점 관리", icon: Building2 },
-  { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
-  { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
-  { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
-  { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
   { href: "/admin/attendance", label: "출퇴근", icon: Clock },
   { href: "/admin/schedule", label: "근무일정", icon: Calendar },
-  { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
+  { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
+  { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
+  { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
+  { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
   { href: "/admin/contract-templates", label: "계약 템플릿", icon: FileText },
+  { href: "/admin/employees", label: "직원 관리", icon: Users },
+  { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
+  { href: "/admin/branches", label: "지점 관리", icon: Building2 },
   { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
 ];
 
