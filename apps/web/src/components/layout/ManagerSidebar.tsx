@@ -80,6 +80,12 @@ export function ManagerSidebar() {
           환경설정
         </Link>
         <button
+          onClick={() => (window.location.href = "/work")}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
+        >
+          💬 시프티워크
+        </button>
+        <button
           onClick={() => (window.location.href = "/admin/dashboard")}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
         >

@@ -43,6 +43,9 @@ model User {
   scheduleRequests      ScheduleRequest[]
   contractTemplates     ContractTemplate[]     @relation("TemplateCreator")
   contractVersions      ContractVersion[]      @relation("VersionCreator")
+  workChannelMembers    WorkChannelMember[]
+  workMessages          WorkMessage[]
+  workAnnouncements     WorkAnnouncement[]
 }
 
 enum Role {
@@ -370,4 +373,62 @@ model Branch {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── 시프티워크: 채팅 ─────────────────────────────────────────
+model WorkChannel {
+  id        String              @id @default(cuid())
+  name      String
+  type      WorkChannelType     @default(CHANNEL)
+  isDefault Boolean             @default(false) // 전체 채널 등 기본 채널
+  createdBy String?
+  createdAt DateTime            @default(now())
+  members   WorkChannelMember[]
+  messages  WorkMessage[]
+
+  @@index([type])
+}
+
+enum WorkChannelType {
+  CHANNEL // 공개/그룹 채널
+  DM // 1:1 다이렉트 메시지
+}
+
+model WorkChannelMember {
+  id        String      @id @default(cuid())
+  channelId String
+  channel   WorkChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt DateTime?
+  joinedAt  DateTime    @default(now())
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model WorkMessage {
+  id        String      @id @default(cuid())
+  channelId String
+  channel   WorkChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime    @default(now())
+
+  @@index([channelId, createdAt])
+}
+
+// ─── 시프티워크: 공지 ─────────────────────────────────────────
+model WorkAnnouncement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  pinned    Boolean  @default(false)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
 }
