@@ -13,21 +13,16 @@ export async function PATCH(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE")
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 출퇴근 보정은 관리자(ADMIN) 전용 (직원/원장이 자신의 지각·미기록을 임의 보정하는 것 방지)
+  if (session.role !== "ADMIN")
+    return NextResponse.json({ error: "출퇴근 보정은 관리자만 가능합니다." }, { status: 403 });
 
   const { id } = await params;
 
   const record = await prisma.attendance.findUnique({
     where: { id },
-    include: { user: { select: { branch: true } } },
   });
   if (!record) return NextResponse.json({ error: "출퇴근 기록을 찾을 수 없습니다." }, { status: 404 });
-
-  // 원장은 자기 지점만 보정 가능
-  if (session.role === "MANAGER" && record.user.branch !== session.branch) {
-    return NextResponse.json({ error: "다른 지점 직원의 기록은 보정할 수 없습니다." }, { status: 403 });
-  }
 
   let clockIn = record.clockIn;
   let clockOut = record.clockOut;
