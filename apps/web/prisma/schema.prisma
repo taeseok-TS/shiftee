@@ -268,6 +268,7 @@ model ContractApprovalStep {
   approver       User                 @relation("ContractApprover", fields: [approverId], references: [id])
   status         ApprovalStepStatus   @default(WAITING)
   comment        String?
+  signatureUrl   String? // 손글씨 서명 이미지 (PNG)
   decidedAt      DateTime?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt

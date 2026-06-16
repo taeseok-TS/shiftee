@@ -2,6 +2,20 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
+import fs from "fs/promises";
+import path from "path";
+
+// 손글씨 서명(dataURL PNG)을 파일로 저장하고 URL 반환
+async function saveSignature(dataUrl: string): Promise<string | null> {
+  const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl || "");
+  if (!m) return null;
+  const buffer = Buffer.from(m[1], "base64");
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-sign.png`;
+  const dir = path.join(process.cwd(), "uploads", "signatures");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, filename), buffer);
+  return `/api/uploads/signatures/${filename}`;
+}
 
 export async function POST(
   request: NextRequest,
@@ -12,7 +26,8 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureName, isApprover } = body;
+  const { signatureData, isApprover } = body;
+  const signatureUrl = await saveSignature(signatureData);
 
   const contract = await prisma.contract.findUnique({
     where: { id },
@@ -30,14 +45,14 @@ export async function POST(
 
   // 케이스 1: 직원이 서명할 번차 (승인라인의 순서 상 직원이 배정된 단계)
   if (myStep && myStep.approverId === contract.userId) {
-    if (!signatureName) {
-      return NextResponse.json({ error: "서명자 이름이 필요합니다." }, { status: 400 });
+    if (!signatureUrl) {
+      return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
     }
 
     // 현재 단계(직원 서명)를 APPROVED로 변경
     await prisma.contractApprovalStep.update({
       where: { id: myStep.id },
-      data: { status: "APPROVED", decidedAt: new Date() },
+      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
     });
 
     // 다음 단계가 있으면 PENDING으로 변경
@@ -105,10 +120,13 @@ export async function POST(
 
   // 케이스 3: 승인자 승인 (myStep이 있고, approverId가 contract.userId가 아닌 경우)
   if (myStep) {
+    if (!signatureUrl) {
+      return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
+    }
     // 현재 단계 승인으로 변경
     await prisma.contractApprovalStep.update({
       where: { id: myStep.id },
-      data: { status: "APPROVED", decidedAt: new Date() },
+      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
     });
 
     // 다음 단계가 있으면 PENDING으로, 없으면 계약 완료

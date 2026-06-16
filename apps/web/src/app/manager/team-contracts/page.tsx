@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { FileSignature, Download, PenLine, ArrowRight, CheckCircle2, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -86,8 +87,8 @@ export default function ManagerContractsPage() {
 
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
-  const [signName, setSignName] = useState("");
   const [signing, setSigning] = useState(false);
+  const sigRef = useRef<SignaturePadHandle>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
@@ -120,20 +121,19 @@ export default function ManagerContractsPage() {
 
   async function handleApprove() {
     if (!signTarget) return;
-    if (!signName.trim()) { toast.error("승인자 이름을 입력해주세요."); return; }
+    if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
     setSigning(true);
     try {
       const res = await fetch(`/api/contracts/${signTarget.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureName: signName, isApprover: true }),
+        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover: true }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "결재 처리에 실패했습니다."); return; }
       toast.success("계약서를 승인했습니다.");
       setSignOpen(false);
       setSignTarget(null);
-      setSignName("");
       fetchData();
     } finally {
       setSigning(false);
@@ -265,8 +265,8 @@ export default function ManagerContractsPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label>승인자 이름 *</Label>
-              <Input value={signName} onChange={e => setSignName(e.target.value)} placeholder="이름 입력" />
+              <Label>서명 *</Label>
+              <SignaturePad ref={sigRef} />
               <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
             </div>
             <div className="flex gap-2 justify-end">

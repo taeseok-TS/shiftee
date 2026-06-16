@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown } from "lucide-react";
 import { format } from "date-fns";
@@ -159,7 +160,7 @@ export default function ContractsPage() {
 
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
-  const [signName, setSignName] = useState("");
+  const sigRef = useRef<SignaturePadHandle>(null);
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -670,18 +671,17 @@ export default function ContractsPage() {
   }
 
   async function handleSign(id: string, isApprover = false) {
-    if (!signName) { toast.error("이름을 입력해주세요."); return; }
+    if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
 
     const res = await fetch(`/api/contracts/${id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureName: signName, isApprover }),
+      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover }),
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
     toast.success(isApprover ? "계약 승인됨" : "서명 완료");
     setSignOpen(false);
-    setSignName("");
     fetchContracts();
   }
 
@@ -1276,7 +1276,7 @@ export default function ContractsPage() {
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); setSignName(""); setSignOpen(true); }} className="gap-1">
+                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
                   <PenLine size={14} />승인
                 </Button>
               </div>
@@ -1302,7 +1302,7 @@ export default function ContractsPage() {
                   <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline"><Download size={14} /></Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); setSignName(""); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1565,7 +1565,7 @@ export default function ContractsPage() {
 
       {/* 서명 모달 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>서명</DialogTitle></DialogHeader>
           {signTarget && (
             <div className="space-y-4">
@@ -1575,8 +1575,8 @@ export default function ContractsPage() {
                 <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
               </div>
               <div className="space-y-2">
-                <Label>서명자</Label>
-                <Input value={signName} onChange={e => setSignName(e.target.value)} placeholder={myName} />
+                <Label>서명 *</Label>
+                <SignaturePad ref={sigRef} />
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
@@ -1863,6 +1863,12 @@ export default function ContractsPage() {
                     <p className="text-xs text-gray-500">
                       {format(new Date(step.decidedAt), "yyyy-MM-dd HH:mm")}
                     </p>
+                  )}
+                  {(step as any).signatureUrl && (
+                    <div className="mt-1">
+                      <p className="text-[11px] text-gray-400 mb-0.5">서명</p>
+                      <img src={(step as any).signatureUrl} alt="서명" className="h-16 border rounded bg-white" />
+                    </div>
                   )}
                 </div>
               ))}
