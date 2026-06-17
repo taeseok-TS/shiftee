@@ -25,6 +25,8 @@ import {
   LeaveBalance,
   ScheduleEntry,
   ScheduleRequest,
+  WorkChannel,
+  WorkMessage,
 } from "../types/index";
 
 export class ShifteeApiClient {
@@ -275,6 +277,32 @@ export class ShifteeApiClient {
       { params: status ? { status } : {} }
     );
     return response.data.requests || [];
+  }
+
+  // ============== 큐브티워크 (메신저) ==============
+
+  async getChannels(): Promise<WorkChannel[]> {
+    const response = await this.axiosInstance.get<ApiResponse<{ channels: WorkChannel[] }>>("/work/channels");
+    return response.data.channels || [];
+  }
+
+  async getMessages(channelId: string): Promise<WorkMessage[]> {
+    const response = await this.axiosInstance.get<ApiResponse<{ messages: WorkMessage[] }>>(
+      `/work/channels/${channelId}/messages`
+    );
+    return response.data.messages || [];
+  }
+
+  async sendMessage(channelId: string, content: string): Promise<WorkMessage> {
+    const response = await this.axiosInstance.post<ApiResponse<{ message: WorkMessage }>>(
+      `/work/channels/${channelId}/messages`,
+      { content }
+    );
+    return response.data.message;
+  }
+
+  async markChannelRead(channelId: string): Promise<void> {
+    await this.axiosInstance.post(`/work/channels/${channelId}/read`);
   }
 }
 

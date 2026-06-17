@@ -116,3 +116,21 @@ export async function getMySchedules(year: number, month: number) {
 export async function getScheduleRequests(status?: string) {
   return getApi().getScheduleRequests(status);
 }
+
+// ============== 큐브티워크 (메신저) ==============
+
+export async function getChannels() {
+  return getApi().getChannels();
+}
+
+export async function getMessages(channelId: string) {
+  return getApi().getMessages(channelId);
+}
+
+export async function sendMessage(channelId: string, content: string) {
+  return getApi().sendMessage(channelId, content);
+}
+
+export async function markChannelRead(channelId: string) {
+  return getApi().markChannelRead(channelId);
+}

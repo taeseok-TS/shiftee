@@ -232,6 +232,36 @@ export interface LeaveBalance {
   remaining: number;
 }
 
+// ============== 큐브티워크 (메신저) ==============
+
+export type WorkChannelType = "CHANNEL" | "DM";
+
+export interface WorkChannel {
+  id: string;
+  name: string;
+  type: WorkChannelType;
+  isDefault: boolean;
+  memberCount: number;
+  unread: number;
+  notify: string;
+  lastMessage: { content: string; createdAt: string } | null;
+}
+
+export interface WorkMessage {
+  id: string;
+  userId: string;
+  userName: string;
+  content: string;
+  fileUrl: string | null;
+  fileName: string | null;
+  fileType: string | null;
+  createdAt: string;
+  mine: boolean;
+  reactions: any[];
+  replyCount: number;
+  parentId?: string | null;
+}
+
 // ============== 대시보드 ==============
 
 export interface DashboardStats {

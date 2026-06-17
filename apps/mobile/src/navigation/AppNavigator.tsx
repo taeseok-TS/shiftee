@@ -3,16 +3,16 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
-import ContractsNavigator from "./ContractsNavigator";
-import AttendanceScreen from "../screens/attendance/AttendanceScreen";
+import WorkNavigator from "./WorkNavigator";
 import ScheduleScreen from "../screens/schedule/ScheduleScreen";
-import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
-import SettingsScreen from "../screens/SettingsScreen";
+import AttendanceScreen from "../screens/attendance/AttendanceScreen";
+import MoreNavigator from "./MoreNavigator";
 
 const Tab = createBottomTabNavigator();
 
 /**
  * 인증 후 메인 앱 네비게이터 (탭 네비게이션)
+ * 홈 · 메신저 · 일정 · 출퇴근 · 더보기(계약서/휴가/설정)
  */
 export default function AppNavigator() {
   return (
@@ -23,55 +23,28 @@ export default function AppNavigator() {
 
           if (route.name === "Home") {
             iconName = focused ? "home" : "home-outline";
-          } else if (route.name === "Contracts") {
-            iconName = focused ? "document-text" : "document-text-outline";
-          } else if (route.name === "Attendance") {
-            iconName = focused ? "time" : "time-outline";
+          } else if (route.name === "Work") {
+            iconName = focused ? "chatbubbles" : "chatbubbles-outline";
           } else if (route.name === "Schedule") {
             iconName = focused ? "calendar" : "calendar-outline";
-          } else if (route.name === "Leave") {
-            iconName = focused ? "umbrella" : "umbrella-outline";
-          } else if (route.name === "Settings") {
-            iconName = focused ? "settings" : "settings-outline";
+          } else if (route.name === "Attendance") {
+            iconName = focused ? "time" : "time-outline";
+          } else if (route.name === "More") {
+            iconName = focused ? "ellipsis-horizontal-circle" : "ellipsis-horizontal-circle-outline";
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: "#2563eb",
+        tabBarActiveTintColor: "#4f46e5",
         tabBarInactiveTintColor: "#9ca3af",
         headerShown: true,
       })}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{ title: "홈" }}
-      />
-      <Tab.Screen
-        name="Contracts"
-        component={ContractsNavigator}
-        options={{ title: "계약서", headerShown: false }}
-      />
-      <Tab.Screen
-        name="Attendance"
-        component={AttendanceScreen}
-        options={{ title: "출퇴근" }}
-      />
-      <Tab.Screen
-        name="Schedule"
-        component={ScheduleScreen}
-        options={{ title: "일정" }}
-      />
-      <Tab.Screen
-        name="Leave"
-        component={LeaveRequestScreen}
-        options={{ title: "휴가" }}
-      />
-      <Tab.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{ title: "설정" }}
-      />
+      <Tab.Screen name="Home" component={HomeScreen} options={{ title: "홈" }} />
+      <Tab.Screen name="Work" component={WorkNavigator} options={{ title: "메신저", headerShown: false }} />
+      <Tab.Screen name="Schedule" component={ScheduleScreen} options={{ title: "일정" }} />
+      <Tab.Screen name="Attendance" component={AttendanceScreen} options={{ title: "출퇴근" }} />
+      <Tab.Screen name="More" component={MoreNavigator} options={{ title: "더보기", headerShown: false }} />
     </Tab.Navigator>
   );
 }
