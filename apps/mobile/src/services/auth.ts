@@ -22,14 +22,19 @@ export async function login(email: string, password: string): Promise<User | nul
       password,
     });
 
-    const { token, ...userData } = response.data;
+    // 응답 형태: { success, token, user }
+    const { token, user } = response.data;
+    if (!token) {
+      console.error("❌ Login response missing token");
+      return null;
+    }
 
-    // 토큰 저장
+    // 토큰 저장 (이후 요청은 Authorization: Bearer 로 전송)
     await storage.saveToken(token);
-    await storage.saveUser(userData);
+    await storage.saveUser(user);
 
     console.log("✅ Login successful");
-    return userData;
+    return user;
   } catch (error: any) {
     console.error("❌ Login failed:", error.response?.data?.error || error.message);
     return null;
