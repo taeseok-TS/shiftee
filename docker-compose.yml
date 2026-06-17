@@ -37,6 +37,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 를 .env 에 설정하세요}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # HTTPS 적용 전(HTTP 임시)에는 .env에 COOKIE_SECURE=false. HTTPS 되면 true(또는 삭제).
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # SMTP(이메일 발송)를 쓰는 경우 아래 주석 해제
       # SMTP_HOST: ${SMTP_HOST}

@@ -50,7 +50,11 @@ export async function setSession(payload: JWTPayload): Promise<string> {
   const cookieStore = await cookies();
   cookieStore.set("token", token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // HTTPS 환경에서만 Secure 권장. HTTP(임시) 배포에서는 COOKIE_SECURE=false로 끔.
+    // COOKIE_SECURE 미설정 시 NODE_ENV 기준(운영=Secure).
+    secure: process.env.COOKIE_SECURE
+      ? process.env.COOKIE_SECURE === "true"
+      : process.env.NODE_ENV === "production",
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7, // 7일
     path: "/",
