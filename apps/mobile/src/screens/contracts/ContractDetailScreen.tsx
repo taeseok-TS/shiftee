@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,9 +8,11 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, RouteProp } from "@react-navigation/native";
+import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas";
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { API_URL } from "../../config";
@@ -46,6 +48,9 @@ export default function ContractDetailScreen() {
   const { id } = route.params;
   const [contract, setContract] = useState<Contract | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showSign, setShowSign] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const sigRef = useRef<SignatureViewRef>(null);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +63,21 @@ export default function ContractDetailScreen() {
       setLoading(false);
     }
   }, [id]);
+
+  // 서명 패드에서 확인 → base64(data:image/png) 전달됨
+  const handleSignature = async (sig: string) => {
+    setShowSign(false);
+    setSigning(true);
+    try {
+      await api.signContract(id, sig);
+      Alert.alert("완료", "서명이 제출되었습니다.");
+      await load();
+    } catch (error: any) {
+      Alert.alert("오류", error.response?.data?.error || "서명 제출에 실패했습니다.");
+    } finally {
+      setSigning(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -131,13 +151,52 @@ export default function ContractDetailScreen() {
       </View>
 
       {contract.status === "SENT" ? (
-        <View style={styles.noticeCard}>
-          <Ionicons name="create-outline" size={18} color="#92400e" />
-          <Text style={styles.noticeText}>
-            이 계약서는 서명 대기 중입니다. 모바일 서명 기능은 곧 추가됩니다.
-          </Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>전자 서명</Text>
+          <Text style={styles.signHint}>아래 버튼을 눌러 서명하면 계약이 진행됩니다.</Text>
+          <TouchableOpacity
+            style={[styles.signBtn, signing && styles.btnDisabled]}
+            onPress={() => setShowSign(true)}
+            disabled={signing}
+          >
+            {signing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="create-outline" size={18} color="#fff" />
+                <Text style={styles.signBtnText}>서명하기</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* 서명 패드 모달 */}
+      <Modal visible={showSign} animationType="slide" onRequestClose={() => setShowSign(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>서명</Text>
+            <TouchableOpacity onPress={() => setShowSign(false)}>
+              <Ionicons name="close" size={26} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.modalHint}>손가락으로 아래 영역에 서명한 뒤 '확인'을 누르세요.</Text>
+          <View style={styles.padWrap}>
+            <SignatureScreen
+              ref={sigRef}
+              onOK={handleSignature}
+              onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
+              descriptionText=""
+              clearText="지우기"
+              confirmText="확인"
+              imageType="image/png"
+              webStyle={`.m-signature-pad--footer { margin: 0; }
+                .m-signature-pad { box-shadow: none; border: none; }
+                body, html { width: 100%; height: 100%; }`}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -173,17 +232,30 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   fileBtnText: { flex: 1, fontSize: 14, fontWeight: "600", color: "#374151" },
-  noticeCard: {
+  signHint: { color: "#6b7280", fontSize: 13, marginBottom: 12 },
+  signBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    backgroundColor: "#fef3c7",
-    borderRadius: 10,
-    padding: 14,
-    margin: 16,
-    marginTop: 8,
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    borderRadius: 8,
   },
-  noticeText: { flex: 1, color: "#92400e", fontSize: 13, lineHeight: 18 },
+  signBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  btnDisabled: { opacity: 0.6 },
+  modalRoot: { flex: 1, backgroundColor: "#fff" },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 12,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#111827" },
+  modalHint: { color: "#6b7280", fontSize: 13, paddingHorizontal: 20, paddingBottom: 10 },
+  padWrap: { flex: 1, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
 });

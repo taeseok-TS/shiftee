@@ -53,8 +53,8 @@ export async function getContract(id: string) {
   return getApi().getContract(id);
 }
 
-export async function signContract(id: string, signerName: string) {
-  return getApi().signContract(id, { signerName });
+export async function signContract(id: string, signatureData: string, isApprover = false) {
+  return getApi().signContract(id, { signatureData, isApprover });
 }
 
 export async function getLeaveRequests(year?: number, month?: number) {

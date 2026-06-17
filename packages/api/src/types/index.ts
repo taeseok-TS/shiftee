@@ -89,8 +89,8 @@ export interface CreateContractRequest {
 }
 
 export interface ContractSignRequest {
-  signerName: string;
-  approverIds?: string[]; // 승인자 설정
+  signatureData: string; // data:image/png;base64,... 형식의 서명 이미지
+  isApprover?: boolean; // 승인자(결재 단계) 서명 여부. 기본 false(직원 서명)
 }
 
 // ============== 휴가 ==============
