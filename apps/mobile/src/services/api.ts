@@ -1,12 +1,13 @@
 /**
  * ============================================
- * Shiftee Mobile API Client
+ * 큐브티 Mobile API Client
  * @shiftee/api를 모바일에 맞게 래핑
  * ============================================
  */
 
 import { ShifteeApiClient, initializeApi } from "@shiftee/api";
 import { getToken } from "./storage";
+import { API_URL } from "../config";
 
 let apiClient: ShifteeApiClient | null = null;
 
@@ -17,7 +18,7 @@ export async function initializeApiClient(): Promise<ShifteeApiClient> {
   if (!apiClient) {
     // 모바일에서는 SecureStore에서 토큰 가져오기
     apiClient = initializeApi(
-      process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000/api",
+      API_URL,
       getToken,
       () => {
         // 401 시 처리 (RootNavigator에서 인증 상태 확인)

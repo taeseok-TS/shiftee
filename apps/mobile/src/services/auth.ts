@@ -1,6 +1,6 @@
 /**
  * ============================================
- * Shiftee Mobile Auth Service
+ * 큐브티 Mobile Auth Service
  * @shiftee/api를 사용하는 인증
  * ============================================
  */
@@ -8,8 +8,9 @@
 import axios from "axios";
 import * as storage from "./storage";
 import { ShifteeApiClient, User } from "@shiftee/api";
+import { API_URL } from "../config";
 
-const AUTH_API_URL = "http://localhost:3000/api";
+const AUTH_API_URL = API_URL;
 
 /**
  * 로그인

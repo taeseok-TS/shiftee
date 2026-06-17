@@ -83,7 +83,7 @@ export default function SettingsScreen({ navigation }: any) {
         </View>
         <View style={styles.menuItem}>
           <Text style={styles.menuLabel}>개발사</Text>
-          <Text style={styles.menuValue}>Shiftee</Text>
+          <Text style={styles.menuValue}>큐브티</Text>
         </View>
       </View>
 
@@ -94,7 +94,7 @@ export default function SettingsScreen({ navigation }: any) {
         <Text style={styles.logoutButtonText}>로그아웃</Text>
       </TouchableOpacity>
 
-      <Text style={styles.footer}>© 2026 Shiftee HR System</Text>
+      <Text style={styles.footer}>© 2026 큐브티 HR System</Text>
     </View>
   );
 }

@@ -40,7 +40,7 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Shiftee</Text>
+        <Text style={styles.title}>큐브티</Text>
         <Text style={styles.subtitle}>HR System</Text>
       </View>
 
@@ -79,7 +79,7 @@ export default function LoginScreen() {
       </View>
 
       <Text style={styles.footer}>
-        © 2026 Shiftee. All rights reserved.
+        © 2026 큐브티. All rights reserved.
       </Text>
     </View>
   );
