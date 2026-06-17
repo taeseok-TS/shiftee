@@ -1856,6 +1856,11 @@ export default function ContractsPage() {
                   <p className="text-xs text-gray-500">
                     {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
                   </p>
+                  {approvalDetailsTarget.status === "SIGNED" && (
+                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document`} className="block">
+                      <Button className="w-full gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명 완료본 다운로드</Button>
+                    </a>
+                  )}
                 </div>
               )}
 

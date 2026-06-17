@@ -236,11 +236,18 @@ export default function ManagerContractsPage() {
                         <td className="py-3"><Badge variant={sc.variant}>{sc.label}</Badge></td>
                         <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} /></td>
                         <td className="py-3 text-right">
-                          {getFileUrl(c.fileUrl) && (
-                            <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
-                              <Button size="sm" variant="outline"><Download size={14} /></Button>
-                            </a>
-                          )}
+                          <div className="flex gap-2 justify-end">
+                            {getFileUrl(c.fileUrl) && (
+                              <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
+                                <Button size="sm" variant="outline"><Download size={14} /></Button>
+                              </a>
+                            )}
+                            {c.status === "SIGNED" && (
+                              <a href={`/api/contracts/${c.id}/signed-document`}>
+                                <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명본</Button>
+                              </a>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
