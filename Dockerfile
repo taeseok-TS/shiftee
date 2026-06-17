@@ -26,7 +26,8 @@ COPY packages/api/package.json    packages/api/package.json
 COPY packages/db/package.json     packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 # postinstall(prisma generate)은 아직 스키마가 없으므로 스킵
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# --no-frozen-lockfile: lockfile이 package.json과 약간 어긋나도 해석해 설치(배포 빌드용)
+RUN pnpm install --no-frozen-lockfile --ignore-scripts
 
 # 2) 전체 소스 복사 (.dockerignore 로 node_modules/.next/uploads 제외)
 COPY . .
