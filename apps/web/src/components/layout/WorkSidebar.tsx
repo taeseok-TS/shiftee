@@ -30,7 +30,7 @@ export function WorkSidebar() {
             <span className="font-bold text-white text-lg">W</span>
           </div>
           <div>
-            <p className="font-bold text-white text-lg leading-tight">시프티워크</p>
+            <p className="font-bold text-white text-lg leading-tight">큐브티워크</p>
             <p className="text-indigo-300 text-xs">협업 메신저</p>
           </div>
         </div>
@@ -60,7 +60,7 @@ export function WorkSidebar() {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-200 hover:bg-indigo-900 hover:text-white transition-colors w-full"
         >
           <ArrowLeft size={18} />
-          시프티로 돌아가기
+          큐브티로 돌아가기
         </button>
         <button
           onClick={handleLogout}

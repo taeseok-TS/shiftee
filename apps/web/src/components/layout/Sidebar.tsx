@@ -47,7 +47,7 @@ export function Sidebar() {
             <span className="font-bold text-white text-lg">S</span>
           </div>
           <div>
-            <p className="font-bold text-white text-lg leading-tight">시프티</p>
+            <p className="font-bold text-white text-lg leading-tight">큐브티</p>
             <p className="text-slate-400 text-xs">HR 관리 시스템</p>
           </div>
         </div>

@@ -41,7 +41,7 @@ export function SharedSidebar() {
             <span className="font-bold text-white text-lg">E</span>
           </div>
           <div>
-            <p className="font-bold text-white text-lg leading-tight">시프티</p>
+            <p className="font-bold text-white text-lg leading-tight">큐브티</p>
             <p className="text-slate-400 text-xs">직원 시스템</p>
           </div>
         </div>
@@ -96,7 +96,7 @@ export function SharedSidebar() {
           onClick={() => (window.location.href = "/work")}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
         >
-          💬 시프티워크
+          💬 큐브티워크
         </button>
         <button
           onClick={() => (window.location.href = "/admin/dashboard")}

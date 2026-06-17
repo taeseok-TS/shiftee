@@ -46,10 +46,10 @@ export default function LoginPage() {
         <CardHeader className="text-center space-y-2">
           <div className="flex justify-center mb-2">
             <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">S</span>
+              <span className="text-white font-bold text-xl">Q</span>
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">시프티</CardTitle>
+          <CardTitle className="text-2xl font-bold">큐브티</CardTitle>
           <CardDescription>HR 관리 시스템에 로그인하세요</CardDescription>
         </CardHeader>
         <CardContent>

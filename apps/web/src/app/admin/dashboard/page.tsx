@@ -104,7 +104,7 @@ export default function AdminDashboardPage() {
 
       setPendingApprovals([...contractItems, ...leaveScheduleItems].slice(0, 10));
 
-      // 3. 최근 공지사항 (시프티워크 공지와 동일 소스)
+      // 3. 최근 공지사항 (큐브티워크 공지와 동일 소스)
       const annRes = await fetch("/api/work/announcements");
       if (annRes.ok) {
         const data = await annRes.json();
@@ -511,7 +511,7 @@ export default function AdminDashboardPage() {
               <input type="checkbox" checked={annForm.pinned} onChange={(e) => setAnnForm(f => ({ ...f, pinned: e.target.checked }))} />
               상단 고정
             </label>
-            <p className="text-xs text-gray-400">작성한 공지는 시프티워크 &gt; 공지에도 함께 표시됩니다.</p>
+            <p className="text-xs text-gray-400">작성한 공지는 큐브티워크 &gt; 공지에도 함께 표시됩니다.</p>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAnnOpen(false)} disabled={annSaving}>취소</Button>
               <Button onClick={saveAnnouncement} disabled={annSaving}>{annSaving ? "등록 중..." : "등록"}</Button>
