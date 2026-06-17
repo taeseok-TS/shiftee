@@ -7,7 +7,9 @@ import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
 
-const MALGUN = "C:/Windows/Fonts/malgun.ttf";
+// 한글 PDF 폰트 경로. 배포 환경(Linux 컨테이너)에서는 FONT_PATH 환경변수로 지정,
+// 로컬(Windows) 개발 시에는 기본값(맑은 고딕) 사용.
+const MALGUN = process.env.FONT_PATH || "C:/Windows/Fonts/malgun.ttf";
 
 function firstFile(fileUrl: string): string | null {
   try {

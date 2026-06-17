@@ -1,0 +1,26 @@
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+dist
+**/dist
+apps/web/uploads
+**/*.log
+
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# 문서/임시 파일
+*.md
+!README.md
+*.docx
+*.xlsx
+*.csv
+*.bat
+서버시작.bat
+서버종료.bat
