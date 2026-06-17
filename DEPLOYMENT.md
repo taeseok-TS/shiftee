@@ -1,4 +1,4 @@
-# 큐브티(Qubetee) 배포 가이드 — 단일 VPS + Docker
+# 큐브티(Cubetee) 배포 가이드 — 단일 VPS + Docker
 
 이 문서는 큐브티를 **온라인 서버(VPS) 1대**에 Docker 로 올리는 최소 절차를 설명합니다.
 약 200명 동시 사용까지는 이 구성으로 충분합니다.
@@ -34,8 +34,8 @@ docker compose version
 
 ```bash
 # 예: git 사용 시
-git clone <레포주소> qubetee
-cd qubetee
+git clone <레포주소> cubetee
+cd cubetee
 ```
 
 > `node_modules`, `.next`, `apps/web/uploads` 는 올릴 필요 없습니다(빌드 시 생성/볼륨 보존).
@@ -57,7 +57,7 @@ nano .env
 |------|------|
 | `POSTGRES_PASSWORD` | DB 비밀번호 (강력하게) |
 | `JWT_SECRET` | 로그인 토큰 서명 키. `openssl rand -base64 48` 로 생성 |
-| `NEXT_PUBLIC_APP_URL` | 실제 접속 주소 (예: `https://qubetee.example.com`) |
+| `NEXT_PUBLIC_APP_URL` | 실제 접속 주소 (예: `https://cubetee.example.com`) |
 | `NEXT_PUBLIC_API_URL` | 위 주소 + `/api` |
 
 > ⚠️ `NEXT_PUBLIC_*` 값은 **빌드 시점에 화면 코드 안에 박힙니다.** 나중에 주소가 바뀌면
@@ -108,7 +108,7 @@ docker compose exec web pnpm --filter web exec prisma db seed
 `/etc/caddy/Caddyfile`:
 
 ```
-qubetee.example.com {
+cubetee.example.com {
     reverse_proxy localhost:3000
 }
 ```
@@ -118,7 +118,7 @@ sudo apt install -y caddy
 sudo systemctl restart caddy
 ```
 
-이러면 `https://qubetee.example.com` 으로 자동 HTTPS 접속됩니다.
+이러면 `https://cubetee.example.com` 으로 자동 HTTPS 접속됩니다.
 (Nginx + certbot 으로도 가능)
 
 ---
@@ -141,7 +141,7 @@ sudo systemctl restart caddy
   ```
 - **업로드 파일 백업** — `uploads` 볼륨을 통째로 보관
   ```bash
-  docker run --rm -v qubetee_uploads:/data -v $(pwd):/out alpine \
+  docker run --rm -v cubetee_uploads:/data -v $(pwd):/out alpine \
     tar czf /out/uploads_$(date +%F).tar.gz -C /data .
   ```
 

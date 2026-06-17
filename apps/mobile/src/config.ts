@@ -1,6 +1,6 @@
 /**
  * ============================================
- * 큐브티(Qubetee) 모바일 — 전역 설정
+ * 큐브티(Cubetee) 모바일 — 전역 설정
  * ============================================
  *
  * API 서버 주소는 EXPO_PUBLIC_API_URL 환경변수로 주입합니다.
@@ -14,7 +14,7 @@
  *    (Windows: `ipconfig` 의 IPv4 주소)
  *
  * 🚀 온라인 배포 후에는 실제 도메인으로 교체:
- *    EXPO_PUBLIC_API_URL=https://qubetee.example.com/api
+ *    EXPO_PUBLIC_API_URL=https://cubetee.example.com/api
  *
  * 환경변수가 없으면 에뮬레이터/웹 기준 기본값(localhost)을 사용합니다.
  */
