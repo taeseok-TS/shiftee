@@ -92,3 +92,17 @@ export async function getMyLeaveApprovals() {
 export async function getMyContractApprovals() {
   return getApi().getMyContractApprovals();
 }
+
+// ============== 대시보드 / 공지 / 휴가잔여 ==============
+
+export async function getDashboardStats() {
+  return getApi().getDashboardStats();
+}
+
+export async function getAnnouncements() {
+  return getApi().getAnnouncements();
+}
+
+export async function getLeaveBalance() {
+  return getApi().getLeaveBalance();
+}

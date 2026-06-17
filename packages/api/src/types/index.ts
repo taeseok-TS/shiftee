@@ -230,3 +230,25 @@ export interface LeaveBalance {
   used: number;
   remaining: number;
 }
+
+// ============== 대시보드 ==============
+
+export interface DashboardStats {
+  leaveRemaining: number;
+  pendingContracts: number;
+  pendingApprovals: number;
+  monthWorkHours: number;
+}
+
+// ============== 공지 ==============
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  pinned: boolean;
+  attachments: string[];
+  authorName: string;
+  createdAt: string;
+  canEdit: boolean;
+}

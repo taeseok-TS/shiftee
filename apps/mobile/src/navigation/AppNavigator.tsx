@@ -2,7 +2,7 @@ import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
-// 임시 스크린 (나중에 실제 컴포넌트로 대체)
+import HomeScreen from "../screens/HomeScreen";
 import ContractListScreen from "../screens/contracts/ContractListScreen";
 import AttendanceScreen from "../screens/attendance/AttendanceScreen";
 import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
@@ -20,7 +20,9 @@ export default function AppNavigator() {
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = "home";
 
-          if (route.name === "Contracts") {
+          if (route.name === "Home") {
+            iconName = focused ? "home" : "home-outline";
+          } else if (route.name === "Contracts") {
             iconName = focused ? "document-text" : "document-text-outline";
           } else if (route.name === "Attendance") {
             iconName = focused ? "time" : "time-outline";
@@ -37,6 +39,11 @@ export default function AppNavigator() {
         headerShown: true,
       })}
     >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ title: "홈" }}
+      />
       <Tab.Screen
         name="Contracts"
         component={ContractListScreen}

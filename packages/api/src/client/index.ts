@@ -20,6 +20,9 @@ import {
   Attendance,
   ClockInRequest,
   ClockOutRequest,
+  DashboardStats,
+  Announcement,
+  LeaveBalance,
 } from "../types/index";
 
 export class ShifteeApiClient {
@@ -231,6 +234,27 @@ export class ShifteeApiClient {
       approved,
     });
     return response.data;
+  }
+
+  // ============== 대시보드 / 공지 ==============
+
+  async getDashboardStats(): Promise<DashboardStats> {
+    const response = await this.axiosInstance.get<DashboardStats>("/me/dashboard-stats");
+    return response.data;
+  }
+
+  async getAnnouncements(): Promise<Announcement[]> {
+    const response = await this.axiosInstance.get<ApiResponse<{ announcements: Announcement[] }>>("/work/announcements");
+    return response.data.announcements || [];
+  }
+
+  async getLeaveBalance(): Promise<LeaveBalance | null> {
+    // scope=self 로 역할과 무관하게 "내 잔여 휴가"만 조회 ( { balance } 반환, 없으면 null )
+    const response = await this.axiosInstance.get<ApiResponse<{ balance: LeaveBalance | null }>>(
+      "/leave/balance",
+      { params: { scope: "self" } }
+    );
+    return response.data.balance ?? null;
   }
 }
 
