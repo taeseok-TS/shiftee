@@ -42,6 +42,7 @@ export interface Contract {
   title: string;
   type: ContractType;
   fileUrl: string; // JSON 배열로 저장됨 (다중 파일)
+  signedUrl?: string | null; // 서명 완료본 (상세 응답에 포함)
   status: ContractStatus;
   startDate: string | null;
   endDate: string | null;

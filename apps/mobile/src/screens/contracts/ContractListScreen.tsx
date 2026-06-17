@@ -7,10 +7,12 @@ import {
   ActivityIndicator,
   TouchableOpacity,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 
 export default function ContractListScreen() {
+  const navigation = useNavigation<any>();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -40,7 +42,10 @@ export default function ContractListScreen() {
       }[item.status] || "#6b7280";
 
     return (
-      <TouchableOpacity style={styles.card}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate("ContractDetail", { id: item.id })}
+      >
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.title}</Text>
           <View style={[styles.badge, { backgroundColor: statusColor }]}>

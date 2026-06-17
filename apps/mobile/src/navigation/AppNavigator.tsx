@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
 import HomeScreen from "../screens/HomeScreen";
-import ContractListScreen from "../screens/contracts/ContractListScreen";
+import ContractsNavigator from "./ContractsNavigator";
 import AttendanceScreen from "../screens/attendance/AttendanceScreen";
 import ScheduleScreen from "../screens/schedule/ScheduleScreen";
 import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
@@ -49,8 +49,8 @@ export default function AppNavigator() {
       />
       <Tab.Screen
         name="Contracts"
-        component={ContractListScreen}
-        options={{ title: "계약서" }}
+        component={ContractsNavigator}
+        options={{ title: "계약서", headerShown: false }}
       />
       <Tab.Screen
         name="Attendance"
