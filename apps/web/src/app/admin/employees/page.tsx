@@ -73,6 +73,15 @@ export default function EmployeesPage() {
   // 지점 목록 상태
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
 
+  // 메인(최고) 관리자 여부 — 관리자(ADMIN) 계정 생성 옵션 노출 제어
+  const [isSuper, setIsSuper] = useState(false);
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.user) setIsSuper(!!d.user.isSuperAdmin); })
+      .catch(() => {});
+  }, []);
+
   // 지점 목록 불러오기
   useEffect(() => {
     const fetchBranches = async () => {
@@ -530,6 +539,7 @@ export default function EmployeesPage() {
                       <SelectContent>
                         <SelectItem value="EMPLOYEE">직원</SelectItem>
                         <SelectItem value="MANAGER">원장</SelectItem>
+                        {isSuper && <SelectItem value="ADMIN">관리자(서브)</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
@@ -736,6 +746,7 @@ export default function EmployeesPage() {
                                       <SelectContent>
                                         <SelectItem value="EMPLOYEE">직원</SelectItem>
                                         <SelectItem value="MANAGER">원장</SelectItem>
+                                        {isSuper && <SelectItem value="ADMIN">관리자(서브)</SelectItem>}
                                       </SelectContent>
                                     </Select>
                                   </div>

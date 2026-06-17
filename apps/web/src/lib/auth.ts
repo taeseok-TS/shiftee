@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
+import { prisma } from "./db";
 
 const secret = new TextEncoder().encode(
   process.env.JWT_SECRET || "fallback-secret-change-in-production"
@@ -65,4 +66,13 @@ export async function setSession(payload: JWTPayload): Promise<string> {
 export async function clearSession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete("token");
+}
+
+// 메인(최고) 관리자 여부 확인 — 시스템 설정/관리자 계정 관리 전용 권한
+export async function isSuperAdmin(userId: string): Promise<boolean> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true },
+  });
+  return !!u?.isSuperAdmin;
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
@@ -27,11 +27,16 @@ export async function PATCH(
     // 사용자 존재 여부 확인
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, role: true },
     });
 
     if (!user) {
       return NextResponse.json({ error: "사용자를 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    // 관리자(ADMIN) 계정 비밀번호 초기화는 메인 관리자 전용 (계정 탈취 방지)
+    if (user.role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
+      return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
     }
 
     // 비밀번호 해싱 (1234)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function PATCH(
@@ -47,6 +47,14 @@ export async function PATCH(
       return NextResponse.json(
         { error: "해당 직원을 찾을 수 없습니다." },
         { status: 404 }
+      );
+    }
+
+    // 관리자(ADMIN) 계정 퇴사 처리는 메인 관리자 전용 (관리자 잠금 방지)
+    if (user.role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
+      return NextResponse.json(
+        { error: "관리자 계정 관리는 메인 관리자만 가능합니다." },
+        { status: 403 }
       );
     }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 
@@ -33,6 +33,13 @@ export async function PATCH(
     return NextResponse.json({ success: true, user: updated });
   }
 
+  // 관리자(ADMIN) 계정 수정·권한 변경은 메인 관리자 전용
+  // (대상이 ADMIN이거나, 누군가를 ADMIN으로 승격하려는 경우)
+  const targetUser = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if ((targetUser?.role === "ADMIN" || role === "ADMIN") && !(await isSuperAdmin(session.userId))) {
+    return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
+  }
+
   // ADMIN: 전체 수정 가능
   const finalBranch = branch || null;
   const updated = await prisma.user.update({
@@ -62,6 +69,11 @@ export async function DELETE(
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const { id } = await params;
+  // 관리자(ADMIN) 계정 비활성화는 메인 관리자 전용 (관리자 잠금 방지)
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if (target?.role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
+    return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
+  }
   await prisma.user.update({ where: { id }, data: { isActive: false } });
   return NextResponse.json({ success: true });
 }

@@ -34,7 +34,7 @@ const adminNavItems = [
   { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
 ];
 
-export function AdminSidebar() {
+export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -80,18 +80,21 @@ export function AdminSidebar() {
 
       {/* 환경설정 및 로그아웃 */}
       <div className="px-3 py-4 border-t border-slate-700 space-y-1">
-        <Link
-          href="/admin/settings"
-          className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-            pathname === "/admin/settings" || pathname.startsWith("/admin/settings/")
-              ? "bg-red-600 text-white"
-              : "text-slate-300 hover:bg-slate-800 hover:text-white"
-          )}
-        >
-          <Settings size={18} />
-          환경설정
-        </Link>
+        {/* 시스템 설정·백업은 메인 관리자 전용 */}
+        {isSuperAdmin && (
+          <Link
+            href="/admin/settings"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              pathname === "/admin/settings" || pathname.startsWith("/admin/settings/")
+                ? "bg-red-600 text-white"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            )}
+          >
+            <Settings size={18} />
+            환경설정
+          </Link>
+        )}
         <button
           onClick={() => window.location.href = "/work"}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"

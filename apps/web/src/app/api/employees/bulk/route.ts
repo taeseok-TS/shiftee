@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import bcryptjs from "bcryptjs";
@@ -38,6 +38,9 @@ export async function POST(request: NextRequest) {
     let failed = 0;
     const errors: string[] = [];
 
+    // 관리자(ADMIN) 계정 생성은 메인 관리자 전용
+    const canCreateAdmin = await isSuperAdmin(session.userId);
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i] as BulkEmployee;
       const rowNum = i + 2; // 헤더는 1번 행
@@ -46,6 +49,13 @@ export async function POST(request: NextRequest) {
         // 필수 필드 검증
         if (!row.name || !row.email || !row.password) {
           errors.push(`${rowNum}번 행: 이름, 이메일, 비밀번호는 필수입니다.`);
+          failed++;
+          continue;
+        }
+
+        // 서브 관리자는 ADMIN 계정 일괄 생성 불가
+        if (row.role === "ADMIN" && !canCreateAdmin) {
+          errors.push(`${rowNum}번 행: 관리자 계정 생성은 메인 관리자만 가능합니다.`);
           failed++;
           continue;
         }

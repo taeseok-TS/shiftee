@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { filterUserDataArray } from "@/lib/api-response";
@@ -57,6 +57,11 @@ export async function POST(request: NextRequest) {
 
   if (!name || !email || !password) {
     return NextResponse.json({ error: "이름, 이메일, 비밀번호는 필수입니다." }, { status: 400 });
+  }
+
+  // 관리자(ADMIN) 계정 생성은 메인 관리자 전용
+  if (role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
+    return NextResponse.json({ error: "관리자 계정 생성은 메인 관리자만 가능합니다." }, { status: 403 });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
