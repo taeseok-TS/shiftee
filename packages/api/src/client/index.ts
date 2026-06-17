@@ -23,6 +23,8 @@ import {
   DashboardStats,
   Announcement,
   LeaveBalance,
+  ScheduleEntry,
+  ScheduleRequest,
 } from "../types/index";
 
 export class ShifteeApiClient {
@@ -255,6 +257,24 @@ export class ShifteeApiClient {
       { params: { scope: "self" } }
     );
     return response.data.balance ?? null;
+  }
+
+  // ============== 근무일정 ==============
+
+  async getMySchedules(year: number, month: number): Promise<ScheduleEntry[]> {
+    const response = await this.axiosInstance.get<ApiResponse<{ schedules: ScheduleEntry[] }>>(
+      "/schedule",
+      { params: { scope: "self", year, month } }
+    );
+    return response.data.schedules || [];
+  }
+
+  async getScheduleRequests(status?: string): Promise<ScheduleRequest[]> {
+    const response = await this.axiosInstance.get<ApiResponse<{ requests: ScheduleRequest[] }>>(
+      "/schedule-requests",
+      { params: status ? { status } : {} }
+    );
+    return response.data.requests || [];
   }
 }
 

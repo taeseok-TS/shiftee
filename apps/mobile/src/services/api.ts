@@ -106,3 +106,13 @@ export async function getAnnouncements() {
 export async function getLeaveBalance() {
   return getApi().getLeaveBalance();
 }
+
+// ============== 근무일정 ==============
+
+export async function getMySchedules(year: number, month: number) {
+  return getApi().getMySchedules(year, month);
+}
+
+export async function getScheduleRequests(status?: string) {
+  return getApi().getScheduleRequests(status);
+}

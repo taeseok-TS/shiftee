@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import HomeScreen from "../screens/HomeScreen";
 import ContractListScreen from "../screens/contracts/ContractListScreen";
 import AttendanceScreen from "../screens/attendance/AttendanceScreen";
+import ScheduleScreen from "../screens/schedule/ScheduleScreen";
 import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 
@@ -26,8 +27,10 @@ export default function AppNavigator() {
             iconName = focused ? "document-text" : "document-text-outline";
           } else if (route.name === "Attendance") {
             iconName = focused ? "time" : "time-outline";
-          } else if (route.name === "Leave") {
+          } else if (route.name === "Schedule") {
             iconName = focused ? "calendar" : "calendar-outline";
+          } else if (route.name === "Leave") {
+            iconName = focused ? "umbrella" : "umbrella-outline";
           } else if (route.name === "Settings") {
             iconName = focused ? "settings" : "settings-outline";
           }
@@ -53,6 +56,11 @@ export default function AppNavigator() {
         name="Attendance"
         component={AttendanceScreen}
         options={{ title: "출퇴근" }}
+      />
+      <Tab.Screen
+        name="Schedule"
+        component={ScheduleScreen}
+        options={{ title: "일정" }}
       />
       <Tab.Screen
         name="Leave"

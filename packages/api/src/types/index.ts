@@ -252,3 +252,41 @@ export interface Announcement {
   createdAt: string;
   canEdit: boolean;
 }
+
+// ============== 근무일정 ==============
+
+export interface ScheduleEntry {
+  id: string;
+  userId: string;
+  date: string; // yyyy-MM-dd
+  startTime: string; // "08:00"
+  endTime: string; // "13:00"
+  type: string; // "work" | "off" | "holiday"
+  note: string | null;
+  branch: string | null;
+}
+
+export type ScheduleRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface ScheduleApprovalStep {
+  id: string;
+  order: number;
+  status: string;
+  approver?: { id: string; name: string; position: string | null } | null;
+}
+
+export interface ScheduleRequest {
+  id: string;
+  userId: string;
+  templateId: string | null;
+  templateName: string | null;
+  startDate: string;
+  endDate: string;
+  scheduleData: any;
+  totalHours: number;
+  status: ScheduleRequestStatus;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvalSteps?: ScheduleApprovalStep[];
+}
