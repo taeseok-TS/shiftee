@@ -10,10 +10,11 @@ FROM node:24-slim AS base
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends openssl ca-certificates fonts-nanum \
   && rm -rf /var/lib/apt/lists/*
-# 이 레포의 packageManager 필드가 npm 으로 설정돼 있어 corepack pnpm 이 막히므로
-# pnpm 을 직접 전역 설치 (lockfileVersion 9.0 → pnpm 9)
-RUN npm install -g pnpm@9
+# pnpm 을 직접 전역 설치 (lockfileVersion 9.0 호환 → pnpm 10)
+RUN npm install -g pnpm@10
 WORKDIR /app
+# engines.pnpm(>=11) 강제 검사 비활성화: lockfile 9.0 기준 pnpm 10으로 설치
+RUN printf 'engine-strict=false\n' > /app/.npmrc
 
 ####################  Build  ####################
 FROM base AS build
