@@ -47,8 +47,18 @@ export async function GET(
       ? new Date(Math.min(...otherMembers.map((m) => m.lastReadAt!.getTime())))
       : null;
 
+  // 내 멤버 행의 과거기록 열람 범위 (historyFrom 이후만 표시)
+  const myMember = await prisma.workChannelMember.findUnique({
+    where: { channelId_userId: { channelId: id, userId: session.userId } },
+    select: { historyFrom: true },
+  });
+
   const messages = await prisma.workMessage.findMany({
-    where: { channelId: id, parentId: null },
+    where: {
+      channelId: id,
+      parentId: null,
+      ...(myMember?.historyFrom ? { createdAt: { gte: myMember.historyFrom } } : {}),
+    },
     include: {
       user: { select: { id: true, name: true } },
       reactions: { select: { emoji: true, userId: true } },

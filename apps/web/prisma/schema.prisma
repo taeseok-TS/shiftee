@@ -387,6 +387,10 @@ model WorkChannel {
   hidden    Boolean             @default(false) // 회의 전용 채널 등 목록에서 숨김
   createdBy String?
   createdAt DateTime            @default(now())
+  deletedAt DateTime? // 소프트 삭제(휴지통)
+  permanentlyDeletedAt DateTime? // 영구 삭제 예정일(삭제 후 30일)
+  labelText String? // # 대신 표시할 라벨 텍스트(예: 지점)
+  labelColor String? // 라벨 배경색(hex)
   members   WorkChannelMember[]
   messages  WorkMessage[]
 
@@ -407,6 +411,7 @@ model WorkChannelMember {
   lastReadAt DateTime?
   notify    WorkNotify  @default(ALL) // 채널 알림 설정
   pinned    Boolean     @default(false) // 사용자별 채널 상단 고정
+  historyFrom DateTime? // 이 시점 이후 메시지만 열람(null=전체). 멤버 추가 시 과거기록 노출 범위
   joinedAt  DateTime    @default(now())
 
   @@unique([channelId, userId])

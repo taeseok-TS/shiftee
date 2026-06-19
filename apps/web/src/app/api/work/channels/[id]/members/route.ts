@@ -46,7 +46,10 @@ export async function POST(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { id } = await params;
-  const { userIds } = (await request.json()) as { userIds?: string[] };
+  const { userIds, historyOption } = (await request.json()) as {
+    userIds?: string[];
+    historyOption?: "all" | "90days" | "none";
+  };
   if (!Array.isArray(userIds) || userIds.length === 0)
     return NextResponse.json({ error: "추가할 멤버를 선택해주세요." }, { status: 400 });
 
@@ -56,9 +59,14 @@ export async function POST(
   if (!(await canManage(id, session.userId, session.role)))
     return NextResponse.json({ error: "채널을 관리할 권한이 없습니다." }, { status: 403 });
 
+  // 과거 채팅기록 열람 범위 결정
+  let historyFrom: Date | null = null; // all(기본): 전체 열람
+  if (historyOption === "90days") historyFrom = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  else if (historyOption === "none") historyFrom = new Date(); // 가입 이후만
+
   // 이미 멤버인 사람은 건너뜀
   await prisma.workChannelMember.createMany({
-    data: userIds.map((userId) => ({ channelId: id, userId })),
+    data: userIds.map((userId) => ({ channelId: id, userId, historyFrom })),
     skipDuplicates: true,
   });
 

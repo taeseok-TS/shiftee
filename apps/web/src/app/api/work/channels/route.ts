@@ -19,6 +19,7 @@ export async function GET() {
   const channels = await prisma.workChannel.findMany({
     where: {
       hidden: false,
+      deletedAt: null,
       OR: [
         { type: "CHANNEL" },
         { type: "DM", members: { some: { userId: session.userId } } },
@@ -66,6 +67,8 @@ export async function GET() {
         notify,
         pinned: myMember?.pinned ?? false,
         canManage: session.role === "ADMIN" || session.role === "MANAGER" || c.createdBy === session.userId,
+        labelText: c.labelText,
+        labelColor: c.labelColor,
         lastMessage: last
           ? { content: last.fileUrl && !last.content ? "📎 첨부파일" : last.content, createdAt: last.createdAt }
           : null,

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -22,7 +22,9 @@ function renderContent(text: string) {
   );
 }
 
-type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; pinned: boolean; canManage: boolean; lastMessage: { content: string; createdAt: string } | null };
+type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; pinned: boolean; canManage: boolean; labelText: string | null; labelColor: string | null; lastMessage: { content: string; createdAt: string } | null };
+type TrashChannel = { id: string; name: string; deletedAt: string; permanentlyDeletedAt: string; labelText: string | null; labelColor: string | null };
+const LABEL_COLORS = ["#eab308", "#ef4444", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#6b7280"];
 type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean };
 type Reaction = { emoji: string; count: number; mine: boolean };
 type Message = { id: string; userId: string; userName: string; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number };
@@ -51,6 +53,12 @@ export default function WorkChatPage() {
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addSearch, setAddSearch] = useState("");
+  const [labelTextVal, setLabelTextVal] = useState("");
+  const [labelColorVal, setLabelColorVal] = useState(LABEL_COLORS[0]);
+  const [addHistory, setAddHistory] = useState<"all" | "90days" | "none">("all");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashChannels, setTrashChannels] = useState<TrashChannel[]>([]);
   // 멘션 자동완성
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   // 검색
@@ -249,10 +257,47 @@ export default function WorkChatPage() {
   async function openManage() {
     if (!activeId || !active) return;
     setRenameVal(active.name);
-    setAddIds([]); setAddSearch("");
+    setLabelTextVal(active.labelText || "");
+    setLabelColorVal(active.labelColor || LABEL_COLORS[0]);
+    setAddIds([]); setAddSearch(""); setAddHistory("all");
     setManageOpen(true);
     const res = await fetch(`/api/work/channels/${activeId}/members`);
     if (res.ok) { const d = await res.json(); setChannelMembers(d.members || []); }
+  }
+  async function saveLabel(clear = false) {
+    if (!activeId) return;
+    const res = await fetch(`/api/work/channels/${activeId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clear ? { labelText: "", labelColor: "" } : { labelText: labelTextVal.trim(), labelColor: labelColorVal }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "라벨 저장 실패"); return; }
+    if (clear) setLabelTextVal("");
+    toast.success(clear ? "라벨을 해제했습니다." : "라벨이 적용되었습니다.");
+    fetchChannels();
+  }
+  async function deleteChannel() {
+    if (!activeId) return;
+    const res = await fetch(`/api/work/channels/${activeId}`, { method: "DELETE" });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "삭제 실패"); return; }
+    toast.success("채널이 삭제되었습니다. (휴지통에서 30일간 복구 가능)");
+    setConfirmDeleteOpen(false); setManageOpen(false);
+    setActiveId(null);
+    await fetchChannels();
+  }
+  async function openTrash() {
+    setTrashOpen(true);
+    const res = await fetch("/api/work/channels/trash");
+    if (res.ok) setTrashChannels((await res.json()).channels || []);
+  }
+  async function restoreChannel(id: string) {
+    const res = await fetch(`/api/work/channels/${id}/restore`, { method: "POST" });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "복구 실패"); return; }
+    toast.success("채널이 복구되었습니다.");
+    setTrashChannels((prev) => prev.filter((c) => c.id !== id));
+    fetchChannels();
   }
   async function renameChannel() {
     if (!activeId || !renameVal.trim()) return;
@@ -267,7 +312,7 @@ export default function WorkChatPage() {
   async function addMembers() {
     if (!activeId || addIds.length === 0) return;
     const res = await fetch(`/api/work/channels/${activeId}/members`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: addIds }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: addIds, historyOption: addHistory }),
     });
     const d = await res.json();
     if (!res.ok) { toast.error(d.error || "멤버 추가 실패"); return; }
@@ -342,7 +387,10 @@ export default function WorkChatPage() {
       <div className="w-72 border-r bg-white flex flex-col">
         <div className="px-4 py-4 border-b flex items-center justify-between">
           <h2 className="font-bold text-lg">채팅</h2>
-          <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1"><Plus size={16} /></Button>
+          <div className="flex items-center">
+            <Button size="sm" variant="ghost" onClick={openTrash} className="gap-1 text-gray-400 hover:text-gray-700" title="휴지통"><Trash2 size={16} /></Button>
+            <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1" title="새 채팅"><Plus size={16} /></Button>
+          </div>
         </div>
         <div className="px-3 py-2 border-b">
           <div className="relative">
@@ -374,7 +422,9 @@ export default function WorkChatPage() {
           channels.map((c) => (
             <button key={c.id} onClick={() => setActiveId(c.id)}
               className={`w-full text-left px-4 py-3 border-b hover:bg-gray-50 flex items-start gap-2 ${activeId === c.id ? "bg-indigo-50" : ""}`}>
-              {c.type === "DM" ? <UserIcon size={16} className="mt-0.5 text-gray-400 shrink-0" /> : <Hash size={16} className="mt-0.5 text-gray-400 shrink-0" />}
+              {c.type === "DM" ? <UserIcon size={16} className="mt-0.5 text-gray-400 shrink-0" />
+                : c.labelText ? <span className="mt-0.5 shrink-0 text-white text-[10px] font-bold rounded px-1.5 py-0.5 leading-5" style={{ backgroundColor: c.labelColor || "#6b7280" }}>{c.labelText}</span>
+                : <Hash size={16} className="mt-0.5 text-gray-400 shrink-0" />}
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-sm truncate flex items-center justify-between gap-2">
                   <span className="truncate flex items-center gap-1">{c.pinned && <Pin size={11} className="text-indigo-500 fill-indigo-500 shrink-0" />}{c.notify === "MUTE" && <BellOff size={11} className="text-gray-400" />}{c.name}</span>
@@ -392,7 +442,9 @@ export default function WorkChatPage() {
         {active ? (
           <>
             <div className="px-6 py-4 border-b bg-white flex items-center gap-2">
-              {active.type === "DM" ? <UserIcon size={18} /> : <Hash size={18} />}
+              {active.type === "DM" ? <UserIcon size={18} />
+                : active.labelText ? <span className="text-white text-xs font-bold rounded px-2 py-0.5" style={{ backgroundColor: active.labelColor || "#6b7280" }}>{active.labelText}</span>
+                : <Hash size={18} />}
               <span className="font-semibold">{active.name}</span>
               {active.type === "CHANNEL" && active.memberCount > 0 && <span className="text-xs text-gray-400">멤버 {active.memberCount}명</span>}
               <div className="ml-auto flex items-center gap-1">
@@ -452,7 +504,7 @@ export default function WorkChatPage() {
                             <button onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)} className="text-gray-400 hover:text-gray-700"><Smile size={15} /></button>
                             <button onClick={() => openThread(m.id)} className="text-gray-400 hover:text-gray-700"><MessageCircle size={15} /></button>
                             {pickerFor === m.id && (
-                              <div className="absolute bottom-6 left-0 z-10 bg-white border rounded-full shadow px-2 py-1 flex gap-1">
+                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-10 bg-white border rounded-full shadow px-2 py-1 flex gap-1`}>
                                 {EMOJIS.map((e) => (
                                   <button key={e} onClick={() => toggleReaction(m.id, e)} className="hover:scale-125 transition-transform">{e}</button>
                                 ))}
@@ -584,7 +636,7 @@ export default function WorkChatPage() {
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>채널 관리</DialogTitle></DialogHeader>
-          <div className="space-y-5">
+          <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
             {/* 이름 변경 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">채널 이름</label>
@@ -592,6 +644,31 @@ export default function WorkChatPage() {
                 <Input value={renameVal} onChange={(e) => setRenameVal(e.target.value)} placeholder="채널 이름" />
                 <Button onClick={renameChannel} disabled={!renameVal.trim() || renameVal.trim() === active?.name}>변경</Button>
               </div>
+            </div>
+
+            {/* 라벨(# 대신 색+텍스트 표시) */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">채널 표시 (# 대신 라벨)</label>
+              <div className="flex gap-2 items-center">
+                <Input value={labelTextVal} onChange={(e) => setLabelTextVal(e.target.value)} placeholder="예: 지점 (비우면 # 유지)" maxLength={6} />
+                <Button onClick={() => saveLabel(false)} disabled={!labelTextVal.trim()}>적용</Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">색상</span>
+                {LABEL_COLORS.map((col) => (
+                  <button key={col} type="button" onClick={() => setLabelColorVal(col)}
+                    className={`w-6 h-6 rounded-full border-2 ${labelColorVal === col ? "border-gray-800" : "border-transparent"}`}
+                    style={{ backgroundColor: col }} />
+                ))}
+                {active?.labelText && (
+                  <button type="button" onClick={() => saveLabel(true)} className="ml-auto text-xs text-gray-500 hover:underline">라벨 해제</button>
+                )}
+              </div>
+              {labelTextVal.trim() && (
+                <div className="text-xs text-gray-500 flex items-center gap-1">
+                  미리보기: <span className="text-white text-[10px] font-bold rounded px-1.5 py-0.5" style={{ backgroundColor: labelColorVal }}>{labelTextVal.trim()}</span> {active?.name}
+                </div>
+              )}
             </div>
 
             {/* 현재 멤버 */}
@@ -635,9 +712,76 @@ export default function WorkChatPage() {
                   </label>
                 ))}
               </div>
+              {/* 과거 채팅기록 열람 범위 */}
+              <div className="space-y-1 bg-gray-50 rounded-lg p-3">
+                <p className="text-xs font-medium text-gray-600">추가되는 멤버의 이전 채팅기록 열람</p>
+                {([
+                  { v: "all", label: "이전 채팅기록 전체 보이기" },
+                  { v: "90days", label: "최근 90일 이내 채팅만 보이기" },
+                  { v: "none", label: "이전 채팅기록 없이 추가 (가입 이후만)" },
+                ] as const).map((o) => (
+                  <label key={o.v} className="flex items-center gap-2 text-sm cursor-pointer py-0.5">
+                    <input type="radio" name="addHistory" checked={addHistory === o.v} onChange={() => setAddHistory(o.v)} />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
               <div className="flex justify-end">
                 <Button size="sm" onClick={addMembers} disabled={addIds.length === 0}>{addIds.length > 0 ? `${addIds.length}명 추가` : "추가"}</Button>
               </div>
+            </div>
+
+            {/* 채널 삭제 */}
+            {!active?.isDefault && (
+              <div className="border-t pt-4">
+                <Button variant="outline" className="w-full text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
+                  onClick={() => setConfirmDeleteOpen(true)}>
+                  <Trash2 size={15} /> 채널 삭제
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 삭제 확인 */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>채널 삭제</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-800 font-medium">정말로 삭제하시겠습니까?</p>
+            <p className="text-sm text-gray-500">해당 채팅은 30일간 보관하니, 쓰레기통에서 다시 복구 시킬 수 있습니다.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)}>취소</Button>
+              <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={deleteChannel}>삭제</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 휴지통 */}
+      <Dialog open={trashOpen} onOpenChange={setTrashOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>휴지통 (삭제된 채널)</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs text-gray-400">삭제 후 30일간 보관되며, 복구할 수 있습니다.</p>
+            <div className="max-h-72 overflow-y-auto border rounded-lg divide-y">
+              {trashChannels.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-gray-400">휴지통이 비어 있습니다.</div>
+              ) : trashChannels.map((c) => (
+                <div key={c.id} className="flex items-center justify-between px-3 py-2.5 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate flex items-center gap-1">
+                      {c.labelText ? <span className="text-white text-[10px] font-bold rounded px-1.5 py-0.5" style={{ backgroundColor: c.labelColor || "#6b7280" }}>{c.labelText}</span> : <Hash size={12} className="text-gray-400" />}
+                      {c.name}
+                    </div>
+                    <div className="text-[11px] text-gray-400">
+                      {format(new Date(c.permanentlyDeletedAt), "M/d")}까지 보관
+                    </div>
+                  </div>
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => restoreChannel(c.id)}>복구</Button>
+                </div>
+              ))}
             </div>
           </div>
         </DialogContent>
