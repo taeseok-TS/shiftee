@@ -81,6 +81,7 @@ export default function WorkMeetingPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
   const [recording, setRecording] = useState(false);
   const [showChat, setShowChat] = useState(true);
+  const [isSecure, setIsSecure] = useState(true); // HTTPS(보안 컨텍스트) 여부 — 화상회의/녹화 필요
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -96,6 +97,7 @@ export default function WorkMeetingPage() {
   }, []);
 
   useEffect(() => {
+    setIsSecure(typeof window !== "undefined" && window.isSecureContext);
     fetchMeetings(); fetchRecordings();
     fetch("/api/auth/me").then(r => r.json()).then(d => setMe(d.user ? { id: d.user.id, name: d.user.name } : null)).catch(() => {});
     const t = setInterval(fetchMeetings, 5000);
@@ -205,12 +207,23 @@ export default function WorkMeetingPage() {
           </div>
         </div>
         <div className="flex-1 flex min-h-0">
-          <iframe
-            src={src}
-            allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-            className="flex-1 w-full border-0"
-            title={active.title}
-          />
+          {isSecure ? (
+            <iframe
+              src={src}
+              allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
+              className="flex-1 w-full border-0"
+              title={active.title}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center bg-gray-900 text-center px-6">
+              <Video size={40} className="text-indigo-400 mb-4" />
+              <p className="text-white text-lg font-semibold">화상회의는 보안 연결(HTTPS)에서만 사용할 수 있습니다.</p>
+              <p className="text-gray-300 text-sm mt-2 leading-relaxed">
+                브라우저 보안 정책상 카메라·마이크(WebRTC)는 HTTPS 주소에서만 동작합니다.<br />
+                도메인 연결 + HTTPS 적용 후 정상 이용할 수 있습니다. (현재는 http 주소)
+              </p>
+            </div>
+          )}
           {showChat && active.channelId && <MeetingChat channelId={active.channelId} />}
         </div>
       </div>
