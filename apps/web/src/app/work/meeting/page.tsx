@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Video, Plus, X, Users, Circle, Square, Send, Download, Trash2, Film } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Video, Plus, X, Users, Circle, Square, Send, Download, Trash2, Film, UserPlus, Search } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -82,6 +83,11 @@ export default function WorkMeetingPage() {
   const [recording, setRecording] = useState(false);
   const [showChat, setShowChat] = useState(true);
   const [isSecure, setIsSecure] = useState(true); // HTTPS(보안 컨텍스트) 여부 — 화상회의/녹화 필요
+  // 직원 초대
+  const [employees, setEmployees] = useState<{ id: string; name: string; branch?: string | null }[]>([]);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteIds, setInviteIds] = useState<string[]>([]);
+  const [inviteSearch, setInviteSearch] = useState("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -100,6 +106,7 @@ export default function WorkMeetingPage() {
     setIsSecure(typeof window !== "undefined" && window.isSecureContext);
     fetchMeetings(); fetchRecordings();
     fetch("/api/auth/me").then(r => r.json()).then(d => setMe(d.user ? { id: d.user.id, name: d.user.name } : null)).catch(() => {});
+    fetch("/api/employees").then(r => r.ok ? r.json() : { employees: [] }).then(d => setEmployees(d.employees || [])).catch(() => {});
     const t = setInterval(fetchMeetings, 5000);
     return () => clearInterval(t);
   }, [fetchMeetings, fetchRecordings]);
@@ -111,6 +118,17 @@ export default function WorkMeetingPage() {
     const data = await res.json();
     if (!res.ok) { toast.error(data.error || "개설 실패"); return; }
     setTitle(""); await fetchMeetings(); setActive(data.meeting);
+  }
+
+  async function sendInvite() {
+    if (!active || inviteIds.length === 0) return;
+    const res = await fetch(`/api/work/meetings/${active.id}/invite`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inviteIds }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "초대 실패"); return; }
+    toast.success(`${d.invited}명에게 초대를 보냈습니다.`);
+    setInviteOpen(false); setInviteIds([]); setInviteSearch("");
   }
 
   async function endMeeting(m: Meeting) {
@@ -196,6 +214,7 @@ export default function WorkMeetingPage() {
             {recording && <span className="flex items-center gap-1 text-xs text-red-500 font-medium ml-2"><Circle size={10} className="fill-red-500 animate-pulse" />녹화 중</span>}
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setInviteIds([]); setInviteSearch(""); setInviteOpen(true); }} className="gap-1 text-indigo-600 border-indigo-200"><UserPlus size={14} />초대</Button>
             {!recording ? (
               <Button variant="outline" size="sm" onClick={startRecording} className="gap-1 text-red-600 border-red-200"><Circle size={13} />녹화 시작</Button>
             ) : (
@@ -226,6 +245,33 @@ export default function WorkMeetingPage() {
           )}
           {showChat && active.channelId && <MeetingChat channelId={active.channelId} />}
         </div>
+
+        {/* 직원 초대 */}
+        <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>직원 초대</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">선택한 직원에게 채팅(DM)으로 회의 참여 링크를 보냅니다.</p>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                <Input className="pl-9" placeholder="직원 검색" value={inviteSearch} onChange={(e) => setInviteSearch(e.target.value)} />
+              </div>
+              <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
+                {employees.filter((e) => e.id !== me?.id && (!inviteSearch || e.name.includes(inviteSearch))).map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={inviteIds.includes(e.id)}
+                      onChange={(ev) => setInviteIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
+                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setInviteOpen(false)}>취소</Button>
+                <Button onClick={sendInvite} disabled={inviteIds.length === 0}>{inviteIds.length > 0 ? `${inviteIds.length}명 초대` : "초대"}</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
