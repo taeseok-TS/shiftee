@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -242,14 +242,41 @@ export default function WorkChatPage() {
   const active = channels.find((c) => c.id === activeId);
   const filteredEmps = employees.filter((e) => !empSearch || e.name.includes(empSearch));
 
+  const copyLink = (url: string) => {
+    const full = `${window.location.origin}${url}`;
+    navigator.clipboard?.writeText(full).then(
+      () => toast.success("링크가 복사되었습니다."),
+      () => toast.error("링크 복사에 실패했습니다.")
+    );
+  };
+
   const renderAttachment = (m: { fileUrl: string | null; fileName: string | null; fileType: string | null }) => {
     if (!m.fileUrl) return null;
-    if (m.fileType === "image")
-      return <a href={m.fileUrl} target="_blank" rel="noreferrer"><img src={m.fileUrl} alt={m.fileName || ""} className="max-w-[220px] rounded-lg mt-1" /></a>;
+    const isImg = m.fileType === "image";
     return (
-      <a href={m.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 mt-1 text-xs underline">
-        <Paperclip size={12} />{m.fileName || "첨부파일"}
-      </a>
+      <div className="mt-1">
+        {isImg ? (
+          <a href={m.fileUrl} target="_blank" rel="noreferrer">
+            <img src={m.fileUrl} alt={m.fileName || ""} className="max-w-[220px] rounded-lg" />
+          </a>
+        ) : (
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <Paperclip size={14} />
+            <span className="truncate max-w-[180px]">{m.fileName || "첨부파일"}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-3 mt-1.5 text-[11px] opacity-80">
+          <a href={m.fileUrl} download={m.fileName || ""} className="flex items-center gap-1 hover:underline">
+            <Download size={12} /> 다운로드
+          </a>
+          <button type="button" onClick={() => copyLink(m.fileUrl!)} className="flex items-center gap-1 hover:underline">
+            <LinkIcon size={12} /> 링크 복사
+          </button>
+          <a href={m.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">
+            <ExternalLink size={12} /> 열기
+          </a>
+        </div>
+      </div>
     );
   };
 

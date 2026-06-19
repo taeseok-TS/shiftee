@@ -2,6 +2,9 @@
 import fs from "fs/promises";
 import path from "path";
 
+// 요청 시점에 디스크에서 읽으므로 정적 프리렌더 금지
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ filename: string }> }
