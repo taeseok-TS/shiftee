@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -22,7 +22,8 @@ function renderContent(text: string) {
   );
 }
 
-type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; lastMessage: { content: string; createdAt: string } | null };
+type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; pinned: boolean; canManage: boolean; lastMessage: { content: string; createdAt: string } | null };
+type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean };
 type Reaction = { emoji: string; count: number; mine: boolean };
 type Message = { id: string; userId: string; userName: string; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number };
 type Employee = { id: string; name: string; branch?: string | null };
@@ -44,6 +45,12 @@ export default function WorkChatPage() {
   const [empSearch, setEmpSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  // 채널 관리 (이름 변경 / 멤버 / 고정)
+  const [manageOpen, setManageOpen] = useState(false);
+  const [renameVal, setRenameVal] = useState("");
+  const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
+  const [addIds, setAddIds] = useState<string[]>([]);
+  const [addSearch, setAddSearch] = useState("");
   // 멘션 자동완성
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   // 검색
@@ -239,8 +246,57 @@ export default function WorkChatPage() {
     await fetchChannels(); setActiveId(data.channel.id);
   }
 
+  async function openManage() {
+    if (!activeId || !active) return;
+    setRenameVal(active.name);
+    setAddIds([]); setAddSearch("");
+    setManageOpen(true);
+    const res = await fetch(`/api/work/channels/${activeId}/members`);
+    if (res.ok) { const d = await res.json(); setChannelMembers(d.members || []); }
+  }
+  async function renameChannel() {
+    if (!activeId || !renameVal.trim()) return;
+    const res = await fetch(`/api/work/channels/${activeId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: renameVal.trim() }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "이름 변경 실패"); return; }
+    toast.success("채널 이름이 변경되었습니다.");
+    fetchChannels();
+  }
+  async function addMembers() {
+    if (!activeId || addIds.length === 0) return;
+    const res = await fetch(`/api/work/channels/${activeId}/members`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: addIds }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "멤버 추가 실패"); return; }
+    toast.success("멤버가 추가되었습니다.");
+    setAddIds([]); setAddSearch("");
+    const m = await fetch(`/api/work/channels/${activeId}/members`); if (m.ok) setChannelMembers((await m.json()).members || []);
+    fetchChannels();
+  }
+  async function removeMember(userId: string) {
+    if (!activeId) return;
+    const res = await fetch(`/api/work/channels/${activeId}/members`, {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "내보내기 실패"); return; }
+    setChannelMembers((prev) => prev.filter((x) => x.userId !== userId));
+    fetchChannels();
+  }
+  async function togglePin(ch: Channel) {
+    const res = await fetch(`/api/work/channels/${ch.id}/pin`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: !ch.pinned }),
+    });
+    if (res.ok) { toast.success(!ch.pinned ? "상단에 고정했습니다." : "고정을 해제했습니다."); fetchChannels(); }
+  }
+
   const active = channels.find((c) => c.id === activeId);
   const filteredEmps = employees.filter((e) => !empSearch || e.name.includes(empSearch));
+  const memberIdSet = new Set(channelMembers.map((m) => m.userId));
+  const addCandidates = employees.filter((e) => !memberIdSet.has(e.id) && (!addSearch || e.name.includes(addSearch)));
 
   const copyLink = (url: string) => {
     const full = `${window.location.origin}${url}`;
@@ -321,7 +377,7 @@ export default function WorkChatPage() {
               {c.type === "DM" ? <UserIcon size={16} className="mt-0.5 text-gray-400 shrink-0" /> : <Hash size={16} className="mt-0.5 text-gray-400 shrink-0" />}
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-sm truncate flex items-center justify-between gap-2">
-                  <span className="truncate flex items-center gap-1">{c.notify === "MUTE" && <BellOff size={11} className="text-gray-400" />}{c.name}</span>
+                  <span className="truncate flex items-center gap-1">{c.pinned && <Pin size={11} className="text-indigo-500 fill-indigo-500 shrink-0" />}{c.notify === "MUTE" && <BellOff size={11} className="text-gray-400" />}{c.name}</span>
                   {c.unread > 0 && <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold shrink-0">{c.unread}</span>}
                 </div>
                 {c.lastMessage && <div className="text-xs text-gray-400 truncate">{c.lastMessage.content}</div>}
@@ -339,8 +395,19 @@ export default function WorkChatPage() {
               {active.type === "DM" ? <UserIcon size={18} /> : <Hash size={18} />}
               <span className="font-semibold">{active.name}</span>
               {active.type === "CHANNEL" && active.memberCount > 0 && <span className="text-xs text-gray-400">멤버 {active.memberCount}명</span>}
+              <div className="ml-auto flex items-center gap-1">
+              {/* 상단 고정 */}
+              <button onClick={() => togglePin(active)} title={active.pinned ? "고정 해제" : "상단 고정"}
+                className={`p-1.5 rounded hover:bg-gray-100 ${active.pinned ? "text-indigo-600" : "text-gray-400"}`}>
+                <Pin size={16} className={active.pinned ? "fill-indigo-600" : ""} />
+              </button>
+              {/* 채널 관리 (그룹 채널, 권한 있을 때) */}
+              {active.type === "CHANNEL" && !active.isDefault && active.canManage && (
+                <button onClick={openManage} title="채널 관리"
+                  className="p-1.5 rounded hover:bg-gray-100 text-gray-500"><Settings size={16} /></button>
+              )}
               {/* 알림 설정 */}
-              <div className="ml-auto relative">
+              <div className="relative">
                 <button onClick={() => setNotifyMenuOpen((v) => !v)} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100">
                   {active.notify === "MUTE" ? <BellOff size={15} /> : <Bell size={15} />}
                   {NOTIFY_LABEL[active.notify] || "알림"}
@@ -355,6 +422,7 @@ export default function WorkChatPage() {
                     ))}
                   </div>
                 )}
+              </div>
               </div>
             </div>
 
@@ -507,6 +575,69 @@ export default function WorkChatPage() {
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setNewOpen(false)}>취소</Button>
               <Button onClick={createChannel} disabled={!newName.trim()}>채널 만들기</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 채널 관리: 이름 변경 / 멤버 / 내보내기 */}
+      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>채널 관리</DialogTitle></DialogHeader>
+          <div className="space-y-5">
+            {/* 이름 변경 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">채널 이름</label>
+              <div className="flex gap-2">
+                <Input value={renameVal} onChange={(e) => setRenameVal(e.target.value)} placeholder="채널 이름" />
+                <Button onClick={renameChannel} disabled={!renameVal.trim() || renameVal.trim() === active?.name}>변경</Button>
+              </div>
+            </div>
+
+            {/* 현재 멤버 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">멤버 {channelMembers.length}명</label>
+              <div className="max-h-40 overflow-y-auto border rounded-lg divide-y">
+                {channelMembers.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-gray-400">멤버 정보를 불러오는 중…</div>
+                ) : channelMembers.map((m) => (
+                  <div key={m.userId} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className="flex items-center gap-1 truncate">
+                      {m.name}
+                      {m.isCreator && <span className="text-[10px] text-indigo-500 border border-indigo-200 rounded px-1">생성자</span>}
+                      {m.branch && <span className="text-xs text-gray-400">· {m.branch}</span>}
+                    </span>
+                    {!m.isCreator && (
+                      <Button size="sm" variant="ghost" className="text-xs h-7 text-red-500 hover:text-red-600" onClick={() => removeMember(m.userId)}>
+                        내보내기
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 멤버 추가 */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1"><UserPlus size={14} /> 멤버 추가</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                <Input className="pl-9" placeholder="직원 검색" value={addSearch} onChange={(e) => setAddSearch(e.target.value)} />
+              </div>
+              <div className="max-h-40 overflow-y-auto border rounded-lg divide-y">
+                {addCandidates.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-gray-400">추가할 수 있는 직원이 없습니다.</div>
+                ) : addCandidates.map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={addIds.includes(e.id)}
+                      onChange={(ev) => setAddIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
+                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={addMembers} disabled={addIds.length === 0}>{addIds.length > 0 ? `${addIds.length}명 추가` : "추가"}</Button>
+              </div>
             </div>
           </div>
         </DialogContent>

@@ -406,6 +406,7 @@ model WorkChannelMember {
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   lastReadAt DateTime?
   notify    WorkNotify  @default(ALL) // 채널 알림 설정
+  pinned    Boolean     @default(false) // 사용자별 채널 상단 고정
   joinedAt  DateTime    @default(now())
 
   @@unique([channelId, userId])

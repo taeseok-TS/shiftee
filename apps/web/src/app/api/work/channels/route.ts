@@ -64,12 +64,17 @@ export async function GET() {
         memberCount: c.members.length,
         unread,
         notify,
+        pinned: myMember?.pinned ?? false,
+        canManage: session.role === "ADMIN" || session.role === "MANAGER" || c.createdBy === session.userId,
         lastMessage: last
           ? { content: last.fileUrl && !last.content ? "📎 첨부파일" : last.content, createdAt: last.createdAt }
           : null,
       };
     })
   );
+
+  // 고정된 채널을 상단으로 (그 외 순서는 유지)
+  result.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
   return NextResponse.json({ channels: result });
 }
