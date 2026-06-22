@@ -412,6 +412,7 @@ model WorkChannelMember {
   notify    WorkNotify  @default(ALL) // 채널 알림 설정
   pinned    Boolean     @default(false) // 사용자별 채널 상단 고정
   historyFrom DateTime? // 이 시점 이후 메시지만 열람(null=전체). 멤버 추가 시 과거기록 노출 범위
+  isManager Boolean     @default(false) // 방장(생성자가 위임). 인원 추가/내보내기/이름변경 가능
   joinedAt  DateTime    @default(now())
 
   @@unique([channelId, userId])
@@ -498,6 +499,7 @@ model WorkMeeting {
   channelId String? // 회의 전용 사이드 채팅 채널
   createdBy String
   createdAt DateTime  @default(now())
+  lastJoinedAt DateTime? // 마지막 입장 시각(자동 종료 판단용)
   endedAt   DateTime?
 
   @@index([endedAt])

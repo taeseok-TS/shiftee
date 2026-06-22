@@ -22,10 +22,11 @@ function renderContent(text: string) {
   );
 }
 
-type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; pinned: boolean; canManage: boolean; labelText: string | null; labelColor: string | null; lastMessage: { content: string; createdAt: string } | null };
+type Channel = { id: string; name: string; type: "CHANNEL" | "DM"; isDefault: boolean; memberCount: number; unread: number; notify: string; pinned: boolean; canManage: boolean; amCreator: boolean; labelText: string | null; labelColor: string | null; lastMessage: { content: string; createdAt: string } | null };
 type TrashChannel = { id: string; name: string; deletedAt: string; permanentlyDeletedAt: string; labelText: string | null; labelColor: string | null };
 const LABEL_COLORS = ["#eab308", "#ef4444", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#6b7280"];
-type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean };
+type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean; isManager: boolean };
+type ChannelFile = { messageId: string; fileUrl: string; fileName: string | null; fileType: string | null; userName: string; createdAt: string };
 type Reaction = { emoji: string; count: number; mine: boolean };
 type Message = { id: string; userId: string; userName: string; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number };
 type Employee = { id: string; name: string; branch?: string | null };
@@ -59,6 +60,12 @@ export default function WorkChatPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashChannels, setTrashChannels] = useState<TrashChannel[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [memberViewOpen, setMemberViewOpen] = useState(false);
+  const [viewMembers, setViewMembers] = useState<ChannelMember[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [channelFiles, setChannelFiles] = useState<ChannelFile[]>([]);
+  const [confirmCleanOpen, setConfirmCleanOpen] = useState(false);
   // 멘션 자동완성
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   // 검색
@@ -101,6 +108,7 @@ export default function WorkChatPage() {
   useEffect(() => {
     fetchChannels();
     fetch("/api/employees").then(r => r.ok ? r.json() : { employees: [] }).then(d => setEmployees(d.employees || [])).catch(() => {});
+    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d?.user) setIsAdmin(d.user.role === "ADMIN"); }).catch(() => {});
   }, [fetchChannels]);
 
   // 활성 채널 진입 시 메시지 로드 + 읽음 처리
@@ -299,6 +307,50 @@ export default function WorkChatPage() {
     setTrashChannels((prev) => prev.filter((c) => c.id !== id));
     fetchChannels();
   }
+  // 멤버 목록 보기 (참여자 누구나, 읽기 전용)
+  async function openMemberView() {
+    if (!activeId) return;
+    setMemberViewOpen(true);
+    const res = await fetch(`/api/work/channels/${activeId}/members`);
+    if (res.ok) setViewMembers((await res.json()).members || []);
+  }
+  // 방장 지정/해제 (생성자/관리자)
+  async function assignManager(userId: string, makeManager: boolean) {
+    if (!activeId) return;
+    const res = await fetch(`/api/work/channels/${activeId}/manager`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, isManager: makeManager }),
+    });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "변경 실패"); return; }
+    toast.success(makeManager ? "방장으로 지정했습니다." : "방장을 해제했습니다.");
+    setChannelMembers((prev) => prev.map((m) => m.userId === userId ? { ...m, isManager: makeManager } : m));
+    fetchChannels();
+  }
+  // DM 삭제
+  async function deleteDM(ch: Channel) {
+    if (!confirm("이 대화를 삭제하시겠습니까?")) return;
+    const res = await fetch(`/api/work/channels/${ch.id}`, { method: "DELETE" });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "삭제 실패"); return; }
+    toast.success("대화를 삭제했습니다.");
+    setActiveId(null); fetchChannels();
+  }
+  // 파일 정리
+  async function openFiles() {
+    if (!activeId) return;
+    setFilesOpen(true);
+    const res = await fetch(`/api/work/channels/${activeId}/files`);
+    if (res.ok) setChannelFiles((await res.json()).files || []);
+  }
+  async function cleanFiles() {
+    if (!activeId) return;
+    const res = await fetch(`/api/work/channels/${activeId}/files`, { method: "DELETE" });
+    const d = await res.json();
+    if (!res.ok) { toast.error(d.error || "정리 실패"); return; }
+    toast.success(`첨부파일 ${d.removed}개를 정리했습니다.`);
+    setConfirmCleanOpen(false); setFilesOpen(false); setChannelFiles([]);
+    if (activeId) fetchMessages(activeId);
+  }
   async function renameChannel() {
     if (!activeId || !renameVal.trim()) return;
     const res = await fetch(`/api/work/channels/${activeId}`, {
@@ -446,15 +498,22 @@ export default function WorkChatPage() {
                 : active.labelText ? <span className="text-white text-xs font-bold rounded px-2 py-0.5" style={{ backgroundColor: active.labelColor || "#6b7280" }}>{active.labelText}</span>
                 : <Hash size={18} />}
               <span className="font-semibold">{active.name}</span>
-              {active.type === "CHANNEL" && active.memberCount > 0 && <span className="text-xs text-gray-400">멤버 {active.memberCount}명</span>}
+              {active.type === "CHANNEL" && active.memberCount > 0 && (
+                <button onClick={openMemberView} className="text-xs text-gray-400 hover:text-indigo-600 hover:underline" title="멤버 보기">멤버 {active.memberCount}명</button>
+              )}
               <div className="ml-auto flex items-center gap-1">
               {/* 상단 고정 */}
               <button onClick={() => togglePin(active)} title={active.pinned ? "고정 해제" : "상단 고정"}
                 className={`p-1.5 rounded hover:bg-gray-100 ${active.pinned ? "text-indigo-600" : "text-gray-400"}`}>
                 <Pin size={16} className={active.pinned ? "fill-indigo-600" : ""} />
               </button>
-              {/* 채널 관리 (그룹 채널, 권한 있을 때) */}
-              {active.type === "CHANNEL" && !active.isDefault && active.canManage && (
+              {/* DM 삭제 */}
+              {active.type === "DM" && (
+                <button onClick={() => deleteDM(active)} title="대화 삭제"
+                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+              )}
+              {/* 채널 관리 (그룹 채널: 권한자 / 전체 채널: 관리자) */}
+              {active.type === "CHANNEL" && ((active.canManage && !active.isDefault) || (active.isDefault && isAdmin)) && (
                 <button onClick={openManage} title="채널 관리"
                   className="p-1.5 rounded hover:bg-gray-100 text-gray-500"><Settings size={16} /></button>
               )}
@@ -637,6 +696,7 @@ export default function WorkChatPage() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>채널 관리</DialogTitle></DialogHeader>
           <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
+            {!active?.isDefault && (<>
             {/* 이름 변경 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">채널 이름</label>
@@ -670,6 +730,7 @@ export default function WorkChatPage() {
                 </div>
               )}
             </div>
+            </>)}
 
             {/* 현재 멤버 */}
             <div className="space-y-2">
@@ -678,16 +739,24 @@ export default function WorkChatPage() {
                 {channelMembers.length === 0 ? (
                   <div className="px-3 py-3 text-xs text-gray-400">멤버 정보를 불러오는 중…</div>
                 ) : channelMembers.map((m) => (
-                  <div key={m.userId} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div key={m.userId} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                     <span className="flex items-center gap-1 truncate">
                       {m.name}
                       {m.isCreator && <span className="text-[10px] text-indigo-500 border border-indigo-200 rounded px-1">생성자</span>}
+                      {m.isManager && !m.isCreator && <span className="text-[10px] text-amber-600 border border-amber-300 rounded px-1">방장</span>}
                       {m.branch && <span className="text-xs text-gray-400">· {m.branch}</span>}
                     </span>
                     {!m.isCreator && (
-                      <Button size="sm" variant="ghost" className="text-xs h-7 text-red-500 hover:text-red-600" onClick={() => removeMember(m.userId)}>
-                        내보내기
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {(isAdmin || active?.amCreator) && (
+                          <Button size="sm" variant="ghost" className="text-xs h-7 text-amber-600 hover:text-amber-700" onClick={() => assignManager(m.userId, !m.isManager)}>
+                            {m.isManager ? "방장 해제" : "방장 지정"}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="text-xs h-7 text-red-500 hover:text-red-600" onClick={() => removeMember(m.userId)}>
+                          내보내기
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -731,15 +800,89 @@ export default function WorkChatPage() {
               </div>
             </div>
 
+            {/* 첨부파일 정리 */}
+            <div className="border-t pt-4">
+              <Button variant="outline" className="w-full gap-1" onClick={openFiles}>
+                <Paperclip size={15} /> 첨부파일 정리
+              </Button>
+            </div>
+
             {/* 채널 삭제 */}
             {!active?.isDefault && (
-              <div className="border-t pt-4">
+              <div className="pt-1">
                 <Button variant="outline" className="w-full text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
                   onClick={() => setConfirmDeleteOpen(true)}>
                   <Trash2 size={15} /> 채널 삭제
                 </Button>
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 멤버 보기 (읽기 전용, 누구나) */}
+      <Dialog open={memberViewOpen} onOpenChange={setMemberViewOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>멤버 {viewMembers.length}명</DialogTitle></DialogHeader>
+          <div className="max-h-80 overflow-y-auto border rounded-lg divide-y">
+            {viewMembers.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-gray-400">멤버 정보를 불러오는 중…</div>
+            ) : viewMembers.map((m) => (
+              <div key={m.userId} className="flex items-center gap-1 px-3 py-2 text-sm">
+                {m.name}
+                {m.isCreator && <span className="text-[10px] text-indigo-500 border border-indigo-200 rounded px-1">생성자</span>}
+                {m.isManager && !m.isCreator && <span className="text-[10px] text-amber-600 border border-amber-300 rounded px-1">방장</span>}
+                {m.branch && <span className="text-xs text-gray-400">· {m.branch}</span>}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 첨부파일 정리 */}
+      <Dialog open={filesOpen} onOpenChange={setFilesOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>첨부파일 정리</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">이 채팅방의 첨부파일 <b>{channelFiles.length}개</b>. 채팅방은 유지되고 파일만 삭제됩니다.</p>
+            <div className="max-h-56 overflow-y-auto border rounded-lg divide-y">
+              {channelFiles.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-gray-400">첨부파일이 없습니다.</div>
+              ) : channelFiles.map((f) => (
+                <div key={f.messageId} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <Paperclip size={13} className="text-gray-400 shrink-0" />
+                  <span className="truncate flex-1">{f.fileName || "파일"}</span>
+                  <span className="text-[11px] text-gray-400 shrink-0">{f.userName}</span>
+                </div>
+              ))}
+            </div>
+            {channelFiles.length > 0 && (
+              <div className="flex gap-2 justify-end">
+                <a href={`/api/work/channels/${activeId}/files/download`}>
+                  <Button variant="outline" className="gap-1"><Download size={14} /> 압축 다운로드</Button>
+                </a>
+                <Button className="bg-red-600 hover:bg-red-700 text-white gap-1" onClick={() => setConfirmCleanOpen(true)}>
+                  <Trash2 size={14} /> 파일 정리
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 파일 정리 확인 */}
+      <Dialog open={confirmCleanOpen} onOpenChange={setConfirmCleanOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>첨부파일 정리</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-800 font-medium">정리하기 전 다운받으시겠습니까?</p>
+            <p className="text-sm text-gray-500">정리하면 이 채팅방의 첨부파일이 모두 삭제됩니다(채팅 내용은 유지). 필요하면 먼저 압축 다운로드하세요.</p>
+            <div className="flex gap-2 justify-end">
+              <a href={`/api/work/channels/${activeId}/files/download`}>
+                <Button variant="outline" className="gap-1"><Download size={14} /> 압축 다운로드</Button>
+              </a>
+              <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={cleanFiles}>정리(삭제)</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

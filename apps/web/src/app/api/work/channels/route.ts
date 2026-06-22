@@ -66,7 +66,8 @@ export async function GET() {
         unread,
         notify,
         pinned: myMember?.pinned ?? false,
-        canManage: session.role === "ADMIN" || session.role === "MANAGER" || c.createdBy === session.userId,
+        canManage: session.role === "ADMIN" || session.role === "MANAGER" || c.createdBy === session.userId || !!myMember?.isManager,
+        amCreator: c.createdBy === session.userId,
         labelText: c.labelText,
         labelColor: c.labelColor,
         lastMessage: last

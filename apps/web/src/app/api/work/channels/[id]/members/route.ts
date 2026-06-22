@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { channelCanManage } from "@/lib/work-perms";
 
-async function canManage(channelId: string, userId: string, role: string) {
-  if (role === "ADMIN" || role === "MANAGER") return true;
-  const ch = await prisma.workChannel.findUnique({ where: { id: channelId }, select: { createdBy: true } });
-  return ch?.createdBy === userId;
+// 멤버 추가/내보내기 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
+async function canManageMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
+  if (isDefault) return role === "ADMIN";
+  return channelCanManage(channelId, userId, role);
 }
 
-// 채널 멤버 목록
+// 채널 멤버 목록 (참여자 누구나 조회 가능)
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,6 +34,7 @@ export async function GET(
       branch: m.user.branch,
       position: m.user.position,
       isCreator: m.userId === channel.createdBy,
+      isManager: m.isManager,
     })),
   });
 }
@@ -53,18 +55,16 @@ export async function POST(
   if (!Array.isArray(userIds) || userIds.length === 0)
     return NextResponse.json({ error: "추가할 멤버를 선택해주세요." }, { status: 400 });
 
-  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true } });
+  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true, isDefault: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   if (channel.type === "DM") return NextResponse.json({ error: "DM에는 멤버를 추가할 수 없습니다." }, { status: 400 });
-  if (!(await canManage(id, session.userId, session.role)))
-    return NextResponse.json({ error: "채널을 관리할 권한이 없습니다." }, { status: 403 });
+  if (!(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
+    return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 관리할 수 있습니다." : "채널을 관리할 권한이 없습니다." }, { status: 403 });
 
-  // 과거 채팅기록 열람 범위 결정
-  let historyFrom: Date | null = null; // all(기본): 전체 열람
+  let historyFrom: Date | null = null;
   if (historyOption === "90days") historyFrom = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-  else if (historyOption === "none") historyFrom = new Date(); // 가입 이후만
+  else if (historyOption === "none") historyFrom = new Date();
 
-  // 이미 멤버인 사람은 건너뜀
   await prisma.workChannelMember.createMany({
     data: userIds.map((userId) => ({ channelId: id, userId, historyFrom })),
     skipDuplicates: true,
@@ -87,9 +87,8 @@ export async function DELETE(
 
   const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true, isDefault: true, createdBy: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
-  if (channel.isDefault) return NextResponse.json({ error: "기본 채널에서는 멤버를 내보낼 수 없습니다." }, { status: 400 });
-  if (!(await canManage(id, session.userId, session.role)))
-    return NextResponse.json({ error: "채널을 관리할 권한이 없습니다." }, { status: 403 });
+  if (!(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
+    return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 관리할 수 있습니다." : "채널을 관리할 권한이 없습니다." }, { status: 403 });
   if (userId === channel.createdBy)
     return NextResponse.json({ error: "채널 생성자는 내보낼 수 없습니다." }, { status: 400 });
 

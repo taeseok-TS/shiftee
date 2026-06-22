@@ -7,6 +7,17 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  // 자동 종료: 마지막 입장(없으면 개설) 후 1시간 동안 아무도 안 들어온 회의는 종료
+  const cutoff = new Date(Date.now() - 60 * 60 * 1000);
+  await prisma.workMeeting.updateMany({
+    where: { endedAt: null, lastJoinedAt: { not: null, lt: cutoff } },
+    data: { endedAt: new Date() },
+  });
+  await prisma.workMeeting.updateMany({
+    where: { endedAt: null, lastJoinedAt: null, createdAt: { lt: cutoff } },
+    data: { endedAt: new Date() },
+  });
+
   const meetings = await prisma.workMeeting.findMany({
     where: { endedAt: null },
     orderBy: { createdAt: "desc" },

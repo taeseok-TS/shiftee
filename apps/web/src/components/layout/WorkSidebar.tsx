@@ -20,14 +20,17 @@ export function WorkSidebar() {
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("work_sidebar_collapsed") === "1");
+    // 다른 화면(화상회의 등)에서 토글하면 동기화
+    const h = () => setCollapsed(localStorage.getItem("work_sidebar_collapsed") === "1");
+    window.addEventListener("work-sidebar-changed", h);
+    return () => window.removeEventListener("work-sidebar-changed", h);
   }, []);
 
   function toggle() {
-    setCollapsed((v) => {
-      const n = !v;
-      localStorage.setItem("work_sidebar_collapsed", n ? "1" : "0");
-      return n;
-    });
+    const n = !collapsed;
+    localStorage.setItem("work_sidebar_collapsed", n ? "1" : "0");
+    setCollapsed(n);
+    window.dispatchEvent(new Event("work-sidebar-changed"));
   }
 
   async function handleLogout() {

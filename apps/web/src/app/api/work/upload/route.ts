@@ -14,8 +14,8 @@ export async function POST(request: NextRequest) {
   const file = formData.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
 
-  if (file.size > 20 * 1024 * 1024)
-    return NextResponse.json({ error: "20MB 이하 파일만 업로드할 수 있습니다." }, { status: 400 });
+  if (file.size > 100 * 1024 * 1024)
+    return NextResponse.json({ error: "100MB 이하 파일만 업로드할 수 있습니다." }, { status: 400 });
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);

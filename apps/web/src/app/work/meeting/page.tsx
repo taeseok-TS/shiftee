@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Video, Plus, X, Users, Circle, Square, Send, Download, Trash2, Film, UserPlus, Search } from "lucide-react";
+import { Video, Plus, X, Users, Circle, Square, Send, Download, Trash2, Film, UserPlus, Search, PanelLeft } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -79,7 +79,7 @@ export default function WorkMeetingPage() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [active, setActive] = useState<Meeting | null>(null);
   const [title, setTitle] = useState("");
-  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [me, setMe] = useState<{ id: string; name: string; role: string } | null>(null);
   const [recording, setRecording] = useState(false);
   const [showChat, setShowChat] = useState(true);
   const [isSecure, setIsSecure] = useState(true); // HTTPS(보안 컨텍스트) 여부 — 화상회의/녹화 필요
@@ -105,11 +105,27 @@ export default function WorkMeetingPage() {
   useEffect(() => {
     setIsSecure(typeof window !== "undefined" && window.isSecureContext);
     fetchMeetings(); fetchRecordings();
-    fetch("/api/auth/me").then(r => r.json()).then(d => setMe(d.user ? { id: d.user.id, name: d.user.name } : null)).catch(() => {});
+    fetch("/api/auth/me").then(r => r.json()).then(d => setMe(d.user ? { id: d.user.id, name: d.user.name, role: d.user.role } : null)).catch(() => {});
     fetch("/api/employees").then(r => r.ok ? r.json() : { employees: [] }).then(d => setEmployees(d.employees || [])).catch(() => {});
     const t = setInterval(fetchMeetings, 5000);
     return () => clearInterval(t);
   }, [fetchMeetings, fetchRecordings]);
+
+  // 회의 입장 중에는 주기적으로 신호 전송(자동 종료 방지)
+  useEffect(() => {
+    if (!active) return;
+    const ping = () => fetch(`/api/work/meetings/${active.id}/heartbeat`, { method: "POST" }).catch(() => {});
+    ping();
+    const t = setInterval(ping, 60000);
+    return () => clearInterval(t);
+  }, [active]);
+
+  // 화상회의 화면에서 큐브티워크 사이드바 접기/펼치기 토글
+  function toggleSidebar() {
+    const n = localStorage.getItem("work_sidebar_collapsed") !== "1";
+    localStorage.setItem("work_sidebar_collapsed", n ? "1" : "0");
+    window.dispatchEvent(new Event("work-sidebar-changed"));
+  }
 
   async function createMeeting() {
     const res = await fetch("/api/work/meetings", {
@@ -208,6 +224,7 @@ export default function WorkMeetingPage() {
       <div className="h-screen flex flex-col">
         <div className="px-6 py-3 border-b bg-white flex items-center justify-between">
           <div className="flex items-center gap-2">
+            <button onClick={toggleSidebar} title="사이드바 접기/펼치기" className="p-1.5 rounded hover:bg-gray-100 text-gray-500"><PanelLeft size={16} /></button>
             <Video size={18} className="text-indigo-500" />
             <span className="font-semibold">{active.title}</span>
             <span className="text-xs text-gray-400">방: {active.room}</span>
@@ -305,7 +322,7 @@ export default function WorkMeetingPage() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={() => setActive(m)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Video size={14} />참여</Button>
-                {me?.id === m.createdBy && <Button size="sm" variant="ghost" className="text-red-500" onClick={() => endMeeting(m)}><X size={14} /></Button>}
+                {(me?.id === m.createdBy || me?.role === "ADMIN") && <Button size="sm" variant="ghost" className="text-red-500" onClick={() => endMeeting(m)} title="회의 종료"><X size={14} /></Button>}
               </div>
             </div>
           ))}
