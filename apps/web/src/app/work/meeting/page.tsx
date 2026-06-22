@@ -219,7 +219,17 @@ export default function WorkMeetingPage() {
   // ── 회의 참여 화면 ──
   if (active) {
     const displayName = encodeURIComponent(me?.name || "");
-    const src = `https://meet.jit.si/${active.room}#userInfo.displayName=%22${displayName}%22&config.prejoinPageEnabled=false`;
+    // Jitsi 옵션: 사전설정(회의 참여) 화면 건너뛰고 바로 입장 + 로고/홍보 숨김
+    const jitsiCfg = [
+      `userInfo.displayName=%22${displayName}%22`,
+      "config.prejoinConfig.enabled=false",
+      "config.prejoinPageEnabled=false",
+      "config.disableDeepLinking=true",
+      "interfaceConfig.SHOW_JITSI_WATERMARK=false",
+      "interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false",
+      "interfaceConfig.MOBILE_APP_PROMO=false",
+    ].join("&");
+    const src = `https://meet.jit.si/${active.room}#${jitsiCfg}`;
     return (
       <div className="h-screen flex flex-col">
         <div className="px-6 py-3 border-b bg-white flex items-center justify-between">
