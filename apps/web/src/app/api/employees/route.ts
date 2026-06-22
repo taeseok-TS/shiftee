@@ -17,7 +17,7 @@ export async function GET() {
   const employees = await prisma.user.findMany({
     where: { isActive: true, role: { not: "ADMIN" }, ...branchWhere },
     select: {
-      id: true, name: true, email: true, role: true,
+      id: true, name: true, email: true, role: true, empNo: true,
       department: true, jobGroup: true, position: true, branch: true, hireDate: true, phone: true,
       leaveBalance: { select: { remaining: true, used: true, total: true } },
     },
@@ -31,6 +31,7 @@ export async function GET() {
     name: emp.name,
     email: emp.email,
     role: emp.role,
+    empNo: emp.empNo,
     department: emp.department,
     jobGroup: emp.jobGroup,
     position: emp.position,
@@ -71,9 +72,12 @@ export async function POST(request: NextRequest) {
   const finalBranch = branch || null;
 
   const hashedPassword = await bcrypt.hash(password, 10);
+  // 사원번호: 순차 발급(1001~)
+  const maxNo = (await prisma.user.aggregate({ _max: { empNo: true } }))._max.empNo ?? 1000;
+  const empNo = Math.max(1000, maxNo) + 1;
   const user = await prisma.user.create({
     data: {
-      name, email, password: hashedPassword,
+      name, email, password: hashedPassword, empNo,
       role: role || "EMPLOYEE",
       department, jobGroup: jobGroup || null, position, branch: finalBranch, phone,
       hireDate: hireDate ? new Date(hireDate) : null,

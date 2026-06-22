@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   UmbrellaOff, Plus, Check, X, AlertCircle, CalendarDays,
   ClipboardList, Users, Pencil, GitBranch, Inbox, ChevronRight,
-  Trash2, Search, ArrowUp, ArrowDown,
+  Trash2, Search, ArrowUp, ArrowDown, RefreshCw, Calculator,
 } from "lucide-react";
 import { format, eachDayOfInterval, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -37,6 +37,7 @@ type LeaveRequest = {
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
   userId: string; name: string; department: string; position: string;
+  branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
 type LineUser = {
@@ -151,7 +152,12 @@ export default function LeavePage() {
   /* 잔여 조정 */
   const [editOpen, setEditOpen]     = useState(false);
   const [editTarget, setEditTarget] = useState<EmpBalance | null>(null);
-  const [editForm, setEditForm]     = useState({ total: 15, used: 0 });
+  const [editForm, setEditForm]     = useState<{ total: number; used: number; leaveNote: string }>({ total: 15, used: 0, leaveNote: "" });
+  // #7 연차 자동계산 / #8 연차수당 계산
+  const [recalcing, setRecalcing]   = useState(false);
+  const [allowTarget, setAllowTarget] = useState<EmpBalance | null>(null);
+  const [allowSalary, setAllowSalary] = useState("");
+  const [allowBaseDate, setAllowBaseDate] = useState("");
 
   // 권한 요약 (통일된 권한 함수 사용)
   const permissions = useMemo(() => getPermissionSummary(role as UserRole), [role]);
@@ -250,11 +256,23 @@ export default function LeavePage() {
     if (!editTarget) return;
     const res = await fetch("/api/leave/balance", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: editTarget.userId, total: editForm.total, used: editForm.used }),
+      body: JSON.stringify({ userId: editTarget.userId, total: editForm.total, used: editForm.used, leaveNote: editForm.leaveNote }),
     });
     if (!res.ok) { toast.error((await res.json()).error); return; }
     toast.success("잔여 휴가가 조정되었습니다.");
     setEditOpen(false); fetchBalance();
+  }
+
+  /* ── #7 근속기간 기반 연차 자동계산 ── */
+  async function recalcAll() {
+    setRecalcing(true);
+    try {
+      const res = await fetch("/api/leave/balance/recalc", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "자동계산 실패"); return; }
+      toast.success(`${d.updated}명 연차를 자동 계산했습니다.`);
+      fetchBalance();
+    } finally { setRecalcing(false); }
   }
 
   /* ── 결재라인 편집 열기 ── */
@@ -551,7 +569,10 @@ export default function LeavePage() {
                     {lineUsers.map(emp => (
                       <tr key={emp.id} className="border-b last:border-0 hover:bg-gray-50/70">
                         <td className="px-4 py-3">
-                          <p className="font-medium text-gray-900">{emp.name}</p>
+                          <p className="font-medium text-gray-900 flex items-center gap-1">
+                            {emp.branch && <span className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{emp.branch}</span>}
+                            {emp.name}
+                          </p>
                           <p className="text-xs text-gray-400">{emp.department} · {emp.position}</p>
                         </td>
                         <td className="px-4 py-3">
@@ -590,19 +611,24 @@ export default function LeavePage() {
         {isAdmin && (
           <TabsContent value="balance" className="mt-4">
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-2 flex-row items-center justify-between gap-2">
                 <CardTitle className="text-sm text-gray-600 font-medium">
                   전체 {empBalances.length}명 · {CURRENT_YEAR}년 기준
                 </CardTitle>
+                <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={recalcAll} disabled={recalcing}>
+                  <RefreshCw size={13} className={recalcing ? "animate-spin" : ""} />연차 자동계산
+                </Button>
               </CardHeader>
               <CardContent className="p-0">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-xs text-gray-500 bg-gray-50/60 text-left">
                       <th className="px-4 py-3 font-medium">직원</th>
+                      <th className="px-4 py-3 font-medium">지점</th>
+                      <th className="px-4 py-3 font-medium">근속기간</th>
                       <th className="px-4 py-3 font-medium">총 연차</th>
                       <th className="px-4 py-3 font-medium">사용</th>
-                      <th className="px-4 py-3 font-medium w-48">잔여</th>
+                      <th className="px-4 py-3 font-medium w-40">잔여</th>
                       <th className="px-4 py-3 font-medium"></th>
                     </tr>
                   </thead>
@@ -614,8 +640,16 @@ export default function LeavePage() {
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900">{b.name}</p>
                             <p className="text-xs text-gray-400">{b.department} · {b.position}</p>
+                            {b.leaveNote && <p className="text-[11px] text-amber-600 mt-0.5">※ {b.leaveNote}</p>}
                           </td>
-                          <td className="px-4 py-3 text-gray-700 font-medium">{b.total}일</td>
+                          <td className="px-4 py-3 text-gray-600">{b.branch || "-"}</td>
+                          <td className="px-4 py-3 text-gray-600">{b.tenure || "-"}</td>
+                          <td className="px-4 py-3 text-gray-700 font-medium">
+                            {b.total}일
+                            {b.recommended != null && b.recommended !== b.total && (
+                              <span className="text-[11px] text-amber-600 ml-1" title="근로기준법 권장">(권장 {b.recommended})</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-gray-600">{b.used}일</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
@@ -629,10 +663,14 @@ export default function LeavePage() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-400 hover:text-gray-700"
-                              onClick={() => { setEditTarget(b); setEditForm({ total: b.total, used: b.used }); setEditOpen(true); }}>
+                              onClick={() => { setEditTarget(b); setEditForm({ total: b.total, used: b.used, leaveNote: b.leaveNote ?? "" }); setEditOpen(true); }}>
                               <Pencil size={12} />조정
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-indigo-500 hover:text-indigo-700"
+                              onClick={() => { setAllowTarget(b); setAllowSalary(""); setAllowBaseDate(new Date().toISOString().slice(0,10)); }}>
+                              <Calculator size={12} />계산
                             </Button>
                           </td>
                         </tr>
@@ -762,6 +800,11 @@ export default function LeavePage() {
               <Input type="number" min={0} step={0.5} value={editForm.used}
                 onChange={e => setEditForm(f => ({ ...f, used: parseFloat(e.target.value) || 0 }))} />
             </div>
+            <div className="space-y-2">
+              <Label>근속 별도 표기 (육아휴직 등, 선택)</Label>
+              <Input placeholder="예: 2023.03~2024.02 육아휴직" value={editForm.leaveNote}
+                onChange={e => setEditForm(f => ({ ...f, leaveNote: e.target.value }))} />
+            </div>
             <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm">
               <span className="text-gray-500">조정 후 잔여</span>
               <span className="font-bold text-blue-700">{Math.max(editForm.total - editForm.used, 0)}일</span>
@@ -771,6 +814,45 @@ export default function LeavePage() {
               <Button onClick={handleEditSave}>저장</Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ #8 연차수당 계산 다이얼로그 ═══ */}
+      <Dialog open={!!allowTarget} onOpenChange={(o) => { if (!o) setAllowTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Calculator size={18} />연차수당 계산 — {allowTarget?.name}</DialogTitle></DialogHeader>
+          {allowTarget && (() => {
+            const salary = parseFloat(allowSalary.replace(/[^0-9.]/g, "")) || 0;
+            const remaining = allowTarget.remaining;
+            const dailyWage = salary > 0 ? Math.round((salary / 12 / 209) * 8) : 0;
+            const allowance = Math.round(dailyWage * remaining);
+            const won = (n: number) => n.toLocaleString("ko-KR");
+            return (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>연봉 (원)</Label>
+                  <Input inputMode="numeric" placeholder="예: 36000000" value={allowSalary}
+                    onChange={(e) => setAllowSalary(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>계산 기준일</Label>
+                  <Input type="date" value={allowBaseDate} onChange={(e) => setAllowBaseDate(e.target.value)} />
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1.5">
+                  <div className="flex justify-between"><span className="text-gray-500">잔여 연차</span><span className="font-medium">{remaining}일</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">1일 통상임금</span><span className="font-medium">₩{won(dailyWage)}</span></div>
+                  <div className="text-[11px] text-gray-400">= (연봉 ÷ 12 ÷ 209시간) × 8시간</div>
+                  <div className="border-t pt-2 flex justify-between items-center">
+                    <span className="text-gray-700 font-medium">연차수당</span>
+                    <span className="text-lg font-bold text-indigo-600">₩{won(allowance)}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-400">= 1일 통상임금 × 잔여 연차 {remaining}일</div>
+                </div>
+                <p className="text-[11px] text-gray-400">※ 통상임금 산정 방식(상여 포함 여부 등)에 따라 실제 금액은 달라질 수 있습니다.</p>
+                <div className="flex justify-end"><Button variant="outline" onClick={() => setAllowTarget(null)}>닫기</Button></div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

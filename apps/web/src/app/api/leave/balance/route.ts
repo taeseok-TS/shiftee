@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { tenureLabel, annualLeaveDays } from "@/lib/leave-calc";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   const [employees, balances] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, ...branchWhere },
-      select: { id: true, name: true, department: true, position: true },
+      select: { id: true, name: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     prisma.leaveBalance.findMany(),
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
 
   const balanceMap = new Map(balances.map(b => [b.userId, b]));
   const year = new Date().getFullYear();
+  const now = new Date();
 
   const result = employees.map(emp => {
     const b: any = balanceMap.get(emp.id);
@@ -39,6 +41,11 @@ export async function GET(request: NextRequest) {
       name:      emp.name,
       department: emp.department ?? "-",
       position:  emp.position   ?? "-",
+      branch:    emp.branch ?? "-",
+      hireDate:  emp.hireDate ?? null,
+      tenure:    emp.hireDate ? tenureLabel(new Date(emp.hireDate), now) : "-",
+      recommended: emp.hireDate ? annualLeaveDays(new Date(emp.hireDate), now) : null, // 근로기준법 권장 연차
+      leaveNote: emp.leaveNote ?? null,
       balanceId: b?.id       ?? null,
       year:      b?.year     ?? year,
       total:     b?.total    ?? 15,
@@ -56,7 +63,7 @@ export async function PATCH(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  const { userId, total, used } = await request.json();
+  const { userId, total, used, leaveNote } = await request.json();
   if (!userId || total === undefined) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
   }
@@ -69,6 +76,11 @@ export async function PATCH(request: NextRequest) {
     create: { userId, year: new Date().getFullYear(), total, used: usedVal, remaining: remainingVal },
     update: { total, used: usedVal, remaining: remainingVal },
   });
+
+  // 근속 관련 별도 표기(육아휴직 등) 저장
+  if (leaveNote !== undefined) {
+    await prisma.user.update({ where: { id: userId }, data: { leaveNote: leaveNote || null } });
+  }
 
   return NextResponse.json({ success: true, balance });
 }

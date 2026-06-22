@@ -16,6 +16,8 @@ model User {
   phone                String?
   role                 Role             @default(EMPLOYEE)
   isSuperAdmin         Boolean          @default(false) // 메인(최고) 관리자 여부. 시스템 설정/관리자 계정 관리 전용
+  empNo                Int?             @unique // 사원번호 4자리(순차 1001~)
+  leaveNote            String? // 근속 관련 별도 표기(육아휴직 등 장기 미근무)
   department           String?
   jobGroup             String? // 직군 (원장 | CM | TM | 코디)
   position             String? // 직급 (인턴매니저, 주임교실장 등)

@@ -8,13 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Search, Trash2, PenLine, Users, UserCheck, UserX, Building2, Upload } from "lucide-react";
+import { Plus, Search, Trash2, PenLine, Users, UserCheck, UserX, Building2, Upload, Download } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 type Employee = {
   id: string;
+  empNo: number | null;
   name: string;
   email: string;
   role: string;
@@ -408,6 +409,9 @@ export default function EmployeesPage() {
           <div className="flex items-center justify-between">
             <CardTitle>직원 관리</CardTitle>
             <div className="flex gap-2">
+              <a href="/api/employees/export" className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                <Download size={16} /> 엑셀 다운로드
+              </a>
               <Dialog open={bulkUploadOpen} onOpenChange={setBulkUploadOpen}>
                 <DialogTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
                   <Upload size={16} /> 엑셀 업로드
@@ -676,6 +680,7 @@ export default function EmployeesPage() {
               <table className="w-full text-sm">
                 <thead className="border-b bg-gray-50">
                   <tr>
+                    <th className="px-6 py-3 text-left font-medium text-gray-700">사원번호</th>
                     <th className="px-6 py-3 text-left font-medium text-gray-700">이름</th>
                     <th className="px-6 py-3 text-left font-medium text-gray-700">이메일</th>
                     <th className="px-6 py-3 text-left font-medium text-gray-700">역할</th>
@@ -689,6 +694,7 @@ export default function EmployeesPage() {
                 <tbody>
                   {filteredEmployees.map(emp => (
                     <tr key={emp.id} className="border-b hover:bg-gray-50">
+                      <td className="px-6 py-4 font-mono text-gray-500">{emp.empNo ?? "-"}</td>
                       <td className="px-6 py-4 font-medium">{emp.name}</td>
                       <td className="px-6 py-4 text-gray-600">{emp.email}</td>
                       <td className="px-6 py-4">

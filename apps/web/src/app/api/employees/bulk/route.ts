@@ -85,12 +85,16 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 사원번호: 순차 발급(1001~)
+        const maxNo = (await prisma.user.aggregate({ _max: { empNo: true } }))._max.empNo ?? 1000;
+        const empNo = Math.max(1000, maxNo) + 1;
         // 직원 생성
         const user = await prisma.user.create({
           data: {
             name: row.name,
             email: row.email,
             password: hashedPassword,
+            empNo,
             phone: row.phone || null,
             department: row.department || null,
             branch: normalizedBranch,
