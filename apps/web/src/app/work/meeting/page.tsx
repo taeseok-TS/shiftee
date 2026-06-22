@@ -88,6 +88,7 @@ export default function WorkMeetingPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteIds, setInviteIds] = useState<string[]>([]);
   const [inviteSearch, setInviteSearch] = useState("");
+  const [videoCollapsed, setVideoCollapsed] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -120,12 +121,7 @@ export default function WorkMeetingPage() {
     return () => clearInterval(t);
   }, [active]);
 
-  // 화상회의 화면에서 큐브티워크 사이드바 접기/펼치기 토글
-  function toggleSidebar() {
-    const n = localStorage.getItem("work_sidebar_collapsed") !== "1";
-    localStorage.setItem("work_sidebar_collapsed", n ? "1" : "0");
-    window.dispatchEvent(new Event("work-sidebar-changed"));
-  }
+  // 회의(jitsi) 영역 접기/펼치기 — iframe은 유지(연결 끊김 방지)하고 화면만 접음
 
   async function createMeeting() {
     const res = await fetch("/api/work/meetings", {
@@ -224,7 +220,7 @@ export default function WorkMeetingPage() {
       <div className="h-screen flex flex-col">
         <div className="px-6 py-3 border-b bg-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <button onClick={toggleSidebar} title="사이드바 접기/펼치기" className="p-1.5 rounded hover:bg-gray-100 text-gray-500"><PanelLeft size={16} /></button>
+            <button onClick={() => setVideoCollapsed((v) => !v)} title={videoCollapsed ? "회의 화면 펼치기" : "회의 화면 접기"} className="p-1.5 rounded hover:bg-gray-100 text-gray-500"><PanelLeft size={16} /></button>
             <Video size={18} className="text-indigo-500" />
             <span className="font-semibold">{active.title}</span>
             <span className="text-xs text-gray-400">방: {active.room}</span>
@@ -244,12 +240,21 @@ export default function WorkMeetingPage() {
         </div>
         <div className="flex-1 flex min-h-0">
           {isSecure ? (
-            <iframe
-              src={src}
-              allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-              className="flex-1 w-full border-0"
-              title={active.title}
-            />
+            <>
+              <iframe
+                src={src}
+                allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
+                className={videoCollapsed ? "hidden" : "flex-1 w-full border-0"}
+                title={active.title}
+              />
+              {videoCollapsed && (
+                <div className="flex-1 flex flex-col items-center justify-center bg-gray-900 text-gray-300 gap-3">
+                  <PanelLeft size={32} className="text-gray-500" />
+                  <p className="text-sm">회의 화면을 접었습니다. (회의는 계속 연결되어 있어요)</p>
+                  <Button variant="outline" size="sm" onClick={() => setVideoCollapsed(false)}>회의 화면 펼치기</Button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-gray-900 text-center px-6">
               <Video size={40} className="text-indigo-400 mb-4" />

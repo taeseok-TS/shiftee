@@ -61,6 +61,8 @@ export default function WorkChatPage() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashChannels, setTrashChannels] = useState<TrashChannel[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [myName, setMyName] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [memberViewOpen, setMemberViewOpen] = useState(false);
   const [viewMembers, setViewMembers] = useState<ChannelMember[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -108,7 +110,7 @@ export default function WorkChatPage() {
   useEffect(() => {
     fetchChannels();
     fetch("/api/employees").then(r => r.ok ? r.json() : { employees: [] }).then(d => setEmployees(d.employees || [])).catch(() => {});
-    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d?.user) setIsAdmin(d.user.role === "ADMIN"); }).catch(() => {});
+    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d?.user) { setIsAdmin(d.user.role === "ADMIN"); setMyName(d.user.name || ""); } }).catch(() => {});
   }, [fetchChannels]);
 
   // 활성 채널 진입 시 메시지 로드 + 읽음 처리
@@ -203,9 +205,23 @@ export default function WorkChatPage() {
   async function uploadAndSend(file: File) {
     const fd = new FormData();
     fd.append("file", file);
-    const up = await fetch("/api/work/upload", { method: "POST", body: fd });
-    const upData = await up.json();
-    if (!up.ok) { toast.error(upData.error || "업로드 실패"); return; }
+    setUploadProgress(0);
+    // 진행률 표시를 위해 XHR 사용 (fetch는 업로드 진행 이벤트 미지원)
+    const upData: any = await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/work/upload");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        try { const j = JSON.parse(xhr.responseText); resolve(xhr.status >= 200 && xhr.status < 300 ? j : { _error: j.error }); }
+        catch { resolve({ _error: "업로드 실패" }); }
+      };
+      xhr.onerror = () => resolve({ _error: "네트워크 오류" });
+      xhr.send(fd);
+    });
+    setUploadProgress(null);
+    if (!upData || upData._error) { toast.error(upData?._error || "업로드 실패"); return; }
     await fetch(`/api/work/channels/${activeId}/messages`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "", fileUrl: upData.fileUrl, fileName: upData.fileName, fileType: upData.fileType }),
@@ -438,7 +454,10 @@ export default function WorkChatPage() {
       {/* 채널 목록 */}
       <div className="w-72 border-r bg-white flex flex-col">
         <div className="px-4 py-4 border-b flex items-center justify-between">
-          <h2 className="font-bold text-lg">채팅</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="font-bold text-lg">채팅</h2>
+            {myName && <span className="text-xs text-indigo-700 bg-indigo-50 rounded-full px-2 py-0.5 truncate">{myName}님</span>}
+          </div>
           <div className="flex items-center">
             <Button size="sm" variant="ghost" onClick={openTrash} className="gap-1 text-gray-400 hover:text-gray-700" title="휴지통"><Trash2 size={16} /></Button>
             <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1" title="새 채팅"><Plus size={16} /></Button>
@@ -596,6 +615,18 @@ export default function WorkChatPage() {
               )}
               {typingUser && <div className="text-xs text-gray-400 italic mt-1">{typingUser}님이 입력 중…</div>}
             </div>
+
+            {/* 파일 업로드 진행률 */}
+            {uploadProgress !== null && (
+              <div className="px-4 pt-2 bg-white border-t">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                  <Paperclip size={12} /> 파일 업로드 중… <b className="text-indigo-600">{uploadProgress}%</b>
+                </div>
+                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                </div>
+              </div>
+            )}
 
             <div className="px-4 py-3 border-t bg-white flex gap-2 items-center relative">
               {/* @멘션 자동완성 드롭다운 */}
