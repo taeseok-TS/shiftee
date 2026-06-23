@@ -40,10 +40,17 @@ type EmpBalance = {
   branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
+type LineStep = { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } };
 type LineUser = {
   id: string; name: string; department: string | null; position: string | null; branch?: string | null;
-  approvalLine: { steps: { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } }[] } | null;
+  approvalLine: { steps: LineStep[] } | null;
+  approvalLines?: { id: string; purpose: string; steps: LineStep[] }[];
 };
+const LINE_PURPOSES = [
+  { key: "CONTRACT", label: "결재라인1", desc: "전자계약" },
+  { key: "LEAVE_2PLUS", label: "결재라인2", desc: "연차 2일 이상" },
+  { key: "LEAVE_SHORT", label: "결재라인3", desc: "단기휴가(1일·반차·반반차)" },
+];
 type AllUser  = { id: string; name: string; department: string | null; position: string | null; branch?: string | null };
 type MyStep   = {
   id: string; order: number;
@@ -136,6 +143,7 @@ export default function LeavePage() {
   const [allUsers, setAllUsers]     = useState<AllUser[]>([]);
   const [lineEditOpen, setLineEditOpen]   = useState(false);
   const [lineEditTarget, setLineEditTarget] = useState<LineUser | null>(null);
+  const [lineEditPurpose, setLineEditPurpose] = useState("LEAVE_2PLUS"); // 편집 중인 결재라인 용도
   const [lineSteps, setLineSteps]   = useState<AllUser[]>([]); // 편집 중인 결재자 목록
   const [userSearch, setUserSearch] = useState("");
 
@@ -276,9 +284,11 @@ export default function LeavePage() {
   }
 
   /* ── 결재라인 편집 열기 ── */
-  function openLineEdit(emp: LineUser) {
+  function openLineEdit(emp: LineUser, purpose: string) {
     setLineEditTarget(emp);
-    setLineSteps(emp.approvalLine?.steps.map(s => s.approver as AllUser) ?? []);
+    setLineEditPurpose(purpose);
+    const line = emp.approvalLines?.find(l => l.purpose === purpose);
+    setLineSteps(line?.steps.map(s => s.approver as AllUser) ?? []);
     setUserSearch("");
     setLineEditOpen(true);
   }
@@ -288,7 +298,7 @@ export default function LeavePage() {
     if (!lineEditTarget) return;
     const res = await fetch(`/api/approval-line/${lineEditTarget.id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approverIds: lineSteps.map(u => u.id) }),
+      body: JSON.stringify({ approverIds: lineSteps.map(u => u.id), purpose: lineEditPurpose }),
     });
     if (!res.ok) { toast.error((await res.json()).error); return; }
     toast.success("결재라인이 저장되었습니다.");
@@ -560,14 +570,13 @@ export default function LeavePage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-xs text-gray-500 bg-gray-50/60 text-left">
-                      <th className="px-4 py-3 font-medium">직원</th>
-                      <th className="px-4 py-3 font-medium">결재라인</th>
-                      <th className="px-4 py-3 font-medium w-20"></th>
+                      <th className="px-4 py-3 font-medium w-52">직원</th>
+                      <th className="px-4 py-3 font-medium">결재라인 (용도별)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lineUsers.map(emp => (
-                      <tr key={emp.id} className="border-b last:border-0 hover:bg-gray-50/70">
+                      <tr key={emp.id} className="border-b last:border-0 align-top">
                         <td className="px-4 py-3">
                           <p className="font-medium text-gray-900 flex items-center gap-1">
                             {emp.branch && <span className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{emp.branch}</span>}
@@ -576,27 +585,38 @@ export default function LeavePage() {
                           <p className="text-xs text-gray-400">{emp.department} · {emp.position}</p>
                         </td>
                         <td className="px-4 py-3">
-                          {emp.approvalLine && emp.approvalLine.steps.length > 0 ? (
-                            <div className="flex items-center gap-1 flex-wrap">
-                              {emp.approvalLine.steps.map((s, i) => (
-                                <span key={s.order} className="flex items-center gap-1 text-xs">
-                                  {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
-                                  <span className="bg-blue-50 border border-blue-200 text-blue-700 rounded px-1.5 py-0.5">
-                                    {s.order}차. {s.approver.branch ? `[${s.approver.branch}] ` : ""}{s.approver.name}
-                                    {s.approver.position && <span className="text-blue-400 ml-1">({s.approver.position})</span>}
+                          <div className="space-y-2">
+                            {LINE_PURPOSES.map(lp => {
+                              const line = emp.approvalLines?.find(l => l.purpose === lp.key);
+                              const steps = line?.steps ?? [];
+                              return (
+                                <div key={lp.key} className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[11px] font-medium text-gray-500 w-40 shrink-0">
+                                    {lp.label} <span className="text-gray-400">· {lp.desc}</span>
                                   </span>
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-400">미설정 (관리자 직접 승인)</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-400 hover:text-gray-700"
-                            onClick={() => openLineEdit(emp)}>
-                            <Pencil size={12} />설정
-                          </Button>
+                                  {steps.length > 0 ? (
+                                    <div className="flex items-center gap-1 flex-wrap flex-1">
+                                      {steps.map((s, i) => (
+                                        <span key={s.order} className="flex items-center gap-1 text-xs">
+                                          {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
+                                          <span className="bg-blue-50 border border-blue-200 text-blue-700 rounded px-1.5 py-0.5">
+                                            {s.order}차. {s.approver.branch ? `[${s.approver.branch}] ` : ""}{s.approver.name}
+                                            {s.approver.position && <span className="text-blue-400 ml-1">({s.approver.position})</span>}
+                                          </span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-400 flex-1">미설정</span>
+                                  )}
+                                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-400 hover:text-gray-700 shrink-0"
+                                    onClick={() => openLineEdit(emp, lp.key)}>
+                                    <Pencil size={12} />설정
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -862,10 +882,10 @@ export default function LeavePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitBranch size={18} />
-              결재라인 설정 — {lineEditTarget?.name}
-              {lineEditTarget?.department && (
-                <span className="text-sm font-normal text-gray-400">({lineEditTarget.department})</span>
-              )}
+              {LINE_PURPOSES.find(p => p.key === lineEditPurpose)?.label || "결재라인"} 설정 — {lineEditTarget?.name}
+              <span className="text-sm font-normal text-gray-400">
+                ({LINE_PURPOSES.find(p => p.key === lineEditPurpose)?.desc})
+              </span>
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">

@@ -41,9 +41,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "필수 정보가 부족합니다." }, { status: 400 });
   }
 
-  // 사용자의 결재라인 조회
+  // 사용자의 결재라인 조회 (근무일정 신청은 연차 2일+ 라인 사용)
   const approvalLine = await prisma.approvalLine.findUnique({
-    where: { userId: session.userId },
+    where: { userId_purpose: { userId: session.userId, purpose: "LEAVE_2PLUS" } },
     include: {
       steps: {
         include: { approver: { select: { id: true, name: true } } },

@@ -120,8 +120,10 @@ export async function POST(request: NextRequest) {
   });
 
   // 결재라인이 설정된 경우 결재 스텝 생성
-  const approvalLine = await prisma.approvalLine.findUnique({
-    where: { userId: session.userId },
+  // 휴가 일수에 따라 라인 선택: 2일 이상 → LEAVE_2PLUS, 그 외(1일/반차/반반차) → LEAVE_SHORT
+  const linePurpose = days >= 2 ? "LEAVE_2PLUS" : "LEAVE_SHORT";
+  let approvalLine = await prisma.approvalLine.findUnique({
+    where: { userId_purpose: { userId: session.userId, purpose: linePurpose } },
     include: {
       steps: {
         orderBy: { order: "asc" },
@@ -129,6 +131,18 @@ export async function POST(request: NextRequest) {
       },
     },
   });
+  // 해당 용도 라인이 없으면 연차(2일+) 라인으로 폴백
+  if (!approvalLine || approvalLine.steps.length === 0) {
+    approvalLine = await prisma.approvalLine.findUnique({
+      where: { userId_purpose: { userId: session.userId, purpose: "LEAVE_2PLUS" } },
+      include: {
+        steps: {
+          orderBy: { order: "asc" },
+          include: { approver: { select: { id: true, name: true, email: true } } },
+        },
+      },
+    });
+  }
   if (approvalLine && approvalLine.steps.length > 0) {
     await prisma.leaveApprovalStep.createMany({
       data: approvalLine.steps.map((step, i) => ({

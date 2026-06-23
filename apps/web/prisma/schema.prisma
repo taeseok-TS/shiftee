@@ -38,7 +38,7 @@ model User {
   leaveBalance          LeaveBalance?
   contracts             Contract[]
   approvedLeaves        LeaveRequest[]         @relation("Approver")
-  approvalLine          ApprovalLine?          @relation("ApprovalLineTarget")
+  approvalLines         ApprovalLine[]         @relation("ApprovalLineTarget")
   approvalLineSteps     ApprovalLineStep[]     @relation("ApprovalLineApprover")
   leaveApprovalSteps    LeaveApprovalStep[]    @relation("LeaveApprovalApprover")
   scheduleApprovalSteps ScheduleApprovalStep[] @relation("ScheduleApprovalApprover")
@@ -283,11 +283,14 @@ model ContractApprovalStep {
 // ─── 결재 라인 ──────────────────────────────────────────────
 model ApprovalLine {
   id        String             @id @default(cuid())
-  userId    String             @unique
+  userId    String
+  purpose   String             @default("LEAVE_2PLUS") // CONTRACT(전자계약) | LEAVE_2PLUS(연차2일+) | LEAVE_SHORT(단기휴가)
   user      User               @relation("ApprovalLineTarget", fields: [userId], references: [id])
   steps     ApprovalLineStep[]
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
+
+  @@unique([userId, purpose])
 }
 
 model ApprovalLineStep {

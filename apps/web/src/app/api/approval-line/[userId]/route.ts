@@ -13,7 +13,8 @@ export async function PUT(
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const { userId } = await params;
-  const { approverIds } = await req.json();
+  const { approverIds, purpose: rawPurpose } = await req.json();
+  const purpose = ["CONTRACT", "LEAVE_2PLUS", "LEAVE_SHORT"].includes(rawPurpose) ? rawPurpose : "LEAVE_2PLUS";
 
   if (!Array.isArray(approverIds))
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
@@ -31,15 +32,15 @@ export async function PUT(
 
   await prisma.$transaction(async (tx: any) => {
     if (approverIds.length === 0) {
-      // 결재라인 삭제
-      await tx.approvalLine.deleteMany({ where: { userId } });
+      // 해당 용도 결재라인 삭제
+      await tx.approvalLine.deleteMany({ where: { userId, purpose } });
       return;
     }
 
-    // upsert ApprovalLine
+    // upsert ApprovalLine (용도별)
     const line = await tx.approvalLine.upsert({
-      where: { userId },
-      create: { userId },
+      where: { userId_purpose: { userId, purpose } },
+      create: { userId, purpose },
       update: { updatedAt: new Date() },
     });
 
