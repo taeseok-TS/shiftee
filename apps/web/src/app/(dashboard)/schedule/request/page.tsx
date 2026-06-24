@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, Calendar, AlertCircle, ChevronRight } from "lucide-react";
+import { Loader2, Calendar, ChevronRight } from "lucide-react";
 import { format, eachDayOfInterval, isWeekend, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -16,16 +16,6 @@ type ScheduleTemplate = {
   startTime: string;
   endTime: string;
   hours: number;
-};
-
-type ApprovalLineStep = {
-  id: string;
-  order: number;
-  approver: {
-    id: string;
-    name: string;
-    position: string | null;
-  };
 };
 
 /* ── 근무 템플릿 (출근 8AM~1PM, 9시간 근무 기본) ── */
@@ -80,16 +70,19 @@ export default function ScheduleRequestPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
-  const [approvalLine, setApprovalLine] = useState<ApprovalLineStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [myId, setMyId] = useState("");
+  const [myRole, setMyRole] = useState("");
   // 날짜별 승인된 휴가 비율 (1=종일, 0.5=반차, 0.25=반반차)
   const [leaveMap, setLeaveMap] = useState<Record<string, number>>({});
 
-  // 본인 ID 조회
+  // 본인 ID/역할 조회
   useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => setMyId(d.user?.id || "")).catch(() => {});
+    fetch("/api/auth/me").then(r => r.json()).then(d => {
+      setMyId(d.user?.id || "");
+      setMyRole(d.user?.role || "");
+    }).catch(() => {});
   }, []);
 
   // 선택 기간의 승인된 휴가 조회 → 날짜별 차감 비율 맵 생성
@@ -114,22 +107,6 @@ export default function ScheduleRequestPage() {
       })
       .catch(() => setLeaveMap({}));
   }, [startDate, myId]);
-
-  // 사용자의 결재라인 조회
-  useEffect(() => {
-    const fetchApprovalLine = async () => {
-      try {
-        const res = await fetch("/api/approval-line");
-        if (res.ok) {
-          const data = await res.json();
-          setApprovalLine(data.line?.steps || []);
-        }
-      } catch (error) {
-        console.error("결재라인 조회 오류:", error);
-      }
-    };
-    fetchApprovalLine();
-  }, []);
 
   // 날짜 범위의 모든 평일 계산
   const calculateWeekdays = useCallback(() => {
@@ -170,6 +147,27 @@ export default function ScheduleRequestPage() {
     Array.from(selectedDates).reduce((acc, d) => acc + (leaveMap[d] || 0) * dailyNet, 0) * 10
   ) / 10;                                                  // 휴가 차감시간
   const totalHours = Math.round((selectedDates.size * dailyNet - leaveDeduction) * 10) / 10;
+
+  // 선택 날짜에 주말(토/일) 근무가 포함되는지 (결재 정책 분기 기준)
+  const hasWeekendSel = Array.from(selectedDates).some(d => {
+    const [y, m, dd] = d.split("-").map(Number);
+    if (!y || !m || !dd) return false;
+    const dow = new Date(y, m - 1, dd).getDay();
+    return dow === 0 || dow === 6;
+  });
+
+  // 역할/지점 기반 결재 정책 미리보기 (서버 정책과 동일)
+  const policyPreview: { label: string; sub: string }[] =
+    myRole === "MANAGER"
+      ? [{ label: "관리자", sub: "본사 관리자" }]
+      : myRole === "ADMIN"
+      ? [{ label: "관리자", sub: "다른 관리자" }]
+      : hasWeekendSel
+      ? [
+          { label: "소속 지점 원장", sub: "지점에 원장이 없으면 관리자에게 전달" },
+          { label: "관리자", sub: "본사 관리자" },
+        ]
+      : [{ label: "소속 지점 원장", sub: "지점에 원장이 없으면 관리자에게 전달" }];
 
   // 날짜 미선택 시에도 안전한 포맷 (빈 값이면 "-" 표시)
   const fmtDate = (value: string, pattern: string) =>
@@ -477,29 +475,25 @@ export default function ScheduleRequestPage() {
               <CardTitle>결재라인 확인</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {approvalLine.length === 0 ? (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-2 text-red-700">
-                  <AlertCircle size={16} />
-                  <span>결재라인이 설정되지 않았습니다. 관리자에게 문의해주세요.</span>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {approvalLine.map((step, idx) => (
-                    <div key={step.id} className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{step.approver.name}</div>
-                        <div className="text-sm text-gray-600">{step.approver.position || "직책 미정"}</div>
-                      </div>
-                      {idx < approvalLine.length - 1 && (
-                        <ChevronRight className="text-gray-400" />
-                      )}
+              <div className="space-y-4">
+                {policyPreview.map((p, idx) => (
+                  <div key={idx} className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                      {idx + 1}
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">{p.label}</div>
+                      <div className="text-sm text-gray-600">{p.sub}</div>
+                    </div>
+                    {idx < policyPreview.length - 1 && (
+                      <ChevronRight className="text-gray-400" />
+                    )}
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400">
+                  {hasWeekendSel ? "주말 근무가 포함되어" : "평일 근무만 신청하여"} 위 순서로 결재됩니다.
+                </p>
+              </div>
 
               {/* 신청 요약 */}
               <div className="bg-gray-50 p-4 rounded-lg space-y-2">
@@ -518,7 +512,7 @@ export default function ScheduleRequestPage() {
                 </Button>
                 <Button
                   onClick={() => setConfirmOpen(true)}
-                  disabled={approvalLine.length === 0}
+                  disabled={selectedDates.size === 0}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   신청하기
@@ -548,7 +542,7 @@ export default function ScheduleRequestPage() {
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
               <p className="text-sm text-amber-800">
-                다음 결재자에게 요청이 전달됩니다: {approvalLine[0]?.approver.name}
+                다음 결재자에게 요청이 전달됩니다: {policyPreview[0]?.label}
               </p>
             </div>
 

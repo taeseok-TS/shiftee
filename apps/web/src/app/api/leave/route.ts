@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
-import { sendLeaveApprovalRequest } from "@/lib/email";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
@@ -119,69 +118,50 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  // 결재라인이 설정된 경우 결재 스텝 생성
-  // 휴가 일수에 따라 라인 선택: 2일 이상 → LEAVE_2PLUS, 그 외(1일/반차/반반차) → LEAVE_SHORT
-  const linePurpose = days >= 2 ? "LEAVE_2PLUS" : "LEAVE_SHORT";
-  let approvalLine = await prisma.approvalLine.findUnique({
-    where: { userId_purpose: { userId: session.userId, purpose: linePurpose } },
-    include: {
-      steps: {
-        orderBy: { order: "asc" },
-        include: { approver: { select: { id: true, name: true, email: true } } },
-      },
-    },
+  // ── 역할/지점 기반 자동 결재 정책 ──
+  //  2일 이상: 직원 → [소속 지점 원장 → 관리자],  원장 → [관리자]
+  //  1일 이하: 직원 → [소속 지점 원장],          원장 → [관리자]
+  //  관리자 본인: 다른 관리자 1명 결재(없으면 자동 승인)
+  const submitter = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { role: true, branch: true },
   });
-  // 해당 용도 라인이 없으면 연차(2일+) 라인으로 폴백
-  if (!approvalLine || approvalLine.steps.length === 0) {
-    approvalLine = await prisma.approvalLine.findUnique({
-      where: { userId_purpose: { userId: session.userId, purpose: "LEAVE_2PLUS" } },
-      include: {
-        steps: {
-          orderBy: { order: "asc" },
-          include: { approver: { select: { id: true, name: true, email: true } } },
-        },
-      },
-    });
+  const adminStep = { approverRole: "ADMIN", branch: null as string | null };
+  const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
+  const hasBranchManager = submitter?.branch
+    ? (await prisma.user.count({ where: { role: "MANAGER", branch: submitter.branch, isActive: true } })) > 0
+    : false;
+
+  let policySteps: { approverRole: string; branch: string | null }[] = [];
+  if (submitter?.role === "MANAGER") {
+    policySteps = [adminStep];
+  } else if (submitter?.role === "ADMIN") {
+    const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
+    policySteps = otherAdmins > 0 ? [adminStep] : [];
+  } else {
+    if (days >= 2) policySteps = hasBranchManager ? [managerStep, adminStep] : [adminStep];
+    else policySteps = hasBranchManager ? [managerStep] : [adminStep];
   }
-  if (approvalLine && approvalLine.steps.length > 0) {
+
+  if (policySteps.length > 0) {
     await prisma.leaveApprovalStep.createMany({
-      data: approvalLine.steps.map((step, i) => ({
+      data: policySteps.map((s, i) => ({
         leaveRequestId: leaveRequest.id,
-        order:          step.order,
-        approverId:     step.approverId,
-        status:         i === 0 ? "PENDING" : "WAITING",
+        order: i + 1,
+        approverRole: s.approverRole,
+        branch: s.branch,
+        status: i === 0 ? "PENDING" : "WAITING",
       })),
     });
-
-    // 첫 번째 승인자에게 이메일 발송
-    const firstApprover = approvalLine.steps[0].approver;
-    if (firstApprover) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-      const leaveTypeLabel: Record<string, string> = {
-        ANNUAL: "연차",
-        SICK: "병가",
-        PERSONAL: "개인휴가",
-        MATERNITY: "출산휴가",
-        BEREAVEMENT: "상주휴가",
-        HALF_AM: "오전 반차",
-        HALF_PM: "오후 반차",
-        QUARTER_AM: "오전 1/4 휴가",
-        QUARTER_PM: "오후 1/4 휴가",
-      };
-      const leaveTypeStr = leaveTypeLabel[type] || type;
-      const startDateStr = start.toISOString().split('T')[0];
-      const endDateStr = end.toISOString().split('T')[0];
-
-      await sendLeaveApprovalRequest(
-        firstApprover.email,
-        firstApprover.name,
-        session.name,
-        leaveTypeStr,
-        startDateStr,
-        endDateStr,
-        reason || "",
-        appUrl
-      );
+  } else {
+    // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인
+    await prisma.leaveRequest.update({ where: { id: leaveRequest.id }, data: { status: "APPROVED", approverId: session.userId } });
+    if (isLeaveDeductible(type)) {
+      await prisma.leaveBalance.upsert({
+        where: { userId: session.userId },
+        create: { userId: session.userId, year: new Date().getFullYear(), total: 15, used: days, remaining: 15 - days },
+        update: { used: { increment: days }, remaining: { decrement: days } },
+      });
     }
   }
 

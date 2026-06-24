@@ -21,8 +21,18 @@ type ApprovalStep = {
   id: string;
   order: number;
   status: string;
-  approver: { id: string; name: string; position: string | null };
+  approver: { id: string; name: string; position: string | null } | null;
+  approverRole?: string | null;
+  branch?: string | null;
 };
+
+// 역할/지점 기반 단계는 승인 전까지 approver가 null → 역할 라벨로 표시
+function stepLabel(s: ApprovalStep): string {
+  if (s.approver) return s.approver.name;
+  if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
+  if (s.approverRole === "ADMIN") return "관리자";
+  return "결재자";
+}
 
 type LeaveRequest = {
   id: string;
@@ -368,7 +378,7 @@ export default function ManagerApprovalsPage() {
                                     s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
                                     "bg-gray-100 text-gray-600"
                                   }`}>
-                                    {s.approver.name}
+                                    {stepLabel(s)}
                                   </span>
                                 </span>
                               ))}
@@ -480,7 +490,7 @@ export default function ManagerApprovalsPage() {
                                     s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
                                     "bg-gray-100 text-gray-600"
                                   }`}>
-                                    {s.approver.name}
+                                    {stepLabel(s)}
                                   </span>
                                 </span>
                               ))}

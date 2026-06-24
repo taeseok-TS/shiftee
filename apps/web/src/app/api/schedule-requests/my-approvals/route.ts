@@ -9,8 +9,12 @@ export async function GET() {
 
   const steps = await prisma.scheduleApprovalStep.findMany({
     where: {
-      approverId: session.userId,
       status: "PENDING",
+      OR: [
+        { approverId: session.userId }, // 레거시 고정 결재자
+        ...(session.role === "ADMIN" ? [{ approverRole: "ADMIN" }] : []),
+        ...(session.role === "MANAGER" ? [{ approverRole: "MANAGER", branch: session.branch }] : []),
+      ],
     },
     include: {
       scheduleRequest: {

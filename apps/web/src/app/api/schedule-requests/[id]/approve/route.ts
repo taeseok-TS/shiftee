@@ -1,33 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-
-type ScheduleEntry = { date: string; startTime?: string; endTime?: string };
-
-// 최종 승인된 신청의 scheduleData를 실제 근무일정(Schedule)으로 생성
-async function materializeSchedules(
-  tx: Pick<typeof prisma, "schedule">,
-  req: { id: string; userId: string; scheduleData: unknown; templateName: string | null }
-) {
-  const entries = (Array.isArray(req.scheduleData) ? req.scheduleData : []) as ScheduleEntry[];
-  for (const entry of entries) {
-    if (!entry?.date) continue;
-    const date = new Date(entry.date);
-    if (isNaN(date.getTime())) continue;
-    // 같은 날짜의 기존 일정은 승인된 일정으로 대체
-    await tx.schedule.deleteMany({ where: { userId: req.userId, date } });
-    await tx.schedule.create({
-      data: {
-        userId: req.userId,
-        date,
-        startTime: entry.startTime || "09:00",
-        endTime: entry.endTime || "18:00",
-        type: "WORK",
-        note: req.templateName ? `근무일정 승인 (${req.templateName})` : "근무일정 승인",
-      },
-    });
-  }
-}
+import { materializeSchedules } from "@/lib/schedule-materialize";
 
 export async function POST(
   request: NextRequest,
@@ -57,10 +31,13 @@ export async function POST(
   const steps = scheduleRequest.approvalSteps;
 
   if (steps.length > 0) {
-    // 내가 결재해야 할 PENDING 스텝 찾기
-    const myStep = steps.find(
-      (s) => s.approverId === session.userId && s.status === "PENDING"
-    );
+    // 내가 결재해야 할 PENDING 스텝 찾기 (역할/지점 기반)
+    const myStep = steps.find((s) => {
+      if (s.status !== "PENDING") return false;
+      if (s.approverRole === "ADMIN") return session.role === "ADMIN";
+      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && session.branch === s.branch;
+      return s.approverId === session.userId;
+    });
 
     // 관리자가 아니고 결재 차례도 아닌 경우
     if (!myStep && session.role === "EMPLOYEE") {
@@ -85,6 +62,7 @@ export async function POST(
         where: { id: myStep!.id },
         data: {
           status: action === "approve" ? "APPROVED" : "REJECTED",
+          approverId: session.userId, // 실제 결재자 기록
           comment: reason ?? null,
           decidedAt: new Date(),
         },

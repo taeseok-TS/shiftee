@@ -23,7 +23,8 @@ import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 /* ── 타입 ── */
 type ApprovalStepInfo = {
   id: string; order: number; status: string;
-  approver: { id: string; name: string; position: string | null };
+  approver: { id: string; name: string; position: string | null } | null;
+  approverRole?: string | null; branch?: string | null;
   comment?: string | null;
 };
 type LeaveRequest = {
@@ -92,6 +93,12 @@ function calcWorkdays(start: string, end: string, type: string) {
 }
 
 /* ── 결재 진행 뱃지 ── */
+function stepLabel(s: ApprovalStepInfo) {
+  if (s.approver) return s.approver.name;
+  if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
+  if (s.approverRole === "ADMIN") return "관리자";
+  return "결재자";
+}
 function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
   if (!steps || steps.length === 0) return null;
   return (
@@ -102,7 +109,7 @@ function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
           <span key={s.id} className="flex items-center gap-1 text-xs">
             {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-            <span className="text-gray-600">{s.approver.name}</span>
+            <span className="text-gray-600">{stepLabel(s)}</span>
             <span className={`text-[10px] ${s.status === "APPROVED" ? "text-green-600" : s.status === "REJECTED" ? "text-red-500" : s.status === "PENDING" ? "text-amber-600" : "text-gray-400"}`}>
               ({cfg.label})
             </span>

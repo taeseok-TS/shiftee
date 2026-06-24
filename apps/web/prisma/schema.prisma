@@ -148,8 +148,10 @@ model ScheduleApprovalStep {
   scheduleRequestId String
   scheduleRequest   ScheduleRequest    @relation(fields: [scheduleRequestId], references: [id], onDelete: Cascade)
   order             Int
-  approverId        String
-  approver          User               @relation("ScheduleApprovalApprover", fields: [approverId], references: [id])
+  approverId        String? // 실제 결재한 사람(역할기반 단계는 승인 시 기록). null=아직 미결
+  approver          User?              @relation("ScheduleApprovalApprover", fields: [approverId], references: [id])
+  approverRole      String? // 이 단계를 결재할 역할: MANAGER | ADMIN (역할 기반 정책)
+  branch            String? // MANAGER 단계일 때 해당 지점
   status            ApprovalStepStatus @default(PENDING)
   comment           String?
   decidedAt         DateTime?
@@ -310,8 +312,10 @@ model LeaveApprovalStep {
   leaveRequestId String
   leaveRequest   LeaveRequest       @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
   order          Int
-  approverId     String
-  approver       User               @relation("LeaveApprovalApprover", fields: [approverId], references: [id])
+  approverId     String? // 실제 결재한 사람(역할기반 단계는 승인 시 기록). null=아직 미결
+  approver       User?              @relation("LeaveApprovalApprover", fields: [approverId], references: [id])
+  approverRole   String? // 이 단계를 결재할 역할: MANAGER | ADMIN (역할 기반 정책)
+  branch         String? // MANAGER 단계일 때 해당 지점
   status         ApprovalStepStatus @default(PENDING)
   comment        String?
   decidedAt      DateTime?

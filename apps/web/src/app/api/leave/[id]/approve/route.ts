@@ -36,9 +36,12 @@ export async function POST(
   // ── 결재라인이 있는 경우: 단계별 처리 ──────────────────────
   if (steps.length > 0) {
     // 내가 결재해야 할 PENDING 스텝 찾기
-    const myStep = steps.find(
-      (s) => s.approverId === session.userId && s.status === "PENDING"
-    );
+    const myStep = steps.find((s) => {
+      if (s.status !== "PENDING") return false;
+      if (s.approverRole === "ADMIN") return session.role === "ADMIN";
+      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && session.branch === s.branch;
+      return s.approverId === session.userId;
+    });
 
     // 관리자가 아니고 결재 차례도 아닌 경우
     if (!myStep && session.role === "EMPLOYEE") {
@@ -62,9 +65,10 @@ export async function POST(
       await tx.leaveApprovalStep.update({
         where: { id: myStep!.id },
         data: {
-          status:    action === "approve" ? "APPROVED" : "REJECTED",
-          comment:   reason ?? null,
-          decidedAt: new Date(),
+          status:     action === "approve" ? "APPROVED" : "REJECTED",
+          approverId: session.userId, // 실제 결재자 기록
+          comment:    reason ?? null,
+          decidedAt:  new Date(),
         },
       });
 

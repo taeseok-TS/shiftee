@@ -23,9 +23,17 @@ import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 /* ── 타입 ── */
 type ApprovalStepInfo = {
   id: string; order: number; status: string;
-  approver: { id: string; name: string; position: string | null };
+  approver: { id: string; name: string; position: string | null } | null;
+  approverRole?: string | null; branch?: string | null;
   comment?: string | null;
 };
+// 역할 기반 단계 라벨: 결재자 미정 시 역할/지점으로 표시
+function stepLabel(s: { approver: { name: string } | null; approverRole?: string | null; branch?: string | null }) {
+  if (s.approver) return s.approver.name;
+  if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
+  if (s.approverRole === "ADMIN") return "관리자";
+  return "결재자";
+}
 type LeaveRequest = {
   id: string; type: string; startDate: string; endDate: string;
   days: number; reason: string | null; status: string;
@@ -110,7 +118,7 @@ function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
           <span key={s.id} className="flex items-center gap-1 text-xs">
             {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-            <span className="text-gray-600">{s.approver.name}</span>
+            <span className="text-gray-600">{stepLabel(s)}</span>
             <span className={`text-[10px] ${s.status === "APPROVED" ? "text-green-600" : s.status === "REJECTED" ? "text-red-500" : s.status === "PENDING" ? "text-amber-600" : "text-gray-400"}`}>
               ({cfg.label})
             </span>
@@ -563,65 +571,29 @@ export default function LeavePage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm text-gray-600 font-medium">
-                  직원별 결재라인을 설정하세요. 설정된 순서대로 순차 결재가 진행됩니다.
+                  결재는 직원별 설정 없이 아래 정책에 따라 <b>자동</b>으로 진행됩니다.
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-gray-500 bg-gray-50/60 text-left">
-                      <th className="px-4 py-3 font-medium w-52">직원</th>
-                      <th className="px-4 py-3 font-medium">결재라인 (용도별)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineUsers.map(emp => (
-                      <tr key={emp.id} className="border-b last:border-0 align-top">
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-gray-900 flex items-center gap-1">
-                            {emp.branch && <span className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{emp.branch}</span>}
-                            {emp.name}
-                          </p>
-                          <p className="text-xs text-gray-400">{emp.department} · {emp.position}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="space-y-2">
-                            {LINE_PURPOSES.map(lp => {
-                              const line = emp.approvalLines?.find(l => l.purpose === lp.key);
-                              const steps = line?.steps ?? [];
-                              return (
-                                <div key={lp.key} className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[11px] font-medium text-gray-500 w-40 shrink-0">
-                                    {lp.label} <span className="text-gray-400">· {lp.desc}</span>
-                                  </span>
-                                  {steps.length > 0 ? (
-                                    <div className="flex items-center gap-1 flex-wrap flex-1">
-                                      {steps.map((s, i) => (
-                                        <span key={s.order} className="flex items-center gap-1 text-xs">
-                                          {i > 0 && <ChevronRight size={10} className="text-gray-300" />}
-                                          <span className="bg-blue-50 border border-blue-200 text-blue-700 rounded px-1.5 py-0.5">
-                                            {s.order}차. {s.approver.branch ? `[${s.approver.branch}] ` : ""}{s.approver.name}
-                                            {s.approver.position && <span className="text-blue-400 ml-1">({s.approver.position})</span>}
-                                          </span>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-gray-400 flex-1">미설정</span>
-                                  )}
-                                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-400 hover:text-gray-700 shrink-0"
-                                    onClick={() => openLineEdit(emp, lp.key)}>
-                                    <Pencil size={12} />설정
-                                  </Button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <CardContent className="space-y-3 text-sm">
+                <div className="rounded-lg border p-4">
+                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />연차 2일 이상 <span className="text-xs font-normal text-gray-400">(연차·병가·예비군·경조사·기타 등)</span></p>
+                  <ul className="space-y-1 text-gray-600">
+                    <li>· <b>직원</b> 신청 → 소속 지점 <b>원장</b> → <b>관리자</b> <span className="text-gray-400">(2단계)</span></li>
+                    <li>· <b>원장</b> 신청 → <b>관리자</b> <span className="text-gray-400">(1단계)</span></li>
+                  </ul>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />1일 이하 <span className="text-xs font-normal text-gray-400">(1일 연차·반차·반반차)</span></p>
+                  <ul className="space-y-1 text-gray-600">
+                    <li>· <b>직원</b> 신청 → 소속 지점 <b>원장</b> <span className="text-gray-400">(1단계)</span></li>
+                    <li>· <b>원장</b> 신청 → <b>관리자</b> <span className="text-gray-400">(1단계)</span></li>
+                  </ul>
+                </div>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  · "관리자" 단계는 메인·서브 관리자 누구나 결재할 수 있습니다.<br />
+                  · 소속 지점에 원장이 없으면 원장 단계는 건너뛰고 관리자에게 바로 전달됩니다.<br />
+                  · 결재 대기 건은 각 결재자의 "내 결재함"에 자동으로 표시됩니다.
+                </p>
               </CardContent>
             </Card>
           </TabsContent>

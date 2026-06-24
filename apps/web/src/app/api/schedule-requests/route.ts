@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { materializeSchedules } from "@/lib/schedule-materialize";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -41,22 +42,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "필수 정보가 부족합니다." }, { status: 400 });
   }
 
-  // 사용자의 결재라인 조회 (근무일정 신청은 연차 2일+ 라인 사용)
-  const approvalLine = await prisma.approvalLine.findUnique({
-    where: { userId_purpose: { userId: session.userId, purpose: "LEAVE_2PLUS" } },
-    include: {
-      steps: {
-        include: { approver: { select: { id: true, name: true } } },
-        orderBy: { order: "asc" },
-      },
-    },
+  // ── 역할/지점 기반 자동 결재 정책 (근무일정) ──
+  //  주말 근무 포함: 연차 2일+ 와 동일 → 직원: 지점원장→관리자, 원장: 관리자
+  //  평일 근무만:    직원: 지점원장(1단계),                원장: 관리자
+  //  관리자 본인: 다른 관리자 1명 결재(없으면 자동 승인)
+  const submitter = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { role: true, branch: true },
   });
 
-  if (!approvalLine || approvalLine.steps.length === 0) {
-    return NextResponse.json(
-      { error: "결재라인이 설정되지 않았습니다. 관리자에게 문의하세요." },
-      { status: 400 }
-    );
+  // scheduleData(날짜 배열)에 토/일 근무가 포함되는지 판별 (서버 시간대 무관하게 달력 날짜로 계산)
+  const hasWeekend = Array.isArray(scheduleData) && scheduleData.some((e: any) => {
+    if (!e?.date || typeof e.date !== "string") return false;
+    const [y, m, d] = e.date.split("-").map(Number);
+    if (!y || !m || !d) return false;
+    const dow = new Date(y, m - 1, d).getDay();
+    return dow === 0 || dow === 6;
+  });
+
+  const adminStep = { approverRole: "ADMIN", branch: null as string | null };
+  const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
+  const hasBranchManager = submitter?.branch
+    ? (await prisma.user.count({ where: { role: "MANAGER", branch: submitter.branch, isActive: true } })) > 0
+    : false;
+
+  let policySteps: { approverRole: string; branch: string | null }[] = [];
+  if (submitter?.role === "MANAGER") {
+    policySteps = [adminStep];
+  } else if (submitter?.role === "ADMIN") {
+    const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
+    policySteps = otherAdmins > 0 ? [adminStep] : [];
+  } else {
+    if (hasWeekend) policySteps = hasBranchManager ? [managerStep, adminStep] : [adminStep];
+    else policySteps = hasBranchManager ? [managerStep] : [adminStep];
   }
 
   try {
@@ -72,21 +90,24 @@ export async function POST(request: NextRequest) {
           endDate: new Date(endDate),
           scheduleData,
           totalHours,
-          status: "PENDING",
+          status: policySteps.length > 0 ? "PENDING" : "APPROVED",
         },
       });
 
-      // 결재 단계 생성
-      const steps = approvalLine.steps.map((step, index) => ({
-        scheduleRequestId: scheduleRequest.id,
-        order: step.order,
-        approverId: step.approverId,
-        status: index === 0 ? "PENDING" : "WAITING",
-      }));
-
-      await tx.scheduleApprovalStep.createMany({
-        data: steps,
-      });
+      if (policySteps.length > 0) {
+        await tx.scheduleApprovalStep.createMany({
+          data: policySteps.map((s, i) => ({
+            scheduleRequestId: scheduleRequest.id,
+            order: i + 1,
+            approverRole: s.approverRole,
+            branch: s.branch,
+            status: i === 0 ? "PENDING" : "WAITING",
+          })),
+        });
+      } else {
+        // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 근무일정 반영
+        await materializeSchedules(tx, scheduleRequest);
+      }
 
       return scheduleRequest;
     });
