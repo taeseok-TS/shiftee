@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import RootNavigator from "./src/navigation/RootNavigator";
+import { AuthProvider } from "./src/context/AuthContext";
 import * as api from "./src/services/api";
 
 export default function App() {
@@ -19,9 +20,9 @@ export default function App() {
   };
 
   return (
-    <>
+    <AuthProvider>
       <StatusBar style="dark" />
       <RootNavigator />
-    </>
+    </AuthProvider>
   );
 }

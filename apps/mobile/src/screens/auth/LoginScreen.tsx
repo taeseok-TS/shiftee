@@ -9,8 +9,10 @@ import {
   Alert,
 } from "react-native";
 import * as auth from "../../services/auth";
+import { useAuth } from "../../context/AuthContext";
 
 export default function LoginScreen() {
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -25,8 +27,8 @@ export default function LoginScreen() {
     try {
       const user = await auth.login(email, password);
       if (user) {
-        Alert.alert("성공", `환영합니다, ${user.name}님!`);
-        // 네비게이터가 자동으로 인증 상태를 감지하여 화면 전환
+        // 로그인 상태 갱신 → RootNavigator가 메인 화면으로 전환
+        signIn();
       } else {
         Alert.alert("로그인 실패", "이메일 또는 비밀번호를 확인해주세요");
       }

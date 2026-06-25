@@ -8,9 +8,11 @@ import {
   ActivityIndicator,
 } from "react-native";
 import * as auth from "../services/auth";
+import { useAuth } from "../context/AuthContext";
 import type { User } from "@shiftee/api";
 
 export default function SettingsScreen({ navigation }: any) {
+  const { signOut } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -36,8 +38,7 @@ export default function SettingsScreen({ navigation }: any) {
         text: "확인",
         onPress: async () => {
           try {
-            await auth.logout();
-            // 네비게이터가 자동으로 로그인 화면으로 이동
+            await signOut(); // 로그아웃 + RootNavigator가 로그인 화면으로 전환
           } catch (error) {
             Alert.alert("오류", "로그아웃 중 오류가 발생했습니다");
           }
