@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
+import { logAudit } from "@/lib/audit";
+
+// 변경 내역 요약(감사 로그용)
+function diffSummary(
+  before: { name: string; role: string; branch: string | null } | null,
+  body: { name?: string; role?: string; branch?: string | null }
+): string {
+  if (!before) return "정보 수정";
+  const c: string[] = [];
+  if (body.name !== undefined && body.name !== before.name) c.push(`이름 ${before.name}→${body.name}`);
+  if (body.role !== undefined && body.role !== before.role) c.push(`권한 ${before.role}→${body.role}`);
+  if (body.branch !== undefined && (body.branch || null) !== before.branch)
+    c.push(`지점 ${before.branch ?? "-"}→${body.branch || "-"}`);
+  return c.length ? c.join(", ") : "정보 수정";
+}
 
 // 직원 정보 수정 (관리자 전용)
 export async function PATCH(
@@ -16,6 +31,9 @@ export async function PATCH(
   const body = await request.json();
   const { name, role, department, jobGroup, position, branch, phone, hireDate } = body;
 
+  // 변경 전 값(감사 로그용)
+  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });
+
   // MANAGER는 자기 지점 구성원만 수정 가능
   if (session.role === "MANAGER") {
     const target = await prisma.user.findUnique({ where: { id }, select: { branch: true } });
@@ -29,6 +47,10 @@ export async function PATCH(
     const updated = await prisma.user.update({
       where: { id },
       data: { name, department, jobGroup: jobGroup ?? null, position, branch: branch || null, phone, hireDate: hireDate ? new Date(hireDate) : undefined },
+    });
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
+      targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
     });
     return NextResponse.json({ success: true, user: updated });
   }
@@ -56,6 +78,11 @@ export async function PATCH(
     },
   });
 
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
+    targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
+  });
+
   return NextResponse.json({ success: true, user: updated });
 }
 
@@ -70,10 +97,14 @@ export async function DELETE(
 
   const { id } = await params;
   // 관리자(ADMIN) 계정 비활성화는 메인 관리자 전용 (관리자 잠금 방지)
-  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, name: true } });
   if (target?.role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
     return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
   }
   await prisma.user.update({ where: { id }, data: { isActive: false } });
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "EMPLOYEE_DELETE",
+    targetType: "USER", targetId: id, targetName: target?.name ?? null, detail: "직원 비활성화",
+  });
   return NextResponse.json({ success: true });
 }

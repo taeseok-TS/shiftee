@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
 
 export async function PATCH(
   request: NextRequest,
@@ -80,6 +81,12 @@ export async function PATCH(
         position: true,
         branch: true,
       },
+    });
+
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESIGN",
+      targetType: "USER", targetId: id, targetName: updated.name,
+      detail: `퇴사 처리 (${resignDate}${resignReason ? ", " + resignReason : ""})`,
     });
 
     return NextResponse.json({

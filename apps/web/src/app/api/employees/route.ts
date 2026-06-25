@@ -3,6 +3,7 @@ import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { filterUserDataArray } from "@/lib/api-response";
+import { logAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
 
 export async function GET() {
@@ -90,6 +91,12 @@ export async function POST(request: NextRequest) {
       year: new Date().getFullYear(),
       total: 15, used: 0, remaining: 15,
     },
+  });
+
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "EMPLOYEE_CREATE",
+    targetType: "USER", targetId: user.id, targetName: user.name,
+    detail: `직원 생성 (${user.role}${finalBranch ? ", " + finalBranch : ""})`,
   });
 
   return NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email } });

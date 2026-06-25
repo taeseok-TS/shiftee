@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(
   request: NextRequest,
@@ -64,6 +65,11 @@ export async function POST(
         resignDate: true,
         employmentStatus: true,
       },
+    });
+
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESTORE",
+      targetType: "USER", targetId: id, targetName: restoredUser.name, detail: "직원 복구",
     });
 
     return NextResponse.json({

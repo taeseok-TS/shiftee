@@ -10,11 +10,12 @@ export async function GET(request: NextRequest) {
   const q = (new URL(request.url).searchParams.get("q") || "").trim();
   if (!q) return NextResponse.json({ results: [] });
 
-  // 접근 가능한 채널: 공개 채널 전체 + 내가 멤버인 DM
+  // 접근 가능한 채널: '전체' 기본 채널 + 내가 멤버인 그룹채널/DM
   const channels = await prisma.workChannel.findMany({
     where: {
       OR: [
-        { type: "CHANNEL" },
+        { isDefault: true },
+        { type: "CHANNEL", members: { some: { userId: session.userId } } },
         { type: "DM", members: { some: { userId: session.userId } } },
       ],
     },

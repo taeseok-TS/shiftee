@@ -7,6 +7,7 @@ import {
   sendLeaveRejectionNotification,
 } from "@/lib/email";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(
   request: NextRequest,
@@ -179,6 +180,12 @@ export async function POST(
       );
     }
 
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "LEAVE_DECISION",
+      targetType: "LEAVE", targetId: id, targetName: requesterName,
+      detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}`,
+    });
+
     return NextResponse.json({ success: true });
   }
 
@@ -280,6 +287,12 @@ async function adminOverride(
       appUrl
     );
   }
+
+  await logAudit({
+    actorId: approverId, actorName: approverName, action: "LEAVE_DECISION",
+    targetType: "LEAVE", targetId: id, targetName: requesterName,
+    detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"} (직접처리)`,
+  });
 
   return NextResponse.json({ success: true });
 }

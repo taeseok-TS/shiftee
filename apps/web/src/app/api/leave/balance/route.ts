@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { tenureLabel, annualLeaveDays } from "@/lib/leave-calc";
+import { logAudit } from "@/lib/audit";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -71,6 +72,12 @@ export async function PATCH(request: NextRequest) {
   const usedVal      = used      ?? 0;
   const remainingVal = total - usedVal;
 
+  // 변경 전 값(감사 로그용)
+  const [prev, targetUser] = await Promise.all([
+    prisma.leaveBalance.findUnique({ where: { userId } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+
   const balance = await prisma.leaveBalance.upsert({
     where:  { userId },
     create: { userId, year: new Date().getFullYear(), total, used: usedVal, remaining: remainingVal },
@@ -81,6 +88,16 @@ export async function PATCH(request: NextRequest) {
   if (leaveNote !== undefined) {
     await prisma.user.update({ where: { id: userId }, data: { leaveNote: leaveNote || null } });
   }
+
+  await logAudit({
+    actorId: session.userId,
+    actorName: session.name,
+    action: "LEAVE_BALANCE_UPDATE",
+    targetType: "USER",
+    targetId: userId,
+    targetName: targetUser?.name ?? null,
+    detail: `연차 총 ${prev?.total ?? "-"}→${total}일, 사용 ${prev?.used ?? "-"}→${usedVal}일`,
+  });
 
   return NextResponse.json({ success: true, balance });
 }

@@ -21,7 +21,8 @@ export async function GET() {
       hidden: false,
       deletedAt: null,
       OR: [
-        { type: "CHANNEL" },
+        { isDefault: true }, // '전체' 기본 채널은 모두에게
+        { type: "CHANNEL", members: { some: { userId: session.userId } } }, // 멤버인 그룹채널만
         { type: "DM", members: { some: { userId: session.userId } } },
       ],
     },

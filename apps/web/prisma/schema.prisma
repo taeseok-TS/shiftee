@@ -387,6 +387,22 @@ model Branch {
   updatedAt DateTime @updatedAt
 }
 
+// ─── 감사 로그 (관리자 변경 이력) ─────────────────────────────
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String // 행위자(관리자) id
+  actorName  String // 행위자 이름(스냅샷)
+  action     String // LEAVE_BALANCE_UPDATE | EMPLOYEE_UPDATE | EMPLOYEE_CREATE | EMPLOYEE_DELETE | EMPLOYEE_RESIGN | EMPLOYEE_RESTORE | EMPLOYEE_RESET_PW | LEAVE_DECISION | SCHEDULE_DECISION
+  targetType String? // USER | LEAVE | SCHEDULE
+  targetId   String?
+  targetName String? // 대상 이름(스냅샷)
+  detail     String? // 사람이 읽는 요약 (예: "연차 15→18일")
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+}
+
 // ─── 시프티워크: 채팅 ─────────────────────────────────────────
 model WorkChannel {
   id        String              @id @default(cuid())

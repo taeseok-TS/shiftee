@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(
   request: NextRequest,
@@ -112,6 +113,12 @@ export async function POST(
     // 현재는 로그만 기록
     console.log("이메일 발송:", { emailAction, nextApprover });
 
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "SCHEDULE_DECISION",
+      targetType: "SCHEDULE", targetId: id, targetName: scheduleRequest.user.name,
+      detail: `${scheduleRequest.user.name} 근무일정 ${action === "approve" ? "승인" : "반려"}`,
+    });
+
     return NextResponse.json({ success: true });
   }
 
@@ -132,6 +139,7 @@ async function adminOverride(
 ) {
   const scheduleRequest = await prisma.scheduleRequest.findUnique({
     where: { id },
+    include: { user: { select: { name: true } } },
   });
 
   if (!scheduleRequest) {
@@ -149,6 +157,13 @@ async function adminOverride(
   if (action === "approve") {
     await materializeSchedules(prisma, scheduleRequest);
   }
+
+  const actor = await prisma.user.findUnique({ where: { id: approverId }, select: { name: true } });
+  await logAudit({
+    actorId: approverId, actorName: actor?.name ?? "관리자", action: "SCHEDULE_DECISION",
+    targetType: "SCHEDULE", targetId: id, targetName: scheduleRequest.user.name,
+    detail: `${scheduleRequest.user.name} 근무일정 ${action === "approve" ? "승인" : "반려"} (직접처리)`,
+  });
 
   return NextResponse.json({ success: true });
 }
