@@ -7,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Image,
   Linking,
@@ -17,6 +16,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, RouteProp } from "@react-navigation/native";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { WorkMessage } from "@shiftee/api";
@@ -37,6 +37,7 @@ export default function WorkChatScreen() {
   const [uploading, setUploading] = useState(false);
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const listRef = useRef<FlatList<WorkMessage>>(null);
+  const tabBarHeight = useBottomTabBarHeight();
 
   const load = useCallback(async () => {
     try {
@@ -168,8 +169,8 @@ export default function WorkChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={90}
+      behavior="padding"
+      keyboardVerticalOffset={tabBarHeight}
     >
       {loading ? (
         <View style={styles.center}>
