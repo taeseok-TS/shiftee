@@ -7,6 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/60c598b7-06ce-46b5-a11b-e1759c12b689"
+    },
     "plugins": [
       [
         "expo-image-picker",
