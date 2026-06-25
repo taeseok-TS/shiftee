@@ -6,3 +6,6 @@ dist
 .env.local
 *.log
 apps/web/uploads/
+
+# @shiftee/api 빌드 산출물은 모바일 EAS 빌드에 필요 (dist 전역 무시 예외)
+!packages/api/dist
