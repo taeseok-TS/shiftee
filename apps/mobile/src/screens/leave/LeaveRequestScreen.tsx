@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
+import DatePicker from "../../components/DatePicker";
 
 const TYPE_LABEL: Record<string, string> = {
   ANNUAL: "연차",
@@ -137,21 +138,23 @@ export default function LeaveRequestScreen() {
         </View>
 
         <Text style={styles.label}>시작일</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="YYYY-MM-DD"
+        <DatePicker
           value={startDate}
-          onChangeText={setStartDate}
-          editable={!isLoading}
+          onChange={(d) => {
+            setStartDate(d);
+            if (endDate && endDate < d) setEndDate(""); // 종료일이 시작일보다 빠르면 초기화
+          }}
+          placeholder="날짜 선택"
+          disabled={isLoading}
         />
 
         <Text style={styles.label}>종료일</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="YYYY-MM-DD"
+        <DatePicker
           value={endDate}
-          onChangeText={setEndDate}
-          editable={!isLoading}
+          onChange={setEndDate}
+          placeholder="날짜 선택"
+          minDate={startDate || undefined}
+          disabled={isLoading}
         />
 
         <Text style={styles.label}>신청 사유</Text>
