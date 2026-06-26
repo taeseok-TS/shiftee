@@ -9,10 +9,25 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { ScheduleEntry, ScheduleRequest } from "@shiftee/api";
+import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
+import * as storage from "../../services/storage";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+const LEAVE_TYPE_LABEL: Record<string, string> = {
+  ANNUAL: "연차",
+  SICK: "병가",
+  PERSONAL: "개인휴가",
+  MATERNITY: "출산휴가",
+  BEREAVEMENT: "경조사",
+  HALF_AM: "오전반차",
+  HALF_PM: "오후반차",
+  QUARTER_AM: "오전반반차",
+  QUARTER_PM: "오후반반차",
+  COMPENSATORY: "대체휴무",
+  COMPENSATORY_HALF: "대체휴무반차",
+};
 
 const TYPE_LABEL: Record<string, { label: string; color: string }> = {
   work: { label: "근무", color: "#2563eb" },
@@ -33,24 +48,33 @@ export default function ScheduleScreen() {
   });
   const [shifts, setShifts] = useState<ScheduleEntry[]>([]);
   const [requests, setRequests] = useState<ScheduleRequest[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [myId, setMyId] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  useEffect(() => {
+    storage.getUser().then((u) => setMyId(u?.id || "")).catch(() => {});
+  }, []);
+
   const load = useCallback(async () => {
     try {
-      const [s, r] = await Promise.all([
+      const [s, r, l] = await Promise.all([
         api.getMySchedules(cursor.year, cursor.month),
         api.getScheduleRequests(),
+        api.getLeaveRequests(cursor.year, cursor.month),
       ]);
       setShifts(s.sort((a, b) => a.date.localeCompare(b.date)));
       setRequests(r);
+      // 관리자는 전체가 올 수 있어 본인 것만 표시
+      setLeaves(myId ? l.filter((x) => x.userId === myId) : l);
     } catch (error) {
       console.error("❌ Failed to load schedule:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [cursor]);
+  }, [cursor, myId]);
 
   useEffect(() => {
     load();
@@ -123,6 +147,34 @@ export default function ScheduleScreen() {
                     <View style={[styles.badge, { backgroundColor: t.color }]}>
                       <Text style={styles.badgeText}>{t.label}</Text>
                     </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          {/* 휴가 신청 내역 */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>휴가 신청 내역</Text>
+            {leaves.length === 0 ? (
+              <Text style={styles.empty}>이 달 휴가 신청이 없습니다.</Text>
+            ) : (
+              leaves.map((l) => {
+                const st = REQ_STATUS[l.status] || REQ_STATUS.PENDING;
+                return (
+                  <View key={l.id} style={styles.reqItem}>
+                    <View style={styles.reqHeader}>
+                      <Text style={styles.reqTitle} numberOfLines={1}>
+                        {LEAVE_TYPE_LABEL[l.type] || l.type} · {l.days}일
+                      </Text>
+                      <View style={[styles.badge, { backgroundColor: st.color }]}>
+                        <Text style={styles.badgeText}>{st.label}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.reqMeta}>
+                      {String(l.startDate).slice(0, 10)} ~ {String(l.endDate).slice(0, 10)}
+                      {l.reason ? ` · ${l.reason}` : ""}
+                    </Text>
                   </View>
                 );
               })

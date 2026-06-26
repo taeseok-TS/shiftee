@@ -87,10 +87,12 @@ export async function DELETE(
 
   const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true, isDefault: true, createdBy: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
-  if (!(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
+  // 본인이 본인을 빼는 것(채널 나가기)은 누구나 가능, 남을 빼는 것(강퇴)은 관리 권한 필요
+  const isSelfLeave = userId === session.userId;
+  if (!isSelfLeave && !(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
     return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 관리할 수 있습니다." : "채널을 관리할 권한이 없습니다." }, { status: 403 });
   if (userId === channel.createdBy)
-    return NextResponse.json({ error: "채널 생성자는 내보낼 수 없습니다." }, { status: 400 });
+    return NextResponse.json({ error: isSelfLeave ? "채널 생성자는 나갈 수 없습니다. 채널 삭제를 사용하세요." : "채널 생성자는 내보낼 수 없습니다." }, { status: 400 });
 
   await prisma.workChannelMember.deleteMany({ where: { channelId: id, userId } });
   return NextResponse.json({ success: true });

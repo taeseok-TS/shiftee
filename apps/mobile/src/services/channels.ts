@@ -35,3 +35,30 @@ export async function createChannel(params: {
   const res = await axios.post(`${API_URL}/work/channels`, params, { headers: await authHeaders() });
   return res.data?.channel;
 }
+
+// 채널에 멤버 추가
+export async function addChannelMembers(channelId: string, userIds: string[]) {
+  await axios.post(`${API_URL}/work/channels/${channelId}/members`, { userIds }, { headers: await authHeaders() });
+}
+
+// 현재 채널 멤버 id 목록 (이미 들어간 사람 제외용)
+export async function getChannelMemberIds(channelId: string): Promise<string[]> {
+  const res = await axios.get(`${API_URL}/work/channels/${channelId}/members`, { headers: await authHeaders() });
+  const members = res.data?.members ?? [];
+  return members.map((m: any) => m.userId ?? m.user?.id ?? m.id).filter(Boolean);
+}
+
+// 채널 삭제 (방장/관리자 — 채널 자체 삭제)
+export async function deleteChannel(channelId: string) {
+  await axios.delete(`${API_URL}/work/channels/${channelId}`, { headers: await authHeaders() });
+}
+
+// 채널 나가기 (일반 멤버 — 본인만 제거)
+export async function leaveChannel(channelId: string, userId: string) {
+  await axios.delete(`${API_URL}/work/channels/${channelId}/members`, { headers: await authHeaders(), data: { userId } });
+}
+
+// 채널 알림 설정 (ALL=받음, MUTE=안받음)
+export async function setChannelNotify(channelId: string, notify: "ALL" | "MENTION" | "MUTE") {
+  await axios.patch(`${API_URL}/work/channels/${channelId}/notify`, { notify }, { headers: await authHeaders() });
+}

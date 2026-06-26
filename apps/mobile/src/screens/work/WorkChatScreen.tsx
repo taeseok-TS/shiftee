@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,17 +13,20 @@ import {
   Modal,
   Pressable,
   Alert,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute, RouteProp } from "@react-navigation/native";
+import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { WorkMessage } from "@shiftee/api";
 import * as api from "../../services/api";
 import { uploadFile, sendFileMessage, toggleReaction, FILE_ORIGIN } from "../../services/work";
+import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, Member } from "../../services/channels";
 
-type ParamList = { WorkChat: { channelId: string; name: string } };
+type ParamList = { WorkChat: { channelId: string; name: string; notify?: string; type?: string } };
 
 const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "👏"];
 
@@ -38,6 +41,91 @@ export default function WorkChatScreen() {
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const listRef = useRef<FlatList<WorkMessage>>(null);
   const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
+  // iOS는 탭바 높이에 하단 안전영역이 포함돼 이중 계산됨 → 그만큼 더 올림
+  const kbOffset = Platform.OS === "ios" ? Math.max(tabBarHeight - insets.bottom, 0) : tabBarHeight;
+
+  const navigation = useNavigation<any>();
+  const isGroup = route.params.type !== "DM";
+  const [notify, setNotify] = useState(route.params.notify ?? "ALL");
+  // 멤버 추가 모달
+  const [addOpen, setAddOpen] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [existingIds, setExistingIds] = useState<Set<string>>(new Set());
+  const [selectedNew, setSelectedNew] = useState<Set<string>>(new Set());
+  const [memberSearch, setMemberSearch] = useState("");
+  const [addLoading, setAddLoading] = useState(false);
+
+  const addCandidates = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    return members.filter((m) => !existingIds.has(m.id) && (!q || m.name.toLowerCase().includes(q)));
+  }, [members, existingIds, memberSearch]);
+
+  // #4 알림 켜기/끄기 (ALL ↔ MUTE)
+  const toggleNotify = async () => {
+    const next = notify === "MUTE" ? "ALL" : "MUTE";
+    setNotify(next);
+    try {
+      await setChannelNotify(channelId, next as any);
+    } catch {
+      setNotify(notify); // 실패 시 복원
+    }
+  };
+
+  // #5 멤버 추가
+  const openAddMembers = async () => {
+    setSelectedNew(new Set());
+    setMemberSearch("");
+    setAddOpen(true);
+    try {
+      const [all, existing] = await Promise.all([getMembers(), getChannelMemberIds(channelId)]);
+      setMembers(all);
+      setExistingIds(new Set(existing));
+    } catch {
+      Alert.alert("오류", "직원 목록을 불러오지 못했습니다.");
+    }
+  };
+
+  const confirmAddMembers = async () => {
+    const ids = Array.from(selectedNew);
+    if (!ids.length) {
+      setAddOpen(false);
+      return;
+    }
+    setAddLoading(true);
+    try {
+      await addChannelMembers(channelId, ids);
+      setAddOpen(false);
+      Alert.alert("완료", `${ids.length}명을 초대했습니다.`);
+      load();
+    } catch (e: any) {
+      Alert.alert("실패", e?.response?.data?.error || "멤버 추가 중 오류가 발생했습니다.");
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  // 헤더 우측: 알림 토글 + (그룹 채널만) 멤버 추가
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: "row", gap: 16, marginRight: 4 }}>
+          <TouchableOpacity onPress={toggleNotify}>
+            <Ionicons
+              name={notify === "MUTE" ? "notifications-off-outline" : "notifications-outline"}
+              size={22}
+              color={notify === "MUTE" ? "#9ca3af" : "#4f46e5"}
+            />
+          </TouchableOpacity>
+          {isGroup && (
+            <TouchableOpacity onPress={openAddMembers}>
+              <Ionicons name="person-add-outline" size={22} color="#4f46e5" />
+            </TouchableOpacity>
+          )}
+        </View>
+      ),
+    });
+  }, [navigation, notify, isGroup]);
 
   const load = useCallback(async () => {
     try {
@@ -74,39 +162,52 @@ export default function WorkChatScreen() {
     }
   };
 
+  // 업로드 + 메시지 전송 (단일 파일)
+  const uploadAndSend = async (file: { uri: string; name: string; mimeType?: string | null }) => {
+    const uploaded = await uploadFile(file);
+    const msg = await sendFileMessage(channelId, uploaded);
+    setMessages((prev) => [...prev, msg]);
+  };
+
+  // 파일(문서) 첨부 — 다중 선택
   const handleAttach = async () => {
     if (uploading) return;
     try {
-      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
       if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset) return;
+      const assets = result.assets ?? [];
+      if (!assets.length) return;
       setUploading(true);
-      const uploaded = await uploadFile({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
-      const msg = await sendFileMessage(channelId, uploaded);
-      setMessages((prev) => [...prev, msg]);
+      for (const a of assets) {
+        await uploadAndSend({ uri: a.uri, name: a.name, mimeType: a.mimeType });
+      }
     } catch (error: any) {
-      Alert.alert("업로드 실패", error?.response?.data?.error || "파일 전송 중 오류가 발생했습니다.");
+      Alert.alert("업로드 실패", error?.response?.data?.error || error?.message || "파일 전송 중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
     }
   };
 
+  // 사진 첨부 — 갤러리 다중 선택
   const handlePickImage = async () => {
     if (uploading) return;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
       if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset) return;
+      const assets = result.assets ?? [];
+      if (!assets.length) return;
       setUploading(true);
-      const name = asset.fileName || `photo_${Date.now()}.jpg`;
-      const mimeType = asset.mimeType || "image/jpeg";
-      const uploaded = await uploadFile({ uri: asset.uri, name, mimeType });
-      const msg = await sendFileMessage(channelId, uploaded);
-      setMessages((prev) => [...prev, msg]);
+      for (let i = 0; i < assets.length; i++) {
+        const a = assets[i];
+        const name = a.fileName || `photo_${Date.now()}_${i}.jpg`;
+        await uploadAndSend({ uri: a.uri, name, mimeType: a.mimeType || "image/jpeg" });
+      }
     } catch (error: any) {
-      Alert.alert("업로드 실패", error?.response?.data?.error || "사진 전송 중 오류가 발생했습니다.");
+      Alert.alert("업로드 실패", error?.response?.data?.error || error?.message || "사진 전송 중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
     }
@@ -170,7 +271,7 @@ export default function WorkChatScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior="padding"
-      keyboardVerticalOffset={tabBarHeight}
+      keyboardVerticalOffset={kbOffset}
     >
       {loading ? (
         <View style={styles.center}>
@@ -233,6 +334,64 @@ export default function WorkChatScreen() {
             ))}
           </View>
         </Pressable>
+      </Modal>
+
+      {/* #5 멤버 추가 모달 */}
+      <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
+        <View style={styles.addBg}>
+          <View style={styles.addCard}>
+            <Text style={styles.addTitle}>멤버 추가</Text>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color="#9ca3af" />
+              <TextInput style={styles.searchInput} placeholder="이름 검색" value={memberSearch} onChangeText={setMemberSearch} />
+            </View>
+            <FlatList
+              style={{ maxHeight: 320 }}
+              data={addCandidates}
+              keyExtractor={(m) => m.id}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={styles.addEmpty}>추가할 직원이 없습니다.</Text>}
+              renderItem={({ item }) => {
+                const on = selectedNew.has(item.id);
+                return (
+                  <TouchableOpacity
+                    style={styles.addRow}
+                    onPress={() =>
+                      setSelectedNew((p) => {
+                        const n = new Set(p);
+                        n.has(item.id) ? n.delete(item.id) : n.add(item.id);
+                        return n;
+                      })
+                    }
+                  >
+                    <View style={[styles.addCheck, on && styles.addCheckOn]}>
+                      {on && <Ionicons name="checkmark" size={14} color="#fff" />}
+                    </View>
+                    <Text style={styles.addName}>
+                      {item.branch ? `[${item.branch}] ` : ""}{item.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+            <View style={styles.addBtns}>
+              <TouchableOpacity style={styles.addCancel} onPress={() => setAddOpen(false)}>
+                <Text style={styles.addCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.addConfirm, selectedNew.size === 0 && { opacity: 0.5 }]}
+                disabled={selectedNew.size === 0 || addLoading}
+                onPress={confirmAddMembers}
+              >
+                {addLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.addConfirmText}>{selectedNew.size > 0 ? `${selectedNew.size}명 추가` : "추가"}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -307,4 +466,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emojiBig: { fontSize: 30 },
+  addBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  addCard: { backgroundColor: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 28 },
+  addTitle: { fontSize: 17, fontWeight: "bold", color: "#111827", marginBottom: 12 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, height: 40, borderRadius: 8, backgroundColor: "#f3f4f6", marginBottom: 8 },
+  searchInput: { flex: 1, fontSize: 14 },
+  addEmpty: { textAlign: "center", color: "#9ca3af", paddingVertical: 24 },
+  addRow: { flexDirection: "row", alignItems: "center", paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
+  addCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: "#d1d5db", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  addCheckOn: { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
+  addName: { fontSize: 15, color: "#111827" },
+  addBtns: { flexDirection: "row", gap: 8, marginTop: 14 },
+  addCancel: { flex: 1, height: 46, borderRadius: 10, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
+  addCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },
+  addConfirm: { flex: 1, height: 46, borderRadius: 10, backgroundColor: "#4f46e5", alignItems: "center", justifyContent: "center" },
+  addConfirmText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });

@@ -43,3 +43,8 @@ export async function sendFileMessage(
 export async function toggleReaction(messageId: string, emoji: string) {
   await axios.post(`${API_URL}/work/messages/${messageId}/reactions`, { emoji }, { headers: await authHeaders() });
 }
+
+// 공지 작성 (관리자 전용 — 서버에서 권한 검증)
+export async function createAnnouncement(data: { title: string; content: string; pinned?: boolean }) {
+  await axios.post(`${API_URL}/work/announcements`, data, { headers: await authHeaders() });
+}
