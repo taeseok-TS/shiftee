@@ -25,13 +25,38 @@ export default function AdminSettingsPage() {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  useEffect(() => {
+  const loadSummary = () => {
+    setLoadingData(true);
     fetch("/api/admin/summary")
       .then((r) => (r.ok ? r.json() : { admins: [], logs: [] }))
       .then((d) => { setAdmins(d.admins || []); setLogs(d.logs || []); })
       .catch(() => {})
       .finally(() => setLoadingData(false));
-  }, []);
+  };
+
+  useEffect(() => { loadSummary(); }, []);
+
+  // 서브 관리자 퇴사 처리 (메인 관리자만 — 백엔드에서 권한 검증)
+  const handleResignAdmin = async (a: AdminRow) => {
+    if (!confirm(`${a.name} 서브 관리자를 퇴사 처리할까요?\n계정이 비활성화되고 변경 로그에 기록됩니다.`)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const res = await fetch(`/api/employees/${a.id}/resign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resignDate: today, resignReason: "퇴사" }),
+      });
+      if (res.ok) {
+        toast.success(`${a.name} 님을 퇴사 처리했습니다.`);
+        loadSummary();
+      } else {
+        const e = await res.json().catch(() => ({}));
+        toast.error(e.error || "퇴사 처리에 실패했습니다.");
+      }
+    } catch {
+      toast.error("처리 중 오류가 발생했습니다.");
+    }
+  };
 
   const subAdminCount = admins.filter((a) => !a.isSuperAdmin).length;
   const fmt = (s: string) => {
@@ -76,6 +101,7 @@ export default function AdminSettingsPage() {
                   <th className="px-4 py-2 font-medium">이메일</th>
                   <th className="px-4 py-2 font-medium">구분</th>
                   <th className="px-4 py-2 font-medium">생성일</th>
+                  <th className="px-4 py-2 font-medium text-right">관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -89,6 +115,20 @@ export default function AdminSettingsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-gray-500">{fmt(a.createdAt)}</td>
+                    <td className="px-4 py-2 text-right">
+                      {a.isSuperAdmin ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => handleResignAdmin(a)}
+                        >
+                          퇴사 처리
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
