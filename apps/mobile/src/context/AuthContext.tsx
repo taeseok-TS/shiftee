@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as auth from "../services/auth";
+import { registerPushToken } from "../services/push";
 
 type AuthContextValue = {
   isLoggedIn: boolean;
@@ -23,7 +24,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     auth
       .isAuthenticated()
-      .then(setIsLoggedIn)
+      .then((ok) => {
+        setIsLoggedIn(ok);
+        // 이미 로그인된 상태면 푸시 토큰을 갱신 등록(권한/토큰 회전 대비)
+        if (ok) registerPushToken();
+      })
       .catch(() => setIsLoggedIn(false))
       .finally(() => setLoading(false));
   }, []);

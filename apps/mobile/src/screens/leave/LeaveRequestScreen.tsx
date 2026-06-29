@@ -9,24 +9,55 @@ import {
   ActivityIndicator,
   ScrollView,
   RefreshControl,
+  Modal,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
 import DatePicker from "../../components/DatePicker";
 
 const TYPE_LABEL: Record<string, string> = {
-  ANNUAL: "연차",
-  SICK: "병가",
-  PERSONAL: "개인휴가",
-  MATERNITY: "출산휴가",
-  BEREAVEMENT: "경조사",
-  HALF_AM: "오전반차",
-  HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차",
-  QUARTER_PM: "오후반반차",
-  COMPENSATORY: "대체휴무",
-  COMPENSATORY_HALF: "대체휴무반차",
+  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
+  QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
+  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
+  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
+  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
+  FAMILY_EVENT: "기타 경조사", BEREAVEMENT: "경조사", MATERNITY: "출산휴가",
+  FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
 };
+
+// 휴가 유형 — 3개 카테고리(탭) + 각 드롭다운
+const CATEGORIES: { key: string; label: string; options: { value: LeaveType; label: string }[] }[] = [
+  {
+    key: "ANNUAL", label: "연차", options: [
+      { value: "ANNUAL", label: "연차" },
+      { value: "HALF_AM", label: "오전반차" },
+      { value: "HALF_PM", label: "오후반차" },
+      { value: "QUARTER_AM", label: "오전반반차" },
+      { value: "QUARTER_PM", label: "오후반반차" },
+    ],
+  },
+  {
+    key: "FAMILY", label: "경조사", options: [
+      { value: "FAMILY_MARRIAGE", label: "결혼" },
+      { value: "FAMILY_BIRTH", label: "출산" },
+      { value: "FAMILY_BEREAVEMENT", label: "사망(조사)" },
+      { value: "FAMILY_EVENT", label: "기타 경조사" },
+    ],
+  },
+  {
+    key: "ETC", label: "기타", options: [
+      { value: "SICK", label: "병가" },
+      { value: "SPECIAL", label: "특별휴가" },
+      { value: "COMPENSATORY", label: "대체휴무" },
+      { value: "CIVIL_DEFENSE", label: "민방위" },
+      { value: "RESERVE_FORCES", label: "예비군훈련" },
+    ],
+  },
+];
+
+// 하루짜리 유형(반차·반반차·민방위) — 시작일만 받고 종료일=시작일
+const SINGLE_DAY = new Set<LeaveType>(["HALF_AM", "HALF_PM", "QUARTER_AM", "QUARTER_PM", "CIVIL_DEFENSE"]);
 
 const STATUS: Record<string, { label: string; color: string }> = {
   PENDING: { label: "대기중", color: "#f59e0b" },
@@ -35,7 +66,9 @@ const STATUS: Record<string, { label: string; color: string }> = {
 };
 
 export default function LeaveRequestScreen() {
+  const [category, setCategory] = useState("ANNUAL");
   const [leaveType, setLeaveType] = useState<LeaveType>("ANNUAL");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
@@ -46,11 +79,15 @@ export default function LeaveRequestScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const leaveTypes: Array<{ value: LeaveType; label: string }> = [
-    { value: "ANNUAL", label: "연차" },
-    { value: "SICK", label: "병가" },
-    { value: "PERSONAL", label: "개인휴가" },
-  ];
+  const activeCategory = CATEGORIES.find((c) => c.key === category)!;
+  const activeOption = activeCategory.options.find((o) => o.value === leaveType) ?? activeCategory.options[0];
+  const isSingleDay = SINGLE_DAY.has(leaveType);
+
+  const pickCategory = (key: string) => {
+    const cat = CATEGORIES.find((c) => c.key === key)!;
+    setCategory(key);
+    setLeaveType(cat.options[0].value); // 카테고리 바꾸면 첫 항목으로
+  };
 
   const load = useCallback(async () => {
     try {
@@ -75,16 +112,21 @@ export default function LeaveRequestScreen() {
   }, [load]);
 
   const handleSubmit = async () => {
-    if (!startDate || !endDate) {
+    if (!startDate) {
+      Alert.alert("오류", isSingleDay ? "날짜를 선택해주세요" : "시작일과 종료일을 입력해주세요");
+      return;
+    }
+    if (!isSingleDay && !endDate) {
       Alert.alert("오류", "시작일과 종료일을 입력해주세요");
       return;
     }
+    const finalEnd = isSingleDay ? startDate : endDate;
 
     setIsLoading(true);
     try {
-      await api.createLeaveRequest({ type: leaveType, startDate, endDate, reason });
+      await api.createLeaveRequest({ type: leaveType, startDate, endDate: finalEnd, reason });
       Alert.alert("성공", "휴가 신청이 완료되었습니다");
-      setLeaveType("ANNUAL");
+      pickCategory("ANNUAL");
       setStartDate("");
       setEndDate("");
       setReason("");
@@ -123,21 +165,29 @@ export default function LeaveRequestScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>휴가 신청</Text>
         <Text style={styles.label}>휴가 유형</Text>
+
+        {/* 카테고리 탭 */}
         <View style={styles.typeButtons}>
-          {leaveTypes.map((type) => (
+          {CATEGORIES.map((cat) => (
             <TouchableOpacity
-              key={type.value}
-              style={[styles.typeButton, leaveType === type.value && styles.typeButtonActive]}
-              onPress={() => setLeaveType(type.value)}
+              key={cat.key}
+              style={[styles.typeButton, category === cat.key && styles.typeButtonActive]}
+              onPress={() => pickCategory(cat.key)}
             >
-              <Text style={[styles.typeButtonText, leaveType === type.value && styles.typeButtonTextActive]}>
-                {type.label}
+              <Text style={[styles.typeButtonText, category === cat.key && styles.typeButtonTextActive]}>
+                {cat.label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <Text style={styles.label}>시작일</Text>
+        {/* 세부 유형 드롭다운 */}
+        <TouchableOpacity style={styles.dropdown} onPress={() => setDropdownOpen(true)} activeOpacity={0.7}>
+          <Text style={styles.dropdownText}>{activeOption.label}</Text>
+          <Ionicons name="chevron-down" size={18} color="#6b7280" />
+        </TouchableOpacity>
+
+        <Text style={styles.label}>{isSingleDay ? "날짜" : "시작일"}</Text>
         <DatePicker
           value={startDate}
           onChange={(d) => {
@@ -148,14 +198,18 @@ export default function LeaveRequestScreen() {
           disabled={isLoading}
         />
 
-        <Text style={styles.label}>종료일</Text>
-        <DatePicker
-          value={endDate}
-          onChange={setEndDate}
-          placeholder="날짜 선택"
-          minDate={startDate || undefined}
-          disabled={isLoading}
-        />
+        {!isSingleDay && (
+          <>
+            <Text style={styles.label}>종료일</Text>
+            <DatePicker
+              value={endDate}
+              onChange={setEndDate}
+              placeholder="날짜 선택"
+              minDate={startDate || undefined}
+              disabled={isLoading}
+            />
+          </>
+        )}
 
         <Text style={styles.label}>신청 사유</Text>
         <TextInput
@@ -212,6 +266,31 @@ export default function LeaveRequestScreen() {
           })
         )}
       </View>
+
+      {/* 세부 유형 선택 모달 */}
+      <Modal visible={dropdownOpen} transparent animationType="fade" onRequestClose={() => setDropdownOpen(false)}>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setDropdownOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.sheetTitle}>{activeCategory.label} 유형 선택</Text>
+            {activeCategory.options.map((o) => {
+              const selected = o.value === leaveType;
+              return (
+                <TouchableOpacity
+                  key={o.value}
+                  style={styles.sheetRow}
+                  onPress={() => {
+                    setLeaveType(o.value);
+                    setDropdownOpen(false);
+                  }}
+                >
+                  <Text style={[styles.sheetRowText, selected && styles.sheetRowTextActive]}>{o.label}</Text>
+                  {selected && <Ionicons name="checkmark" size={20} color="#2563eb" />}
+                </TouchableOpacity>
+              );
+            })}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
@@ -250,6 +329,18 @@ const styles = StyleSheet.create({
   typeButtonActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
   typeButtonText: { fontSize: 14, color: "#6b7280" },
   typeButtonTextActive: { color: "#fff", fontWeight: "600" },
+  dropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 10,
+  },
+  dropdownText: { fontSize: 14, color: "#1f2937", fontWeight: "600" },
   input: {
     borderWidth: 1,
     borderColor: "#d1d5db",
@@ -280,4 +371,11 @@ const styles = StyleSheet.create({
   histRejected: { fontSize: 13, color: "#ef4444", marginTop: 4 },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  // 드롭다운 모달
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
+  sheet: { backgroundColor: "#fff", borderRadius: 14, padding: 12 },
+  sheetTitle: { fontSize: 14, fontWeight: "700", color: "#6b7280", paddingHorizontal: 8, paddingVertical: 10 },
+  sheetRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 14 },
+  sheetRowText: { fontSize: 16, color: "#1f2937" },
+  sheetRowTextActive: { color: "#2563eb", fontWeight: "700" },
 });

@@ -16,7 +16,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WorkChannel } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { deleteChannel, leaveChannel } from "../../services/channels";
+import { deleteChannel, hideChannel, leaveChannel } from "../../services/channels";
 
 const ACTION_W = 84;
 
@@ -34,7 +34,7 @@ function SwipeableChannelRow({
   const openRef = useRef(false);
   const isDefault = item.isDefault;
   const amCreator = (item as any).amCreator === true;
-  const actionLabel = item.type === "CHANNEL" && amCreator ? "삭제" : "나가기";
+  const actionLabel = item.type === "DM" ? "숨기기" : amCreator ? "삭제" : "나가기";
 
   const animate = (to: number) => {
     openRef.current = to !== 0;
@@ -67,7 +67,7 @@ function SwipeableChannelRow({
             onAction();
           }}
         >
-          <Ionicons name={actionLabel === "삭제" ? "trash" : "exit-outline"} size={20} color="#fff" />
+          <Ionicons name={actionLabel === "삭제" ? "trash" : actionLabel === "숨기기" ? "eye-off-outline" : "exit-outline"} size={20} color="#fff" />
           <Text style={styles.actionText}>{actionLabel}</Text>
         </TouchableOpacity>
       )}
@@ -134,12 +134,15 @@ export default function WorkChannelListScreen() {
     load();
   }, [load]);
 
-  // 방장(그룹 생성자)·DM → 채널 삭제 / 그 외 멤버 → 나가기
+  // DM → 나만 숨기기 / 그룹 방장 → 채널 삭제 / 그룹 멤버 → 나가기
   const handleAction = (item: WorkChannel) => {
     const amCreator = (item as any).amCreator === true;
-    const isDelete = item.type === "DM" || amCreator;
-    const verb = item.type === "CHANNEL" && amCreator ? "삭제" : "나가기";
-    const msg = isDelete && item.type === "CHANNEL"
+    const isDM = item.type === "DM";
+    const isDelete = !isDM && amCreator;
+    const verb = isDM ? "숨기기" : amCreator ? "삭제" : "나가기";
+    const msg = isDM
+      ? `"${item.name}"님과의 대화를 목록에서 숨길까요?\n새 메시지가 오면 다시 표시됩니다.`
+      : isDelete
       ? `"${item.name}" 채널을 삭제할까요?\n모든 멤버에게서 사라집니다.`
       : `"${item.name}"에서 나갈까요?`;
     Alert.alert(verb, msg, [
@@ -149,7 +152,8 @@ export default function WorkChannelListScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            if (isDelete) await deleteChannel(item.id);
+            if (isDM) await hideChannel(item.id);
+            else if (isDelete) await deleteChannel(item.id);
             else await leaveChannel(item.id, myId);
             load();
           } catch (e: any) {

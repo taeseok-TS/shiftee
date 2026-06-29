@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2 } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, MessageCircle, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -342,13 +342,13 @@ export default function WorkChatPage() {
     setChannelMembers((prev) => prev.map((m) => m.userId === userId ? { ...m, isManager: makeManager } : m));
     fetchChannels();
   }
-  // DM 삭제
+  // DM 나만 숨기기 (상대에겐 영향 없음, 새 메시지 오면 다시 표시)
   async function deleteDM(ch: Channel) {
-    if (!confirm("이 대화를 삭제하시겠습니까?")) return;
-    const res = await fetch(`/api/work/channels/${ch.id}`, { method: "DELETE" });
+    if (!confirm("이 대화를 목록에서 숨기시겠습니까?\n새 메시지가 오면 다시 표시됩니다.")) return;
+    const res = await fetch(`/api/work/channels/${ch.id}/hide`, { method: "POST" });
     const d = await res.json();
-    if (!res.ok) { toast.error(d.error || "삭제 실패"); return; }
-    toast.success("대화를 삭제했습니다.");
+    if (!res.ok) { toast.error(d.error || "숨기기 실패"); return; }
+    toast.success("대화를 숨겼습니다.");
     setActiveId(null); fetchChannels();
   }
   // 파일 정리
@@ -526,10 +526,10 @@ export default function WorkChatPage() {
                 className={`p-1.5 rounded hover:bg-gray-100 ${active.pinned ? "text-indigo-600" : "text-gray-400"}`}>
                 <Pin size={16} className={active.pinned ? "fill-indigo-600" : ""} />
               </button>
-              {/* DM 삭제 */}
+              {/* DM 나만 숨기기 */}
               {active.type === "DM" && (
-                <button onClick={() => deleteDM(active)} title="대화 삭제"
-                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                <button onClick={() => deleteDM(active)} title="대화 숨기기"
+                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700"><EyeOff size={16} /></button>
               )}
               {/* 채널 관리 (그룹 채널: 권한자 / 전체 채널: 관리자) */}
               {active.type === "CHANNEL" && ((active.canManage && !active.isDefault) || (active.isDefault && isAdmin)) && (

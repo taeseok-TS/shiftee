@@ -53,6 +53,7 @@ const STATUS_CFG: Record<string, { label: string; badge: string; dot: string }> 
 
 const LEAVE_LABEL: Record<string, string> = {
   ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차", SICK: "병가", SPECIAL: "특별휴가",
+  FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
 };
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];

@@ -86,6 +86,9 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
   CIVIL_DEFENSE: "민방위",
   RESERVE_FORCES: "예비군훈련",
   FAMILY_EVENT: "경조사",
+  FAMILY_MARRIAGE: "결혼",
+  FAMILY_BIRTH: "출산",
+  FAMILY_BEREAVEMENT: "사망(조사)",
 };
 
 /* ── 통합 결재 페이지 ── */

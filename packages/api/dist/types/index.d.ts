@@ -80,7 +80,7 @@ export interface ContractSignRequest {
     isApprover?: boolean;
 }
 export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
-export type LeaveType = "ANNUAL" | "SICK" | "PERSONAL" | "MATERNITY" | "BEREAVEMENT" | "HALF_AM" | "HALF_PM" | "QUARTER_AM" | "QUARTER_PM";
+export type LeaveType = "ANNUAL" | "SICK" | "PERSONAL" | "MATERNITY" | "BEREAVEMENT" | "HALF_AM" | "HALF_PM" | "QUARTER_AM" | "QUARTER_PM" | "SPECIAL" | "COMPENSATORY" | "COMPENSATORY_HALF" | "CIVIL_DEFENSE" | "RESERVE_FORCES" | "FAMILY_EVENT" | "FAMILY_MARRIAGE" | "FAMILY_BIRTH" | "FAMILY_BEREAVEMENT";
 export interface LeaveRequest {
     id: string;
     userId: string;

@@ -36,7 +36,7 @@ export async function POST(
           { members: { some: { userId: otherId } } },
         ],
       },
-      select: { id: true },
+      select: { id: true, deletedAt: true },
     });
     if (!dm) {
       dm = await prisma.workChannel.create({
@@ -46,7 +46,13 @@ export async function POST(
           createdBy: session.userId,
           members: { create: [{ userId: session.userId }, { userId: otherId }] },
         },
-        select: { id: true },
+        select: { id: true, deletedAt: true },
+      });
+    } else if (dm.deletedAt) {
+      // 소프트 삭제됐던 DM이면 되살림(안 그러면 초대 메시지가 숨겨진 채널로 들어감)
+      await prisma.workChannel.update({
+        where: { id: dm.id },
+        data: { deletedAt: null, permanentlyDeletedAt: null },
       });
     }
 

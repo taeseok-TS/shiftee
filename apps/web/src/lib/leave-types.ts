@@ -7,6 +7,9 @@ export const NON_DEDUCTIBLE_LEAVE_TYPES = new Set([
   "CIVIL_DEFENSE",
   "RESERVE_FORCES",
   "FAMILY_EVENT",
+  "FAMILY_MARRIAGE",
+  "FAMILY_BIRTH",
+  "FAMILY_BEREAVEMENT",
 ]);
 
 export function isLeaveDeductible(type: string): boolean {

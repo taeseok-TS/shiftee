@@ -50,6 +50,7 @@ model User {
   workMessages          WorkMessage[]
   workAnnouncements     WorkAnnouncement[]
   workMessageReactions  WorkMessageReaction[]
+  pushTokens            PushToken[]
 }
 
 enum Role {
@@ -195,7 +196,10 @@ enum LeaveType {
   SPECIAL // 특별휴가
   CIVIL_DEFENSE // 민방위 (0.5일, 연차 미차감)
   RESERVE_FORCES // 예비군훈련 (연차 미차감)
-  FAMILY_EVENT // 경조사
+  FAMILY_EVENT // 경조사(기타)
+  FAMILY_MARRIAGE // 경조사-결혼 (연차 미차감)
+  FAMILY_BIRTH // 경조사-출산 (연차 미차감)
+  FAMILY_BEREAVEMENT // 경조사-사망(조사) (연차 미차감)
 }
 
 enum LeaveStatus {
@@ -436,6 +440,7 @@ model WorkChannelMember {
   lastReadAt DateTime?
   notify    WorkNotify  @default(ALL) // 채널 알림 설정
   pinned    Boolean     @default(false) // 사용자별 채널 상단 고정
+  hiddenAt  DateTime? // DM '나만 숨기기' 시점(null=보임). 이 시점 이후 새 메시지 오면 다시 노출
   historyFrom DateTime? // 이 시점 이후 메시지만 열람(null=전체). 멤버 추가 시 과거기록 노출 범위
   isManager Boolean     @default(false) // 방장(생성자가 위임). 인원 추가/내보내기/이름변경 가능
   joinedAt  DateTime    @default(now())
@@ -483,6 +488,19 @@ model WorkMessageReaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+}
+
+// ─── 모바일 푸시 알림 토큰 ────────────────────────────────────
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique // Expo Push Token (ExponentPushToken[...])
+  platform  String? // ios | android
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 // ─── 시프티워크: 회사/지점 전체 일정 캘린더 ────────────────────

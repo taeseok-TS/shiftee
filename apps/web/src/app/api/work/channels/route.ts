@@ -34,9 +34,18 @@ export async function GET() {
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
 
+  // DM '나만 숨기기': 내가 숨긴 DM은 목록에서 제외. 단 숨긴 뒤 새 메시지가 오면 다시 표시.
+  const visibleChannels = channels.filter((c) => {
+    if (c.type !== "DM") return true;
+    const me = c.members.find((m) => m.userId === session.userId);
+    if (!me?.hiddenAt) return true;
+    const last = c.messages[0];
+    return !!last && last.createdAt > me.hiddenAt;
+  });
+
   // 채널별 안읽음 개수 계산 (내 멤버 행의 lastReadAt 기준, 내가 보낸 건 제외)
   const result = await Promise.all(
-    channels.map(async (c) => {
+    visibleChannels.map(async (c) => {
       let displayName = c.name;
       if (c.type === "DM") {
         const other = c.members.find((m) => m.userId !== session.userId);
@@ -96,7 +105,8 @@ export async function POST(request: NextRequest) {
     const otherId = (memberIds || [])[0];
     if (!otherId) return NextResponse.json({ error: "대화 상대를 선택해주세요." }, { status: 400 });
 
-    // 기존 1:1 DM 있으면 재사용
+    // 기존 1:1 DM 있으면 재사용. 한쪽이 나가서 소프트 삭제됐던 DM이면 되살린다
+    // (안 그러면 deletedAt이 남아 목록에서 계속 숨겨져 "초대해도 안 생김"이 됨).
     const existing = await prisma.workChannel.findFirst({
       where: {
         type: "DM",
@@ -106,7 +116,21 @@ export async function POST(request: NextRequest) {
         ],
       },
     });
-    if (existing) return NextResponse.json({ channel: existing });
+    if (existing) {
+      // 다시 대화를 시작하면 내가 숨겼던 DM을 다시 보이게 한다.
+      await prisma.workChannelMember.updateMany({
+        where: { channelId: existing.id, userId: session.userId },
+        data: { hiddenAt: null },
+      });
+      if (existing.deletedAt) {
+        await prisma.workChannel.update({
+          where: { id: existing.id },
+          data: { deletedAt: null, permanentlyDeletedAt: null },
+        });
+        return NextResponse.json({ channel: { ...existing, deletedAt: null, permanentlyDeletedAt: null } });
+      }
+      return NextResponse.json({ channel: existing });
+    }
 
     const channel = await prisma.workChannel.create({
       data: {

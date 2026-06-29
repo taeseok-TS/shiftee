@@ -9,6 +9,7 @@ import axios from "axios";
 import * as storage from "./storage";
 import { ShifteeApiClient, User } from "@shiftee/api";
 import { API_URL } from "../config";
+import { registerPushToken, unregisterPushToken } from "./push";
 
 const AUTH_API_URL = API_URL;
 
@@ -33,6 +34,9 @@ export async function login(email: string, password: string): Promise<User | nul
     await storage.saveToken(token);
     await storage.saveUser(user);
 
+    // 푸시 토큰 등록(권한 요청 포함) — 로그인 흐름을 막지 않게 비동기
+    registerPushToken();
+
     console.log("✅ Login successful");
     return user;
   } catch (error: any) {
@@ -46,6 +50,8 @@ export async function login(email: string, password: string): Promise<User | nul
  */
 export async function logout(): Promise<void> {
   try {
+    // 이 기기로 더 이상 알림이 오지 않도록 서버에서 토큰 해제(저장소 비우기 전)
+    await unregisterPushToken();
     // 로컬 저장소 정리
     await storage.clearAuth();
     console.log("✅ Logout successful");

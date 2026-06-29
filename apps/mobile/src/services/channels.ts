@@ -58,6 +58,11 @@ export async function leaveChannel(channelId: string, userId: string) {
   await axios.delete(`${API_URL}/work/channels/${channelId}/members`, { headers: await authHeaders(), data: { userId } });
 }
 
+// DM 나만 숨기기 (상대에겐 영향 없음, 새 메시지 오면 다시 표시)
+export async function hideChannel(channelId: string) {
+  await axios.post(`${API_URL}/work/channels/${channelId}/hide`, {}, { headers: await authHeaders() });
+}
+
 // 채널 알림 설정 (ALL=받음, MUTE=안받음)
 export async function setChannelNotify(channelId: string, notify: "ALL" | "MENTION" | "MUTE") {
   await axios.patch(`${API_URL}/work/channels/${channelId}/notify`, { notify }, { headers: await authHeaders() });

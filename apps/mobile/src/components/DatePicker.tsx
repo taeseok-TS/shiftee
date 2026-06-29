@@ -32,6 +32,16 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
     return arr;
   }, [view]);
 
+  // 7칸씩 주 단위 행으로 분할. flexWrap+%너비는 기기 픽셀 반올림에 따라 한 줄에 6칸만
+  // 들어가 날짜가 어긋나므로, 명시적 7칸 행으로 렌더한다.
+  const weeks = useMemo(() => {
+    const arr = [...cells];
+    while (arr.length % 7 !== 0) arr.push(null);
+    const out: (number | null)[][] = [];
+    for (let i = 0; i < arr.length; i += 7) out.push(arr.slice(i, i + 7));
+    return out;
+  }, [cells]);
+
   const openModal = () => {
     if (disabled) return;
     const base = value ? new Date(value) : new Date();
@@ -87,32 +97,35 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
               ))}
             </View>
 
-            {/* 날짜 그리드 */}
-            <View style={styles.grid}>
-              {cells.map((d, i) => {
-                if (d === null) return <View key={`b${i}`} style={styles.cell} />;
-                const dateStr = toStr(view.year, view.month, d);
-                const selected = dateStr === value;
-                const off = isDisabled(d);
-                const dow = i % 7;
-                return (
-                  <TouchableOpacity key={dateStr} style={styles.cell} onPress={() => select(d)} disabled={off}>
-                    <View style={[styles.dayWrap, selected && styles.daySelected]}>
-                      <Text
-                        style={[
-                          styles.dayText,
-                          dow === 0 && styles.sun,
-                          dow === 6 && styles.sat,
-                          off && styles.dayOff,
-                          selected && styles.daySelectedText,
-                        ]}
-                      >
-                        {d}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* 날짜 그리드 — 주 단위 7칸 행 */}
+            <View>
+              {weeks.map((week, wi) => (
+                <View key={`w${wi}`} style={styles.weekLine}>
+                  {week.map((d, dow) => {
+                    if (d === null) return <View key={`b${wi}-${dow}`} style={styles.cell} />;
+                    const dateStr = toStr(view.year, view.month, d);
+                    const selected = dateStr === value;
+                    const off = isDisabled(d);
+                    return (
+                      <TouchableOpacity key={dateStr} style={styles.cell} onPress={() => select(d)} disabled={off}>
+                        <View style={[styles.dayWrap, selected && styles.daySelected]}>
+                          <Text
+                            style={[
+                              styles.dayText,
+                              dow === 0 && styles.sun,
+                              dow === 6 && styles.sat,
+                              off && styles.dayOff,
+                              selected && styles.daySelectedText,
+                            ]}
+                          >
+                            {d}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -143,8 +156,8 @@ const styles = StyleSheet.create({
   navBtn: { padding: 6 },
   weekRow: { flexDirection: "row" },
   weekday: { flex: 1, textAlign: "center", fontSize: 12, color: "#6b7280", marginBottom: 6 },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
+  weekLine: { flexDirection: "row" },
+  cell: { flex: 1, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
   dayWrap: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   daySelected: { backgroundColor: "#2563eb" },
   dayText: { fontSize: 15, color: "#1f2937" },

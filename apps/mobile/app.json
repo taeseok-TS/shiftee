@@ -19,7 +19,8 @@
         {
           "photosPermission": "사진을 채팅에 첨부하기 위해 사진 보관함 접근이 필요합니다."
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -28,10 +29,17 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "kr.co.cubetee.app"
+      "bundleIdentifier": "kr.co.cubetee.app",
+      "entitlements": {
+        "aps-environment": "production"
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "kr.co.cubetee.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

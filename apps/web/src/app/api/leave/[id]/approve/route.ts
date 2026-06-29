@@ -136,11 +136,13 @@ export async function POST(
     const requesterEmail = leaveRequest.user.email;
     const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
     const leaveTypeLabel: Record<string, string> = {
-      ANNUAL: "연차",
-      SICK: "병가",
-      PERSONAL: "개인휴가",
-      MATERNITY: "출산휴가",
-      BEREAVEMENT: "상주휴가",
+      ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
+      QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
+      SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
+      COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
+      CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
+      MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
+      FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
     };
     const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
     const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
@@ -255,11 +257,13 @@ async function adminOverride(
   const requesterName = leaveRequest.user.name;
   const requesterEmail = leaveRequest.user.email;
   const leaveTypeLabel: Record<string, string> = {
-    ANNUAL: "연차",
-    SICK: "병가",
-    PERSONAL: "개인휴가",
-    MATERNITY: "출산휴가",
-    BEREAVEMENT: "상주휴가",
+    ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
+    QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
+    SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
+    COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
+    CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
+    MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
+    FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
   };
   const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
   const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
+import { sendPushToUsers } from "@/lib/push";
 
 async function assertAccess(channelId: string, userId: string) {
   const channel = await prisma.workChannel.findUnique({
@@ -25,6 +26,37 @@ function shapeReactions(reactions: { emoji: string; userId: string }[], myId: st
     map.set(r.emoji, cur);
   }
   return [...map.values()];
+}
+
+// 새 메시지에 대한 푸시 알림 발송
+async function notifyNewMessage(
+  channel: { id: string; name: string },
+  message: { content: string; fileUrl: string | null; user: { name: string } },
+  senderId: string
+) {
+  const members = await prisma.workChannelMember.findMany({
+    where: { channelId: channel.id, userId: { not: senderId } },
+    select: { userId: true, notify: true, user: { select: { name: true } } },
+  });
+
+  const recipients = members
+    .filter((m) => m.notify !== "MUTE")
+    .filter((m) =>
+      m.notify === "MENTION" ? message.content.includes(`@${m.user.name}`) : true
+    )
+    .map((m) => m.userId);
+
+  const preview = message.content?.trim()
+    ? message.content.trim()
+    : message.fileUrl
+    ? "사진/파일을 보냈습니다."
+    : "";
+
+  await sendPushToUsers(recipients, {
+    title: channel.name,
+    body: `${message.user.name}: ${preview}`,
+    data: { channelId: channel.id, type: "work-message" },
+  });
 }
 
 // 채널 메시지 조회 (최상위 메시지만, 댓글 수/반응 포함)
@@ -118,6 +150,11 @@ export async function POST(
   });
 
   emitWork({ type: "message", channelId: id });
+
+  // 푸시 알림(발신자 제외, MUTE 제외, MENTION이면 멘션 시만). 응답을 막지 않게 비동기 발송.
+  notifyNewMessage(acc.channel, message, session.userId).catch((e) =>
+    console.error("[push] notify 오류:", e)
+  );
 
   return NextResponse.json({
     message: {
