@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 /**
  * GET /api/contracts/[id]/versions
@@ -36,13 +37,15 @@ export async function GET(
       );
     }
 
-    // 권한 확인: 직원 본인, 관리자, 또는 매니저(같은 지점)
+    // 권한 확인: 직원 본인, 관리자, 또는 매니저(담당 지점 — 대표+겸직)
+    const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     const isOwner = contract.userId === session.userId;
     const isAdmin = session.role === "ADMIN";
     const isManager =
       session.role === "MANAGER" &&
       contract.user &&
-      (contract.user as any).branch === session.branch;
+      !!(contract.user as any).branch &&
+      myBranches.includes((contract.user as any).branch);
 
     if (!isOwner && !isAdmin && !isManager) {
       return NextResponse.json(

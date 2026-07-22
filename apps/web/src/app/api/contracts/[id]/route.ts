@@ -2,6 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import type { Contract } from "@shiftee/api";
 import fs from "fs/promises";
 import path from "path";
@@ -42,12 +43,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
-  if (!session || session.role === "EMPLOYEE")
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 계약서 수정·발송은 관리자 전용 — 원장·직원은 결재 진행 중 내용 변경 불가
+  if (!session || session.role !== "ADMIN")
+    return NextResponse.json({ error: "계약서 수정은 관리자만 가능합니다." }, { status: 403 });
 
   const { id } = await params;
 
   let status, title, type, startDate, endDate, approverIds, hideRevoked;
+  let salary: string | null = null;
+  let extraFieldsRaw: string | null = null;
   let newFileUrl: string | undefined;
   const contentType = request.headers.get("content-type") || "";
 
@@ -62,6 +66,8 @@ export async function PATCH(
       endDate = formData.get("endDate") as string | undefined;
       approverIds = formData.get("approverIds") as string | undefined;
       hideRevoked = formData.get("hideRevoked") as string | undefined;
+      salary = formData.get("salary") as string | null;
+      extraFieldsRaw = formData.get("extraFields") as string | null;
 
       const files = formData.getAll("files") as File[];
 
@@ -105,6 +111,8 @@ export async function PATCH(
       endDate = body.endDate;
       approverIds = body.approverIds;
       hideRevoked = body.hideRevoked;
+      salary = body.salary ?? null;
+      extraFieldsRaw = body.extraFields ? JSON.stringify(body.extraFields) : null;
     } catch (parseError) {
       console.error("JSON 파싱 에러:", parseError);
       return NextResponse.json(
@@ -116,13 +124,43 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  // 계약서 내용이 변경되면 버전 저장 (title, type, startDate, endDate 중 하나라도 변경)
-  const hasContentChanges = title || type || startDate || endDate;
+  // 연봉·템플릿 동적 필드 수정: 요약 갱신 + (템플릿 기반 계약이면) 문서를 새 값으로 재생성
+  let parsedExtra: Record<string, string> | null = null;
+  if (extraFieldsRaw) {
+    try { parsedExtra = JSON.parse(extraFieldsRaw); } catch { /* 무시 */ }
+  }
+  let fieldSummary: Record<string, string> | undefined;
+  if (salary !== null || parsedExtra) {
+    fieldSummary = buildFieldSummary(salary, parsedExtra);
+    if (contract.templateId && !newFileUrl) {
+      const tmpl = await prisma.contractTemplate.findUnique({
+        where: { id: contract.templateId },
+        select: { fileUrl: true },
+      });
+      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+        try {
+          const mergeData = await buildContractMergeData(contract.userId, {
+            title: (title as string) || contract.title,
+            startDate: (startDate as string) || (contract.startDate ? contract.startDate.toISOString() : null),
+            endDate: (endDate as string) || (contract.endDate ? contract.endDate.toISOString() : null),
+            salary,
+            extraFields: parsedExtra,
+          });
+          newFileUrl = JSON.stringify([await fillDocxTemplate(tmpl.fileUrl, mergeData)]);
+        } catch (e) {
+          console.error("계약서 재생성 오류:", e);
+        }
+      }
+    }
+  }
+
+  // 계약서 내용이 변경되면 버전 저장 (title, type, startDate, endDate, 입력 필드 중 하나라도 변경)
+  const hasContentChanges = title || type || startDate || endDate || salary !== null || parsedExtra;
   if (hasContentChanges && contract.version) {
     // 현재 상태를 버전으로 저장
     await prisma.contractVersion.create({
@@ -188,6 +226,7 @@ export async function PATCH(
       ...(endDate ? { endDate: new Date(endDate) } : {}),
       ...(hideRevoked !== undefined ? { hideRevoked } : {}),
       ...(newFileUrl ? { fileUrl: newFileUrl } : {}),
+      ...(fieldSummary ? { extraFields: fieldSummary } : {}),
     },
     include: {
       user: { select: { id: true, name: true, email: true, department: true } },

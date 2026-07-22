@@ -80,10 +80,10 @@ export async function PATCH(request: NextRequest) {
     // 새 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // 비밀번호 업데이트
+    // 비밀번호 업데이트 (본인이 바꿨으므로 임시 비번 상태 해제 → 봇 변경 요청 알림 중단)
     await prisma.user.update({
       where: { id: session.userId },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, passwordResetAt: null },
     });
 
     return NextResponse.json({ success: true, message: "비밀번호가 변경되었습니다." });

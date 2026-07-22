@@ -14,7 +14,9 @@ import {
   UmbrellaOff, Plus, Check, X, AlertCircle, CalendarDays,
   ClipboardList, Users, Pencil, GitBranch, Inbox, ChevronRight,
   Trash2, Search, ArrowUp, ArrowDown, RefreshCw, Calculator,
+  Upload, Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { format, eachDayOfInterval, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -44,7 +46,7 @@ type LeaveRequest = {
 };
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
-  userId: string; name: string; department: string; position: string;
+  userId: string; name: string; email?: string; department: string; position: string;
   branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
@@ -280,6 +282,77 @@ export default function LeavePage() {
     setEditOpen(false); fetchBalance();
   }
 
+  /* ── 연차 일괄 업로드 (이름/이메일/연차 엑셀 → 미리보기 → 적용) ── */
+  type BulkRow = {
+    name: string; email: string; total: number | null;
+    systemName?: string; prevTotal?: number | null; used?: number; newRemaining?: number;
+    status: "ok" | "name_mismatch" | "not_found" | "invalid"; message?: string;
+  };
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFileName, setBulkFileName] = useState("");
+  const [bulkPreview, setBulkPreview] = useState<BulkRow[] | null>(null);
+  const [bulkApplying, setBulkApplying] = useState(false);
+
+  function downloadBulkTemplate() {
+    const data = empBalances.length
+      ? empBalances.map(b => ({ 이름: b.name, 이메일: b.email || "", 연차: b.total }))
+      : [{ 이름: "홍길동", 이메일: "hong@cubetee.co.kr", 연차: 15 }];
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 8 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "연차");
+    XLSX.writeFile(wb, `연차_일괄업로드_${CURRENT_YEAR}.xlsx`);
+  }
+
+  async function handleBulkFile(file: File) {
+    try {
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+      const pick = (row: Record<string, unknown>, keys: string[]) => {
+        for (const k of keys) if (row[k] !== undefined && row[k] !== "") return row[k];
+        return undefined;
+      };
+      const rows = json.map(r => ({
+        name: pick(r, ["이름", "성명", "직원명"]) ?? "",
+        email: pick(r, ["이메일", "이메일 주소", "이메일주소", "email", "Email", "E-mail"]) ?? "",
+        total: pick(r, ["연차", "총 연차", "총연차", "연차수", "연차 수", "잔여 연차", "잔여연차", "남은 연차", "남은연차"]),
+      })).filter(r => r.email || r.name);
+      if (!rows.length) { toast.error("읽을 수 있는 행이 없습니다. 이름/이메일/연차 컬럼명을 확인해주세요."); return; }
+      const res = await fetch("/api/leave/balance/bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows, apply: false }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "파일 확인에 실패했습니다."); return; }
+      setBulkFileName(file.name);
+      setBulkPreview(d.results);
+    } catch {
+      toast.error("파일을 읽지 못했습니다. 엑셀(.xlsx) 파일인지 확인해주세요.");
+    }
+  }
+
+  async function applyBulk() {
+    if (!bulkPreview) return;
+    const rows = bulkPreview
+      .filter(r => r.status === "ok" || r.status === "name_mismatch")
+      .map(r => ({ name: r.name, email: r.email, total: r.total }));
+    if (!rows.length) { toast.error("적용할 수 있는 행이 없습니다."); return; }
+    setBulkApplying(true);
+    try {
+      const res = await fetch("/api/leave/balance/bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows, apply: true }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "적용에 실패했습니다."); return; }
+      toast.success(`${d.applied}명의 연차를 적용했습니다.`);
+      setBulkOpen(false); setBulkPreview(null); setBulkFileName("");
+      fetchBalance();
+    } finally { setBulkApplying(false); }
+  }
+
   /* ── #7 근속기간 기반 연차 자동계산 ── */
   async function recalcAll() {
     setRecalcing(true);
@@ -290,6 +363,28 @@ export default function LeavePage() {
       toast.success(`${d.updated}명 연차를 자동 계산했습니다.`);
       fetchBalance();
     } finally { setRecalcing(false); }
+  }
+
+  /* ── 연차 연도 전환 (소멸 + 신년도 재부여) ── */
+  const [rollingOver, setRollingOver] = useState(false);
+  async function rolloverYear() {
+    if (!window.confirm(
+      `${CURRENT_YEAR}년도로 연차를 전환합니다.\n` +
+      `전년도 잔여 연차는 소멸되고, 근속 기간 기준으로 새로 부여됩니다.\n` +
+      `(이미 올해 연차가 있는 직원은 건드리지 않습니다)\n진행할까요?`
+    )) return;
+    setRollingOver(true);
+    try {
+      const res = await fetch("/api/leave/rollover", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year: CURRENT_YEAR }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "연도 전환 실패"); return; }
+      toast.success(`${d.year}년도 전환 완료 — 생성 ${d.created}명, 건너뜀 ${d.skipped}명`);
+      if (d.noHireDate?.length) toast.info(`입사일 미입력(기본 15일 부여): ${d.noHireDate.join(", ")}`);
+      fetchBalance();
+    } finally { setRollingOver(false); }
   }
 
   /* ── 결재라인 편집 열기 ── */
@@ -608,9 +703,17 @@ export default function LeavePage() {
                 <CardTitle className="text-sm text-gray-600 font-medium">
                   전체 {empBalances.length}명 · {CURRENT_YEAR}년 기준
                 </CardTitle>
-                <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={recalcAll} disabled={recalcing}>
-                  <RefreshCw size={13} className={recalcing ? "animate-spin" : ""} />연차 자동계산
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                  <Button variant="outline" size="sm" className="gap-1" onClick={recalcAll} disabled={recalcing}>
+                    <RefreshCw size={13} className={recalcing ? "animate-spin" : ""} />연차 자동계산
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1 text-indigo-600 border-indigo-200" onClick={rolloverYear} disabled={rollingOver}>
+                    <RefreshCw size={13} className={rollingOver ? "animate-spin" : ""} />{CURRENT_YEAR}년도 전환
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1 text-emerald-600 border-emerald-200" onClick={() => setBulkOpen(true)}>
+                    <Upload size={13} />연차 일괄 업로드
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <table className="w-full text-sm">
@@ -779,6 +882,78 @@ export default function LeavePage() {
       </Dialog>
 
       {/* ═══ 잔여 조정 다이얼로그 ═══ */}
+      {/* 연차 일괄 업로드 */}
+      <Dialog open={bulkOpen} onOpenChange={(o) => { setBulkOpen(o); if (!o) { setBulkPreview(null); setBulkFileName(""); } }}>
+        <DialogContent className="max-w-3xl overflow-hidden">
+          <DialogHeader><DialogTitle>연차 일괄 업로드 · {CURRENT_YEAR}년</DialogTitle></DialogHeader>
+          <div className="space-y-3 min-w-0">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
+              <p className="font-semibold">💡 이름 · 이메일 · 연차 3개 컬럼이면 됩니다</p>
+              <p>이메일로 직원을 찾아 <b>총 연차</b>를 파일의 숫자로 바꿉니다. 이미 사용한 일수는 그대로 두고 잔여만 다시 계산합니다.</p>
+              <p>템플릿을 내려받으면 현재 직원 명단과 연차가 채워져 있어 숫자만 고쳐 올리면 됩니다.</p>
+            </div>
+            <div className="flex gap-2 items-center">
+              <Button variant="outline" size="sm" className="gap-1" onClick={downloadBulkTemplate}>
+                <Download size={13} />템플릿 다운로드
+              </Button>
+              <input id="leave-bulk-file" type="file" accept=".xlsx,.xls" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBulkFile(f); e.target.value = ""; }} />
+              <Button size="sm" className="gap-1" onClick={() => document.getElementById("leave-bulk-file")?.click()}>
+                <Upload size={13} />파일 선택
+              </Button>
+              {bulkFileName && <span className="text-xs text-gray-500 truncate">{bulkFileName}</span>}
+            </div>
+            {bulkPreview && (
+              <>
+                <div className="max-h-72 overflow-y-auto overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs whitespace-nowrap">
+                    <thead className="sticky top-0 bg-gray-50">
+                      <tr className="text-left text-gray-500 border-b">
+                        <th className="px-3 py-2 font-medium">이름</th>
+                        <th className="px-3 py-2 font-medium">이메일</th>
+                        <th className="px-3 py-2 font-medium">총 연차</th>
+                        <th className="px-3 py-2 font-medium">잔여 예상</th>
+                        <th className="px-3 py-2 font-medium">상태</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkPreview.map((r, i) => (
+                        <tr key={i} className="border-b last:border-0">
+                          <td className="px-3 py-1.5">{r.name || r.systemName || "-"}</td>
+                          <td className="px-3 py-1.5 text-gray-500">{r.email || "-"}</td>
+                          <td className="px-3 py-1.5">
+                            {r.status === "ok" || r.status === "name_mismatch"
+                              ? <>{r.prevTotal ?? "-"}일 → <b>{r.total}일</b></>
+                              : (r.total ?? "-")}
+                          </td>
+                          <td className="px-3 py-1.5">{r.newRemaining !== undefined ? `${r.newRemaining}일 (사용 ${r.used ?? 0}일)` : "-"}</td>
+                          <td className="px-3 py-1.5">
+                            {r.status === "ok" && <span className="text-emerald-600">적용됨</span>}
+                            {r.status === "name_mismatch" && <span className="text-amber-600" title={r.message}>적용 (이름 확인: {r.message})</span>}
+                            {r.status === "not_found" && <span className="text-red-500">건너뜀 · {r.message}</span>}
+                            {r.status === "invalid" && <span className="text-red-500">건너뜀 · {r.message}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">
+                    적용 {bulkPreview.filter(r => r.status === "ok" || r.status === "name_mismatch").length}명 ·
+                    건너뜀 {bulkPreview.filter(r => r.status === "not_found" || r.status === "invalid").length}행
+                  </p>
+                  <Button onClick={applyBulk} disabled={bulkApplying || bulkPreview.every(r => r.status === "not_found" || r.status === "invalid")}
+                    className="bg-emerald-600 hover:bg-emerald-700">
+                    {bulkApplying ? "적용 중..." : "적용"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-xs">
           <DialogHeader><DialogTitle>연차 조정 — {editTarget?.name}</DialogTitle></DialogHeader>

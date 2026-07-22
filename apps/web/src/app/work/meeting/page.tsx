@@ -65,9 +65,15 @@ function MeetingChat({ channelId }: { channelId: string }) {
           </div>
         ))}
       </div>
-      <div className="px-3 py-2 border-t flex gap-2">
-        <Input value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }} placeholder="메시지..." className="h-9" />
+      <div className="px-3 py-2 border-t flex gap-2 items-end">
+        <textarea value={input} rows={1}
+          className="flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring max-h-32 overflow-y-auto leading-5"
+          onChange={(e) => {
+            setInput(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px";
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).style.height = "auto"; send(); } }} placeholder="메시지..." />
         <Button size="sm" onClick={send} disabled={!input.trim()} className="bg-indigo-500 hover:bg-indigo-600"><Send size={14} /></Button>
       </div>
     </div>
@@ -106,10 +112,24 @@ export default function WorkMeetingPage() {
     setIsSecure(typeof window !== "undefined" && window.isSecureContext);
     fetchMeetings(); fetchRecordings();
     fetch("/api/auth/me").then(r => r.json()).then(d => setMe(d.user ? { id: d.user.id, name: d.user.name, role: d.user.role } : null)).catch(() => {});
-    fetch("/api/employees").then(r => r.ok ? r.json() : { employees: [] }).then(d => setEmployees(d.employees || [])).catch(() => {});
+    // 초대 후보: 전 직원 + 관리자·서브관리자 포함 (/api/employees는 ADMIN 제외라 사용 안 함)
+    fetch("/api/work/members").then(r => r.ok ? r.json() : { members: [] }).then(d => setEmployees(d.members || [])).catch(() => {});
     const t = setInterval(fetchMeetings, 5000);
     return () => clearInterval(t);
   }, [fetchMeetings, fetchRecordings]);
+
+  // 초대 링크(?join=회의ID)로 접속하면 해당 회의로 자동 입장
+  const joinHandled = useRef(false);
+  useEffect(() => {
+    if (joinHandled.current || meetings.length === 0) return;
+    const joinId = new URLSearchParams(window.location.search).get("join");
+    joinHandled.current = true;
+    if (!joinId) return;
+    window.history.replaceState(null, "", "/work/meeting");
+    const m = meetings.find((x) => x.id === joinId);
+    if (m) setActive(m);
+    else toast.error("초대받지 않았거나 이미 종료된 회의입니다.");
+  }, [meetings]);
 
   // 회의 입장 중에는 주기적으로 신호 전송(자동 종료 방지)
   useEffect(() => {

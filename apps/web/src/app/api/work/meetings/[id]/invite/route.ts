@@ -16,12 +16,30 @@ export async function POST(
   if (!Array.isArray(inviteIds) || inviteIds.length === 0)
     return NextResponse.json({ error: "초대할 직원을 선택해주세요." }, { status: 400 });
 
-  const meeting = await prisma.workMeeting.findUnique({ where: { id }, select: { title: true, endedAt: true } });
+  const meeting = await prisma.workMeeting.findUnique({
+    where: { id },
+    select: { title: true, endedAt: true, createdBy: true, invites: { select: { userId: true } } },
+  });
   if (!meeting) return NextResponse.json({ error: "회의를 찾을 수 없습니다." }, { status: 404 });
   if (meeting.endedAt) return NextResponse.json({ error: "이미 종료된 회의입니다." }, { status: 400 });
 
-  const base = process.env.NEXT_PUBLIC_APP_URL || "";
-  const text = `📹 화상회의 초대: "${meeting.title}"\n지금 참여하기 → ${base}/work/meeting`;
+  // 회의 참여자(개설자·초대받은 사람)와 관리자만 초대 가능
+  const canInvite =
+    meeting.createdBy === session.userId ||
+    session.role === "ADMIN" ||
+    meeting.invites.some((i) => i.userId === session.userId);
+  if (!canInvite)
+    return NextResponse.json({ error: "회의 참여자만 초대할 수 있습니다." }, { status: 403 });
+
+  // 초대 명단 기록 → 초대받은 사람만 진행 중 회의를 보고 참여할 수 있다
+  await prisma.workMeetingInvite.createMany({
+    data: inviteIds.filter((uid) => uid !== session.userId).map((uid) => ({ meetingId: id, userId: uid })),
+    skipDuplicates: true,
+  });
+
+  const base = process.env.NEXT_PUBLIC_APP_URL || "https://cubetee.co.kr";
+  // ?join=회의ID → 링크 클릭 시 해당 회의로 즉시 자동 입장
+  const text = `📹 화상회의 초대: "${meeting.title}"\n지금 참여하기 → ${base}/work/meeting?join=${id}`;
 
   let invited = 0;
   for (const otherId of inviteIds) {

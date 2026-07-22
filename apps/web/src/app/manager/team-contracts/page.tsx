@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
-import { FileSignature, Download, PenLine, ArrowRight, CheckCircle2, Clock } from "lucide-react";
+import { FileSignature, PenLine, ArrowRight, CheckCircle2, Clock, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -29,6 +29,7 @@ type Contract = {
   userId: string;
   startDate: string | null;
   endDate: string | null;
+  extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
   createdAt: string;
   user: { id: string; name: string; department: string | null; branch: string | null };
   approvalLine?: { steps: Step[] } | null;
@@ -39,7 +40,7 @@ const typeLabel: Record<string, string> = {
 };
 const statusConfig: Record<string, { label: string; variant: any }> = {
   DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "직원 서명 대기", variant: "secondary" },
+  SENT: { label: "결재 진행 중", variant: "secondary" },
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
@@ -53,6 +54,14 @@ function getFileUrl(fileUrl: string): string {
   } catch {
     return fileUrl;
   }
+}
+
+// 결재자는 파일을 내려받아 보관하지 않도록 브라우저에서 바로 열람.
+// 오피스 문서(워드 등)는 MS 온라인 뷰어로 열기 (채팅 첨부 열기와 동일 방식)
+function viewHref(fileUrl: string): string {
+  if (/\.(pptx?|xlsx?|docx?)$/i.test(fileUrl))
+    return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
+  return fileUrl;
 }
 
 function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
@@ -165,11 +174,11 @@ export default function ManagerContractsPage() {
                 </div>
                 <div className="flex gap-2">
                   {getFileUrl(c.fileUrl) && (
-                    <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
-                      <Button size="sm" variant="outline"><Download size={14} /></Button>
+                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setSignName(myName); setSignOpen(true); }}>
+                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setSignOpen(true); }}>
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -238,15 +247,11 @@ export default function ManagerContractsPage() {
                         <td className="py-3 text-right">
                           <div className="flex gap-2 justify-end">
                             {getFileUrl(c.fileUrl) && (
-                              <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
-                                <Button size="sm" variant="outline"><Download size={14} /></Button>
+                              <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                                <Button size="sm" variant="outline"><Eye size={14} /></Button>
                               </a>
                             )}
-                            {c.status === "SIGNED" && (
-                              <a href={`/api/contracts/${c.id}/signed-document`}>
-                                <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명본</Button>
-                              </a>
-                            )}
+                            {/* 서명본은 관리자·계약 당사자만 접근 (개인정보 보관 방지) */}
                           </div>
                         </td>
                       </tr>
@@ -269,6 +274,17 @@ export default function ManagerContractsPage() {
                 <p className="font-medium">{signTarget.title}</p>
                 <p className="text-gray-500 text-xs">{signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
                 <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.userId} />
+                {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
+                <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                  <span className="text-gray-400">직원명</span><span>{signTarget.user.name}{signTarget.user.branch ? ` (${signTarget.user.branch})` : ""}</span>
+                  {(signTarget.startDate || signTarget.endDate) && (
+                    <><span className="text-gray-400">계약기간</span>
+                    <span>{signTarget.startDate ? format(new Date(signTarget.startDate), "yyyy-MM-dd") : "?"} ~ {signTarget.endDate ? format(new Date(signTarget.endDate), "yyyy-MM-dd") : "?"}</span></>
+                  )}
+                  {signTarget.extraFields && Object.entries(signTarget.extraFields).map(([k, v]) => (
+                    <span key={k} className="contents"><span className="text-gray-400">{k}</span><span>{v}</span></span>
+                  ))}
+                </div>
               </div>
             )}
             <div className="space-y-2">

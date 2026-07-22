@@ -24,7 +24,10 @@ export async function GET(_request: NextRequest) {
         position: true,
         branch: true,
         hireDate: true,
+        birthDate: true,
+        address: true,
         role: true,
+        avatarUrl: true,
       },
     });
 
@@ -50,7 +53,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, phone } = body;
+    const { name, phone, address } = body;
 
     // 유효성 검사
     const errors: string[] = [];
@@ -87,6 +90,9 @@ export async function PATCH(request: NextRequest) {
     if (phone !== undefined) {
       updateData.phone = phone.trim() || null;
     }
+    if (address !== undefined) {
+      updateData.address = (typeof address === "string" ? address.trim() : "") || null;
+    }
 
     // 업데이트 (수정할 필드가 없으면 스킵)
     if (Object.keys(updateData).length === 0) {
@@ -106,7 +112,10 @@ export async function PATCH(request: NextRequest) {
         position: true,
         branch: true,
         hireDate: true,
+        birthDate: true,
+        address: true,
         role: true,
+        avatarUrl: true,
       },
     });
 

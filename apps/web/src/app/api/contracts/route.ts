@@ -2,45 +2,11 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { filterContractData } from "@/lib/api-response";
+import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
 import path from "path";
-import PizZip from "pizzip";
-import Docxtemplater from "docxtemplater";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
-
-// 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성
-async function fillDocxTemplate(
-  templateFileUrl: string,
-  data: Record<string, string>
-): Promise<string> {
-  // "/api/uploads/templates/xxx.docx" → 실제 파일 경로
-  const relPath = templateFileUrl.replace(/^\/api\/uploads\//, "");
-  const srcPath = path.join(process.cwd(), "uploads", relPath);
-  const content = await fs.readFile(srcPath);
-
-  const zip = new PizZip(content);
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    delimiters: { start: "{", end: "}" },
-    nullGetter: () => "", // 값이 없는 필드는 빈 문자열
-  });
-  doc.render(data);
-
-  const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
-  const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-contract.docx`;
-  const dir = path.join(process.cwd(), "uploads", "contracts");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, filename), buf);
-  return `/api/uploads/contracts/${filename}`;
-}
-
-const fmtKoreanDate = (d: string | null) => {
-  if (!d) return "";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
-};
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,12 +25,14 @@ export async function GET(request: NextRequest) {
     const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
 
     // 기본 권한 필터
+    const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     let whereBase: any = selfOnly
       ? { userId: session.userId }
       : session.role === "ADMIN"
       ? {}
       : session.role === "MANAGER"
-      ? { user: { branch: session.branch } }
+      // 원장은 담당 지점 직원 계약서를 보되, 직원전용 문서(비밀유지·개인정보동의서)는 제외
+      ? { user: { branch: { in: myBranches } }, employeeOnly: false }
       : { userId: session.userId };
 
     // 추가 필터 적용
@@ -155,6 +123,7 @@ export async function POST(request: NextRequest) {
     const startDate = formData.get("startDate") as string;
     const endDate = formData.get("endDate") as string;
     const salary = formData.get("salary") as string | null;
+    const extraFieldsRaw = formData.get("extraFields") as string | null; // 템플릿별 동적 입력란 값(JSON)
 
     // 템플릿 없을 때는 파일 필수, 템플릿 있을 때는 파일 불필수
     if ((files.length === 0 && !templateId) || !userId || !title || !type)
@@ -163,13 +132,14 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
 
-    // MANAGER의 지점 검증: 자신의 지점 직원만 계약서 생성 가능
+    // MANAGER의 지점 검증: 자신의 담당 지점(대표+겸직) 직원만 계약서 생성 가능
     if (session.role === "MANAGER") {
+      const myBranches = await getManagerBranches(session.userId);
       const targetUser = await prisma.user.findUnique({
         where: { id: userId },
         select: { branch: true }
       });
-      if (!targetUser || targetUser.branch !== session.branch) {
+      if (!targetUser || !targetUser.branch || !myBranches.includes(targetUser.branch)) {
         return NextResponse.json({ error: "자신의 지점 직원만 계약서를 생성할 수 있습니다." }, { status: 403 });
       }
     }
@@ -211,26 +181,13 @@ export async function POST(request: NextRequest) {
 
       if (template.fileUrl.toLowerCase().endsWith(".docx")) {
         // 워드 템플릿: 치환 필드({직원명}, {연봉} 등)를 입력값으로 채워 계약서 생성
-        const targetUser = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true },
+        let parsedExtra: Record<string, string> | null = null;
+        if (extraFieldsRaw) {
+          try { parsedExtra = JSON.parse(extraFieldsRaw); } catch { /* 형식 오류는 무시 */ }
+        }
+        const mergeData = await buildContractMergeData(userId, {
+          title, startDate, endDate, salary, extraFields: parsedExtra,
         });
-        const now = new Date();
-        const mergeData: Record<string, string> = {
-          직원명: targetUser?.name ?? "",
-          이름: targetUser?.name ?? "",
-          이메일: targetUser?.email ?? "",
-          연락처: targetUser?.phone ?? "",
-          지점: targetUser?.branch ?? "",
-          직책: targetUser?.jobGroup ?? "",
-          직급: targetUser?.position ?? "",
-          입사일: targetUser?.hireDate ? fmtKoreanDate(targetUser.hireDate.toISOString()) : "",
-          제목: title,
-          계약시작일: fmtKoreanDate(startDate),
-          계약종료일: fmtKoreanDate(endDate),
-          연봉: salary ? `${Number(salary).toLocaleString()}원` : "",
-          작성일: fmtKoreanDate(now.toISOString()),
-        };
         try {
           const filledUrl = await fillDocxTemplate(template.fileUrl, mergeData);
           fileUrl = JSON.stringify([filledUrl]);
@@ -246,14 +203,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 작성 시 입력값 요약 저장 (결재 승인 창에서 계약서를 안 열어도 확인 가능)
+    let summaryExtra: Record<string, string> | null = null;
+    if (extraFieldsRaw) {
+      try { summaryExtra = JSON.parse(extraFieldsRaw); } catch { /* 무시 */ }
+    }
+    const fieldSummary = buildFieldSummary(salary, summaryExtra);
+
     const contract = await prisma.contract.create({
       data: {
         userId,
         title,
         type,
         fileUrl,
+        templateId: templateId || undefined, // 수정 시 문서 재생성에 필요
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
+        extraFields: Object.keys(fieldSummary).length ? fieldSummary : undefined,
         status: "DRAFT",
       },
       include: {

@@ -9,7 +9,9 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  // 녹화한 본인 것만 표시 (녹화 버튼 누른 사람 전용)
   const recordings = await prisma.workMeetingRecording.findMany({
+    where: { createdBy: session.userId },
     orderBy: { createdAt: "desc" },
     take: 100,
   });

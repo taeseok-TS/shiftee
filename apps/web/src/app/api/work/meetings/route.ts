@@ -18,8 +18,14 @@ export async function GET() {
     data: { endedAt: new Date() },
   });
 
+  // 개설자·초대받은 사람만 조회 (관리자는 전체 — 회의 종료 관리 권한과 동일)
   const meetings = await prisma.workMeeting.findMany({
-    where: { endedAt: null },
+    where: {
+      endedAt: null,
+      ...(session.role === "ADMIN"
+        ? {}
+        : { OR: [{ createdBy: session.userId }, { invites: { some: { userId: session.userId } } }] }),
+    },
     orderBy: { createdAt: "desc" },
   });
   return NextResponse.json({ meetings });

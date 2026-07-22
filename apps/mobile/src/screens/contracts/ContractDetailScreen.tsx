@@ -110,6 +110,10 @@ export default function ContractDetailScreen() {
   const st = STATUS[contract.status] || STATUS.DRAFT;
   const originalFile = firstUrl(contract.fileUrl);
   const signedFile = firstUrl(contract.signedUrl);
+  // 본인 서명은 결재 순서상 자기 차례(내 단계가 PENDING)일 때만 — 결재라인 없는 구계약은 기존 SENT 기준
+  const steps: any[] = (contract as any).approvalLine?.steps || [];
+  const myTurn = steps.some((s) => s.approverId === (contract as any).userId && s.status === "PENDING");
+  const canSign = steps.length > 0 ? myTurn : contract.status === "SENT";
 
   return (
     <ScrollView style={styles.container}>
@@ -150,7 +154,7 @@ export default function ContractDetailScreen() {
         ) : null}
       </View>
 
-      {contract.status === "SENT" ? (
+      {canSign ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>전자 서명</Text>
           <Text style={styles.signHint}>아래 버튼을 눌러 서명하면 계약이 진행됩니다.</Text>
@@ -187,13 +191,21 @@ export default function ContractDetailScreen() {
               onOK={handleSignature}
               onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
               descriptionText=""
-              clearText="지우기"
-              confirmText="확인"
               imageType="image/png"
-              webStyle={`.m-signature-pad--footer { margin: 0; }
+              webStyle={`.m-signature-pad--footer { display: none; }
                 .m-signature-pad { box-shadow: none; border: none; }
                 body, html { width: 100%; height: 100%; }`}
             />
+          </View>
+          {/* 패드 내부(웹뷰) 버튼은 기기에 따라 안 보일 수 있어 바깥 고정 버튼 사용 */}
+          <View style={styles.padActions}>
+            <TouchableOpacity style={styles.padClear} onPress={() => sigRef.current?.clearSignature()}>
+              <Text style={styles.padClearText}>지우기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
+              <Ionicons name="checkmark" size={18} color="#fff" />
+              <Text style={styles.padConfirmText}>서명 제출</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -244,6 +256,11 @@ const styles = StyleSheet.create({
   },
   signBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   btnDisabled: { opacity: 0.6 },
+  padActions: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
+  padClear: { flex: 1, paddingVertical: 14, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", alignItems: "center" },
+  padClearText: { fontSize: 15, fontWeight: "600", color: "#374151" },
+  padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 8, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
+  padConfirmText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   modalRoot: { flex: 1, backgroundColor: "#fff" },
   modalHeader: {
     flexDirection: "row",

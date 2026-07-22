@@ -49,9 +49,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSession();
 
-  // 관리자와 매니저만 템플릿 생성 가능
-  if (!session || session.role === "EMPLOYEE") {
-    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 템플릿 생성은 관리자 전용
+  if (!session || session.role !== "ADMIN") {
+    return NextResponse.json({ error: "템플릿 등록은 관리자만 가능합니다." }, { status: 403 });
   }
 
   try {

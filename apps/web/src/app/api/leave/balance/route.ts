@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { tenureLabel, annualLeaveDays } from "@/lib/leave-calc";
+import { tenureLabel, annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -11,28 +12,31 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
 
+  // 조회 연도 — 미지정 시 현재 연도(KST). 연도별 이력이 보존되므로 과거 연도 조회 가능
+  const year = Number(searchParams.get("year")) || currentLeaveYear();
+
   // 본인 잔여 휴가만: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   if (session.role === "EMPLOYEE" || searchParams.get("scope") === "self") {
     const balance = await prisma.leaveBalance.findUnique({
-      where: { userId: session.userId },
+      where: { userId_year: { userId: session.userId, year } },
     });
     return NextResponse.json({ balance });
   }
 
   // 관리자/매니저: 직원 잔여 현황
-  const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
   const [employees, balances] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, ...branchWhere },
-      select: { id: true, name: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
+      select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
-    prisma.leaveBalance.findMany(),
+    prisma.leaveBalance.findMany({ where: { year } }),
   ]);
 
   const balanceMap = new Map(balances.map(b => [b.userId, b]));
-  const year = new Date().getFullYear();
   const now = new Date();
 
   const result = employees.map(emp => {
@@ -40,6 +44,7 @@ export async function GET(request: NextRequest) {
     return {
       userId:    emp.id,
       name:      emp.name,
+      email:     emp.email,
       department: emp.department ?? "-",
       position:  emp.position   ?? "-",
       branch:    emp.branch ?? "-",
@@ -72,15 +77,16 @@ export async function PATCH(request: NextRequest) {
   const usedVal      = used      ?? 0;
   const remainingVal = total - usedVal;
 
-  // 변경 전 값(감사 로그용)
+  // 변경 전 값(감사 로그용) — 수동 조정은 현재 연도 행 기준
+  const year = currentLeaveYear();
   const [prev, targetUser] = await Promise.all([
-    prisma.leaveBalance.findUnique({ where: { userId } }),
+    prisma.leaveBalance.findUnique({ where: { userId_year: { userId, year } } }),
     prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
   ]);
 
   const balance = await prisma.leaveBalance.upsert({
-    where:  { userId },
-    create: { userId, year: new Date().getFullYear(), total, used: usedVal, remaining: remainingVal },
+    where:  { userId_year: { userId, year } },
+    create: { userId, year, total, used: usedVal, remaining: remainingVal },
     update: { total, used: usedVal, remaining: remainingVal },
   });
 

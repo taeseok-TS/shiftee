@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown } from "lucide-react";
+import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -22,6 +22,8 @@ type Contract = {
   type: string;
   fileUrl: string;
   status: string;
+  extraFields?: Record<string, string> | null; // 개인정보동의서 선택 동의 등
+  profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -69,13 +71,20 @@ const typeLabel: Record<string, string> = {
 
 const statusConfig: Record<string, { label: string; variant: any }> = {
   DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "직원 서명 대기", variant: "secondary" },
+  SENT: { label: "결재 진행 중", variant: "secondary" },
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
 };
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
+// 서명 전 계약서는 다운로드 대신 브라우저 열람만 (다운로드는 서명 완료본만 허용)
+function viewHref(fileUrl: string): string {
+  if (/\.(pptx?|xlsx?|docx?)$/i.test(fileUrl))
+    return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
+  return fileUrl;
+}
+
 function getFileUrl(fileUrl: string): string {
   if (!fileUrl) return "";
   try {
@@ -160,6 +169,15 @@ export default function ContractsPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
+  const [consentChoices, setConsentChoices] = useState<Record<string, string>>({}); // 개인정보동의서 선택 항목
+  const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
+  const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
+  // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도)
+  const missingProfile = (signTarget?.profileFields || []).filter((f: string) =>
+    f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
+  // 서명 대상에 선택 동의 항목이 있으면 라벨 매핑
+  const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
+  const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields!) : [];
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -527,6 +545,7 @@ export default function ContractsPage() {
       setRole("EMPLOYEE");
       setMyId(d.user?.id || "");
       setMyName(d.user?.name || "");
+      setMyProfile({ address: d.user?.address || "", birthDate: d.user?.birthDate ? String(d.user.birthDate).slice(0, 10) : "" });
     });
   }, []);
 
@@ -671,14 +690,29 @@ export default function ContractsPage() {
 
   async function handleSign(id: string, isApprover = false) {
     if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
+    // 프로필 미입력 항목이 있으면 입력 확인
+    let profile: Record<string, string> | undefined;
+    if (missingProfile.length) {
+      profile = {};
+      if (missingProfile.includes("주소")) {
+        if (!profileInput.주소.trim()) { toast.error("주소를 입력해주세요."); return; }
+        profile.주소 = profileInput.주소.trim();
+      }
+      if (missingProfile.includes("생년월일")) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { toast.error("생년월일을 입력해주세요."); return; }
+        profile.생년월일 = profileInput.생년월일;
+      }
+    }
 
     const res = await fetch(`/api/contracts/${id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover }),
+      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}) }),
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
+    // 입력한 프로필을 로컬에도 반영 (다음 계약서에서 다시 안 묻도록)
+    if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
     toast.success(isApprover ? "계약 승인됨" : "서명 완료");
     setSignOpen(false);
     fetchContracts();
@@ -1246,9 +1280,17 @@ export default function ContractsPage() {
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
-                  <PenLine size={14} />승인
-                </Button>
+                <div className="flex gap-2">
+                  {/* 결재자는 다운로드 대신 브라우저 열람 (파일 보관 방지) */}
+                  {getFileUrl(c.fileUrl) && (
+                    <a href={/\.(pptx?|xlsx?|docx?)$/i.test(getFileUrl(c.fileUrl)) ? `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + getFileUrl(c.fileUrl))}` : getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
+                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
+                    </a>
+                  )}
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignOpen(true); }} className="gap-1">
+                    <PenLine size={14} />승인
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>
@@ -1256,23 +1298,23 @@ export default function ContractsPage() {
       )}
 
       {/* 직원 서명 대기 */}
-      {role === "EMPLOYEE" && contracts.filter(c => c.status === "SENT").length > 0 && (
+      {role === "EMPLOYEE" && contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).length > 0 && (
         <Card className="border-blue-200 bg-blue-50">
           <CardHeader>
             <CardTitle className="text-base text-blue-700">내 서명 대기</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {contracts.filter(c => c.status === "SENT").map(c => (
+            {contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).map(c => (
               <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200">
                 <div>
                   <p className="font-medium text-sm">{c.title}</p>
                   <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
                 </div>
                 <div className="flex gap-2">
-                  <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
-                    <Button size="sm" variant="outline"><Download size={14} /></Button>
+                  <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                    <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1433,7 +1475,8 @@ export default function ContractsPage() {
                         />
                       </td>
                       <td className="py-3 space-x-1">
-                        <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        {/* 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만 */}
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1544,6 +1587,46 @@ export default function ContractsPage() {
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
                 <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
               </div>
+              {/* 프로필 미입력 항목 — 서명 시 입력하면 프로필에 저장되어 다음부터 자동 반영 */}
+              {missingProfile.length > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-blue-800">계약서에 필요한 정보를 입력해주세요 (프로필에 저장됩니다)</p>
+                  {missingProfile.includes("주소") && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">주소</Label>
+                      <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
+                        value={profileInput.주소} onChange={e => setProfileInput(p => ({ ...p, 주소: e.target.value }))} />
+                    </div>
+                  )}
+                  {missingProfile.includes("생년월일") && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">생년월일</Label>
+                      <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                        value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} />
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* 개인정보동의서 선택 항목 — 기본 동의, 미동의로 변경 가능 */}
+              {consentKeys.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-amber-800">선택 동의 항목 (동의하지 않아도 됩니다)</p>
+                  {consentKeys.map(k => (
+                    <div key={k} className="space-y-1">
+                      <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
+                      <div className="flex gap-3 text-sm">
+                        {["동의", "미동의"].map(opt => (
+                          <label key={opt} className="flex items-center gap-1 cursor-pointer">
+                            <input type="radio" checked={(consentChoices[k] || "동의") === opt}
+                              onChange={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))} />
+                            {opt}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>서명 *</Label>
                 <SignaturePad ref={sigRef} />
@@ -1577,12 +1660,12 @@ export default function ContractsPage() {
                         </p>
                       </div>
                       <Badge variant="outline" className="text-xs">
-                        {statusConfig[v.status]?.label || v.status}
+                        이전 버전
                       </Badge>
                     </div>
-                    <a href={getFileUrl(v.fileUrl)} target="_blank" rel="noreferrer">
+                    <a href={viewHref(getFileUrl(v.fileUrl))} target="_blank" rel="noreferrer">
                       <Button size="sm" variant="outline" className="w-full gap-1">
-                        <Download size={12} />다운로드
+                        <Eye size={12} />보기
                       </Button>
                     </a>
                   </div>

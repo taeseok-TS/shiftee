@@ -22,6 +22,11 @@ model User {
   jobGroup             String? // 직군 (원장 | CM | TM | 코디)
   position             String? // 직급 (인턴매니저, 주임교실장 등)
   branch               String? // 지점 (예: "A지점", "B지점")
+  avatarUrl            String? // 프로필 사진 URL (없으면 이니셜 아바타)
+  birthDate            DateTime? @db.Date // 생일 (봇 브리핑 생일 축하용)
+  address              String? // 주소 (전자계약 자동 채움 — 서명 시 비어 있으면 직원이 입력→저장)
+  notifyApproval       Boolean   @default(true) // 결재 결과 알림(봇 DM+푸시) 수신 여부 — 본인 설정 (관리자 강제발송 시 무시)
+  passwordResetAt      DateTime? // 관리자가 임시 비번(1234)으로 초기화한 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
   hireDate             DateTime?
   isActive             Boolean          @default(true)
   employmentStatus     EmploymentStatus @default(ACTIVE)
@@ -35,7 +40,7 @@ model User {
   attendances           Attendance[]
   schedules             Schedule[]
   leaveRequests         LeaveRequest[]
-  leaveBalance          LeaveBalance?
+  leaveBalance          LeaveBalance[] // 연도별 1행 (@@unique([userId, year]))
   contracts             Contract[]
   approvedLeaves        LeaveRequest[]         @relation("Approver")
   approvalLines         ApprovalLine[]         @relation("ApprovalLineTarget")
@@ -51,6 +56,22 @@ model User {
   workAnnouncements     WorkAnnouncement[]
   workMessageReactions  WorkMessageReaction[]
   pushTokens            PushToken[]
+  device                UserDevice?
+  managerBranches       ManagerBranch[] // 원장 겸직 지점 (대표 지점 User.branch 외 추가 담당)
+  workBookmarks         WorkBookmark[]
+  scheduledMessages     WorkScheduledMessage[]
+  reminders             WorkReminder[]
+}
+
+// 직원 1인 1기기 등록 — 미등록 기기에서 앱 로그인/출퇴근 차단(대리 출퇴근 방지). 관리자(ADMIN)는 예외.
+model UserDevice {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String
+  deviceName String?
+  platform   String?
+  createdAt  DateTime @default(now())
 }
 
 enum Role {
@@ -175,6 +196,8 @@ model LeaveRequest {
   endDate        DateTime            @db.Date
   days           Float
   reason         String?
+  attachmentUrl  String? // 첨부(대체휴무 동의서 등). 모든 유형 선택, 대체휴무는 필수
+  attachmentName String?
   status         LeaveStatus         @default(PENDING)
   rejectedReason String?
   createdAt      DateTime            @default(now())
@@ -211,13 +234,16 @@ enum LeaveStatus {
 
 model LeaveBalance {
   id        String   @id @default(cuid())
-  userId    String   @unique
+  userId    String
   user      User     @relation(fields: [userId], references: [id])
   year      Int
   total     Float    @default(15)
   used      Float    @default(0)
   remaining Float    @default(15)
   updatedAt DateTime @updatedAt
+
+  // 연도별 이력 보관 — 유저당 연 1행 (연차 연도 전환 지원)
+  @@unique([userId, year])
 }
 
 // ─── 전자 계약 ──────────────────────────────────────────────
@@ -235,6 +261,12 @@ model Contract {
   status           ContractStatus        @default(DRAFT)
   startDate        DateTime?             @db.Date
   endDate          DateTime?             @db.Date
+  extraFields      Json? // 작성 시 입력값 요약(연봉·템플릿 동적 필드, 표시용 포맷) — 결재 승인 창에 표시
+  revocationLog    Json? // 결재/서명 회수 이력 [{type, reason, revokedBy, revokedAt}, ...]
+  hideRevoked      Boolean               @default(false) // 회수된 계약 목록 숨김 토글
+  bundleId         String? // 신규입사 패키지 묶음 ID(근로계약서+비밀유지+개인정보동의서 함께 발송)
+  employeeOnly     Boolean               @default(false) // 직원 서명만·직원+관리자에게만 표시(비밀유지·개인정보동의서)
+  profileFields    Json? // 이 계약서가 쓰는 직원 프로필 필드(["주소","생년월일"]) — 서명 시 비어 있으면 입력 유도
   employeeSignedAt DateTime?
   signedAt         DateTime?
   approvalLine     ContractApprovalLine?
@@ -387,6 +419,7 @@ model Branch {
   longitude Float?
   radius    Int      @default(100)
   isActive  Boolean  @default(true)
+  countInStats Boolean @default(true) // 대시보드 통계(직원·원장·지점 수)에 포함 여부 (테스트지점·본부 등 제외용)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -420,10 +453,164 @@ model WorkChannel {
   permanentlyDeletedAt DateTime? // 영구 삭제 예정일(삭제 후 30일)
   labelText String? // # 대신 표시할 라벨 텍스트(예: 지점)
   labelColor String? // 라벨 배경색(hex)
+  // 채널 고정 공지 (카카오워크식 — 채팅 상단 배너)
+  noticeContent   String?
+  noticeImageUrl  String? // 이미지 공지 (이미지 메시지를 공지로 등록)
+  noticeBy        String? // 등록자 이름
+  noticeAt        DateTime?
+  noticeImportant Boolean   @default(false) // 중요 공지: 즉시 푸시 + 매일 9시 미확인자 재푸시
   members   WorkChannelMember[]
   messages  WorkMessage[]
+  polls     WorkPoll[]
+  scheduledMessages WorkScheduledMessage[]
 
   @@index([type])
+}
+
+// 큐브티 봇 브리핑 설정 — 관리자가 여러 개 만들 수 있고 각각 발송 채널/주기/시간/포함 항목/첨부를 가진다
+model BotBriefing {
+  id           String    @id @default(cuid())
+  name         String // 예: "아침 브리핑"
+  folder       String? // 관리용 폴더 (null = 미분류. 예: "지점별", "TM", "원장")
+  time         String // KST "HH:mm" (예: "09:00")
+  repeat       String    @default("DAILY") // DAILY | WEEKLY | MONTHLY | YEARLY
+  repeatValue  String? // WEEKLY: "1,2,3"(0=일~6=토 csv) / MONTHLY: "15"(일자) / YEARLY: "03-02"(MM-DD)
+  channelId    String? // 발송 채널 (null = 전체 채널)
+  branch       String? // 대상 범위 (null = 전사, 값 = 해당 지점 구성원만)
+  enabled      Boolean   @default(true)
+  showLeaves   Boolean   @default(true) // 오늘 휴가자
+  showEvents   Boolean   @default(true) // 오늘 일정(캘린더)
+  showAnniv    Boolean   @default(true) // 입사기념일
+  showBirthday Boolean   @default(false) // 오늘 생일 (User.birthDate 필요)
+  customText   String? // 항상 포함할 커스텀 문구 (여러 줄)
+  attachments  Json? // [{url,name,type}] — 브리핑과 함께 발송할 이미지/파일
+  monthlyAttach Boolean @default(false) // 첨부 파일명에서 월을 읽어 해당 월 파일만 발송 (12개월치 카드뉴스 일괄 등록용)
+  lastSentAt   DateTime? // 멱등 처리용 (KST 같은 날 중복 발송 방지)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// 대용량 영상 자동 압축 큐 — 100MB 초과 영상을 백그라운드에서 1080p(H.264)로 변환해 저장공간 절약
+model VideoCompressJob {
+  id        String   @id @default(cuid())
+  fileUrl   String   @unique // 원본 /api/uploads/work/xxx
+  status    String   @default("PENDING") // PENDING | RUNNING | DONE | FAILED | SKIPPED(효과 없음·참조 없음 → 원본 유지)
+  origSize  Int // bytes
+  newSize   Int?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 원장 겸직 지점 — User.branch(대표 지점) 외에 추가로 담당하는 지점 (MANAGER 전용)
+// 원장의 팀 조회·결재 라우팅은 대표+겸직 지점을 합쳐서 본다 (lib/manager-branches.ts)
+model ManagerBranch {
+  id         String @id @default(cuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branchName String // Branch.name 문자열 매핑 (User.branch와 동일 규칙, FK 아님)
+
+  @@unique([userId, branchName])
+}
+
+// 공휴일 — 휴가 일수 계산·지각/조퇴 판정의 유일한 진실 소스
+// (2026~2027 정적 시드 + 관리자 편집. 임시공휴일은 관리자가 추가)
+model Holiday {
+  id   String   @id @default(cuid())
+  date DateTime @unique @db.Date
+  name String
+}
+
+// 앱 전역 설정 (키-값) — 예: forceApprovalNotify(결재 알림 강제발송)
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// 시스템 에러 로그 — API 오류를 기록해 관리자 페이지에서 원인 추적 (14일 보관 후 자동 삭제)
+model SystemErrorLog {
+  id        String   @id @default(cuid())
+  path      String // 예: "/api/work/channels/xxx/messages"
+  method    String? // GET/POST 등
+  userName  String? // 요청자 (알 수 있는 경우)
+  message   String
+  stack     String?
+  resolved   Boolean   @default(false) // 관리자가 확인·조치 완료 표시
+  resolvedBy String? // 처리자 이름
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// 예약 전송 메시지 — sendAt 도래 시 스케줄러가 작성자 명의로 채널에 게시
+model WorkScheduledMessage {
+  id         String      @id @default(cuid())
+  channelId  String
+  channel    WorkChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content    String
+  sendAt     DateTime
+  sentAt     DateTime?
+  canceledAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  @@index([sentAt, sendAt])
+}
+
+// 메시지 리마인더 — remindAt 도래 시 봇 DM으로 다시 알림
+model WorkReminder {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   WorkMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  remindAt  DateTime
+  sentAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([sentAt, remindAt])
+}
+
+// 메시지 북마크 (개인 보관함)
+model WorkBookmark {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   WorkMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+
+  @@unique([userId, messageId])
+}
+
+// 채널 투표 (카카오워크식). 메시지 버블(WorkMessage.pollId)로 노출된다.
+model WorkPoll {
+  id          String         @id @default(cuid())
+  channelId   String
+  channel     WorkChannel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  creatorId   String
+  creatorName String // 표시용 (User 관계 없이 비정규화)
+  question    String
+  options     Json // string[]
+  multiple    Boolean        @default(false)
+  closedAt    DateTime?
+  closesAt    DateTime? // 종료 예정 일시 — 도래 시 봇 스케줄러가 자동 마감 + 채팅 알림
+  createdAt   DateTime       @default(now())
+  votes       WorkPollVote[]
+  messages    WorkMessage[]
+}
+
+model WorkPollVote {
+  id          String   @id @default(cuid())
+  pollId      String
+  poll        WorkPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId      String
+  optionIndex Int
+
+  @@unique([pollId, userId, optionIndex])
 }
 
 enum WorkChannelType {
@@ -465,12 +652,25 @@ model WorkMessage {
   // 첨부파일 (선택)
   fileUrl   String?
   fileName  String?
-  fileType  String? // image | file
+  fileType  String? // image | video | file
+  albumUrls Json? // 사진 앨범(여러 장 묶음 전송) — 이미지 URL 배열
   // 댓글(스레드): 부모 메시지
   parentId  String?
   parent    WorkMessage?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   WorkMessage[] @relation("MessageReplies")
+  // 인용 답장: 이 메시지가 답장한 대상
+  replyToId String?
+  replyTo   WorkMessage?  @relation("MessageQuote", fields: [replyToId], references: [id], onDelete: SetNull)
+  quotedBy  WorkMessage[] @relation("MessageQuote")
+  editedAt  DateTime? // 수정됨 표시
+  deletedAt DateTime? // 메시지 삭제(되돌리기) — 내용 숨기고 "삭제된 메시지" 표시
+  system    Boolean     @default(false) // 시스템 알림(이름 변경 등) — 중앙 회색 문구로 렌더
+  // 투표 메시지: pollId가 있으면 버블을 투표 카드로 렌더
+  pollId    String?
+  poll      WorkPoll?   @relation(fields: [pollId], references: [id], onDelete: SetNull)
   reactions WorkMessageReaction[]
+  bookmarks WorkBookmark[]
+  reminders WorkReminder[]
   createdAt DateTime    @default(now())
 
   @@index([channelId, createdAt])
@@ -510,9 +710,10 @@ model WorkCalendarEvent {
   description String?
   startDate   DateTime @db.Date
   endDate     DateTime @db.Date
-  branch      String? // null = 전사 공통, 값 있으면 해당 지점 전용
-  color       String   @default("indigo")
-  createdBy   String
+  branch       String? // null = 전사 공통, 값 있으면 해당 지점 전용
+  managersOnly Boolean  @default(false) // 원장 전용 일정 (원장·관리자만 조회, 직원 비노출)
+  color        String   @default("indigo")
+  createdBy    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -544,8 +745,20 @@ model WorkMeeting {
   createdAt DateTime  @default(now())
   lastJoinedAt DateTime? // 마지막 입장 시각(자동 종료 판단용)
   endedAt   DateTime?
+  invites   WorkMeetingInvite[]
 
   @@index([endedAt])
+}
+
+// 회의 초대 명단 — 개설자/초대받은 사람(+관리자)만 진행 중 회의를 보고 참여할 수 있다
+model WorkMeetingInvite {
+  id        String      @id @default(cuid())
+  meetingId String
+  meeting   WorkMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime    @default(now())
+
+  @@unique([meetingId, userId])
 }
 
 // 회의 녹화본 (회의 종료 후에도 보존)

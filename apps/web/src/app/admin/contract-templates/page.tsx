@@ -78,7 +78,7 @@ export default function ContractTemplatesPage() {
       return;
     }
     if (!form.file) {
-      toast.error("PDF 파일을 선택해주세요");
+      toast.error("PDF 또는 워드(.docx) 파일을 선택해주세요");
       return;
     }
 
@@ -122,29 +122,16 @@ export default function ContractTemplatesPage() {
 
     try {
       setUploading(true);
-      const body: any = {
-        name: form.name,
-        description: form.description || "",
-      };
-
-      // 파일이 변경된 경우에만 업로드
-      if (form.file) {
-        const formData = new FormData();
-        formData.append("file", form.file);
-        const uploadRes = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          body.fileUrl = uploadData.fileUrl;
-        }
-      }
+      // 파일 포함 여부와 무관하게 FormData로 전송 (서버가 multipart/JSON 둘 다 처리)
+      const formData = new FormData();
+      formData.append("name", form.name);
+      formData.append("description", form.description || "");
+      formData.append("type", form.type);
+      if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: formData,
       });
 
       if (!res.ok) {
@@ -308,11 +295,11 @@ export default function ContractTemplatesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>PDF 파일 *</Label>
+              <Label>파일 (PDF 또는 워드) *</Label>
               <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
                 <input
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.docx"
                   onChange={e => setForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
                   className="hidden"
                   id="file-input-create"
@@ -326,12 +313,22 @@ export default function ContractTemplatesPage() {
                   ) : (
                     <div className="space-y-1">
                       <Upload size={24} className="mx-auto text-gray-400" />
-                      <p className="text-sm font-medium">PDF 파일 선택</p>
+                      <p className="text-sm font-medium">PDF 또는 워드(.docx) 파일 선택</p>
                       <p className="text-xs text-gray-500">또는 여기에 드래그</p>
                     </div>
                   )}
                 </label>
               </div>
+            </div>
+
+            {/* 워드 자동 입력 필드 안내 */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
+              <p className="font-semibold">💡 워드(.docx) 템플릿은 자동 입력 필드를 지원합니다</p>
+              <p>문서 안에 아래 필드를 넣어두면 계약서 작성 시 자동으로 채워집니다:</p>
+              <p className="font-mono text-[11px] leading-relaxed">
+                {"{직원명} {이메일} {연락처} {지점} {직책} {직급}"}<br />
+                {"{입사일} {제목} {계약시작일} {계약종료일} {연봉} {작성일}"}
+              </p>
             </div>
 
             <div className="flex gap-2 justify-end">
@@ -375,12 +372,12 @@ export default function ContractTemplatesPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>PDF 파일 (선택사항)</Label>
-                <p className="text-xs text-gray-500 mb-2">새 파일을 선택하면 기존 파일이 교체됩니다</p>
+                <Label>파일 교체 (선택사항)</Label>
+                <p className="text-xs text-gray-500 mb-2">새 PDF 또는 워드(.docx) 파일을 선택하면 기존 파일이 교체됩니다 (버전 증가)</p>
                 <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.docx"
                     onChange={e => setForm(f => ({ ...f, file: e.target.files?.[0] || null }))}
                     className="hidden"
                     id="file-input-edit"
@@ -394,7 +391,7 @@ export default function ContractTemplatesPage() {
                     ) : (
                       <div className="space-y-1">
                         <Upload size={24} className="mx-auto text-gray-400" />
-                        <p className="text-sm font-medium">새 PDF 파일 선택</p>
+                        <p className="text-sm font-medium">새 PDF·워드 파일 선택</p>
                       </div>
                     )}
                   </label>

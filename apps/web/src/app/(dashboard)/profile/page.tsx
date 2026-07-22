@@ -17,7 +17,10 @@ interface User {
   position: string | null;
   branch: string | null;
   hireDate: string | null;
+  address: string | null;
+  birthDate: string | null;
   role: string;
+  avatarUrl?: string | null;
 }
 
 /**
@@ -67,6 +70,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [addressEdit, setAddressEdit] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
 
   // 비밀번호 폼 상태
   const [currentPassword, setCurrentPassword] = useState("");
@@ -75,6 +80,19 @@ export default function ProfilePage() {
 
   // 비밀번호 강도
   const passwordStrength = evaluatePasswordStrength(newPassword);
+
+  async function saveAddress() {
+    setSavingAddress(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: addressEdit }),
+      });
+      if (!res.ok) { toast.error("주소 저장에 실패했습니다."); return; }
+      setUser((u) => (u ? { ...u, address: addressEdit } : u));
+      toast.success("주소가 저장되었습니다.");
+    } finally { setSavingAddress(false); }
+  }
 
   // 프로필 조회
   useEffect(() => {
@@ -86,6 +104,7 @@ export default function ProfilePage() {
         }
         const data = await res.json();
         setUser(data.user);
+        setAddressEdit(data.user?.address || "");
       } catch (error) {
         console.error("프로필 조회 에러:", error);
         toast.error("프로필을 불러올 수 없습니다.");
@@ -96,6 +115,47 @@ export default function ProfilePage() {
 
     fetchProfile();
   }, []);
+
+  // 결재 결과 알림 설정
+  const [notifyApproval, setNotifyApproval] = useState(true);
+  const [notifyForced, setNotifyForced] = useState(false);
+  useEffect(() => {
+    fetch("/api/me/notify").then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { setNotifyApproval(d.notifyApproval); setNotifyForced(d.forced); }
+    }).catch(() => {});
+  }, []);
+  const toggleNotify = async (on: boolean) => {
+    setNotifyApproval(on);
+    const res = await fetch("/api/me/notify", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notifyApproval: on }),
+    });
+    if (!res.ok) { setNotifyApproval(!on); toast.error("설정 저장 실패"); }
+    else toast.success(on ? "결재 결과 알림을 받습니다." : "결재 결과 알림을 껐습니다.");
+  };
+
+  // 프로필 사진 업로드/삭제
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/me/avatar", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "업로드에 실패했습니다."); return; }
+      setUser((u) => (u ? { ...u, avatarUrl: d.avatarUrl } : u));
+      toast.success("프로필 사진이 변경되었습니다.");
+    } finally {
+      setUploadingAvatar(false);
+      e.target.value = "";
+    }
+  };
+  const handleAvatarRemove = async () => {
+    const res = await fetch("/api/me/avatar", { method: "DELETE" });
+    if (res.ok) { setUser((u) => (u ? { ...u, avatarUrl: null } : u)); toast.success("프로필 사진을 삭제했습니다."); }
+  };
 
   // 비밀번호 변경
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -216,6 +276,28 @@ export default function ProfilePage() {
           {/* 탭 1: 기본 정보 (읽기 전용) */}
           {tabValue === 0 && (
             <div className="space-y-4">
+              {/* 프로필 사진 */}
+              <div className="flex flex-col items-center gap-3 pb-2">
+                {user.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.avatarUrl} alt={user.name} className="w-24 h-24 rounded-full object-cover border" />
+                ) : (
+                  <div className="w-24 h-24 rounded-full flex items-center justify-center text-white text-3xl font-bold bg-blue-500">
+                    {user.name?.trim().charAt(0) || "?"}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer">
+                    <span className={`inline-block text-sm px-3 py-1.5 rounded-md border ${uploadingAvatar ? "opacity-50" : "hover:bg-gray-50"}`}>
+                      {uploadingAvatar ? "업로드 중…" : "사진 변경"}
+                    </span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} disabled={uploadingAvatar} />
+                  </label>
+                  {user.avatarUrl && (
+                    <button type="button" onClick={handleAvatarRemove} className="text-sm px-3 py-1.5 rounded-md border text-red-500 hover:bg-red-50">삭제</button>
+                  )}
+                </div>
+              </div>
               {/* 이메일 */}
               <div className="space-y-1.5">
                 <Label className="text-gray-700">이메일</Label>
@@ -293,6 +375,37 @@ export default function ProfilePage() {
                   disabled
                   className="bg-gray-50"
                 />
+              </div>
+
+              {/* 주소 (편집 가능) — 전자계약서에 자동으로 채워집니다 */}
+              <div className="space-y-1.5">
+                <Label className="text-gray-700">주소 <span className="text-xs text-gray-400 font-normal">(전자계약서에 자동 반영)</span></Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={addressEdit}
+                    onChange={(e) => setAddressEdit(e.target.value)}
+                    placeholder="예: 서울시 강남구 테헤란로 123"
+                  />
+                  <Button variant="outline" disabled={savingAddress || addressEdit === (user.address || "")}
+                    onClick={saveAddress}>{savingAddress ? "저장 중..." : "저장"}</Button>
+                </div>
+              </div>
+
+              {/* 결재 결과 알림 설정 */}
+              <div className="flex items-center justify-between rounded-lg border p-3 mt-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">결재 결과 알림</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {notifyForced
+                      ? "관리자 정책으로 항상 발송됩니다"
+                      : "휴가·근무일정 결재 승인/반려 시 큐브티 봇 알림을 받습니다"}
+                  </p>
+                </div>
+                <label className="inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" checked={notifyForced ? true : notifyApproval}
+                    disabled={notifyForced} onChange={(e) => toggleNotify(e.target.checked)} />
+                  <div className="w-10 h-5.5 h-6 bg-gray-200 peer-checked:bg-blue-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-60" />
+                </label>
               </div>
 
               {/* 정보 메시지 */}

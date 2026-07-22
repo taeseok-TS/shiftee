@@ -2,6 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
 
@@ -26,7 +27,7 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover } = body;
+  const { signatureData, isApprover, consent, profile } = body;
   const signatureUrl = await saveSignature(signatureData);
 
   const contract = await prisma.contract.findUnique({
@@ -35,6 +36,44 @@ export async function POST(
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+
+  // 서명 시 직원이 입력한 프로필(주소/생년월일)을 저장 → 이후 계약서에 자동 적용, 다시 안 물어봄
+  if (profile && typeof profile === "object" && contract.userId === session.userId) {
+    const data: Record<string, unknown> = {};
+    if (typeof profile.주소 === "string" && profile.주소.trim()) data.address = profile.주소.trim();
+    if (typeof profile.생년월일 === "string" && /^\d{4}-\d{2}-\d{2}$/.test(profile.생년월일)) data.birthDate = new Date(profile.생년월일);
+    if (Object.keys(data).length) {
+      try { await prisma.user.update({ where: { id: session.userId }, data }); }
+      catch (e) { console.error("프로필 저장 오류:", e); }
+    }
+  }
+
+  // 개인정보동의서 선택 항목(동의/미동의) 또는 프로필 입력 시 → 최신 프로필로 문서 재생성
+  if ((consent || profile) && contract.templateId && contract.userId === session.userId) {
+    try {
+      const tmpl = await prisma.contractTemplate.findUnique({
+        where: { id: contract.templateId }, select: { fileUrl: true },
+      });
+      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+        const prevExtra = (contract.extraFields as Record<string, string>) || {};
+        const merged = { ...prevExtra, ...(consent && typeof consent === "object" ? consent : {}) };
+        const mergeData = await buildContractMergeData(contract.userId, {
+          title: contract.title,
+          startDate: contract.startDate ? contract.startDate.toISOString() : null,
+          endDate: contract.endDate ? contract.endDate.toISOString() : null,
+          salary: null,
+          extraFields: merged,
+        });
+        const newUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
+        await prisma.contract.update({
+          where: { id },
+          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged) },
+        });
+      }
+    } catch (e) {
+      console.error("서명 시 문서 재생성 오류:", e);
+    }
+  }
 
   const approvalLine = contract.approvalLine;
 
@@ -82,6 +121,14 @@ export async function POST(
         },
       },
     });
+
+    // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
+    if (!nextStep) {
+      try {
+        const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
+        await generateAndStoreSignedDoc(id);
+      } catch (e) { console.error("서명본 저장 오류:", e); }
+    }
 
     // 이메일 알림 발송
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -155,6 +202,14 @@ export async function POST(
         },
       },
     });
+
+    // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
+    if (!nextStep) {
+      try {
+        const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
+        await generateAndStoreSignedDoc(id);
+      } catch (e) { console.error("서명본 저장 오류:", e); }
+    }
 
     // 이메일 알림 발송
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";

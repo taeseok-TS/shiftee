@@ -127,10 +127,31 @@ export async function getMessages(channelId: string) {
   return getApi().getMessages(channelId);
 }
 
+export async function getMessagesFull(channelId: string) {
+  return getApi().getMessagesFull(channelId);
+}
+
 export async function sendMessage(channelId: string, content: string) {
   return getApi().sendMessage(channelId, content);
 }
 
 export async function markChannelRead(channelId: string) {
   return getApi().markChannelRead(channelId);
+}
+
+
+// ─── 개인정보동의서 선택 항목 동의 포함 서명 (공유 클라이언트 미지원 → 직접 호출) ───
+import axios from "axios";
+export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>) {
+  const token = await getToken();
+  return axios.post(`${API_URL}/contracts/${id}/sign`,
+    { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}) },
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+}
+
+// 내 프로필(주소·생년월일 포함) — 전자계약 서명 시 입력 유도 판단용
+export async function getMyProfile(): Promise<any> {
+  const token = await getToken();
+  const res = await axios.get(`${API_URL}/profile`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return res.data.user || {};
 }

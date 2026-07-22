@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown } from "lucide-react";
+import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -22,6 +22,10 @@ type Contract = {
   type: string;
   fileUrl: string;
   status: string;
+  extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
+  signedUrl?: string | null; // 완료 시 저장되는 서명본(서명+직인) 파일
+  bundleId?: string | null; // 신규입사 패키지 묶음
+  employeeOnly?: boolean; // 직원 서명만·직원전용 문서
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -38,7 +42,7 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null; branch?: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string };
 
 type ContractTemplate = {
   id: string;
@@ -69,7 +73,7 @@ const typeLabel: Record<string, string> = {
 
 const statusConfig: Record<string, { label: string; variant: any }> = {
   DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "직원 서명 대기", variant: "secondary" },
+  SENT: { label: "결재 진행 중", variant: "secondary" },
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
@@ -142,6 +146,7 @@ export default function ContractsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [useTemplate, setUseTemplate] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(3종 묶음) 발송
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -157,6 +162,8 @@ export default function ContractsPage() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTarget, setSendTarget] = useState<Contract | null>(null);
   const [approverIds, setApproverIds] = useState<string[]>([]);
+  const [approverSearch, setApproverSearch] = useState(""); // 승인자 검색 (발송 다이얼로그)
+  const [updateApproverSearch, setUpdateApproverSearch] = useState(""); // 결재자 수정 검색
 
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
@@ -186,15 +193,18 @@ export default function ContractsPage() {
   // 계약서 수정 (DRAFT 상태)
   const [editOpen, setEditOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ title: "", type: "", startDate: "", endDate: "" });
+  const [editForm, setEditForm] = useState({ title: "", type: "", startDate: "", endDate: "", salary: "" });
+  const [editExtraFields, setEditExtraFields] = useState<Record<string, string>>({}); // 템플릿 동적 필드 수정값
+  // "2026년 8월 1일" → "2026-08-01" (수정 폼 date input용)
+  const koreanToIso = (v: string) => {
+    const m = /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/.exec(v);
+    return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : v;
+  };
   const [editFile, setEditFile] = useState<File | null>(null);
   const [editUploading, setEditUploading] = useState(false);
 
   // 템플릿 업로드
-  const [uploadTemplateOpen, setUploadTemplateOpen] = useState(false);
-  const [templateForm, setTemplateForm] = useState({ name: "", description: "", type: "EMPLOYMENT" });
-  const [templateFile, setTemplateFile] = useState<File | null>(null);
-  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  // 템플릿 등록·수정은 전용 메뉴(/admin/contract-templates)로 일원화됨
 
   // 템플릿 리스트 보기
   const [showTemplatesList, setShowTemplatesList] = useState(false);
@@ -432,6 +442,8 @@ export default function ContractsPage() {
         formData.append("type", editForm.type || editingContract.type);
         formData.append("startDate", editForm.startDate || "");
         formData.append("endDate", editForm.endDate || "");
+        if (editForm.salary) formData.append("salary", editForm.salary);
+        if (Object.keys(editExtraFields).length > 0) formData.append("extraFields", JSON.stringify(editExtraFields));
         formData.append("files", editFile);
 
         const res = await fetch(`/api/contracts/${editingContract.id}`, {
@@ -455,7 +467,7 @@ export default function ContractsPage() {
           toast.success("계약서가 수정되었습니다.");
           setEditOpen(false);
           setEditingContract(null);
-          setEditForm({ title: "", type: "", startDate: "", endDate: "" });
+          setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
           setEditFile(null);
           setEditUploading(false);
           fetchContracts();
@@ -473,6 +485,8 @@ export default function ContractsPage() {
             type: editForm.type || editingContract.type,
             startDate: editForm.startDate || null,
             endDate: editForm.endDate || null,
+            ...(editForm.salary ? { salary: editForm.salary } : {}),
+            ...(Object.keys(editExtraFields).length > 0 ? { extraFields: editExtraFields } : {}),
           }),
         });
 
@@ -492,7 +506,7 @@ export default function ContractsPage() {
           toast.success("계약서가 수정되었습니다.");
           setEditOpen(false);
           setEditingContract(null);
-          setEditForm({ title: "", type: "", startDate: "", endDate: "" });
+          setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
           setEditFile(null);
           setEditUploading(false);
           fetchContracts();
@@ -508,18 +522,82 @@ export default function ContractsPage() {
     }
   };
 
+  // 자동 채움/기본 폼이 담당하는 필드 — 이 밖의 필드는 템플릿별 동적 입력란으로 노출
+  const AUTO_FIELDS = ["직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "사원번호", "작성일", "근로자서명", "대표서명",
+    "연봉한글", "기본급", "월급여합계", "연봉총액"]; // 연봉에서 자동 계산되는 필드 — 입력란 미표시
+  const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
+  const [templateFields, setTemplateFields] = useState<string[]>([]);
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
+  const [templateConditions, setTemplateConditions] = useState<string[]>([]); // 템플릿의 {#조건} 이름들
+  const [fieldConditions, setFieldConditions] = useState<Record<string, string>>({}); // 필드 → 소속 조건
+  const [contractKind, setContractKind] = useState("신규입사"); // 계약 구분
+  // 계약 구분에 해당하지 않는 조건 구간의 필드는 입력란에서 숨김
+  const dynamicFields = templateFields
+    .filter(f => !AUTO_FIELDS.includes(f) && !FORM_FIELDS.includes(f) && f !== "계약구분")
+    .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
+  const isDateField = (f: string) => /시작|종료|날짜|일자|기간|일$/.test(f);
+
+  // 오피스 문서를 브라우저에서 바로 미리보기 (MS 온라인 뷰어)
+  const officeViewHref = (fileUrl: string) => {
+    if (!fileUrl) return "#";
+    if (/\.(pptx?|xlsx?|docx?)$/i.test(fileUrl))
+      return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
+    return fileUrl;
+  };
+
+  // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
+  const ndaTemplate = templates.find(t => t.name.includes("비밀유지"));
+  const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
+  const canBundle = !!ndaTemplate && !!privacyTemplate;
+
+  // 선택 템플릿 + (패키지면) 비밀유지·개인정보동의서 필드까지 스캔해 입력란 합집합 구성
+  const scanFields = async (templateId: string, includeBundle: boolean) => {
+    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+    const ids = [templateId];
+    if (includeBundle) {
+      if (ndaTemplate) ids.push(ndaTemplate.id);
+      if (privacyTemplate) ids.push(privacyTemplate.id);
+    }
+    const results = await Promise.all(
+      ids.map(id => fetch(`/api/contract-templates/${id}/fields`).then(r => r.json()).catch(() => ({})))
+    );
+    const fields: string[] = [];
+    const conditions: string[] = [];
+    const fieldConds: Record<string, string> = {};
+    for (const d of results) {
+      for (const f of d.fields || []) if (!fields.includes(f)) fields.push(f);
+      for (const c of d.conditions || []) if (!conditions.includes(c)) conditions.push(c);
+      Object.assign(fieldConds, d.fieldConditions || {});
+    }
+    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds);
+  };
+
+  // 제목 자동 생성 — "올해연도 + 직원명 + 근로계약서(또는 템플릿명)"
+  // 패키지/근로계약서(EMPLOYMENT)/템플릿 미선택 → "근로계약서", 그 외 단일 템플릿 → 템플릿명
+  const autoContractTitle = (userId: string, templateId?: string, bundle?: boolean) => {
+    const year = new Date().getFullYear();
+    const empName = employees.find(e => e.id === userId)?.name || "";
+    if (!empName) return "";
+    const t = templateId ? templates.find(x => x.id === templateId) : undefined;
+    const docName = bundle || !t || t.type === "EMPLOYMENT" ? "근로계약서" : t.name;
+    return `${year} ${empName} ${docName}`;
+  };
+
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
-      setCreateForm(f => ({
-        ...f,
-        title: template.name,
-        type: template.type,
-      }));
-      // 템플릿의 파일 정보는 서버에서 처리
+      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode), type: template.type }));
+      scanFields(templateId, bundleMode);
     }
   };
+
+  // 직원·패키지 선택만으로도 제목 자동 채움 (템플릿 미선택이어도 "근로계약서" 기준)
+  useEffect(() => {
+    if (!useTemplate || !createForm.userId) return;
+    setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createForm.userId, selectedTemplate, useTemplate, bundleMode]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
@@ -527,7 +605,8 @@ export default function ContractsPage() {
       setMyId(d.user?.id || "");
       setMyName(d.user?.name || "");
     });
-    fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
+    // includeAdmins: 승인자 선택에 관리자도 나오도록 (계약 대상 목록에서는 클라이언트에서 제외)
+    fetch("/api/employees?includeAdmins=true").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -559,52 +638,6 @@ export default function ContractsPage() {
     }
   }
 
-  async function handleUploadTemplate(e: React.FormEvent) {
-    e.preventDefault();
-
-    if (!templateForm.name.trim()) {
-      toast.error("템플릿 이름을 입력해주세요.");
-      return;
-    }
-
-    if (!templateFile) {
-      toast.error("파일을 선택해주세요.");
-      return;
-    }
-
-    setUploadingTemplate(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", templateFile);
-      formData.append("name", templateForm.name);
-      formData.append("description", templateForm.description);
-      formData.append("type", templateForm.type);
-
-      const res = await fetch("/api/contract-templates", {
-        method: "POST",
-        body: formData
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "템플릿 업로드에 실패했습니다.");
-        setUploadingTemplate(false);
-        return;
-      }
-
-      toast.success("템플릿이 저장되었습니다.");
-      setUploadTemplateOpen(false);
-      setTemplateForm({ name: "", description: "", type: "EMPLOYMENT" });
-      setTemplateFile(null);
-      setUploadingTemplate(false);
-      fetchTemplates();
-    } catch (error) {
-      console.error("템플릿 업로드 실패:", error);
-      toast.error("템플릿 업로드에 실패했습니다.");
-      setUploadingTemplate(false);
-    }
-  }
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
 
@@ -614,6 +647,42 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
+
+    // 신규입사 패키지: 근로계약서 + 비밀유지 + 개인정보동의서를 한 묶음으로 생성
+    if (bundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
+      const allExtra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        allExtra[k] = v;
+      }
+      allExtra["계약구분"] = contractKind;
+      const empName = employees.find(e => e.id === createForm.userId)?.name || "";
+      const items = [
+        { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          extraFields: allExtra, employeeOnly: false },
+        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${empName}`, type: "CONFIDENTIAL",
+          extraFields: allExtra, employeeOnly: true },
+        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
+          // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
+          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+      ];
+      const res = await fetch("/api/contracts/bundle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: createForm.userId, items }),
+      });
+      const data = await res.json();
+      setUploading(false);
+      if (!res.ok) { toast.error(data.error || "패키지 생성 실패"); return; }
+      toast.success("신규입사 패키지 3종이 작성되었습니다. 근로계약서에서 발송하면 3종이 함께 발송됩니다.");
+      setCreateOpen(false);
+      setUseTemplate(false); setSelectedTemplate(""); setBundleMode(false); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+      setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+      return;
+    }
+
     const formData = new FormData();
 
     if (useTemplate && selectedTemplate) {
@@ -631,6 +700,16 @@ export default function ContractsPage() {
     formData.append("startDate", createForm.startDate);
     formData.append("endDate", createForm.endDate);
     formData.append("salary", createForm.salary);
+    {
+      // 계약 구분에 해당하지 않는(숨겨진) 필드 값은 제외하고 전송
+      const allExtra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        allExtra[k] = v;
+      }
+      if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+      if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
+    }
 
     const res = await fetch("/api/contracts", { method: "POST", body: formData });
     const data = await res.json();
@@ -642,20 +721,28 @@ export default function ContractsPage() {
     setUseTemplate(false);
     setSelectedTemplate("");
     setEmployeeSearchText("");
-    setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+    setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
     fetchContracts();
   }
 
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
 
-    console.log("=== 프론트엔드 발송 ===");
-    console.log("approverIds:", approverIds);
-    console.log("approverIds 길이:", approverIds.length);
-    (approverIds || []).forEach((aid, idx) => {
-      const emp = employees.find(e => e.id === aid);
-      console.log(`${idx + 1}단계: ${aid} (${emp?.name || "Unknown"})`);
-    });
+    // 패키지(묶음)면 3종을 함께 발송 — 근로계약서는 결재라인 전체, 나머지는 직원 서명만
+    const bundleId = sendTarget?.bundleId;
+    if (bundleId) {
+      const res = await fetch(`/api/contracts/bundle/${bundleId}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approverIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
+      toast.success(`신규입사 패키지 ${data.sent}종 발송됨`);
+      setSendOpen(false);
+      setApproverIds([]);
+      fetchContracts();
+      return;
+    }
 
     const res = await fetch(`/api/contracts/${id}`, {
       method: "PATCH",
@@ -695,10 +782,11 @@ export default function ContractsPage() {
               setCreateOpen(open);
               if (!open) {
                 setEmployeeSearchText("");
-                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
                 setFiles([]);
                 setUseTemplate(false);
                 setSelectedTemplate("");
+                setBundleMode(false);
               }
             }}>
             <div className="flex gap-2">
@@ -710,20 +798,21 @@ export default function ContractsPage() {
                     템플릿
                     <ChevronDown size={14} />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={() => setUploadTemplateOpen(true)}>
-                      <Plus size={16} className="mr-2" />
-                      새 템플릿 저장
-                    </DropdownMenuItem>
+                  <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuItem onClick={() => setShowTemplatesList(true)}>
                       <FileSignature size={16} className="mr-2" />
                       저장된 템플릿 ({templates.length})
+                    </DropdownMenuItem>
+                    {/* 템플릿 등록·수정은 전용 메뉴(계약 템플릿)로 일원화 */}
+                    <DropdownMenuItem onClick={() => (window.location.href = "/admin/contract-templates")}>
+                      <Plus size={16} className="mr-2" />
+                      템플릿 관리 (등록·수정)
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
             </div>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
               <DialogHeader><DialogTitle>계약서 작성</DialogTitle></DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="space-y-2">
@@ -747,6 +836,7 @@ export default function ContractsPage() {
                     {/* 검색 결과 */}
                     <div className="border rounded bg-white max-h-48 overflow-y-auto">
                       {employees
+                        .filter(e => e.role !== "ADMIN") // 계약 대상은 직원만
                         .filter(e =>
                           e.name.toLowerCase().includes(employeeSearchText.toLowerCase()) ||
                           (e.branch && e.branch.toLowerCase().includes(employeeSearchText.toLowerCase())) ||
@@ -799,13 +889,35 @@ export default function ContractsPage() {
                   <div className="space-y-2">
                     <Label>템플릿 선택 *</Label>
                     <Select value={selectedTemplate} onValueChange={(v) => v && handleTemplateSelect(v)}>
-                      <SelectTrigger><SelectValue placeholder="템플릿 선택" /></SelectTrigger>
+                      <SelectTrigger className="w-full">
+                        {/* 선택값이 ID로 표시되지 않도록 템플릿 이름을 직접 렌더 */}
+                        <SelectValue placeholder="템플릿 선택">
+                          {selectedTemplate ? (templates.find(t => t.id === selectedTemplate)?.name ?? "템플릿 선택") : "템플릿 선택"}
+                        </SelectValue>
+                      </SelectTrigger>
                       <SelectContent>
                         {templates.map(t => (
                           <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* 신규입사 패키지 — 근로계약서 선택 시, 비밀유지·개인정보동의서를 함께 발송 */}
+                    {canBundle && createForm.type === "EMPLOYMENT" && (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-emerald-800">
+                          <input type="checkbox" checked={bundleMode}
+                            onChange={e => { setBundleMode(e.target.checked); if (selectedTemplate) scanFields(selectedTemplate, e.target.checked); }} />
+                          신규입사 패키지로 함께 발송 (3종)
+                        </label>
+                        {bundleMode && (
+                          <p className="text-[11px] text-emerald-700 pl-6">
+                            근로계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
+                            비밀유지·개인정보동의서는 <b>직원 서명만</b> 받으며 해당 직원에게만 표시됩니다.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -886,12 +998,25 @@ export default function ContractsPage() {
                       <Input
                         type="date"
                         value={createForm.startDate}
-                        onChange={e => setCreateForm(f => ({ ...f, startDate: e.target.value }))}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setCreateForm(f => {
+                            // 종료일이 비어 있으면 1년 계약으로 자동 채움 (시작일 +1년 -1일)
+                            let end = f.endDate;
+                            if (v && !f.endDate) {
+                              const d = new Date(v);
+                              d.setFullYear(d.getFullYear() + 1);
+                              d.setDate(d.getDate() - 1);
+                              end = d.toISOString().slice(0, 10);
+                            }
+                            return { ...f, startDate: v, endDate: end };
+                          });
+                        }}
                         required
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-gray-600">종료일</label>
+                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(시작일 선택 시 1년 자동)</span></label>
                       <Input
                         type="date"
                         value={createForm.endDate}
@@ -920,100 +1045,45 @@ export default function ContractsPage() {
                   )}
                 </div>
 
+                {/* 계약 구분 — 템플릿에 {#신규입사}/{#재계약} 조건 구간이 있을 때만 표시 */}
+                {useTemplate && templateConditions.includes("신규입사") && (
+                  <div className="space-y-1">
+                    <Label>계약 구분</Label>
+                    <div className="flex gap-4 text-sm">
+                      {["신규입사", "재계약"].map(k => (
+                        <label key={k} className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" checked={contractKind === k} onChange={() => setContractKind(k)} />
+                          {k === "재계약" ? "재계약 (기존 근로자)" : "신규입사"}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-gray-400">재계약을 선택하면 수습기간 조항이 &quot;해당없음&quot;으로 처리되고 관련 입력란이 숨겨집니다.</p>
+                  </div>
+                )}
+
+                {/* 템플릿별 추가 입력 필드 — 템플릿 워드 파일의 {필드}를 스캔해 자동 구성 */}
+                {dynamicFields.length > 0 && (
+                  <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
+                    <p className="text-xs font-semibold text-indigo-700">이 템플릿의 추가 입력 필드</p>
+                    {dynamicFields.map(f => (
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm">{f}</Label>
+                        <Input
+                          type={isDateField(f) ? "date" : "text"}
+                          value={extraFields[f] || ""}
+                          onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
                   <Button type="submit" disabled={uploading}>{uploading ? "업로드" : "작성"}</Button>
                 </div>
               </form>
             </DialogContent>
-            </Dialog>
-
-            {/* 템플릿 업로드 Dialog */}
-            <Dialog open={uploadTemplateOpen} onOpenChange={(open) => {
-              setUploadTemplateOpen(open);
-              if (!open) {
-                setTemplateForm({ name: "", description: "", type: "EMPLOYMENT" });
-                setTemplateFile(null);
-              }
-            }}>
-              <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>계약서 템플릿 저장</DialogTitle></DialogHeader>
-                <form onSubmit={handleUploadTemplate} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>템플릿 이름 *</Label>
-                    <Input
-                      placeholder="예: 2025 신입사원 근로계약서"
-                      value={templateForm.name}
-                      onChange={e => setTemplateForm(f => ({ ...f, name: e.target.value }))}
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>설명</Label>
-                    <Input
-                      placeholder="선택사항: 템플릿 설명"
-                      value={templateForm.description}
-                      onChange={e => setTemplateForm(f => ({ ...f, description: e.target.value }))}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>유형</Label>
-                    <Select value={templateForm.type} onValueChange={v => v && setTemplateForm(f => ({ ...f, type: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(typeLabel).map(([k, v]) => (
-                          <SelectItem key={k} value={k}>{v}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>파일 (PDF 또는 워드) *</Label>
-                    <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50"
-                      onClick={() => document.getElementById("templateFileInput")?.click()}>
-                      <input
-                        id="templateFileInput"
-                        type="file"
-                        accept=".pdf,.docx"
-                        onChange={(e) => setTemplateFile(e.target.files?.[0] || null)}
-                        className="hidden"
-                      />
-                      {templateFile ? (
-                        <div>
-                          <p className="text-sm font-medium text-green-600">✓ {templateFile.name}</p>
-                          <p className="text-xs text-gray-500 mt-1">클릭하여 변경</p>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-sm text-gray-600">PDF 또는 워드(.docx) 파일을 선택하세요</p>
-                          <p className="text-xs text-gray-400 mt-1">클릭 또는 파일 드래그</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
-                    <p className="font-semibold">💡 워드(.docx) 템플릿은 자동 입력 필드를 지원합니다</p>
-                    <p>문서 안에 아래 필드를 넣어두면 계약서 작성 시 자동으로 채워집니다:</p>
-                    <p className="font-mono text-[11px] leading-relaxed">
-                      {"{직원명} {이메일} {연락처} {지점} {직책} {직급}"}<br />
-                      {"{입사일} {제목} {계약시작일} {계약종료일} {연봉} {작성일}"}
-                    </p>
-                  </div>
-
-                  <div className="flex gap-2 justify-end">
-                    <Button type="button" variant="outline" onClick={() => setUploadTemplateOpen(false)}>
-                      취소
-                    </Button>
-                    <Button type="submit" disabled={uploadingTemplate}>
-                      {uploadingTemplate ? "저장 중..." : "저장"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
             </Dialog>
 
             {/* 템플릿 리스트 Dialog */}
@@ -1179,11 +1249,11 @@ export default function ContractsPage() {
           setEditOpen(open);
           if (!open) {
             setEditingContract(null);
-            setEditForm({ title: "", type: "", startDate: "", endDate: "" });
+            setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
             setEditFile(null);
           }
         }}>
-          <DialogContent className="max-w-sm">
+          <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>계약서 수정</DialogTitle></DialogHeader>
             <form onSubmit={handleEditContract} className="space-y-4">
               <div className="space-y-2">
@@ -1253,6 +1323,47 @@ export default function ContractsPage() {
                   </p>
                 )}
               </div>
+
+              <div className="space-y-2">
+                <Label>연봉 <span className="text-xs text-gray-400 font-normal">(워드 템플릿의 {"{연봉}"} 필드)</span></Label>
+                <Input
+                  type="number"
+                  placeholder="예: 36000000"
+                  value={editForm.salary}
+                  onChange={e => setEditForm(f => ({ ...f, salary: e.target.value }))}
+                />
+                {editForm.salary && (
+                  <p className="text-xs text-gray-500">{Number(editForm.salary).toLocaleString()}원</p>
+                )}
+              </div>
+
+              {/* 작성 시 입력한 템플릿 동적 필드 — 수정하면 계약서 문서도 새 값으로 다시 생성됨 */}
+              {Object.keys(editExtraFields).length > 0 && (
+                <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
+                  <p className="text-xs font-semibold text-indigo-700">이 템플릿의 추가 입력 필드</p>
+                  {Object.entries(editExtraFields).map(([k, v]) => (
+                    <div key={k} className="space-y-1">
+                      <Label className="text-sm">{k}</Label>
+                      {k === "계약구분" ? (
+                        <div className="flex gap-4 text-sm">
+                          {["신규입사", "재계약"].map(kind => (
+                            <label key={kind} className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="radio" checked={v === kind} onChange={() => setEditExtraFields(prev => ({ ...prev, 계약구분: kind }))} />
+                              {kind === "재계약" ? "재계약 (기존 근로자)" : "신규입사"}
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <Input
+                          type={isDateField(k) ? "date" : "text"}
+                          value={v}
+                          onChange={e => setEditExtraFields(prev => ({ ...prev, [k]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="flex gap-2 justify-end">
                 <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>취소</Button>
@@ -1450,7 +1561,11 @@ export default function ContractsPage() {
                   return (
                     <tr key={c.id} className="border-b hover:bg-gray-50">
                       {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.user.branch ? `[${c.user.branch}] ` : ''}{c.user.name}</p></td>}
-                      <td className="py-3 font-medium">{c.title}</td>
+                      <td className="py-3 font-medium">
+                        {c.title}
+                        {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
+                        {c.employeeOnly && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span>}
+                      </td>
                       <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
                       <td className="py-3">
                         <ApprovalChain
@@ -1463,7 +1578,10 @@ export default function ContractsPage() {
                         />
                       </td>
                       <td className="py-3 space-x-1">
-                        <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        {/* 뷰어(미리보기): 완료본(signedUrl) 우선, 없으면 원본 — MS 오피스 뷰어로 브라우저 열람 */}
+                        <a href={officeViewHref(c.status === "SIGNED" && c.signedUrl ? c.signedUrl : getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" title="미리보기"><Button size="sm" variant="ghost" className="h-7"><Eye size={12} /></Button></a>
+                        {/* 완료된 계약은 서명·직인이 들어간 완료본을 다운로드 (원본엔 서명 마커가 남아 있음) */}
+                        <a href={c.status === "SIGNED" ? (c.signedUrl || `/api/contracts/${c.id}/signed-document`) : getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드" : "원본 다운로드"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1476,7 +1594,12 @@ export default function ContractsPage() {
                         >
                           <History size={12} />
                         </Button>
-                        {role !== "EMPLOYEE" && c.status === "DRAFT" && (
+                        {/* 패키지의 직원전용 문서(비밀유지·개인정보동의서)는 근로계약서 발송 시 함께 발송 — 개별 발송 버튼 숨김 */}
+                        {role !== "EMPLOYEE" && c.employeeOnly && c.bundleId && c.status === "DRAFT" && (
+                          <span className="text-[11px] text-gray-400">근로계약서와 함께 발송</span>
+                        )}
+                        {/* 초안 + 진행 중(회수 후 포함) 계약: 수정·재발송 가능, 삭제는 초안만 (직원전용 패키지 문서 제외) */}
+                        {role !== "EMPLOYEE" && !(c.employeeOnly && c.bundleId) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED") && (
                           <>
                             <Button
                               size="sm"
@@ -1489,60 +1612,95 @@ export default function ContractsPage() {
                                   type: c.type,
                                   startDate: c.startDate ? c.startDate.split("T")[0] : "",
                                   endDate: c.endDate ? c.endDate.split("T")[0] : "",
+                                  salary: (c.extraFields?.["연봉"] || "").replace(/[^0-9]/g, ""),
                                 });
+                                // 작성 시 입력한 템플릿 동적 필드 복원 (날짜는 date input 형식으로)
+                                const extras: Record<string, string> = {};
+                                Object.entries(c.extraFields || {}).forEach(([k, v]) => {
+                                  if (k !== "연봉") extras[k] = koreanToIso(String(v));
+                                });
+                                setEditExtraFields(extras);
                                 setEditOpen(true);
                               }}
                             >
                               <PenLine size={12} />수정
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => {
-                                setDeleteTarget({ id: c.id, title: c.title });
-                                setDeleteConfirmOpen(true);
-                              }}
-                            >
-                              <Trash2 size={12} />삭제
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); setSendOpen(true); }}>
-                              <Send size={12} />발송
+                            {c.status === "DRAFT" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setDeleteTarget({ id: c.id, title: c.title });
+                                  setDeleteConfirmOpen(true);
+                                }}
+                              >
+                                <Trash2 size={12} />삭제
+                              </Button>
+                            )}
+                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); setApproverSearch(""); setSendOpen(true); }}>
+                              <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
                             <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
                               <DialogContent className="max-w-sm">
                                 <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
                                 {sendTarget && (
-                                  <div className="space-y-4">
-                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요.</p>
-                                    <div className="space-y-2">
-                                      {[1, 2, 3].map(order => (
-                                        <div key={order} className="space-y-1">
-                                          <Label className="text-xs">{order}단계 승인자</Label>
-                                          <Select value={approverIds[order - 1] || ""} onValueChange={v => {
-                                            if (!v || v === "") return; // 빈 값 무시
-                                            const newIds = [...approverIds];
-                                            newIds[order - 1] = v;
-                                            setApproverIds(newIds);
-                                          }}>
-                                            <SelectTrigger className="h-8"><SelectValue placeholder="선택 (선택사항)" /></SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="">없음</SelectItem>
-                                              {/* 계약서 당사자(직원) - 모든 단계에서 선택 가능 */}
-                                              {!approverIds.includes(sendTarget.userId) && (
-                                                <SelectItem value={sendTarget.userId} className="text-blue-600 font-semibold">
-                                                  👤 {sendTarget.user?.name || '직원'} (당사자)
-                                                </SelectItem>
-                                              )}
-                                              {/* 다른 직원들 */}
-                                              {employees.filter(e => !approverIds.includes(e.id)).map(e => (
-                                                <SelectItem key={e.id} value={e.id}>{e.branch ? `[${e.branch}] ` : ''}{e.name}</SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
+                                  <div className="space-y-3">
+                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요. (최대 3명)</p>
+                                    {sendTarget.status !== "DRAFT" && (
+                                      <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
+                                        재발송하면 기존 결재 진행이 초기화되고 1단계부터 다시 진행됩니다.
+                                      </p>
+                                    )}
+                                    {/* 선택된 승인자 순서 */}
+                                    {approverIds.length === 0 ? (
+                                      <p className="text-xs text-gray-400">아래에서 검색해 선택하면 순서대로 단계가 됩니다.</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {approverIds.map((id, i) => {
+                                          const person = id === sendTarget.userId
+                                            ? { name: `${sendTarget.user?.name || "직원"} (당사자)`, branch: null as string | null }
+                                            : employees.find(e => e.id === id);
+                                          return (
+                                            <div key={id} className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 text-sm">
+                                              <span>{i + 1}단계 · {person && "branch" in person && person.branch ? `[${person.branch}] ` : ""}{person?.name || "?"}</span>
+                                              <button type="button" onClick={() => setApproverIds(prev => prev.filter(x => x !== id))} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {/* 승인자 검색 + 후보 리스트 */}
+                                    {approverIds.length < 3 && (
+                                      <>
+                                        <Input
+                                          placeholder="이름 또는 지점으로 검색..."
+                                          value={approverSearch}
+                                          onChange={e => setApproverSearch(e.target.value)}
+                                          className="h-8 text-sm"
+                                        />
+                                        <div className="border rounded max-h-44 overflow-y-auto divide-y">
+                                          {/* 계약서 당사자(직원) - 상단 고정 */}
+                                          {!approverIds.includes(sendTarget.userId) && (
+                                            <button type="button" onClick={() => setApproverIds(prev => [...prev, sendTarget.userId])}
+                                              className="w-full text-left px-2.5 py-1.5 text-sm text-blue-600 font-semibold hover:bg-blue-50">
+                                              👤 {sendTarget.user?.name || "직원"} (당사자)
+                                            </button>
+                                          )}
+                                          {employees
+                                            .filter(e => !approverIds.includes(e.id) && e.id !== sendTarget.userId)
+                                            .filter(e => !approverSearch
+                                              || e.name.toLowerCase().includes(approverSearch.toLowerCase())
+                                              || (e.branch || "").toLowerCase().includes(approverSearch.toLowerCase()))
+                                            .map(e => (
+                                              <button type="button" key={e.id} onClick={() => setApproverIds(prev => [...prev, e.id])}
+                                                className="w-full text-left px-2.5 py-1.5 text-sm hover:bg-gray-50">
+                                                {e.branch ? `[${e.branch}] ` : ""}{e.name}{e.role === "ADMIN" ? " · 관리자" : ""}
+                                              </button>
+                                            ))}
                                         </div>
-                                      ))}
-                                    </div>
+                                      </>
+                                    )}
                                     <div className="flex gap-2 justify-end">
                                       <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
                                       <Button onClick={() => handleSend(sendTarget.id)}>발송</Button>
@@ -1573,6 +1731,14 @@ export default function ContractsPage() {
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
                 <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
+                {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
+                {signTarget.extraFields && Object.keys(signTarget.extraFields).length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                    {Object.entries(signTarget.extraFields).map(([k, v]) => (
+                      <span key={k} className="contents"><span className="text-gray-400">{k}</span><span>{v}</span></span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>서명 *</Label>
@@ -1607,7 +1773,7 @@ export default function ContractsPage() {
                         </p>
                       </div>
                       <Badge variant="outline" className="text-xs">
-                        {statusConfig[v.status]?.label || v.status}
+                        이전 버전
                       </Badge>
                     </div>
                     <a href={getFileUrl(v.fileUrl)} target="_blank" rel="noreferrer">
@@ -1634,18 +1800,25 @@ export default function ContractsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="newApprover" className="text-sm">새로운 결재자 *</Label>
-              <Select value={updateApproverSelectedId} onValueChange={setUpdateApproverSelectedId}>
-                <SelectTrigger id="newApprover">
-                  <SelectValue placeholder="승인자 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.name} {emp.branch ? `(${emp.branch})` : ""}
-                    </SelectItem>
+              <Input
+                id="newApprover"
+                placeholder="이름 또는 지점으로 검색..."
+                value={updateApproverSearch}
+                onChange={e => setUpdateApproverSearch(e.target.value)}
+                className="h-8 text-sm"
+              />
+              <div className="border rounded max-h-48 overflow-y-auto divide-y">
+                {employees
+                  .filter(emp => !updateApproverSearch
+                    || emp.name.toLowerCase().includes(updateApproverSearch.toLowerCase())
+                    || (emp.branch || "").toLowerCase().includes(updateApproverSearch.toLowerCase()))
+                  .map(emp => (
+                    <button type="button" key={emp.id} onClick={() => setUpdateApproverSelectedId(emp.id)}
+                      className={`w-full text-left px-2.5 py-1.5 text-sm hover:bg-gray-50 ${updateApproverSelectedId === emp.id ? "bg-indigo-50 font-medium" : ""}`}>
+                      {emp.branch ? `[${emp.branch}] ` : ""}{emp.name}{emp.role === "ADMIN" ? " · 관리자" : ""}
+                    </button>
                   ))}
-                </SelectContent>
-              </Select>
+              </div>
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setUpdateApproverOpen(false)}>취소</Button>
@@ -1837,6 +2010,7 @@ export default function ContractsPage() {
                           onClick={() => {
                             setUpdateApproverTarget({ contractId: approvalDetailsTarget.id, step });
                             setUpdateApproverSelectedId("");
+                            setUpdateApproverSearch("");
                             setUpdateApproverOpen(true);
                           }}
                         >
