@@ -42,7 +42,7 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[] };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null };
 
 type ContractTemplate = {
   id: string;
@@ -1025,6 +1025,7 @@ export default function ContractsPage() {
                   </Select>
                 </div>
 
+                {(!useTemplate || templateFields.includes("계약시작일") || templateFields.includes("계약종료일")) && (
                 <div className="space-y-2">
                   <Label>계약 기간 *</Label>
                   <div className="grid grid-cols-2 gap-2">
@@ -1066,7 +1067,9 @@ export default function ContractsPage() {
                     </p>
                   )}
                 </div>
+                )}
 
+                {(!useTemplate || templateFields.includes("연봉")) && (
                 <div className="space-y-2">
                   <Label>연봉 <span className="text-xs text-gray-400 font-normal">(선택 · 워드 템플릿의 {"{연봉}"} 필드에 입력됨)</span></Label>
                   <Input
@@ -1079,6 +1082,7 @@ export default function ContractsPage() {
                     <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원</p>
                   )}
                 </div>
+                )}
 
                 {/* 계약 구분 — 템플릿에 {#신규입사}/{#재계약} 조건 구간이 있을 때만 표시 */}
                 {useTemplate && templateConditions.includes("신규입사") && (
@@ -1095,6 +1099,34 @@ export default function ContractsPage() {
                     <p className="text-[11px] text-gray-400">재계약을 선택하면 수습기간 조항이 &quot;해당없음&quot;으로 처리되고 관련 입력란이 숨겨집니다.</p>
                   </div>
                 )}
+
+                {/* 자동 채움(직원 정보) — 선택 직원의 값이 문서에 자동 입력됨 */}
+                {useTemplate && createForm.userId && (() => {
+                  const emp = employees.find(e => e.id === createForm.userId);
+                  if (!emp) return null;
+                  const autoRows = [
+                    { field: "직원명", label: "성명", val: emp.name || "" },
+                    { field: "지점", label: "소속 지점", val: emp.branch || "" },
+                    { field: "직급", label: "직급", val: emp.position || "" },
+                    { field: "사원번호", label: "사번", val: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "" },
+                    { field: "입사일", label: "입사일자", val: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "" },
+                    { field: "연락처", label: "연락처", val: emp.phone || "" },
+                  ].filter(r => templateFields.includes(r.field));
+                  if (autoRows.length === 0) return null;
+                  return (
+                    <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+                      <p className="text-xs font-semibold text-gray-600">자동 채움 <span className="font-normal text-gray-400">(직원 정보 · 수정 불가)</span></p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {autoRows.map(r => (
+                          <div key={r.field} className="text-sm">
+                            <span className="text-gray-500 text-xs">{r.label}</span>
+                            <p className={r.val ? "font-medium" : "text-amber-600 text-xs"}>{r.val || "직원 정보에 없음"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 템플릿별 추가 입력 필드 — 템플릿 워드 파일의 {필드}를 스캔해 자동 구성 */}
                 {dynamicFields.length > 0 && (
