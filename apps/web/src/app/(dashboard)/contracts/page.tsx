@@ -171,6 +171,7 @@ export default function ContractsPage() {
   const sigRef = useRef<SignaturePadHandle>(null);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({}); // 개인정보동의서 선택 항목
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
+  const [docViewerOpen, setDocViewerOpen] = useState(false); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도)
@@ -1591,10 +1592,10 @@ export default function ContractsPage() {
               {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
               {consentKeys.length > 0 && signStep === 1 && (
                 <>
-                  <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer"
+                  <button type="button" onClick={() => setDocViewerOpen(true)}
                     className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50">
                     <Eye size={15} />동의서 전문 보기
-                  </a>
+                  </button>
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
                     개인정보 수집·이용, 민감정보, 제3자 제공 등 <b>필수 항목은 동의로 처리</b>됩니다 (미동의 시 채용이 제한될 수 있음). 아래 <b>선택 항목</b>만 자유롭게 고르세요.
                   </div>
@@ -1678,6 +1679,27 @@ export default function ContractsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 동의서 전문 인앱 뷰어 — 다 읽고 "확인"을 누르면 동의 화면으로 복귀 */}
+      <Dialog open={docViewerOpen} onOpenChange={setDocViewerOpen}>
+        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle className="text-base">동의서 전문 — 끝까지 확인해주세요</DialogTitle>
+          </DialogHeader>
+          {signTarget && docViewerOpen && (
+            <iframe
+              src={viewHref(getFileUrl(signTarget.fileUrl))}
+              className="flex-1 w-full border-0"
+              title="동의서 전문"
+            />
+          )}
+          <div className="px-4 py-3 border-t shrink-0 flex justify-end">
+            <Button onClick={() => setDocViewerOpen(false)} className="bg-indigo-600 hover:bg-indigo-700">
+              확인 (다 읽었습니다) →
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
