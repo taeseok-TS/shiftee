@@ -61,6 +61,9 @@ export default function ContractListScreen() {
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
   const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
+  // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
+  const empFieldType = (f: string): "check" | "date" | "text" => f.startsWith("체크_") ? "check" : isEmpDateField(f) ? "date" : "text";
+  const empFieldLabel = (f: string) => f.startsWith("체크_") ? f.slice(3) : f;
 
   useEffect(() => {
     loadContracts();
@@ -101,14 +104,17 @@ export default function ContractListScreen() {
         profile.생년월일 = profileInput.생년월일;
       }
     }
-    // 직원 직접입력 필드(퇴사일자·퇴사사유 등) — 문서에만 반영(프로필 저장 X)
+    // 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) — 문서에만 반영(프로필 저장 X)
     let fields: Record<string, string> | undefined;
     if (empFields.length) {
       fields = {};
       for (const f of empFields) {
+        const type = empFieldType(f);
+        if (type === "check") { fields[f] = empFieldInput[f] === "☑" ? "☑" : "□"; continue; }
         const v = (empFieldInput[f] || "").trim();
-        if (!v) { Alert.alert("알림", `${f}을(를) 입력해주세요.`); return; }
-        if (isEmpDateField(f) && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { Alert.alert("알림", `${f}을(를) YYYY-MM-DD로 입력해주세요.`); return; }
+        const optional = f.includes("기타");
+        if (!v) { if (optional) { fields[f] = ""; continue; } Alert.alert("알림", `${empFieldLabel(f)}을(를) 입력해주세요.`); return; }
+        if (type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { Alert.alert("알림", `${empFieldLabel(f)}을(를) YYYY-MM-DD로 입력해주세요.`); return; }
         fields[f] = v;
       }
     }
@@ -310,19 +316,35 @@ export default function ContractListScreen() {
                   )}
                 </View>
               )}
-              {/* 직원 직접입력 필드(퇴사일자·퇴사사유 등) */}
+              {/* 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) */}
               {empFields.length > 0 && (
                 <View style={[styles.consentBox, { borderColor: "#c7d2fe", backgroundColor: "#eef2ff" }]}>
                   <Text style={[styles.consentTitle, { color: "#3730a3" }]}>아래 항목을 직접 작성해주세요</Text>
-                  {empFields.map(f => (
-                    <View key={f} style={{ marginBottom: 6 }}>
-                      <Text style={styles.consentLabel}>{f}{isEmpDateField(f) ? " (YYYY-MM-DD)" : ""}</Text>
-                      <TextInput style={styles.profileInput}
-                        placeholder={isEmpDateField(f) ? "예: 2026-08-31" : `${f} 입력`}
-                        keyboardType={isEmpDateField(f) ? "numbers-and-punctuation" : "default"}
-                        value={empFieldInput[f] || ""} onChangeText={t => setEmpFieldInput(p => ({ ...p, [f]: t }))} />
-                    </View>
-                  ))}
+                  {empFields.some(f => empFieldType(f) === "check") && (
+                    <Text style={[styles.consentLabel, { fontWeight: "600", marginTop: 4 }]}>지급금품 (해당 항목 체크)</Text>
+                  )}
+                  {empFields.map(f => {
+                    const type = empFieldType(f);
+                    if (type === "check") {
+                      const checked = empFieldInput[f] === "☑";
+                      return (
+                        <TouchableOpacity key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 3 }}
+                          onPress={() => setEmpFieldInput(p => ({ ...p, [f]: checked ? "□" : "☑" }))}>
+                          <Ionicons name={checked ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
+                          <Text style={{ fontSize: 14, color: "#374151" }}>{empFieldLabel(f)}</Text>
+                        </TouchableOpacity>
+                      );
+                    }
+                    return (
+                      <View key={f} style={{ marginBottom: 6 }}>
+                        <Text style={styles.consentLabel}>{empFieldLabel(f)}{type === "date" ? " (YYYY-MM-DD)" : ""}</Text>
+                        <TextInput style={styles.profileInput}
+                          placeholder={type === "date" ? "예: 2026-09-15" : `${empFieldLabel(f)} 입력`}
+                          keyboardType={type === "date" ? "numbers-and-punctuation" : "default"}
+                          value={empFieldInput[f] || ""} onChangeText={t => setEmpFieldInput(p => ({ ...p, [f]: t }))} />
+                      </View>
+                    );
+                  })}
                 </View>
               )}
               <View style={styles.padWrap}>

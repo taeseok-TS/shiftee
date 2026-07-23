@@ -183,6 +183,9 @@ export default function ContractsPage() {
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
   const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
+  // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
+  const empFieldType = (f: string): "check" | "date" | "text" => f.startsWith("체크_") ? "check" : isEmpDateField(f) ? "date" : "text";
+  const empFieldLabel = (f: string) => f.startsWith("체크_") ? f.slice(3) : f;
   // 서명 대상에 선택 동의 항목이 있으면 라벨 매핑
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields!) : [];
@@ -711,14 +714,17 @@ export default function ContractsPage() {
         profile.생년월일 = profileInput.생년월일;
       }
     }
-    // 직원 직접입력 필드(퇴사일자·퇴사사유 등) — 문서에만 반영(프로필 저장 X)
+    // 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) — 문서에만 반영(프로필 저장 X)
     let fields: Record<string, string> | undefined;
     if (empFields.length) {
       fields = {};
       for (const f of empFields) {
+        const type = empFieldType(f);
+        if (type === "check") { fields[f] = empFieldInput[f] === "☑" ? "☑" : "□"; continue; }
         const v = (empFieldInput[f] || "").trim();
-        if (!v) { toast.error(`${f}을(를) 입력해주세요.`); return; }
-        if (isEmpDateField(f) && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast.error(`${f}을(를) YYYY-MM-DD 형식으로 입력해주세요.`); return; }
+        const optional = f.includes("기타"); // 기타 내용 등 조건부 입력은 선택
+        if (!v) { if (optional) { fields[f] = ""; continue; } toast.error(`${empFieldLabel(f)}을(를) 입력해주세요.`); return; }
+        if (type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast.error(`${empFieldLabel(f)}을(를) YYYY-MM-DD 형식으로 입력해주세요.`); return; }
         fields[f] = v;
       }
     }
@@ -1680,21 +1686,37 @@ export default function ContractsPage() {
                       )}
                     </div>
                   )}
-                  {/* 직원 직접입력 필드(퇴사일자·퇴사사유 등) */}
+                  {/* 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) */}
                   {empFields.length > 0 && (
                     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
                       <p className="text-xs font-semibold text-indigo-800">아래 항목을 직접 작성해주세요</p>
-                      {empFields.map(f => (
-                        <div key={f} className="space-y-1"><Label className="text-xs">{f}</Label>
-                          {isEmpDateField(f) ? (
-                            <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
-                              value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
-                          ) : (
-                            <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${f} 입력`}
-                              value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
-                          )}
-                        </div>
-                      ))}
+                      {empFields.some(f => empFieldType(f) === "check") && (
+                        <p className="text-xs font-medium text-gray-600 pt-1">지급금품 <span className="text-gray-400 font-normal">(해당 항목 체크)</span></p>
+                      )}
+                      {empFields.map(f => {
+                        const type = empFieldType(f);
+                        if (type === "check") {
+                          const checked = empFieldInput[f] === "☑";
+                          return (
+                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input type="checkbox" checked={checked}
+                                onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
+                              {empFieldLabel(f)}
+                            </label>
+                          );
+                        }
+                        return (
+                          <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
+                            {type === "date" ? (
+                              <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                            ) : (
+                              <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${empFieldLabel(f)} 입력`}
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {consentKeys.length === 0 && (
