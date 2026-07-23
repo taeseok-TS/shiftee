@@ -170,6 +170,7 @@ export default function ContractsPage() {
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({}); // 개인정보동의서 선택 항목
+  const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도)
@@ -1287,7 +1288,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -1314,7 +1315,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1576,65 +1577,105 @@ export default function ContractsPage() {
         </CardContent>
       </Card>
 
-      {/* 서명 모달 */}
+      {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>서명</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-sm max-h-[88vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{consentKeys.length > 0 ? (signStep === 1 ? "개인정보 동의 확인" : "서명") : "서명"}</DialogTitle></DialogHeader>
           {signTarget && (
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
-                <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
               </div>
-              {/* 프로필 미입력 항목 — 서명 시 입력하면 프로필에 저장되어 다음부터 자동 반영 */}
-              {missingProfile.length > 0 && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
-                  <p className="text-xs font-semibold text-blue-800">계약서에 필요한 정보를 입력해주세요 (프로필에 저장됩니다)</p>
-                  {missingProfile.includes("주소") && (
-                    <div className="space-y-1">
-                      <Label className="text-xs">주소</Label>
-                      <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
-                        value={profileInput.주소} onChange={e => setProfileInput(p => ({ ...p, 주소: e.target.value }))} />
-                    </div>
-                  )}
-                  {missingProfile.includes("생년월일") && (
-                    <div className="space-y-1">
-                      <Label className="text-xs">생년월일</Label>
-                      <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
-                        value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} />
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* 개인정보동의서 선택 항목 — 기본 동의, 미동의로 변경 가능 */}
-              {consentKeys.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-                  <p className="text-xs font-semibold text-amber-800">선택 동의 항목 (동의하지 않아도 됩니다)</p>
-                  {consentKeys.map(k => (
-                    <div key={k} className="space-y-1">
-                      <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
-                      <div className="flex gap-3 text-sm">
-                        {["동의", "미동의"].map(opt => (
-                          <label key={opt} className="flex items-center gap-1 cursor-pointer">
-                            <input type="radio" checked={(consentChoices[k] || "동의") === opt}
-                              onChange={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))} />
-                            {opt}
-                          </label>
-                        ))}
+
+              {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
+              {consentKeys.length > 0 && signStep === 1 && (
+                <>
+                  <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50">
+                    <Eye size={15} />동의서 전문 보기
+                  </a>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                    개인정보 수집·이용, 민감정보, 제3자 제공 등 <b>필수 항목은 동의로 처리</b>됩니다 (미동의 시 채용이 제한될 수 있음). 아래 <b>선택 항목</b>만 자유롭게 고르세요.
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-amber-800">선택 동의 항목 (동의하지 않아도 됩니다)</p>
+                    {consentKeys.map(k => (
+                      <div key={k} className="space-y-1">
+                        <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
+                        <div className="flex gap-3 text-sm">
+                          {["동의", "미동의"].map(opt => (
+                            <label key={opt} className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={(consentChoices[k] || "동의") === opt}
+                                onChange={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))} />
+                              {opt}
+                            </label>
+                          ))}
+                        </div>
                       </div>
+                    ))}
+                  </div>
+                  {/* 프로필 미입력(생년월일 등)도 이 단계에서 */}
+                  {missingProfile.length > 0 && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-blue-800">필요한 정보 입력 (프로필에 저장됩니다)</p>
+                      {missingProfile.includes("주소") && (
+                        <div className="space-y-1"><Label className="text-xs">주소</Label>
+                          <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
+                            value={profileInput.주소} onChange={e => setProfileInput(p => ({ ...p, 주소: e.target.value }))} /></div>
+                      )}
+                      {missingProfile.includes("생년월일") && (
+                        <div className="space-y-1"><Label className="text-xs">생년월일</Label>
+                          <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                            value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
+                    <Button onClick={() => {
+                      // 프로필 입력 검증 후 서명 단계로
+                      if (missingProfile.includes("주소") && !profileInput.주소.trim()) { toast.error("주소를 입력해주세요."); return; }
+                      if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { toast.error("생년월일을 입력해주세요."); return; }
+                      setSignStep(2);
+                    }}>확인 완료 · 서명하기 →</Button>
+                  </div>
+                </>
               )}
-              <div className="space-y-2">
-                <Label>서명 *</Label>
-                <SignaturePad ref={sigRef} />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
-                <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>서명</Button>
-              </div>
+
+              {/* ── 서명 단계 (2단계 또는 동의 없는 문서) ── */}
+              {(consentKeys.length === 0 || signStep === 2) && (
+                <>
+                  {/* 동의 없는 문서(근로계약서·비밀유지)의 프로필 미입력 항목 */}
+                  {consentKeys.length === 0 && missingProfile.length > 0 && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-blue-800">계약서에 필요한 정보를 입력해주세요 (프로필에 저장됩니다)</p>
+                      {missingProfile.includes("주소") && (
+                        <div className="space-y-1"><Label className="text-xs">주소</Label>
+                          <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
+                            value={profileInput.주소} onChange={e => setProfileInput(p => ({ ...p, 주소: e.target.value }))} /></div>
+                      )}
+                      {missingProfile.includes("생년월일") && (
+                        <div className="space-y-1"><Label className="text-xs">생년월일</Label>
+                          <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                            value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
+                      )}
+                    </div>
+                  )}
+                  {consentKeys.length === 0 && (
+                    <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일 보기</a>
+                  )}
+                  <div className="space-y-2">
+                    <Label>서명 *</Label>
+                    <SignaturePad ref={sigRef} />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
+                    <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
+                    <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>서명</Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </DialogContent>

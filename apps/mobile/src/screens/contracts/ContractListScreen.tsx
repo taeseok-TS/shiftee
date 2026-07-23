@@ -10,6 +10,7 @@ import {
   Alert,
   Linking,
   TextInput,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -43,6 +44,7 @@ export default function ContractListScreen() {
   const [signTarget, setSignTarget] = useState<any | null>(null);
   const [signing, setSigning] = useState(false);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({});
+  const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const sigRef = useRef<SignatureViewRef>(null);
@@ -173,7 +175,7 @@ export default function ContractListScreen() {
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -214,70 +216,109 @@ export default function ContractListScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.modalHint}>
-            '{signTarget?.title}' — 승인하면 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.
+            '{signTarget?.title}'{consentKeys.length > 0 && signStep === 1 ? " — 동의 항목을 확인하고 선택하세요." : " — 승인하면 다음 결재자에게 전달됩니다."}
           </Text>
-          {/* 프로필 미입력 항목 — 입력하면 프로필에 저장되어 다음부터 자동 반영 */}
-          {missingProfile.length > 0 && (
-            <View style={[styles.consentBox, { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }]}>
-              <Text style={[styles.consentTitle, { color: "#1e40af" }]}>계약서에 필요한 정보 입력 (프로필에 저장됩니다)</Text>
-              {missingProfile.includes("주소") && (
-                <View style={{ marginBottom: 6 }}>
-                  <Text style={styles.consentLabel}>주소</Text>
-                  <TextInput style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
-                    value={profileInput.주소} onChangeText={t => setProfileInput(p => ({ ...p, 주소: t }))} />
-                </View>
-              )}
-              {missingProfile.includes("생년월일") && (
-                <View>
-                  <Text style={styles.consentLabel}>생년월일 (YYYY-MM-DD)</Text>
-                  <TextInput style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
-                    value={profileInput.생년월일} onChangeText={t => setProfileInput(p => ({ ...p, 생년월일: t }))} />
-                </View>
-              )}
-            </View>
-          )}
-          {/* 개인정보동의서 선택 항목 — 기본 동의, 미동의로 변경 가능 */}
-          {consentKeys.length > 0 && (
-            <View style={styles.consentBox}>
-              <Text style={styles.consentTitle}>선택 동의 항목 (동의하지 않아도 됩니다)</Text>
-              {consentKeys.map(k => (
-                <View key={k} style={{ marginBottom: 6 }}>
-                  <Text style={styles.consentLabel}>{CONSENT_LABELS[k]}</Text>
-                  <View style={{ flexDirection: "row", gap: 14, marginTop: 3 }}>
-                    {["동의", "미동의"].map(opt => (
-                      <TouchableOpacity key={opt} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                        onPress={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))}>
-                        <Ionicons name={(consentChoices[k] || "동의") === opt ? "radio-button-on" : "radio-button-off"} size={18} color="#2563eb" />
-                        <Text style={styles.consentOpt}>{opt}</Text>
-                      </TouchableOpacity>
-                    ))}
+
+          {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
+          {consentKeys.length > 0 && signStep === 1 && (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
+              <TouchableOpacity style={styles.viewDocBtn}
+                onPress={() => { const u = viewerUrl(signTarget.fileUrl); if (u) Linking.openURL(u); }}>
+                <Ionicons name="eye-outline" size={16} color="#4338ca" />
+                <Text style={styles.viewDocBtnText}>동의서 전문 보기</Text>
+              </TouchableOpacity>
+              <Text style={styles.consentNotice}>
+                개인정보 수집·이용, 민감정보, 제3자 제공 등 필수 항목은 동의로 처리됩니다 (미동의 시 채용 제한). 아래 선택 항목만 자유롭게 고르세요.
+              </Text>
+              <View style={styles.consentBox}>
+                <Text style={styles.consentTitle}>선택 동의 항목 (동의하지 않아도 됩니다)</Text>
+                {consentKeys.map(k => (
+                  <View key={k} style={{ marginBottom: 6 }}>
+                    <Text style={styles.consentLabel}>{CONSENT_LABELS[k]}</Text>
+                    <View style={{ flexDirection: "row", gap: 14, marginTop: 3 }}>
+                      {["동의", "미동의"].map(opt => (
+                        <TouchableOpacity key={opt} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                          onPress={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))}>
+                          <Ionicons name={(consentChoices[k] || "동의") === opt ? "radio-button-on" : "radio-button-off"} size={18} color="#2563eb" />
+                          <Text style={styles.consentOpt}>{opt}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
+                ))}
+              </View>
+              {missingProfile.length > 0 && (
+                <View style={[styles.consentBox, { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }]}>
+                  <Text style={[styles.consentTitle, { color: "#1e40af" }]}>필요한 정보 입력 (프로필에 저장됩니다)</Text>
+                  {missingProfile.includes("주소") && (
+                    <View style={{ marginBottom: 6 }}><Text style={styles.consentLabel}>주소</Text>
+                      <TextInput style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
+                        value={profileInput.주소} onChangeText={t => setProfileInput(p => ({ ...p, 주소: t }))} /></View>
+                  )}
+                  {missingProfile.includes("생년월일") && (
+                    <View><Text style={styles.consentLabel}>생년월일 (YYYY-MM-DD)</Text>
+                      <TextInput style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
+                        value={profileInput.생년월일} onChangeText={t => setProfileInput(p => ({ ...p, 생년월일: t }))} /></View>
+                  )}
                 </View>
-              ))}
-            </View>
+              )}
+              <TouchableOpacity style={[styles.padConfirm, { marginTop: 8 }]} onPress={() => {
+                if (missingProfile.includes("주소") && !profileInput.주소.trim()) { Alert.alert("알림", "주소를 입력해주세요."); return; }
+                if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { Alert.alert("알림", "생년월일을 YYYY-MM-DD로 입력해주세요."); return; }
+                setSignStep(2);
+              }}>
+                <Text style={styles.padConfirmText}>확인 완료 · 서명하기 →</Text>
+              </TouchableOpacity>
+            </ScrollView>
           )}
-          <View style={styles.padWrap}>
-            <SignatureScreen
-              ref={sigRef}
-              onOK={handleApproveSignature}
-              onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
-              descriptionText=""
-              imageType="image/png"
-              webStyle={`.m-signature-pad--footer { display: none; }
-                .m-signature-pad { box-shadow: none; border: none; }
-                body, html { width: 100%; height: 100%; }`}
-            />
-          </View>
-          {/* 패드 내부(웹뷰) 버튼은 기기에 따라 안 보일 수 있어 바깥 고정 버튼 사용 */}
-          <View style={styles.padActions}>
-            <TouchableOpacity style={styles.padClear} onPress={() => sigRef.current?.clearSignature()}>
-              <Text style={styles.padClearText}>지우기</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
-              <Ionicons name="checkmark" size={18} color="#fff" />
-              <Text style={styles.padConfirmText}>승인 완료</Text>
-            </TouchableOpacity>
-          </View>
+
+          {/* ── 서명 단계 (2단계 또는 동의 없는 문서) ── */}
+          {(consentKeys.length === 0 || signStep === 2) && (
+            <>
+              {/* 동의 없는 문서(비밀유지 등)의 프로필 미입력 항목 */}
+              {consentKeys.length === 0 && missingProfile.length > 0 && (
+                <View style={[styles.consentBox, { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }]}>
+                  <Text style={[styles.consentTitle, { color: "#1e40af" }]}>계약서에 필요한 정보 입력 (프로필에 저장됩니다)</Text>
+                  {missingProfile.includes("주소") && (
+                    <View style={{ marginBottom: 6 }}><Text style={styles.consentLabel}>주소</Text>
+                      <TextInput style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
+                        value={profileInput.주소} onChangeText={t => setProfileInput(p => ({ ...p, 주소: t }))} /></View>
+                  )}
+                  {missingProfile.includes("생년월일") && (
+                    <View><Text style={styles.consentLabel}>생년월일 (YYYY-MM-DD)</Text>
+                      <TextInput style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
+                        value={profileInput.생년월일} onChangeText={t => setProfileInput(p => ({ ...p, 생년월일: t }))} /></View>
+                  )}
+                </View>
+              )}
+              <View style={styles.padWrap}>
+                <SignatureScreen
+                  ref={sigRef}
+                  onOK={handleApproveSignature}
+                  onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
+                  descriptionText=""
+                  imageType="image/png"
+                  webStyle={`.m-signature-pad--footer { display: none; }
+                    .m-signature-pad { box-shadow: none; border: none; }
+                    body, html { width: 100%; height: 100%; }`}
+                />
+              </View>
+              <View style={styles.padActions}>
+                {consentKeys.length > 0 && (
+                  <TouchableOpacity style={styles.padClear} onPress={() => setSignStep(1)}>
+                    <Text style={styles.padClearText}>← 이전</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.padClear} onPress={() => sigRef.current?.clearSignature()}>
+                  <Text style={styles.padClearText}>지우기</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                  <Text style={styles.padConfirmText}>승인 완료</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
       </Modal>
     </View>
@@ -376,6 +417,9 @@ const styles = StyleSheet.create({
   consentLabel: { fontSize: 12, color: "#374151" },
   consentOpt: { fontSize: 13, color: "#374151" },
   profileInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, backgroundColor: "#fff", marginTop: 3 },
+  viewDocBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#c7d2fe", backgroundColor: "#eef2ff", marginBottom: 10 },
+  viewDocBtnText: { fontSize: 14, fontWeight: "600", color: "#4338ca" },
+  consentNotice: { fontSize: 12, color: "#4b5563", backgroundColor: "#f9fafb", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10, lineHeight: 17 },
   modalRoot: { flex: 1, backgroundColor: "#fff" },
   modalHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
