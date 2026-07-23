@@ -42,7 +42,7 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[] };
 
 type ContractTemplate = {
   id: string;
@@ -524,7 +524,8 @@ export default function ContractsPage() {
 
   // 자동 채움/기본 폼이 담당하는 필드 — 이 밖의 필드는 템플릿별 동적 입력란으로 노출
   const AUTO_FIELDS = ["직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "사원번호", "작성일", "근로자서명", "대표서명",
-    "연봉한글", "기본급", "월급여합계", "연봉총액"]; // 연봉에서 자동 계산되는 필드 — 입력란 미표시
+    "연봉한글", "기본급", "월급여합계", "연봉총액", // 연봉에서 자동 계산되는 필드
+    "동의고유식별", "동의채용정보"]; // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
@@ -599,6 +600,21 @@ export default function ContractsPage() {
     setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, selectedTemplate, useTemplate, bundleMode]);
+
+  // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 원장) 자동 채움
+  useEffect(() => {
+    if (!createForm.userId || templateFields.length === 0) return;
+    const emp = employees.find(e => e.id === createForm.userId);
+    if (!emp) return;
+    const updates: Record<string, string> = {};
+    if (templateFields.includes("생년월일") && emp.birthDate) updates["생년월일"] = String(emp.birthDate).slice(0, 10);
+    if (templateFields.includes("원장명") && emp.branch) {
+      const mgr = employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!)));
+      if (mgr) updates["원장명"] = mgr.name;
+    }
+    if (Object.keys(updates).length) setExtraFields(prev => ({ ...prev, ...updates }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createForm.userId, templateFields]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
