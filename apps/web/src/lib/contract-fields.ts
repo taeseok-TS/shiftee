@@ -150,6 +150,40 @@ export async function scanTemplateProfileFields(templateFileUrl: string): Promis
   }
 }
 
+// 시스템이 자동으로 채우거나 별도 처리하는 필드(직원 입력 대상이 아님)
+const SYSTEM_FIELDS = new Set([
+  "직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "생년월일", "주소",
+  "사원번호", "제목", "계약시작일", "계약종료일", "연봉", "작성일",
+  "연봉한글", "연봉총액", "월급여합계", "기본급", "신규입사", "재계약",
+  "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
+]);
+
+// 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
+// 시스템 자동/프로필/동의/서명 필드가 아닌 나머지 {태그}(예: 퇴사일자·퇴사사유).
+// 프로필 필드(주소/생년월일)와 달리 프로필에 저장하지 않고 해당 문서에만 반영한다.
+export async function scanEmployeeFillFields(templateFileUrl: string): Promise<string[]> {
+  if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
+  try {
+    const rel = templateFileUrl.replace(/^\/api\/uploads\//, "");
+    const buf = await fs.readFile(path.join(process.cwd(), "uploads", rel));
+    const xml = new PizZip(buf).file("word/document.xml")?.asText() || "";
+    const found: string[] = [];
+    // 워드가 run을 쪼개도 인식되도록 문단 단위로 텍스트를 이어붙여 스캔
+    for (const p of xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) || []) {
+      const text = (p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
+      for (const m of text.matchAll(/\{([^{}\n]{1,30})\}/g)) {
+        const name = m[1].trim();
+        if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 제외
+        if (SYSTEM_FIELDS.has(name)) continue;
+        if (!found.includes(name)) found.push(name);
+      }
+    }
+    return found;
+  } catch {
+    return [];
+  }
+}
+
 // 동의 체크박스 문자열 — "미동의"면 동의하지 않음에 체크, 그 외(기본)는 동의함에 체크
 export function consentBox(choice?: string): string {
   return choice === "미동의"

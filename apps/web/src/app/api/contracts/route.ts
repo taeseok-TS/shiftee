@@ -5,7 +5,7 @@ import { filterContractData } from "@/lib/api-response";
 import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
 import path from "path";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 
 export async function GET(request: NextRequest) {
@@ -145,6 +145,8 @@ export async function POST(request: NextRequest) {
     }
 
     let fileUrl = "";
+    let contractProfileFields: string[] = [];
+    let contractEmployeeFields: string[] = [];
 
     if (files.length > 0) {
       const fileUrls: string[] = [];
@@ -180,6 +182,9 @@ export async function POST(request: NextRequest) {
       }
 
       if (template.fileUrl.toLowerCase().endsWith(".docx")) {
+        // 이 계약서가 쓰는 프로필 필드(주소/생년월일) + 직원 직접입력 필드(퇴사일자 등) 기록
+        contractProfileFields = await scanTemplateProfileFields(template.fileUrl);
+        contractEmployeeFields = await scanEmployeeFillFields(template.fileUrl);
         // 워드 템플릿: 치환 필드({직원명}, {연봉} 등)를 입력값으로 채워 계약서 생성
         let parsedExtra: Record<string, string> | null = null;
         if (extraFieldsRaw) {
@@ -220,6 +225,8 @@ export async function POST(request: NextRequest) {
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
         extraFields: Object.keys(fieldSummary).length ? fieldSummary : undefined,
+        profileFields: contractProfileFields.length ? contractProfileFields : undefined,
+        employeeFields: contractEmployeeFields.length ? contractEmployeeFields : undefined,
         status: "DRAFT",
       },
       include: {

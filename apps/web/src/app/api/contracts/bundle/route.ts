@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
 
 // 신규입사 패키지 생성 — 여러 템플릿(근로계약서+비밀유지+개인정보동의서)을 하나의 묶음으로 함께 생성.
 // 각 계약서는 공유 bundleId를 가지며, employeeOnly 문서는 직원 서명만/직원·관리자에게만 표시된다.
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
 
       let fileUrl: string;
       let profileFields: string[] = [];
+      let employeeFields: string[] = [];
       if (template.fileUrl.toLowerCase().endsWith(".docx")) {
         const mergeData = await buildContractMergeData(userId, {
           title: item.title,
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
         });
         fileUrl = JSON.stringify([await fillDocxTemplate(template.fileUrl, mergeData)]);
         profileFields = await scanTemplateProfileFields(template.fileUrl);
+        employeeFields = await scanEmployeeFillFields(template.fileUrl);
       } else {
         fileUrl = JSON.stringify([template.fileUrl]);
       }
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
           endDate: item.endDate ? new Date(item.endDate) : null,
           extraFields: Object.keys(fieldSummary).length ? fieldSummary : undefined,
           profileFields: profileFields.length ? profileFields : undefined,
+          employeeFields: employeeFields.length ? employeeFields : undefined,
           bundleId,
           employeeOnly: !!item.employeeOnly,
           status: "DRAFT",

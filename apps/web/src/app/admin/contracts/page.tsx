@@ -524,17 +524,21 @@ export default function ContractsPage() {
 
   // 자동 채움/기본 폼이 담당하는 필드 — 이 밖의 필드는 템플릿별 동적 입력란으로 노출
   const AUTO_FIELDS = ["직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "사원번호", "작성일", "근로자서명", "대표서명",
+    "원장서명", "본부서명", // 결재란 서명 마커 — 서명본에서 자동 삽입
+    "주소", "생년월일", // 프로필 자동 채움(비면 직원이 서명 시 입력)
     "연봉한글", "기본급", "월급여합계", "연봉총액", // 연봉에서 자동 계산되는 필드
     "동의고유식별", "동의채용정보"]; // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
+  const [employeeFillFields, setEmployeeFillFields] = useState<string[]>([]); // 직원이 서명 시 직접 입력(퇴사일자 등)
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [templateConditions, setTemplateConditions] = useState<string[]>([]); // 템플릿의 {#조건} 이름들
   const [fieldConditions, setFieldConditions] = useState<Record<string, string>>({}); // 필드 → 소속 조건
   const [contractKind, setContractKind] = useState("신규입사"); // 계약 구분
-  // 계약 구분에 해당하지 않는 조건 구간의 필드는 입력란에서 숨김
+  // 계약 구분에 해당하지 않는 조건 구간의 필드 + 직원 직접입력 필드는 관리자 입력란에서 숨김
   const dynamicFields = templateFields
     .filter(f => !AUTO_FIELDS.includes(f) && !FORM_FIELDS.includes(f) && f !== "계약구분")
+    .filter(f => !employeeFillFields.includes(f))
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   const isDateField = (f: string) => /시작|종료|날짜|일자|기간|일$/.test(f);
 
@@ -554,7 +558,7 @@ export default function ContractsPage() {
 
   // 선택 템플릿 + (패키지면) 비밀유지·개인정보동의서 필드까지 스캔해 입력란 합집합 구성
   const scanFields = async (templateId: string, includeBundle: boolean) => {
-    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]);
     const ids = [templateId];
     if (includeBundle) {
       if (ndaTemplate) ids.push(ndaTemplate.id);
@@ -565,13 +569,15 @@ export default function ContractsPage() {
     );
     const fields: string[] = [];
     const conditions: string[] = [];
+    const empFill: string[] = [];
     const fieldConds: Record<string, string> = {};
     for (const d of results) {
       for (const f of d.fields || []) if (!fields.includes(f)) fields.push(f);
       for (const c of d.conditions || []) if (!conditions.includes(c)) conditions.push(c);
+      for (const f of d.employeeFields || []) if (!empFill.includes(f)) empFill.push(f);
       Object.assign(fieldConds, d.fieldConditions || {});
     }
-    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds);
+    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill);
   };
 
   // 제목 자동 생성 — "올해연도 + 직원명 + 근로계약서(또는 템플릿명)"

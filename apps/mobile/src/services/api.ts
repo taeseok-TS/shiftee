@@ -142,10 +142,10 @@ export async function markChannelRead(channelId: string) {
 
 // ─── 개인정보동의서 선택 항목 동의 포함 서명 (공유 클라이언트 미지원 → 직접 호출) ───
 import axios from "axios";
-export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>) {
+export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,
-    { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}) },
+    { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) },
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 }
 

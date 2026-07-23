@@ -24,6 +24,7 @@ type Contract = {
   status: string;
   extraFields?: Record<string, string> | null; // 개인정보동의서 선택 동의 등
   profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
+  employeeFields?: string[] | null; // 직원이 서명 시 직접 입력하는 필드 (퇴사일자/퇴사사유 등)
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -174,9 +175,13 @@ export default function ContractsPage() {
   const [docViewerOpen, setDocViewerOpen] = useState(false); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
+  const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도)
   const missingProfile = (signTarget?.profileFields || []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
+  // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
+  const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
+  const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 서명 대상에 선택 동의 항목이 있으면 라벨 매핑
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields!) : [];
@@ -705,11 +710,22 @@ export default function ContractsPage() {
         profile.생년월일 = profileInput.생년월일;
       }
     }
+    // 직원 직접입력 필드(퇴사일자·퇴사사유 등) — 문서에만 반영(프로필 저장 X)
+    let fields: Record<string, string> | undefined;
+    if (empFields.length) {
+      fields = {};
+      for (const f of empFields) {
+        const v = (empFieldInput[f] || "").trim();
+        if (!v) { toast.error(`${f}을(를) 입력해주세요.`); return; }
+        if (isEmpDateField(f) && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast.error(`${f}을(를) YYYY-MM-DD 형식으로 입력해주세요.`); return; }
+        fields[f] = v;
+      }
+    }
 
     const res = await fetch(`/api/contracts/${id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}) }),
+      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
@@ -1289,7 +1305,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -1316,7 +1332,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1661,6 +1677,23 @@ export default function ContractsPage() {
                           <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
                             value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
                       )}
+                    </div>
+                  )}
+                  {/* 직원 직접입력 필드(퇴사일자·퇴사사유 등) */}
+                  {empFields.length > 0 && (
+                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-indigo-800">아래 항목을 직접 작성해주세요</p>
+                      {empFields.map(f => (
+                        <div key={f} className="space-y-1"><Label className="text-xs">{f}</Label>
+                          {isEmpDateField(f) ? (
+                            <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                              value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                          ) : (
+                            <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${f} 입력`}
+                              value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                   {consentKeys.length === 0 && (

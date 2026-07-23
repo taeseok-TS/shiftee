@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
+import { scanEmployeeFillFields } from "@/lib/contract-fields";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -50,7 +51,9 @@ export async function GET(
         }
       }
     }
-    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions });
+    // 직원이 서명 시 직접 입력하는 필드(퇴사일자 등) — 관리자 입력란에서 제외 대상
+    const employeeFields = await scanEmployeeFillFields(template.fileUrl);
+    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields });
   } catch (e) {
     console.error("템플릿 필드 스캔 오류:", e);
     return NextResponse.json({ fields: [] });

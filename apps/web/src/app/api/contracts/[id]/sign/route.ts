@@ -27,7 +27,7 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover, consent, profile } = body;
+  const { signatureData, isApprover, consent, profile, fields } = body;
   const signatureUrl = await saveSignature(signatureData);
 
   const contract = await prisma.contract.findUnique({
@@ -48,15 +48,19 @@ export async function POST(
     }
   }
 
-  // 개인정보동의서 선택 항목(동의/미동의) 또는 프로필 입력 시 → 최신 프로필로 문서 재생성
-  if ((consent || profile) && contract.templateId && contract.userId === session.userId) {
+  // 개인정보동의서 선택 항목(동의/미동의)·프로필 입력·직원 직접입력 필드 시 → 문서 재생성
+  if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId) {
     try {
       const tmpl = await prisma.contractTemplate.findUnique({
         where: { id: contract.templateId }, select: { fileUrl: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
-        const merged = { ...prevExtra, ...(consent && typeof consent === "object" ? consent : {}) };
+        const merged = {
+          ...prevExtra,
+          ...(consent && typeof consent === "object" ? consent : {}),
+          ...(fields && typeof fields === "object" ? fields : {}), // 퇴사일자·퇴사사유 등 직원 직접입력
+        };
         const mergeData = await buildContractMergeData(contract.userId, {
           title: contract.title,
           startDate: contract.startDate ? contract.startDate.toISOString() : null,

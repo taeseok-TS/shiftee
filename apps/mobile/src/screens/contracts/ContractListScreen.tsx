@@ -48,17 +48,22 @@ export default function ContractListScreen() {
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
+  const [myId, setMyId] = useState("");
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
+  const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것
   const missingProfile: string[] = (signTarget?.profileFields || []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
+  // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
+  const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
+  const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
 
   useEffect(() => {
     loadContracts();
-    api.getMyProfile().then(p => setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" })).catch(() => {});
+    api.getMyProfile().then(p => { setMyId(p.id || ""); setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" }); }).catch(() => {});
   }, []);
 
   const loadContracts = async () => {
@@ -95,11 +100,22 @@ export default function ContractListScreen() {
         profile.생년월일 = profileInput.생년월일;
       }
     }
+    // 직원 직접입력 필드(퇴사일자·퇴사사유 등) — 문서에만 반영(프로필 저장 X)
+    let fields: Record<string, string> | undefined;
+    if (empFields.length) {
+      fields = {};
+      for (const f of empFields) {
+        const v = (empFieldInput[f] || "").trim();
+        if (!v) { Alert.alert("알림", `${f}을(를) 입력해주세요.`); return; }
+        if (isEmpDateField(f) && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { Alert.alert("알림", `${f}을(를) YYYY-MM-DD로 입력해주세요.`); return; }
+        fields[f] = v;
+      }
+    }
     setSignTarget(null);
     setSigning(true);
     try {
-      if (hasConsent || profile) {
-        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile);
+      if (hasConsent || profile || fields) {
+        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
       } else {
         await api.signContract(id, sig, true);
@@ -177,7 +193,7 @@ export default function ContractListScreen() {
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setSignStep(1); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -291,6 +307,21 @@ export default function ContractListScreen() {
                       <TextInput style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
                         value={profileInput.생년월일} onChangeText={t => setProfileInput(p => ({ ...p, 생년월일: t }))} /></View>
                   )}
+                </View>
+              )}
+              {/* 직원 직접입력 필드(퇴사일자·퇴사사유 등) */}
+              {empFields.length > 0 && (
+                <View style={[styles.consentBox, { borderColor: "#c7d2fe", backgroundColor: "#eef2ff" }]}>
+                  <Text style={[styles.consentTitle, { color: "#3730a3" }]}>아래 항목을 직접 작성해주세요</Text>
+                  {empFields.map(f => (
+                    <View key={f} style={{ marginBottom: 6 }}>
+                      <Text style={styles.consentLabel}>{f}{isEmpDateField(f) ? " (YYYY-MM-DD)" : ""}</Text>
+                      <TextInput style={styles.profileInput}
+                        placeholder={isEmpDateField(f) ? "예: 2026-08-31" : `${f} 입력`}
+                        keyboardType={isEmpDateField(f) ? "numbers-and-punctuation" : "default"}
+                        value={empFieldInput[f] || ""} onChangeText={t => setEmpFieldInput(p => ({ ...p, [f]: t }))} />
+                    </View>
+                  ))}
                 </View>
               )}
               <View style={styles.padWrap}>

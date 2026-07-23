@@ -267,6 +267,7 @@ model Contract {
   bundleId         String? // 신규입사 패키지 묶음 ID(근로계약서+비밀유지+개인정보동의서 함께 발송)
   employeeOnly     Boolean               @default(false) // 직원 서명만·직원+관리자에게만 표시(비밀유지·개인정보동의서)
   profileFields    Json? // 이 계약서가 쓰는 직원 프로필 필드(["주소","생년월일"]) — 서명 시 비어 있으면 입력 유도
+  employeeFields   Json? // 직원이 서명 시 직접 입력하는 문서 전용 필드(["퇴사일자","퇴사사유"]) — 프로필 저장 X, 문서에만 반영
   employeeSignedAt DateTime?
   signedAt         DateTime?
   approvalLine     ContractApprovalLine?
