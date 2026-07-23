@@ -61,8 +61,10 @@ export async function GET(
       : ext === ".docx"
       ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       : "application/octet-stream");
-  // 이미지/PDF는 inline, 워드 등은 다운로드. 파일명은 RFC5987로 안전 인코딩
-  const disposition = ext === ".docx" ? "attachment" : "inline";
+  // 기본 inline(미리보기/오피스 뷰어가 렌더 가능). ?download=1 이면 다운로드로 강제.
+  // (워드도 inline이면 브라우저가 자체 렌더 못 해 결국 다운로드되므로 다운로드 UX엔 지장 없음)
+  const forceDownload = new URL(_request.url).searchParams.get("download") === "1";
+  const disposition = forceDownload ? "attachment" : "inline";
 
   const baseHeaders: Record<string, string> = {
     "Content-Type": contentType,
