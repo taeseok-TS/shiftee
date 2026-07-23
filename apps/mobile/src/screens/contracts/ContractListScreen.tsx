@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { WebView } from "react-native-webview";
 import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas";
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
@@ -45,6 +46,7 @@ export default function ContractListScreen() {
   const [signing, setSigning] = useState(false);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({});
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
+  const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const sigRef = useRef<SignatureViewRef>(null);
@@ -223,7 +225,7 @@ export default function ContractListScreen() {
           {consentKeys.length > 0 && signStep === 1 && (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
               <TouchableOpacity style={styles.viewDocBtn}
-                onPress={() => { const u = viewerUrl(signTarget.fileUrl); if (u) Linking.openURL(u); }}>
+                onPress={() => { const u = viewerUrl(signTarget.fileUrl); if (u) setDocViewerUrl(u); }}>
                 <Ionicons name="eye-outline" size={16} color="#4338ca" />
                 <Text style={styles.viewDocBtnText}>동의서 전문 보기</Text>
               </TouchableOpacity>
@@ -321,6 +323,34 @@ export default function ContractListScreen() {
           )}
         </View>
       </Modal>
+
+      {/* 동의서 전문 인앱 뷰어 — 다 읽고 "확인"을 누르면 동의 화면으로 복귀 */}
+      <Modal visible={!!docViewerUrl} animationType="slide" onRequestClose={() => setDocViewerUrl(null)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>동의서 전문</Text>
+            <TouchableOpacity onPress={() => setDocViewerUrl(null)}>
+              <Ionicons name="close" size={26} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          {docViewerUrl && (
+            <WebView
+              source={{ uri: docViewerUrl }}
+              style={{ flex: 1 }}
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.viewerLoading}><ActivityIndicator size="large" color="#4338ca" /></View>
+              )}
+            />
+          )}
+          <View style={styles.viewerFooter}>
+            <TouchableOpacity style={styles.padConfirm} onPress={() => setDocViewerUrl(null)}>
+              <Ionicons name="checkmark" size={18} color="#fff" />
+              <Text style={styles.padConfirmText}>확인 (다 읽었습니다)</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -412,6 +442,8 @@ const styles = StyleSheet.create({
   padClearText: { fontSize: 15, fontWeight: "600", color: "#374151" },
   padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 8, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
   padConfirmText: { fontSize: 15, fontWeight: "600", color: "#fff" },
+  viewerLoading: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
+  viewerFooter: { padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   consentBox: { marginHorizontal: 20, marginBottom: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb" },
   consentTitle: { fontSize: 12, fontWeight: "700", color: "#92400e", marginBottom: 6 },
   consentLabel: { fontSize: 12, color: "#374151" },

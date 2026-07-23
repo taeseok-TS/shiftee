@@ -1684,7 +1684,7 @@ export default function ContractsPage() {
 
       {/* 동의서 전문 인앱 뷰어 — 다 읽고 "확인"을 누르면 동의 화면으로 복귀 */}
       <Dialog open={docViewerOpen} onOpenChange={setDocViewerOpen}>
-        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
+        <DialogContent className="!max-w-[96vw] w-[96vw] h-[94vh] sm:!max-w-[96vw] flex flex-col p-0 gap-0">
           <DialogHeader className="px-4 py-3 border-b shrink-0">
             <DialogTitle className="text-base">동의서 전문 — 끝까지 확인해주세요</DialogTitle>
           </DialogHeader>
