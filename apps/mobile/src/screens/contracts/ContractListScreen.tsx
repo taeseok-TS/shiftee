@@ -54,8 +54,9 @@ export default function ContractListScreen() {
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
-  // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것
-  const missingProfile: string[] = (signTarget?.profileFields || []).filter((f: string) =>
+  // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 — 본인(계약 대상 직원)이 서명할 때만
+  // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
+  const missingProfile: string[] = (signTarget?.userId === myId ? (signTarget?.profileFields || []) : []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
   const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];

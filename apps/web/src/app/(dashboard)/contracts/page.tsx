@@ -176,8 +176,9 @@ export default function ContractsPage() {
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
-  // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도)
-  const missingProfile = (signTarget?.profileFields || []).filter((f: string) =>
+  // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도) — 본인(계약 대상 직원)이 서명할 때만
+  // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
+  const missingProfile = (signTarget?.userId === myId ? (signTarget?.profileFields || []) : []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
   const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
