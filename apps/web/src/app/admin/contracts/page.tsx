@@ -548,7 +548,8 @@ export default function ContractsPage() {
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
   const ndaTemplate = templates.find(t => t.name.includes("비밀유지"));
   const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
-  const canBundle = !!ndaTemplate && !!privacyTemplate;
+  const empTemplate = templates.find(t => t.name.includes("근로계약")) || templates.find(t => t.type === "EMPLOYMENT");
+  const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
   // 선택 템플릿 + (패키지면) 비밀유지·개인정보동의서 필드까지 스캔해 입력란 합집합 구성
   const scanFields = async (templateId: string, includeBundle: boolean) => {
@@ -902,12 +903,24 @@ export default function ContractsPage() {
                       </SelectContent>
                     </Select>
 
-                    {/* 신규입사 패키지 — 근로계약서 선택 시, 비밀유지·개인정보동의서를 함께 발송 */}
-                    {canBundle && createForm.type === "EMPLOYMENT" && (
+                    {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송 */}
+                    {canBundle && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-emerald-800">
                           <input type="checkbox" checked={bundleMode}
-                            onChange={e => { setBundleMode(e.target.checked); if (selectedTemplate) scanFields(selectedTemplate, e.target.checked); }} />
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setBundleMode(checked);
+                              // 패키지 체크 시 근로계약서 미선택이면 자동 선택 (계약구분·추가 필드 표시)
+                              if (checked && !selectedTemplate && empTemplate) {
+                                const et = empTemplate;
+                                setSelectedTemplate(et.id);
+                                setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, true), type: et.type }));
+                                scanFields(et.id, true);
+                              } else if (selectedTemplate) {
+                                scanFields(selectedTemplate, checked);
+                              }
+                            }} />
                           신규입사 패키지로 함께 발송 (3종)
                         </label>
                         {bundleMode && (
