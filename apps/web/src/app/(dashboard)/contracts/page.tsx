@@ -720,7 +720,7 @@ export default function ContractsPage() {
       fields = {};
       for (const f of empFields) {
         const type = empFieldType(f);
-        if (type === "check") { fields[f] = empFieldInput[f] === "☑" ? "☑" : "□"; continue; }
+        if (type === "check") { fields[f] = empFieldInput[f] === "□" ? "□" : "☑"; continue; } // 기본 체크, 명시적 해제만 □
         const v = (empFieldInput[f] || "").trim();
         const optional = f.includes("기타"); // 기타 내용 등 조건부 입력은 선택
         if (!v) { if (optional) { fields[f] = ""; continue; } toast.error(`${empFieldLabel(f)}을(를) 입력해주세요.`); return; }
@@ -1696,7 +1696,7 @@ export default function ContractsPage() {
                       {empFields.map(f => {
                         const type = empFieldType(f);
                         if (type === "check") {
-                          const checked = empFieldInput[f] === "☑";
+                          const checked = empFieldInput[f] !== "□"; // 기본 체크
                           return (
                             <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
                               <input type="checkbox" checked={checked}
