@@ -46,12 +46,13 @@ export async function POST(
       );
     }
 
-    // 복구 처리: deletedAt, permanentlyDeletedAt 제거
+    // 복구 처리: deletedAt, permanentlyDeletedAt 제거 + 재활성화
     const restoredUser = await prisma.user.update({
       where: { id },
       data: {
         deletedAt: null,
         permanentlyDeletedAt: null,
+        isActive: true,
       },
       select: {
         id: true,

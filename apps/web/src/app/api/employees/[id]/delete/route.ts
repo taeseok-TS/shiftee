@@ -65,12 +65,13 @@ export async function DELETE(
     const permanentlyDeletedAt = new Date();
     permanentlyDeletedAt.setDate(permanentlyDeletedAt.getDate() + 30);
 
-    // Soft delete 처리: deletedAt 설정
+    // Soft delete 처리: deletedAt 설정 + 목록·로그인에서 제외되도록 비활성화
     const deletedUser = await prisma.user.update({
       where: { id },
       data: {
         deletedAt: new Date(),
         permanentlyDeletedAt,
+        isActive: false,
       },
     });
 
