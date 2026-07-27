@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getSession();
@@ -23,7 +23,7 @@ export async function DELETE(
       );
     }
 
-    const { id } = params;
+    const { id } = await params;
 
     // 직원 존재 확인
     const user = await prisma.user.findUnique({
@@ -53,10 +53,10 @@ export async function DELETE(
       );
     }
 
-    // 퇴사 상태인지 확인
-    if (user.employmentStatus !== "RESIGNED") {
+    // 퇴사 상태인지 확인 — 메인 관리자는 테스트 계정 정리 등을 위해 퇴사 전이어도 삭제 가능
+    if (user.employmentStatus !== "RESIGNED" && !(await isSuperAdmin(session.userId))) {
       return NextResponse.json(
-        { error: "퇴사한 직원만 삭제할 수 있습니다." },
+        { error: "퇴사한 직원만 삭제할 수 있습니다. (메인 관리자는 바로 삭제 가능)" },
         { status: 400 }
       );
     }
