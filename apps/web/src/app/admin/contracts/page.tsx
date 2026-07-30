@@ -730,6 +730,8 @@ export default function ContractsPage() {
         if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
         allExtra[k] = v;
       }
+      // 손대지 않은 체크박스 필드는 기본 체크(☑)로 전송
+      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
       if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
     }
@@ -1133,6 +1135,14 @@ export default function ContractsPage() {
                   <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
                     <p className="text-xs font-semibold text-indigo-700">이 템플릿의 추가 입력 필드</p>
                     {dynamicFields.map(f => (
+                      f.startsWith("체크_") ? (
+                        // 체크박스 필드(지급금품 임금·퇴직금·기타 등) — 기본 체크, 해당 없으면 해제
+                        <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" checked={extraFields[f] !== "□"}
+                            onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "□" }))} />
+                          {f.slice(3)}
+                        </label>
+                      ) : (
                       <div key={f} className="space-y-1">
                         <Label className="text-sm">{f}</Label>
                         <Input
@@ -1141,6 +1151,7 @@ export default function ContractsPage() {
                           onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
                         />
                       </div>
+                      )
                     ))}
                   </div>
                 )}
