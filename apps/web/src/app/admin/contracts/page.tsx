@@ -631,6 +631,12 @@ export default function ContractsPage() {
     if (!emp) return;
     const updates: Record<string, string> = {};
     if (templateFields.includes("생년월일") && emp.birthDate) updates["생년월일"] = String(emp.birthDate).slice(0, 10);
+    // 퇴사 패키지: 근무시작일·연차시작일은 입사일과 동일하게 자동 기입
+    if (emp.hireDate) {
+      const hire = String(emp.hireDate).slice(0, 10);
+      if (templateFields.includes("근무시작일")) updates["근무시작일"] = hire;
+      if (templateFields.includes("연차시작일")) updates["연차시작일"] = hire;
+    }
     if (templateFields.includes("원장명") && emp.branch) {
       const mgr = employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!)));
       if (mgr) updates["원장명"] = mgr.name;
@@ -638,6 +644,19 @@ export default function ContractsPage() {
     if (Object.keys(updates).length) setExtraFields(prev => ({ ...prev, ...updates }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, templateFields]);
+
+  // 퇴사일자 입력 시 근무종료일·연차종료일 자동 기입 (이후 수동 수정 가능)
+  useEffect(() => {
+    const d = extraFields["퇴사일자"];
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    setExtraFields(prev => {
+      const u = { ...prev };
+      if (templateFields.includes("근무종료일")) u["근무종료일"] = d;
+      if (templateFields.includes("연차종료일")) u["연차종료일"] = d;
+      return u;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraFields["퇴사일자"], templateFields]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
