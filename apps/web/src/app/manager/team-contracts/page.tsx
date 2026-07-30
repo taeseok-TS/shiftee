@@ -57,9 +57,10 @@ function getFileUrl(fileUrl: string): string {
 }
 
 // 결재자는 파일을 내려받아 보관하지 않도록 브라우저에서 바로 열람.
-// 오피스 문서(워드 등)는 MS 온라인 뷰어로 열기 (채팅 첨부 열기와 동일 방식)
+// 워드는 자체 인앱 뷰어(즉시 렌더), 엑셀·PPT는 MS 온라인 뷰어
 function viewHref(fileUrl: string): string {
-  if (/\.(pptx?|xlsx?|docx?)$/i.test(fileUrl))
+  if (/\.docx?$/i.test(fileUrl)) return `/docs/viewer?src=${encodeURIComponent(fileUrl)}`;
+  if (/\.(pptx?|xlsx?)$/i.test(fileUrl))
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
   return fileUrl;
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/docs/viewer"]; // /docs/viewer: 계약서 인앱 뷰어(앱 WebView에서 쿠키 없이 열람 — 파일 자체가 공개 서빙 경로)
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

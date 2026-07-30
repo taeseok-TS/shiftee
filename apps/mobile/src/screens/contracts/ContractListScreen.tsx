@@ -31,7 +31,9 @@ function viewerUrl(raw?: string | null): string | null {
   if (!path) return null;
   const origin = API_URL.replace(/\/api$/, "");
   const full = path.startsWith("http") ? path : origin + path;
-  if (/\.(pptx?|xlsx?|docx?)$/i.test(full))
+  // 워드는 웹의 자체 인앱 뷰어(즉시 렌더). 엑셀·PPT만 MS 온라인 뷰어 유지
+  if (/\.docx?$/i.test(full)) return `${origin}/docs/viewer?src=${encodeURIComponent(full)}`;
+  if (/\.(pptx?|xlsx?)$/i.test(full))
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(full)}`;
   return full;
 }

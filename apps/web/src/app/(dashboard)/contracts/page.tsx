@@ -81,7 +81,9 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 // 서명 전 계약서는 다운로드 대신 브라우저 열람만 (다운로드는 서명 완료본만 허용)
 function viewHref(fileUrl: string): string {
-  if (/\.(pptx?|xlsx?|docx?)$/i.test(fileUrl))
+  // 워드는 자체 인앱 뷰어(즉시 렌더). 엑셀·PPT만 MS 온라인 뷰어 유지
+  if (/\.docx?$/i.test(fileUrl)) return `/docs/viewer?src=${encodeURIComponent(fileUrl)}`;
+  if (/\.(pptx?|xlsx?)$/i.test(fileUrl))
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
   return fileUrl;
 }
