@@ -28,8 +28,39 @@ function DocViewer() {
   const params = useSearchParams();
   const src = params.get("src") || "";
   const containerRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
   const [errMsg, setErrMsg] = useState("");
+
+  // 문서 원본 폭이 화면보다 넓으면(모바일) 통째로 축소해서 한 화면에 맞춤 — 잘림 방지
+  const applyScale = () => {
+    const el = containerRef.current;
+    const outer = outerRef.current;
+    if (!el || !outer) return;
+    const section = el.querySelector("section.docx") as HTMLElement | null;
+    if (!section) return;
+    const naturalW = section.offsetWidth; // transform 영향 없는 원본 폭
+    const avail = document.documentElement.clientWidth - 8;
+    const scale = Math.min(1, avail / naturalW);
+    if (scale < 1) {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = "top left";
+      el.style.marginLeft = `${Math.max(0, (document.documentElement.clientWidth - naturalW * scale) / 2)}px`;
+      outer.style.height = `${el.scrollHeight * scale}px`;
+      outer.style.overflow = "hidden";
+    } else {
+      el.style.transform = "";
+      el.style.marginLeft = "";
+      outer.style.height = "";
+      outer.style.overflow = "";
+    }
+  };
+
+  useEffect(() => {
+    const onResize = () => applyScale();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +83,12 @@ function DocViewer() {
           inWrapper: true,
           ignoreLastRenderedPageBreak: true,
         });
-        if (!cancelled) setStatus("done");
+        if (!cancelled) {
+          setStatus("done");
+          applyScale();
+          // 폰트 로딩 등으로 폭이 늦게 확정되는 경우 대비 재계산
+          setTimeout(applyScale, 150);
+        }
       } catch (e) {
         if (!cancelled) { setErrMsg(e instanceof Error ? e.message : "문서 표시 중 오류"); setStatus("error"); }
       }
@@ -74,14 +110,12 @@ function DocViewer() {
           {errMsg}
         </div>
       )}
-      <div ref={containerRef} style={{ display: status === "done" ? "block" : "none", padding: "16px 0" }} />
-      {/* docx-preview 페이지 래퍼가 화면보다 넓을 때 가로 스크롤 대신 축소 */}
+      <div ref={outerRef} style={{ display: status === "done" ? "block" : "none" }}>
+        <div ref={containerRef} />
+      </div>
       <style>{`
         .docx-wrapper { background: #525659 !important; padding: 16px 8px !important; }
-        .docx-wrapper > section.docx { box-shadow: 0 2px 8px rgba(0,0,0,0.35); margin-bottom: 16px; max-width: 100%; }
-        @media (max-width: 900px) {
-          .docx-wrapper > section.docx { width: 100% !important; min-height: auto !important; padding: 24px 16px !important; }
-        }
+        .docx-wrapper > section.docx { box-shadow: 0 2px 8px rgba(0,0,0,0.35); margin-bottom: 16px; }
       `}</style>
     </div>
   );
