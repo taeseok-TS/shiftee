@@ -147,6 +147,7 @@ export default function ContractsPage() {
   const [useTemplate, setUseTemplate] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(3종 묶음) 발송
+  const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(5종 묶음) 발송
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -553,18 +554,31 @@ export default function ContractsPage() {
   };
 
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
-  const ndaTemplate = templates.find(t => t.name.includes("비밀유지"));
+  const ndaTemplate = templates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
   const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
   const empTemplate = templates.find(t => t.name.includes("근로계약")) || templates.find(t => t.type === "EMPLOYMENT");
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
-  // 선택 템플릿 + (패키지면) 비밀유지·개인정보동의서 필드까지 스캔해 입력란 합집합 구성
-  const scanFields = async (templateId: string, includeBundle: boolean) => {
+  // 퇴사 패키지 5종 — 사직원(결재라인) + 정산·동의 3종(결재라인) + 비밀유지서약서(퇴직시, 직원 서명만)
+  const resignTemplates = [
+    templates.find(t => t.name.includes("사직원")),
+    templates.find(t => t.name.includes("금품청산")),
+    templates.find(t => t.name.includes("퇴직금 정산")),
+    templates.find(t => t.name.includes("연차수당")),
+    templates.find(t => t.name.includes("비밀유지") && t.name.includes("퇴직")),
+  ];
+  const canResignBundle = resignTemplates.every(Boolean);
+
+  // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
+  const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
     setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]);
     const ids = [templateId];
     if (includeBundle) {
       if (ndaTemplate) ids.push(ndaTemplate.id);
       if (privacyTemplate) ids.push(privacyTemplate.id);
+    }
+    if (resignScan) {
+      for (const t of resignTemplates) if (t && !ids.includes(t.id)) ids.push(t.id);
     }
     const results = await Promise.all(
       ids.map(id => fetch(`/api/contract-templates/${id}/fields`).then(r => r.json()).catch(() => ({})))
@@ -584,10 +598,11 @@ export default function ContractsPage() {
 
   // 제목 자동 생성 — "올해연도 + 직원명 + 근로계약서(또는 템플릿명)"
   // 패키지/근로계약서(EMPLOYMENT)/템플릿 미선택 → "근로계약서", 그 외 단일 템플릿 → 템플릿명
-  const autoContractTitle = (userId: string, templateId?: string, bundle?: boolean) => {
+  const autoContractTitle = (userId: string, templateId?: string, bundle?: boolean, resign?: boolean) => {
     const year = new Date().getFullYear();
     const empName = employees.find(e => e.id === userId)?.name || "";
     if (!empName) return "";
+    if (resign) return `${year} ${empName} 사직원`; // 퇴사 패키지 대표 문서
     const t = templateId ? templates.find(x => x.id === templateId) : undefined;
     const docName = bundle || !t || t.type === "EMPLOYMENT" ? "근로계약서" : t.name;
     return `${year} ${empName} ${docName}`;
@@ -597,17 +612,17 @@ export default function ContractsPage() {
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
-      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode), type: template.type }));
-      scanFields(templateId, bundleMode);
+      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
+      scanFields(templateId, bundleMode, resignBundleMode);
     }
   };
 
   // 직원·패키지 선택만으로도 제목 자동 채움 (템플릿 미선택이어도 "근로계약서" 기준)
   useEffect(() => {
     if (!useTemplate || !createForm.userId) return;
-    setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode) }));
+    setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode, resignBundleMode) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createForm.userId, selectedTemplate, useTemplate, bundleMode]);
+  }, [createForm.userId, selectedTemplate, useTemplate, bundleMode, resignBundleMode]);
 
   // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 원장) 자동 채움
   useEffect(() => {
@@ -672,6 +687,42 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
+
+    // 퇴사 패키지: 사직원 + 금품청산·퇴직금·연차수당 정산 + 비밀유지서약서(퇴직시) 5종 묶음
+    if (resignBundleMode && useTemplate && canResignBundle) {
+      const allExtra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        allExtra[k] = v;
+      }
+      // 손대지 않은 체크박스 필드(지급금품 등)는 기본 체크(☑)
+      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
+      const year = new Date().getFullYear();
+      const empName = employees.find(e => e.id === createForm.userId)?.name || "";
+      const [rSajik, rGeum, rToejikgeum, rYeoncha, rNda] = resignTemplates as NonNullable<typeof resignTemplates[number]>[];
+      const items = [
+        { templateId: rSajik.id, title: `${year} ${empName} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rGeum.id, title: `${year} ${empName} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rToejikgeum.id, title: `${year} ${empName} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rYeoncha.id, title: `${year} ${empName} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        // 비밀유지서약서(퇴직시)는 결재란이 없는 서약서 — 직원 서명만, 해당 직원에게만 표시
+        { templateId: rNda.id, title: `${year} ${empName} 비밀유지서약서(퇴직시)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: true },
+      ];
+      const res = await fetch("/api/contracts/bundle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: createForm.userId, items }),
+      });
+      const data = await res.json();
+      setUploading(false);
+      if (!res.ok) { toast.error(data.error || "퇴사 패키지 생성 실패"); return; }
+      toast.success("퇴사 패키지 5종이 작성되었습니다. 사직원에서 발송하면 5종이 함께 발송됩니다.");
+      setCreateOpen(false);
+      setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+      setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+      return;
+    }
 
     // 신규입사 패키지: 근로계약서 + 비밀유지 + 개인정보동의서를 한 묶음으로 생성
     if (bundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
@@ -764,7 +815,7 @@ export default function ContractsPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
-      toast.success(`신규입사 패키지 ${data.sent}종 발송됨`);
+      toast.success(`패키지 ${data.sent}종 발송됨`);
       setSendOpen(false);
       setApproverIds([]);
       fetchContracts();
@@ -814,6 +865,7 @@ export default function ContractsPage() {
                 setUseTemplate(false);
                 setSelectedTemplate("");
                 setBundleMode(false);
+                setResignBundleMode(false);
               }
             }}>
             <div className="flex gap-2">
@@ -937,6 +989,7 @@ export default function ContractsPage() {
                             onChange={e => {
                               const checked = e.target.checked;
                               setBundleMode(checked);
+                              if (checked) setResignBundleMode(false);
                               // 패키지 체크 시 근로계약서 미선택이면 자동 선택 (계약구분·추가 필드 표시)
                               if (checked && !selectedTemplate && empTemplate) {
                                 const et = empTemplate;
@@ -953,6 +1006,35 @@ export default function ContractsPage() {
                           <p className="text-[11px] text-emerald-700 pl-6">
                             근로계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
                             비밀유지·개인정보동의서는 <b>직원 서명만</b> 받으며 해당 직원에게만 표시됩니다.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 퇴사 패키지 — 체크하면 사직원 자동 선택 + 정산·동의·서약서 5종 함께 발송 */}
+                    {canResignBundle && !bundleMode && (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-rose-800">
+                          <input type="checkbox" checked={resignBundleMode}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setResignBundleMode(checked);
+                              const sajik = resignTemplates[0];
+                              if (checked && sajik) {
+                                // 사직원을 대표 문서로 자동 선택 + 5종 필드 합집합 스캔
+                                setSelectedTemplate(sajik.id);
+                                setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, sajik.id, false, true), type: sajik.type }));
+                                scanFields(sajik.id, false, true);
+                              } else if (selectedTemplate) {
+                                scanFields(selectedTemplate, false, false);
+                              }
+                            }} />
+                          퇴사 패키지로 함께 발송 (5종)
+                        </label>
+                        {resignBundleMode && (
+                          <p className="text-[11px] text-rose-700 pl-6">
+                            사직원 + 금품청산 동의서 + 퇴직금·연차수당 정산 신청서 + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
+                            비밀유지서약서(퇴직시)는 <b>직원 서명만</b> 받으며, 나머지 4종은 설정한 결재라인으로 진행됩니다.
                           </p>
                         )}
                       </div>
