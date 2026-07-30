@@ -43,12 +43,16 @@ function DocViewer() {
     const avail = document.documentElement.clientWidth - 8;
     const scale = Math.min(1, avail / naturalW);
     if (scale < 1) {
+      // 래퍼가 flex 중앙정렬이라 컨테이너가 문서보다 좁으면 좌측이 화면 밖으로 밀림
+      // → 컨테이너 폭을 문서 원본 폭(+래퍼 패딩)으로 고정한 뒤 통째로 축소
+      el.style.width = `${naturalW + 16}px`;
       el.style.transform = `scale(${scale})`;
       el.style.transformOrigin = "top left";
-      el.style.marginLeft = `${Math.max(0, (document.documentElement.clientWidth - naturalW * scale) / 2)}px`;
+      el.style.marginLeft = `${Math.max(0, (document.documentElement.clientWidth - (naturalW + 16) * scale) / 2)}px`;
       outer.style.height = `${el.scrollHeight * scale}px`;
       outer.style.overflow = "hidden";
     } else {
+      el.style.width = "";
       el.style.transform = "";
       el.style.marginLeft = "";
       outer.style.height = "";
