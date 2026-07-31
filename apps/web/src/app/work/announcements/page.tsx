@@ -10,13 +10,31 @@ import { Megaphone, Plus, Pin, Trash2, Paperclip, ImageIcon, X, ChevronDown, Che
 import { format } from "date-fns";
 import { toast } from "sonner";
 
-// 본문 렌더: ![alt](url) → 인라인 이미지, 나머지는 텍스트(줄바꿈 유지)
+// 텍스트 속 URL을 클릭 가능한 링크로 (닫는 괄호·따옴표는 URL에서 제외)
+function linkify(text: string, keyPrefix: string) {
+  const re = /https?:\/\/[^\s<>")\]]+/g;
+  const out: React.ReactNode[] = [];
+  let last = 0; let m: RegExpExecArray | null; let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(<span key={`${keyPrefix}t${i}`} className="whitespace-pre-wrap">{text.slice(last, m.index)}</span>);
+    out.push(
+      <a key={`${keyPrefix}a${i}`} href={m[0]} target="_blank" rel="noreferrer" className="text-indigo-600 underline break-all">
+        {m[0]}
+      </a>
+    );
+    last = m.index + m[0].length; i++;
+  }
+  if (last < text.length) out.push(<span key={`${keyPrefix}t${i}`} className="whitespace-pre-wrap">{text.slice(last)}</span>);
+  return out;
+}
+
+// 본문 렌더: ![alt](url) → 인라인 이미지, 나머지는 텍스트(줄바꿈 유지 + URL 링크화)
 function renderBody(text: string) {
   const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
   const out: React.ReactNode[] = [];
   let last = 0; let m: RegExpExecArray | null; let i = 0;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(<span key={`t${i}`} className="whitespace-pre-wrap">{text.slice(last, m.index)}</span>);
+    if (m.index > last) out.push(...linkify(text.slice(last, m.index), `s${i}`));
     out.push(
       <a key={`i${i}`} href={m[2]} target="_blank" rel="noreferrer" className="block my-2">
         <img src={m[2]} alt={m[1]} className="max-h-80 rounded-lg border" />
@@ -24,7 +42,7 @@ function renderBody(text: string) {
     );
     last = m.index + m[0].length; i++;
   }
-  if (last < text.length) out.push(<span key={`t${i}`} className="whitespace-pre-wrap">{text.slice(last)}</span>);
+  if (last < text.length) out.push(...linkify(text.slice(last), `e${i}`));
   return out;
 }
 

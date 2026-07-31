@@ -8,11 +8,17 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Modal,
+  Image,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { DashboardStats, Announcement } from "@shiftee/api";
 import * as api from "../services/api";
 import * as storage from "../services/storage";
+import { linkifyText } from "./work/WorkAnnouncementsScreen";
+import { getTodayStatus, TodayStatus } from "../services/attendance";
+import { FILE_ORIGIN } from "../services/work";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
 const TYPE_LABEL: Record<string, string> = {
@@ -28,8 +34,10 @@ const TYPE_LABEL: Record<string, string> = {
 type ModalKind = "contract" | "approval" | "announcement";
 
 export default function HomeScreen() {
+  const navigation = useNavigation<any>();
   const [userName, setUserName] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,14 +48,16 @@ export default function HomeScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [user, s, anns] = await Promise.all([
+      const [user, s, anns, ts] = await Promise.all([
         storage.getUser(),
         api.getDashboardStats(),
         api.getAnnouncements(),
+        getTodayStatus().catch(() => null),
       ]);
       setUserName(user?.name ?? "");
       setStats(s);
       setAnnouncements(anns.slice(0, 5));
+      setTodayStatus(ts);
     } catch (error) {
       console.error("❌ Failed to load home:", error);
     } finally {
@@ -106,11 +116,19 @@ export default function HomeScreen() {
 
   const pendingContracts = stats?.pendingContracts ?? 0;
 
+  // 오늘 출퇴근 상태 카드 (근무시간 대신 표시 — 노무이슈 회피)
+  const hhmm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "");
+  const att = todayStatus?.clockedOut
+    ? { value: "퇴근 완료", label: `퇴근 ${hhmm(todayStatus.clockOutAt)}`, icon: "checkmark-done-outline" as const, color: "#6b7280" }
+    : todayStatus?.clockedIn
+    ? { value: "근무 중", label: `출근 ${hhmm(todayStatus.clockInAt)}`, icon: "walk-outline" as const, color: "#10b981" }
+    : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#2563eb" };
+
   const cards = [
     { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: undefined as undefined | (() => void) },
     { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
     { key: "approval", label: "대기 결재", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#8b5cf6", onPress: openApproval },
-    { key: "work", label: "이번 달 근무", value: `${stats?.monthWorkHours ?? 0}시간`, icon: "time-outline", color: "#2563eb", onPress: undefined },
+    { key: "attendance", label: att.label, value: att.value, icon: att.icon, color: att.color, onPress: () => navigation.navigate("Attendance") },
   ] as const;
 
   return (
@@ -215,8 +233,24 @@ export default function HomeScreen() {
                 <Text style={styles.popupMeta}>
                   {activeAnn.authorName} · {new Date(activeAnn.createdAt).toLocaleDateString("ko-KR")}
                 </Text>
-                <ScrollView style={{ maxHeight: 360 }}>
-                  <Text style={styles.popupBody}>{activeAnn.content}</Text>
+                <ScrollView style={{ maxHeight: 400 }}>
+                  <Text style={styles.popupBody}>{linkifyText(activeAnn.content)}</Text>
+                  {(activeAnn.attachments?.length ?? 0) > 0 && (
+                    <View style={styles.attList}>
+                      {activeAnn.attachments.map((att, i) =>
+                        att.type === "image" ? (
+                          <TouchableOpacity key={i} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                            <Image source={{ uri: FILE_ORIGIN + att.url }} style={styles.attImage} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity key={i} style={styles.attFile} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                            <Ionicons name="attach" size={14} color="#2563eb" />
+                            <Text style={styles.attFileName} numberOfLines={1}>{att.name}</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
+                    </View>
+                  )}
                 </ScrollView>
               </>
             )}
@@ -273,6 +307,10 @@ const styles = StyleSheet.create({
   popupTitle: { fontSize: 17, fontWeight: "700", color: "#111827", flexShrink: 1 },
   popupMeta: { fontSize: 12, color: "#9ca3af", marginTop: 6, marginBottom: 10 },
   popupBody: { fontSize: 14, color: "#374151", lineHeight: 21, marginTop: 12 },
+  attList: { marginTop: 12, gap: 8 },
+  attImage: { width: "100%", height: 180, borderRadius: 10, backgroundColor: "#f3f4f6" },
+  attFile: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, alignSelf: "flex-start" },
+  attFileName: { fontSize: 13, color: "#2563eb", textDecorationLine: "underline", maxWidth: 240 },
   approvalRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
   approvalText: { fontSize: 14, color: "#374151" },
   popupClose: { marginTop: 20, backgroundColor: "#2563eb", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
