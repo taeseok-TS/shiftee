@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Megaphone, Plus, Pin, Trash2, Paperclip, ImageIcon, X } from "lucide-react";
+import { Megaphone, Plus, Pin, Trash2, Paperclip, ImageIcon, X, ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -44,10 +44,28 @@ export default function WorkAnnouncementsPage() {
   const [list, setList] = useState<Announcement[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // 수정 중인 공지 ID (null=새 공지)
   const [form, setForm] = useState<{ title: string; content: string; pinned: boolean; attachments: Attachment[] }>({ title: "", content: "", pinned: false, attachments: [] });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 접기/펼치기 — 최초 로드 시 가장 최근 공지 1개만 펼침
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const openInitRef = useRef(false);
+  useEffect(() => {
+    if (!openInitRef.current && list.length > 0) {
+      const latest = [...list].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0];
+      setOpenIds(new Set([latest.id]));
+      openInitRef.current = true;
+    }
+  }, [list]);
+  const toggleOpen = (id: string) =>
+    setOpenIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   async function uploadFile(file: File) {
@@ -104,21 +122,38 @@ export default function WorkAnnouncementsPage() {
     if (!form.title.trim() || !form.content.trim()) { toast.error("제목과 내용을 입력해주세요."); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/work/announcements", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
+      // editId가 있으면 기존 공지 수정, 없으면 새 공지 등록
+      const res = await fetch(editId ? `/api/work/announcements/${editId}` : "/api/work/announcements", {
+        method: editId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || "등록 실패"); return; }
-      toast.success("공지가 등록되었습니다.");
-      setOpen(false); setForm({ title: "", content: "", pinned: false, attachments: [] });
+      if (!res.ok) { toast.error(data.error || (editId ? "수정 실패" : "등록 실패")); return; }
+      toast.success(editId ? "공지가 수정되었습니다." : "공지가 등록되었습니다.");
+      setOpen(false); setEditId(null); setForm({ title: "", content: "", pinned: false, attachments: [] });
       fetchList();
     } finally { setSaving(false); }
   }
 
+  function startEdit(a: Announcement) {
+    setEditId(a.id);
+    setForm({ title: a.title, content: a.content, pinned: a.pinned, attachments: a.attachments || [] });
+    setOpen(true);
+  }
+
   async function remove(id: string) {
+    if (!window.confirm("이 공지를 삭제할까요?")) return;
     const res = await fetch(`/api/work/announcements/${id}`, { method: "DELETE" });
     if (!res.ok) { toast.error("삭제 실패"); return; }
     toast.success("삭제되었습니다.");
+    fetchList();
+  }
+
+  async function togglePin(a: { id: string; pinned: boolean }) {
+    const res = await fetch(`/api/work/announcements/${a.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: !a.pinned }),
+    });
+    if (!res.ok) { toast.error("변경 실패"); return; }
+    toast.success(!a.pinned ? "상단에 고정했습니다." : "고정을 해제했습니다.");
     fetchList();
   }
 
@@ -127,7 +162,8 @@ export default function WorkAnnouncementsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Megaphone size={22} className="text-indigo-500" />공지</h1>
         {role === "ADMIN" && (
-          <Button onClick={() => setOpen(true)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Plus size={16} />공지 작성</Button>
+          <Button onClick={() => { setEditId(null); setForm({ title: "", content: "", pinned: false, attachments: [] }); setOpen(true); }}
+            className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Plus size={16} />공지 작성</Button>
         )}
       </div>
 
@@ -135,16 +171,38 @@ export default function WorkAnnouncementsPage() {
         <div className="text-center text-gray-400 py-20">등록된 공지가 없습니다.</div>
       ) : (
         <div className="space-y-3">
-          {list.map((a) => (
+          {list.map((a) => {
+            const isOpen = openIds.has(a.id);
+            return (
             <Card key={a.id} className={a.pinned ? "border-indigo-300 bg-indigo-50/40" : ""}>
-              <CardContent className="pt-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      {a.pinned && <Pin size={14} className="text-indigo-500" />}
-                      <h3 className="font-semibold">{a.title}</h3>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <button className="flex items-center gap-2 min-w-0 flex-1 text-left" onClick={() => toggleOpen(a.id)}>
+                    {isOpen ? <ChevronDown size={15} className="text-gray-400 shrink-0" /> : <ChevronRight size={15} className="text-gray-400 shrink-0" />}
+                    {a.pinned && <Pin size={14} className="text-indigo-500 shrink-0" />}
+                    <h3 className="font-semibold truncate">{a.title}</h3>
+                    <span className="text-xs text-gray-400 shrink-0">{a.authorName} · {format(new Date(a.createdAt), "yyyy.MM.dd")}</span>
+                    {!isOpen && (a.attachments?.length ?? 0) > 0 && <Paperclip size={12} className="text-gray-400 shrink-0" />}
+                  </button>
+                  {a.canEdit && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" onClick={() => startEdit(a)} title="수정"
+                        className="text-gray-400 hover:text-indigo-600">
+                        <Pencil size={14} />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => togglePin(a)} title={a.pinned ? "고정 해제" : "상단 고정"}
+                        className={a.pinned ? "text-indigo-600" : "text-gray-400 hover:text-indigo-600"}>
+                        <Pin size={14} className={a.pinned ? "fill-indigo-500" : ""} />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => remove(a.id)}>
+                        <Trash2 size={14} />
+                      </Button>
                     </div>
-                    <div className="text-sm text-gray-700 mt-2">{renderBody(a.content)}</div>
+                  )}
+                </div>
+                {isOpen && (
+                  <div className="pl-6 mt-1">
+                    <div className="text-sm text-gray-700 mt-1">{renderBody(a.content)}</div>
                     {a.attachments?.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-3">
                         {a.attachments.map((att, i) =>
@@ -162,21 +220,17 @@ export default function WorkAnnouncementsPage() {
                     )}
                     <p className="text-xs text-gray-400 mt-3">{a.authorName} · {format(new Date(a.createdAt), "yyyy.MM.dd HH:mm")}</p>
                   </div>
-                  {a.canEdit && (
-                    <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50 shrink-0" onClick={() => remove(a.id)}>
-                      <Trash2 size={14} />
-                    </Button>
-                  )}
-                </div>
+                )}
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditId(null); }}>
         <DialogContent className="max-w-3xl w-[90vw]">
-          <DialogHeader><DialogTitle>공지 작성</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editId ? "공지 수정" : "공지 작성"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <Input placeholder="제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />
             <Textarea ref={contentRef} placeholder="내용 (이미지를 복사해 붙여넣으면 본문에 바로 삽입됩니다)" rows={14}
@@ -212,7 +266,7 @@ export default function WorkAnnouncementsPage() {
             </label>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
-              <Button onClick={save} disabled={saving}>{saving ? "등록 중..." : "등록"}</Button>
+              <Button onClick={save} disabled={saving}>{saving ? "저장 중..." : editId ? "수정 저장" : "등록"}</Button>
             </div>
           </div>
         </DialogContent>
