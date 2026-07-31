@@ -289,7 +289,7 @@ export async function DELETE(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { id: true, status: true, title: true },
+    select: { id: true, status: true, title: true, bundleId: true },
   });
 
   if (!contract) {
@@ -304,26 +304,36 @@ export async function DELETE(
     );
   }
 
+  // 패키지(묶음) 문서면 세트 전체를 함께 삭제 — 완료(SIGNED)된 문서만 보존
+  const targetIds = contract.bundleId
+    ? (await prisma.contract.findMany({
+        where: { bundleId: contract.bundleId, status: { not: "SIGNED" } },
+        select: { id: true },
+      })).map((c) => c.id)
+    : [id];
+
   // 트랜잭션으로 계약서 및 관련 데이터 삭제
   await prisma.$transaction(async (tx) => {
     // 1. 결재 라인 삭제 (cascade로 steps도 자동 삭제)
     await tx.contractApprovalLine.deleteMany({
-      where: { contractId: id },
+      where: { contractId: { in: targetIds } },
     });
 
     // 2. 버전 히스토리 삭제
     await tx.contractVersion.deleteMany({
-      where: { contractId: id },
+      where: { contractId: { in: targetIds } },
     });
 
     // 3. 계약서 삭제
-    await tx.contract.delete({
-      where: { id },
+    await tx.contract.deleteMany({
+      where: { id: { in: targetIds } },
     });
   });
 
   return NextResponse.json({
     success: true,
-    message: `"${contract.title}" 계약서가 삭제되었습니다.`,
+    message: contract.bundleId && targetIds.length > 1
+      ? `패키지 문서 ${targetIds.length}종이 함께 삭제되었습니다.`
+      : `"${contract.title}" 계약서가 삭제되었습니다.`,
   });
 }

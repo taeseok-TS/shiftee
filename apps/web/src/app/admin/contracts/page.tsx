@@ -193,7 +193,7 @@ export default function ContractsPage() {
 
   // 계약서 삭제
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; bundleId?: string | null } | null>(null);
 
   // 계약서 수정 (DRAFT 상태)
   const [editOpen, setEditOpen] = useState(false);
@@ -1827,7 +1827,7 @@ export default function ContractsPage() {
                                 variant="outline"
                                 className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
                                 onClick={() => {
-                                  setDeleteTarget({ id: c.id, title: c.title });
+                                  setDeleteTarget({ id: c.id, title: c.title, bundleId: c.bundleId });
                                   setDeleteConfirmOpen(true);
                                 }}
                               >
@@ -2116,7 +2116,7 @@ export default function ContractsPage() {
                     variant="destructive"
                     className="text-xs h-7"
                     onClick={() => {
-                      setDeleteTarget({ id: approvalDetailsTarget.id, title: approvalDetailsTarget.title });
+                      setDeleteTarget({ id: approvalDetailsTarget.id, title: approvalDetailsTarget.title, bundleId: approvalDetailsTarget.bundleId });
                       setDeleteConfirmOpen(true);
                     }}
                   >
@@ -2325,6 +2325,9 @@ export default function ContractsPage() {
             <div className="bg-red-50 border border-red-200 rounded p-3">
               <p className="text-sm text-red-900">
                 <strong>"{deleteTarget?.title}"</strong> 계약서를 삭제하시겠습니까?<br />
+                {deleteTarget?.bundleId && (
+                  <span className="text-xs font-semibold text-red-800">패키지 문서라 묶음의 다른 문서들(비밀유지·동의서 등)도 함께 삭제됩니다.<br /></span>
+                )}
                 <span className="text-xs text-red-800">이 작업은 되돌릴 수 없습니다.</span>
               </p>
             </div>
