@@ -751,6 +751,13 @@ export default function ContractsPage() {
         setUploading(false);
         return;
       }
+      // 비밀유지서약서·동의서에 들어가는 필수 정보 — 비우면 문서가 빈칸으로 나가므로 차단
+      const missingNda = ["생년월일", "주소", "원장명"].filter(f => templateFields.includes(f) && !(extraFields[f] || "").trim());
+      if (missingNda.length) {
+        toast.error(`비밀유지서약서·동의서 정보를 입력해주세요: ${missingNda.join(", ")}`);
+        setUploading(false);
+        return;
+      }
       const allExtra: Record<string, string> = {};
       for (const [k, v] of Object.entries(extraFields)) {
         if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
@@ -1494,44 +1501,65 @@ export default function ContractsPage() {
                   );
                 })()}
 
-                {/* 템플릿별 추가 입력 필드 — 템플릿 워드 파일의 {필드}를 스캔해 자동 구성 */}
-                {dynamicFields.length > 0 && (
-                  <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
-                    <p className="text-xs font-semibold text-indigo-700">이 템플릿의 추가 입력 필드</p>
-                    {dynamicFields.map(f => (
-                      f.startsWith("체크_") ? (
-                        // 체크박스 필드(지급금품 임금·퇴직금·기타 등) — 기본 체크, 해당 없으면 해제
-                        <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input type="checkbox" checked={extraFields[f] !== "□"}
-                            onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "□" }))} />
-                          {f.slice(3)}
-                        </label>
-                      ) : isMoneyField(f) ? (
-                      // 금액 필드 — 숫자만 입력받아 천 단위 쉼표 자동 표시
-                      <div key={f} className="space-y-1">
-                        <Label className="text-sm">{f}</Label>
-                        <Input
-                          type="text" inputMode="numeric" placeholder="예: 2,100,000"
-                          value={extraFields[f] || ""}
-                          onChange={e => {
-                            const digits = e.target.value.replace(/[^\d]/g, "");
-                            setExtraFields(prev => ({ ...prev, [f]: digits ? Number(digits).toLocaleString() : "" }));
-                          }}
-                        />
-                      </div>
-                      ) : (
-                      <div key={f} className="space-y-1">
-                        <Label className="text-sm">{f}</Label>
-                        <Input
-                          type={isDateField(f) ? "date" : "text"}
-                          value={extraFields[f] || ""}
-                          onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
-                        />
-                      </div>
-                      )
-                    ))}
-                  </div>
-                )}
+                {/* 템플릿별 추가 입력 필드 — 템플릿 워드 파일의 {필드}를 스캔해 자동 구성.
+                    외부 채용 패키지는 서약서·동의서용 필드(생년월일·주소·원장명)를 별도 구역으로 분리해
+                    폰 화면에서도 놓치지 않게 표시 */}
+                {(() => {
+                  const renderDynField = (f: string, required = false) => (
+                    f.startsWith("체크_") ? (
+                      // 체크박스 필드(지급금품 임금·퇴직금·기타 등) — 기본 체크, 해당 없으면 해제
+                      <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={extraFields[f] !== "□"}
+                          onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "□" }))} />
+                        {f.slice(3)}
+                      </label>
+                    ) : isMoneyField(f) ? (
+                    // 금액 필드 — 숫자만 입력받아 천 단위 쉼표 자동 표시
+                    <div key={f} className="space-y-1">
+                      <Label className="text-sm">{f}{required && " *"}</Label>
+                      <Input
+                        type="text" inputMode="numeric" placeholder="예: 2,100,000"
+                        value={extraFields[f] || ""}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/[^\d]/g, "");
+                          setExtraFields(prev => ({ ...prev, [f]: digits ? Number(digits).toLocaleString() : "" }));
+                        }}
+                      />
+                    </div>
+                    ) : (
+                    <div key={f} className="space-y-1">
+                      <Label className="text-sm">{f}{required && " *"}</Label>
+                      <Input
+                        type={isDateField(f) ? "date" : "text"}
+                        value={extraFields[f] || ""}
+                        onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
+                      />
+                    </div>
+                    )
+                  );
+                  // 외부 패키지: 비밀유지서약서·개인정보동의서에 들어가는 필드는 별도 구역
+                  const splitNda = externalMode && extBundleMode;
+                  const NDA_DOC_FIELDS = ["생년월일", "주소", "원장명"];
+                  const mainFields = splitNda ? dynamicFields.filter(f => !NDA_DOC_FIELDS.includes(f)) : dynamicFields;
+                  const ndaFields = splitNda ? dynamicFields.filter(f => NDA_DOC_FIELDS.includes(f)) : [];
+                  return (
+                    <>
+                      {mainFields.length > 0 && (
+                        <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
+                          <p className="text-xs font-semibold text-indigo-700">{splitNda ? "계약서 입력 필드" : "이 템플릿의 추가 입력 필드"}</p>
+                          {mainFields.map(f => renderDynField(f))}
+                        </div>
+                      )}
+                      {ndaFields.length > 0 && (
+                        <div className="space-y-3 border border-violet-200 rounded-lg p-3 bg-violet-50/40">
+                          <p className="text-xs font-semibold text-violet-700">비밀유지서약서 · 개인정보동의서 입력 (필수)</p>
+                          <p className="text-[11px] text-violet-600">서약서 본문의 성명 줄(생년월일)과 주소, 수신인(원장명)에 들어갑니다.</p>
+                          {ndaFields.map(f => renderDynField(f, true))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
