@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
 
   const body = (await request.json()) as {
     userId?: string;
+    externalName?: string | null; // 외부(미가입) 계약자 패키지 — 소유자는 작성 관리자
+    externalPhone?: string | null;
     items?: Array<{
       templateId: string;
       title: string;
@@ -23,7 +25,10 @@ export async function POST(request: NextRequest) {
       employeeOnly?: boolean;
     }>;
   };
-  const { userId, items } = body;
+  const { items } = body;
+  const externalName = (body.externalName || "").trim() || null;
+  const externalPhone = (body.externalPhone || "").trim() || null;
+  const userId = externalName ? session.userId : body.userId;
   if (!userId || !Array.isArray(items) || items.length === 0)
     return NextResponse.json({ error: "직원과 문서를 선택해주세요." }, { status: 400 });
 
@@ -45,10 +50,14 @@ export async function POST(request: NextRequest) {
           endDate: item.endDate ?? null,
           salary: item.salary,
           extraFields: item.extraFields ?? null,
+          external: externalName ? { name: externalName, phone: externalPhone } : null,
         });
         fileUrl = JSON.stringify([await fillDocxTemplate(template.fileUrl, mergeData)]);
-        profileFields = await scanTemplateProfileFields(template.fileUrl);
-        employeeFields = await scanEmployeeFillFields(template.fileUrl);
+        // 외부 계약은 계정이 없어 프로필 보완·직원 직접입력이 불가 — 전부 관리자 입력(extraFields)으로 완성
+        if (!externalName) {
+          profileFields = await scanTemplateProfileFields(template.fileUrl);
+          employeeFields = await scanEmployeeFillFields(template.fileUrl);
+        }
       } else {
         fileUrl = JSON.stringify([template.fileUrl]);
       }
@@ -68,6 +77,8 @@ export async function POST(request: NextRequest) {
           employeeFields: employeeFields.length ? employeeFields : undefined,
           bundleId,
           employeeOnly: !!item.employeeOnly,
+          externalName,
+          externalPhone,
           status: "DRAFT",
         },
         select: { id: true },

@@ -5,6 +5,7 @@ import path from "path";
 
 // 외부(미가입) 계약자 게스트 서명 — 로그인 없이 서명 링크 토큰으로 인증
 // 토큰은 발송 시 생성(64자 랜덤, 14일 유효), 해당 단계가 자기 차례(PENDING)일 때만 서명 가능
+// 패키지(bundleId): 대표 문서 링크 하나로 동반 문서(비밀유지·개인정보동의서)까지 함께 서명
 
 async function findStepByToken(token: string) {
   if (!token || token.length < 32) return null;
@@ -13,7 +14,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, signedUrl: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -28,7 +29,21 @@ function firstFileUrl(fileUrl: string): string | null {
   } catch { return fileUrl; }
 }
 
-// 서명 페이지 초기 정보 — 계약 제목·문서·현재 상태
+// 패키지 동반 문서(외부인 서명만) — 대표 문서와 함께 게스트가 서명
+async function findBundleSiblings(bundleId: string | null, excludeId: string) {
+  if (!bundleId) return [];
+  return prisma.contract.findMany({
+    where: { bundleId, id: { not: excludeId }, employeeOnly: true, externalName: { not: null } },
+    select: {
+      id: true, title: true, fileUrl: true, status: true, templateId: true,
+      extraFields: true, userId: true, externalName: true, externalPhone: true,
+      approvalLine: { select: { steps: { orderBy: { order: "asc" } } } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+// 서명 페이지 초기 정보 — 계약 제목·문서·현재 상태 (+패키지 동반 문서)
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -50,15 +65,29 @@ export async function GET(
     : "waiting"; // 앞 단계 결재 대기 중
 
   // 문서는 서명 차례(ready)일 때만 노출 — 만료·완료 후 링크 유출로 계약서가 무기한 공개되는 것 방지
+  const ready = state === "ready";
+  const siblings = await findBundleSiblings(contract.bundleId, contract.id);
+  const documents = ready
+    ? [
+        { title: contract.title, fileUrl: firstFileUrl(contract.fileUrl) },
+        ...siblings
+          .filter((s) => s.status !== "SIGNED")
+          .map((s) => ({ title: s.title, fileUrl: firstFileUrl(s.fileUrl) })),
+      ]
+    : [];
+
   return NextResponse.json({
     title: contract.title,
     externalName: step.externalName,
-    fileUrl: state === "ready" ? firstFileUrl(contract.fileUrl) : null,
+    fileUrl: ready ? firstFileUrl(contract.fileUrl) : null,
+    documents,
+    // 개인정보동의서가 포함된 패키지면 게스트가 선택 항목 동의/미동의 선택 가능
+    consentDoc: ready && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
     state,
   });
 }
 
-// 게스트 서명 제출
+// 게스트 서명 제출 — 대표 문서 단계 승인 + 패키지 동반 문서 일괄 서명
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -76,7 +105,10 @@ export async function POST(
   if (step.status !== "PENDING")
     return NextResponse.json({ error: "아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 서명할 수 있습니다." }, { status: 400 });
 
-  const { signatureData } = (await request.json().catch(() => ({}))) as { signatureData?: string };
+  const { signatureData, consent } = (await request.json().catch(() => ({}))) as {
+    signatureData?: string;
+    consent?: Record<string, string> | null; // 개인정보동의서 선택 항목 (동의고유식별/동의채용정보)
+  };
   const m = /^data:image\/png;base64,(.+)$/.exec(signatureData || "");
   if (!m) return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
 
@@ -88,7 +120,8 @@ export async function POST(
   await fs.writeFile(path.join(dir, filename), buffer);
   const signatureUrl = `/api/uploads/signatures/${filename}`;
 
-  const contractId = step.approvalLine.contract.id;
+  const contract = step.approvalLine.contract;
+  const contractId = contract.id;
   const steps = step.approvalLine.steps;
 
   // 단계 승인 처리 + 다음 단계 진행 (기존 사내 결재와 동일한 흐름)
@@ -117,5 +150,58 @@ export async function POST(
     } catch (e) { console.error("외부 서명 완료본 생성 오류:", e); }
   }
 
-  return NextResponse.json({ success: true, completed: !nextStep });
+  // 패키지 동반 문서(비밀유지·개인정보동의서) — 같은 서명으로 함께 완료
+  const siblings = await findBundleSiblings(contract.bundleId, contractId);
+  const failedDocs: string[] = [];
+  for (const sib of siblings) {
+    const sibStep = sib.approvalLine?.steps.find((s) => s.approverId === null && s.status === "PENDING");
+    if (!sibStep) continue;
+    try {
+      // 개인정보동의서: 게스트의 선택 동의(동의/미동의)를 반영해 문서 재생성 후 서명.
+      // 재생성 실패 시 이 문서는 서명하지 않는다 — 게스트의 미동의 의사와 반대인
+      // 기본 동의 문서가 SIGNED로 확정되는 것 방지(관리자가 결재 현황에서 확인 후 재전달)
+      if (consent && typeof consent === "object" && sib.templateId && sib.title.includes("개인정보")) {
+        const tmpl = await prisma.contractTemplate.findUnique({
+          where: { id: sib.templateId }, select: { fileUrl: true },
+        });
+        if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+          const { buildContractMergeData, fillDocxTemplate, buildFieldSummary } = await import("@/lib/contract-fields");
+          const prevExtra = (sib.extraFields as Record<string, string>) || {};
+          const merged = { ...prevExtra, ...consent };
+          const mergeData = await buildContractMergeData(sib.userId, {
+            title: sib.title,
+            startDate: null, endDate: null, salary: null,
+            extraFields: merged,
+            external: sib.externalName ? { name: sib.externalName, phone: sib.externalPhone } : null,
+          });
+          const newUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
+          await prisma.contract.update({
+            where: { id: sib.id },
+            data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged) },
+          });
+        }
+      }
+      await prisma.contractApprovalStep.update({
+        where: { id: sibStep.id },
+        data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
+      });
+      await prisma.contract.update({
+        where: { id: sib.id },
+        data: { status: "SIGNED", employeeSignedAt: new Date(), signedAt: new Date() },
+      });
+      const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
+      await generateAndStoreSignedDoc(sib.id);
+    } catch (e) {
+      console.error("패키지 동반 문서 서명 오류:", sib.title, e);
+      failedDocs.push(sib.title);
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    completed: !nextStep,
+    ...(failedDocs.length
+      ? { warning: `일부 문서(${failedDocs.map((t) => t.replace(/ - .*$/, "")).join(", ")}) 처리에 실패했습니다. 담당자에게 문의해주세요.` }
+      : {}),
+  });
 }

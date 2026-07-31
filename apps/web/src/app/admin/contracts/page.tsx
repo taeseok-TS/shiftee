@@ -152,6 +152,7 @@ export default function ContractsPage() {
   const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(5종 묶음) 발송
   const [codiBundleMode, setCodiBundleMode] = useState(false); // 코디 채용 패키지(계약서 선택 + 3종 묶음) 발송
   const [externalMode, setExternalMode] = useState(false); // 외부(미가입) 계약자 — 게스트 서명 링크 발송
+  const [extBundleMode, setExtBundleMode] = useState(false); // 외부 채용 패키지 — 계약서 + 비밀유지 + 개인정보동의서
   const [externalForm, setExternalForm] = useState({ name: "", phone: "" });
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
@@ -579,6 +580,10 @@ export default function ContractsPage() {
   const codiTemplates = templates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
   const canCodiBundle = codiTemplates.length > 0 && !!ndaTemplate && !!privacyTemplate;
 
+  // 외부 채용 패키지 — 기타직무 계약서(학습실장 등) + 비밀유지·개인정보동의서, 게스트 링크 하나로 함께 서명
+  const extTemplate = templates.find(t => t.name.includes("기타직무"));
+  const canExtBundle = !!extTemplate && !!ndaTemplate && !!privacyTemplate;
+
   const resignTemplates = [
     templates.find(t => t.name.includes("사직원")),
     templates.find(t => t.name.includes("금품청산")),
@@ -633,7 +638,7 @@ export default function ContractsPage() {
     if (template) {
       setSelectedTemplate(templateId);
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
-      scanFields(templateId, bundleMode, resignBundleMode);
+      scanFields(templateId, bundleMode || extBundleMode, resignBundleMode);
     }
   };
 
@@ -737,6 +742,47 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
+
+    // 외부 채용 패키지: 기타직무 계약서 + 비밀유지 + 개인정보동의서 3종 묶음 (게스트 링크 하나로 함께 서명)
+    if (externalMode && extBundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
+      // 대표 문서는 반드시 기타직무 계약서 (다른 계약서가 섞이지 않도록 서버 전송 직전 재확인)
+      if (extTemplate && selectedTemplate !== extTemplate.id) {
+        toast.error("외부 채용 패키지는 기타직무 근로계약서로만 발송할 수 있습니다.");
+        setUploading(false);
+        return;
+      }
+      const allExtra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        allExtra[k] = v;
+      }
+      const extName = externalForm.name.trim();
+      const items = [
+        { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          extraFields: allExtra, employeeOnly: false },
+        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${extName}`, type: "CONFIDENTIAL",
+          extraFields: allExtra, employeeOnly: true },
+        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${extName}`, type: "OTHER",
+          // 선택 항목은 기본 동의 — 외부 계약자가 서명 페이지에서 미동의로 바꿀 수 있음
+          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+      ];
+      const res = await fetch("/api/contracts/bundle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ externalName: extName, externalPhone: externalForm.phone.trim(), items }),
+      });
+      const data = await res.json();
+      setUploading(false);
+      if (!res.ok) { toast.error(data.error || "외부 패키지 생성 실패"); return; }
+      toast.success("외부 채용 패키지 3종이 작성되었습니다. 계약서에서 발송하면 3종이 함께 발송됩니다.");
+      setCreateOpen(false);
+      setUseTemplate(false); setSelectedTemplate(""); setExtBundleMode(false); setExternalMode(false);
+      setExternalForm({ name: "", phone: "" }); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+      setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+      return;
+    }
 
     // 코디 채용 패키지: 선택한 코디 계약서 + 비밀유지 + 개인정보동의서 3종 묶음
     if (codiBundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
@@ -908,7 +954,11 @@ export default function ContractsPage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
-      toast.success(`패키지 ${data.sent}종 발송됨`);
+      if (sendTarget?.externalName) {
+        toast.success(`패키지 ${data.sent}종 발송됨 — 결재 현황에서 서명 링크를 복사해 전달하세요. 링크 하나로 3종을 함께 서명합니다.`, { duration: 8000 });
+      } else {
+        toast.success(`패키지 ${data.sent}종 발송됨`);
+      }
       setSendOpen(false);
       setApproverIds([]);
       fetchContracts();
@@ -975,6 +1025,9 @@ export default function ContractsPage() {
                 setBundleMode(false);
                 setResignBundleMode(false);
                 setCodiBundleMode(false);
+                setExternalMode(false);
+                setExtBundleMode(false);
+                setExternalForm({ name: "", phone: "" });
               }
             }}>
             <div className="flex gap-2">
@@ -1015,6 +1068,9 @@ export default function ContractsPage() {
                           setCreateForm(f => ({ ...f, userId: "" }));
                         } else {
                           setExternalForm({ name: "", phone: "" });
+                          setExtBundleMode(false);
+                          // 패키지 합집합으로 스캔된 필드(NDA·동의서) 잔류 방지
+                          if (selectedTemplate) scanFields(selectedTemplate, false);
                         }
                       }} />
                     외부 계약자 (큐브티 미가입 — 링크로 서명)
@@ -1123,6 +1179,32 @@ export default function ContractsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* 외부 채용 패키지 — 기타직무 계약서 + 비밀유지·개인정보동의서, 링크 하나로 함께 서명 */}
+                    {canExtBundle && externalMode && (
+                      <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-1">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800">
+                          <input type="checkbox" checked={extBundleMode}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setExtBundleMode(checked);
+                              if (checked && extTemplate) {
+                                // 계약서는 기타직무(학습실장 등) 템플릿으로 자동 선택
+                                setSelectedTemplate(extTemplate.id);
+                                setCreateForm(f => ({ ...f, type: extTemplate.type }));
+                                scanFields(extTemplate.id, true);
+                              } else if (selectedTemplate) {
+                                scanFields(selectedTemplate, false);
+                              }
+                            }} />
+                          외부 채용 패키지로 함께 발송 (3종)
+                        </label>
+                        <p className="text-[11px] text-violet-700 pl-6">
+                          기타직무 근로계약서(계약직) + 비밀유지서약서 + 개인정보수집이용동의서.
+                          외부 계약자는 <b>서명 링크 하나</b>로 3종을 확인하고 한 번에 서명합니다.
+                        </p>
+                      </div>
+                    )}
 
                     {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송
                         (코디 계약서 선택 중에는 숨김 — 코디 채용 패키지 전용) */}
@@ -2395,8 +2477,13 @@ export default function ContractsPage() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">{step.order}단계 결재</p>
                       <p className="text-xs text-gray-500">{step.approver?.name || `${(step as { externalName?: string }).externalName || "외부 서명자"} (외부 · 링크 서명)`}</p>
-                      {/* 외부 서명 단계 — 링크 복사해 카톡·문자로 전달 */}
+                      {/* 외부 서명 단계 — 링크 복사해 카톡·문자로 전달.
+                          패키지 동반 문서(비밀유지·동의서)는 대표 계약서 링크로 함께 서명되므로 복사 숨김
+                          (동반 링크를 잘못 전달하면 계약서가 미서명으로 남는 사고 방지) */}
                       {!step.approverId && (step as { signToken?: string }).signToken && step.status !== "APPROVED" && (
+                        approvalDetailsTarget.employeeOnly && approvalDetailsTarget.bundleId ? (
+                          <p className="mt-1 text-[11px] text-gray-400">패키지 대표 계약서의 서명 링크로 함께 서명됩니다 — 이 문서의 링크는 전달하지 마세요.</p>
+                        ) : (
                         <button type="button" className="mt-1 text-xs text-violet-600 underline"
                           onClick={() => {
                             const url = `${window.location.origin}/sign/${(step as { signToken?: string }).signToken}`;
@@ -2404,6 +2491,7 @@ export default function ContractsPage() {
                           }}>
                           🔗 서명 링크 복사
                         </button>
+                        )
                       )}
                     </div>
                     <div className="flex items-center gap-2">

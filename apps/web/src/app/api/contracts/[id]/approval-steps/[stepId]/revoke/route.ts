@@ -73,10 +73,11 @@ export async function POST(
     const existingLogs = (contract.revocationLog as any[]) || [];
     const updatedLogs = [...existingLogs, newLog];
 
-    // 1. 회수 대상 단계 상태를 WAITING으로 변경
+    // 1. 회수 대상 단계를 PENDING으로 복원 — 재서명 재개 지점(WAITING으로 두면 결재함·게스트 링크가
+    // 앞 단계 완료를 기다리며 영구 대기하는 데드락)
     const revokedStep = await tx.contractApprovalStep.update({
       where: { id: stepId },
-      data: { status: "WAITING", decidedAt: null },
+      data: { status: "PENDING", decidedAt: null, signatureUrl: null },
     });
 
     // 2. 해당 단계 이후의 모든 단계를 WAITING으로 초기화

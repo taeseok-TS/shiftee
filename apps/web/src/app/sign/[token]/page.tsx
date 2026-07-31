@@ -1,10 +1,19 @@
 "use client";
 
 // 외부(미가입) 계약자 게스트 서명 페이지 — 로그인 없이 링크 토큰으로 문서 확인 + 서명
+// 패키지(계약서+비밀유지서약서+개인정보동의서)면 문서 탭으로 전환하며 확인 후 한 번의 서명으로 함께 서명
 import { use, useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 
-type Info = { title: string; externalName: string | null; fileUrl: string | null; state: "ready" | "waiting" | "done" | "expired" | "rejected" };
+type Doc = { title: string; fileUrl: string | null };
+type Info = {
+  title: string;
+  externalName: string | null;
+  fileUrl: string | null;
+  documents: Doc[];
+  consentDoc: boolean;
+  state: "ready" | "waiting" | "done" | "expired" | "rejected";
+};
 
 export default function ExternalSignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -12,6 +21,10 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [docIdx, setDocIdx] = useState(0);
+  // 개인정보동의서 선택 항목 — 기본 동의, 게스트가 해제 가능
+  const [consentUnique, setConsentUnique] = useState(true);
+  const [consentRecruit, setConsentRecruit] = useState(true);
   const sigRef = useRef<SignaturePadHandle>(null);
 
   useEffect(() => {
@@ -28,19 +41,29 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     if (!sigRef.current || sigRef.current.isEmpty()) { alert("서명을 입력해주세요."); return; }
     setSubmitting(true);
     try {
+      const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL() };
+      if (info?.consentDoc) {
+        body.consent = {
+          동의고유식별: consentUnique ? "동의" : "미동의",
+          동의채용정보: consentRecruit ? "동의" : "미동의",
+        };
+      }
       const res = await fetch(`/api/contracts/external-sign/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureData: sigRef.current.toDataURL() }),
+        body: JSON.stringify(body),
       });
       const d = await res.json();
       if (!res.ok) { alert(d.error || "서명 처리에 실패했습니다."); return; }
+      if (d.warning) alert(d.warning);
       setFinished(true);
     } finally { setSubmitting(false); }
   }
 
   // 문서는 서명 차례(ready)일 때만 서버가 내려줌 — 그 외 상태는 안내문만 표시
-  const viewerSrc = info?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(info.fileUrl)}` : "";
+  const docs: Doc[] = info?.documents?.length ? info.documents : info?.fileUrl ? [{ title: info.title, fileUrl: info.fileUrl }] : [];
+  const currentDoc = docs[Math.min(docIdx, Math.max(docs.length - 1, 0))];
+  const viewerSrc = currentDoc?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(currentDoc.fileUrl)}` : "";
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -49,6 +72,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
           <p className="text-xs text-gray-400">큐브티 전자계약</p>
           <h1 className="text-lg font-bold mt-0.5">{info?.title || "전자계약 서명"}</h1>
           {info?.externalName && <p className="text-sm text-gray-500 mt-0.5">서명자: {info.externalName}</p>}
+          {docs.length > 1 && (
+            <p className="text-xs text-violet-600 mt-1">총 {docs.length}건의 문서를 확인 후 한 번의 서명으로 함께 서명합니다.</p>
+          )}
         </div>
 
         {error && (
@@ -57,6 +83,18 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
 
         {info && !error && (
           <>
+            {/* 문서 탭 (패키지) */}
+            {docs.length > 1 && (
+              <div className="flex gap-2 flex-wrap">
+                {docs.map((d, i) => (
+                  <button key={i} type="button" onClick={() => setDocIdx(i)}
+                    className={`px-3 py-1.5 text-xs rounded-full border ${i === docIdx ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600"}`}>
+                    {d.title.replace(/ - .*$/, "")}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* 문서 뷰어 */}
             {viewerSrc && (
               <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -84,7 +122,23 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
-                <p className="text-sm font-semibold">계약서 내용을 확인하셨다면 아래에 서명해주세요</p>
+                {info.consentDoc && (
+                  <div className="rounded-lg border bg-gray-50 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-700">개인정보 수집·이용 선택 동의</p>
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input type="checkbox" checked={consentUnique} onChange={(e) => setConsentUnique(e.target.checked)} />
+                      고유식별정보 수집·이용에 동의합니다 (선택)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      <input type="checkbox" checked={consentRecruit} onChange={(e) => setConsentRecruit(e.target.checked)} />
+                      채용 관련 정보 수집·이용에 동의합니다 (선택)
+                    </label>
+                    <p className="text-[11px] text-gray-400">위 선택이 개인정보동의서 문서에 반영된 뒤 서명이 적용됩니다.</p>
+                  </div>
+                )}
+                <p className="text-sm font-semibold">
+                  {docs.length > 1 ? `문서 ${docs.length}건의 내용을 모두 확인하셨다면 아래에 서명해주세요` : "계약서 내용을 확인하셨다면 아래에 서명해주세요"}
+                </p>
                 <SignaturePad ref={sigRef} />
                 <div className="flex gap-2 justify-end">
                   <button type="button" onClick={() => sigRef.current?.clear()}
@@ -94,7 +148,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                     {submitting ? "제출 중..." : "서명 제출"}
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-400">서명 제출 시 본 계약 내용에 동의하는 것으로 간주됩니다.</p>
+                <p className="text-[11px] text-gray-400">
+                  {docs.length > 1 ? "서명 제출 시 위 문서 전체에 서명이 적용되며, 내용에 동의하는 것으로 간주됩니다." : "서명 제출 시 본 계약 내용에 동의하는 것으로 간주됩니다."}
+                </p>
               </div>
             )}
           </>

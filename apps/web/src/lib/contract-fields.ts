@@ -133,7 +133,8 @@ export async function buildContractMergeData(
   if (opts.extraFields) {
     for (const [k, v] of Object.entries(opts.extraFields)) {
       if (typeof v !== "string") continue;
-      if (k in mergeData && !(opts.external && v.trim() !== "" && !["직원명", "이름", "제목", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명"].includes(k))) continue;
+      // 동의 필드는 consentBox 변환값("☒ 동의함…")을 유지 — 외부 계약에서도 원시값("미동의")으로 덮지 않음
+      if (k in mergeData && !(opts.external && v.trim() !== "" && !["직원명", "이름", "제목", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명", "동의고유식별", "동의채용정보"].includes(k))) continue;
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
         mergeData[k] = fmtKoreanDate(v);
       } else if (/금액|급여액|월급|수당액|비용/.test(k) && /^[\d,]+$/.test(v.trim()) && v.trim() !== "") {

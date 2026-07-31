@@ -199,6 +199,9 @@ export async function PATCH(
     if (approverIds.includes("EXTERNAL") && !contract.externalName) {
       return NextResponse.json({ error: "외부 서명 단계는 외부 계약자 계약에서만 사용할 수 있습니다." }, { status: 400 });
     }
+    if (approverIds.filter((a: string) => a === "EXTERNAL").length > 1) {
+      return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
+    }
 
     // 기존 승인라인 제거
     await prisma.contractApprovalLine.deleteMany({ where: { contractId: id } });

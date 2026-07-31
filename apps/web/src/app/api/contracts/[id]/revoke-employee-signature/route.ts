@@ -87,12 +87,24 @@ export async function POST(
         },
       });
 
-      // 2. 모든 결재 단계를 WAITING으로 초기화
+      // 2. 모든 결재 단계를 WAITING으로 초기화 후 1단계를 PENDING으로 복원
+      // (전부 WAITING이면 결재함·게스트 서명 링크가 앞 단계 완료를 영원히 기다리는 데드락)
       if (contract.approvalLine) {
         await tx.contractApprovalStep.updateMany({
           where: { approvalLineId: contract.approvalLine.id },
-          data: { status: "WAITING", decidedAt: null, comment: null },
+          data: { status: "WAITING", decidedAt: null, comment: null, signatureUrl: null },
         });
+        const firstStep = await tx.contractApprovalStep.findFirst({
+          where: { approvalLineId: contract.approvalLine.id },
+          orderBy: { order: "asc" },
+          select: { id: true },
+        });
+        if (firstStep) {
+          await tx.contractApprovalStep.update({
+            where: { id: firstStep.id },
+            data: { status: "PENDING" },
+          });
+        }
       }
 
       return updatedContract;
