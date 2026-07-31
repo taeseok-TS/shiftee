@@ -129,7 +129,14 @@ export async function buildContractMergeData(
   if (opts.extraFields) {
     for (const [k, v] of Object.entries(opts.extraFields)) {
       if (k in mergeData || typeof v !== "string") continue; // 자동/동의 필드는 위에서 처리
-      mergeData[k] = /^\d{4}-\d{2}-\d{2}$/.test(v) ? fmtKoreanDate(v) : v;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        mergeData[k] = fmtKoreanDate(v);
+      } else if (/금액|급여액|월급|수당액|비용/.test(k) && /^[\d,]+$/.test(v.trim()) && v.trim() !== "") {
+        // 금액 필드에 숫자만 입력된 경우 → 천 단위 쉼표 + "원" 표기 (예: 1210000 → 1,210,000원)
+        mergeData[k] = `${Number(v.replace(/,/g, "")).toLocaleString()}원`;
+      } else {
+        mergeData[k] = v;
+      }
     }
   }
   return mergeData;

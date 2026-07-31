@@ -547,6 +547,8 @@ export default function ContractsPage() {
     .filter(f => !employeeFillFields.includes(f))
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   const isDateField = (f: string) => /시작|종료|날짜|일자|기간|일$/.test(f);
+  // 금액류 필드 — 입력 시 천 단위 쉼표 자동 포맷 (문서에는 서버가 "1,210,000원"으로 변환)
+  const isMoneyField = (f: string) => /금액|급여액|월급|수당액|비용/.test(f);
 
   // 오피스 문서를 브라우저에서 바로 미리보기 (MS 온라인 뷰어)
   const officeViewHref = (fileUrl: string) => {
@@ -1354,6 +1356,19 @@ export default function ContractsPage() {
                             onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "□" }))} />
                           {f.slice(3)}
                         </label>
+                      ) : isMoneyField(f) ? (
+                      // 금액 필드 — 숫자만 입력받아 천 단위 쉼표 자동 표시
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm">{f}</Label>
+                        <Input
+                          type="text" inputMode="numeric" placeholder="예: 2,100,000"
+                          value={extraFields[f] || ""}
+                          onChange={e => {
+                            const digits = e.target.value.replace(/[^\d]/g, "");
+                            setExtraFields(prev => ({ ...prev, [f]: digits ? Number(digits).toLocaleString() : "" }));
+                          }}
+                        />
+                      </div>
                       ) : (
                       <div key={f} className="space-y-1">
                         <Label className="text-sm">{f}</Label>
