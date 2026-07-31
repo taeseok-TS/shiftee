@@ -79,7 +79,7 @@ function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
           ) : (
             <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
           )}
-          <span className="font-medium">{step.approverId === userId ? "직원" : step.approver.name}</span>
+          <span className="font-medium">{step.approverId === userId ? "직원" : step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}</span>
         </div>
       ))}
     </div>

@@ -49,7 +49,8 @@ export async function POST(
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
   // 서명 시 직원이 입력한 프로필(주소/생년월일)을 저장 → 이후 계약서에 자동 적용, 다시 안 물어봄
-  if (profile && typeof profile === "object" && contract.userId === session.userId) {
+  // 외부 계약은 소유자=작성 관리자 — 관리자 결재를 당사자 서명으로 오인해 프로필·문서를 건드리면 안 됨
+  if (profile && typeof profile === "object" && contract.userId === session.userId && !contract.externalName) {
     const data: Record<string, unknown> = {};
     if (typeof profile.주소 === "string" && profile.주소.trim()) data.address = profile.주소.trim();
     if (typeof profile.생년월일 === "string" && /^\d{4}-\d{2}-\d{2}$/.test(profile.생년월일)) data.birthDate = new Date(profile.생년월일);
@@ -60,7 +61,7 @@ export async function POST(
   }
 
   // 개인정보동의서 선택 항목(동의/미동의)·프로필 입력·직원 직접입력 필드 시 → 문서 재생성
-  if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId) {
+  if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId && !contract.externalName) {
     try {
       const tmpl = await prisma.contractTemplate.findUnique({
         where: { id: contract.templateId }, select: { fileUrl: true },
@@ -98,7 +99,8 @@ export async function POST(
   );
 
   // 케이스 1: 직원이 서명할 번차 (승인라인의 순서 상 직원이 배정된 단계)
-  if (myStep && myStep.approverId === contract.userId) {
+  // 외부 계약(externalName)은 소유자=작성 관리자 — 관리자 결재는 케이스 3(승인자)으로 처리
+  if (myStep && myStep.approverId === contract.userId && !contract.externalName) {
     if (!signatureUrl) {
       return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
     }
@@ -240,8 +242,8 @@ export async function POST(
           nextStep.order,
           appUrl
         );
-      } else {
-        // 다음 승인자에게 알림
+      } else if (nextStep.approver?.email) {
+        // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
         await sendApprovalRequest(
           nextStep.approver.email,
           nextStep.approver.name,

@@ -16,6 +16,9 @@ export async function POST(
   const { approverIds } = (await request.json()) as { approverIds?: string[] };
   if (!Array.isArray(approverIds) || approverIds.length === 0)
     return NextResponse.json({ error: "승인자를 선택해주세요." }, { status: 400 });
+  // 외부(미가입) 서명 단계는 패키지 발송 미지원 — User FK 위반으로 500 나기 전에 차단
+  if (approverIds.includes("EXTERNAL"))
+    return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
 
   const contracts = await prisma.contract.findMany({
     where: { bundleId },

@@ -118,7 +118,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
         )}
         {/* 해당 단계가 직원이면 "직원"으로, 아니면 승인자 이름으로 표시 */}
         <span className="text-xs font-medium">
-          {step.approverId === userId ? "직원" : step.approver.name}
+          {step.approverId === userId ? "직원" : step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}
         </span>
       </div>
     );
@@ -922,7 +922,12 @@ export default function ContractsPage() {
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
-    toast.success("계약서 발송됨");
+    // 재발송 시 결재라인이 새로 만들어져 외부 서명 링크도 재생성됨 — 기존 링크는 무효
+    if (sendTarget?.externalName) {
+      toast.success("계약서 발송됨 — 서명 링크가 새로 생성되었습니다. 결재 현황에서 새 링크를 복사해 전달하세요.", { duration: 8000 });
+    } else {
+      toast.success("계약서 발송됨");
+    }
     setSendOpen(false);
     setApproverIds([]);
     fetchContracts();
@@ -1775,7 +1780,7 @@ export default function ContractsPage() {
               <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200">
                 <div>
                   <p className="font-medium text-sm">{c.title}</p>
-                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
+                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
                 </div>
                 <div className="flex gap-2">
                   <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
@@ -1938,7 +1943,7 @@ export default function ContractsPage() {
                       <td className="py-3">
                         <ApprovalChain
                           steps={c.approvalLine?.steps}
-                          userId={c.userId}
+                          userId={c.externalName ? undefined : c.userId}
                           onClick={() => {
                             setApprovalDetailsTarget(c);
                             setApprovalDetailsOpen(true);
@@ -2194,7 +2199,7 @@ export default function ContractsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-sm">현재 결재자</Label>
-              <p className="text-sm font-medium">{updateApproverTarget?.step.approver.name}</p>
+              <p className="text-sm font-medium">{updateApproverTarget?.step.approver?.name || "외부 서명자"}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="newApprover" className="text-sm">새로운 결재자 *</Label>

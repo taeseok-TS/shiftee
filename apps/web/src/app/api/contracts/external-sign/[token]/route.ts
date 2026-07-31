@@ -21,10 +21,10 @@ async function findStepByToken(token: string) {
   });
 }
 
-function firstFileUrl(fileUrl: string): string {
+function firstFileUrl(fileUrl: string): string | null {
   try {
     const a = JSON.parse(fileUrl);
-    return Array.isArray(a) ? a[0] : fileUrl;
+    return Array.isArray(a) ? (a[0] ?? null) : fileUrl;
   } catch { return fileUrl; }
 }
 
@@ -41,16 +41,19 @@ export async function GET(
   const expired = step.tokenExpiresAt ? step.tokenExpiresAt < new Date() : false;
   const state = step.status === "APPROVED"
     ? "done"
+    : step.status === "REJECTED" || contract.status === "REJECTED"
+    ? "rejected"
     : expired
     ? "expired"
     : step.status === "PENDING"
     ? "ready"
     : "waiting"; // 앞 단계 결재 대기 중
 
+  // 문서는 서명 차례(ready)일 때만 노출 — 만료·완료 후 링크 유출로 계약서가 무기한 공개되는 것 방지
   return NextResponse.json({
     title: contract.title,
     externalName: step.externalName,
-    fileUrl: contract.status === "SIGNED" && contract.signedUrl ? contract.signedUrl : firstFileUrl(contract.fileUrl),
+    fileUrl: state === "ready" ? firstFileUrl(contract.fileUrl) : null,
     state,
   });
 }
@@ -63,6 +66,9 @@ export async function POST(
   const { token } = await params;
   const step = await findStepByToken(token);
   if (!step) return NextResponse.json({ error: "유효하지 않은 서명 링크입니다." }, { status: 404 });
+  // 사내 직원으로 재배정된 스텝은 토큰 서명 불가(승인자 변경 후 잔존 토큰 방어)
+  if (step.approverId !== null)
+    return NextResponse.json({ error: "유효하지 않은 서명 링크입니다." }, { status: 404 });
   if (step.status === "APPROVED")
     return NextResponse.json({ error: "이미 서명이 완료된 계약서입니다." }, { status: 400 });
   if (step.tokenExpiresAt && step.tokenExpiresAt < new Date())

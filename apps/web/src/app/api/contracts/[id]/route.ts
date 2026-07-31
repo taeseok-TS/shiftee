@@ -124,7 +124,7 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -150,6 +150,8 @@ export async function PATCH(
             endDate: (endDate as string) || (contract.endDate ? contract.endDate.toISOString() : null),
             salary,
             extraFields: parsedExtra,
+            // 외부 계약은 소유자가 작성 관리자 — external 미전달 시 관리자 개인정보가 문서에 박힘
+            external: contract.externalName ? { name: contract.externalName, phone: contract.externalPhone } : null,
           });
           newFileUrl = JSON.stringify([await fillDocxTemplate(tmpl.fileUrl, mergeData)]);
         } catch (e) {
@@ -192,13 +194,14 @@ export async function PATCH(
     console.log("approverIds:", approverIds);
     console.log("contractId:", id);
 
+    // "EXTERNAL" 단계는 외부 계약(externalName 있는 계약)에서만 허용 —
+    // 일반 직원 계약에 로그인 없는 서명 링크가 생기는 것 방지
+    if (approverIds.includes("EXTERNAL") && !contract.externalName) {
+      return NextResponse.json({ error: "외부 서명 단계는 외부 계약자 계약에서만 사용할 수 있습니다." }, { status: 400 });
+    }
+
     // 기존 승인라인 제거
     await prisma.contractApprovalLine.deleteMany({ where: { contractId: id } });
-
-    // 외부 서명 단계용 계약 정보 (approverIds의 "EXTERNAL" 항목 → 게스트 서명 링크 토큰 생성)
-    const contractForExternal = await prisma.contract.findUnique({
-      where: { id }, select: { externalName: true },
-    });
 
     // 새 승인라인 생성 (SENT 상태일 때는 첫 번째 단계를 PENDING으로 설정)
     const approvalLine = await prisma.contractApprovalLine.create({
@@ -212,7 +215,7 @@ export async function PATCH(
                 // 외부(미가입) 서명자 단계 — 링크 토큰으로 서명 (유효기간 14일)
                 return {
                   approverId: null,
-                  externalName: contractForExternal?.externalName || "외부 서명자",
+                  externalName: contract.externalName || "외부 서명자",
                   signToken: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
                   tokenExpiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),
                   order: idx + 1,

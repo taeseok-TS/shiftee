@@ -32,8 +32,9 @@ export async function GET(request: NextRequest) {
       : session.role === "ADMIN"
       ? {}
       : session.role === "MANAGER"
-      // 원장은 담당 지점 직원 계약서를 보되, 직원전용 문서(비밀유지·개인정보동의서)는 제외
-      ? { user: { branch: { in: myBranches } }, employeeOnly: false }
+      // 원장은 담당 지점 직원 계약서를 보되, 직원전용 문서(비밀유지·개인정보동의서)와
+      // 외부 계약(소유자=작성 관리자 — 지점이 겹치면 딸려 나옴)은 제외. 결재 차례면 my-approvals로 보임
+      ? { user: { branch: { in: myBranches } }, employeeOnly: false, externalName: null }
       : { userId: session.userId, externalName: null };
 
     // 추가 필터 적용
@@ -91,13 +92,16 @@ export async function GET(request: NextRequest) {
       },
       approvalLine: contract.approvalLine ? {
         ...contract.approvalLine,
-        steps: (contract.approvalLine.steps || []).map(step => ({
+        // signToken은 관리자(링크 복사 기능)에게만 — 원장·직원 응답에 실리면 게스트 서명 위조 가능
+        steps: (contract.approvalLine.steps || []).map(({ signToken, tokenExpiresAt: _te, ...step }) => ({
           ...step,
-          approver: {
+          ...(session.role === "ADMIN" ? { signToken } : {}),
+          // 외부(미가입) 서명 단계는 approver가 없음(null) — externalName으로 표시
+          approver: step.approver ? {
             id: step.approver.id,
             name: step.approver.name,
             branch: step.approver.branch,
-          },
+          } : null,
         })),
       } : null,
     }));

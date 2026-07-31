@@ -232,8 +232,12 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const signers: Signer[] = [];
   for (const st of steps) {
     if (!st.signatureUrl) continue;
-    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급
-    const isEmployeeStep = st.approverId ? st.approverId === contract.userId : true;
+    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급.
+    // 외부 계약은 소유자(userId)가 작성 관리자라, 그 관리자의 결재 스텝까지 직원 서명으로
+    // 오인하면 결재자 0명 → 대표 직인 미삽입. externalName 계약에서는 approverId 있는 스텝 전부 결재자.
+    const isEmployeeStep = st.approverId
+      ? st.approverId === contract.userId && !contract.externalName
+      : true;
     signers.push({
       label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
       name: st.approver?.name || st.externalName || "외부 서명자",

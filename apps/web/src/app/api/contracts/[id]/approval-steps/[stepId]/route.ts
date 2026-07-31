@@ -62,10 +62,10 @@ export async function PATCH(
     return NextResponse.json({ error: "승인자를 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // 결재자 업데이트
+  // 결재자 업데이트 — 외부 스텝이었다면 기존 서명 링크 토큰을 반드시 파기(구 링크로 대리 서명 방지)
   const updatedStep = await prisma.contractApprovalStep.update({
     where: { id: stepId },
-    data: { approverId },
+    data: { approverId, signToken: null, tokenExpiresAt: null, externalName: null },
     include: {
       approver: { select: { id: true, name: true, branch: true } },
     },

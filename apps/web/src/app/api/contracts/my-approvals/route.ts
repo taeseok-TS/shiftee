@@ -37,15 +37,17 @@ export async function GET(_request: NextRequest) {
       branch: step.approvalLine.contract.user.branch,
     },
     approvalLine: {
-      steps: step.approvalLine.steps.map(s => ({
+      // signToken·tokenExpiresAt은 결재자에게 노출 금지(게스트 서명 링크 위조 방지)
+      steps: step.approvalLine.steps.map(({ signToken: _st, tokenExpiresAt: _te, ...s }) => ({
         ...s,
-        approver: {
+        // 외부(미가입) 서명 단계는 approver가 없음(null) — externalName으로 표시
+        approver: s.approver ? {
           id: s.approver.id,
           name: s.approver.name,
           branch: s.approver.branch,
-        },
+        } : null,
       })),
-      myStep: step,
+      myStep: (({ signToken: _st, tokenExpiresAt: _te, approvalLine: _al, ...rest }) => rest)(step),
     },
   }));
 

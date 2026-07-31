@@ -4,7 +4,7 @@
 import { use, useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 
-type Info = { title: string; externalName: string | null; fileUrl: string; state: "ready" | "waiting" | "done" | "expired" };
+type Info = { title: string; externalName: string | null; fileUrl: string | null; state: "ready" | "waiting" | "done" | "expired" | "rejected" };
 
 export default function ExternalSignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -39,7 +39,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     } finally { setSubmitting(false); }
   }
 
-  const viewerSrc = info ? `/docs/viewer?src=${encodeURIComponent(info.fileUrl)}` : "";
+  // 문서는 서명 차례(ready)일 때만 서버가 내려줌 — 그 외 상태는 안내문만 표시
+  const viewerSrc = info?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(info.fileUrl)}` : "";
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -57,15 +58,21 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
         {info && !error && (
           <>
             {/* 문서 뷰어 */}
-            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-              <iframe src={viewerSrc} title="계약서" className="w-full border-0" style={{ height: "62vh" }} />
-            </div>
+            {viewerSrc && (
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                <iframe src={viewerSrc} title="계약서" className="w-full border-0" style={{ height: "62vh" }} />
+              </div>
+            )}
 
             {finished || info.state === "done" ? (
               <div className="bg-white rounded-xl border p-6 text-center space-y-1">
                 <p className="text-2xl">✅</p>
                 <p className="font-semibold">서명이 완료되었습니다</p>
                 <p className="text-xs text-gray-500">서명된 계약서는 회사에서 보관하며, 필요 시 담당자에게 사본을 요청하실 수 있습니다.</p>
+              </div>
+            ) : info.state === "rejected" ? (
+              <div className="bg-white rounded-xl border p-6 text-center text-sm text-red-500">
+                이 계약은 반려되어 진행이 중단되었습니다. 자세한 내용은 담당자에게 문의해주세요.
               </div>
             ) : info.state === "expired" ? (
               <div className="bg-white rounded-xl border p-6 text-center text-sm text-amber-600">

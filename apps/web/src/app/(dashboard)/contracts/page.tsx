@@ -124,7 +124,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
         )}
         {/* 해당 단계가 직원이면 "직원"으로, 아니면 승인자 이름으로 표시 */}
         <span className="text-xs font-medium">
-          {step.approverId === userId ? "직원" : step.approver.name}
+          {step.approverId === userId ? "직원" : step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}
         </span>
       </div>
     );
@@ -1804,7 +1804,7 @@ export default function ContractsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-sm">현재 결재자</Label>
-              <p className="text-sm font-medium">{updateApproverTarget?.step.approver.name}</p>
+              <p className="text-sm font-medium">{updateApproverTarget?.step.approver?.name || "외부 서명자"}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="newApprover" className="text-sm">새로운 결재자 *</Label>
@@ -1992,7 +1992,7 @@ export default function ContractsPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
                       <p className="text-sm font-medium">{step.order}단계 결재</p>
-                      <p className="text-xs text-gray-500">{step.approver.name}</p>
+                      <p className="text-xs text-gray-500">{step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {step.status === "APPROVED" ? (

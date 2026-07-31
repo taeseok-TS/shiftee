@@ -265,7 +265,7 @@ export default function ContractApprovalsPage() {
                                     ${!isCompleted && !isRejected && !isPending ? "bg-gray-100 text-gray-600" : ""}
                                   `}
                                 >
-                                  {step.approver.name}
+                                  {step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}
                                 </span>
                               </span>
                             );

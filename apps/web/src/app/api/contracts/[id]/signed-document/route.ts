@@ -32,9 +32,14 @@ export async function GET(
   const signers: Signer[] = [];
   for (const st of steps) {
     if (!st.signatureUrl) continue;
+    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급.
+    // 외부 계약은 소유자=작성 관리자 — 관리자 결재 스텝을 직원 서명으로 오인하면 직인 누락
+    const isEmployeeStep = st.approverId
+      ? st.approverId === contract.userId && !contract.externalName
+      : true;
     signers.push({
-      label: st.approverId === contract.userId ? "직원 서명" : `${st.order}단계 결재`,
-      name: st.approver.name,
+      label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
+      name: st.approver?.name || st.externalName || "외부 서명자",
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
     });
