@@ -158,12 +158,12 @@ const SYSTEM_FIELDS = new Set([
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
 ]);
 
-// 날짜·금액·체크박스류 필드는 관리자가 작성 시 지정(퇴사일자·지급희망일·지급금품 체크·수령방법 등),
-// 자유서술만 직원이 서명 시 입력(퇴사사유 등)
-const ADMIN_INPUT_PATTERN = /일자|날짜|기간|일$|일수|연봉|금액|급여|수당|시각|시간|^체크_|기타내용|방법/;
+// 직원이 서명 시 직접 입력하는 필드는 화이트리스트('사유'류 자유서술)만 — 그 외 모든 필드는
+// 관리자가 작성 시 입력. (교육평가시작 등 새 템플릿 필드가 직원에게 잘못 넘어가는 사고 방지)
+const EMPLOYEE_INPUT_PATTERN = /사유/;
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
-// 시스템 자동/프로필/동의/서명 필드가 아니고, 날짜·금액류(관리자 입력)도 아닌 자유서술 필드(예: 퇴사사유).
+// 화이트리스트(퇴사사유 등 '사유'류)만 직원 입력 — 나머지는 전부 관리자 작성 폼에 표시.
 // 프로필 필드(주소/생년월일)와 달리 프로필에 저장하지 않고 해당 문서에만 반영한다.
 export async function scanEmployeeFillFields(templateFileUrl: string): Promise<string[]> {
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
@@ -179,7 +179,7 @@ export async function scanEmployeeFillFields(templateFileUrl: string): Promise<s
         const name = m[1].trim();
         if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 제외
         if (SYSTEM_FIELDS.has(name)) continue;
-        if (ADMIN_INPUT_PATTERN.test(name)) continue; // 날짜·금액류는 관리자 입력
+        if (!EMPLOYEE_INPUT_PATTERN.test(name)) continue; // 화이트리스트 외 전부 관리자 입력
         if (!found.includes(name)) found.push(name);
       }
     }
