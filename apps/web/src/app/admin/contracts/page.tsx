@@ -563,7 +563,9 @@ export default function ContractsPage() {
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
   const ndaTemplate = templates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
   const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
-  const empTemplate = templates.find(t => t.name.includes("근로계약")) || templates.find(t => t.type === "EMPLOYMENT");
+  // 신규입사 패키지의 근로계약서 — 코디 근로계약서는 제외(코디 채용 패키지 전용)
+  const empTemplate = templates.find(t => t.name.includes("근로계약") && !t.name.includes("코디"))
+    || templates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디"));
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
   // 퇴사 패키지 5종 — 사직원(결재라인) + 정산·동의 3종(결재라인) + 비밀유지서약서(퇴직시, 직원 서명만)
@@ -790,7 +792,13 @@ export default function ContractsPage() {
     }
 
     // 신규입사 패키지: 근로계약서 + 비밀유지 + 개인정보동의서를 한 묶음으로 생성
+    // 대표 문서는 반드시 에듀플렉스 근로계약서 (코디 계약서가 섞이지 않도록 서버 전송 직전 재확인)
     if (bundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
+      if (empTemplate && selectedTemplate !== empTemplate.id) {
+        toast.error("신규입사 패키지는 에듀플렉스 근로계약서로만 발송할 수 있습니다.");
+        setUploading(false);
+        return;
+      }
       const allExtra: Record<string, string> = {};
       for (const [k, v] of Object.entries(extraFields)) {
         if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
@@ -1057,8 +1065,9 @@ export default function ContractsPage() {
                       </SelectContent>
                     </Select>
 
-                    {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송 */}
-                    {canBundle && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
+                    {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송
+                        (코디 계약서 선택 중에는 숨김 — 코디 채용 패키지 전용) */}
+                    {canBundle && !codiBundleMode && !codiTemplates.some(t => t.id === selectedTemplate) && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-emerald-800">
                           <input type="checkbox" checked={bundleMode}
@@ -1066,14 +1075,14 @@ export default function ContractsPage() {
                               const checked = e.target.checked;
                               setBundleMode(checked);
                               if (checked) { setResignBundleMode(false); setCodiBundleMode(false); }
-                              // 패키지 체크 시 근로계약서 미선택이면 자동 선택 (계약구분·추가 필드 표시)
-                              if (checked && !selectedTemplate && empTemplate) {
+                              // 패키지 체크 시 대표 문서는 항상 에듀플렉스 근로계약서로 강제 (코디 등 다른 계약서 오염 방지)
+                              if (checked && empTemplate) {
                                 const et = empTemplate;
                                 setSelectedTemplate(et.id);
                                 setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, true), type: et.type }));
                                 scanFields(et.id, true);
-                              } else if (selectedTemplate) {
-                                scanFields(selectedTemplate, checked);
+                              } else if (!checked && selectedTemplate) {
+                                scanFields(selectedTemplate, false);
                               }
                             }} />
                           신규입사 패키지로 함께 발송 (3종)
@@ -1088,7 +1097,7 @@ export default function ContractsPage() {
                     )}
 
                     {/* 퇴사 패키지 — 체크하면 사직원 자동 선택 + 정산·동의·서약서 5종 함께 발송 */}
-                    {canResignBundle && !bundleMode && (
+                    {canResignBundle && !bundleMode && !codiBundleMode && (
                       <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-rose-800">
                           <input type="checkbox" checked={resignBundleMode}
