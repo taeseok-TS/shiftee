@@ -227,6 +227,7 @@ export default function ContractsPage() {
   const [filterMonth, setFilterMonth] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUserId, setFilterUserId] = useState("");
+  const [filterBranch, setFilterBranch] = useState("");
   const [filterSearchText, setFilterSearchText] = useState("");
   const [showHiddenRevoked, setShowHiddenRevoked] = useState(false);
 
@@ -237,6 +238,7 @@ export default function ContractsPage() {
       month: filterMonth,
       status: filterStatus,
       userId: filterUserId,
+      branch: filterBranch,
       searchText: filterSearchText,
       showHiddenRevoked: showHiddenRevoked,
     };
@@ -245,6 +247,7 @@ export default function ContractsPage() {
     if (useFilters.month) params.append("month", useFilters.month);
     if (useFilters.status) params.append("status", useFilters.status);
     if (useFilters.userId) params.append("userId", useFilters.userId);
+    if (useFilters.branch) params.append("branch", useFilters.branch);
     if (useFilters.searchText) params.append("searchText", useFilters.searchText);
     if (useFilters.showHiddenRevoked) params.append("showHiddenRevoked", "true");
 
@@ -257,7 +260,7 @@ export default function ContractsPage() {
       const approvalData = await approvalRes.json();
       setMyApprovals(approvalData.contracts || []);
     }
-  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterSearchText, showHiddenRevoked]);
+  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked]);
 
   const fetchTemplates = useCallback(async () => {
     if (role === "EMPLOYEE") return;
@@ -1964,6 +1967,24 @@ export default function ContractsPage() {
               </Select>
             </div>
 
+            {/* 지점 (ADMIN/MANAGER만) — 계약 당사자의 소속 지점으로 조회 */}
+            {role !== "EMPLOYEE" && (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">지점</Label>
+                <Select value={filterBranch} onValueChange={(v) => { setFilterBranch(v); setFilterUserId(""); }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="전체" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">전체</SelectItem>
+                    {[...new Set(employees.map(e => e.branch).filter(Boolean))].sort().map(b => (
+                      <SelectItem key={b as string} value={b as string}>{b}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* 직원 (ADMIN/MANAGER만) */}
             {role !== "EMPLOYEE" && (
               <div className="space-y-1">
@@ -1974,7 +1995,7 @@ export default function ContractsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">전체</SelectItem>
-                    {employees.map(emp => (
+                    {employees.filter(emp => !filterBranch || emp.branch === filterBranch).map(emp => (
                       <SelectItem key={emp.id} value={emp.id}>
                         {emp.branch ? `[${emp.branch}] ` : ''}{emp.name}
                       </SelectItem>
@@ -2019,9 +2040,10 @@ export default function ContractsPage() {
                 setFilterMonth("");
                 setFilterStatus("");
                 setFilterUserId("");
+                setFilterBranch("");
                 setFilterSearchText("");
                 setShowHiddenRevoked(false);
-                fetchContracts({ year: new Date().getFullYear().toString(), month: "", status: "", userId: "", searchText: "", showHiddenRevoked: false });
+                fetchContracts({ year: new Date().getFullYear().toString(), month: "", status: "", userId: "", branch: "", searchText: "", showHiddenRevoked: false });
               }}
             >
               초기화

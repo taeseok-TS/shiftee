@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get("month");
     const status = searchParams.get("status");
     const userId = searchParams.get("userId");
+    const branch = searchParams.get("branch");
     const searchText = searchParams.get("searchText");
     const showHiddenRevoked = searchParams.get("showHiddenRevoked") === "true";
 
@@ -59,6 +60,11 @@ export async function GET(request: NextRequest) {
 
     if (userId && !selfOnly) {
       whereBase.userId = userId;
+    }
+
+    // 지점 필터 — 계약 당사자(직원)의 소속 지점 기준. 외부 계약은 소유자가 관리자라 제외됨
+    if (branch && !selfOnly) {
+      whereBase.user = { ...(whereBase.user || {}), branch };
     }
 
     if (searchText && searchText.trim()) {
