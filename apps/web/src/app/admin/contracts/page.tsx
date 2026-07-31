@@ -570,9 +570,12 @@ export default function ContractsPage() {
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
   const ndaTemplate = templates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
   const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
-  // 신규입사 패키지의 근로계약서 — 코디 근로계약서는 제외(코디 채용 패키지 전용)
-  const empTemplate = templates.find(t => t.name.includes("근로계약") && !t.name.includes("코디"))
-    || templates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디"));
+  // 신규입사 패키지의 근로계약서 — 에듀플렉스 명시 우선.
+  // 코디·기타직무(외부용) 근로계약서는 제외 — 이름 부분매치로 새 템플릿이 끼어들면
+  // "신규입사 체크 시 에듀플렉스 강제 전환"이 엉뚱한 계약서로 가는 사고 재발(코디 사고와 동일 패턴)
+  const empTemplate = templates.find(t => t.name.includes("에듀플렉스") && t.name.includes("근로계약"))
+    || templates.find(t => t.name.includes("근로계약") && !t.name.includes("코디") && !t.name.includes("기타직무"))
+    || templates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디") && !t.name.includes("기타직무"));
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
   // 퇴사 패키지 5종 — 사직원(결재라인) + 정산·동의 3종(결재라인) + 비밀유지서약서(퇴직시, 직원 서명만)
