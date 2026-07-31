@@ -1917,7 +1917,7 @@ export default function ContractsPage() {
         <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />계약서 목록</CardTitle></CardHeader>
         <CardContent>
           {/* 필터 */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 pb-4 border-b">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4 pb-4 border-b">
             {/* 연도 */}
             <div className="space-y-1">
               <Label className="text-xs font-medium">연도</Label>
