@@ -1008,18 +1008,36 @@ export default function WorkChatPage() {
               {messages.length === 0 ? (
                 <div className="text-center text-gray-400 mt-10 text-sm">아직 메시지가 없습니다. 첫 메시지를 보내보세요!</div>
               ) : (
-                messages.map((m) => {
+                messages.map((m, mi) => {
+                  // 일자별 날짜 구분선 — 이전 메시지와 날짜(로컬 기준)가 바뀌면 표시
+                  const dayLabel = (iso: string) => {
+                    const d = new Date(iso);
+                    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${["일", "월", "화", "수", "목", "금", "토"][d.getDay()]}요일`;
+                  };
+                  const showDate = mi === 0 || new Date(m.createdAt).toDateString() !== new Date(messages[mi - 1].createdAt).toDateString();
+                  const dateDivider = showDate ? (
+                    <div className="flex items-center gap-3 my-3" key={`date-${m.id}`}>
+                      <div className="flex-1 h-px bg-gray-200" />
+                      <span className="text-[11px] text-gray-400 bg-gray-100 rounded-full px-3 py-1">{dayLabel(m.createdAt)}</span>
+                      <div className="flex-1 h-px bg-gray-200" />
+                    </div>
+                  ) : null;
                   // 시스템 알림(이름 변경 등)은 중앙 회색 문구로
                   if (m.system) {
                     return (
-                      <div key={m.id} className="flex justify-center my-2">
-                        <span className="text-[11px] text-gray-400 bg-gray-100 rounded-full px-3 py-1">{m.content}</span>
+                      <div key={m.id}>
+                        {dateDivider}
+                        <div className="flex justify-center my-2">
+                          <span className="text-[11px] text-gray-400 bg-gray-100 rounded-full px-3 py-1">{m.content}</span>
+                        </div>
                       </div>
                     );
                   }
                   const read = active.type === "DM" && m.mine && readWatermark && new Date(m.createdAt) <= new Date(readWatermark);
                   return (
-                    <div key={m.id} className={`group flex gap-2 ${m.mine ? "justify-end" : "justify-start"}`}>
+                    <div key={m.id}>
+                    {dateDivider}
+                    <div className={`group flex gap-2 ${m.mine ? "justify-end" : "justify-start"}`}>
                       {!m.mine && <Avatar name={m.userName} src={m.userAvatar} />}
                       <div className={`max-w-[70%] flex flex-col ${m.mine ? "items-end" : "items-start"}`}>
                         {!m.mine && <span className="text-xs text-gray-500 mb-0.5 ml-1">{m.userName}{m.userBranch && <span className="text-gray-400"> · {m.userBranch}</span>}</span>}
@@ -1123,6 +1141,7 @@ export default function WorkChatPage() {
                           </button>
                         )}
                       </div>
+                    </div>
                     </div>
                   );
                 })

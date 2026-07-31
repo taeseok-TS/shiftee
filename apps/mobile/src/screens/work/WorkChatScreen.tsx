@@ -759,12 +759,29 @@ export default function WorkChatScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: WorkMessage }) => {
+  const renderItem = ({ item, index }: { item: WorkMessage; index: number }) => {
+    // 일자별 날짜 구분선 — inverted 리스트(index 0=최신)라 "더 오래된 이웃(index+1)"과
+    // 날짜가 다르면 이 메시지가 그 날의 첫 메시지 → 말풍선 위에 구분선 표시
+    const older = displayedMessages[index + 1];
+    const showDate = !older || new Date(item.createdAt).toDateString() !== new Date(older.createdAt).toDateString();
+    const d = new Date(item.createdAt);
+    const dateDivider = showDate ? (
+      <View style={styles.dateDividerRow}>
+        <View style={styles.dateDividerLine} />
+        <Text style={styles.dateDividerText}>
+          {`${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${["일", "월", "화", "수", "목", "금", "토"][d.getDay()]}요일`}
+        </Text>
+        <View style={styles.dateDividerLine} />
+      </View>
+    ) : null;
     // 시스템 알림(이름 변경 등): 중앙 회색 문구
     if (item.system) {
       return (
-        <View style={styles.systemRow}>
-          <Text style={styles.systemText}>{item.content}</Text>
+        <View>
+          {dateDivider}
+          <View style={styles.systemRow}>
+            <Text style={styles.systemText}>{item.content}</Text>
+          </View>
         </View>
       );
     }
@@ -892,11 +909,19 @@ export default function WorkChatScreen() {
         </View>
       </View>
     );
-    if (item.mine) return body;
+    if (item.mine) return (
+      <View>
+        {dateDivider}
+        {body}
+      </View>
+    );
     return (
-      <View style={styles.otherRow}>
-        <Avatar name={item.userName} size={34} uri={item.userAvatar} />
-        <View style={styles.otherBody}>{body}</View>
+      <View>
+        {dateDivider}
+        <View style={styles.otherRow}>
+          <Avatar name={item.userName} size={34} uri={item.userAvatar} />
+          <View style={styles.otherBody}>{body}</View>
+        </View>
       </View>
     );
   };
@@ -1682,6 +1707,9 @@ const styles = StyleSheet.create({
   pollCloseChipText: { fontSize: 12, color: "#374151" },
   systemRow: { alignItems: "center", marginVertical: 6 },
   systemText: { fontSize: 11, color: "#9ca3af", backgroundColor: "#eceef1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
+  dateDividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 10, paddingHorizontal: 4 },
+  dateDividerLine: { flex: 1, height: 1, backgroundColor: "#e5e7eb" },
+  dateDividerText: { fontSize: 11, color: "#9ca3af", backgroundColor: "#eceef1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
   menuBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.25)", justifyContent: "flex-start", alignItems: "flex-end", paddingTop: 52, paddingRight: 12 },
   menuCard: { backgroundColor: "#fff", borderRadius: 12, paddingVertical: 6, minWidth: 180, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   menuRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
