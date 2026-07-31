@@ -269,6 +269,8 @@ model Contract {
   employeeOnly     Boolean               @default(false) // 직원 서명만·직원+관리자에게만 표시(비밀유지·개인정보동의서)
   profileFields    Json? // 이 계약서가 쓰는 직원 프로필 필드(["주소","생년월일"]) — 서명 시 비어 있으면 입력 유도
   employeeFields   Json? // 직원이 서명 시 직접 입력하는 문서 전용 필드(["퇴사일자","퇴사사유"]) — 프로필 저장 X, 문서에만 반영
+  externalName     String? // 외부(미가입) 계약자 이름 — 있으면 외부 계약(userId는 작성 관리자)
+  externalPhone    String? // 외부 계약자 연락처(링크 전달 참고용)
   employeeSignedAt DateTime?
   signedAt         DateTime?
   approvalLine     ContractApprovalLine?
@@ -307,8 +309,11 @@ model ContractApprovalStep {
   approvalLineId String
   approvalLine   ContractApprovalLine @relation(fields: [approvalLineId], references: [id], onDelete: Cascade)
   order          Int
-  approverId     String
-  approver       User                 @relation("ContractApprover", fields: [approverId], references: [id])
+  approverId     String? // null = 외부(미가입) 서명 단계
+  approver       User?                @relation("ContractApprover", fields: [approverId], references: [id])
+  externalName   String? // 외부 서명자 이름 (approverId null인 단계)
+  signToken      String?              @unique // 외부 서명 링크 토큰
+  tokenExpiresAt DateTime? // 외부 서명 링크 만료 시각
   status         ApprovalStepStatus   @default(WAITING)
   comment        String?
   signatureUrl   String? // 손글씨 서명 이미지 (PNG)

@@ -27,13 +27,14 @@ export async function GET(request: NextRequest) {
     // 기본 권한 필터
     const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     let whereBase: any = selfOnly
-      ? { userId: session.userId }
+      // 본인 계약만 — 외부 계약(externalName)은 소유자가 작성 관리자라 개인 화면에서는 제외
+      ? { userId: session.userId, externalName: null }
       : session.role === "ADMIN"
       ? {}
       : session.role === "MANAGER"
       // 원장은 담당 지점 직원 계약서를 보되, 직원전용 문서(비밀유지·개인정보동의서)는 제외
       ? { user: { branch: { in: myBranches } }, employeeOnly: false }
-      : { userId: session.userId };
+      : { userId: session.userId, externalName: null };
 
     // 추가 필터 적용
     if (year) {
@@ -124,9 +125,15 @@ export async function POST(request: NextRequest) {
     const endDate = formData.get("endDate") as string;
     const salary = formData.get("salary") as string | null;
     const extraFieldsRaw = formData.get("extraFields") as string | null; // 템플릿별 동적 입력란 값(JSON)
+    // 외부(미가입) 계약자 — 이름·연락처를 관리자가 직접 입력, 계약 소유자는 작성 관리자
+    const externalName = ((formData.get("externalName") as string) || "").trim() || null;
+    const externalPhone = ((formData.get("externalPhone") as string) || "").trim() || null;
+    const effectiveUserId = externalName ? session.userId : userId;
+    if (externalName && session.role !== "ADMIN")
+      return NextResponse.json({ error: "외부 계약은 관리자만 작성할 수 있습니다." }, { status: 403 });
 
     // 템플릿 없을 때는 파일 필수, 템플릿 있을 때는 파일 불필수
-    if ((files.length === 0 && !templateId) || !userId || !title || !type)
+    if ((files.length === 0 && !templateId) || !effectiveUserId || !title || !type)
       return NextResponse.json(
         { error: "필수 정보가 누락되었습니다." },
         { status: 400 }
@@ -190,8 +197,9 @@ export async function POST(request: NextRequest) {
         if (extraFieldsRaw) {
           try { parsedExtra = JSON.parse(extraFieldsRaw); } catch { /* 형식 오류는 무시 */ }
         }
-        const mergeData = await buildContractMergeData(userId, {
+        const mergeData = await buildContractMergeData(effectiveUserId, {
           title, startDate, endDate, salary, extraFields: parsedExtra,
+          external: externalName ? { name: externalName, phone: externalPhone } : null,
         });
         try {
           const filledUrl = await fillDocxTemplate(template.fileUrl, mergeData);
@@ -217,7 +225,9 @@ export async function POST(request: NextRequest) {
 
     const contract = await prisma.contract.create({
       data: {
-        userId,
+        userId: effectiveUserId,
+        externalName: externalName || undefined,
+        externalPhone: externalPhone || undefined,
         title,
         type,
         fileUrl,

@@ -232,9 +232,11 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const signers: Signer[] = [];
   for (const st of steps) {
     if (!st.signatureUrl) continue;
+    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급
+    const isEmployeeStep = st.approverId ? st.approverId === contract.userId : true;
     signers.push({
-      label: st.approverId === contract.userId ? "직원 서명" : `${st.order}단계 결재`,
-      name: st.approver.name,
+      label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
+      name: st.approver?.name || st.externalName || "외부 서명자",
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
     });

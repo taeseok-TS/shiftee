@@ -26,6 +26,8 @@ type Contract = {
   signedUrl?: string | null; // 완료 시 저장되는 서명본(서명+직인) 파일
   bundleId?: string | null; // 신규입사 패키지 묶음
   employeeOnly?: boolean; // 직원 서명만·직원전용 문서
+  externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 외부 계약
+  externalPhone?: string | null;
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -149,6 +151,8 @@ export default function ContractsPage() {
   const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(3종 묶음) 발송
   const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(5종 묶음) 발송
   const [codiBundleMode, setCodiBundleMode] = useState(false); // 코디 채용 패키지(계약서 선택 + 3종 묶음) 발송
+  const [externalMode, setExternalMode] = useState(false); // 외부(미가입) 계약자 — 게스트 서명 링크 발송
+  const [externalForm, setExternalForm] = useState({ name: "", phone: "" });
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -541,10 +545,12 @@ export default function ContractsPage() {
   const [templateConditions, setTemplateConditions] = useState<string[]>([]); // 템플릿의 {#조건} 이름들
   const [fieldConditions, setFieldConditions] = useState<Record<string, string>>({}); // 필드 → 소속 조건
   const [contractKind, setContractKind] = useState("신규입사"); // 계약 구분
+  // 외부 계약: 직원 정보가 없어 개인정보류 자동 필드도 관리자가 직접 입력
+  const EXTERNAL_INPUT_FIELDS = ["지점", "직책", "직급", "연락처", "이메일", "생년월일", "주소", "입사일", "사원번호"];
   // 계약 구분에 해당하지 않는 조건 구간의 필드 + 직원 직접입력 필드는 관리자 입력란에서 숨김
   const dynamicFields = templateFields
-    .filter(f => !AUTO_FIELDS.includes(f) && !FORM_FIELDS.includes(f) && f !== "계약구분")
-    .filter(f => !employeeFillFields.includes(f))
+    .filter(f => (!AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))) && !FORM_FIELDS.includes(f) && f !== "계약구분")
+    .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   const isDateField = (f: string) => /시작|종료|날짜|일자|기간|일$/.test(f);
   // 금액류 필드 — 입력 시 천 단위 쉼표 자동 포맷 (문서에는 서버가 "1,210,000원"으로 변환)
@@ -633,10 +639,18 @@ export default function ContractsPage() {
 
   // 직원·패키지 선택만으로도 제목 자동 채움 (템플릿 미선택이어도 "근로계약서" 기준)
   useEffect(() => {
-    if (!useTemplate || !createForm.userId) return;
+    if (!useTemplate) return;
+    if (externalMode) {
+      // 외부 계약: "올해 + 외부인 이름 + 템플릿명"
+      if (!externalForm.name.trim()) return;
+      const t = selectedTemplate ? templates.find(x => x.id === selectedTemplate) : undefined;
+      setCreateForm(f => ({ ...f, title: `${new Date().getFullYear()} ${externalForm.name.trim()} ${t?.name || "계약서"}` }));
+      return;
+    }
+    if (!createForm.userId) return;
     setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode, resignBundleMode) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createForm.userId, selectedTemplate, useTemplate, bundleMode, resignBundleMode]);
+  }, [createForm.userId, selectedTemplate, useTemplate, bundleMode, resignBundleMode, externalMode, externalForm.name]);
 
   // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 원장) 자동 채움
   useEffect(() => {
@@ -717,7 +731,9 @@ export default function ContractsPage() {
 
     // 템플릿 사용 시에는 파일이 서버에서 처리됨
     if (!useTemplate && files.length === 0) { toast.error("파일을 선택해주세요."); return; }
-    if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
+    if (externalMode) {
+      if (!externalForm.name.trim()) { toast.error("외부 계약자 이름을 입력해주세요."); return; }
+    } else if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
@@ -844,6 +860,10 @@ export default function ContractsPage() {
     }
 
     formData.append("userId", createForm.userId);
+    if (externalMode) {
+      formData.append("externalName", externalForm.name.trim());
+      formData.append("externalPhone", externalForm.phone.trim());
+    }
     formData.append("title", createForm.title);
     formData.append("type", createForm.type);
     formData.append("startDate", createForm.startDate);
@@ -978,6 +998,39 @@ export default function ContractsPage() {
             <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
               <DialogHeader><DialogTitle>계약서 작성</DialogTitle></DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4">
+                {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송 */}
+                <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800">
+                    <input type="checkbox" checked={externalMode}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setExternalMode(checked);
+                        if (checked) {
+                          setBundleMode(false); setResignBundleMode(false); setCodiBundleMode(false);
+                          setCreateForm(f => ({ ...f, userId: "" }));
+                        } else {
+                          setExternalForm({ name: "", phone: "" });
+                        }
+                      }} />
+                    외부 계약자 (큐브티 미가입 — 링크로 서명)
+                  </label>
+                  {externalMode && (
+                    <div className="pl-6 space-y-2">
+                      <div className="space-y-1"><Label className="text-xs">이름 *</Label>
+                        <Input placeholder="예: 홍길동" value={externalForm.name}
+                          onChange={e => setExternalForm(p => ({ ...p, name: e.target.value }))} /></div>
+                      <div className="space-y-1"><Label className="text-xs">연락처 (링크 전달용)</Label>
+                        <Input placeholder="예: 010-1234-5678" value={externalForm.phone}
+                          onChange={e => setExternalForm(p => ({ ...p, phone: e.target.value }))} /></div>
+                      <p className="text-[11px] text-violet-700">
+                        발송 후 <b>서명 링크를 복사해 카톡·문자로 전달</b>하면, 외부 계약자가 가입 없이 문서를 확인하고 서명합니다.
+                        생년월일·주소 등 계약서에 필요한 정보는 아래 입력란에 직접 입력하세요.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {!externalMode && (
                 <div className="space-y-2">
                   <Label>직원 *</Label>
                   {/* 직원 검색 */}
@@ -1034,6 +1087,7 @@ export default function ContractsPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* 템플릿 사용 여부 */}
                 {templates.length > 0 && (
@@ -1067,7 +1121,7 @@ export default function ContractsPage() {
 
                     {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송
                         (코디 계약서 선택 중에는 숨김 — 코디 채용 패키지 전용) */}
-                    {canBundle && !codiBundleMode && !codiTemplates.some(t => t.id === selectedTemplate) && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
+                    {canBundle && !externalMode && !codiBundleMode && !codiTemplates.some(t => t.id === selectedTemplate) && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-emerald-800">
                           <input type="checkbox" checked={bundleMode}
@@ -1097,7 +1151,7 @@ export default function ContractsPage() {
                     )}
 
                     {/* 퇴사 패키지 — 체크하면 사직원 자동 선택 + 정산·동의·서약서 5종 함께 발송 */}
-                    {canResignBundle && !bundleMode && !codiBundleMode && (
+                    {canResignBundle && !externalMode && !bundleMode && !codiBundleMode && (
                       <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-rose-800">
                           <input type="checkbox" checked={resignBundleMode}
@@ -1127,7 +1181,7 @@ export default function ContractsPage() {
                     )}
 
                     {/* 코디 채용 패키지 — 코디 계약서(4종 중 선택) + 비밀유지·개인정보동의서 */}
-                    {canCodiBundle && !bundleMode && !resignBundleMode && (
+                    {canCodiBundle && !externalMode && !bundleMode && !resignBundleMode && (
                       <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-2">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-sky-800">
                           <input type="checkbox" checked={codiBundleMode}
@@ -1699,7 +1753,7 @@ export default function ContractsPage() {
               <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-orange-200">
                 <div>
                   <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
+                  <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type]}</p>
                 </div>
                 <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignOpen(true); }} className="gap-1">
                   <PenLine size={14} />승인
@@ -1874,7 +1928,7 @@ export default function ContractsPage() {
                   const s = statusConfig[c.status] || { label: "미정", variant: "default" };
                   return (
                     <tr key={c.id} className="border-b hover:bg-gray-50">
-                      {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.user.branch ? `[${c.user.branch}] ` : ''}{c.user.name}</p></td>}
+                      {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : `${c.user.branch ? `[${c.user.branch}] ` : ""}${c.user.name}`}</p></td>}
                       <td className="py-3 font-medium">
                         {c.title}
                         {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
@@ -1972,7 +2026,9 @@ export default function ContractsPage() {
                                     ) : (
                                       <div className="space-y-1">
                                         {approverIds.map((id, i) => {
-                                          const person = id === sendTarget.userId
+                                          const person = id === "EXTERNAL"
+                                            ? { name: `${sendTarget.externalName || "외부 서명자"} (외부 · 링크 서명)`, branch: null as string | null }
+                                            : id === sendTarget.userId
                                             ? { name: `${sendTarget.user?.name || "직원"} (당사자)`, branch: null as string | null }
                                             : employees.find(e => e.id === id);
                                           return (
@@ -1994,13 +2050,21 @@ export default function ContractsPage() {
                                           className="h-8 text-sm"
                                         />
                                         <div className="border rounded max-h-44 overflow-y-auto divide-y">
-                                          {/* 계약서 당사자(직원) - 상단 고정 */}
-                                          {!approverIds.includes(sendTarget.userId) && (
+                                          {/* 계약서 당사자 - 상단 고정 (외부 계약은 링크 서명 항목) */}
+                                          {sendTarget.externalName ? (
+                                            !approverIds.includes("EXTERNAL") && (
+                                              <button type="button" onClick={() => setApproverIds(prev => [...prev, "EXTERNAL"])}
+                                                className="w-full text-left px-2.5 py-1.5 text-sm text-emerald-700 font-semibold hover:bg-emerald-50">
+                                                🔗 {sendTarget.externalName} (외부 · 링크로 서명)
+                                              </button>
+                                            )
+                                          ) : (
+                                          !approverIds.includes(sendTarget.userId) && (
                                             <button type="button" onClick={() => setApproverIds(prev => [...prev, sendTarget.userId])}
                                               className="w-full text-left px-2.5 py-1.5 text-sm text-blue-600 font-semibold hover:bg-blue-50">
                                               👤 {sendTarget.user?.name || "직원"} (당사자)
                                             </button>
-                                          )}
+                                          ))}
                                           {employees
                                             .filter(e => !approverIds.includes(e.id) && e.id !== sendTarget.userId)
                                             .filter(e => !approverSearch
@@ -2325,7 +2389,17 @@ export default function ContractsPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
                       <p className="text-sm font-medium">{step.order}단계 결재</p>
-                      <p className="text-xs text-gray-500">{step.approver.name}</p>
+                      <p className="text-xs text-gray-500">{step.approver?.name || `${(step as { externalName?: string }).externalName || "외부 서명자"} (외부 · 링크 서명)`}</p>
+                      {/* 외부 서명 단계 — 링크 복사해 카톡·문자로 전달 */}
+                      {!step.approverId && (step as { signToken?: string }).signToken && step.status !== "APPROVED" && (
+                        <button type="button" className="mt-1 text-xs text-violet-600 underline"
+                          onClick={() => {
+                            const url = `${window.location.origin}/sign/${(step as { signToken?: string }).signToken}`;
+                            navigator.clipboard.writeText(url).then(() => toast.success("서명 링크가 복사되었습니다. 카톡·문자로 전달하세요."));
+                          }}>
+                          🔗 서명 링크 복사
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {step.status === "APPROVED" ? (

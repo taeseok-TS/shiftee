@@ -73,18 +73,21 @@ export async function buildContractMergeData(
     endDate: string | null;
     salary?: string | null;
     extraFields?: Record<string, string> | null;
+    // 외부(미가입) 계약자 — 직원 정보 대신 관리자가 입력한 이름·연락처 사용,
+    // 나머지 개인정보(생년월일·주소·지점 등)는 extraFields로 자동 필드까지 덮어쓸 수 있음
+    external?: { name: string; phone?: string | null } | null;
   }
 ): Promise<Record<string, string>> {
-  const targetUser = await prisma.user.findUnique({
+  const targetUser = opts.external ? null : await prisma.user.findUnique({
     where: { id: userId },
     select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true, birthDate: true, address: true, empNo: true },
   });
   const now = new Date();
   const mergeData: Record<string, string> = {
-    직원명: targetUser?.name ?? "",
-    이름: targetUser?.name ?? "",
+    직원명: opts.external?.name ?? targetUser?.name ?? "",
+    이름: opts.external?.name ?? targetUser?.name ?? "",
     이메일: targetUser?.email ?? "",
-    연락처: targetUser?.phone ?? "",
+    연락처: opts.external?.phone ?? targetUser?.phone ?? "",
     지점: targetUser?.branch ?? "",
     직책: targetUser?.jobGroup ?? "",
     직급: targetUser?.position ?? "",
@@ -125,10 +128,12 @@ export async function buildContractMergeData(
   mergeData["동의고유식별"] = consentBox(opts.extraFields?.["동의고유식별"]);
   mergeData["동의채용정보"] = consentBox(opts.extraFields?.["동의채용정보"]);
 
-  // 템플릿별 추가 입력 필드 — 자동 필드는 덮어쓰지 않음, 날짜는 한국식 표기로 변환
+  // 템플릿별 추가 입력 필드 — 자동 필드는 덮어쓰지 않음(외부 계약은 직원 정보가 없어 덮어쓰기 허용),
+  // 날짜는 한국식 표기로 변환
   if (opts.extraFields) {
     for (const [k, v] of Object.entries(opts.extraFields)) {
-      if (k in mergeData || typeof v !== "string") continue; // 자동/동의 필드는 위에서 처리
+      if (typeof v !== "string") continue;
+      if (k in mergeData && !(opts.external && v.trim() !== "" && !["직원명", "이름", "제목", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명"].includes(k))) continue;
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
         mergeData[k] = fmtKoreanDate(v);
       } else if (/금액|급여액|월급|수당액|비용/.test(k) && /^[\d,]+$/.test(v.trim()) && v.trim() !== "") {

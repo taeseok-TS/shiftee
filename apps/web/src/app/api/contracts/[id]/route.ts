@@ -195,6 +195,11 @@ export async function PATCH(
     // 기존 승인라인 제거
     await prisma.contractApprovalLine.deleteMany({ where: { contractId: id } });
 
+    // 외부 서명 단계용 계약 정보 (approverIds의 "EXTERNAL" 항목 → 게스트 서명 링크 토큰 생성)
+    const contractForExternal = await prisma.contract.findUnique({
+      where: { id }, select: { externalName: true },
+    });
+
     // 새 승인라인 생성 (SENT 상태일 때는 첫 번째 단계를 PENDING으로 설정)
     const approvalLine = await prisma.contractApprovalLine.create({
       data: {
@@ -203,6 +208,17 @@ export async function PATCH(
           createMany: {
             data: approverIds.map((approverId: string, idx: number) => {
               const stepStatus = status === "SENT" && idx === 0 ? "PENDING" : "WAITING";
+              if (approverId === "EXTERNAL") {
+                // 외부(미가입) 서명자 단계 — 링크 토큰으로 서명 (유효기간 14일)
+                return {
+                  approverId: null,
+                  externalName: contractForExternal?.externalName || "외부 서명자",
+                  signToken: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
+                  tokenExpiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),
+                  order: idx + 1,
+                  status: stepStatus,
+                };
+              }
               console.log(`단계 ${idx + 1}: approverId=${approverId}, status=${stepStatus}`);
               return {
                 approverId,
