@@ -1321,6 +1321,8 @@ export default function ContractsPage() {
                     { field: "사원번호", label: "사번", val: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "" },
                     { field: "입사일", label: "입사일자", val: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "" },
                     { field: "연락처", label: "연락처", val: emp.phone || "" },
+                    // 프로필 자동 필드(비밀유지서약서 등) — 없으면 직원이 서명 시 입력해 프로필에 저장됨
+                    { field: "생년월일", label: "생년월일", val: emp.birthDate ? String(emp.birthDate).slice(0, 10) : "", profileFallback: true },
                   ].filter(r => templateFields.includes(r.field));
                   if (autoRows.length === 0) return null;
                   return (
@@ -1330,7 +1332,9 @@ export default function ContractsPage() {
                         {autoRows.map(r => (
                           <div key={r.field} className="text-sm">
                             <span className="text-gray-500 text-xs">{r.label}</span>
-                            <p className={r.val ? "font-medium" : "text-amber-600 text-xs"}>{r.val || "직원 정보에 없음"}</p>
+                            <p className={r.val ? "font-medium" : "text-amber-600 text-xs"}>
+                              {r.val || ((r as { profileFallback?: boolean }).profileFallback ? "정보 없음 → 직원이 서명 시 입력" : "직원 정보에 없음")}
+                            </p>
                           </div>
                         ))}
                       </div>
