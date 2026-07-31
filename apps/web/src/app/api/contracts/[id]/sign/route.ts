@@ -27,8 +27,19 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover, consent, profile, fields } = body;
-  const signatureUrl = await saveSignature(signatureData);
+  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault } = body;
+  // 저장된 결재 서명(관리자·원장) 사용 — 매번 그리지 않고 원클릭 승인
+  let signatureUrl: string | null = null;
+  if (useSaved && (session.role === "ADMIN" || session.role === "MANAGER")) {
+    const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { signatureUrl: true } });
+    signatureUrl = me?.signatureUrl || null;
+  }
+  if (!signatureUrl) signatureUrl = await saveSignature(signatureData);
+  // 이번에 그린 서명을 기본 서명으로 저장 (다음 결재부터 원클릭)
+  if (signatureUrl && saveAsDefault && (session.role === "ADMIN" || session.role === "MANAGER")) {
+    try { await prisma.user.update({ where: { id: session.userId }, data: { signatureUrl } }); }
+    catch (e) { console.error("기본 서명 저장 오류:", e); }
+  }
 
   const contract = await prisma.contract.findUnique({
     where: { id },

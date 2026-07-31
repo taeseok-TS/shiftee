@@ -28,6 +28,7 @@ export async function GET(_request: NextRequest) {
         address: true,
         role: true,
         avatarUrl: true,
+        signatureUrl: true,
       },
     });
 

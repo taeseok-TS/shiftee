@@ -99,11 +99,16 @@ export default function ManagerContractsPage() {
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const [signing, setSigning] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
+  // 저장된 결재 서명 — 있으면 원클릭 승인
+  const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
+  const [drawNewSig, setDrawNewSig] = useState(false);
+  const [saveAsDefault, setSaveAsDefault] = useState(true);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
       setBranch(d.user?.branch || d.branch || "");
       setMyName(d.user?.name || "");
+      setMySignatureUrl(d.user?.signatureUrl || null);
     }).catch(() => {});
   }, []);
 
@@ -131,19 +136,29 @@ export default function ManagerContractsPage() {
 
   async function handleApprove() {
     if (!signTarget) return;
-    if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
+    const useSaved = !!mySignatureUrl && !drawNewSig;
+    let body: Record<string, unknown>;
+    if (useSaved) {
+      body = { useSaved: true, isApprover: true };
+    } else {
+      if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
+      body = { signatureData: sigRef.current.toDataURL(), isApprover: true, saveAsDefault };
+    }
     setSigning(true);
     try {
       const res = await fetch(`/api/contracts/${signTarget.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover: true }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "결재 처리에 실패했습니다."); return; }
       toast.success("계약서를 승인했습니다.");
       setSignOpen(false);
       setSignTarget(null);
+      if (!useSaved && saveAsDefault) {
+        fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
+      }
       fetchData();
     } finally {
       setSigning(false);
@@ -179,7 +194,7 @@ export default function ManagerContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setSignOpen(true); }}>
+                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setDrawNewSig(false); setSignOpen(true); }}>
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -288,14 +303,33 @@ export default function ManagerContractsPage() {
                 </div>
               </div>
             )}
-            <div className="space-y-2">
-              <Label>서명 *</Label>
-              <SignaturePad ref={sigRef} />
-              <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
-            </div>
+            {mySignatureUrl && !drawNewSig ? (
+              /* 저장된 서명 원클릭 승인 */
+              <div className="space-y-2">
+                <Label>저장된 내 서명</Label>
+                <div className="border rounded-lg bg-white p-2 flex items-center justify-center h-24">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={mySignatureUrl} alt="저장된 서명" className="max-h-20 object-contain" />
+                </div>
+                <button type="button" className="text-xs text-blue-600 underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
+                  새로 그리기 (기존 저장 서명 교체)
+                </button>
+                <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>서명 *</Label>
+                <SignaturePad ref={sigRef} />
+                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                  <input type="checkbox" checked={saveAsDefault} onChange={e => setSaveAsDefault(e.target.checked)} />
+                  이 서명을 저장해두고 다음 결재부터 자동 사용
+                </label>
+                <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
+              </div>
+            )}
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setSignOpen(false)} disabled={signing}>취소</Button>
-              <Button onClick={handleApprove} disabled={signing}>{signing ? "처리 중..." : "승인"}</Button>
+              <Button onClick={handleApprove} disabled={signing}>{signing ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "승인"}</Button>
             </div>
           </div>
         </DialogContent>

@@ -23,6 +23,7 @@ model User {
   position             String? // 직급 (인턴매니저, 주임교실장 등)
   branch               String? // 지점 (예: "A지점", "B지점")
   avatarUrl            String? // 프로필 사진 URL (없으면 이니셜 아바타)
+  signatureUrl         String? // 저장된 결재 서명(관리자·원장) — 결재 시 원클릭 승인에 사용
   birthDate            DateTime? @db.Date // 생일 (봇 브리핑 생일 축하용)
   address              String? // 주소 (전자계약 자동 채움 — 서명 시 비어 있으면 직원이 입력→저장)
   notifyApproval       Boolean   @default(true) // 결재 결과 알림(봇 DM+푸시) 수신 여부 — 본인 설정 (관리자 강제발송 시 무시)

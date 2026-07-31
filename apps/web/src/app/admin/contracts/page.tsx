@@ -169,6 +169,10 @@ export default function ContractsPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
+  // 저장된 결재 서명 — 있으면 원클릭 승인, 없으면 그린 서명을 저장해두고 다음부터 사용
+  const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
+  const [drawNewSig, setDrawNewSig] = useState(false);
+  const [saveAsDefault, setSaveAsDefault] = useState(true);
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -663,6 +667,7 @@ export default function ContractsPage() {
       setRole(d.user?.role || "EMPLOYEE");
       setMyId(d.user?.id || "");
       setMyName(d.user?.name || "");
+      setMySignatureUrl(d.user?.signatureUrl || null);
     });
     // includeAdmins: 승인자 선택에 관리자도 나오도록 (계약 대상 목록에서는 클라이언트에서 제외)
     fetch("/api/employees?includeAdmins=true").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
@@ -855,17 +860,27 @@ export default function ContractsPage() {
   }
 
   async function handleSign(id: string, isApprover = false) {
-    if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
-
+    const useSaved = !!mySignatureUrl && !drawNewSig;
+    let body: Record<string, unknown>;
+    if (useSaved) {
+      body = { useSaved: true, isApprover };
+    } else {
+      if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
+      body = { signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault };
+    }
     const res = await fetch(`/api/contracts/${id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
     toast.success(isApprover ? "계약 승인됨" : "서명 완료");
     setSignOpen(false);
+    // 새로 그린 서명을 기본으로 저장했으면 최신 저장 서명 반영
+    if (!useSaved && saveAsDefault) {
+      fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
+    }
     fetchContracts();
   }
 
@@ -1568,7 +1583,7 @@ export default function ContractsPage() {
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
+                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignOpen(true); }} className="gap-1">
                   <PenLine size={14} />승인
                 </Button>
               </div>
@@ -1594,7 +1609,7 @@ export default function ContractsPage() {
                   <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline"><Download size={14} /></Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1921,13 +1936,33 @@ export default function ContractsPage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label>서명 *</Label>
-                <SignaturePad ref={sigRef} />
-              </div>
+              {mySignatureUrl && !drawNewSig ? (
+                /* 저장된 서명 원클릭 승인 */
+                <div className="space-y-2">
+                  <Label>저장된 내 서명</Label>
+                  <div className="border rounded-lg bg-white p-2 flex items-center justify-center h-24">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={mySignatureUrl} alt="저장된 서명" className="max-h-20 object-contain" />
+                  </div>
+                  <button type="button" className="text-xs text-blue-600 underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
+                    새로 그리기 (기존 저장 서명 교체)
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>서명 *</Label>
+                  <SignaturePad ref={sigRef} />
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                    <input type="checkbox" checked={saveAsDefault} onChange={e => setSaveAsDefault(e.target.checked)} />
+                    이 서명을 저장해두고 다음 결재부터 자동 사용
+                  </label>
+                </div>
+              )}
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
-                <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>서명</Button>
+                <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>
+                  {mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "서명"}
+                </Button>
               </div>
             </div>
           )}

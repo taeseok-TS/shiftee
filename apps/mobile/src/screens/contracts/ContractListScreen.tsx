@@ -11,6 +11,7 @@ import {
   Linking,
   TextInput,
   ScrollView,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -53,6 +54,10 @@ export default function ContractListScreen() {
   const [myId, setMyId] = useState("");
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
+  // 저장된 결재 서명 — 있으면 원클릭 승인 (본인 계약 서명은 항상 직접 그림)
+  const [mySigUrl, setMySigUrl] = useState<string | null>(null);
+  const [drawNewSig, setDrawNewSig] = useState(false);
+  const [saveSigDefault, setSaveSigDefault] = useState(true);
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
@@ -69,7 +74,7 @@ export default function ContractListScreen() {
 
   useEffect(() => {
     loadContracts();
-    api.getMyProfile().then(p => { setMyId(p.id || ""); setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" }); }).catch(() => {});
+    api.getMyProfile().then(p => { setMyId(p.id || ""); setMySigUrl(p.signatureUrl || null); setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" }); }).catch(() => {});
   }, []);
 
   const loadContracts = async () => {
@@ -126,10 +131,31 @@ export default function ContractListScreen() {
       if (hasConsent || profile || fields) {
         await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
+      } else if (signTarget.userId !== myId && saveSigDefault) {
+        // 결재자(원장·본부)가 그린 서명 — 기본 서명으로 저장해 다음부터 원클릭
+        await api.signContractAndSave(id, sig);
+        api.getMyProfile().then(p => setMySigUrl(p.signatureUrl || null)).catch(() => {});
       } else {
         await api.signContract(id, sig, true);
       }
       Alert.alert("완료", "결재를 승인했습니다.");
+      await loadContracts();
+    } catch (error: any) {
+      Alert.alert("오류", error?.response?.data?.error || "결재 처리에 실패했습니다.");
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  // 저장된 서명으로 원클릭 승인 (결재자 전용)
+  const handleApproveSaved = async () => {
+    if (!signTarget) return;
+    const id = signTarget.id;
+    setSignTarget(null);
+    setSigning(true);
+    try {
+      await api.signContractSaved(id);
+      Alert.alert("완료", "저장된 서명으로 결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
       Alert.alert("오류", error?.response?.data?.error || "결재 처리에 실패했습니다.");
@@ -202,7 +228,7 @@ export default function ContractListScreen() {
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -349,32 +375,62 @@ export default function ContractListScreen() {
                   })}
                 </View>
               )}
-              <View style={styles.padWrap}>
-                <SignatureScreen
-                  ref={sigRef}
-                  onOK={handleApproveSignature}
-                  onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
-                  descriptionText=""
-                  imageType="image/png"
-                  webStyle={`.m-signature-pad--footer { display: none; }
-                    .m-signature-pad { box-shadow: none; border: none; }
-                    body, html { width: 100%; height: 100%; }`}
-                />
-              </View>
-              <View style={styles.padActions}>
-                {consentKeys.length > 0 && (
-                  <TouchableOpacity style={styles.padClear} onPress={() => setSignStep(1)}>
-                    <Text style={styles.padClearText}>← 이전</Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity style={styles.padClear} onPress={() => sigRef.current?.clearSignature()}>
-                  <Text style={styles.padClearText}>지우기</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={styles.padConfirmText}>승인 완료</Text>
-                </TouchableOpacity>
-              </View>
+              {signTarget && signTarget.userId !== myId && mySigUrl && !drawNewSig ? (
+                /* 결재자 — 저장된 서명으로 원클릭 승인 */
+                <>
+                  <View style={{ flex: 1, padding: 20 }}>
+                    <Text style={styles.consentLabel}>저장된 내 서명</Text>
+                    <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, backgroundColor: "#fff", height: 120, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
+                      <Image source={{ uri: `${API_URL.replace(/\/api$/, "")}${mySigUrl}` }} style={{ width: 220, height: 90 }} resizeMode="contain" />
+                    </View>
+                    <TouchableOpacity onPress={() => setDrawNewSig(true)}>
+                      <Text style={{ color: "#2563eb", fontSize: 13, marginTop: 10 }}>새로 그리기 (기존 저장 서명 교체)</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.padActions}>
+                    <TouchableOpacity style={styles.padConfirm} onPress={handleApproveSaved} disabled={signing}>
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={styles.padConfirmText}>저장된 서명으로 승인</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.padWrap}>
+                    <SignatureScreen
+                      ref={sigRef}
+                      onOK={handleApproveSignature}
+                      onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
+                      descriptionText=""
+                      imageType="image/png"
+                      webStyle={`.m-signature-pad--footer { display: none; }
+                        .m-signature-pad { box-shadow: none; border: none; }
+                        body, html { width: 100%; height: 100%; }`}
+                    />
+                  </View>
+                  {signTarget && signTarget.userId !== myId && (
+                    <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 8 }}
+                      onPress={() => setSaveSigDefault(v => !v)}>
+                      <Ionicons name={saveSigDefault ? "checkbox" : "square-outline"} size={20} color="#2563eb" />
+                      <Text style={{ fontSize: 13, color: "#374151" }}>이 서명을 저장해두고 다음 결재부터 자동 사용</Text>
+                    </TouchableOpacity>
+                  )}
+                  <View style={styles.padActions}>
+                    {consentKeys.length > 0 && (
+                      <TouchableOpacity style={styles.padClear} onPress={() => setSignStep(1)}>
+                        <Text style={styles.padClearText}>← 이전</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.padClear} onPress={() => sigRef.current?.clearSignature()}>
+                      <Text style={styles.padClearText}>지우기</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={styles.padConfirmText}>승인 완료</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </>
           )}
         </View>
