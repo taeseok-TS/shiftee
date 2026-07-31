@@ -107,6 +107,8 @@ export async function buildContractMergeData(
             연봉총액: `${sal.toLocaleString()}원`,
             월급여합계: `${monthly.toLocaleString()}원`,
             기본급: `${(monthly - 200000).toLocaleString()}원`,
+            식대: "200,000원", // 코디 계약서 급여표 — 기본급 계산과 동일한 식대 고정값
+            연봉숫자: sal.toLocaleString(), // "₩ {연봉숫자} 원" 표기용(원 미포함)
           };
         })()
       : {}),
@@ -154,7 +156,7 @@ export async function scanTemplateProfileFields(templateFileUrl: string): Promis
 const SYSTEM_FIELDS = new Set([
   "직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "생년월일", "주소",
   "사원번호", "제목", "계약시작일", "계약종료일", "연봉", "작성일",
-  "연봉한글", "연봉총액", "월급여합계", "기본급", "신규입사", "재계약",
+  "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자", "신규입사", "재계약",
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
 ]);
 

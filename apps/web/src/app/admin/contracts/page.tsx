@@ -148,6 +148,7 @@ export default function ContractsPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(3종 묶음) 발송
   const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(5종 묶음) 발송
+  const [codiBundleMode, setCodiBundleMode] = useState(false); // 코디 채용 패키지(계약서 선택 + 3종 묶음) 발송
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -531,7 +532,7 @@ export default function ContractsPage() {
   const AUTO_FIELDS = ["직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "사원번호", "작성일", "근로자서명", "대표서명",
     "원장서명", "본부서명", // 결재란 서명 마커 — 서명본에서 자동 삽입
     "주소", "생년월일", // 프로필 자동 채움(비면 직원이 서명 시 입력)
-    "연봉한글", "기본급", "월급여합계", "연봉총액", // 연봉에서 자동 계산되는 필드
+    "연봉한글", "기본급", "월급여합계", "연봉총액", "식대", "연봉숫자", // 연봉에서 자동 계산되는 필드
     "동의고유식별", "동의채용정보"]; // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
@@ -564,6 +565,10 @@ export default function ContractsPage() {
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
   // 퇴사 패키지 5종 — 사직원(결재라인) + 정산·동의 3종(결재라인) + 비밀유지서약서(퇴직시, 직원 서명만)
+  // 코디 채용 패키지 — 코디 계약서 4종(정규직 주40/주35·계약직 일반/단기) 중 선택 + 비밀유지·개인정보동의서
+  const codiTemplates = templates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
+  const canCodiBundle = codiTemplates.length > 0 && !!ndaTemplate && !!privacyTemplate;
+
   const resignTemplates = [
     templates.find(t => t.name.includes("사직원")),
     templates.find(t => t.name.includes("금품청산")),
@@ -608,7 +613,8 @@ export default function ContractsPage() {
     if (!empName) return "";
     if (resign) return `${year} ${empName} 사직원`; // 퇴사 패키지 대표 문서
     const t = templateId ? templates.find(x => x.id === templateId) : undefined;
-    const docName = bundle || !t || t.type === "EMPLOYMENT" ? "근로계약서" : t.name;
+    // 코디 계약서는 구분(정규직/계약직 등)이 이름에 있어 템플릿명을 그대로 사용
+    const docName = bundle || !t ? "근로계약서" : t.name.includes("코디") ? t.name : t.type === "EMPLOYMENT" ? "근로계약서" : t.name;
     return `${year} ${empName} ${docName}`;
   };
 
@@ -711,6 +717,39 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
+
+    // 코디 채용 패키지: 선택한 코디 계약서 + 비밀유지 + 개인정보동의서 3종 묶음
+    if (codiBundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
+      const allExtra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        allExtra[k] = v;
+      }
+      const empName = employees.find(e => e.id === createForm.userId)?.name || "";
+      const items = [
+        { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          extraFields: allExtra, employeeOnly: false },
+        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${empName}`, type: "CONFIDENTIAL",
+          extraFields: allExtra, employeeOnly: true },
+        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
+          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+      ];
+      const res = await fetch("/api/contracts/bundle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: createForm.userId, items }),
+      });
+      const data = await res.json();
+      setUploading(false);
+      if (!res.ok) { toast.error(data.error || "코디 패키지 생성 실패"); return; }
+      toast.success("코디 채용 패키지 3종이 작성되었습니다. 코디 계약서에서 발송하면 3종이 함께 발송됩니다.");
+      setCreateOpen(false);
+      setUseTemplate(false); setSelectedTemplate(""); setCodiBundleMode(false); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+      setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+      return;
+    }
 
     // 퇴사 패키지: 사직원 + 금품청산·퇴직금·연차수당 정산 + 비밀유지서약서(퇴직시) 5종 묶음
     if (resignBundleMode && useTemplate && canResignBundle) {
@@ -900,6 +939,7 @@ export default function ContractsPage() {
                 setSelectedTemplate("");
                 setBundleMode(false);
                 setResignBundleMode(false);
+                setCodiBundleMode(false);
               }
             }}>
             <div className="flex gap-2">
@@ -1023,7 +1063,7 @@ export default function ContractsPage() {
                             onChange={e => {
                               const checked = e.target.checked;
                               setBundleMode(checked);
-                              if (checked) setResignBundleMode(false);
+                              if (checked) { setResignBundleMode(false); setCodiBundleMode(false); }
                               // 패키지 체크 시 근로계약서 미선택이면 자동 선택 (계약구분·추가 필드 표시)
                               if (checked && !selectedTemplate && empTemplate) {
                                 const et = empTemplate;
@@ -1053,6 +1093,7 @@ export default function ContractsPage() {
                             onChange={e => {
                               const checked = e.target.checked;
                               setResignBundleMode(checked);
+                              if (checked) setCodiBundleMode(false);
                               const sajik = resignTemplates[0];
                               if (checked && sajik) {
                                 // 사직원을 대표 문서로 자동 선택 + 5종 필드 합집합 스캔
@@ -1070,6 +1111,55 @@ export default function ContractsPage() {
                             사직원 + 금품청산 동의서 + 퇴직금·연차수당 정산 신청서 + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
                             비밀유지서약서(퇴직시)는 <b>직원 서명만</b> 받으며, 나머지 4종은 설정한 결재라인으로 진행됩니다.
                           </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 코디 채용 패키지 — 코디 계약서(4종 중 선택) + 비밀유지·개인정보동의서 */}
+                    {canCodiBundle && !bundleMode && !resignBundleMode && (
+                      <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-2">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-sky-800">
+                          <input type="checkbox" checked={codiBundleMode}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setCodiBundleMode(checked);
+                              if (checked) {
+                                // 코디 계약서가 하나뿐이면 자동 선택
+                                if (codiTemplates.length === 1) {
+                                  const ct = codiTemplates[0];
+                                  setSelectedTemplate(ct.id);
+                                  setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, ct.id), type: ct.type }));
+                                  scanFields(ct.id, true);
+                                } else if (!codiTemplates.some(t => t.id === selectedTemplate)) {
+                                  setSelectedTemplate("");
+                                }
+                              } else if (selectedTemplate) {
+                                scanFields(selectedTemplate, false);
+                              }
+                            }} />
+                          코디 채용 패키지로 함께 발송 (3종)
+                        </label>
+                        {codiBundleMode && (
+                          <div className="pl-6 space-y-2">
+                            <p className="text-xs font-medium text-sky-800">근무 구분 (코디 계약서 선택)</p>
+                            <div className="space-y-1">
+                              {codiTemplates.map(ct => (
+                                <label key={ct.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                                  <input type="radio" name="codiTemplate" checked={selectedTemplate === ct.id}
+                                    onChange={() => {
+                                      setSelectedTemplate(ct.id);
+                                      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, ct.id), type: ct.type }));
+                                      scanFields(ct.id, true);
+                                    }} />
+                                  {ct.name}
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-[11px] text-sky-700">
+                              선택한 코디 계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
+                              비밀유지·개인정보동의서는 <b>직원 서명만</b>, 계약서는 <b>원장 → 직원 → 본부</b> 순으로 결재라인을 선택해 발송하세요.
+                            </p>
+                          </div>
                         )}
                       </div>
                     )}
