@@ -1279,9 +1279,9 @@ export default function ContractsPage() {
                 </div>
                 )}
 
-                {(!useTemplate || templateFields.includes("연봉")) && (
+                {(!useTemplate || templateFields.some(f => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))) && (
                 <div className="space-y-2">
-                  <Label>연봉 <span className="text-xs text-gray-400 font-normal">(선택 · 워드 템플릿의 {"{연봉}"} 필드에 입력됨)</span></Label>
+                  <Label>연봉 <span className="text-xs text-gray-400 font-normal">(급여표 기본급·월합계·연봉총액이 자동 계산됩니다)</span></Label>
                   <Input
                     type="number"
                     placeholder="예: 36000000"
