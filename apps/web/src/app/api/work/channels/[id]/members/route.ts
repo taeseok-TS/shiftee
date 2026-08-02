@@ -3,10 +3,20 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { channelCanManage } from "@/lib/work-perms";
 
-// 멤버 추가/내보내기 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
+// 내보내기(강퇴) 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
 async function canManageMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
   if (isDefault) return role === "ADMIN";
   return channelCanManage(channelId, userId, role);
+}
+
+// 멤버 초대 권한: 전체(기본) 채널은 관리자만, 그 외 그룹채널은 구성원 누구나 초대 가능
+async function canInviteMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
+  if (isDefault) return role === "ADMIN";
+  const me = await prisma.workChannelMember.findUnique({
+    where: { channelId_userId: { channelId, userId } },
+    select: { userId: true },
+  });
+  return !!me || role === "ADMIN" || role === "MANAGER";
 }
 
 // 채널 멤버 목록 (참여자 누구나 조회 가능)
@@ -23,7 +33,7 @@ export async function GET(
 
   const members = await prisma.workChannelMember.findMany({
     where: { channelId: id },
-    include: { user: { select: { id: true, name: true, branch: true, position: true } } },
+    include: { user: { select: { id: true, name: true, branch: true, position: true, avatarUrl: true } } },
     orderBy: { joinedAt: "asc" },
   });
 
@@ -33,6 +43,7 @@ export async function GET(
       name: m.user.name,
       branch: m.user.branch,
       position: m.user.position,
+      avatarUrl: m.user.avatarUrl,
       isCreator: m.userId === channel.createdBy,
       isManager: m.isManager,
     })),
@@ -58,8 +69,8 @@ export async function POST(
   const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true, isDefault: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   if (channel.type === "DM") return NextResponse.json({ error: "DM에는 멤버를 추가할 수 없습니다." }, { status: 400 });
-  if (!(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
-    return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 관리할 수 있습니다." : "채널을 관리할 권한이 없습니다." }, { status: 403 });
+  if (!(await canInviteMembers(id, channel.isDefault, session.userId, session.role)))
+    return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 초대할 수 있습니다." : "채널 구성원만 초대할 수 있습니다." }, { status: 403 });
 
   let historyFrom: Date | null = null;
   if (historyOption === "90days") historyFrom = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -89,6 +100,9 @@ export async function DELETE(
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   // 본인이 본인을 빼는 것(채널 나가기)은 누구나 가능, 남을 빼는 것(강퇴)은 관리 권한 필요
   const isSelfLeave = userId === session.userId;
+  // 전체 채널은 나가기 무의미(목록에 계속 표시) + 멤버행 삭제 시 미읽음 집계가 깨짐 → 차단
+  if (isSelfLeave && channel.isDefault)
+    return NextResponse.json({ error: "전체 채널은 나갈 수 없습니다." }, { status: 400 });
   if (!isSelfLeave && !(await canManageMembers(id, channel.isDefault, session.userId, session.role)))
     return NextResponse.json({ error: channel.isDefault ? "전체 채널은 관리자만 관리할 수 있습니다." : "채널을 관리할 권한이 없습니다." }, { status: 403 });
   if (userId === channel.createdBy)

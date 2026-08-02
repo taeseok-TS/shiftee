@@ -16,6 +16,9 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
+  Share,
+  PanResponder,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
@@ -34,9 +37,9 @@ import * as api from "../../services/api";
 import * as storage from "../../services/storage";
 import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, FILE_ORIGIN } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
-import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
+import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, hideChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
 
-type ParamList = { WorkChat: { channelId: string; name: string; notify?: string; type?: string } };
+type ParamList = { WorkChat: { channelId: string; name: string; notify?: string; type?: string; isDefault?: boolean } };
 
 const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "👏"];
 
@@ -66,22 +69,92 @@ function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
   );
 }
 
-// 사진 뷰어 한 페이지 — 원본 로딩 중 스피너, 실패 시 안내
-function ViewerPage({ uri, width }: { uri: string; width: number }) {
+// 사진 뷰어 한 페이지 — 원본 로딩 중 스피너, 실패 시 안내, 핀치 줌
+// iOS: ScrollView 내장 줌(확대 유지 + 드래그 이동, 더블탭·페이지 이탈 시 리셋).
+// Android: 두 손가락 핀치로 확대(놓으면 복귀 — gesture-handler 미설치 환경의 최소 구현)
+function ViewerPage({ uri, width, height, active }: { uri: string; width: number; height: number; active: boolean }) {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const scale = useRef(new Animated.Value(1)).current;
+  const baseDist = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const lastTap = useRef(0);
+
+  const resetZoom = () => {
+    (scrollRef.current as any)?.scrollResponderZoomTo?.({ x: 0, y: 0, width, height, animated: true });
+  };
+  // 다른 페이지로 넘어가면 확대 상태 초기화 — 돌아왔을 때 확대가 남아 페이징이 막히는 문제 방지
+  useEffect(() => {
+    if (!active && Platform.OS === "ios") resetZoom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  const pinchPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
+      // 부모(가로 페이징 FlatList)가 먼저 responder를 잡아도 2터치면 가로챈다
+      onMoveShouldSetPanResponderCapture: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
+      onPanResponderTerminationRequest: () => false, // 핀치 도중 부모의 탈취 금지(확대가 튀는 현상 방지)
+      onPanResponderMove: (e) => {
+        const t = e.nativeEvent.touches;
+        if (t.length < 2) return;
+        const dist = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
+        if (!baseDist.current) { baseDist.current = dist; return; }
+        scale.setValue(Math.min(4, Math.max(1, dist / baseDist.current)));
+      },
+      onPanResponderRelease: () => {
+        baseDist.current = 0;
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+      },
+      onPanResponderTerminate: () => {
+        baseDist.current = 0;
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
+
+  const img = failed ? (
+    <Text style={{ color: "#9ca3af", fontSize: 13 }}>사진을 불러오지 못했습니다</Text>
+  ) : (
+    <Animated.Image
+      source={{ uri }}
+      style={{ width: "100%", height: "100%", transform: Platform.OS === "android" ? [{ scale }] : undefined }}
+      resizeMode="contain"
+      onLoadEnd={() => setLoading(false)}
+      onError={() => { setLoading(false); setFailed(true); }}
+    />
+  );
+
   return (
     <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}>
-      {failed ? (
-        <Text style={{ color: "#9ca3af", fontSize: 13 }}>사진을 불러오지 못했습니다</Text>
+      {Platform.OS === "ios" ? (
+        <ScrollView
+          ref={scrollRef}
+          style={{ width, height: "100%" }}
+          contentContainerStyle={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}
+          minimumZoomScale={1}
+          maximumZoomScale={4}
+          bouncesZoom
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          centerContent
+        >
+          {/* 더블탭 = 확대 초기화 (확대 상태에서 페이징이 잠기는 것의 탈출구) */}
+          <Pressable
+            style={{ width: "100%", height: "100%" }}
+            onPress={() => {
+              const now = Date.now();
+              if (now - lastTap.current < 300) resetZoom();
+              lastTap.current = now;
+            }}
+          >
+            {img}
+          </Pressable>
+        </ScrollView>
       ) : (
-        <Image
-          source={{ uri }}
-          style={{ width: "100%", height: "100%" }}
-          resizeMode="contain"
-          onLoadEnd={() => setLoading(false)}
-          onError={() => { setLoading(false); setFailed(true); }}
-        />
+        <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }} {...pinchPan.panHandlers}>
+          {img}
+        </View>
       )}
       {loading && !failed && (
         <ActivityIndicator size="large" color="#fff" style={{ position: "absolute" }} />
@@ -111,9 +184,11 @@ export default function WorkChatScreen() {
   const [replyTarget, setReplyTarget] = useState<WorkMessage | null>(null);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
   // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
-  // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다
-  const [imageViewer, setImageViewer] = useState<{ urls: string[]; index: number } | null>(null);
+  // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
+  // keys는 다운로드 시 현재 사진이 속한 메시지(앨범 여부)를 찾는 데도 쓴다
+  const [imageViewer, setImageViewer] = useState<{ urls: string[]; keys: string[]; index: number } | null>(null);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [downloading, setDownloading] = useState(false);
   const listRef = useRef<FlatList<WorkMessage>>(null);
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
@@ -124,7 +199,7 @@ export default function WorkChatScreen() {
 
   const navigation = useNavigation<any>();
   // 뷰어 페이지 폭 — 스타일·페이징 오프셋·카운터 계산이 반드시 같은 값을 써야 함(폴더블·분할화면 대응)
-  const { width: winW } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
   const isGroup = route.params.type !== "DM";
   const [notify, setNotify] = useState(route.params.notify ?? "ALL");
   // 클립보드 이미지 붙여넣기 (캡처 후 복사한 이미지 감지 → 칩 표시)
@@ -801,9 +876,94 @@ export default function WorkChatScreen() {
     }
     const idx = keys.indexOf(`${messageId}#${urlIndex}`);
     // 목록에서 못 찾으면(폴링 레이스 등) 탭한 사진 한 장만이라도 정확히 보여준다
-    if (idx < 0) { setViewerIndex(0); setImageViewer({ urls: [tappedUrl], index: 0 }); return; }
+    if (idx < 0) { setViewerIndex(0); setImageViewer({ urls: [tappedUrl], keys: [`${messageId}#${urlIndex}`], index: 0 }); return; }
     setViewerIndex(idx);
-    setImageViewer({ urls, index: idx });
+    setImageViewer({ urls, keys, index: idx });
+  };
+
+  // 사진 저장 — 서버에서 캐시로 내려받은 뒤
+  // iOS: 공유 시트("이미지 저장"으로 갤러리 저장, 취소하면 중단) / Android: 사용자가 고른 폴더(SAF)에 바로 저장.
+  // 반환: "saved" | "cancelled"
+  const saveOneImage = async (url: string, androidDirUri?: string | null): Promise<"saved" | "cancelled"> => {
+    const filename = url.split("/").pop()?.split("?")[0] || `photo-${Date.now()}.jpg`;
+    const local = `${FileSystem.cacheDirectory}${filename}`;
+    const dl = await FileSystem.downloadAsync(FILE_ORIGIN + url, local);
+    if (Platform.OS === "ios") {
+      const res = await Share.share({ url: dl.uri });
+      return res.action === Share.dismissedAction ? "cancelled" : "saved";
+    }
+    if (!androidDirUri) return "cancelled";
+    const base64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
+    const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
+    const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+    const target = await FileSystem.StorageAccessFramework.createFileAsync(androidDirUri, filename, mime);
+    await FileSystem.writeAsStringAsync(target, base64, { encoding: FileSystem.EncodingType.Base64 });
+    return "saved";
+  };
+
+  // 안드로이드 저장 폴더는 한 번 고르면 기억 — 매번 폴더 선택기가 뜨지 않게
+  const androidSaveDir = useRef<string | null>(null);
+  const downloadImages = async (urls: string[]) => {
+    if (downloading) return;
+    setDownloading(true);
+    let saved = 0;
+    try {
+      let dirUri: string | null = null;
+      if (Platform.OS === "android") {
+        dirUri = androidSaveDir.current;
+        if (!dirUri) {
+          const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (!perm.granted) { setDownloading(false); return; }
+          dirUri = perm.directoryUri;
+          androidSaveDir.current = dirUri;
+        }
+      }
+      for (let i = 0; i < urls.length; i++) {
+        // iOS: 공유 시트 dismiss 애니메이션이 끝나기 전 다음 시트를 열면 실패 — 사이에 간격
+        if (Platform.OS === "ios" && i > 0) await new Promise((r) => setTimeout(r, 700));
+        const r = await saveOneImage(urls[i], dirUri);
+        if (r === "cancelled" && Platform.OS === "ios") break; // 시트 취소 = 전체 중단
+        if (r === "saved") saved++;
+      }
+      if (Platform.OS === "android") Alert.alert("저장 완료", `사진 ${saved}장을 선택한 폴더에 저장했습니다.`);
+      else if (urls.length > 1 && saved < urls.length) Alert.alert("저장 중단", `${urls.length}장 중 ${saved}장까지 진행했습니다.`);
+    } catch {
+      // 폴더 권한이 회수됐을 수 있으니 기억한 폴더는 버리고 다음에 다시 묻는다
+      androidSaveDir.current = null;
+      Alert.alert("오류", saved > 0 ? `${saved}장 저장 후 오류가 발생했습니다.` : "사진 저장에 실패했습니다.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // 뷰어 다운로드 버튼 — 현재 사진이 묶음(앨범) 소속이면 한 장/전체 선택
+  const onViewerDownload = () => {
+    if (!imageViewer || downloading) return;
+    const idx = Math.min(viewerIndex, imageViewer.urls.length - 1);
+    const curUrl = imageViewer.urls[idx];
+    const msgId = imageViewer.keys[idx]?.split("#")[0];
+    const msg = messages.find((m) => m.id === msgId);
+    const album = msg?.albumUrls && msg.albumUrls.length > 1 ? msg.albumUrls : null;
+    if (album) {
+      Alert.alert("사진 저장", `묶음 사진 ${album.length}장 중에서`, [
+        { text: "이 사진만", onPress: () => downloadImages([curUrl]) },
+        {
+          text: `전체 ${album.length}장`,
+          onPress: () => {
+            if (Platform.OS === "ios") {
+              // iOS는 갤러리 직접 저장 권한(네이티브 모듈)이 없어 사진마다 공유 시트로 저장
+              Alert.alert("전체 저장", "사진마다 공유 창이 이어서 열립니다. 각 창에서 '이미지 저장'을 눌러주세요.", [
+                { text: "취소", style: "cancel" },
+                { text: "시작", onPress: () => downloadImages(album) },
+              ]);
+            } else downloadImages(album);
+          },
+        },
+        { text: "취소", style: "cancel" },
+      ]);
+    } else {
+      downloadImages([curUrl]);
+    }
   };
 
   const renderItem = ({ item, index }: { item: WorkMessage; index: number }) => {
@@ -1369,6 +1529,36 @@ export default function WorkChatScreen() {
               <Ionicons name="link-outline" size={18} color="#374151" />
               <Text style={styles.menuText}>링크 모아보기</Text>
             </TouchableOpacity>
+            {/* 나가기 — DM은 목록에서 숨김(새 메시지 오면 다시 표시), 그룹은 채널 탈퇴.
+                전체(isDefault) 채널은 나가도 목록에 남고 미읽음만 폭증하므로 항목 자체를 숨긴다 */}
+            {route.params.isDefault !== true && (
+            <TouchableOpacity style={styles.menuRow} onPress={() => {
+              setMenuOpen(false);
+              if (!myId) { Alert.alert("잠시만요", "정보를 불러오는 중입니다. 다시 시도해주세요."); return; }
+              const verb = isGroup ? "나가기" : "숨기기";
+              const msg = isGroup
+                ? `"${chatTitle}"에서 나갈까요?`
+                : `"${chatTitle}"님과의 대화를 목록에서 숨길까요?\n새 메시지가 오면 다시 표시됩니다.`;
+              Alert.alert(verb, msg, [
+                { text: "취소", style: "cancel" },
+                {
+                  text: verb, style: "destructive",
+                  onPress: async () => {
+                    try {
+                      if (isGroup) await leaveChannel(channelId, myId || "");
+                      else await hideChannel(channelId);
+                      navigation.goBack();
+                    } catch (e: any) {
+                      Alert.alert("오류", e?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+                    }
+                  },
+                },
+              ]);
+            }}>
+              <Ionicons name="exit-outline" size={18} color="#ef4444" />
+              <Text style={[styles.menuText, { color: "#ef4444" }]}>{isGroup ? "채팅방 나가기" : "대화 숨기기"}</Text>
+            </TouchableOpacity>
+            )}
           </View>
         </Pressable>
       </Modal>
@@ -1633,17 +1823,18 @@ export default function WorkChatScreen() {
               maxToRenderPerBatch={2}
               keyExtractor={(u, i) => `${i}-${u}`}
               initialScrollIndex={imageViewer.index}
+              extraData={viewerIndex}
               getItemLayout={(_d, i) => ({ length: winW, offset: winW * i, index: i })}
               onScroll={(e) => setViewerIndex(Math.round(e.nativeEvent.contentOffset.x / winW))}
               scrollEventThrottle={16}
-              renderItem={({ item: u }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} />}
+              renderItem={({ item: u, index: pi }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} height={winH} active={pi === viewerIndex} />}
             />
             <View style={styles.viewerHead}>
               <Text style={styles.viewerCount}>{viewerIndex + 1} / {imageViewer.urls.length}</Text>
               <View style={{ flexDirection: "row", gap: 12 }}>
-                {/* 원본을 브라우저로 열어 저장·공유 (기존 동작 유지 경로) */}
-                <TouchableOpacity style={styles.viewerClose} onPress={() => Linking.openURL(FILE_ORIGIN + imageViewer.urls[Math.min(viewerIndex, imageViewer.urls.length - 1)])} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Ionicons name="download-outline" size={24} color="#fff" />
+                {/* 사진 저장 — 묶음이면 한 장/전체 선택 */}
+                <TouchableOpacity style={styles.viewerClose} onPress={onViewerDownload} disabled={downloading} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  {downloading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="download-outline" size={24} color="#fff" />}
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.viewerClose} onPress={() => setImageViewer(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Ionicons name="close" size={26} color="#fff" />

@@ -287,7 +287,7 @@ export default function WorkChannelListScreen() {
         renderItem={({ item }) => (
           <SwipeableChannelRow
             item={item}
-            onOpen={() => navigation.navigate("WorkChat", { channelId: item.id, name: item.name, notify: item.notify, type: item.type })}
+            onOpen={() => navigation.navigate("WorkChat", { channelId: item.id, name: item.name, notify: item.notify, type: item.type, isDefault: item.isDefault })}
             onAction={() => handleAction(item)}
           />
         )}
