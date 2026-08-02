@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { DeviceEventEmitter } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -9,6 +10,7 @@ import AttendanceScreen from "../screens/attendance/AttendanceScreen";
 import MoreNavigator from "./MoreNavigator";
 import ApprovalsScreen from "../screens/approvals/ApprovalsScreen";
 import * as storage from "../services/storage";
+import { getUnreadCount } from "../services/channels";
 
 const Tab = createBottomTabNavigator();
 
@@ -18,9 +20,19 @@ const Tab = createBottomTabNavigator();
  */
 export default function AppNavigator() {
   const [role, setRole] = useState<string | null>(null);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     storage.getUser().then((u) => setRole(u?.role ?? null)).catch(() => {});
+  }, []);
+
+  // 메신저 탭 배지: 미확인 메시지 수를 주기적으로 조회
+  useEffect(() => {
+    let alive = true;
+    const tick = () => getUnreadCount().then((n) => { if (alive) setUnread(n); }).catch(() => {});
+    tick();
+    const t = setInterval(tick, 15000);
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   const canApprove = role === "ADMIN" || role === "MANAGER";
@@ -56,7 +68,21 @@ export default function AppNavigator() {
       {canApprove && (
         <Tab.Screen name="Approvals" component={ApprovalsScreen} options={{ title: "결재" }} />
       )}
-      <Tab.Screen name="Work" component={WorkNavigator} options={{ title: "메신저", headerShown: false }} />
+      <Tab.Screen
+        name="Work"
+        component={WorkNavigator}
+        options={{
+          title: "메신저",
+          headerShown: false,
+          tabBarBadge: unread > 0 ? (unread > 99 ? "99+" : unread) : undefined,
+        }}
+        listeners={({ navigation }) => ({
+          // 이미 메신저 탭인 상태에서 다시 탭하면 채널 목록을 최상단으로 스크롤
+          tabPress: () => {
+            if (navigation.isFocused()) DeviceEventEmitter.emit("workTabPressAgain");
+          },
+        })}
+      />
       <Tab.Screen name="Schedule" component={ScheduleScreen} options={{ title: "일정" }} />
       <Tab.Screen name="Attendance" component={AttendanceScreen} options={{ title: "출퇴근" }} />
       <Tab.Screen name="More" component={MoreNavigator} options={{ title: "더보기", headerShown: false }} />

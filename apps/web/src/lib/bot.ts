@@ -32,7 +32,7 @@ export async function ensureBot(): Promise<string> {
 }
 
 // 봇 → 사용자 1:1 DM (+ 푸시)
-export async function botSendDM(userId: string, content: string) {
+export async function botSendDM(userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
   try {
     const botId = await ensureBot();
     let dm = await prisma.workChannel.findFirst({
@@ -64,7 +64,7 @@ export async function botSendDM(userId: string, content: string) {
       title: "큐브티 봇",
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
-    });
+    }, opts?.respectWorkMute ? { respectWorkMute: true } : undefined);
   } catch (e) {
     console.error("[bot] DM 발송 오류:", e);
   }
@@ -329,11 +329,12 @@ export async function runNoticeReminders() {
     const unread = c.members.filter((m) => !m.lastReadAt || m.lastReadAt < c.noticeAt!).map((m) => m.userId);
     if (!unread.length) continue;
     const preview = c.noticeContent ? c.noticeContent.slice(0, 60) : "이미지 공지";
+    // 중요공지 최초 푸시가 workMuteAll 차단 대상이므로 다음날 재알림도 동일 기준(비대칭 방지)
     await sendPushToUsers(unread, {
       title: c.name,
       body: `📌 확인하지 않은 중요 공지가 있습니다: ${preview}`,
       data: { channelId: c.id, type: "work-message" },
-    }).catch(() => {});
+    }, { respectWorkMute: true }).catch(() => {});
   }
 }
 
@@ -367,7 +368,7 @@ export async function runScheduledMessages() {
         title: s.channel.name,
         body: `${s.user.name}: ${s.content.slice(0, 100)}`,
         data: { channelId: s.channelId, type: "work-message" },
-      });
+      }, { respectWorkMute: true });
     } catch (e) {
       console.error("[bot] 예약전송 푸시 오류:", e);
     }
@@ -396,7 +397,8 @@ export async function runReminders() {
     const preview = r.message.content
       ? r.message.content.slice(0, 120)
       : r.message.fileType === "image" ? "🖼️ 사진" : `📎 ${r.message.fileName || "파일"}`;
-    await botSendDM(r.userId, `⏰ 리마인더\n[${chName}] ${r.message.user.name}: ${preview}`);
+    // 리마인더는 채팅 알림의 일종 — 전체 알림 끄기(workMuteAll) 사용자에겐 푸시 생략(DM 메시지는 남음)
+    await botSendDM(r.userId, `⏰ 리마인더\n[${chName}] ${r.message.user.name}: ${preview}`, { respectWorkMute: true });
   }
 }
 

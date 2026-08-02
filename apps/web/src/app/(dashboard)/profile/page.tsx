@@ -119,9 +119,11 @@ export default function ProfilePage() {
   // 결재 결과 알림 설정
   const [notifyApproval, setNotifyApproval] = useState(true);
   const [notifyForced, setNotifyForced] = useState(false);
+  // 큐브티워크 채팅 알림 전체 끄기 — 앱 ⋮ 메뉴와 같은 설정(웹에서도 켜고 끌 수 있게)
+  const [workMuteAll, setWorkMuteAllState] = useState(false);
   useEffect(() => {
     fetch("/api/me/notify").then(r => r.ok ? r.json() : null).then(d => {
-      if (d) { setNotifyApproval(d.notifyApproval); setNotifyForced(d.forced); }
+      if (d) { setNotifyApproval(d.notifyApproval); setNotifyForced(d.forced); setWorkMuteAllState(!!d.workMuteAll); }
     }).catch(() => {});
   }, []);
   const toggleNotify = async (on: boolean) => {
@@ -131,6 +133,14 @@ export default function ProfilePage() {
     });
     if (!res.ok) { setNotifyApproval(!on); toast.error("설정 저장 실패"); }
     else toast.success(on ? "결재 결과 알림을 받습니다." : "결재 결과 알림을 껐습니다.");
+  };
+  const toggleWorkMute = async (mute: boolean) => {
+    setWorkMuteAllState(mute);
+    const res = await fetch("/api/me/notify", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workMuteAll: mute }),
+    });
+    if (!res.ok) { setWorkMuteAllState(!mute); toast.error("설정 저장 실패"); }
+    else toast.success(mute ? "채팅 알림을 전체 껐습니다. 메시지는 정상 수신됩니다." : "채팅 알림을 다시 받습니다.");
   };
 
   // 프로필 사진 업로드/삭제
@@ -405,6 +415,21 @@ export default function ProfilePage() {
                   <input type="checkbox" className="sr-only peer" checked={notifyForced ? true : notifyApproval}
                     disabled={notifyForced} onChange={(e) => toggleNotify(e.target.checked)} />
                   <div className="w-10 h-5.5 h-6 bg-gray-200 peer-checked:bg-blue-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-60" />
+                </label>
+              </div>
+
+              {/* 큐브티워크 채팅 알림 — 앱 메신저 ⋮ 메뉴의 "전체 알림 끄기"와 동일 설정 */}
+              <div className="flex items-center justify-between rounded-lg border p-3 mt-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">채팅 알림 (큐브티워크)</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    끄면 채팅 메시지·공지·리마인더 푸시가 오지 않습니다. 메시지는 정상 수신됩니다.
+                  </p>
+                </div>
+                <label className="inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" checked={!workMuteAll}
+                    onChange={(e) => toggleWorkMute(!e.target.checked)} />
+                  <div className="w-10 h-5.5 h-6 bg-gray-200 peer-checked:bg-blue-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4" />
                 </label>
               </div>
 

@@ -149,3 +149,17 @@ export async function closePoll(pollId: string) {
 export async function setChannelNotify(channelId: string, notify: "ALL" | "MENTION" | "MUTE") {
   await axios.patch(`${API_URL}/work/channels/${channelId}/notify`, { notify }, { headers: await authHeaders() });
 }
+
+// 채널 상단 고정/해제 (사용자별 — 목록 정렬은 서버가 핀 우선)
+export async function setChannelPin(channelId: string, pinned: boolean) {
+  await axios.post(`${API_URL}/work/channels/${channelId}/pin`, { pinned }, { headers: await authHeaders() });
+}
+
+// 큐브티워크 채팅 알림 전체 끄기 — 메시지는 수신하되 푸시만 차단
+export async function getWorkMuteAll(): Promise<boolean> {
+  const res = await axios.get(`${API_URL}/me/notify`, { headers: await authHeaders() });
+  return !!res.data?.workMuteAll;
+}
+export async function setWorkMuteAll(on: boolean) {
+  await axios.patch(`${API_URL}/me/notify`, { workMuteAll: on }, { headers: await authHeaders() });
+}

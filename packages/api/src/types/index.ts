@@ -15,6 +15,7 @@ export interface User {
   branch: string | null;
   department?: string | null;
   position?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface Session extends User {
@@ -95,7 +96,7 @@ export interface ContractSignRequest {
 
 // ============== 휴가 ==============
 
-export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 export type LeaveType =
   | "ANNUAL" | "SICK" | "PERSONAL" | "MATERNITY" | "BEREAVEMENT"
   | "HALF_AM" | "HALF_PM" | "QUARTER_AM" | "QUARTER_PM"
@@ -111,6 +112,8 @@ export interface LeaveRequest {
   endDate: string;
   days: number;
   reason: string | null;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   status: LeaveStatus;
   approverId?: string | null;
   rejectedReason?: string | null;
@@ -249,6 +252,8 @@ export interface WorkChannel {
   memberCount: number;
   unread: number;
   notify: string;
+  pinned?: boolean; // 사용자별 상단 고정 (서버 정렬이 핀 우선)
+  avatarUrl?: string | null;
   lastMessage: { content: string; createdAt: string } | null;
 }
 
@@ -256,15 +261,38 @@ export interface WorkMessage {
   id: string;
   userId: string;
   userName: string;
+  userAvatar?: string | null;
+  userBranch?: string | null;
   content: string;
   fileUrl: string | null;
   fileName: string | null;
   fileType: string | null;
+  albumUrls?: string[] | null;
   createdAt: string;
   mine: boolean;
   reactions: any[];
   replyCount: number;
   parentId?: string | null;
+  editedAt?: string | null;
+  deleted?: boolean;
+  system?: boolean;
+  replyTo?: { id: string; userName: string; content: string; deleted: boolean } | null;
+  unreadBy?: number;
+  poll?: WorkPollInfo | null;
+  bookmarked?: boolean;
+}
+
+export interface WorkPollInfo {
+  id: string;
+  question: string;
+  options: string[];
+  multiple: boolean;
+  closed: boolean;
+  counts: number[];
+  myVotes: number[];
+  totalVoters: number;
+  creatorId: string;
+  creatorName: string;
 }
 
 // ============== 대시보드 ==============
@@ -283,7 +311,7 @@ export interface Announcement {
   title: string;
   content: string;
   pinned: boolean;
-  attachments: string[];
+  attachments: { url: string; name: string; type: string }[];
   authorName: string;
   createdAt: string;
   canEdit: boolean;

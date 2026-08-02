@@ -17,14 +17,30 @@ type PushMessage = {
 };
 
 // 여러 사용자에게 같은 알림을 발송. 토큰이 없으면 조용히 통과.
+// respectWorkMute: 큐브티워크 채팅류(메시지·투표·공지·예약전송) 푸시 — 전체 알림 끈(workMuteAll) 사용자 제외.
+// 결재 DM·중요공지 재알림 등은 이 옵션 없이 호출해 기존대로 발송.
 export async function sendPushToUsers(
   userIds: string[],
-  payload: { title: string; body: string; data?: Record<string, unknown> }
+  payload: { title: string; body: string; data?: Record<string, unknown> },
+  opts?: { respectWorkMute?: boolean }
 ): Promise<void> {
   if (userIds.length === 0) return;
 
+  let targetIds = userIds;
+  if (opts?.respectWorkMute) {
+    const muted = await prisma.user.findMany({
+      where: { id: { in: userIds }, workMuteAll: true },
+      select: { id: true },
+    });
+    if (muted.length > 0) {
+      const mutedSet = new Set(muted.map((m) => m.id));
+      targetIds = userIds.filter((id) => !mutedSet.has(id));
+    }
+    if (targetIds.length === 0) return;
+  }
+
   const tokens = await prisma.pushToken.findMany({
-    where: { userId: { in: userIds } },
+    where: { userId: { in: targetIds } },
     select: { token: true },
   });
   if (tokens.length === 0) return;
