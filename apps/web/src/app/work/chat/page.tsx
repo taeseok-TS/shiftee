@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -789,7 +789,34 @@ export default function WorkChatPage() {
     );
   };
 
-  const renderAttachment = (m: { fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null }) => {
+  // 인앱 사진 뷰어(라이트박스) — 카톡처럼 채팅창 안에서 열고 ←→로 채팅방의 모든 사진을 넘겨 본다.
+  // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
+  const openLightbox = (messageId: string | undefined, urlIndex: number, url: string) => {
+    const keys: string[] = [];
+    const urls: string[] = [];
+    for (const msg of messages) {
+      if (msg.deleted) continue;
+      if (msg.albumUrls && msg.albumUrls.length > 0) msg.albumUrls.forEach((u, i) => { keys.push(`${msg.id}#${i}`); urls.push(u); });
+      else if (msg.fileType === "image" && msg.fileUrl) { keys.push(`${msg.id}#0`); urls.push(msg.fileUrl); }
+    }
+    const idx = messageId ? keys.indexOf(`${messageId}#${urlIndex}`) : -1;
+    // 목록에 없으면(스레드 답글 등) 클릭한 사진 한 장만 표시
+    if (idx < 0) setLightbox({ urls: [url], index: 0 });
+    else setLightbox({ urls, index: idx });
+  };
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+      else if (e.key === "ArrowLeft") setLightbox((p) => p && { ...p, index: Math.max(0, p.index - 1) });
+      else if (e.key === "ArrowRight") setLightbox((p) => p && { ...p, index: Math.min(p.urls.length - 1, p.index + 1) });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+
+  const renderAttachment = (m: { id?: string; fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null }) => {
     // 사진 앨범(여러 장 묶음) — 2열 격자, 클릭 시 원본
     if (m.albumUrls && m.albumUrls.length > 0) {
       const urls = m.albumUrls;
@@ -797,7 +824,7 @@ export default function WorkChatPage() {
       return (
         <div className="mt-1 grid grid-cols-2 gap-1 max-w-[260px]">
           {shown.map((u, i) => (
-            <a key={i} href={u} target="_blank" rel="noreferrer" className="relative block">
+            <button key={i} type="button" onClick={() => openLightbox(m.id, i, u)} className="relative block cursor-zoom-in">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={u} alt="" className="w-full h-[124px] object-cover rounded-lg" />
               {i === shown.length - 1 && urls.length > shown.length && (
@@ -805,7 +832,7 @@ export default function WorkChatPage() {
                   +{urls.length - shown.length}
                 </span>
               )}
-            </a>
+            </button>
           ))}
         </div>
       );
@@ -815,9 +842,10 @@ export default function WorkChatPage() {
     return (
       <div className="mt-1">
         {isImg ? (
-          <a href={m.fileUrl} target="_blank" rel="noreferrer">
+          <button type="button" onClick={() => openLightbox(m.id, 0, m.fileUrl!)} className="cursor-zoom-in">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={m.fileUrl} alt={m.fileName || ""} className="max-w-[220px] rounded-lg" />
-          </a>
+          </button>
         ) : m.fileType === "video" ? (
           <video controls preload="metadata" className="max-w-[280px] rounded-lg" src={m.fileUrl} />
         ) : m.fileType === "audio" ? (
@@ -1875,6 +1903,42 @@ export default function WorkChatPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 인앱 사진 뷰어(라이트박스) — 채팅방의 모든 사진을 ←→로 넘겨 본다 (카톡식) */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center" onClick={() => setLightbox(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox.urls[lightbox.index]}
+            alt=""
+            className="max-w-[92vw] max-h-[88vh] object-contain select-none"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {lightbox.index > 0 && (
+            <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2"
+              onClick={(e) => { e.stopPropagation(); setLightbox((p) => p && { ...p, index: p.index - 1 }); }}>
+              <ChevronLeft size={26} />
+            </button>
+          )}
+          {lightbox.index < lightbox.urls.length - 1 && (
+            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2"
+              onClick={(e) => { e.stopPropagation(); setLightbox((p) => p && { ...p, index: p.index + 1 }); }}>
+              <ChevronRight size={26} />
+            </button>
+          )}
+          <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-5" onClick={(e) => e.stopPropagation()}>
+            <span className="text-white text-sm font-medium bg-black/50 rounded-full px-3 py-1">{lightbox.index + 1} / {lightbox.urls.length}</span>
+            <div className="flex items-center gap-2">
+              <a href={lightbox.urls[lightbox.index]} download className="bg-black/50 hover:bg-black/70 text-white rounded-full p-2" title="다운로드">
+                <Download size={18} />
+              </a>
+              <button type="button" className="bg-black/50 hover:bg-black/70 text-white rounded-full p-2" onClick={() => setLightbox(null)} title="닫기 (Esc)">
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

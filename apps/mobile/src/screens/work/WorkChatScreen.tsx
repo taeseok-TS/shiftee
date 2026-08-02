@@ -15,6 +15,7 @@ import {
   Alert,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
@@ -65,6 +66,30 @@ function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
   );
 }
 
+// 사진 뷰어 한 페이지 — 원본 로딩 중 스피너, 실패 시 안내
+function ViewerPage({ uri, width }: { uri: string; width: number }) {
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  return (
+    <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}>
+      {failed ? (
+        <Text style={{ color: "#9ca3af", fontSize: 13 }}>사진을 불러오지 못했습니다</Text>
+      ) : (
+        <Image
+          source={{ uri }}
+          style={{ width: "100%", height: "100%" }}
+          resizeMode="contain"
+          onLoadEnd={() => setLoading(false)}
+          onError={() => { setLoading(false); setFailed(true); }}
+        />
+      )}
+      {loading && !failed && (
+        <ActivityIndicator size="large" color="#fff" style={{ position: "absolute" }} />
+      )}
+    </View>
+  );
+}
+
 export default function WorkChatScreen() {
   const route = useRoute<RouteProp<ParamList, "WorkChat">>();
   const { channelId } = route.params;
@@ -85,6 +110,10 @@ export default function WorkChatScreen() {
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<WorkMessage | null>(null);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
+  // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
+  // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다
+  const [imageViewer, setImageViewer] = useState<{ urls: string[]; index: number } | null>(null);
+  const [viewerIndex, setViewerIndex] = useState(0);
   const listRef = useRef<FlatList<WorkMessage>>(null);
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
@@ -94,6 +123,8 @@ export default function WorkChatScreen() {
   const kbOffset = Platform.OS === "ios" ? headerHeight : tabBarHeight;
 
   const navigation = useNavigation<any>();
+  // 뷰어 페이지 폭 — 스타일·페이징 오프셋·카운터 계산이 반드시 같은 값을 써야 함(폴더블·분할화면 대응)
+  const { width: winW } = useWindowDimensions();
   const isGroup = route.params.type !== "DM";
   const [notify, setNotify] = useState(route.params.notify ?? "ALL");
   // 클립보드 이미지 붙여넣기 (캡처 후 복사한 이미지 감지 → 칩 표시)
@@ -759,6 +790,22 @@ export default function WorkChatScreen() {
     }
   };
 
+  // 채팅방의 모든 사진(앨범 포함, 시간순)을 모아 탭한 사진부터 스와이프로 넘겨 본다
+  const openImageViewer = (messageId: string, urlIndex: number, tappedUrl: string) => {
+    const keys: string[] = [];
+    const urls: string[] = [];
+    for (const m of messages) {
+      if (m.deleted) continue;
+      if (m.albumUrls && m.albumUrls.length > 0) m.albumUrls.forEach((u, i) => { keys.push(`${m.id}#${i}`); urls.push(u); });
+      else if (m.fileType === "image" && m.fileUrl) { keys.push(`${m.id}#0`); urls.push(m.fileUrl); }
+    }
+    const idx = keys.indexOf(`${messageId}#${urlIndex}`);
+    // 목록에서 못 찾으면(폴링 레이스 등) 탭한 사진 한 장만이라도 정확히 보여준다
+    if (idx < 0) { setViewerIndex(0); setImageViewer({ urls: [tappedUrl], index: 0 }); return; }
+    setViewerIndex(idx);
+    setImageViewer({ urls, index: idx });
+  };
+
   const renderItem = ({ item, index }: { item: WorkMessage; index: number }) => {
     // 일자별 날짜 구분선 — inverted 리스트(index 0=최신)라 "더 오래된 이웃(index+1)"과
     // 날짜가 다르면 이 메시지가 그 날의 첫 메시지 → 말풍선 위에 구분선 표시
@@ -839,7 +886,7 @@ export default function WorkChatScreen() {
                     const shown = Math.min(item.albumUrls!.length, 9);
                     const rest = item.albumUrls!.length - shown;
                     return (
-                      <TouchableOpacity key={i} onPress={() => Linking.openURL(FILE_ORIGIN + u)}>
+                      <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)}>
                         <Image source={{ uri: FILE_ORIGIN + u }} style={styles.albumCell} resizeMode="cover" />
                         {i === shown - 1 && rest > 0 ? (
                           <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
@@ -850,7 +897,7 @@ export default function WorkChatScreen() {
                 </View>
               ) : item.fileUrl ? (
                 item.fileType === "image" ? (
-                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)}>
+                  <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}>
                     <Image source={{ uri: FILE_ORIGIN + item.fileUrl }} style={styles.image} resizeMode="cover" />
                   </TouchableOpacity>
                 ) : item.fileType === "video" ? (
@@ -1570,6 +1617,42 @@ export default function WorkChatScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* 인앱 사진 뷰어 — 채팅방의 모든 사진을 좌우 스와이프로 넘겨 본다 (카톡식) */}
+      <Modal visible={!!imageViewer} transparent statusBarTranslucent animationType="fade" onRequestClose={() => setImageViewer(null)}>
+        {imageViewer && (
+          <View style={styles.viewerBg}>
+            <FlatList
+              data={imageViewer.urls}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              // 원본 이미지가 크므로 이웃 페이지만 미리 그린다(수십 MB 동시 다운로드 방지)
+              windowSize={3}
+              initialNumToRender={1}
+              maxToRenderPerBatch={2}
+              keyExtractor={(u, i) => `${i}-${u}`}
+              initialScrollIndex={imageViewer.index}
+              getItemLayout={(_d, i) => ({ length: winW, offset: winW * i, index: i })}
+              onScroll={(e) => setViewerIndex(Math.round(e.nativeEvent.contentOffset.x / winW))}
+              scrollEventThrottle={16}
+              renderItem={({ item: u }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} />}
+            />
+            <View style={styles.viewerHead}>
+              <Text style={styles.viewerCount}>{viewerIndex + 1} / {imageViewer.urls.length}</Text>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                {/* 원본을 브라우저로 열어 저장·공유 (기존 동작 유지 경로) */}
+                <TouchableOpacity style={styles.viewerClose} onPress={() => Linking.openURL(FILE_ORIGIN + imageViewer.urls[Math.min(viewerIndex, imageViewer.urls.length - 1)])} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="download-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.viewerClose} onPress={() => setImageViewer(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={26} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+      </Modal>
     </>
   );
 }
@@ -1707,6 +1790,10 @@ const styles = StyleSheet.create({
   pollCloseChipText: { fontSize: 12, color: "#374151" },
   systemRow: { alignItems: "center", marginVertical: 6 },
   systemText: { fontSize: 11, color: "#9ca3af", backgroundColor: "#eceef1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
+  viewerBg: { flex: 1, backgroundColor: "#000" },
+  viewerHead: { position: "absolute", top: 48, left: 0, right: 0, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
+  viewerCount: { color: "#fff", fontSize: 14, fontWeight: "600", backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, overflow: "hidden" },
+  viewerClose: { backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 999, padding: 4 },
   dateDividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 10, paddingHorizontal: 4 },
   dateDividerLine: { flex: 1, height: 1, backgroundColor: "#e5e7eb" },
   dateDividerText: { fontSize: 11, color: "#9ca3af", backgroundColor: "#eceef1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
