@@ -16,7 +16,6 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
-  Share,
   PanResponder,
   Animated,
 } from "react-native";
@@ -29,6 +28,7 @@ import * as ImagePicker from "expo-image-picker";
 import { WorkMessage, WorkChannel } from "@shiftee/api";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library";
 import Avatar from "../../components/Avatar";
 import VideoBubble from "../../components/VideoBubble";
 import VoiceBubble from "../../components/VoiceBubble";
@@ -881,55 +881,27 @@ export default function WorkChatScreen() {
     setImageViewer({ urls, keys, index: idx });
   };
 
-  // 사진 저장 — 서버에서 캐시로 내려받은 뒤
-  // iOS: 공유 시트("이미지 저장"으로 갤러리 저장, 취소하면 중단) / Android: 사용자가 고른 폴더(SAF)에 바로 저장.
-  // 반환: "saved" | "cancelled"
-  const saveOneImage = async (url: string, androidDirUri?: string | null): Promise<"saved" | "cancelled"> => {
-    const filename = url.split("/").pop()?.split("?")[0] || `photo-${Date.now()}.jpg`;
-    const local = `${FileSystem.cacheDirectory}${filename}`;
-    const dl = await FileSystem.downloadAsync(FILE_ORIGIN + url, local);
-    if (Platform.OS === "ios") {
-      const res = await Share.share({ url: dl.uri });
-      return res.action === Share.dismissedAction ? "cancelled" : "saved";
-    }
-    if (!androidDirUri) return "cancelled";
-    const base64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
-    const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
-    const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
-    const target = await FileSystem.StorageAccessFramework.createFileAsync(androidDirUri, filename, mime);
-    await FileSystem.writeAsStringAsync(target, base64, { encoding: FileSystem.EncodingType.Base64 });
-    return "saved";
-  };
-
-  // 안드로이드 저장 폴더는 한 번 고르면 기억 — 매번 폴더 선택기가 뜨지 않게
-  const androidSaveDir = useRef<string | null>(null);
+  // 사진 저장 — 사진 보관함 권한(최초 1회 요청) 후 캐시로 내려받아 사진첩에 자동 저장 (iOS·Android 공통)
   const downloadImages = async (urls: string[]) => {
     if (downloading) return;
     setDownloading(true);
     let saved = 0;
     try {
-      let dirUri: string | null = null;
-      if (Platform.OS === "android") {
-        dirUri = androidSaveDir.current;
-        if (!dirUri) {
-          const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (!perm.granted) { setDownloading(false); return; }
-          dirUri = perm.directoryUri;
-          androidSaveDir.current = dirUri;
-        }
+      // writeOnly=true: "사진 추가" 권한만 요청(보관함 열람 권한 불필요)
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      if (!perm.granted) {
+        Alert.alert("권한 필요", "사진을 저장하려면 설정에서 큐브티의 사진 접근을 허용해주세요.");
+        setDownloading(false);
+        return;
       }
-      for (let i = 0; i < urls.length; i++) {
-        // iOS: 공유 시트 dismiss 애니메이션이 끝나기 전 다음 시트를 열면 실패 — 사이에 간격
-        if (Platform.OS === "ios" && i > 0) await new Promise((r) => setTimeout(r, 700));
-        const r = await saveOneImage(urls[i], dirUri);
-        if (r === "cancelled" && Platform.OS === "ios") break; // 시트 취소 = 전체 중단
-        if (r === "saved") saved++;
+      for (const u of urls) {
+        const filename = u.split("/").pop()?.split("?")[0] || `photo-${Date.now()}.jpg`;
+        const dl = await FileSystem.downloadAsync(FILE_ORIGIN + u, `${FileSystem.cacheDirectory}${filename}`);
+        await MediaLibrary.saveToLibraryAsync(dl.uri);
+        saved++;
       }
-      if (Platform.OS === "android") Alert.alert("저장 완료", `사진 ${saved}장을 선택한 폴더에 저장했습니다.`);
-      else if (urls.length > 1 && saved < urls.length) Alert.alert("저장 중단", `${urls.length}장 중 ${saved}장까지 진행했습니다.`);
+      Alert.alert("저장 완료", `사진 ${saved}장을 사진첩에 저장했습니다.`);
     } catch {
-      // 폴더 권한이 회수됐을 수 있으니 기억한 폴더는 버리고 다음에 다시 묻는다
-      androidSaveDir.current = null;
       Alert.alert("오류", saved > 0 ? `${saved}장 저장 후 오류가 발생했습니다.` : "사진 저장에 실패했습니다.");
     } finally {
       setDownloading(false);
@@ -947,18 +919,7 @@ export default function WorkChatScreen() {
     if (album) {
       Alert.alert("사진 저장", `묶음 사진 ${album.length}장 중에서`, [
         { text: "이 사진만", onPress: () => downloadImages([curUrl]) },
-        {
-          text: `전체 ${album.length}장`,
-          onPress: () => {
-            if (Platform.OS === "ios") {
-              // iOS는 갤러리 직접 저장 권한(네이티브 모듈)이 없어 사진마다 공유 시트로 저장
-              Alert.alert("전체 저장", "사진마다 공유 창이 이어서 열립니다. 각 창에서 '이미지 저장'을 눌러주세요.", [
-                { text: "취소", style: "cancel" },
-                { text: "시작", onPress: () => downloadImages(album) },
-              ]);
-            } else downloadImages(album);
-          },
-        },
+        { text: `전체 ${album.length}장`, onPress: () => downloadImages(album) },
         { text: "취소", style: "cancel" },
       ]);
     } else {
