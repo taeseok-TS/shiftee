@@ -599,11 +599,10 @@ export default function WorkChatScreen() {
               <Ionicons name="person-add-outline" size={22} color="#4f46e5" />
             </TouchableOpacity>
           )}
-          {isGroup && (
-            <TouchableOpacity onPress={() => setMenuOpen(true)}>
-              <Ionicons name="ellipsis-vertical" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          )}
+          {/* ⋮ 메뉴는 DM에도 표시 — 링크 모아보기·대화 숨기기는 1:1에서도 쓰인다 (항목별 분기는 메뉴 안에서) */}
+          <TouchableOpacity onPress={() => setMenuOpen(true)}>
+            <Ionicons name="ellipsis-vertical" size={20} color="#6b7280" />
+          </TouchableOpacity>
         </View>
       ),
     });
@@ -1478,14 +1477,19 @@ export default function WorkChatScreen() {
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBg} onPress={() => setMenuOpen(false)}>
           <View style={styles.menuCard}>
+            {/* 이름 변경·멤버 관리는 그룹 전용 (DM 이름=상대방 이름이라 변경 대상 아님) */}
+            {isGroup && (
             <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); setRenameVal(chatTitle); setRenameOpen(true); }}>
               <Ionicons name="pencil-outline" size={18} color="#374151" />
               <Text style={styles.menuText}>채팅방 이름 변경</Text>
             </TouchableOpacity>
+            )}
+            {isGroup && (
             <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); openMembers(); }}>
               <Ionicons name="people-outline" size={18} color="#374151" />
               <Text style={styles.menuText}>멤버 관리</Text>
             </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.menuRow} onPress={openLinks}>
               <Ionicons name="link-outline" size={18} color="#374151" />
               <Text style={styles.menuText}>링크 모아보기</Text>
