@@ -59,7 +59,7 @@ export async function POST(
       title: "📌 중요 공지",
       body: preview,
       data: { channelId: id, type: "work-message" },
-    }, { respectWorkMute: true }).catch((e) => console.error("[push] notice 오류:", e));
+    }, { respectWorkMute: true, withWorkBadge: true }).catch((e) => console.error("[push] notice 오류:", e));
   }
 
   return NextResponse.json({ success: true });

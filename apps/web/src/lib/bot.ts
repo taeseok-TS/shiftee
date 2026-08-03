@@ -64,7 +64,7 @@ export async function botSendDM(userId: string, content: string, opts?: { respec
       title: "큐브티 봇",
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
-    }, opts?.respectWorkMute ? { respectWorkMute: true } : undefined);
+    }, { withWorkBadge: true, ...(opts?.respectWorkMute ? { respectWorkMute: true } : {}) });
   } catch (e) {
     console.error("[bot] DM 발송 오류:", e);
   }
@@ -334,7 +334,7 @@ export async function runNoticeReminders() {
       title: c.name,
       body: `📌 확인하지 않은 중요 공지가 있습니다: ${preview}`,
       data: { channelId: c.id, type: "work-message" },
-    }, { respectWorkMute: true }).catch(() => {});
+    }, { respectWorkMute: true, withWorkBadge: true }).catch(() => {});
   }
 }
 
@@ -368,7 +368,7 @@ export async function runScheduledMessages() {
         title: s.channel.name,
         body: `${s.user.name}: ${s.content.slice(0, 100)}`,
         data: { channelId: s.channelId, type: "work-message" },
-      }, { respectWorkMute: true });
+      }, { respectWorkMute: true, withWorkBadge: true });
     } catch (e) {
       console.error("[bot] 예약전송 푸시 오류:", e);
     }

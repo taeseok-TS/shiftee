@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { DeviceEventEmitter } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import * as Notifications from "expo-notifications";
 
 import HomeScreen from "../screens/HomeScreen";
 import WorkNavigator from "./WorkNavigator";
@@ -26,10 +27,16 @@ export default function AppNavigator() {
     storage.getUser().then((u) => setRole(u?.role ?? null)).catch(() => {});
   }, []);
 
-  // 메신저 탭 배지: 미확인 메시지 수를 주기적으로 조회
+  // 메신저 탭 배지: 미확인 메시지 수를 주기적으로 조회.
+  // 앱 아이콘 뱃지(카톡식)도 같은 값으로 동기화 — 메시지를 읽으면 아이콘 숫자도 내려간다.
+  // (백그라운드 수신 시에는 서버 푸시의 badge 필드가 OS 레벨에서 아이콘 뱃지를 설정)
   useEffect(() => {
     let alive = true;
-    const tick = () => getUnreadCount().then((n) => { if (alive) setUnread(n); }).catch(() => {});
+    const tick = () => getUnreadCount().then((n) => {
+      if (!alive) return;
+      setUnread(n);
+      Notifications.setBadgeCountAsync(n).catch(() => {});
+    }).catch(() => {});
     tick();
     const t = setInterval(tick, 15000);
     return () => { alive = false; clearInterval(t); };

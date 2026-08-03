@@ -75,7 +75,7 @@ export async function POST(
       title: channel.name,
       body: `${session.name}: ${content}`,
       data: { channelId: id, type: "work-message" },
-    }, { respectWorkMute: true });
+    }, { respectWorkMute: true, withWorkBadge: true });
   })().catch((e) => console.error("[push] poll notify 오류:", e));
 
   return NextResponse.json({ success: true, pollId: poll.id });

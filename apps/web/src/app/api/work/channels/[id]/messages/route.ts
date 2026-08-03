@@ -65,7 +65,7 @@ async function notifyNewMessage(
     title: channel.name,
     body: `${message.user.name}: ${preview}`,
     data: { channelId: channel.id, type: "work-message" },
-  }, { respectWorkMute: true });
+  }, { respectWorkMute: true, withWorkBadge: true });
 }
 
 // 채널 메시지 조회 (최상위 메시지만, 댓글 수/반응 포함)

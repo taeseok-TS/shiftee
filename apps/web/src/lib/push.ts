@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { getWorkUnreadTotal } from "./work-unread";
 
 // Expo Push API 로 푸시 알림을 보낸다.
 // 토큰 등록은 모바일 앱이 로그인 후 /api/push/register 로 수행.
@@ -14,15 +15,17 @@ type PushMessage = {
   sound: "default"; // iOS 소리 (Android는 채널이 소리 담당)
   priority: "high"; // 즉시 전달 + 기기 깨우기
   channelId: string; // Android: 이 id의 채널로 라우팅(앱의 'messages' 채널과 일치해야 소리/진동)
+  badge?: number; // iOS 앱 아이콘 뱃지(카톡식 미확인 수) — OS가 직접 설정
 };
 
 // 여러 사용자에게 같은 알림을 발송. 토큰이 없으면 조용히 통과.
 // respectWorkMute: 큐브티워크 채팅류(메시지·투표·공지·예약전송) 푸시 — 전체 알림 끈(workMuteAll) 사용자 제외.
-// 결재 DM·중요공지 재알림 등은 이 옵션 없이 호출해 기존대로 발송.
+// withWorkBadge: 수신자별 미확인 총수를 계산해 iOS 앱 아이콘 뱃지로 설정(카톡식).
+// 결재 DM·중요공지 재알림 등은 respectWorkMute 없이 호출해 기존대로 발송.
 export async function sendPushToUsers(
   userIds: string[],
   payload: { title: string; body: string; data?: Record<string, unknown> },
-  opts?: { respectWorkMute?: boolean }
+  opts?: { respectWorkMute?: boolean; withWorkBadge?: boolean }
 ): Promise<void> {
   if (userIds.length === 0) return;
 
@@ -41,9 +44,26 @@ export async function sendPushToUsers(
 
   const tokens = await prisma.pushToken.findMany({
     where: { userId: { in: targetIds } },
-    select: { token: true },
+    select: { token: true, userId: true },
   });
   if (tokens.length === 0) return;
+
+  // 수신자별 앱 아이콘 뱃지(미확인 총수) — 실패해도 푸시 자체는 발송
+  const badgeByUser = new Map<string, number>();
+  if (opts?.withWorkBadge) {
+    try {
+      const userIdsWithToken = [...new Set(tokens.map((t) => t.userId))];
+      const users = await prisma.user.findMany({
+        where: { id: { in: userIdsWithToken } },
+        select: { id: true, name: true },
+      });
+      await Promise.all(users.map(async (u) => {
+        badgeByUser.set(u.id, await getWorkUnreadTotal(u.id, u.name));
+      }));
+    } catch (e) {
+      console.error("[push] 뱃지 계산 오류:", e);
+    }
+  }
 
   const messages: PushMessage[] = tokens.map((t) => ({
     to: t.token,
@@ -53,6 +73,7 @@ export async function sendPushToUsers(
     sound: "default",
     priority: "high",
     channelId: "messages",
+    ...(badgeByUser.has(t.userId) ? { badge: badgeByUser.get(t.userId) } : {}),
   }));
 
   try {
