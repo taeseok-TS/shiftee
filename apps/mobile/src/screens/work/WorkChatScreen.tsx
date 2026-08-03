@@ -568,10 +568,20 @@ export default function WorkChatScreen() {
     }
     setAddLoading(true);
     try {
-      await addChannelMembers(channelId, ids);
-      setAddOpen(false);
-      Alert.alert("완료", `${ids.length}명을 초대했습니다.`);
-      load();
+      if (isGroup) {
+        await addChannelMembers(channelId, ids);
+        setAddOpen(false);
+        Alert.alert("완료", `${ids.length}명을 초대했습니다.`);
+        load();
+      } else {
+        // 1:1에서 초대 = 카톡처럼 새 그룹 채팅방 생성 (기존 1:1은 그대로 유지)
+        const memberIds = [...Array.from(existingIds), ...ids];
+        const invitedNames = members.filter((m) => ids.includes(m.id)).map((m) => m.name);
+        const groupName = [chatTitle, ...invitedNames].slice(0, 3).join(", ") + (invitedNames.length > 2 ? ` 외 ${invitedNames.length - 2}명` : "");
+        const ch = await createChannel({ name: groupName, type: "CHANNEL", memberIds });
+        setAddOpen(false);
+        navigation.push("WorkChat", { channelId: ch.id, name: ch.name, type: "CHANNEL" });
+      }
     } catch (e: any) {
       Alert.alert("실패", e?.response?.data?.error || "멤버 추가 중 오류가 발생했습니다.");
     } finally {
@@ -594,11 +604,10 @@ export default function WorkChatScreen() {
               color={notify === "MUTE" ? "#9ca3af" : "#4f46e5"}
             />
           </TouchableOpacity>
-          {isGroup && (
-            <TouchableOpacity onPress={openAddMembers}>
-              <Ionicons name="person-add-outline" size={22} color="#4f46e5" />
-            </TouchableOpacity>
-          )}
+          {/* 멤버 초대 — 1:1에서는 카톡처럼 새 그룹 채팅방을 만든다(기존 1:1 유지) */}
+          <TouchableOpacity onPress={openAddMembers}>
+            <Ionicons name="person-add-outline" size={22} color="#4f46e5" />
+          </TouchableOpacity>
           {/* ⋮ 메뉴는 DM에도 표시 — 링크 모아보기·대화 숨기기는 1:1에서도 쓰인다 (항목별 분기는 메뉴 안에서) */}
           <TouchableOpacity onPress={() => setMenuOpen(true)}>
             <Ionicons name="ellipsis-vertical" size={20} color="#6b7280" />
