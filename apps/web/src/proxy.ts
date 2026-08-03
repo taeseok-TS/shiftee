@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/docs/viewer", "/sign/"]; // /docs/viewer·/sign/: 계약서 인앱 뷰어 + 외부 게스트 서명(토큰 인증)
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/docs/viewer", "/sign/", "/privacy"]; // /docs/viewer·/sign/: 계약서 인앱 뷰어 + 외부 게스트 서명(토큰 인증), /privacy: 앱 스토어 필수 공개 방침
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
