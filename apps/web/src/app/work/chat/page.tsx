@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -930,10 +931,18 @@ export default function WorkChatPage() {
               title={desktopNotify ? "데스크톱 알림 끄기" : "데스크톱 알림 켜기"}>
               {desktopNotify ? <Bell size={15} /> : <BellOff size={15} />}
             </Button>
-            <Button size="sm" variant="ghost" onClick={openTrash} className="gap-1 text-gray-400 hover:text-gray-700" title="휴지통"><Trash2 size={16} /></Button>
             <Button size="sm" variant="ghost" onClick={openMentions} className="gap-1" title="나를 멘션한 메시지"><AtSign size={15} /></Button>
-            <Button size="sm" variant="ghost" onClick={openSaved} className="gap-1" title="내 보관함"><Star size={15} /></Button>
             <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1" title="새 채팅"><Plus size={16} /></Button>
+            {/* 나머지 기능은 ⋮ 안으로 — 헤더가 좁아 "채팅" 타이틀·이름이 깨지지 않게 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger className="px-2 py-1.5 rounded-md hover:bg-gray-100 text-gray-500 outline-none" title="더보기">
+                <span className="text-base leading-none">⋮</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={openSaved}><Star size={14} className="mr-2" /> 내 보관함</DropdownMenuItem>
+                <DropdownMenuItem onClick={openTrash}><Trash2 size={14} className="mr-2" /> 휴지통</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="px-3 py-2 border-b">
