@@ -175,25 +175,19 @@ export default function WorkChatPage() {
 
   activeIdRef.current = activeId;
 
-  // 데스크톱(브라우저) 알림 — 카카오 PC처럼 켜면 새 메시지 알림, 끄면 안 옴. 이 브라우저에만 저장.
+  // 데스크톱(브라우저) 알림 토글 — 실제 알림 발송은 전역 컴포넌트(WorkDesktopNotifier)가 담당해
+  // 큐브티 어느 화면에 있어도 알림이 온다. 여기는 켜기/끄기 UI + 상태 연동만.
   const [desktopNotify, setDesktopNotify] = useState(false);
-  const desktopNotifyRef = useRef(false);
-  const myIdRef = useRef("");
-  const myNameRef = useRef("");
-  const workMuteAllRef = useRef(false); // 전체 알림 끄기(계정 설정) — 켜져 있으면 데스크톱 알림도 억제
   useEffect(() => {
     const on = typeof window !== "undefined" && localStorage.getItem("workDesktopNotify") === "on"
       && typeof Notification !== "undefined" && Notification.permission === "granted";
     setDesktopNotify(on);
-    desktopNotifyRef.current = on;
-    fetch("/api/me/notify").then(r => r.ok ? r.json() : null).then(d => {
-      if (d) workMuteAllRef.current = !!d.workMuteAll;
-    }).catch(() => {});
   }, []);
   const toggleDesktopNotify = async () => {
     if (desktopNotify) {
-      setDesktopNotify(false); desktopNotifyRef.current = false;
+      setDesktopNotify(false);
       localStorage.setItem("workDesktopNotify", "off");
+      window.dispatchEvent(new Event("workDesktopNotifyChanged"));
       toast.success("데스크톱 알림을 껐습니다.");
       return;
     }
@@ -203,27 +197,23 @@ export default function WorkChatPage() {
       toast.error("브라우저 알림이 차단되어 있습니다. 주소창의 사이트 설정에서 알림을 허용해주세요.");
       return;
     }
-    setDesktopNotify(true); desktopNotifyRef.current = true;
+    setDesktopNotify(true);
     localStorage.setItem("workDesktopNotify", "on");
-    toast.success("데스크톱 알림을 켰습니다. 새 메시지가 오면 알려드립니다.");
+    window.dispatchEvent(new Event("workDesktopNotifyChanged"));
+    toast.success("데스크톱 알림을 켰습니다. 큐브티 어느 화면에서든 새 메시지를 알려드립니다.");
   };
-  // 새 메시지 SSE 신호 → 조건 검사 후 브라우저 알림 (내용은 재조회한 채널 목록의 미리보기 사용)
-  const maybeNotifyDesktop = (channelId: string, senderId: string | undefined, chs: Channel[]) => {
-    if (!desktopNotifyRef.current || workMuteAllRef.current) return;
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    if (senderId && senderId === myIdRef.current) return; // 내가 보낸 메시지
-    // 보고 있는 방이면(창 활성 + 해당 채널) 알림 생략
-    if (!document.hidden && document.hasFocus() && channelId === activeIdRef.current) return;
-    const ch = chs.find((c) => c.id === channelId);
-    if (!ch) return; // 내 채널이 아니면(비멤버) 알림 없음
-    if (ch.notify === "MUTE") return;
-    const preview = ch.lastMessage?.content?.trim() || "새 메시지가 도착했습니다";
-    if (ch.notify === "MENTION" && !preview.includes(`@${myNameRef.current}`)) return;
-    try {
-      const n = new Notification(ch.name, { body: preview.slice(0, 120), icon: "/favicon.ico", tag: `work-${channelId}` });
-      n.onclick = () => { window.focus(); setActiveId(channelId); n.close(); };
-    } catch { /* 일부 브라우저 제한 무시 */ }
-  };
+  // 전역 알림기와 연동: 보고 있는 채널 노출(그 방 알림 생략용) + 알림 클릭 시 채널 열기 + ?channel= 진입
+  useEffect(() => {
+    (window as unknown as { __workActiveChannelId?: string | null }).__workActiveChannelId = activeId;
+    return () => { (window as unknown as { __workActiveChannelId?: string | null }).__workActiveChannelId = null; };
+  }, [activeId]);
+  useEffect(() => {
+    const openCh = (e: Event) => setActiveId((e as CustomEvent<string>).detail);
+    window.addEventListener("workOpenChannel", openCh);
+    const q = new URLSearchParams(window.location.search).get("channel");
+    if (q) setActiveId(q);
+    return () => window.removeEventListener("workOpenChannel", openCh);
+  }, []);
 
   const fetchChannels = useCallback(async (): Promise<Channel[]> => {
     const res = await fetch("/api/work/channels");
@@ -253,7 +243,7 @@ export default function WorkChatPage() {
   useEffect(() => {
     fetchChannels();
     fetch("/api/work/members").then(r => r.ok ? r.json() : { members: [] }).then(d => setEmployees(d.members || [])).catch(() => {});
-    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d?.user) { setIsAdmin(d.user.role === "ADMIN"); setMyName(d.user.name || ""); setMyId(d.user.id || ""); setMyRole(d.user.role || ""); myIdRef.current = d.user.id || ""; myNameRef.current = d.user.name || ""; } }).catch(() => {});
+    fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => { if (d?.user) { setIsAdmin(d.user.role === "ADMIN"); setMyName(d.user.name || ""); setMyId(d.user.id || ""); setMyRole(d.user.role || ""); } }).catch(() => {});
   }, [fetchChannels]);
 
   // 활성 채널 진입 시 메시지 로드 + 읽음 처리
@@ -276,10 +266,7 @@ export default function WorkChatPage() {
           fetchMessages(cur).then(() => markRead(cur));
           if (threadId) refreshThread(threadId);
         }
-        fetchChannels().then((chs) => {
-          // 새 메시지면 데스크톱 알림 판단 (재조회된 최신 채널 미리보기 사용)
-          if (e.type === "message") maybeNotifyDesktop(e.channelId, e.senderId, chs);
-        });
+        fetchChannels(); // 데스크톱 알림은 전역 WorkDesktopNotifier가 처리
       } else if (e.type === "read") {
         if (e.channelId === cur) fetchMessages(cur);
       } else if (e.type === "typing") {
