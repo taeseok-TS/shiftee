@@ -223,7 +223,7 @@ export async function POST(
     },
   });
 
-  emitWork({ type: "message", channelId: id });
+  emitWork({ type: "message", channelId: id, senderId: session.userId });
 
   // 푸시 알림(발신자 제외, MUTE 제외, MENTION이면 멘션 시만). 응답을 막지 않게 비동기 발송.
   notifyNewMessage(acc.channel, message, session.userId).catch((e) =>
