@@ -48,7 +48,7 @@ export default function PrivacyPage() {
           ]],
           ["8. 개인정보 보호책임자", [
             "성명: 김태석 (운영 총괄)",
-            "연락처: taeseokplex@gmail.com",
+            "연락처: taeseok_kim@nexcubecorp.com",
             "개인정보 관련 문의·불만 처리·피해 구제를 위해 위 연락처로 문의하실 수 있습니다.",
           ]],
           ["9. 방침의 변경", [
