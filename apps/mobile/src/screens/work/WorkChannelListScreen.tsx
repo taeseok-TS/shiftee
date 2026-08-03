@@ -88,6 +88,11 @@ function SwipeableChannelRow({
         >
           {item.type === "DM" ? (
             <Avatar name={item.name} size={44} uri={item.avatarUrl} />
+          ) : item.labelText ? (
+            // 웹 채널 관리에서 설정한 라벨 — 색상 배경 + 라벨 글자로 채널을 한눈에 구분
+            <View style={[styles.avatar, { backgroundColor: item.labelColor || "#6b7280" }]}>
+              <Text style={styles.avatarLabelText} numberOfLines={1}>{item.labelText.slice(0, 2)}</Text>
+            </View>
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="people" size={20} color="#fff" />
@@ -392,6 +397,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarDm: { backgroundColor: "#0ea5e9" },
+  avatarLabelText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   itemBody: { flex: 1, marginLeft: 12 },
   itemName: { fontSize: 16, fontWeight: "600", color: "#111827" },
   itemLast: { fontSize: 13, color: "#6b7280", marginTop: 2 },

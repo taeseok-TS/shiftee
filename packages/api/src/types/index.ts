@@ -253,6 +253,8 @@ export interface WorkChannel {
   unread: number;
   notify: string;
   pinned?: boolean; // 사용자별 상단 고정 (서버 정렬이 핀 우선)
+  labelText?: string | null; // 채널 표시 라벨(# 대신) — 웹 채널 관리에서 설정
+  labelColor?: string | null;
   avatarUrl?: string | null;
   lastMessage: { content: string; createdAt: string } | null;
 }
