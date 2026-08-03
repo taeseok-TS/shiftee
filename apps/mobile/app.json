@@ -35,6 +35,12 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "출퇴근 기록 시 지점 위치 확인을 위해 현재 위치가 필요합니다. 출근/퇴근 버튼을 누르는 순간에만 사용되며 상시 추적하지 않습니다."
+        }
+      ],
       "@sentry/react-native"
     ],
     "splash": {
