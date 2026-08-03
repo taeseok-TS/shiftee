@@ -6,7 +6,7 @@ export const workBus: EventEmitter = g.__workBus ?? (g.__workBus = new EventEmit
 workBus.setMaxListeners(0);
 
 export type WorkEvent =
-  | { type: "message"; channelId: string; senderId?: string } // senderId: 웹 데스크톱 알림에서 본인 메시지 제외용(내용은 싣지 않음)
+  | { type: "message"; channelId: string; senderId?: string; msgId?: string } // senderId: 웹 데스크톱 알림에서 본인 메시지 제외용, msgId: 다중 탭 알림 중복 방지 락 키(내용은 싣지 않음)
   | { type: "reaction"; channelId: string }
   | { type: "read"; channelId: string }
   | { type: "typing"; channelId: string; userId: string; userName: string };

@@ -206,7 +206,39 @@ export default function WorkChatPage() {
   // 전역 알림기와 연동: 보고 있는 채널 노출(그 방 알림 생략용) + 알림 클릭 시 채널 열기 + ?channel= 진입
   useEffect(() => {
     (window as unknown as { __workActiveChannelId?: string | null }).__workActiveChannelId = activeId;
-    return () => { (window as unknown as { __workActiveChannelId?: string | null }).__workActiveChannelId = null; };
+    // 다른 탭의 전역 알림기도 알 수 있게 "보고 있는 방"을 localStorage로 공유.
+    // "채널ID|타임스탬프"를 10초마다 갱신(하트비트) — 알림기는 25초 내 값만 유효로 봐서
+    // 탭 강제종료로 남은 잔류값이 채널 알림을 영구 차단하는 일을 막는다.
+    const clearViewing = () => {
+      try {
+        const v = localStorage.getItem("workViewingChannel");
+        if (activeId && v && v.split("|")[0] === activeId) localStorage.removeItem("workViewingChannel");
+      } catch { /* noop */ }
+    };
+    const syncViewing = () => {
+      try {
+        if (activeId && !document.hidden && document.hasFocus()) {
+          localStorage.setItem("workViewingChannel", `${activeId}|${Date.now()}`);
+        } else {
+          clearViewing();
+        }
+      } catch { /* noop */ }
+    };
+    syncViewing();
+    const heartbeat = window.setInterval(syncViewing, 10000);
+    window.addEventListener("focus", syncViewing);
+    window.addEventListener("blur", syncViewing);
+    document.addEventListener("visibilitychange", syncViewing);
+    window.addEventListener("pagehide", clearViewing);
+    return () => {
+      window.clearInterval(heartbeat);
+      window.removeEventListener("focus", syncViewing);
+      window.removeEventListener("blur", syncViewing);
+      document.removeEventListener("visibilitychange", syncViewing);
+      window.removeEventListener("pagehide", clearViewing);
+      clearViewing();
+      (window as unknown as { __workActiveChannelId?: string | null }).__workActiveChannelId = null;
+    };
   }, [activeId]);
   useEffect(() => {
     const openCh = (e: Event) => setActiveId((e as CustomEvent<string>).detail);
