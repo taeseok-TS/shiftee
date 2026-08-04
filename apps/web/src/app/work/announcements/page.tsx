@@ -247,7 +247,8 @@ export default function WorkAnnouncementsPage() {
       )}
 
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditId(null); }}>
-        <DialogContent className="max-w-3xl w-[90vw]">
+        {/* 내용 textarea가 내용 길이만큼 자라므로(field-sizing-content) 창 자체를 스크롤 가능하게 */}
+        <DialogContent className="max-w-3xl w-[90vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editId ? "공지 수정" : "공지 작성"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <Input placeholder="제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />

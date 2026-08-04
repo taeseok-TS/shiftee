@@ -167,6 +167,9 @@ export default function WorkChatPage() {
   // 알림 설정 메뉴
   const [notifyMenuOpen, setNotifyMenuOpen] = useState(false);
 
+  // 긴 메시지 접기: "전체 보기"를 누른 메시지 ID 집합
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeIdRef = useRef<string | null>(null);
@@ -314,8 +317,17 @@ export default function WorkChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 자동 스크롤은 "맨 아래 근처에 있을 때"와 "내가 방금 보냈을 때"만.
+  // 목록은 SSE·폴링으로 수시로 갱신되므로 무조건 내리면 위로 올려 읽는 중에 강제로 끌려 내려간다.
+  const nearBottomRef = useRef(true);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    nearBottomRef.current = true; // 방을 열면 맨 아래(최신)부터
+  }, [activeId]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const last = messages[messages.length - 1];
+    if (nearBottomRef.current || (last && last.mine)) el.scrollTo({ top: el.scrollHeight });
   }, [messages]);
 
   function onInputChange(v: string) {
@@ -1121,7 +1133,11 @@ export default function WorkChatPage() {
                 <button onClick={clearChannelNotice} title="공지 내리기" className="text-amber-400 hover:text-amber-700 shrink-0"><X size={14} /></button>
               </div>
             )}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-1">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-1"
+              onScroll={() => {
+                const el = scrollRef.current;
+                if (el) nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+              }}>
               {messages.length === 0 ? (
                 <div className="text-center text-gray-400 mt-10 text-sm">아직 메시지가 없습니다. 첫 메시지를 보내보세요!</div>
               ) : (
@@ -1206,7 +1222,27 @@ export default function WorkChatPage() {
                                   </div>
                                 ) : (
                                   <>
-                                    {m.content && <span className="whitespace-pre-wrap">{renderContent(m.content)}{m.editedAt && <span className="text-[10px] opacity-60"> (수정됨)</span>}</span>}
+                                    {m.content && (() => {
+                                      // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
+                                      const lines = m.content.split("\n");
+                                      const isLong = m.content.length > 500 || lines.length > 12;
+                                      const expanded = expandedMsgs.has(m.id);
+                                      const shown = !isLong || expanded
+                                        ? m.content
+                                        : (lines.length > 12 ? lines.slice(0, 12).join("\n") : m.content).slice(0, 500) + " …";
+                                      return (
+                                        <>
+                                          <span className="whitespace-pre-wrap">{renderContent(shown)}{m.editedAt && <span className="text-[10px] opacity-60"> (수정됨)</span>}</span>
+                                          {isLong && !expanded && (
+                                            <button
+                                              onClick={() => setExpandedMsgs((prev) => new Set(prev).add(m.id))}
+                                              className={`block w-full text-center text-xs font-medium mt-2 pt-2 border-t ${m.mine ? "border-white/25 text-white/90" : "border-gray-200 text-indigo-600"} hover:opacity-80`}>
+                                              전체 보기
+                                            </button>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                     {renderAttachment(m)}
                                     {!m.fileUrl && firstUrl(m.content) && <LinkPreview url={firstUrl(m.content)!} mine={m.mine} />}
                                   </>

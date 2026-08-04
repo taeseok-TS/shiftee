@@ -187,6 +187,8 @@ export default function WorkChatScreen() {
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
   // keys는 다운로드 시 현재 사진이 속한 메시지(앨범 여부)를 찾는 데도 쓴다
   const [imageViewer, setImageViewer] = useState<{ urls: string[]; keys: string[]; index: number } | null>(null);
+  // 긴 메시지 접기: "전체 보기"를 누른 메시지 ID 집합
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
   const [viewerIndex, setViewerIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const listRef = useRef<FlatList<WorkMessage>>(null);
@@ -1039,16 +1041,37 @@ export default function WorkChatScreen() {
                   </TouchableOpacity>
                 )
               ) : (
-                <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>
-                  {item.content.split(/(@[가-힣A-Za-z0-9_]+|https?:\/\/[^\s]+)/g).map((p, i) =>
-                    p.startsWith("@")
-                      ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
-                      : /^https?:\/\//.test(p)
-                      ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(p)}>{p}</Text>
-                      : p
-                  )}
-                  {item.editedAt ? <Text style={[styles.editedTag, item.mine && styles.editedTagMine]}> (수정됨)</Text> : null}
-                </Text>
+                (() => {
+                  // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
+                  const contentLines = item.content.split("\n");
+                  const isLong = item.content.length > 500 || contentLines.length > 12;
+                  const expanded = expandedMsgs.has(item.id);
+                  const shown = !isLong || expanded
+                    ? item.content
+                    : (contentLines.length > 12 ? contentLines.slice(0, 12).join("\n") : item.content).slice(0, 500) + " …";
+                  return (
+                    <>
+                      <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>
+                        {shown.split(/(@[가-힣A-Za-z0-9_]+|https?:\/\/[^\s]+)/g).map((p, i) =>
+                          p.startsWith("@")
+                            ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
+                            : /^https?:\/\//.test(p)
+                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(p)}>{p}</Text>
+                            : p
+                        )}
+                        {item.editedAt ? <Text style={[styles.editedTag, item.mine && styles.editedTagMine]}> (수정됨)</Text> : null}
+                      </Text>
+                      {isLong && !expanded ? (
+                        <TouchableOpacity
+                          onPress={() => setExpandedMsgs((prev) => { const n = new Set(prev); n.add(item.id); return n; })}
+                          style={[styles.expandBtn, item.mine && styles.expandBtnMine]}
+                        >
+                          <Text style={[styles.expandBtnText, item.mine && styles.expandBtnTextMine]}>전체 보기</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </>
+                  );
+                })()
               )}
             </>
           )}
@@ -1862,6 +1885,11 @@ const styles = StyleSheet.create({
   deletedText: { fontStyle: "italic", color: "#9ca3af" },
   editedTag: { fontSize: 11, color: "#9ca3af" },
   editedTagMine: { color: "#c7d2fe" },
+  // 긴 메시지 "전체 보기"
+  expandBtn: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e5e7eb", alignItems: "center" },
+  expandBtnMine: { borderTopColor: "rgba(255,255,255,0.3)" },
+  expandBtnText: { fontSize: 12, fontWeight: "600", color: "#6366f1" },
+  expandBtnTextMine: { color: "rgba(255,255,255,0.95)" },
   // 롱프레스 액션시트
   actionSheet: { backgroundColor: "transparent", alignItems: "center" },
   actionRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", backgroundColor: "#fff", borderRadius: 14, marginTop: 10, paddingHorizontal: 8, paddingVertical: 10, gap: 4, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, elevation: 4, maxWidth: 340 },
