@@ -240,7 +240,7 @@ export default function WorkChatScreen() {
 
   // 채널 고정 공지
   const [notice, setNotice] = useState<{ content: string; imageUrl?: string | null; by: string | null; at: string | null; important?: boolean; unreadCount?: number } | null>(null);
-  const [noticeCollapsed, setNoticeCollapsed] = useState(false);
+  const [noticeCollapsed, setNoticeCollapsed] = useState(true); // 기본 접힘 — 긴 공지가 화면을 덮지 않게
 
   // 링크 모아보기
   const [linksOpen, setLinksOpen] = useState(false);
@@ -1156,17 +1156,21 @@ export default function WorkChatScreen() {
           {notice.important ? (
             <View style={styles.noticeImpBadge}><Text style={styles.noticeImpBadgeText}>중요</Text></View>
           ) : null}
-          <TouchableOpacity style={{ flex: 1 }} onPress={() => setNoticeCollapsed((v) => !v)} activeOpacity={0.7}>
-            {notice.content ? (
-              <Text style={styles.noticeText} numberOfLines={noticeCollapsed ? 1 : undefined}>{notice.content}</Text>
-            ) : noticeCollapsed ? (
-              <Text style={styles.noticeText}>🖼️ 이미지 공지</Text>
-            ) : null}
-            {notice.imageUrl && !noticeCollapsed ? (
-              <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + notice.imageUrl)}>
-                <Image source={{ uri: FILE_ORIGIN + notice.imageUrl }} style={styles.noticeImage} resizeMode="cover" />
-              </TouchableOpacity>
-            ) : null}
+          {/* 본문 탭=펼치기만 (펼친 뒤 스크롤 중 실수로 접히지 않게, 접기는 ∧ 버튼) */}
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => noticeCollapsed && setNoticeCollapsed(false)} activeOpacity={0.7} disabled={!noticeCollapsed}>
+            {/* 펼쳐도 화면 일부까지만 — 넘치면 내부 스크롤 */}
+            <ScrollView style={noticeCollapsed ? undefined : { maxHeight: 280 }} nestedScrollEnabled scrollEnabled={!noticeCollapsed}>
+              {notice.content ? (
+                <Text style={styles.noticeText} numberOfLines={noticeCollapsed ? 1 : undefined}>{notice.content}</Text>
+              ) : noticeCollapsed ? (
+                <Text style={styles.noticeText}>🖼️ 이미지 공지</Text>
+              ) : null}
+              {notice.imageUrl && !noticeCollapsed ? (
+                <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + notice.imageUrl)}>
+                  <Image source={{ uri: FILE_ORIGIN + notice.imageUrl }} style={styles.noticeImage} resizeMode="cover" />
+                </TouchableOpacity>
+              ) : null}
+            </ScrollView>
             {!noticeCollapsed ? (
               <View style={styles.noticeMetaRow}>
                 {notice.by ? <Text style={styles.noticeBy}>{notice.by} 등록</Text> : null}
@@ -1177,6 +1181,9 @@ export default function WorkChatScreen() {
                 ) : null}
               </View>
             ) : null}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setNoticeCollapsed((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginRight: 8 }}>
+            <Ionicons name={noticeCollapsed ? "chevron-down" : "chevron-up"} size={16} color="#b45309" />
           </TouchableOpacity>
           <TouchableOpacity onPress={removeNotice} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={16} color="#b45309" />

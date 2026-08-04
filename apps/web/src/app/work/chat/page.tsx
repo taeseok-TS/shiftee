@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -122,7 +122,7 @@ export default function WorkChatPage() {
   const [readersTab, setReadersTab] = useState<"unread" | "read">("unread");
   // 채널 고정 공지
   const [notice, setNotice] = useState<{ content: string; imageUrl?: string | null; by: string | null; at: string | null; important?: boolean; unreadCount?: number } | null>(null);
-  const [noticeCollapsed, setNoticeCollapsed] = useState(false);
+  const [noticeCollapsed, setNoticeCollapsed] = useState(true); // 기본 접힘 — 긴 공지가 화면을 덮지 않게
   const [noticeDlgFor, setNoticeDlgFor] = useState<Message | null>(null); // 공지 등록 다이얼로그 대상 메시지
   const [noticeImportantChk, setNoticeImportantChk] = useState(false);
   // 링크 모아보기
@@ -322,6 +322,7 @@ export default function WorkChatPage() {
   const nearBottomRef = useRef(true);
   useEffect(() => {
     nearBottomRef.current = true; // 방을 열면 맨 아래(최신)부터
+    setNoticeCollapsed(true); // 방 전환 시 공지 배너도 접힘으로
   }, [activeId]);
   useEffect(() => {
     const el = scrollRef.current;
@@ -1110,15 +1111,20 @@ export default function WorkChatPage() {
               <div className={`mx-6 mt-3 rounded-lg border px-4 py-2.5 flex items-start gap-2 ${notice.important ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
                 <span className="shrink-0 mt-0.5">📌</span>
                 {notice.important && <span className="shrink-0 mt-0.5 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">중요</span>}
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setNoticeCollapsed((v) => !v)}>
-                  {notice.content && <p className={`text-sm text-amber-900 whitespace-pre-wrap ${noticeCollapsed ? "truncate" : ""}`}>{notice.content}</p>}
-                  {notice.imageUrl && !noticeCollapsed && (
-                    <a href={notice.imageUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={notice.imageUrl} alt="공지 이미지" className="mt-1 max-h-40 rounded-lg border border-amber-200" />
-                    </a>
-                  )}
-                  {notice.imageUrl && noticeCollapsed && !notice.content && <p className="text-sm text-amber-900">🖼️ 이미지 공지</p>}
+                {/* 본문 클릭=펼치기만 (펼친 뒤 스크롤 드래그 중 실수로 접히지 않게, 접기는 ∧ 버튼) */}
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => noticeCollapsed && setNoticeCollapsed(false)}>
+                  {/* 펼쳐도 화면의 40%까지만 — 넘치면 내부 스크롤 */}
+                  <div className={noticeCollapsed ? "" : "max-h-[40vh] overflow-y-auto"}>
+                    {/* 접힘일 땐 truncate(한 줄)와 충돌하는 pre-wrap을 빼야 실제로 한 줄이 된다 */}
+                    {notice.content && <p className={`text-sm text-amber-900 ${noticeCollapsed ? "truncate" : "whitespace-pre-wrap"}`}>{notice.content}</p>}
+                    {notice.imageUrl && !noticeCollapsed && (
+                      <a href={notice.imageUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={notice.imageUrl} alt="공지 이미지" className="mt-1 max-h-40 rounded-lg border border-amber-200" />
+                      </a>
+                    )}
+                    {notice.imageUrl && noticeCollapsed && !notice.content && <p className="text-sm text-amber-900">🖼️ 이미지 공지</p>}
+                  </div>
                   {!noticeCollapsed && (
                     <p className="text-[11px] text-amber-600 mt-1 flex items-center gap-2">
                       {notice.by && <span>{notice.by} 등록</span>}
@@ -1130,6 +1136,9 @@ export default function WorkChatPage() {
                     </p>
                   )}
                 </div>
+                <button onClick={() => setNoticeCollapsed((v) => !v)} title={noticeCollapsed ? "공지 펼치기" : "공지 접기"} className="text-amber-500 hover:text-amber-700 shrink-0">
+                  {noticeCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                </button>
                 <button onClick={clearChannelNotice} title="공지 내리기" className="text-amber-400 hover:text-amber-700 shrink-0"><X size={14} /></button>
               </div>
             )}
