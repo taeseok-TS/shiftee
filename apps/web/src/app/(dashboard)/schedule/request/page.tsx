@@ -405,22 +405,20 @@ export default function ScheduleRequestPage() {
                         <button
                           key={dateStr}
                           onClick={() => {
-                            if (!isWeekendDay) {
-                              const newDates = new Set(selectedDates);
-                              if (newDates.has(dateStr)) {
-                                newDates.delete(dateStr);
-                              } else {
-                                newDates.add(dateStr);
-                              }
-                              setSelectedDates(newDates);
+                            // 주말도 선택 가능 (주말 근무는 사전승인 결재로 분기됨)
+                            const newDates = new Set(selectedDates);
+                            if (newDates.has(dateStr)) {
+                              newDates.delete(dateStr);
+                            } else {
+                              newDates.add(dateStr);
                             }
+                            setSelectedDates(newDates);
                           }}
-                          disabled={isWeekendDay}
                           className={`p-2 rounded text-sm font-medium transition-all ${
-                            isWeekendDay
-                              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                              : isSelected
+                            isSelected
                               ? "bg-blue-600 text-white"
+                              : isWeekendDay
+                              ? `bg-gray-50 hover:bg-gray-200 ${getDay(day) === 0 ? "text-red-500" : "text-blue-500"}`
                               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                           }`}
                         >
