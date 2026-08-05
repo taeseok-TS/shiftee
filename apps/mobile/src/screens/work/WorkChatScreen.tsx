@@ -41,7 +41,30 @@ import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, g
 
 type ParamList = { WorkChat: { channelId: string; name: string; notify?: string; type?: string; isDefault?: boolean } };
 
-const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "👏"];
+// 자주쓰는 6개만 기본 노출, "더보기"로 전체 그리드
+const EMOJIS = ["👍", "✅", "🙏", "😂", "❤️", "🫡"];
+const EMOJIS_ALL = [
+  "👍", "✅", "🙏", "😂", "❤️", "🫡",
+  "😢", "😮", "👌", "🎉", "👏", "🔥",
+  "💯", "😊", "😅", "🤣", "😭", "🥹",
+  "🙇", "💪", "🤝", "🙌", "😍", "☕",
+];
+
+// 이모지만으로 된 짧은 메시지(3개 이하)는 크게 표시 (카톡식)
+function isEmojiOnly(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  try {
+    // 픽토그래프 + (변형선택자/스킨톤) + (ZWJ 결합) 을 이모지 1개로 계산
+    const seq = "\\p{Extended_Pictographic}(?:\\uFE0F)?(?:[\\u{1F3FB}-\\u{1F3FF}])?";
+    const re = new RegExp(`${seq}(?:\\u200D${seq})*`, "gu");
+    const matches = t.match(re);
+    if (!matches || matches.length === 0 || matches.length > 3) return false;
+    return t.replace(re, "").replace(/\s/g, "") === "";
+  } catch {
+    return false;
+  }
+}
 
 function firstUrl(text: string): string | null {
   const m = (text || "").match(/https?:\/\/[^\s]+/);
@@ -181,6 +204,8 @@ export default function WorkChatScreen() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadEtaSec, setUploadEtaSec] = useState<number | null>(null);
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+  const [emojiMore, setEmojiMore] = useState(false); // 리액션 이모지 전체 그리드 펼침
+  useEffect(() => { if (!reactionTarget) setEmojiMore(false); }, [reactionTarget]);
   const [replyTarget, setReplyTarget] = useState<WorkMessage | null>(null);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
   // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
@@ -1017,7 +1042,7 @@ export default function WorkChatScreen() {
                     const shown = Math.min(item.albumUrls!.length, 9);
                     const rest = item.albumUrls!.length - shown;
                     return (
-                      <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)}>
+                      <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)} onLongPress={() => setReactionTarget(item.id)}>
                         <Image source={{ uri: FILE_ORIGIN + u }} style={styles.albumCell} resizeMode="cover" />
                         {i === shown - 1 && rest > 0 ? (
                           <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
@@ -1028,7 +1053,7 @@ export default function WorkChatScreen() {
                 </View>
               ) : item.fileUrl ? (
                 item.fileType === "image" ? (
-                  <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}>
+                  <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)} onLongPress={() => setReactionTarget(item.id)}>
                     <Image source={{ uri: FILE_ORIGIN + item.fileUrl }} style={styles.image} resizeMode="cover" />
                   </TouchableOpacity>
                 ) : item.fileType === "video" ? (
@@ -1036,12 +1061,16 @@ export default function WorkChatScreen() {
                 ) : item.fileType === "audio" ? (
                   <VoiceBubble uri={FILE_ORIGIN + item.fileUrl} mine={item.mine} />
                 ) : (
-                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)}>
+                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)} onLongPress={() => setReactionTarget(item.id)}>
                     <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>📎 {item.fileName || "첨부파일"}</Text>
                   </TouchableOpacity>
                 )
               ) : (
                 (() => {
+                  // 이모지만 보낸 메시지는 크게 (카톡식)
+                  if (isEmojiOnly(item.content)) {
+                    return <Text style={styles.jumboEmoji}>{item.content.trim()}</Text>;
+                  }
                   // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
                   const contentLines = item.content.split("\n");
                   const isLong = item.content.length > 500 || contentLines.length > 12;
@@ -1344,10 +1373,11 @@ export default function WorkChatScreen() {
       <Modal visible={!!reactionTarget} transparent animationType="fade" onRequestClose={() => setReactionTarget(null)}>
         <Pressable style={styles.modalBg} onPress={() => setReactionTarget(null)}>
           <Pressable style={styles.actionSheet} onPress={() => {}}>
-            <View style={styles.emojiBar}>
-              {EMOJIS.map((e) => (
+            <View style={emojiMore ? styles.emojiGrid : styles.emojiBar}>
+              {(emojiMore ? EMOJIS_ALL : EMOJIS).map((e) => (
                 <TouchableOpacity
                   key={e}
+                  style={emojiMore ? styles.emojiGridCell : undefined}
                   onPress={() => {
                     const t = reactionTarget;
                     setReactionTarget(null);
@@ -1357,6 +1387,11 @@ export default function WorkChatScreen() {
                   <Text style={styles.emojiBig}>{e}</Text>
                 </TouchableOpacity>
               ))}
+              {!emojiMore && (
+                <TouchableOpacity onPress={() => setEmojiMore(true)}>
+                  <View style={styles.emojiMoreBtn}><Ionicons name="add" size={20} color="#6b7280" /></View>
+                </TouchableOpacity>
+              )}
             </View>
             {(() => {
               const t = messages.find((m) => m.id === reactionTarget);
@@ -1892,6 +1927,8 @@ const styles = StyleSheet.create({
   deletedText: { fontStyle: "italic", color: "#9ca3af" },
   editedTag: { fontSize: 11, color: "#9ca3af" },
   editedTagMine: { color: "#c7d2fe" },
+  // 이모지 단독 메시지 크게
+  jumboEmoji: { fontSize: 52, lineHeight: 64 },
   // 긴 메시지 "전체 보기"
   expandBtn: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e5e7eb", alignItems: "center" },
   expandBtnMine: { borderTopColor: "rgba(255,255,255,0.3)" },
@@ -2080,6 +2117,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   emojiBig: { fontSize: 30 },
+  emojiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    maxWidth: 320,
+    justifyContent: "center",
+  },
+  emojiGridCell: { width: 48, alignItems: "center", paddingVertical: 6 },
+  emojiMoreBtn: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: "#f3f4f6",
+    alignItems: "center", justifyContent: "center", alignSelf: "center",
+  },
   addBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   addCard: { backgroundColor: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 28 },
   addTitle: { fontSize: 17, fontWeight: "bold", color: "#111827", marginBottom: 12 },

@@ -9,7 +9,30 @@ import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, 
 import { format } from "date-fns";
 import { toast } from "sonner";
 
-const EMOJIS = ["👍", "❤️", "😄", "😢", "👌", "🎉"];
+// 자주쓰는 6개만 기본 노출, "+"로 전체 그리드
+const EMOJIS = ["👍", "✅", "🙏", "😂", "❤️", "🫡"];
+const EMOJIS_ALL = [
+  "👍", "✅", "🙏", "😂", "❤️", "🫡",
+  "😢", "😮", "👌", "🎉", "👏", "🔥",
+  "💯", "😊", "😅", "🤣", "😭", "🥹",
+  "🙇", "💪", "🤝", "🙌", "😍", "☕",
+];
+
+// 이모지만으로 된 짧은 메시지(3개 이하)는 크게 표시 (카톡식)
+function isEmojiOnly(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  try {
+    // 픽토그래프 + (변형선택자/스킨톤) + (ZWJ 결합) 을 이모지 1개로 계산
+    const seq = "\\p{Extended_Pictographic}(?:\\uFE0F)?(?:[\\u{1F3FB}-\\u{1F3FF}])?";
+    const re = new RegExp(`${seq}(?:\\u200D${seq})*`, "gu");
+    const matches = t.match(re);
+    if (!matches || matches.length === 0 || matches.length > 3) return false;
+    return t.replace(re, "").replace(/\s/g, "") === "";
+  } catch {
+    return false;
+  }
+}
 const NOTIFY_LABEL: Record<string, string> = { ALL: "모든 메시지", MENTION: "멘션만", MUTE: "음소거" };
 
 // @멘션 하이라이트 렌더링
@@ -104,6 +127,9 @@ export default function WorkChatPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [pickerMore, setPickerMore] = useState(false); // 리액션 이모지 전체 그리드 펼침
+  useEffect(() => { setPickerMore(false); }, [pickerFor]);
+  const [inputEmojiOpen, setInputEmojiOpen] = useState(false); // 입력창 이모지 선택기
   const [threadId, setThreadId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ parent: Message; replies: Message[] } | null>(null);
   const [threadInput, setThreadInput] = useState("");
@@ -1232,6 +1258,10 @@ export default function WorkChatPage() {
                                 ) : (
                                   <>
                                     {m.content && (() => {
+                                      // 이모지만 보낸 메시지는 크게 (카톡식)
+                                      if (isEmojiOnly(m.content)) {
+                                        return <span className="block text-[52px] leading-[1.25] py-0.5">{m.content.trim()}</span>;
+                                      }
                                       // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
                                       const lines = m.content.split("\n");
                                       const isLong = m.content.length > 500 || lines.length > 12;
@@ -1270,10 +1300,13 @@ export default function WorkChatPage() {
                             {m.mine && !m.deleted && !m.fileUrl && !m.poll && <button onClick={() => startEdit(m)} title="수정" className="text-gray-400 hover:text-gray-700"><Pencil size={14} /></button>}
                             {m.mine && !m.deleted && <button onClick={() => deleteMsg(m)} title="삭제" className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>}
                             {pickerFor === m.id && (
-                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-10 bg-white border rounded-full shadow px-2 py-1 flex gap-1`}>
-                                {EMOJIS.map((e) => (
-                                  <button key={e} onClick={() => toggleReaction(m.id, e)} className="hover:scale-125 transition-transform">{e}</button>
+                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-10 bg-white border shadow ${pickerMore ? "rounded-xl p-2 grid grid-cols-6 gap-1 w-56" : "rounded-full px-2 py-1 flex gap-1"}`}>
+                                {(pickerMore ? EMOJIS_ALL : EMOJIS).map((e) => (
+                                  <button key={e} onClick={() => toggleReaction(m.id, e)} className="hover:scale-125 transition-transform text-center">{e}</button>
                                 ))}
+                                {!pickerMore && (
+                                  <button onClick={(ev) => { ev.stopPropagation(); setPickerMore(true); }} title="이모지 더보기" className="text-gray-400 hover:text-gray-700 px-0.5"><Plus size={14} /></button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1387,6 +1420,24 @@ export default function WorkChatPage() {
               <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} className="shrink-0"><Paperclip size={16} /></Button>
               <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0"><BarChart3 size={16} /></Button>
               <Button variant="ghost" size="sm" onClick={openSchedule} title="예약 전송" className="shrink-0"><Clock size={16} /></Button>
+              <div className="relative shrink-0">
+                <Button variant="ghost" size="sm" onClick={() => setInputEmojiOpen((v) => !v)} title="이모지" className="shrink-0"><Smile size={16} /></Button>
+                {inputEmojiOpen && (
+                  <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow p-2 grid grid-cols-6 gap-1 w-60">
+                    {EMOJIS_ALL.map((e) => (
+                      <button key={e} className="text-xl hover:scale-125 transition-transform text-center"
+                        onClick={() => {
+                          // 커서 위치에 이모지 삽입
+                          const ta = inputRef.current;
+                          const pos = ta?.selectionStart ?? input.length;
+                          const next = input.slice(0, pos) + e + input.slice(pos);
+                          onInputChange(next);
+                          setTimeout(() => { ta?.focus(); ta?.setSelectionRange(pos + e.length, pos + e.length); }, 0);
+                        }}>{e}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <textarea ref={inputRef} value={input} rows={1}
                 className="flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring max-h-40 overflow-y-auto leading-5"
                 onChange={(e) => {
