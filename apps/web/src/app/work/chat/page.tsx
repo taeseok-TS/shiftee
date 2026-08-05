@@ -1217,7 +1217,12 @@ export default function WorkChatPage() {
                               {format(new Date(m.createdAt), "HH:mm")}
                             </span>
                           )}
-                          <div className={`rounded-2xl px-4 py-2 text-sm ${m.mine ? "bg-indigo-500 text-white" : "bg-white border"}`}>
+                          <div className={
+                            // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
+                            !m.deleted && !m.poll && !m.fileUrl && !m.albumUrls?.length && !m.replyTo && !!m.content && isEmojiOnly(m.content)
+                              ? "text-sm"
+                              : `rounded-2xl px-4 py-2 text-sm ${m.mine ? "bg-indigo-500 text-white" : "bg-white border"}`
+                          }>
                             {m.deleted ? (
                               <span className="italic opacity-70">삭제된 메시지입니다</span>
                             ) : (

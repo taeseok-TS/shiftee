@@ -994,7 +994,13 @@ export default function WorkChatScreen() {
         {!item.mine && <Text style={styles.sender}>{item.userName}{item.userBranch ? ` · ${item.userBranch}` : ""}</Text>}
         <Pressable
           onLongPress={() => !item.deleted && setReactionTarget(item.id)}
-          style={[styles.bubble, item.mine ? styles.bubbleMine : styles.bubbleOther, !item.deleted && item.fileType === "image" && styles.bubbleImage]}
+          style={[
+            styles.bubble,
+            item.mine ? styles.bubbleMine : styles.bubbleOther,
+            !item.deleted && item.fileType === "image" && styles.bubbleImage,
+            // 이모지 단독 메시지는 배경 투명 (bubbleMine/Other 배경을 마지막에 덮어씀)
+            !item.deleted && !item.poll && !item.fileUrl && !(item.albumUrls && item.albumUrls.length) && !item.replyTo && !!item.content && isEmojiOnly(item.content) && styles.bubbleEmoji,
+          ]}
         >
           {item.deleted ? (
             <Text style={[styles.msgText, item.mine && styles.msgTextMine, styles.deletedText]}>삭제된 메시지입니다</Text>
@@ -1902,6 +1908,8 @@ const styles = StyleSheet.create({
   sender: { fontSize: 12, color: "#6b7280", marginBottom: 2, marginLeft: 4 },
   bubble: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 16 },
   bubbleImage: { padding: 4 },
+  // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
+  bubbleEmoji: { backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 2 },
   bubbleMine: { backgroundColor: "#4f46e5", borderBottomRightRadius: 4 },
   bubbleOther: { backgroundColor: "#fff", borderBottomLeftRadius: 4 },
   msgText: { fontSize: 15, color: "#111827", lineHeight: 20 },
