@@ -60,11 +60,21 @@ export default function ScheduleRequestPage() {
   const [customStart, setCustomStart] = useState("09:00");
   const [customEnd, setCustomEnd] = useState("18:00");
 
+  // 분 단위는 00분/30분만 허용 — 가까운 쪽으로 스냅
+  const snapHalfHour = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return t;
+    if (m >= 45) return `${String((h + 1) % 24).padStart(2, "0")}:00`;
+    return `${String(h).padStart(2, "0")}:${m < 15 ? "00" : "30"}`;
+  };
+
   // 직접 설정 시간 변경 → 선택된 템플릿 갱신
   const handleCustomTimeChange = (start: string, end: string) => {
-    setCustomStart(start);
-    setCustomEnd(end);
-    const custom = buildCustomTemplate(start, end);
+    const s = snapHalfHour(start);
+    const e = snapHalfHour(end);
+    setCustomStart(s);
+    setCustomEnd(e);
+    const custom = buildCustomTemplate(s, e);
     if (custom) setSelectedTemplate(custom);
   };
   const [startDate, setStartDate] = useState<string>("");
@@ -285,6 +295,7 @@ export default function ScheduleRequestPage() {
                     <span className="text-sm text-gray-600">출근</span>
                     <input
                       type="time"
+                      step={1800}
                       value={customStart}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleCustomTimeChange(e.target.value, customEnd)}
@@ -296,6 +307,7 @@ export default function ScheduleRequestPage() {
                     <span className="text-sm text-gray-600">퇴근</span>
                     <input
                       type="time"
+                      step={1800}
                       value={customEnd}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleCustomTimeChange(customStart, e.target.value)}
