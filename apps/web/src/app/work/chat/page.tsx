@@ -282,7 +282,8 @@ export default function WorkChatPage() {
     if (res.ok) {
       const data = await res.json();
       setChannels(data.channels || []);
-      setActiveId((cur) => cur ?? data.channels?.[0]?.id ?? null);
+      // 모바일(폰 폭)은 목록 화면부터 — 첫 채널 자동 선택은 데스크톱만
+      setActiveId((cur) => cur ?? (typeof window !== "undefined" && window.innerWidth < 768 ? null : data.channels?.[0]?.id ?? null));
       return data.channels || [];
     }
     return [];
@@ -987,9 +988,10 @@ export default function WorkChatPage() {
   };
 
   return (
-    <div className="flex h-screen">
-      {/* 채널 목록 */}
-      <div className="w-72 border-r bg-white flex flex-col">
+    // 모바일: 상단 바(3rem)를 뺀 높이, 목록↔대화방 한 화면씩 전환 / 데스크톱: 기존 2단
+    <div className="flex h-[calc(100dvh-3rem)] md:h-screen">
+      {/* 채널 목록 — 모바일에서는 대화방이 열려 있으면 숨김 */}
+      <div className={`${activeId ? "hidden md:flex" : "flex"} w-full md:w-72 border-r bg-white flex-col`}>
         <div className="px-4 py-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="font-bold text-lg">채팅</h2>
@@ -1062,7 +1064,7 @@ export default function WorkChatPage() {
       </div>
 
       {/* 메시지 영역 — 파일 드래그앤드롭으로 첨부 */}
-      <div className="flex-1 flex flex-col bg-gray-50 min-w-0 relative"
+      <div className={`flex-1 ${activeId ? "flex" : "hidden md:flex"} flex-col bg-gray-50 min-w-0 relative`}
         onDragOver={(e) => { if (active && e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
         onDrop={(e) => {
@@ -1080,7 +1082,11 @@ export default function WorkChatPage() {
         )}
         {active ? (
           <>
-            <div className="px-6 py-4 border-b bg-white flex items-center gap-2">
+            <div className="px-3 md:px-6 py-3 md:py-4 border-b bg-white flex items-center gap-2">
+              {/* 모바일: 목록으로 돌아가기 */}
+              <button onClick={() => setActiveId(null)} className="md:hidden p-1 -ml-1 text-gray-500" title="목록으로">
+                <ChevronLeft size={20} />
+              </button>
               {active.type === "DM" ? <UserIcon size={18} />
                 : active.labelText ? <span className="text-white text-xs font-bold rounded px-2 py-0.5" style={{ backgroundColor: active.labelColor || "#6b7280" }}>{active.labelText}</span>
                 : <Hash size={18} />}
@@ -1168,7 +1174,7 @@ export default function WorkChatPage() {
                 <button onClick={clearChannelNotice} title="공지 내리기" className="text-amber-400 hover:text-amber-700 shrink-0"><X size={14} /></button>
               </div>
             )}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-1"
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-1"
               onScroll={() => {
                 const el = scrollRef.current;
                 if (el) nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -1423,8 +1429,9 @@ export default function WorkChatPage() {
               })()}
               <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) handleFiles(fs); e.target.value = ""; }} />
               <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} className="shrink-0"><Paperclip size={16} /></Button>
-              <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0"><BarChart3 size={16} /></Button>
-              <Button variant="ghost" size="sm" onClick={openSchedule} title="예약 전송" className="shrink-0"><Clock size={16} /></Button>
+              {/* 폰 폭에서는 입력창 확보를 위해 투표·예약은 숨김(데스크톱 전용) */}
+              <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0 hidden md:inline-flex"><BarChart3 size={16} /></Button>
+              <Button variant="ghost" size="sm" onClick={openSchedule} title="예약 전송" className="shrink-0 hidden md:inline-flex"><Clock size={16} /></Button>
               <div className="relative shrink-0">
                 <Button variant="ghost" size="sm" onClick={() => setInputEmojiOpen((v) => !v)} title="이모지" className="shrink-0"><Smile size={16} /></Button>
                 {inputEmojiOpen && (

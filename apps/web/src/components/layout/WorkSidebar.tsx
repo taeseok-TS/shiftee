@@ -40,7 +40,9 @@ export function WorkSidebar() {
   }
 
   return (
-    <aside className={cn("min-h-screen bg-indigo-950 text-white flex flex-col transition-all duration-200", collapsed ? "w-16" : "w-64")}>
+    // h-screen + sticky: 본문이 길어도 사이드바는 화면에 고정 (관리자 사이드바와 동일)
+    // 모바일에서는 숨기고 WorkMobileNav(상단 바)로 대체
+    <aside className={cn("hidden md:flex h-screen sticky top-0 overflow-y-auto shrink-0 bg-indigo-950 text-white flex-col transition-all duration-200", collapsed ? "w-16" : "w-64")}>
       <div className="px-3 py-5 border-b border-indigo-800">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
           <div className="w-9 h-9 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
@@ -110,5 +112,35 @@ export function WorkSidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+// 모바일 전용 상단 바 — 폰 폭에서는 좌측 사이드바 대신 이 바로 이동한다
+export function WorkMobileNav() {
+  const pathname = usePathname();
+  return (
+    <div className="md:hidden sticky top-0 z-40 h-12 shrink-0 bg-indigo-950 text-white flex items-center px-2 gap-1">
+      <button onClick={() => (window.location.href = "/dashboard")} title="큐브티로 돌아가기"
+        className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900">
+        <ArrowLeft size={18} />
+      </button>
+      <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
+        <span className="font-bold text-white text-sm">W</span>
+      </div>
+      <nav className="flex-1 flex items-center justify-evenly">
+        {workNavItems.map(({ href, label, icon: Icon }) => (
+          <Link key={href} href={href}
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+              pathname === href || pathname.startsWith(href + "/")
+                ? "bg-indigo-500 text-white"
+                : "text-indigo-200"
+            )}>
+            <Icon size={15} />
+            {label}
+          </Link>
+        ))}
+      </nav>
+    </div>
   );
 }
