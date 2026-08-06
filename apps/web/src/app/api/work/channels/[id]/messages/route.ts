@@ -164,6 +164,7 @@ export async function GET(
       content: m.deletedAt ? "" : m.content,
       fileUrl: m.deletedAt ? null : m.fileUrl,
       albumUrls: m.deletedAt ? null : (m.albumUrls as string[] | null),
+      attachFirst: m.attachFirst,
       fileName: m.deletedAt ? null : m.fileName,
       fileType: m.deletedAt ? null : m.fileType,
       createdAt: m.createdAt,
@@ -196,7 +197,7 @@ export async function POST(
   const acc = await assertAccess(id, session.userId);
   if ("error" in acc) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
-  const { content, fileUrl, fileName, fileType, parentId, replyToId, albumUrls } = await request.json();
+  const { content, fileUrl, fileName, fileType, parentId, replyToId, albumUrls, attachFirst } = await request.json();
   // 앨범(여러 장 묶음): 내부 업로드 경로의 이미지 URL 2~10장
   const album: string[] | null =
     Array.isArray(albumUrls) && albumUrls.length >= 2
@@ -214,6 +215,7 @@ export async function POST(
       fileName: fileName ?? null,
       fileType: fileType ?? null,
       albumUrls: album ?? undefined,
+      attachFirst: !!attachFirst,
       parentId: parentId ?? null,
       replyToId: replyToId ?? null,
     },
@@ -240,6 +242,7 @@ export async function POST(
       content: message.content,
       fileUrl: message.fileUrl,
       albumUrls: (message.albumUrls as string[] | null) ?? null,
+      attachFirst: message.attachFirst,
       fileName: message.fileName,
       fileType: message.fileType,
       parentId: message.parentId,

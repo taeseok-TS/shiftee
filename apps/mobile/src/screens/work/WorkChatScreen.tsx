@@ -1044,7 +1044,44 @@ export default function WorkChatScreen() {
                 </View>
               ) : (
                 <>
-                  {/* 첨부(앨범/사진/영상/음성/파일) — 글이 같이 있으면 아래에 이어서 렌더 (첨부만 그리고 글을 버리면 안 됨) */}
+                  {/* 작성 순서대로: 글을 먼저 썼으면 글 위·첨부 아래, 첨부를 먼저 붙였으면(attachFirst) 첨부 위·글 아래 */}
+                  {!!item.content && !item.attachFirst && (() => {
+                  const hasAttach = !!item.fileUrl || !!(item.albumUrls && item.albumUrls.length > 0);
+                  // 이모지만 보낸 메시지는 크게 (카톡식)
+                  if (!hasAttach && isEmojiOnly(item.content)) {
+                    return <Text style={styles.jumboEmoji}>{item.content.trim()}</Text>;
+                  }
+                  // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
+                  const contentLines = item.content.split("\n");
+                  const isLong = item.content.length > 500 || contentLines.length > 12;
+                  const expanded = expandedMsgs.has(item.id);
+                  const shown = !isLong || expanded
+                    ? item.content
+                    : (contentLines.length > 12 ? contentLines.slice(0, 12).join("\n") : item.content).slice(0, 500) + " …";
+                  return (
+                    <>
+                      <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>
+                        {shown.split(/(@[가-힣A-Za-z0-9_]+|https?:\/\/[^\s]+)/g).map((p, i) =>
+                          p.startsWith("@")
+                            ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
+                            : /^https?:\/\//.test(p)
+                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(p)}>{p}</Text>
+                            : p
+                        )}
+                        {item.editedAt ? <Text style={[styles.editedTag, item.mine && styles.editedTagMine]}> (수정됨)</Text> : null}
+                      </Text>
+                      {isLong && !expanded ? (
+                        <TouchableOpacity
+                          onPress={() => setExpandedMsgs((prev) => { const n = new Set(prev); n.add(item.id); return n; })}
+                          style={[styles.expandBtn, item.mine && styles.expandBtnMine]}
+                        >
+                          <Text style={[styles.expandBtnText, item.mine && styles.expandBtnTextMine]}>전체 보기</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </>
+                  );
+                  })()}
+                  <View style={!!item.content && !item.attachFirst && (item.fileUrl || (item.albumUrls && item.albumUrls.length > 0)) ? styles.attachBelowText : undefined}>
                   {item.albumUrls && item.albumUrls.length > 0 ? (
                     <View style={styles.albumGrid}>
                       {item.albumUrls.slice(0, 9).map((u, i) => {
@@ -1075,7 +1112,8 @@ export default function WorkChatScreen() {
                       </TouchableOpacity>
                     )
                   ) : null}
-                  {!!item.content && (() => {
+                  </View>
+                  {!!item.content && !!item.attachFirst && (() => {
                   const hasAttach = !!item.fileUrl || !!(item.albumUrls && item.albumUrls.length > 0);
                   // 이모지만 보낸 메시지는 크게 (카톡식)
                   if (!hasAttach && isEmojiOnly(item.content)) {
@@ -1944,6 +1982,8 @@ const styles = StyleSheet.create({
   jumboEmoji: { fontSize: 52, lineHeight: 64 },
   // 첨부와 함께 온 글(캡션) — 이미지 아래 여백
   captionText: { marginTop: 6, paddingHorizontal: 6, paddingBottom: 2 },
+  // 글 아래에 오는 첨부 — 글과의 여백
+  attachBelowText: { marginTop: 6 },
   // 긴 메시지 "전체 보기"
   expandBtn: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e5e7eb", alignItems: "center" },
   expandBtnMine: { borderTopColor: "rgba(255,255,255,0.3)" },

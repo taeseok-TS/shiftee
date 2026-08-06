@@ -282,6 +282,7 @@ export interface WorkMessage {
   unreadBy?: number;
   poll?: WorkPollInfo | null;
   bookmarked?: boolean;
+  attachFirst?: boolean; // 작성 시 첨부를 글보다 먼저 붙였는지 (렌더 순서 재현용)
 }
 
 export interface WorkPollInfo {

@@ -662,6 +662,7 @@ model WorkMessage {
   fileName  String?
   fileType  String? // image | video | file
   albumUrls Json? // 사진 앨범(여러 장 묶음 전송) — 이미지 URL 배열
+  attachFirst Boolean @default(false) // 작성 시 첨부를 글보다 먼저 붙였는지 (렌더 순서 재현)
   // 댓글(스레드): 부모 메시지
   parentId  String?
   parent    WorkMessage?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)

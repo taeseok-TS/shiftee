@@ -113,7 +113,7 @@ const LABEL_COLORS = ["#eab308", "#ef4444", "#3b82f6", "#10b981", "#8b5cf6", "#e
 type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean; isManager: boolean };
 type ChannelFile = { messageId: string; fileUrl: string; fileName: string | null; fileType: string | null; userName: string; createdAt: string };
 type Reaction = { emoji: string; count: number; mine: boolean; names?: string[] };
-type Message = { id: string; userId: string; userName: string; userAvatar?: string | null; userBranch?: string | null; system?: boolean; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number; editedAt?: string | null; deleted?: boolean; replyTo?: { id: string; userName: string; content: string; deleted: boolean } | null; unreadBy?: number; bookmarked?: boolean; poll?: { id: string; question: string; options: string[]; multiple: boolean; closed: boolean; closesAt?: string | null; counts: number[]; myVotes: number[]; totalVoters: number; creatorId: string; creatorName: string } | null };
+type Message = { id: string; userId: string; userName: string; userAvatar?: string | null; userBranch?: string | null; system?: boolean; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null; attachFirst?: boolean; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number; editedAt?: string | null; deleted?: boolean; replyTo?: { id: string; userName: string; content: string; deleted: boolean } | null; unreadBy?: number; bookmarked?: boolean; poll?: { id: string; question: string; options: string[]; multiple: boolean; closed: boolean; closesAt?: string | null; counts: number[]; myVotes: number[]; totalVoters: number; creatorId: string; creatorName: string } | null };
 type Employee = { id: string; name: string; branch?: string | null; role?: string | null };
 
 export default function WorkChatPage() {
@@ -179,6 +179,7 @@ export default function WorkChatPage() {
   const [uploadEtaSec, setUploadEtaSec] = useState<number | null>(null); // 업로드 남은 시간(초) 추정
   // 대기 첨부 — 파일 선택/드롭/붙여넣기 시 바로 전송하지 않고 입력창 위에 대기, 전송 버튼으로 발송
   const [pendingFiles, setPendingFiles] = useState<{ file: File; preview: string | null }[]>([]);
+  const attachFirstRef = useRef(false); // 첫 첨부 시점에 글이 비어 있었는지 (작성 순서 재현)
   const [dragOver, setDragOver] = useState(false);
   const [memberViewOpen, setMemberViewOpen] = useState(false);
   const [viewMembers, setViewMembers] = useState<ChannelMember[]>([]);
@@ -438,17 +439,18 @@ export default function WorkChatPage() {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
           });
         if (images.length >= 2) {
-          const res = await post({ content: caption, albumUrls: images.slice(0, 10).map((u) => u.fileUrl), replyToId: replyTo?.id ?? null });
+          const res = await post({ content: caption, albumUrls: images.slice(0, 10).map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyTo?.id ?? null });
           if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
           caption = "";
         }
         const singles = images.length >= 2 ? others : [...images, ...others];
         for (const u of singles) {
-          const res = await post({ content: caption, fileUrl: u.fileUrl, fileName: u.fileName, fileType: u.fileType, replyToId: caption ? replyTo?.id ?? null : null });
+          const res = await post({ content: caption, fileUrl: u.fileUrl, fileName: u.fileName, fileType: u.fileType, attachFirst: attachFirstRef.current, replyToId: caption ? replyTo?.id ?? null : null });
           if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
           caption = "";
         }
         pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
+        attachFirstRef.current = false;
         setPendingFiles([]); setInput(""); setReplyTo(null);
         fetchMessages(activeId); fetchChannels();
       } else {
@@ -625,10 +627,14 @@ export default function WorkChatPage() {
 
   // 파일 선택/드롭/붙여넣기 → 바로 전송하지 않고 입력창 위에 대기 (글을 쓰고 전송 버튼으로 발송)
   function handleFiles(files: File[]) {
-    setPendingFiles((prev) => [
-      ...prev,
-      ...files.map((f) => ({ file: f, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null })),
-    ]);
+    setPendingFiles((prev) => {
+      // 첫 첨부를 붙일 때 글이 비어 있었으면 "첨부 먼저" — 표시 순서 재현용
+      if (prev.length === 0) attachFirstRef.current = !input.trim();
+      return [
+        ...prev,
+        ...files.map((f) => ({ file: f, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null })),
+      ];
+    });
     inputRef.current?.focus();
   }
   function removePending(i: number) {
@@ -1268,9 +1274,11 @@ export default function WorkChatPage() {
                                   </div>
                                 ) : (
                                   <>
+                                    {/* 작성 순서대로: 첨부를 먼저 붙였으면(attachFirst) 첨부 위·글 아래 */}
+                                    {m.attachFirst && renderAttachment(m)}
                                     {m.content && (() => {
-                                      // 이모지만 보낸 메시지는 크게 (카톡식)
-                                      if (isEmojiOnly(m.content)) {
+                                      // 이모지만 보낸 메시지는 크게 (카톡식, 첨부 없는 메시지만)
+                                      if (!m.fileUrl && !m.albumUrls?.length && isEmojiOnly(m.content)) {
                                         return <span className="block text-[52px] leading-[1.25] py-0.5">{m.content.trim()}</span>;
                                       }
                                       // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
@@ -1293,7 +1301,7 @@ export default function WorkChatPage() {
                                         </>
                                       );
                                     })()}
-                                    {renderAttachment(m)}
+                                    {!m.attachFirst && renderAttachment(m)}
                                     {!m.fileUrl && firstUrl(m.content) && <LinkPreview url={firstUrl(m.content)!} mine={m.mine} />}
                                   </>
                                 )}
