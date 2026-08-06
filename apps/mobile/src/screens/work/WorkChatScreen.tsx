@@ -1042,39 +1042,43 @@ export default function WorkChatScreen() {
                     )}
                   </View>
                 </View>
-              ) : item.albumUrls && item.albumUrls.length > 0 ? (
-                <View style={styles.albumGrid}>
-                  {item.albumUrls.slice(0, 9).map((u, i) => {
-                    const shown = Math.min(item.albumUrls!.length, 9);
-                    const rest = item.albumUrls!.length - shown;
-                    return (
-                      <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)} onLongPress={() => setReactionTarget(item.id)}>
-                        <Image source={{ uri: FILE_ORIGIN + u }} style={styles.albumCell} resizeMode="cover" />
-                        {i === shown - 1 && rest > 0 ? (
-                          <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
-                        ) : null}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : item.fileUrl ? (
-                item.fileType === "image" ? (
-                  <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)} onLongPress={() => setReactionTarget(item.id)}>
-                    <Image source={{ uri: FILE_ORIGIN + item.fileUrl }} style={styles.image} resizeMode="cover" />
-                  </TouchableOpacity>
-                ) : item.fileType === "video" ? (
-                  <VideoBubble uri={FILE_ORIGIN + item.fileUrl} />
-                ) : item.fileType === "audio" ? (
-                  <VoiceBubble uri={FILE_ORIGIN + item.fileUrl} mine={item.mine} />
-                ) : (
-                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)} onLongPress={() => setReactionTarget(item.id)}>
-                    <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>📎 {item.fileName || "첨부파일"}</Text>
-                  </TouchableOpacity>
-                )
               ) : (
-                (() => {
+                <>
+                  {/* 첨부(앨범/사진/영상/음성/파일) — 글이 같이 있으면 아래에 이어서 렌더 (첨부만 그리고 글을 버리면 안 됨) */}
+                  {item.albumUrls && item.albumUrls.length > 0 ? (
+                    <View style={styles.albumGrid}>
+                      {item.albumUrls.slice(0, 9).map((u, i) => {
+                        const shown = Math.min(item.albumUrls!.length, 9);
+                        const rest = item.albumUrls!.length - shown;
+                        return (
+                          <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)} onLongPress={() => setReactionTarget(item.id)}>
+                            <Image source={{ uri: FILE_ORIGIN + u }} style={styles.albumCell} resizeMode="cover" />
+                            {i === shown - 1 && rest > 0 ? (
+                              <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : item.fileUrl ? (
+                    item.fileType === "image" ? (
+                      <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)} onLongPress={() => setReactionTarget(item.id)}>
+                        <Image source={{ uri: FILE_ORIGIN + item.fileUrl }} style={styles.image} resizeMode="cover" />
+                      </TouchableOpacity>
+                    ) : item.fileType === "video" ? (
+                      <VideoBubble uri={FILE_ORIGIN + item.fileUrl} />
+                    ) : item.fileType === "audio" ? (
+                      <VoiceBubble uri={FILE_ORIGIN + item.fileUrl} mine={item.mine} />
+                    ) : (
+                      <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)} onLongPress={() => setReactionTarget(item.id)}>
+                        <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>📎 {item.fileName || "첨부파일"}</Text>
+                      </TouchableOpacity>
+                    )
+                  ) : null}
+                  {!!item.content && (() => {
+                  const hasAttach = !!item.fileUrl || !!(item.albumUrls && item.albumUrls.length > 0);
                   // 이모지만 보낸 메시지는 크게 (카톡식)
-                  if (isEmojiOnly(item.content)) {
+                  if (!hasAttach && isEmojiOnly(item.content)) {
                     return <Text style={styles.jumboEmoji}>{item.content.trim()}</Text>;
                   }
                   // 긴 글은 접어서 보여주고 "전체 보기"로 펼친다 (카톡식)
@@ -1086,7 +1090,7 @@ export default function WorkChatScreen() {
                     : (contentLines.length > 12 ? contentLines.slice(0, 12).join("\n") : item.content).slice(0, 500) + " …";
                   return (
                     <>
-                      <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>
+                      <Text style={[styles.msgText, item.mine && styles.msgTextMine, hasAttach && styles.captionText]}>
                         {shown.split(/(@[가-힣A-Za-z0-9_]+|https?:\/\/[^\s]+)/g).map((p, i) =>
                           p.startsWith("@")
                             ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
@@ -1106,7 +1110,8 @@ export default function WorkChatScreen() {
                       ) : null}
                     </>
                   );
-                })()
+                  })()}
+                </>
               )}
             </>
           )}
@@ -1937,6 +1942,8 @@ const styles = StyleSheet.create({
   editedTagMine: { color: "#c7d2fe" },
   // 이모지 단독 메시지 크게
   jumboEmoji: { fontSize: 52, lineHeight: 64 },
+  // 첨부와 함께 온 글(캡션) — 이미지 아래 여백
+  captionText: { marginTop: 6, paddingHorizontal: 6, paddingBottom: 2 },
   // 긴 메시지 "전체 보기"
   expandBtn: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e5e7eb", alignItems: "center" },
   expandBtnMine: { borderTopColor: "rgba(255,255,255,0.3)" },
