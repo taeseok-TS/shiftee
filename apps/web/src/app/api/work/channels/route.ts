@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isMentioned } from "@/lib/mention";
 
 // 채널 목록 조회 (기본 '전체' 채널 자동 보장 + 본인 참여 채널)
 export async function GET() {
@@ -27,7 +28,7 @@ export async function GET() {
       ],
     },
     include: {
-      members: { include: { user: { select: { id: true, name: true } } } },
+      members: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
       _count: { select: { messages: true } },
     },
@@ -47,22 +48,35 @@ export async function GET() {
   const result = await Promise.all(
     visibleChannels.map(async (c) => {
       let displayName = c.name;
+      let avatarUrl: string | null = null;
       if (c.type === "DM") {
         const other = c.members.find((m) => m.userId !== session.userId);
         displayName = other?.user.name ?? "대화";
+        avatarUrl = other?.user.avatarUrl ?? null;
       }
       const myMember = c.members.find((m) => m.userId === session.userId);
       const notify = myMember?.notify ?? "ALL";
       let unread = 0;
-      if (notify !== "MUTE") {
+      if (notify === "MENTION") {
+        // 멘션만: '@내이름' 포함 후보를 가져와 정확 매칭(부분일치 제외)으로 카운트
+        const cands = await prisma.workMessage.findMany({
+          where: {
+            channelId: c.id,
+            parentId: null,
+            userId: { not: session.userId },
+            ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
+            content: { contains: `@${session.name}` },
+          },
+          select: { content: true },
+        });
+        unread = cands.filter((m) => isMentioned(m.content, session.name)).length;
+      } else if (notify !== "MUTE") {
         unread = await prisma.workMessage.count({
           where: {
             channelId: c.id,
             parentId: null,
             userId: { not: session.userId },
             ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
-            // 멘션만 알림: 내 이름이 @로 멘션된 메시지만 카운트
-            ...(notify === "MENTION" ? { content: { contains: `@${session.name}` } } : {}),
           },
         });
       }
@@ -70,6 +84,7 @@ export async function GET() {
       return {
         id: c.id,
         name: displayName,
+        avatarUrl,
         type: c.type,
         isDefault: c.isDefault,
         memberCount: c.members.length,
@@ -81,14 +96,31 @@ export async function GET() {
         labelText: c.labelText,
         labelColor: c.labelColor,
         lastMessage: last
-          ? { content: last.fileUrl && !last.content ? "📎 첨부파일" : last.content, createdAt: last.createdAt }
+          ? {
+              // 삭제된 메시지는 원문을 노출하지 않는다 (방 안 표시와 동일)
+              content: last.deletedAt
+                ? "삭제된 메시지입니다"
+                : !last.content && Array.isArray(last.albumUrls) && (last.albumUrls as unknown[]).length > 0
+                ? `🖼️ 사진 ${(last.albumUrls as unknown[]).length}장`
+                : last.fileType === "audio" && !last.content
+                ? "🎤 음성 메시지"
+                : last.fileUrl && !last.content
+                ? "📎 첨부파일"
+                : last.content,
+              createdAt: last.createdAt,
+            }
           : null,
       };
     })
   );
 
-  // 고정된 채널을 상단으로 (그 외 순서는 유지)
-  result.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  // 정렬: 고정 채널 최상단 → 그 다음 최신 메시지가 있는 채팅방 순(카카오톡식)
+  result.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const ta = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const tb = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    return tb - ta;
+  });
 
   return NextResponse.json({ channels: result });
 }

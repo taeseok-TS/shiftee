@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     where: {
       channelId: { in: channels.map((c) => c.id) },
       content: { contains: q, mode: "insensitive" },
+      deletedAt: null, // 삭제된 메시지 원문 노출 방지
     },
     include: { user: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
