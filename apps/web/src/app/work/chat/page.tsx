@@ -438,16 +438,18 @@ export default function WorkChatPage() {
           fetch(`/api/work/channels/${activeId}/messages`, {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
           });
+        // 캡션 유무와 무관하게 첫 메시지에 답장 연결
+        let replyId: string | null = replyTo?.id ?? null;
         if (images.length >= 2) {
-          const res = await post({ content: caption, albumUrls: images.slice(0, 10).map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyTo?.id ?? null });
+          const res = await post({ content: caption, albumUrls: images.slice(0, 10).map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyId });
           if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
-          caption = "";
+          caption = ""; replyId = null;
         }
         const singles = images.length >= 2 ? others : [...images, ...others];
         for (const u of singles) {
-          const res = await post({ content: caption, fileUrl: u.fileUrl, fileName: u.fileName, fileType: u.fileType, attachFirst: attachFirstRef.current, replyToId: caption ? replyTo?.id ?? null : null });
+          const res = await post({ content: caption, fileUrl: u.fileUrl, fileName: u.fileName, fileType: u.fileType, attachFirst: attachFirstRef.current, replyToId: replyId });
           if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
-          caption = "";
+          caption = ""; replyId = null;
         }
         pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
         attachFirstRef.current = false;
@@ -676,6 +678,8 @@ export default function WorkChatPage() {
         content: forwardFor.content,
         fileUrl: forwardFor.fileUrl, fileName: forwardFor.fileName, fileType: forwardFor.fileType,
         albumUrls: forwardFor.albumUrls || undefined,
+        attachFirst: forwardFor.attachFirst || false, // 표시 순서도 그대로 전달
+
       }),
     });
     if (res.ok) { toast.success("전달했습니다."); setForwardFor(null); fetchChannels(); if (channelId === activeId) fetchMessages(activeId); }

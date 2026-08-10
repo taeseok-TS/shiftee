@@ -199,6 +199,7 @@ export default function WorkChatScreen() {
   const lastTypingPost = useRef(0);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false); // 상태 반영 지연을 뚫는 더블탭 가드
   const [uploading, setUploading] = useState(false);
   // 업로드 진행률 (%·남은 시간) — 대용량 영상 업로드 시 표시
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -214,6 +215,33 @@ export default function WorkChatScreen() {
   const [imageViewer, setImageViewer] = useState<{ urls: string[]; keys: string[]; index: number } | null>(null);
   // 긴 메시지 접기: "전체 보기"를 누른 메시지 ID 집합
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+
+  // 대기 첨부: 선택 즉시 보내지 않고 입력바 위에 대기 → 전송 버튼에서 글과 함께 한 메시지로 발송 (웹과 동일)
+  type PendingAtt = { uri: string; name: string; mimeType: string | null; kind: "image" | "video" | "file" };
+  const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([]);
+  const attachFirstRef = useRef(false); // 첫 첨부 시점에 글이 비어 있었는지 (작성 순서 재현)
+  const addPending = (items: PendingAtt[]) => {
+    if (!items.length) return;
+    if (pendingAtts.length === 0) attachFirstRef.current = !text.trim();
+    let merged = [...pendingAtts, ...items];
+    if (merged.filter((m) => m.kind === "image").length > 10) {
+      Alert.alert("알림", "사진은 한 번에 최대 10장까지 첨부할 수 있습니다.");
+      let n = 0;
+      merged = merged.filter((m) => m.kind !== "image" || ++n <= 10);
+    }
+    setPendingAtts(merged);
+  };
+  // 채널이 바뀌면(재사용 내비게이션 대비) 대기 첨부 초기화
+  useEffect(() => { setPendingAtts([]); attachFirstRef.current = false; }, [channelId]);
+  // 파일명/종류 판별 — 서버가 확장자로 fileType을 정하므로 mime과 확장자를 일치시킨다 (iOS HEIC → .jpg 변환본)
+  const kindOf = (name: string, mime?: string | null): "image" | "video" | "file" =>
+    mime?.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(name) ? "image"
+    : mime?.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(name) ? "video" : "file";
+  const normalizeImageName = (name: string, mime?: string | null) => {
+    if (/\.(jpe?g|png|gif|webp)$/i.test(name)) return name;
+    const ext = mime === "image/png" ? ".png" : mime === "image/gif" ? ".gif" : mime === "image/webp" ? ".webp" : ".jpg";
+    return name.replace(/\.[^.]*$/, "") + ext;
+  };
   const [viewerIndex, setViewerIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const listRef = useRef<FlatList<WorkMessage>>(null);
@@ -424,6 +452,11 @@ export default function WorkChatScreen() {
   const [scheduleTime, setScheduleTime] = useState("09:00");
   const [scheduledList, setScheduledList] = useState<ScheduledItem[] | null>(null);
   const openSchedule = async () => {
+    // 예약 전송은 글만 지원 — 첨부가 대기 중이면 조용히 버려지지 않게 차단
+    if (pendingAtts.length > 0) {
+      Alert.alert("알림", "예약 전송은 글만 지원합니다.\n첨부는 전송 버튼으로 바로 보내주세요.");
+      return;
+    }
     const t = new Date(Date.now() + 60 * 60 * 1000);
     setScheduleDate(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`);
     setScheduleTime(`${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`);
@@ -707,33 +740,92 @@ export default function WorkChatScreen() {
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sending) return;
-    setSending(true);
-    setText("");
     const editing = editTarget;
-    const replying = replyTarget;
-    setEditTarget(null);
-    setReplyTarget(null);
-    try {
-      if (editing) {
-        await editMessage(editing.id, content);
-        await load();
-      } else {
-        const msg = await sendTextMessage(channelId, content, replying?.id);
-        setMessages((prev) => [...prev, msg]);
+    // 대기 첨부가 있으면 글 없이도 전송 가능 (수정 중에는 텍스트만)
+    if (editing || pendingAtts.length === 0) {
+      if (!content || sending) return;
+      setSending(true);
+      setText("");
+      const replying = replyTarget;
+      setEditTarget(null);
+      setReplyTarget(null);
+      try {
+        if (editing) {
+          await editMessage(editing.id, content);
+          await load();
+        } else {
+          const msg = await sendTextMessage(channelId, content, replying?.id);
+          setMessages((prev) => [...prev, msg]);
+        }
+      } catch (error) {
+        console.error("❌ Failed to send:", error);
+        setText(content); // 실패 시 입력 복원
+        if (editing) setEditTarget(editing);
+        if (replying) setReplyTarget(replying);
+      } finally {
+        setSending(false);
       }
-    } catch (error) {
-      console.error("❌ Failed to send:", error);
-      setText(content); // 실패 시 입력 복원
-      if (editing) setEditTarget(editing);
-      if (replying) setReplyTarget(replying);
+      return;
+    }
+    // 대기 첨부 + (선택) 글 → 웹과 동일하게 발송: 사진 2장 이상은 앨범 묶음, 캡션·답장은 첫 메시지에
+    if (sendingRef.current || sending || uploading) return; // 더블탭 중복 전송 방지 (ref는 즉시 반영)
+    sendingRef.current = true;
+    const atts = pendingAtts;
+    const attachFirst = attachFirstRef.current;
+    setSending(true);
+    setUploading(true);
+    try {
+      let caption = content;
+      let replyId: string | undefined = replyTarget?.id; // 캡션 유무와 무관하게 첫 메시지에 답장 연결
+      const images = atts.filter((a) => a.kind === "image");
+      const isAlbum = images.length >= 2;
+      if (isAlbum) {
+        const urls: string[] = [];
+        for (const a of images.slice(0, 10)) {
+          const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
+          urls.push(up.fileUrl);
+        }
+        clearProgress();
+        await sendAlbumMessage(channelId, urls, { content: caption, attachFirst, replyToId: replyId });
+        caption = ""; replyId = undefined;
+        // 전송 성공분은 즉시 대기 목록에서 제거 — 부분 실패 후 재전송 시 중복 방지
+        setPendingAtts((prev) => prev.filter((p) => p.kind !== "image"));
+        setText("");
+      }
+      const singles = isAlbum ? atts.filter((a) => a.kind !== "image") : atts;
+      for (const a of singles) {
+        const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
+        clearProgress();
+        await sendFileMessage(channelId, { fileUrl: up.fileUrl, fileName: up.fileName, fileType: up.fileType }, { content: caption, attachFirst, replyToId: replyId });
+        caption = ""; replyId = undefined;
+        setPendingAtts((prev) => prev.filter((p) => p !== a));
+        setText("");
+      }
+      attachFirstRef.current = false;
+      setReplyTarget(null);
+      await load();
+    } catch (error: any) {
+      // 이미 전송된 분량을 화면에 반영 — 안 간 줄 알고 전부 재전송하는 것을 방지
+      await load().catch(() => {});
+      Alert.alert("전송 실패", (error?.response?.data?.error || error?.message || "전송 중 오류가 발생했습니다.") + "\n남은 첨부는 유지됩니다. 전송을 다시 눌러주세요.");
     } finally {
       setSending(false);
+      setUploading(false);
+      clearProgress();
+      sendingRef.current = false;
     }
   };
 
   const startReply = (m: WorkMessage) => { setReplyTarget(m); setEditTarget(null); setReactionTarget(null); };
-  const startEdit = (m: WorkMessage) => { setEditTarget(m); setReplyTarget(null); setText(m.content); setReactionTarget(null); };
+  const startEdit = (m: WorkMessage) => {
+    setReactionTarget(null);
+    // 대기 첨부·작성 중 캡션이 있으면 수정 진입 차단 (수정 저장이 첨부를 삼키거나 캡션을 덮어쓰는 것 방지)
+    if (pendingAtts.length > 0) {
+      Alert.alert("알림", "첨부 대기 중에는 메시지를 수정할 수 없습니다.\n첨부를 먼저 보내거나 삭제해주세요.");
+      return;
+    }
+    setEditTarget(m); setReplyTarget(null); setText(m.content);
+  };
   const confirmDelete = (m: WorkMessage) => {
     setReactionTarget(null);
     Alert.alert("메시지 삭제", "이 메시지를 삭제할까요?", [
@@ -754,7 +846,7 @@ export default function WorkChatScreen() {
   useEffect(() => () => stopRecTimer(), []);
 
   const startRecording = async () => {
-    if (uploading || recording) return;
+    if (uploading || recording || editTarget) return; // 수정 중 음성 전송은 혼선 방지
     const { granted } = await requestRecordingPermissionsAsync();
     if (!granted) {
       Alert.alert("마이크 권한 필요", "설정에서 마이크 접근을 허용해주세요.");
@@ -825,29 +917,26 @@ export default function WorkChatScreen() {
     }
   };
 
-  // 파일(문서) 첨부 — 다중 선택
+  // 파일(문서) 첨부 — 다중 선택 → 대기 첨부로 추가 (전송 버튼에서 발송)
   const handleAttach = async () => {
-    if (uploading) return;
+    if (uploading || sending) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
       if (result.canceled) return;
       const assets = result.assets ?? [];
-      if (!assets.length) return;
-      setUploading(true);
-      for (const a of assets) {
-        await uploadAndSend({ uri: a.uri, name: a.name, mimeType: a.mimeType });
-      }
+      // 파일 선택기로 사진/영상을 골라도 종류를 판별해 사진 10장 제한·앨범 묶음이 동일하게 적용되게
+      addPending(assets.map((a) => {
+        const kind = kindOf(a.name, a.mimeType);
+        return { uri: a.uri, name: kind === "image" ? normalizeImageName(a.name, a.mimeType) : a.name, mimeType: a.mimeType ?? null, kind };
+      }));
     } catch (error: any) {
-      Alert.alert("업로드 실패", error?.response?.data?.error || error?.message || "파일 전송 중 오류가 발생했습니다.");
-    } finally {
-      setUploading(false);
-      clearProgress();
+      Alert.alert("첨부 실패", error?.message || "파일 선택 중 오류가 발생했습니다.");
     }
   };
 
-  // 사진 첨부 — 갤러리 다중 선택
+  // 사진 첨부 — 갤러리 다중 선택 → 대기 첨부로 추가 (전송 버튼에서 발송)
   const handlePickImage = async () => {
-    if (uploading) return;
+    if (uploading || sending) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"],
@@ -859,35 +948,16 @@ export default function WorkChatScreen() {
       });
       if (result.canceled) return;
       const assets = result.assets ?? [];
-      if (!assets.length) return;
-      setUploading(true);
-      const imageAssets = assets.filter((a) => a.type !== "video");
-      const videoAssets = assets.filter((a) => a.type === "video");
-      // 사진 2장 이상 → 앨범(한 메시지 묶음), 1장은 기존대로
-      if (imageAssets.length >= 2) {
-        const urls: string[] = [];
-        for (let i = 0; i < imageAssets.length && i < 10; i++) {
-          const a = imageAssets[i];
-          const name = a.fileName || `photo_${Date.now()}_${i}.jpg`;
-          const up = await uploadFile({ uri: a.uri, name, mimeType: a.mimeType || "image/jpeg" }, makeProgressHandler());
-          urls.push(up.fileUrl);
-        }
-        clearProgress();
-        await sendAlbumMessage(channelId, urls);
-        await load();
-      } else if (imageAssets.length === 1) {
-        const a = imageAssets[0];
-        await uploadAndSend({ uri: a.uri, name: a.fileName || `photo_${Date.now()}.jpg`, mimeType: a.mimeType || "image/jpeg" });
-      }
-      for (let i = 0; i < videoAssets.length; i++) {
-        const a = videoAssets[i];
-        await uploadAndSend({ uri: a.uri, name: a.fileName || `video_${Date.now()}_${i}.mp4`, mimeType: a.mimeType || "video/mp4" });
-      }
+      const now = Date.now();
+      addPending(assets.map((a, i) => {
+        const kind = (a.type === "video" ? "video" : "image") as "video" | "image";
+        const mime = a.mimeType || (kind === "video" ? "video/mp4" : "image/jpeg");
+        let name = a.fileName || (kind === "video" ? `video_${now}_${i}.mp4` : `photo_${now}_${i}.jpg`);
+        if (kind === "image") name = normalizeImageName(name, mime); // HEIC 등 → 서버 확장자 판별과 일치
+        return { uri: a.uri, name, mimeType: mime, kind };
+      }));
     } catch (error: any) {
-      Alert.alert("업로드 실패", error?.response?.data?.error || error?.message || "사진 전송 중 오류가 발생했습니다.");
-    } finally {
-      setUploading(false);
-      clearProgress();
+      Alert.alert("첨부 실패", error?.message || "사진 선택 중 오류가 발생했습니다.");
     }
   };
 
@@ -1361,6 +1431,33 @@ export default function WorkChatScreen() {
         </View>
       )}
 
+      {/* 대기 첨부 미리보기 — X로 제거, 전송 버튼으로 글과 함께 발송 */}
+      {pendingAtts.length > 0 && !recording && (
+        <View style={styles.pendingBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {pendingAtts.map((p, i) => (
+              <View key={`${p.uri}-${i}`} style={styles.pendingItem}>
+                {p.kind === "image" ? (
+                  <Image source={{ uri: p.uri }} style={styles.pendingThumb} />
+                ) : (
+                  <View style={styles.pendingFileBox}>
+                    <Ionicons name={p.kind === "video" ? "videocam" : "document-text"} size={20} color="#4f46e5" />
+                    <Text style={styles.pendingFileName} numberOfLines={2}>{p.name}</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.pendingRemove}
+                  onPress={() => setPendingAtts((prev) => prev.filter((_, idx) => idx !== i))}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="close" size={12} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {recording ? (
         /* 녹음 중 — 입력바를 녹음 바로 교체 (취소 / 전송) */
         <View style={styles.inputBar}>
@@ -1398,8 +1495,8 @@ export default function WorkChatScreen() {
           onFocus={checkClipboard}
           multiline
         />
-        {/* 입력 내용이 없으면 마이크(음성 메시지), 있으면 전송 */}
-        {text.trim() ? (
+        {/* 입력 내용/대기 첨부가 없으면 마이크(음성 메시지), 있으면 전송 */}
+        {text.trim() || pendingAtts.length > 0 ? (
           <TouchableOpacity
             style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
             onPress={handleSend}
@@ -2128,6 +2225,13 @@ const styles = StyleSheet.create({
     borderTopColor: "#e5e7eb",
     backgroundColor: "#fff",
   },
+  // 대기 첨부 미리보기 바
+  pendingBar: { borderTopWidth: 1, borderTopColor: "#e5e7eb", backgroundColor: "#fff", paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 },
+  pendingItem: { marginRight: 8, marginBottom: 4, position: "relative" },
+  pendingThumb: { width: 60, height: 60, borderRadius: 8, backgroundColor: "#f3f4f6" },
+  pendingFileBox: { width: 84, height: 60, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  pendingFileName: { fontSize: 9, color: "#374151", textAlign: "center", marginTop: 2 },
+  pendingRemove: { position: "absolute", top: -5, right: -5, width: 18, height: 18, borderRadius: 9, backgroundColor: "#374151", alignItems: "center", justifyContent: "center" },
   attachBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   input: {
     flex: 1,
