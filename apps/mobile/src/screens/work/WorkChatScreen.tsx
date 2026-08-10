@@ -1651,8 +1651,9 @@ export default function WorkChatScreen() {
 
       {/* 읽음/안읽은 멤버 확인 */}
       <Modal visible={readersOpen} transparent animationType="slide" onRequestClose={() => setReadersOpen(false)}>
-        <Pressable style={styles.addBg} onPress={() => setReadersOpen(false)}>
-          <Pressable style={styles.addCard} onPress={() => {}}>
+        <View style={styles.addBg}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setReadersOpen(false)} />
+          <View style={styles.addCard}>
             <Text style={styles.addTitle}>읽음 확인</Text>
             {!readersData ? (
               <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
@@ -1689,8 +1690,8 @@ export default function WorkChatScreen() {
             <TouchableOpacity style={styles.membersClose} onPress={() => setReadersOpen(false)}>
               <Text style={styles.addCancelText}>닫기</Text>
             </TouchableOpacity>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* 채팅방 메뉴 (이름 변경 / 멤버 관리) */}
@@ -1768,8 +1769,10 @@ export default function WorkChatScreen() {
 
       {/* 멤버 관리 (목록 + 내보내기) — 바깥 탭으로도 닫힘 */}
       <Modal visible={membersOpen} transparent animationType="slide" onRequestClose={() => setMembersOpen(false)}>
-        <Pressable style={styles.addBg} onPress={() => setMembersOpen(false)}>
-          <Pressable style={styles.addCard} onPress={() => {}}>
+        {/* 백드롭은 카드의 부모가 아니라 형제로 — Pressable이 부모면 목록 터치를 선점해 스크롤이 막힘(안드로이드) */}
+        <View style={styles.addBg}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setMembersOpen(false)} />
+          <View style={styles.addCard}>
             <Text style={styles.addTitle}>멤버 {memberList.length}명</Text>
             <FlatList
               style={{ maxHeight: 380 }}
@@ -1794,8 +1797,8 @@ export default function WorkChatScreen() {
             <TouchableOpacity style={styles.membersClose} onPress={() => setMembersOpen(false)}>
               <Text style={styles.addCancelText}>닫기</Text>
             </TouchableOpacity>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* 메시지 전달 — 채널 선택 */}
@@ -1905,8 +1908,9 @@ export default function WorkChatScreen() {
 
       {/* 링크 모아보기 */}
       <Modal visible={linksOpen} transparent animationType="slide" onRequestClose={() => setLinksOpen(false)}>
-        <Pressable style={styles.addBg} onPress={() => setLinksOpen(false)}>
-          <Pressable style={styles.addCard} onPress={() => {}}>
+        <View style={styles.addBg}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLinksOpen(false)} />
+          <View style={styles.addCard}>
             <Text style={styles.addTitle}>공유된 링크</Text>
             {!linksData ? (
               <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
@@ -1930,8 +1934,8 @@ export default function WorkChatScreen() {
             <TouchableOpacity style={styles.membersClose} onPress={() => setLinksOpen(false)}>
               <Text style={styles.addCancelText}>닫기</Text>
             </TouchableOpacity>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* 투표 만들기 */}
