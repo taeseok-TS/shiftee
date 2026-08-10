@@ -16,7 +16,7 @@ export default async function SharedLayout({
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      <SharedSidebar />
+      <SharedSidebar role={session.role} />
       <main className="flex-1 overflow-auto">
         <div className="flex justify-between items-center px-8 py-4 bg-white border-b border-gray-200">
           <h1 className="text-xl font-semibold text-gray-800">내 대시보드</h1>

@@ -49,7 +49,7 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
   return (
     <aside className="w-64 min-h-screen bg-slate-900 text-white flex flex-col">
       {/* 로고 */}
-      <div className="px-6 py-5 border-b border-slate-700">
+      <div className="px-6 py-4 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-red-600 rounded-lg flex items-center justify-center shrink-0">
             <span className="font-bold text-white text-lg">A</span>
@@ -61,14 +61,14 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
         </div>
       </div>
 
-      {/* 네비게이션 */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      {/* 네비게이션 — 항목이 늘어도 하단(전환·로그아웃)이 화면 밖으로 밀리지 않게 간격 압축 */}
+      <nav className="flex-1 px-3 py-3 space-y-0.5">
         {adminNavItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
             className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               pathname === href || pathname.startsWith(href + "/")
                 ? "bg-red-600 text-white"
                 : "text-slate-300 hover:bg-slate-800 hover:text-white"
@@ -81,13 +81,13 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
       </nav>
 
       {/* 환경설정 및 로그아웃 */}
-      <div className="px-3 py-4 border-t border-slate-700 space-y-1">
+      <div className="px-3 py-3 border-t border-slate-700 space-y-0.5">
         {/* 시스템 설정·백업은 메인 관리자 전용 */}
         {isSuperAdmin && (
           <Link
             href="/admin/settings"
             className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               pathname === "/admin/settings" || pathname.startsWith("/admin/settings/")
                 ? "bg-red-600 text-white"
                 : "text-slate-300 hover:bg-slate-800 hover:text-white"
@@ -99,25 +99,25 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
         )}
         <button
           onClick={() => window.location.href = "/work"}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
         >
           💬 큐브티워크
         </button>
         <button
           onClick={() => window.location.href = "/manager/dashboard"}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
         >
           🧑‍💼 원장 모드로 전환
         </button>
         <button
           onClick={() => window.location.href = "/dashboard"}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
         >
           👤 직원 모드로 전환
         </button>
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
         >
           <LogOut size={18} />
           로그아웃
