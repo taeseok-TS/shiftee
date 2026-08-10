@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { route: "Contracts", label: "계약서", icon: "document-text-outline", color: "#2563eb" },
   { route: "Leave", label: "휴가", icon: "umbrella-outline", color: "#10b981" },
+  { route: "Suggestions", label: "개선 제안", icon: "bulb-outline", color: "#f59e0b" },
   { route: "Settings", label: "설정", icon: "settings-outline", color: "#6b7280" },
 ];
 

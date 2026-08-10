@@ -9,6 +9,7 @@ import {
   Calendar,
   UmbrellaOff,
   FileSignature,
+  Lightbulb,
   User,
   Settings,
   LogOut,
@@ -16,15 +17,20 @@ import {
 
 const sharedNavItems = [
   { href: "/dashboard", label: "내 대시보드", icon: LayoutDashboard },
-  { href: "/attendance", label: "출퇴근 관리", icon: Clock },
+  // 출퇴근(기록 조회)은 관리자·원장만 웹에서 노출. 직원은 앱으로만 출퇴근.
+  { href: "/attendance", label: "출퇴근 관리", icon: Clock, adminOnly: true },
   { href: "/schedule", label: "근무일정", icon: Calendar },
   { href: "/leave", label: "휴가 관리", icon: UmbrellaOff },
   { href: "/contracts", label: "내 계약서", icon: FileSignature },
+  { href: "/suggestions", label: "개선 제안", icon: Lightbulb },
 ];
 
-export function SharedSidebar() {
+export function SharedSidebar({ role }: { role?: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  const navItems = sharedNavItems.filter(
+    (it) => !it.adminOnly || role === "ADMIN" || role === "MANAGER"
+  );
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -33,7 +39,7 @@ export function SharedSidebar() {
   }
 
   return (
-    <aside className="w-64 min-h-screen bg-slate-900 text-white flex flex-col">
+    <aside className="w-64 h-screen sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
       {/* 로고 */}
       <div className="px-6 py-5 border-b border-slate-700">
         <div className="flex items-center gap-3">
@@ -49,7 +55,7 @@ export function SharedSidebar() {
 
       {/* 네비게이션 */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {sharedNavItems.map(({ href, label, icon: Icon }) => (
+        {navItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
@@ -98,12 +104,23 @@ export function SharedSidebar() {
         >
           💬 큐브티워크
         </button>
-        <button
-          onClick={() => (window.location.href = "/admin/dashboard")}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          🔐 관리자 모드로 전환
-        </button>
+        {/* 역할별 모드 전환 — ADMIN은 관리자, MANAGER(원장)는 원장 모드로. 일반 직원은 버튼 없음 */}
+        {role === "ADMIN" && (
+          <button
+            onClick={() => (window.location.href = "/admin/dashboard")}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          >
+            🔐 관리자 모드로 전환
+          </button>
+        )}
+        {role === "MANAGER" && (
+          <button
+            onClick={() => (window.location.href = "/manager/dashboard")}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          >
+            🧑‍💼 원장 모드로 전환
+          </button>
+        )}
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"

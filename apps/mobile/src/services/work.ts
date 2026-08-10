@@ -207,3 +207,17 @@ export async function createAnnouncement(data: {
 }) {
   await axios.post(`${API_URL}/work/announcements`, data, { headers: await authHeaders() });
 }
+
+// ── 개선 제안함 (작성자·관리자만 열람) ──
+export type SuggestionItem = {
+  id: string; title: string; content: string; imageUrls: string[] | null;
+  status: string; adminComment: string | null; createdAt: string;
+};
+export async function getMySuggestions(): Promise<SuggestionItem[]> {
+  const res = await axios.get(`${API_URL}/suggestions`, { headers: await authHeaders() });
+  return (res.data?.suggestions as SuggestionItem[]) || [];
+}
+export async function createSuggestion(data: { title: string; content: string; imageUrls: string[] }) {
+  const res = await axios.post(`${API_URL}/suggestions`, data, { headers: await authHeaders() });
+  return res.data?.suggestion;
+}
