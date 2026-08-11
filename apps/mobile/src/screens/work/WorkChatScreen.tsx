@@ -14,6 +14,7 @@ import {
   Pressable,
   Alert,
   Platform,
+  ToastAndroid,
   ScrollView,
   useWindowDimensions,
   PanResponder,
@@ -1548,6 +1549,19 @@ export default function WorkChatScreen() {
                     <Ionicons name="arrow-undo-outline" size={22} color="#374151" />
                     <Text style={styles.actionLabel}>답장</Text>
                   </TouchableOpacity>
+                  {!t.poll && !!t.content && (
+                    <TouchableOpacity
+                      style={styles.actionItem}
+                      onPress={async () => {
+                        setReactionTarget(null);
+                        await Clipboard.setStringAsync(t.content);
+                        if (Platform.OS === "android") ToastAndroid.show("복사되었습니다", ToastAndroid.SHORT);
+                      }}
+                    >
+                      <Ionicons name="copy-outline" size={22} color="#374151" />
+                      <Text style={styles.actionLabel}>복사</Text>
+                    </TouchableOpacity>
+                  )}
                   {!t.poll && (
                     <TouchableOpacity style={styles.actionItem} onPress={() => openForward(t)}>
                       <Ionicons name="arrow-redo-outline" size={22} color="#374151" />

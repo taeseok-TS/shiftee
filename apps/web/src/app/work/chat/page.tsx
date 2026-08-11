@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -1315,6 +1315,7 @@ export default function WorkChatPage() {
                           {/* 호버 액션 */}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 relative">
                             {!m.deleted && <button onClick={() => startReply(m)} title="답장" className="text-gray-400 hover:text-gray-700"><Reply size={15} /></button>}
+                            {!m.deleted && !m.poll && !!m.content && <button onClick={() => navigator.clipboard.writeText(m.content).then(() => toast.success("복사되었습니다."))} title="복사" className="text-gray-400 hover:text-gray-700"><Copy size={14} /></button>}
                             {!m.deleted && !m.poll && <button onClick={() => setForwardFor(m)} title="전달" className="text-gray-400 hover:text-gray-700"><Share2 size={14} /></button>}
                             {!m.deleted && !m.poll && <button onClick={() => toggleBookmark(m)} title={m.bookmarked ? "보관함에서 빼기" : "보관함에 담기"} className={m.bookmarked ? "text-yellow-500" : "text-gray-400 hover:text-yellow-500"}><Star size={14} className={m.bookmarked ? "fill-yellow-400" : ""} /></button>}
                             {!m.deleted && !m.poll && <button onClick={() => { const d = new Date(Date.now() + 60 * 60 * 1000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); setReminderAt(d.toISOString().slice(0, 16)); setReminderFor(m); }} title="리마인더" className="text-gray-400 hover:text-indigo-600"><AlarmClock size={14} /></button>}
