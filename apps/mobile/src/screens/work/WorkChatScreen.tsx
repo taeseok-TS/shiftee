@@ -72,6 +72,35 @@ function firstUrl(text: string): string | null {
   return m ? m[0].replace(/[.,)\]]+$/, "") : null;
 }
 
+// 말풍선 단일 사진 — 원본 비율 유지 (고정 200×200 crop이라 세로/가로 사진이 잘려 보이던 문제 해결)
+// 최대 230×320 박스에 비율대로 맞추고, 실제 크기는 한 번 재서 캐시(재렌더·스크롤 시 재측정 방지)
+const bubbleImgSizeCache = new Map<string, { w: number; h: number }>();
+function BubbleImage({ uri, onPress, onLongPress }: { uri: string; onPress: () => void; onLongPress: () => void }) {
+  const [dim, setDim] = useState<{ w: number; h: number } | null>(bubbleImgSizeCache.get(uri) || null);
+  useEffect(() => {
+    if (bubbleImgSizeCache.has(uri)) { setDim(bubbleImgSizeCache.get(uri)!); return; }
+    let alive = true;
+    Image.getSize(
+      uri,
+      (w, h) => { if (alive && w > 0 && h > 0) { bubbleImgSizeCache.set(uri, { w, h }); setDim({ w, h }); } },
+      () => {}
+    );
+    return () => { alive = false; };
+  }, [uri]);
+  const MAX_W = 230, MAX_H = 320;
+  let w = 200, h = 200; // 크기 파악 전 기본값 (기존과 동일)
+  if (dim) {
+    const r = Math.min(MAX_W / dim.w, MAX_H / dim.h, 1);
+    w = Math.round(dim.w * r);
+    h = Math.round(dim.h * r);
+  }
+  return (
+    <TouchableOpacity onPress={onPress} onLongPress={onLongPress}>
+      <Image source={{ uri }} style={{ width: w, height: h, borderRadius: 12, backgroundColor: "#f3f4f6" }} resizeMode="cover" />
+    </TouchableOpacity>
+  );
+}
+
 // 링크 미리보기 카드 (OG 메타)
 function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
   const [data, setData] = useState<LinkPreviewData>(null);
@@ -1170,9 +1199,11 @@ export default function WorkChatScreen() {
                     </View>
                   ) : item.fileUrl ? (
                     item.fileType === "image" ? (
-                      <TouchableOpacity onPress={() => openImageViewer(item.id, 0, item.fileUrl!)} onLongPress={() => setReactionTarget(item.id)}>
-                        <Image source={{ uri: FILE_ORIGIN + item.fileUrl }} style={styles.image} resizeMode="cover" />
-                      </TouchableOpacity>
+                      <BubbleImage
+                        uri={FILE_ORIGIN + item.fileUrl}
+                        onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}
+                        onLongPress={() => setReactionTarget(item.id)}
+                      />
                     ) : item.fileType === "video" ? (
                       <VideoBubble uri={FILE_ORIGIN + item.fileUrl} />
                     ) : item.fileType === "audio" ? (
@@ -2113,7 +2144,6 @@ const styles = StyleSheet.create({
   replyBar: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 8, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#eef2ff", borderRadius: 10 },
   replyBarTitle: { fontSize: 12, fontWeight: "700", color: "#4f46e5" },
   replyBarText: { fontSize: 13, color: "#6b7280", marginTop: 1 },
-  image: { width: 200, height: 200, borderRadius: 12 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 },
   reactionChip: {
     flexDirection: "row",
