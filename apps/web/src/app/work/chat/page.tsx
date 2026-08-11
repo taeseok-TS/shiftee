@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -917,6 +917,27 @@ export default function WorkChatPage() {
   // 인앱 사진 뷰어(라이트박스) — 카톡처럼 채팅창 안에서 열고 ←→로 채팅방의 모든 사진을 넘겨 본다.
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다
   const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
+  // 사진 확대/축소 (마우스 휠·버튼·더블클릭) + 확대 상태에서 드래그 이동
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
+  const lightboxDrag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  useEffect(() => {
+    if (!lightbox) return;
+    // 사진이 바뀌거나 뷰어를 열 때 배율 초기화
+    setLightboxZoom(1);
+    setLightboxPan({ x: 0, y: 0 });
+    // 휠 줌 — Ctrl 없이도 동작, 페이지 줌·스크롤로 새지 않게 non-passive로 막는다
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setLightboxZoom((z) => {
+        const next = Math.min(4, Math.max(1, Math.round((z + (e.deltaY < 0 ? 0.25 : -0.25)) * 100) / 100));
+        if (next === 1) setLightboxPan({ x: 0, y: 0 });
+        return next;
+      });
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, [lightbox]);
   const openLightbox = (messageId: string | undefined, urlIndex: number, url: string) => {
     const keys: string[] = [];
     const urls: string[] = [];
@@ -2121,9 +2142,45 @@ export default function WorkChatPage() {
           <img
             src={lightbox.urls[lightbox.index]}
             alt=""
-            className="max-w-[92vw] max-h-[88vh] object-contain select-none"
+            className={`max-w-[92vw] max-h-[88vh] object-contain select-none ${lightboxZoom > 1 ? "cursor-grab" : ""}`}
+            style={{ transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})` }}
+            draggable={false}
             onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setLightboxZoom((z) => (z > 1 ? 1 : 2));
+              setLightboxPan({ x: 0, y: 0 });
+            }}
+            onMouseDown={(e) => {
+              // 확대 상태에서 드래그로 이동
+              if (lightboxZoom <= 1) return;
+              e.preventDefault();
+              lightboxDrag.current = { sx: e.clientX, sy: e.clientY, px: lightboxPan.x, py: lightboxPan.y };
+              const move = (ev: MouseEvent) => {
+                const d = lightboxDrag.current;
+                if (d) setLightboxPan({ x: d.px + (ev.clientX - d.sx), y: d.py + (ev.clientY - d.sy) });
+              };
+              const up = () => {
+                lightboxDrag.current = null;
+                window.removeEventListener("mousemove", move);
+                window.removeEventListener("mouseup", up);
+              };
+              window.addEventListener("mousemove", move);
+              window.addEventListener("mouseup", up);
+            }}
           />
+          {/* 확대/축소 바 — 휠·더블클릭으로도 동작 */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/50 rounded-full px-2 py-1" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="text-white p-1.5 hover:bg-white/20 rounded-full" title="축소"
+              onClick={() => setLightboxZoom((z) => { const n = Math.max(1, z - 0.5); if (n === 1) setLightboxPan({ x: 0, y: 0 }); return n; })}>
+              <ZoomOut size={18} />
+            </button>
+            <span className="text-white text-xs w-12 text-center">{Math.round(lightboxZoom * 100)}%</span>
+            <button type="button" className="text-white p-1.5 hover:bg-white/20 rounded-full" title="확대"
+              onClick={() => setLightboxZoom((z) => Math.min(4, z + 0.5))}>
+              <ZoomIn size={18} />
+            </button>
+          </div>
           {lightbox.index > 0 && (
             <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2"
               onClick={(e) => { e.stopPropagation(); setLightbox((p) => p && { ...p, index: p.index - 1 }); }}>
