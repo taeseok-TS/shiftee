@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
   LayoutDashboard,
   Users,
@@ -103,6 +104,7 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
         >
           💬 큐브티워크
+          <WorkUnreadBadge />
         </button>
         <button
           onClick={() => window.location.href = "/manager/dashboard"}

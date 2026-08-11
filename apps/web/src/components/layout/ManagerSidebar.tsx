@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
   LayoutDashboard,
   Users,
@@ -21,7 +22,7 @@ const managerNavItems = [
   { href: "/manager/team-schedule", label: "팀 일정", icon: Calendar },
 ];
 
-export function ManagerSidebar() {
+export function ManagerSidebar({ role }: { role?: string }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -32,7 +33,7 @@ export function ManagerSidebar() {
   }
 
   return (
-    <aside className="w-64 min-h-screen bg-slate-900 text-white flex flex-col">
+    <aside className="w-64 h-screen sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
       {/* 로고 */}
       <div className="px-6 py-5 border-b border-slate-700">
         <div className="flex items-center gap-3">
@@ -84,13 +85,24 @@ export function ManagerSidebar() {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
         >
           💬 큐브티워크
+          <WorkUnreadBadge />
         </button>
-        <button
-          onClick={() => (window.location.href = "/admin/dashboard")}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          🔐 관리자 모드로 전환
-        </button>
+        {/* ADMIN이 원장 모드를 보는 중이면 관리자 복귀, 실제 원장(MANAGER)은 직원 모드 전환 */}
+        {role === "ADMIN" ? (
+          <button
+            onClick={() => (window.location.href = "/admin/dashboard")}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          >
+            🔐 관리자 모드로 전환
+          </button>
+        ) : (
+          <button
+            onClick={() => (window.location.href = "/dashboard")}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
+          >
+            👤 직원 모드로 전환
+          </button>
+        )}
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"

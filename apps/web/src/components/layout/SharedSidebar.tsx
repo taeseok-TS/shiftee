@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
   LayoutDashboard,
   Clock,
@@ -103,6 +104,7 @@ export function SharedSidebar({ role }: { role?: string }) {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
         >
           💬 큐브티워크
+          <WorkUnreadBadge />
         </button>
         {/* 역할별 모드 전환 — ADMIN은 관리자, MANAGER(원장)는 원장 모드로. 일반 직원은 버튼 없음 */}
         {role === "ADMIN" && (
