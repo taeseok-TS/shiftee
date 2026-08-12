@@ -22,12 +22,15 @@ export async function POST(
     where: { messageId_userId_emoji: { messageId: id, userId: session.userId, emoji } },
   });
 
+  // 더블탭 등 동시 요청 레이스: 삭제는 이미 지워졌으면(P2025), 추가는 이미 있으면(P2002) 그대로 성공 처리
   if (existing) {
-    await prisma.workMessageReaction.delete({ where: { id: existing.id } });
+    await prisma.workMessageReaction
+      .delete({ where: { id: existing.id } })
+      .catch((e: { code?: string }) => { if (e.code !== "P2025") throw e; });
   } else {
-    await prisma.workMessageReaction.create({
-      data: { messageId: id, userId: session.userId, emoji },
-    });
+    await prisma.workMessageReaction
+      .create({ data: { messageId: id, userId: session.userId, emoji } })
+      .catch((e: { code?: string }) => { if (e.code !== "P2002") throw e; });
   }
 
   emitWork({ type: "reaction", channelId: message.channelId });

@@ -21,7 +21,7 @@ export async function PATCH(
   if (typeof pinned === "boolean") data.pinned = pinned;
   if (typeof title === "string" && title.trim()) data.title = title.trim();
   if (typeof content === "string" && content.trim()) data.content = content.trim();
-  if (Array.isArray(attachments)) data.attachments = attachments;
+  if (Array.isArray(attachments)) data.attachments = JSON.stringify(attachments);
   if (Object.keys(data).length === 0)
     return NextResponse.json({ error: "수정할 내용이 없습니다." }, { status: 400 });
 
