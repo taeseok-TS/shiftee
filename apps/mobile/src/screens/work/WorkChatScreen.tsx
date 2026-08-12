@@ -263,6 +263,21 @@ export default function WorkChatScreen() {
   };
   // 채널이 바뀌면(재사용 내비게이션 대비) 대기 첨부 초기화
   useEffect(() => { setPendingAtts([]); attachFirstRef.current = false; }, [channelId]);
+  // 방 전환 시 입력글이 따라가지 않게 — 채널별 임시저장(돌아오면 복원)
+  const draftsRef = useRef<Record<string, string>>({});
+  const prevChannelRef = useRef<string | null>(null);
+  const textValRef = useRef("");
+  textValRef.current = text;
+  useEffect(() => {
+    const prev = prevChannelRef.current;
+    prevChannelRef.current = channelId;
+    if (prev === channelId) return;
+    if (prev) draftsRef.current[prev] = textValRef.current;
+    setText(draftsRef.current[channelId] ?? "");
+    setMentionQuery(null);
+    setEditTarget(null);
+    setReplyTarget(null);
+  }, [channelId]);
   // 파일명/종류 판별 — 서버가 확장자로 fileType을 정하므로 mime과 확장자를 일치시킨다 (iOS HEIC → .jpg 변환본)
   const kindOf = (name: string, mime?: string | null): "image" | "video" | "file" =>
     mime?.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(name) ? "image"
@@ -765,8 +780,10 @@ export default function WorkChatScreen() {
   };
   const mentionCands =
     mentionQuery !== null
-      ? chanMembers.filter((m) => m.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+      ? chanMembers.filter((m) => m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
       : [];
+  // "@전체" = 방 전체 멘션 (서버가 전원 멘션으로 처리)
+  const mentionShowAll = mentionQuery !== null && "전체".includes(mentionQuery);
 
   const handleSend = async () => {
     const content = text.trim();
@@ -1450,16 +1467,25 @@ export default function WorkChatScreen() {
         </View>
       )}
 
-      {/* @멘션 자동완성 (채널 구성원만) */}
-      {mentionQuery !== null && mentionCands.length > 0 && (
+      {/* @멘션 자동완성 (채널 구성원만, 전원 표시 + 스크롤) */}
+      {mentionQuery !== null && (mentionCands.length > 0 || mentionShowAll) && (
         <View style={styles.mentionBox}>
-          {mentionCands.map((m) => (
-            <TouchableOpacity key={m.userId} style={styles.mentionRow} onPress={() => pickMention(m.name)}>
-              <Ionicons name="at" size={15} color="#4f46e5" />
-              <Text style={styles.mentionName}>{m.name}</Text>
-              {m.branch ? <Text style={styles.mentionBranch}> · {m.branch}</Text> : null}
-            </TouchableOpacity>
-          ))}
+          <ScrollView style={{ maxHeight: 250 }} keyboardShouldPersistTaps="handled">
+            {mentionShowAll && (
+              <TouchableOpacity style={styles.mentionRow} onPress={() => pickMention("전체")}>
+                <Ionicons name="megaphone-outline" size={15} color="#4f46e5" />
+                <Text style={[styles.mentionName, { color: "#4f46e5" }]}>전체</Text>
+                <Text style={styles.mentionBranch}> · 방 전체 알림</Text>
+              </TouchableOpacity>
+            )}
+            {mentionCands.map((m) => (
+              <TouchableOpacity key={m.userId} style={styles.mentionRow} onPress={() => pickMention(m.name)}>
+                <Ionicons name="at" size={15} color="#4f46e5" />
+                <Text style={styles.mentionName}>{m.name}</Text>
+                {m.branch ? <Text style={styles.mentionBranch}> · {m.branch}</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       )}
 

@@ -352,6 +352,21 @@ export default function WorkChatPage() {
     nearBottomRef.current = true; // 방을 열면 맨 아래(최신)부터
     setNoticeCollapsed(true); // 방 전환 시 공지 배너도 접힘으로
   }, [activeId]);
+
+  // 방 전환 시 입력글이 따라가지 않게 — 채널별 임시저장(카톡처럼 돌아오면 복원)
+  const draftsRef = useRef<Record<string, string>>({});
+  const prevChannelRef = useRef<string | null>(null);
+  const inputValRef = useRef("");
+  inputValRef.current = input;
+  useEffect(() => {
+    const prev = prevChannelRef.current;
+    prevChannelRef.current = activeId;
+    if (prev === activeId) return;
+    if (prev) draftsRef.current[prev] = inputValRef.current;
+    setInput(activeId ? draftsRef.current[activeId] ?? "" : "");
+    setReplyTo(null); setEditingId(null); setMentionQuery(null); setInputEmojiOpen(false);
+    setTimeout(() => { const ta = inputRef.current; if (ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; } }, 0);
+  }, [activeId]);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -1447,12 +1462,18 @@ export default function WorkChatPage() {
             <div className="px-4 py-3 border-t bg-white flex gap-2 items-end relative">
               {/* @멘션 자동완성 드롭다운 */}
               {mentionQuery !== null && (() => {
-                // 멘션 대상은 현재 채널 구성원만 (채팅방에 없는 사람은 노출 안 됨)
-                const cands = channelMembers.filter((m) => m.name.includes(mentionQuery)).slice(0, 6);
-                if (cands.length === 0) return null;
+                // 멘션 대상은 현재 채널 구성원만 (채팅방에 없는 사람은 노출 안 됨). 전원 표시 + 스크롤
+                const cands = channelMembers.filter((m) => m.name.includes(mentionQuery));
+                const showAll = "전체".includes(mentionQuery); // @전체 = 방 전체 멘션
+                if (cands.length === 0 && !showAll) return null;
                 return (
                   <div className="absolute bottom-14 left-12 z-20 bg-white border rounded-lg shadow w-48 max-h-52 overflow-y-auto">
                     <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b flex items-center gap-1"><AtSign size={11} />멘션할 사람</div>
+                    {showAll && (
+                      <button onClick={() => pickMention("전체")} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 border-b">
+                        <span className="font-semibold text-indigo-600">전체</span><span className="text-xs text-gray-400"> · 방 전체 알림</span>
+                      </button>
+                    )}
                     {cands.map((m) => (
                       <button key={m.userId} onClick={() => pickMention(m.name)} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
                         {m.name}{m.branch && <span className="text-xs text-gray-400"> · {m.branch}</span>}
