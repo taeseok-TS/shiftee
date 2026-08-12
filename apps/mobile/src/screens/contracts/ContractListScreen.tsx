@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   consentTitle: { fontSize: 12, fontWeight: "700", color: "#92400e", marginBottom: 6 },
   consentLabel: { fontSize: 12, color: "#374151" },
   consentOpt: { fontSize: 13, color: "#374151" },
-  profileInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, backgroundColor: "#fff", marginTop: 3 },
+  profileInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, backgroundColor: "#fff", marginTop: 3, color: "#111827" },
   viewDocBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#c7d2fe", backgroundColor: "#eef2ff", marginBottom: 10 },
   viewDocBtnText: { fontSize: 14, fontWeight: "600", color: "#4338ca" },
   consentNotice: { fontSize: 12, color: "#4b5563", backgroundColor: "#f9fafb", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10, lineHeight: 17 },

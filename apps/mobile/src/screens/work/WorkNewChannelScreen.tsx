@@ -45,7 +45,8 @@ export default function WorkNewChannelScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return members;
+    // 기본 목록엔 관리자(ADMIN) 숨김, 검색하면 전체(관리자 포함) 노출
+    if (!q) return members.filter((m) => m.role !== "ADMIN");
     return members.filter((m) => m.name.toLowerCase().includes(q) || (m.branch || "").toLowerCase().includes(q));
   }, [members, search]);
 
@@ -163,10 +164,10 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: "#eef2ff", borderWidth: 1, borderColor: "#c7d2fe" },
   tabText: { fontSize: 14, color: "#9ca3af", fontWeight: "600" },
   tabTextActive: { color: "#4f46e5" },
-  nameInput: { marginHorizontal: 12, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, height: 44, fontSize: 15 },
+  nameInput: { marginHorizontal: 12, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, height: 44, fontSize: 15, color: "#111827" },
   hint: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, fontSize: 13, color: "#6b7280" },
   searchBox: { flexDirection: "row", alignItems: "center", gap: 6, marginHorizontal: 12, paddingHorizontal: 10, height: 40, borderRadius: 8, backgroundColor: "#f3f4f6" },
-  searchInput: { flex: 1, fontSize: 14 },
+  searchInput: { flex: 1, fontSize: 14, color: "#111827" },
   empty: { textAlign: "center", color: "#9ca3af", marginTop: 40 },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: "#d1d5db", alignItems: "center", justifyContent: "center", marginRight: 12 },

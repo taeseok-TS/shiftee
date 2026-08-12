@@ -10,8 +10,12 @@ import {
   Modal,
   TextInput,
   Alert,
+  Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { FILE_ORIGIN } from "../../services/work";
 import {
   getLeaveApprovals,
   getScheduleApprovals,
@@ -180,6 +184,12 @@ export default function ApprovalsScreen() {
                   </View>
                   <Text style={styles.line}>{fmtRange(r.startDate, r.endDate)} · {r.days}일</Text>
                   {!!r.reason && <Text style={styles.reason}>{r.reason}</Text>}
+                  {!!r.attachmentUrl && (
+                    <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + r.attachmentUrl)} style={styles.attachLink}>
+                      <Ionicons name="document-attach-outline" size={15} color="#2563eb" />
+                      <Text style={styles.attachLinkText} numberOfLines={1}>{r.attachmentName || "첨부 보기"}</Text>
+                    </TouchableOpacity>
+                  )}
                   {!!r.approvalSteps?.length && (
                     <Text style={styles.chain}>
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
@@ -223,7 +233,7 @@ export default function ApprovalsScreen() {
       </ScrollView>
 
       <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
-        <View style={styles.modalBg}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>반려 사유</Text>
             <TextInput
@@ -242,7 +252,7 @@ export default function ApprovalsScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -262,6 +272,8 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, color: "#2563eb", fontWeight: "600" },
   line: { fontSize: 14, color: "#374151", marginTop: 8 },
   reason: { fontSize: 13, color: "#6b7280", marginTop: 4 },
+  attachLink: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  attachLinkText: { fontSize: 13, color: "#2563eb", textDecorationLine: "underline", flexShrink: 1 },
   chain: { fontSize: 12, color: "#9ca3af", marginTop: 8 },
   actions: { flexDirection: "row", gap: 8, marginTop: 14 },
   btn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, height: 40, borderRadius: 8 },
@@ -271,7 +283,7 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
   modalCard: { backgroundColor: "#fff", borderRadius: 14, padding: 20 },
   modalTitle: { fontSize: 17, fontWeight: "bold", color: "#111827", marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, fontSize: 14, minHeight: 80, textAlignVertical: "top" },
+  input: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, fontSize: 14, minHeight: 80, textAlignVertical: "top", color: "#111827" },
   modalBtns: { flexDirection: "row", gap: 8, marginTop: 16 },
   modalCancel: { flex: 1, height: 44, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
   modalCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },

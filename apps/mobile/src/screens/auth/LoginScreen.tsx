@@ -32,8 +32,9 @@ export default function LoginScreen() {
       } else {
         Alert.alert("로그인 실패", "이메일 또는 비밀번호를 확인해주세요");
       }
-    } catch (error) {
-      Alert.alert("오류", "로그인 중 오류가 발생했습니다");
+    } catch (error: any) {
+      // 서버가 보낸 사유(미등록 기기 차단 등)를 그대로 표시
+      Alert.alert("로그인 실패", error?.message || "로그인 중 오류가 발생했습니다");
     } finally {
       setIsLoading(false);
     }

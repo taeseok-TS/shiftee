@@ -2205,7 +2205,7 @@ const styles = StyleSheet.create({
   // 예약 전송
   reqLabel2: { fontSize: 13, fontWeight: "600", color: "#6b7280", marginTop: 8, marginBottom: 6 },
   scheduleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  timeInput: { width: 88, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, textAlign: "center" },
+  timeInput: { width: 88, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, textAlign: "center", color: "#111827" },
   scheduledRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   scheduledAt: { fontSize: 12, color: "#4f46e5", fontWeight: "700" },
   scheduledText: { flex: 1, fontSize: 13, color: "#374151" },
@@ -2214,7 +2214,7 @@ const styles = StyleSheet.create({
   linkUrl: { fontSize: 13, color: "#4f46e5", textDecorationLine: "underline" },
   linkMeta: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
   // 투표 만들기
-  pollInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 8 },
+  pollInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 8, color: "#111827" },
   pollOptInputRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   pollAddOpt: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 6 },
   pollAddOptText: { fontSize: 13, color: "#4f46e5", fontWeight: "600" },
@@ -2239,7 +2239,7 @@ const styles = StyleSheet.create({
   menuRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
   menuText: { fontSize: 15, color: "#374151" },
   renameCard: { backgroundColor: "#fff", borderRadius: 14, padding: 18, marginHorizontal: 24, alignSelf: "stretch" },
-  renameInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4 },
+  renameInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4, color: "#111827" },
   memberRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   readersTabs: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e5e7eb", marginBottom: 6 },
   readersTab: { flex: 1, alignItems: "center", paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: "transparent" },
@@ -2290,6 +2290,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f3f4f6",
     borderRadius: 20,
     fontSize: 15,
+    color: "#111827", // 시스템 다크모드 글자 반전 방지
   },
   sendBtn: {
     width: 40,
@@ -2343,7 +2344,7 @@ const styles = StyleSheet.create({
   addCard: { backgroundColor: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 28 },
   addTitle: { fontSize: 17, fontWeight: "bold", color: "#111827", marginBottom: 12 },
   searchBox: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, height: 40, borderRadius: 8, backgroundColor: "#f3f4f6", marginBottom: 8 },
-  searchInput: { flex: 1, fontSize: 14 },
+  searchInput: { flex: 1, fontSize: 14, color: "#111827" },
   addEmpty: { textAlign: "center", color: "#9ca3af", paddingVertical: 24 },
   addRow: { flexDirection: "row", alignItems: "center", paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   addCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: "#d1d5db", alignItems: "center", justifyContent: "center", marginRight: 12 },

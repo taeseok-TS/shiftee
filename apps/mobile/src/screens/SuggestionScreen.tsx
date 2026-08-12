@@ -161,10 +161,10 @@ const styles = StyleSheet.create({
   intro: { fontSize: 13, color: "#6b7280", lineHeight: 19, marginBottom: 12 },
   introStrong: { fontWeight: "700", color: "#4b5563" },
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 12 },
-  titleInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  titleInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: "#111827" },
   contentInput: {
     borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 14, minHeight: 110, textAlignVertical: "top", marginTop: 8,
+    fontSize: 14, minHeight: 110, textAlignVertical: "top", marginTop: 8, color: "#111827",
   },
   attachRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
   attachBtn: {

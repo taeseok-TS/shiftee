@@ -1,14 +1,45 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
+import { AppState, AppStateStatus, TextInput } from "react-native";
+
+// 삼성 등 시스템 다크모드(앱 강제 다크 적용)에서 안내 문구가 흰색으로 뒤집혀
+// 안 보이는 문제 방지 — 앱 전체 입력창의 placeholder 색을 명시적으로 고정
+// (개별 컴포넌트에서 placeholderTextColor를 지정하면 그쪽이 우선)
+type TextInputWithDefaults = typeof TextInput & { defaultProps?: { placeholderTextColor?: string } };
+const TI = TextInput as TextInputWithDefaults;
+TI.defaultProps = { ...(TI.defaultProps || {}), placeholderTextColor: "#9ca3af" };
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
+import Constants from "expo-constants";
+import * as Sentry from "@sentry/react-native";
 import RootNavigator from "./src/navigation/RootNavigator";
 import { AuthProvider } from "./src/context/AuthContext";
 import * as api from "./src/services/api";
 
-export default function App() {
+// 앱 크래시·오류 추적 (Sentry). DSN은 app.json extra.sentryDsn — 비어 있으면 비활성.
+// 개발 중(__DEV__)에는 보내지 않는다.
+const SENTRY_DSN = (Constants.expoConfig?.extra as { sentryDsn?: string } | undefined)?.sentryDsn;
+if (SENTRY_DSN && !__DEV__) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    sendDefaultPii: false, // 개인정보(이메일 등) 자동 수집 안 함
+    tracesSampleRate: 0.1,
+  });
+}
+
+function App() {
+  const appState = useRef(AppState.currentState);
+
   useEffect(() => {
     initializeApp();
     checkForUpdate();
+    // 백그라운드 → 포그라운드 복귀 시에도 OTA 확인(콜드 스타트 안 해도 최신 반영)
+    const sub = AppState.addEventListener("change", (next: AppStateStatus) => {
+      if (appState.current.match(/inactive|background/) && next === "active") {
+        checkForUpdate();
+      }
+      appState.current = next;
+    });
+    return () => sub.remove();
   }, []);
 
   const initializeApp = async () => {
@@ -42,3 +73,6 @@ export default function App() {
     </AuthProvider>
   );
 }
+
+// Sentry.wrap: 렌더 오류·성능 추적을 위해 루트 컴포넌트를 감싼다 (DSN 없으면 그대로 통과)
+export default Sentry.wrap(App);

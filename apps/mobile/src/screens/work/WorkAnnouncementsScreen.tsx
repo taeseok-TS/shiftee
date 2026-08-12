@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 28 },
   modalTitle: { fontSize: 17, fontWeight: "bold", color: "#111827", marginBottom: 14 },
-  input: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 10 },
+  input: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 10, color: "#111827" },
   textArea: { minHeight: 110, textAlignVertical: "top" },
   attachRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   attachBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: "#e0e7ff", backgroundColor: "#eef2ff", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
