@@ -65,7 +65,11 @@ export async function GET() {
             parentId: null,
             userId: { not: session.userId },
             ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
-            content: { contains: `@${session.name}` },
+            OR: [
+              { content: { contains: `@${session.name}` } },
+              { content: { contains: "@전체" } },
+              { content: { contains: "@all" } },
+            ],
           },
           select: { content: true },
         });

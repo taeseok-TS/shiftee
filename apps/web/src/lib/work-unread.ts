@@ -24,7 +24,7 @@ export async function getWorkUnreadTotal(userId: string, userName: string): Prom
     const afterRead = me?.lastReadAt ? { createdAt: { gt: me.lastReadAt } } : {};
     if (notify === "MENTION") {
       const cands = await prisma.workMessage.findMany({
-        where: { channelId: c.id, parentId: null, userId: { not: userId }, ...afterRead, content: { contains: `@${userName}` } },
+        where: { channelId: c.id, parentId: null, userId: { not: userId }, ...afterRead, OR: [{ content: { contains: `@${userName}` } }, { content: { contains: "@전체" } }, { content: { contains: "@all" } }] },
         select: { content: true },
       });
       total += cands.filter((m) => isMentioned(m.content, userName)).length;
