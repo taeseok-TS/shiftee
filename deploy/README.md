@@ -14,27 +14,37 @@
 
 ---
 
-## ⚠️ 선행 작업 — 이게 끝나야 "한 번 빌드, 여러 곳 배포"가 된다
+## ✅ 한 번 빌드, 여러 곳 배포 — 완료 (2026-08-13)
 
-`NEXT_PUBLIC_*` 환경변수는 **빌드 시점에 코드 안으로 박힌다.** 지금 구조에서는
-고객사 도메인이 이미지에 구워지므로 **고객사마다 이미지를 새로 빌드해야 한다.**
+`NEXT_PUBLIC_*` 는 빌드 시점에 코드로 박히기 때문에 도메인이 이미지에 구워졌고, 그래서
+고객사마다 이미지를 새로 빌드해야 했다. **링크 생성 6곳이 전부 서버 라우트라 런타임 변수로 전환했다.**
 
-다행히 실제 사용처는 **7곳뿐이고 전부 서버 코드**라, 런타임 변수로 바꾸면 해결된다.
-
-| 변수 | 사용처 | 조치 |
+| 변수 | 조치 | 상태 |
 |---|---|---|
-| `NEXT_PUBLIC_APP_URL` (6곳) | `api/leave/[id]/approve` ×2 · `api/contracts/[id]` · `api/contracts/[id]/sign` ×2 · `api/work/meetings/[id]/invite` | → `APP_URL` 로 변경 |
-| `NEXT_PUBLIC_API_URL` (1곳) | `lib/api-client.ts:29` | → `API_URL` 로 변경 |
-| `NEXT_PUBLIC_KAKAO_MAP_API_KEY` (2곳) | `lib/kakao-geocoding.ts` | 그대로 (벤더 키, 고객사 공용) |
+| `NEXT_PUBLIC_APP_URL` (6곳) | `lib/app-url.ts` 의 `getAppUrl()` 로 통일 → 런타임 `APP_URL` | 완료 |
+| `NEXT_PUBLIC_API_URL` (1곳) | `API_URL` 로 변경. 단 `lib/api-client.ts` 는 **참조하는 곳이 없는 파일** | 완료 |
+| `NEXT_PUBLIC_KAKAO_MAP_API_KEY` (2곳) | 그대로 둔다 | 유지 |
 
-이후 `Dockerfile`에서 `ARG/ENV NEXT_PUBLIC_APP_URL`·`NEXT_PUBLIC_API_URL` 두 줄을 제거하고,
-`docker-compose.yml`(직영)에도 `APP_URL`을 추가한다.
+`Dockerfile` 의 `ARG/ENV NEXT_PUBLIC_*` 는 제거했고, 직영 `docker-compose.yml` 은
+`APP_URL: ${APP_URL:-${NEXT_PUBLIC_APP_URL}}` 로 주입한다(기존 `.env` 를 고치지 않아도 되게 fallback).
 
-**검증:** 이미지 재빌드 후 아래 네 가지가 올바른 도메인 링크를 보내는지 확인.
-휴가 결재 알림 · 계약서 발송 메일 · 계약 서명 링크 · 화상회의 초대.
+**값이 없으면 조용히 `localhost` 로 떨어지지 않는다.** `getAppUrl()` 이 프로세스당 한 번 경고를 남긴다.
 
-> 별도 이슈: `NEXT_PUBLIC_KAKAO_MAP_API_KEY` 는 이름 때문에 **클라이언트 번들에 노출된다.**
-> `geocodeAddress()` 가 서버에서만 호출된다면 `KAKAO_REST_API_KEY` 로 바꾸는 게 맞다. 호출부 확인 필요.
+**실측 검증 (검증 인스턴스 `APP_URL=https://mail.test` 로 메일을 실제 발송해 본문 캡처):**
+
+| 링크 | 실제 발송 문자열 |
+|---|---|
+| 휴가 결재 알림 | `https://mail.test/leave` |
+| 계약서 발송 메일 | `https://mail.test/contracts` |
+| 계약 서명(다음 결재자) | `https://mail.test/contracts` |
+| 화상회의 초대 | `https://cubetee.co.kr/work/meeting?join=…` (운영 DM 실물) |
+
+이미지에 박힌 값이 아니라 **인스턴스마다 다른 주소**가 나온 것이 전환이 실제로 먹었다는 증거다.
+`localhost` 유출 0건.
+
+> `NEXT_PUBLIC_KAKAO_MAP_API_KEY` 를 `KAKAO_REST_API_KEY` 로 바꾸자는 기존 제안은 **적용하면 안 된다.**
+> `geocodeAddress()` 호출부인 `app/admin/branches/page.tsx` 가 `"use client"` 라 브라우저에서 실행된다.
+> 이름을 바꾸면 주소→좌표 변환이 죽는다. (키가 번들에 노출되는 것은 카카오 JS 키의 정상 사용 형태다.)
 
 ---
 
