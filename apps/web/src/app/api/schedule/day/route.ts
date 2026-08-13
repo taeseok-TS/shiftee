@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { format, startOfDay, endOfDay } from "date-fns";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -18,7 +19,8 @@ export async function GET(request: NextRequest) {
   // 본인 정보만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
 
-  const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
   const userWhere   = selfOnly ? { id: session.userId } : { isActive: true, ...branchWhere };
   const recordWhere = selfOnly ? { userId: session.userId } : {};
 

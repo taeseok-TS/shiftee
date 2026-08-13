@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { currentLeaveYear } from "@/lib/leave-calc";
 
 // 휴가 신청 취소 (직원 본인 · PENDING만)
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,10 +33,10 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
       data: { status: "CANCELLED" },
     });
 
-    // 승인된 건을 관리자가 취소하면 잔여 복원 (연차 차감 유형만)
+    // 승인된 건을 관리자가 취소하면 잔여 복원 (연차 차감 유형만, 현재 연도 행 — 차감과 동일 기준)
     if (leave.status === "APPROVED" && isLeaveDeductible(leave.type)) {
       await tx.leaveBalance.updateMany({
-        where: { userId: leave.userId },
+        where: { userId: leave.userId, year: currentLeaveYear() },
         data: {
           used:      { decrement: leave.days },
           remaining: { increment: leave.days },

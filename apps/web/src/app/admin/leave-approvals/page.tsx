@@ -41,6 +41,8 @@ type LeaveRequest = {
   endDate: string;
   days: number;
   reason: string | null;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
   status: string;
   user: { name: string; department: string | null; position: string | null };
   approvalSteps?: ApprovalStep[];
@@ -352,8 +354,12 @@ export default function ApprovalsPage() {
                             <div>{dateRange}</div>
                             <div className="text-xs text-gray-500">{req.days}일</div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">
-                            {req.reason || "-"}
+                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs">
+                            <div className="truncate">{req.reason || "-"}</div>
+                            {req.attachmentUrl && (
+                              <a href={req.attachmentUrl} target="_blank" rel="noreferrer"
+                                className="text-xs text-blue-600 hover:underline">📎 {req.attachmentName || "동의서 보기"}</a>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-1 text-xs flex-wrap">

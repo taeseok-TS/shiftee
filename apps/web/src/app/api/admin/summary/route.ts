@@ -12,7 +12,7 @@ export async function GET() {
   const [admins, logs] = await Promise.all([
     prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
-      select: { id: true, name: true, email: true, isSuperAdmin: true, createdAt: true },
+      select: { id: true, name: true, email: true, phone: true, isSuperAdmin: true, createdAt: true },
       orderBy: [{ isSuperAdmin: "desc" }, { createdAt: "asc" }],
     }),
     prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),

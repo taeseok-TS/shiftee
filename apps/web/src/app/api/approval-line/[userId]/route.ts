@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 특정 직원의 결재라인 설정 (관리자)
 // body: { approverIds: string[] }  ← 순서대로
@@ -19,13 +20,14 @@ export async function PUT(
   if (!Array.isArray(approverIds))
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
 
-  // MANAGER의 지점 검증: 자신의 지점 직원만 설정 가능
+  // MANAGER의 지점 검증: 자신의 담당 지점(대표+겸직) 직원만 설정 가능
   if (session.role === "MANAGER") {
+    const myBranches = await getManagerBranches(session.userId);
     const targetUser = await prisma.user.findUnique({
       where: { id: userId },
       select: { branch: true }
     });
-    if (!targetUser || targetUser.branch !== session.branch) {
+    if (!targetUser || !targetUser.branch || !myBranches.includes(targetUser.branch)) {
       return NextResponse.json({ error: "자신의 지점 직원만 결재라인을 설정할 수 있습니다." }, { status: 403 });
     }
   }

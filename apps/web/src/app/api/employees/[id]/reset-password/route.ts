@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
 
 /**
@@ -42,10 +43,20 @@ export async function PATCH(
     // 비밀번호 해싱 (1234)
     const hashedPassword = await bcrypt.hash("1234", 10);
 
-    // 비밀번호 업데이트
+    // 비밀번호 업데이트 + 초기화 시각 기록 (24시간 후에도 그대로면 봇이 변경 요청 알림)
     await prisma.user.update({
       where: { id },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, passwordResetAt: new Date() },
+    });
+
+    await logAudit({
+      actorId: session.userId,
+      actorName: session.name,
+      action: "PASSWORD_RESET",
+      targetType: "USER",
+      targetId: id,
+      targetName: user.name,
+      detail: "비밀번호를 임시 비번(1234)으로 초기화",
     });
 
     return NextResponse.json({

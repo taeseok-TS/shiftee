@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
+import { branchHasManager } from "@/lib/manager-branches";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
   const adminStep = { approverRole: "ADMIN", branch: null as string | null };
   const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
   const hasBranchManager = submitter?.branch
-    ? (await prisma.user.count({ where: { role: "MANAGER", branch: submitter.branch, isActive: true } })) > 0
+    ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
     : false;
 
   let policySteps: { approverRole: string; branch: string | null }[] = [];

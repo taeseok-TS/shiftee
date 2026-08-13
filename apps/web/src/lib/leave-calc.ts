@@ -31,6 +31,11 @@ export function annualLeaveDays(hire: Date, asOf: Date): number {
   return Math.min(15 + Math.floor((years - 1) / 2), 25);
 }
 
+/** 연차 기준 연도 (KST — 서버 TZ가 UTC라 연말 자정 경계에서 연도가 하루 밀리는 문제 방지) */
+export function currentLeaveYear(): number {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
+}
+
 /** 1일 통상임금 = (연봉/12)/209시간 × 8시간 */
 export function dailyOrdinaryWage(annualSalary: number): number {
   return Math.round((annualSalary / 12 / 209) * 8);

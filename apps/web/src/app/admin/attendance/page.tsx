@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import {
   Clock, LogIn, LogOut, TrendingUp, TrendingDown, Minus,
-  ChevronLeft, ChevronRight, RotateCcw,
+  ChevronLeft, ChevronRight, RotateCcw, Download, Pencil, Plus,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import * as XLSX from "xlsx";
 import {
   format, startOfDay, isSameDay,
   addDays, addWeeks, addMonths, addYears,
@@ -27,7 +29,7 @@ import {
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
-  status: string; minutes: number;
+  status: string; minutes: number; userName?: string; userBranch?: string | null;
 };
 type Stats = { total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number };
 type ChartItem = { date: string; hours: number; count?: number };
@@ -135,6 +137,113 @@ export default function AttendancePage() {
 
   /* 날짜 직접 입력 (input[type=date] 용) */
   const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
+
+  /* ── 출퇴근 기록 수동 수정/생성 (관리자 전용) ── */
+  const [editRec, setEditRec] = useState<AttendanceRecord | null>(null);
+  const [editIn, setEditIn] = useState("");   // "HH:mm" (비우면 삭제)
+  const [editOut, setEditOut] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ userId: "", date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" });
+  const [editSaving, setEditSaving] = useState(false);
+
+  function openEditRec(r: AttendanceRecord) {
+    setEditIn(r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "");
+    setEditOut(r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "");
+    setEditRec(r);
+  }
+
+  // "HH:mm" + 기록 날짜 → KST 오프셋 포함 ISO (타임존 어긋남 방지). 비우면 null(삭제)
+  const toKstIso = (dateYmd: string, time: string) => (time ? `${dateYmd}T${time}:00+09:00` : null);
+
+  async function saveEditRec() {
+    if (!editRec) return;
+    setEditSaving(true);
+    try {
+      const dateYmd = editRec.date.slice(0, 10);
+      const res = await fetch(`/api/attendance/${editRec.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clockIn: toKstIso(dateYmd, editIn), clockOut: toKstIso(dateYmd, editOut) }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "수정 실패"); return; }
+      toast.success("출퇴근 기록이 수정되었습니다.");
+      if (d.warning) toast.info(d.warning);
+      setEditRec(null);
+      fetchStats();
+    } finally { setEditSaving(false); }
+  }
+
+  async function saveAddRec() {
+    if (!addForm.userId) { toast.error("직원을 선택해주세요."); return; }
+    if (!addForm.clockIn && !addForm.clockOut) { toast.error("출근 또는 퇴근 시각을 입력해주세요."); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: addForm.userId, date: addForm.date,
+          clockIn: toKstIso(addForm.date, addForm.clockIn), clockOut: toKstIso(addForm.date, addForm.clockOut),
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "생성 실패"); return; }
+      toast.success("출퇴근 기록이 생성되었습니다.");
+      setAddOpen(false);
+      fetchStats();
+    } finally { setEditSaving(false); }
+  }
+
+  /* ── 상세 기록: 직원 필터 + 엑셀 다운로드 ── */
+  const [empFilter, setEmpFilter] = useState<string>("all");
+  useEffect(() => { setEmpFilter("all"); }, [statsData]);
+  const recordNames = useMemo(() => {
+    const s = new Set<string>();
+    statsData?.records.forEach((r) => { if (r.userName) s.add(r.userName); });
+    return [...s].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [statsData]);
+  const multiPerson = recordNames.length > 1; // 지점 조회 등 여러 명일 때만 이름 컬럼/필터 표시
+  const visibleRecords = useMemo(() => {
+    const base = statsData?.records || [];
+    const filtered = empFilter === "all" ? base : base.filter((r) => r.userName === empFilter);
+    return [...filtered].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || (a.userName || "").localeCompare(b.userName || "", "ko")
+    );
+  }, [statsData, empFilter]);
+  const visibleTotals = useMemo(
+    () => ({ minutes: visibleRecords.reduce((s, r) => s + (r.minutes || 0), 0), days: visibleRecords.length }),
+    [visibleRecords]
+  );
+
+  function downloadExcel() {
+    if (!statsData || visibleRecords.length === 0) { toast.error("다운로드할 기록이 없습니다."); return; }
+    const scopeLabel = selectedBranch
+      ? selectedBranch
+      : selectedUser === "me" ? "본인" : (employees.find((e) => e.id === selectedUser)?.name || "직원");
+    const rangeLabel = `${format(new Date(statsData.range.start), "yyyyMMdd")}-${format(new Date(statsData.range.end), "yyyyMMdd")}`;
+    const rows = visibleRecords.map((r) => ({
+      날짜: format(new Date(r.date), "yyyy-MM-dd"),
+      요일: format(new Date(r.date), "EEE", { locale: ko }),
+      이름: r.userName || "",
+      지점: r.userBranch || "",
+      출근: r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "",
+      퇴근: r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "",
+      "근무시간(분)": r.minutes || 0,
+      근무시간: r.minutes > 0 ? fmtMin(r.minutes) : "",
+      상태: (STATUS_CONFIG[r.status]?.label as string) || r.status,
+    }));
+    rows.push({
+      날짜: "합계", 요일: "", 이름: empFilter === "all" ? "" : empFilter, 지점: "",
+      출근: "", 퇴근: "",
+      "근무시간(분)": visibleTotals.minutes,
+      근무시간: fmtMin(visibleTotals.minutes),
+      상태: `${visibleTotals.days}일 출근`,
+    } as (typeof rows)[number]);
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [{ wch: 12 }, { wch: 5 }, { wch: 10 }, { wch: 12 }, { wch: 7 }, { wch: 7 }, { wch: 11 }, { wch: 11 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "출퇴근");
+    XLSX.writeFile(wb, `출퇴근_${scopeLabel}_${rangeLabel}.xlsx`);
+  }
 
   /* ── 오늘 출퇴근 조회 ── */
   const fetchToday = useCallback(async () => {
@@ -611,7 +720,35 @@ export default function AttendancePage() {
               {/* 상세 기록 테이블 */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">상세 기록</CardTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">상세 기록</CardTitle>
+                    <div className="flex gap-2">
+                      {myRole === "ADMIN" && (
+                        <Button variant="outline" size="sm" className="gap-1"
+                          onClick={() => { setAddForm({ userId: "", date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" }); setAddOpen(true); }}>
+                          <Plus size={13} />기록 추가
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={downloadExcel} className="gap-1">
+                        <Download size={13} />엑셀 다운로드
+                      </Button>
+                    </div>
+                  </div>
+                  {/* 여러 명 조회(지점 등) 시 직원 필터 칩 */}
+                  {multiPerson && (
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      <button onClick={() => setEmpFilter("all")}
+                        className={`text-xs rounded-full px-3 py-1 border ${empFilter === "all" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+                        전체 {recordNames.length}명
+                      </button>
+                      {recordNames.map((n) => (
+                        <button key={n} onClick={() => setEmpFilter(n)}
+                          className={`text-xs rounded-full px-3 py-1 border ${empFilter === n ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -619,36 +756,56 @@ export default function AttendancePage() {
                       <thead>
                         <tr className="border-b text-left text-gray-500">
                           <th className="pb-3 font-medium">날짜</th>
+                          {multiPerson && <th className="pb-3 font-medium">이름</th>}
                           <th className="pb-3 font-medium">출근</th>
                           <th className="pb-3 font-medium">퇴근</th>
                           <th className="pb-3 font-medium">근무시간</th>
                           <th className="pb-3 font-medium">상태</th>
+                          {myRole === "ADMIN" && <th className="pb-3 font-medium text-right">수정</th>}
                         </tr>
                       </thead>
                       <tbody>
-                        {statsData.records.length === 0 ? (
+                        {visibleRecords.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
+                            <td colSpan={multiPerson ? 7 : 6} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
                           </tr>
-                        ) : statsData.records.map(r => {
+                        ) : visibleRecords.map(r => {
                           const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
                           return (
                             <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                               <td className="py-3">{format(new Date(r.date), "MM월 dd일 (EEE)", { locale: ko })}</td>
+                              {multiPerson && (
+                                <td className="py-3">
+                                  <button onClick={() => setEmpFilter(empFilter === r.userName ? "all" : r.userName || "all")}
+                                    className="font-medium text-gray-800 hover:text-blue-600 hover:underline" title="이 직원만 보기">
+                                    {r.userName || "-"}
+                                  </button>
+                                </td>
+                              )}
                               <td className="py-3">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
                               <td className="py-3">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
                               <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
+                              {myRole === "ADMIN" && (
+                                <td className="py-3 text-right">
+                                  <button onClick={() => openEditRec(r)} className="text-gray-400 hover:text-blue-600" title="출퇴근 시각 수정">
+                                    <Pencil size={14} />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
                       </tbody>
-                      {statsData.records.length > 0 && (
+                      {visibleRecords.length > 0 && (
                         <tfoot>
                           <tr className="border-t bg-gray-50">
-                            <td colSpan={3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">합계</td>
-                            <td className="py-2.5 text-xs font-semibold text-blue-700">{fmtMin(c.totalMinutes)}</td>
-                            <td className="py-2.5 text-xs text-gray-500">{c.total}일 출근</td>
+                            <td colSpan={multiPerson ? 4 : 3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">
+                              합계{empFilter !== "all" ? ` (${empFilter})` : ""}
+                            </td>
+                            <td className="py-2.5 text-xs font-semibold text-blue-700">{fmtMin(visibleTotals.minutes)}</td>
+                            <td className="py-2.5 text-xs text-gray-500">{visibleTotals.days}일 출근</td>
+                            {myRole === "ADMIN" && <td />}
                           </tr>
                         </tfoot>
                       )}
@@ -660,6 +817,74 @@ export default function AttendancePage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* 출퇴근 기록 수정 (관리자) */}
+      <Dialog open={!!editRec} onOpenChange={(v) => { if (!v) setEditRec(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>출퇴근 기록 수정</DialogTitle></DialogHeader>
+          {editRec && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                <span className="font-semibold">{editRec.userName || "본인"}</span> · {format(new Date(editRec.date), "yyyy년 MM월 dd일 (EEE)", { locale: ko })}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">출근 (비우면 삭제)</label>
+                  <Input type="time" value={editIn} onChange={(e) => setEditIn(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">퇴근 (비우면 삭제)</label>
+                  <Input type="time" value={editOut} onChange={(e) => setEditOut(e.target.value)} />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400">지각/조퇴 상태는 자동으로 다시 계산됩니다. 수정 내역은 감사 로그에 남습니다.</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditRec(null)}>취소</Button>
+                <Button size="sm" onClick={saveEditRec} disabled={editSaving}>{editSaving ? "저장 중…" : "저장"}</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 출퇴근 기록 수동 생성 (관리자) */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>출퇴근 기록 추가</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-500">직원</label>
+              <Select value={addForm.userId} onValueChange={(v) => setAddForm((f) => ({ ...f, userId: v }))}>
+                <SelectTrigger><SelectValue placeholder="직원 선택" /></SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.name}{e.branch ? ` · ${e.branch}` : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">날짜</label>
+              <Input type="date" value={addForm.date} onChange={(e) => setAddForm((f) => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500">출근</label>
+                <Input type="time" value={addForm.clockIn} onChange={(e) => setAddForm((f) => ({ ...f, clockIn: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">퇴근</label>
+                <Input type="time" value={addForm.clockOut} onChange={(e) => setAddForm((f) => ({ ...f, clockOut: e.target.value }))} />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">수동 생성 기록은 GPS 좌표 없이 저장되며, 생성 내역은 감사 로그에 남습니다.</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>취소</Button>
+              <Button size="sm" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : "추가"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

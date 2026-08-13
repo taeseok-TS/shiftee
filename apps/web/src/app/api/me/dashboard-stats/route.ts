@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { currentLeaveYear } from "@/lib/leave-calc";
 
 // 개인 대시보드 통계 (모든 역할: 본인 데이터만)
 export async function GET() {
@@ -13,8 +14,10 @@ export async function GET() {
 
   const [balance, pendingContracts, pendingLeave, pendingSchedule, monthAttendance] =
     await Promise.all([
-      // 나의 휴가 잔여
-      prisma.leaveBalance.findUnique({ where: { userId: session.userId } }),
+      // 나의 휴가 잔여 (현재 연도)
+      prisma.leaveBalance.findUnique({
+        where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
+      }),
 
       // 대기 중인 계약 (내게 발송되어 서명 대기 중)
       prisma.contract.count({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { channelCanManage } from "@/lib/work-perms";
+import { emitWork } from "@/lib/work-events";
 
 // 채널 이름 / 라벨(색+텍스트) 변경
 export async function PATCH(
@@ -34,6 +35,20 @@ export async function PATCH(
     return NextResponse.json({ error: "변경할 내용이 없습니다." }, { status: 400 });
 
   await prisma.workChannel.update({ where: { id }, data });
+
+  // 이름 변경 시 채팅방에 시스템 알림 메시지(누가 바꿨는지) 남기기
+  if (data.name) {
+    await prisma.workMessage.create({
+      data: {
+        channelId: id,
+        userId: session.userId,
+        content: `${session.name}님이 채팅방 이름을 "${data.name}"(으)로 변경했습니다.`,
+        system: true,
+      },
+    });
+    emitWork({ type: "message", channelId: id });
+  }
+
   return NextResponse.json({ success: true });
 }
 

@@ -67,6 +67,15 @@ const defaultBulk = { userIds: [] as string[], startDate: "", endDate: "", weekd
 
 export default function SchedulePage() {
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
+  const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    fetch(`/api/holidays?year=${currentDate.getFullYear()}`)
+      .then((r) => (r.ok ? r.json() : { holidays: [] }))
+      .then((d) => setHolidayMap(new Map((d.holidays || []).map((h: { date: string; name: string }) => [h.date, h.name]))))
+      .catch(() => {});
+  }, [currentDate]);
   const [monthData,   setMonthData]   = useState<DayData[]>([]);
   const [totalEmp,    setTotalEmp]    = useState(0);
   const [employees,   setEmployees]   = useState<Employee[]>([]);
@@ -273,6 +282,7 @@ export default function SchedulePage() {
               const dow     = getDay(day);
               const today   = isToday(day);
               const inMonth = isSameMonth(day, currentDate);
+              const holidayName = holidayMap.get(dateStr); // 공휴일이면 이름
 
               // 표시할 집계 항목 (0 제외)
               const stats = d ? [
@@ -291,16 +301,19 @@ export default function SchedulePage() {
                     ${today
                       ? "border-blue-400 bg-blue-50/60"
                       : "border-transparent hover:border-gray-300 hover:bg-gray-50/70"}
-                    ${dow === 0 ? "bg-red-50/30" : dow === 6 ? "bg-blue-50/20" : ""}
+                    ${dow === 0 || holidayName ? "bg-red-50/30" : dow === 6 ? "bg-blue-50/20" : ""}
                     ${inMonth ? "cursor-pointer" : "opacity-0 pointer-events-none"}`}
                 >
                   {/* 날짜 번호 */}
-                  <p className={`text-xl font-semibold w-10 h-10 flex items-center justify-center rounded-full mb-1
-                    ${today
-                      ? "bg-blue-600 text-white"
-                      : dow === 0 ? "text-red-400" : dow === 6 ? "text-blue-400" : "text-gray-600"}`}>
-                    {day.getDate()}
-                  </p>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <p className={`text-xl font-semibold w-10 h-10 flex items-center justify-center rounded-full shrink-0
+                      ${today
+                        ? "bg-blue-600 text-white"
+                        : dow === 0 || holidayName ? "text-red-400" : dow === 6 ? "text-blue-400" : "text-gray-600"}`}>
+                      {day.getDate()}
+                    </p>
+                    {holidayName && <span className="text-xs text-red-400 truncate">{holidayName}</span>}
+                  </div>
 
                   {/* 집계 배지 */}
                   <div className="space-y-1">

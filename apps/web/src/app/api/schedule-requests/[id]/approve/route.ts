@@ -3,6 +3,13 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
 import { logAudit } from "@/lib/audit";
+import { botNotifyDecision } from "@/lib/bot";
+import { getManagerBranches } from "@/lib/manager-branches";
+
+function fmtRange(s: Date, e: Date) {
+  const f = (d: Date) => d.toISOString().split("T")[0];
+  return `${f(s)} ~ ${f(e)}`;
+}
 
 export async function POST(
   request: NextRequest,
@@ -11,6 +18,7 @@ export async function POST(
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const { id } = await params;
   const { action, reason } = await request.json(); // action: 'approve' | 'reject'
 
@@ -36,7 +44,7 @@ export async function POST(
     const myStep = steps.find((s) => {
       if (s.status !== "PENDING") return false;
       if (s.approverRole === "ADMIN") return session.role === "ADMIN";
-      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && session.branch === s.branch;
+      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && !!s.branch && myBranches.includes(s.branch);
       return s.approverId === session.userId;
     });
 
@@ -47,8 +55,8 @@ export async function POST(
 
     // 결재라인을 우회하는 경우 (지정된 결재 차례가 아님)
     if (!myStep && session.role !== "EMPLOYEE") {
-      // MANAGER는 자기 지점 신청만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
-      if (session.role === "MANAGER" && scheduleRequest.user.branch !== session.branch) {
+      // MANAGER는 담당 지점(대표+겸직) 신청만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
+      if (session.role === "MANAGER" && (!scheduleRequest.user.branch || !myBranches.includes(scheduleRequest.user.branch))) {
         return NextResponse.json({ error: "다른 지점 직원의 신청은 승인할 수 없습니다." }, { status: 403 });
       }
       return await adminOverride(id, action, reason, session.userId);
@@ -119,6 +127,17 @@ export async function POST(
       detail: `${scheduleRequest.user.name} 근무일정 ${action === "approve" ? "승인" : "반려"}`,
     });
 
+    // 최종 결정 시 신청자에게 봇 DM
+    if (emailAction === "approve" || emailAction === "reject") {
+      botNotifyDecision(
+        scheduleRequest.userId,
+        `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
+        emailAction === "approve",
+        session.name,
+        reason
+      ).catch(() => {});
+    }
+
     return NextResponse.json({ success: true });
   }
 
@@ -164,6 +183,15 @@ async function adminOverride(
     targetType: "SCHEDULE", targetId: id, targetName: scheduleRequest.user.name,
     detail: `${scheduleRequest.user.name} 근무일정 ${action === "approve" ? "승인" : "반려"} (직접처리)`,
   });
+
+  // 신청자에게 봇 DM
+  botNotifyDecision(
+    scheduleRequest.userId,
+    `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
+    action === "approve",
+    actor?.name ?? "관리자",
+    reason
+  ).catch(() => {});
 
   return NextResponse.json({ success: true });
 }

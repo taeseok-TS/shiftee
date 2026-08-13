@@ -19,6 +19,7 @@ type Branch = {
   latitude: number | null;
   longitude: number | null;
   radius: number;
+  countInStats?: boolean; // 대시보드 통계 포함 여부
   _count?: { users: number };
 };
 
@@ -266,7 +267,24 @@ export default function BranchesPage() {
                   </div>
 
                   {isAdmin && (
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 items-center">
+                      {/* 통계 포함 토글 — 끄면 대시보드 직원·원장·지점 수에서 제외 (테스트지점·본부 등) */}
+                      <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2 shrink-0" title="대시보드 통계(직원·원장·지점 수)에 포함할지 여부">
+                        <input type="checkbox" checked={b.countInStats !== false}
+                          onChange={async (e) => {
+                            const res = await fetch(`/api/branches/${b.id}`, {
+                              method: "PATCH", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                name: b.name, address: b.address, radius: b.radius,
+                                latitude: b.latitude, longitude: b.longitude,
+                                countInStats: e.target.checked,
+                              }),
+                            });
+                            if (res.ok) { toast.success(e.target.checked ? `${b.name} — 통계에 포함합니다.` : `${b.name} — 통계에서 제외합니다.`); fetchBranches(); }
+                            else toast.error("변경 실패");
+                          }} />
+                        통계 포함
+                      </label>
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0"
                         onClick={() => openEdit(b)}>
                         <Pencil size={14} />

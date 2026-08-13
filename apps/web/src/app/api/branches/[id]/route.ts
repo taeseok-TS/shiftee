@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
 
 export async function PATCH(
   request: NextRequest,
@@ -14,7 +15,7 @@ export async function PATCH(
 
   try {
     const { id } = await params;
-    const { name, address, radius, latitude, longitude } = await request.json();
+    const { name, address, radius, latitude, longitude, countInStats } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
@@ -30,16 +31,38 @@ export async function PATCH(
       }
     }
 
-    const branch = await prisma.branch.update({
-      where: { id },
-      data: {
-        name,
-        address: address || null,
-        radius: radius ? Number(radius) : 100,
-        latitude: latitude !== undefined ? Number(latitude) : undefined,
-        longitude: longitude !== undefined ? Number(longitude) : undefined,
-      },
-    });
+    const data = {
+      name,
+      address: address || null,
+      radius: radius ? Number(radius) : 100,
+      latitude: latitude !== undefined ? Number(latitude) : undefined,
+      longitude: longitude !== undefined ? Number(longitude) : undefined,
+      countInStats: countInStats === undefined ? undefined : !!countInStats, // 통계 포함 여부 (미전송 시 유지)
+    };
+
+    // 변경 이전 이름 확보 — User.branch가 지점명 문자열로 매핑돼 있어 이름 변경 시 동기화 필요
+    const before = await prisma.branch.findUnique({ where: { id }, select: { name: true } });
+    if (!before) return NextResponse.json({ error: "지점을 찾을 수 없습니다." }, { status: 404 });
+
+    if (before.name !== name) {
+      // 지점명 변경: 소속 직원(퇴직자 포함)의 User.branch를 같은 트랜잭션으로 동기화
+      const [branch, synced] = await prisma.$transaction([
+        prisma.branch.update({ where: { id }, data }),
+        prisma.user.updateMany({ where: { branch: before.name }, data: { branch: name } }),
+      ]);
+      await logAudit({
+        actorId: session.userId,
+        actorName: session.name,
+        action: "BRANCH_RENAME",
+        targetType: "Branch",
+        targetId: id,
+        targetName: name,
+        detail: `${before.name}→${name}, 직원 ${synced.count}명 동기화`,
+      });
+      return NextResponse.json({ success: true, branch, syncedUsers: synced.count });
+    }
+
+    const branch = await prisma.branch.update({ where: { id }, data });
     return NextResponse.json({ success: true, branch });
   } catch (error) {
     console.error("지점 수정 실패:", error);

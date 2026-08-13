@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 const stepInclude = {
   steps: {
@@ -25,7 +26,8 @@ export async function GET() {
     return NextResponse.json({ line: myLine, lines: myLines });
   }
 
-  const branchWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
   const employeesRaw: any = await prisma.user.findMany({
     where: { isActive: true, ...branchWhere },

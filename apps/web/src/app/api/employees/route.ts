@@ -5,22 +5,31 @@ import { normalizeBranchName } from "@/lib/branches";
 import { filterUserDataArray } from "@/lib/api-response";
 import { logAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
+import { currentLeaveYear } from "@/lib/leave-calc";
+import { getManagerBranches } from "@/lib/manager-branches";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  // MANAGER의 경우, 자신의 지점 직원만 조회
-  const branchWhere = session.role === "MANAGER" && session.branch
-    ? { branch: session.branch }  // 지점명은 이미 DB의 실제 지점명
+  // MANAGER의 경우, 담당 지점(대표+겸직) 직원만 조회
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER"
+    ? { branch: { in: myBranches } }  // 지점명은 이미 DB의 실제 지점명
     : {};
 
+  // 결재 승인자 선택 등에서 관리자도 포함해야 할 때 (관리자 세션 한정)
+  const includeAdmins =
+    new URL(request.url).searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
+
   const employees = await prisma.user.findMany({
-    where: { isActive: true, role: { not: "ADMIN" }, ...branchWhere },
+    where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere },
     select: {
       id: true, name: true, email: true, role: true, empNo: true,
-      department: true, jobGroup: true, position: true, branch: true, hireDate: true, phone: true,
-      leaveBalance: { select: { remaining: true, used: true, total: true } },
+      department: true, jobGroup: true, position: true, branch: true, hireDate: true, birthDate: true, phone: true,
+      leaveBalance: { where: { year: currentLeaveYear() }, select: { remaining: true, used: true, total: true } },
+      device: { select: { deviceName: true, platform: true, createdAt: true } },
+      managerBranches: { select: { branchName: true } },
     },
     orderBy: [{ branch: "asc" }, { name: "asc" }],
   });
@@ -38,8 +47,11 @@ export async function GET() {
     position: emp.position,
     branch: emp.branch,
     hireDate: emp.hireDate,
+    birthDate: emp.birthDate,
     phone: emp.phone,
-    leaveBalance: emp.leaveBalance,
+    leaveBalance: emp.leaveBalance[0] ?? null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
+    device: emp.device,
+    managerBranches: emp.managerBranches.map(b => b.branchName), // 원장 겸직 지점 목록
   }));
 
   // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 그대로 반환
@@ -52,7 +64,7 @@ export async function POST(request: NextRequest) {
   if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const body = await request.json();
-  const { name, email, password, role, department, jobGroup, position, branch, phone, hireDate } = body;
+  const { name, email, password, role, department, jobGroup, position, branch, phone, hireDate, birthDate, empNo: empNoInput } = body;
 
   // 디버깅: 받은 branch 값 확인
   console.log("[POST /api/employees] 받은 branch 값:", branch, "| 타입:", typeof branch, "| 전체 body:", body);
@@ -73,22 +85,33 @@ export async function POST(request: NextRequest) {
   const finalBranch = branch || null;
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  // 사원번호: 순차 발급(1001~)
-  const maxNo = (await prisma.user.aggregate({ _max: { empNo: true } }))._max.empNo ?? 1000;
-  const empNo = Math.max(1000, maxNo) + 1;
+  // 사원번호: 입력값이 있으면 그 번호 부여(중복 검사), 없으면 순차 자동 발급(1001~)
+  let empNo: number;
+  if (empNoInput !== undefined && empNoInput !== null && String(empNoInput).trim() !== "") {
+    empNo = parseInt(String(empNoInput).trim());
+    if (!Number.isInteger(empNo) || empNo <= 0)
+      return NextResponse.json({ error: "사원번호는 양의 정수여야 합니다." }, { status: 400 });
+    const dupNo = await prisma.user.findUnique({ where: { empNo }, select: { name: true } });
+    if (dupNo)
+      return NextResponse.json({ error: `사원번호 ${empNo}은(는) 이미 ${dupNo.name}님이 사용 중입니다.` }, { status: 409 });
+  } else {
+    const maxNo = (await prisma.user.aggregate({ _max: { empNo: true } }))._max.empNo ?? 1000;
+    empNo = Math.max(1000, maxNo) + 1;
+  }
   const user = await prisma.user.create({
     data: {
       name, email, password: hashedPassword, empNo,
       role: role || "EMPLOYEE",
       department, jobGroup: jobGroup || null, position, branch: finalBranch, phone,
       hireDate: hireDate ? new Date(hireDate) : null,
+      birthDate: birthDate ? new Date(birthDate) : null,
     },
   });
 
   await prisma.leaveBalance.create({
     data: {
       userId: user.id,
-      year: new Date().getFullYear(),
+      year: currentLeaveYear(),
       total: 15, used: 0, remaining: 15,
     },
   });

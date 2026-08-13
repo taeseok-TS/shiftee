@@ -30,6 +30,7 @@ type ApprovalStepInfo = {
 type LeaveRequest = {
   id: string; type: string; startDate: string; endDate: string;
   days: number; reason: string | null; status: string;
+  attachmentUrl?: string | null; attachmentName?: string | null;
   rejectedReason: string | null;
   user: { name: string; department: string | null };
   approver: { name: string } | null;
@@ -148,7 +149,7 @@ export default function LeavePage() {
 
   /* 휴가 신청 */
   const [addOpen, setAddOpen]   = useState(false);
-  const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "" });
+  const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
   const previewDays = useMemo(() => calcWorkdays(form.startDate, form.endDate, form.type), [form]);
 
   /* 반려 다이얼로그 */
@@ -208,6 +209,8 @@ export default function LeavePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
+    if (!form.reason.trim()) { toast.error("신청 사유를 입력해주세요."); return; }
+    if (form.type === "COMPENSATORY" && !form.attachmentUrl) { toast.error("대체휴무는 대체휴무 동의서 첨부가 필요합니다."); return; }
     const res  = await fetch("/api/leave", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
@@ -216,8 +219,20 @@ export default function LeavePage() {
     if (!res.ok) { toast.error(data.error); return; }
     toast.success(`${data.days}일 휴가 신청이 완료되었습니다.`);
     setAddOpen(false);
-    setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "" });
+    setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
     fetchRequests(); fetchBalance(); fetchMySteps();
+  }
+
+  async function handleAttachUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/work/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error || "첨부 업로드에 실패했습니다."); return; }
+    setForm(f => ({ ...f, attachmentUrl: data.fileUrl, attachmentName: data.fileName }));
+    e.target.value = "";
   }
 
   /* ── 승인 ── */
@@ -440,6 +455,10 @@ export default function LeavePage() {
                               : <span className="text-xs text-gray-400">-</span>}
                             {r.status === "REJECTED" && r.rejectedReason && (
                               <p className="text-xs text-red-500 mt-0.5">반려: {r.rejectedReason}</p>
+                            )}
+                            {r.attachmentUrl && (
+                              <a href={r.attachmentUrl} target="_blank" rel="noreferrer"
+                                className="text-xs text-blue-600 hover:underline mt-0.5 inline-block">📎 {r.attachmentName || "첨부 보기"}</a>
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -665,9 +684,25 @@ export default function LeavePage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label>사유 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
+              <Label>사유 <span className="text-red-500">*</span></Label>
               <Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                placeholder="휴가 사유를 입력하세요" rows={2} />
+                placeholder="신청 사유를 입력하세요 (필수)" rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                첨부파일{form.type === "COMPENSATORY"
+                  ? <span className="text-red-500"> (대체휴무 동의서 필수)</span>
+                  : <span className="text-gray-400 font-normal text-xs"> (선택)</span>}
+              </Label>
+              {form.attachmentUrl ? (
+                <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm">
+                  <span className="flex-1 truncate text-gray-700">{form.attachmentName}</span>
+                  <button type="button" className="text-gray-400 hover:text-red-500"
+                    onClick={() => setForm(f => ({ ...f, attachmentUrl: "", attachmentName: "" }))}>✕</button>
+                </div>
+              ) : (
+                <Input type="file" accept="image/*,.pdf,.doc,.docx,.hwp" onChange={handleAttachUpload} />
+              )}
             </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>취소</Button>

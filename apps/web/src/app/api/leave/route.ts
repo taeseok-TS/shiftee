@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { currentLeaveYear } from "@/lib/leave-calc";
+import { getHolidaySet, ymdUTC } from "@/lib/holidays";
+import { getManagerBranches, branchHasManager } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 
 export async function GET(request: NextRequest) {
@@ -28,8 +31,9 @@ export async function GET(request: NextRequest) {
   // 본인 휴가만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
 
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchFilter =
-    session.role === "MANAGER" ? { user: { branch: session.branch } } : {};
+    session.role === "MANAGER" ? { user: { branch: { in: myBranches } } } : {};
 
   const where =
     selfOnly
@@ -69,10 +73,18 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const body = await request.json();
-  const { type, startDate, endDate, reason } = body;
+  const { type, startDate, endDate, reason, attachmentUrl, attachmentName } = body;
 
   if (!type || !startDate || !endDate) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
+  }
+  // 신청 사유 필수(모든 유형)
+  if (!reason || !String(reason).trim()) {
+    return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
+  }
+  // 대체휴무는 동의서 첨부 필수
+  if (type === "COMPENSATORY" && !attachmentUrl) {
+    return NextResponse.json({ error: "대체휴무는 대체휴무 동의서 첨부가 필요합니다." }, { status: 400 });
   }
 
   const start = new Date(startDate);
@@ -82,7 +94,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "종료일이 시작일보다 빠릅니다." }, { status: 400 });
   }
 
-  // 근무일(평일)만 계산
+  // 근무일(평일)만 계산 — 주말과 공휴일(Holiday 테이블) 제외
   let days: number;
   if (type === "HALF_AM" || type === "HALF_PM" || type === "COMPENSATORY_HALF" || type === "CIVIL_DEFENSE") {
     days = 0.5;
@@ -90,15 +102,26 @@ export async function POST(request: NextRequest) {
     days = 0.25;
   } else {
     const allDays = eachDayOfInterval({ start, end });
-    days = allDays.filter(d => getDay(d) !== 0 && getDay(d) !== 6).length;
+    const holidaySet = await getHolidaySet(start, end);
+    days = allDays.filter(d => getDay(d) !== 0 && getDay(d) !== 6 && !holidaySet.has(ymdUTC(d))).length;
     if (days === 0) {
-      return NextResponse.json({ error: "선택한 기간에 근무일이 없습니다." }, { status: 400 });
+      return NextResponse.json({ error: "선택한 기간에 근무일이 없습니다. (주말·공휴일 제외)" }, { status: 400 });
+    }
+  }
+  // 반차/반반차는 단일 날짜 — 주말·공휴일이면 차감이 무의미하므로 거부
+  if (days === 0.5 || days === 0.25) {
+    const startIsOff =
+      getDay(start) === 0 || getDay(start) === 6 || (await getHolidaySet(start, start)).has(ymdUTC(start));
+    if (startIsOff) {
+      return NextResponse.json({ error: "주말·공휴일에는 반차/반반차를 신청할 수 없습니다." }, { status: 400 });
     }
   }
 
   // 잔여 휴가 확인 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감이므로 검사 생략)
   if (isLeaveDeductible(type)) {
-    const balance = await prisma.leaveBalance.findUnique({ where: { userId: session.userId } });
+    const balance = await prisma.leaveBalance.findUnique({
+      where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
+    });
     if (balance && balance.remaining < days) {
       return NextResponse.json({
         error: `잔여 휴가가 부족합니다. (잔여 ${balance.remaining}일, 신청 ${days}일)`,
@@ -114,6 +137,8 @@ export async function POST(request: NextRequest) {
       endDate:   end,
       days,
       reason,
+      attachmentUrl: attachmentUrl ?? null,
+      attachmentName: attachmentName ?? null,
       status: "PENDING",
     },
   });
@@ -129,7 +154,7 @@ export async function POST(request: NextRequest) {
   const adminStep = { approverRole: "ADMIN", branch: null as string | null };
   const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
   const hasBranchManager = submitter?.branch
-    ? (await prisma.user.count({ where: { role: "MANAGER", branch: submitter.branch, isActive: true } })) > 0
+    ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
     : false;
 
   let policySteps: { approverRole: string; branch: string | null }[] = [];
@@ -158,8 +183,8 @@ export async function POST(request: NextRequest) {
     await prisma.leaveRequest.update({ where: { id: leaveRequest.id }, data: { status: "APPROVED", approverId: session.userId } });
     if (isLeaveDeductible(type)) {
       await prisma.leaveBalance.upsert({
-        where: { userId: session.userId },
-        create: { userId: session.userId, year: new Date().getFullYear(), total: 15, used: days, remaining: 15 - days },
+        where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
+        create: { userId: session.userId, year: currentLeaveYear(), total: 15, used: days, remaining: 15 - days },
         update: { used: { increment: days }, remaining: { decrement: days } },
       });
     }

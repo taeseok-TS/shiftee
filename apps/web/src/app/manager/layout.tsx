@@ -16,7 +16,7 @@ export default async function ManagerLayout({
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      <ManagerSidebar />
+      <ManagerSidebar role={session.role} />
       <main className="flex-1 overflow-auto">
         <div className="flex justify-between items-center px-8 py-4 bg-white border-b border-gray-200">
           <h1 className="text-xl font-semibold text-gray-800">팀 관리 대시보드</h1>

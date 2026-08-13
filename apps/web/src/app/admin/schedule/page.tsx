@@ -41,6 +41,15 @@ export default function AdminSchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState(new Date());
+
+  // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
+  const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    fetch(`/api/holidays?year=${currentWeek.getFullYear()}`)
+      .then((r) => (r.ok ? r.json() : { holidays: [] }))
+      .then((d) => setHolidayMap(new Map((d.holidays || []).map((h: { date: string; name: string }) => [h.date, h.name]))))
+      .catch(() => {});
+  }, [currentWeek]);
   const [filterBranch, setFilterBranch] = useState<string>("ALL");
   const [filterDepartment, setFilterDepartment] = useState<string>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
@@ -318,7 +327,8 @@ export default function AdminSchedulePage() {
                     const dayName = format(day, "EEE", { locale: ko });
                     const isToday =
                       format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
-                    const isHoliday = dayName === "토" || dayName === "일";
+                    const holidayName = holidayMap.get(format(day, "yyyy-MM-dd")); // 법정·임시 공휴일
+                    const isHoliday = dayName === "토" || dayName === "일" || !!holidayName;
 
                     return (
                       <div
@@ -330,6 +340,7 @@ export default function AdminSchedulePage() {
                         <div className={isToday ? "text-blue-600" : isHoliday ? "text-red-600" : ""}>
                           {format(day, "d일(EEE)", { locale: ko })}
                         </div>
+                        {holidayName && <div className="text-[11px] font-normal text-red-500 mt-0.5">{holidayName}</div>}
                       </div>
                     );
                   })}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 import { endOfMonth, endOfYear } from "date-fns";
 
 export async function GET(request: NextRequest) {
@@ -50,9 +51,10 @@ export async function GET(request: NextRequest) {
       targetEndDate = endOfMonth(targetDate);
     }
 
-    // 권한별 지점 필터
+    // 권한별 지점 필터 (원장: 담당 지점 목록 — 대표+겸직)
+    const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     const branchFilter =
-      session.role === "MANAGER" ? session.branch : undefined;
+      session.role === "MANAGER" ? { in: myBranches } : undefined;
 
     // 대상 일자 기준 재직자 조회
     console.log("[STATS ACTIVE] Query params:", { period, dateParam, targetEndDate });

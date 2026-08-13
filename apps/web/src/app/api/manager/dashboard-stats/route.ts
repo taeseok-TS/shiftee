@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
 export async function GET() {
@@ -9,8 +10,9 @@ export async function GET() {
   if (session.role === "EMPLOYEE")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  // MANAGER는 자기 지점, ADMIN(테스트용)은 전체
-  const branchWhere = session.role === "MANAGER" && session.branch ? { branch: session.branch } : {};
+  // MANAGER는 담당 지점(대표+겸직), ADMIN(테스트용)은 전체
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
   const memberWhere = {
     role: { not: "ADMIN" as const },
     isActive: true,

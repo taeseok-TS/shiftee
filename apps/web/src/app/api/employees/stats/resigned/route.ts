@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 
 export async function GET(request: NextRequest) {
@@ -26,9 +27,10 @@ export async function GET(request: NextRequest) {
     const monthParam = searchParams.get("month"); // "2026-05"
     const yearParam = searchParams.get("year"); // "2026"
 
-    // 권한별 지점 필터
+    // 권한별 지점 필터 (원장: 담당 지점 목록 — 대표+겸직)
+    const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     const branchFilter =
-      session.role === "MANAGER" ? session.branch : undefined;
+      session.role === "MANAGER" ? { in: myBranches } : undefined;
 
     if (monthParam) {
       // 월간 조회

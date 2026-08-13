@@ -3,9 +3,12 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-type AdminRow = { id: string; name: string; email: string; isSuperAdmin: boolean; createdAt: string };
+type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string };
 type LogRow = { id: string; actorName: string; action: string; targetName: string | null; detail: string | null; createdAt: string };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -55,6 +58,44 @@ export default function AdminSettingsPage() {
       }
     } catch {
       toast.error("처리 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 서브 관리자 정보 수정 (이름·연락처·비밀번호 재설정)
+  const [editAdmin, setEditAdmin] = useState<AdminRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [savingAdmin, setSavingAdmin] = useState(false);
+
+  const openEditAdmin = (a: AdminRow) => {
+    setEditName(a.name);
+    setEditPhone(a.phone || "");
+    setEditPassword("");
+    setEditAdmin(a);
+  };
+
+  const handleSaveAdmin = async () => {
+    if (!editAdmin) return;
+    if (!editName.trim()) { toast.error("이름을 입력해주세요."); return; }
+    setSavingAdmin(true);
+    try {
+      const res = await fetch(`/api/employees/${editAdmin.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          phone: editPhone.trim() || null,
+          ...(editPassword.trim() ? { password: editPassword.trim() } : {}), // 비우면 비밀번호 유지
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "수정에 실패했습니다."); return; }
+      toast.success(`${editName.trim()} 님 정보를 수정했습니다.${editPassword.trim() ? " (비밀번호 변경됨)" : ""}`);
+      setEditAdmin(null);
+      loadSummary();
+    } finally {
+      setSavingAdmin(false);
     }
   };
 
@@ -119,14 +160,24 @@ export default function AdminSettingsPage() {
                       {a.isSuperAdmin ? (
                         <span className="text-xs text-gray-300">—</span>
                       ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-red-600 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => handleResignAdmin(a)}
-                        >
-                          퇴사 처리
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => openEditAdmin(a)}
+                          >
+                            수정
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => handleResignAdmin(a)}
+                          >
+                            퇴사 처리
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -136,6 +187,39 @@ export default function AdminSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 서브 관리자 정보 수정 */}
+      <Dialog open={!!editAdmin} onOpenChange={(v) => { if (!v) setEditAdmin(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>서브 관리자 정보 수정</DialogTitle></DialogHeader>
+          {editAdmin && (
+            <div className="space-y-3">
+              <div>
+                <Label>이메일</Label>
+                <Input value={editAdmin.email} disabled className="bg-gray-50" />
+              </div>
+              <div>
+                <Label>이름</Label>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              <div>
+                <Label>연락처</Label>
+                <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="010-0000-0000" />
+              </div>
+              <div>
+                <Label>새 비밀번호 <span className="text-xs text-gray-400">(비우면 기존 유지 · 8자 이상)</span></Label>
+                <Input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="변경 시에만 입력" />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" size="sm" onClick={() => setEditAdmin(null)}>취소</Button>
+                <Button size="sm" onClick={handleSaveAdmin} disabled={savingAdmin}>
+                  {savingAdmin ? "저장 중…" : "저장"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* 변경 로그 */}
       <Card className="mb-6">

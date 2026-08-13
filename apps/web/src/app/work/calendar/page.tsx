@@ -11,7 +11,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameMont
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 
-type Ev = { id: string; title: string; description: string | null; startDate: string; endDate: string; branch: string | null; color: string; canEdit: boolean };
+type Ev = { id: string; title: string; description: string | null; startDate: string; endDate: string; branch: string | null; managersOnly?: boolean; color: string; canEdit: boolean };
 const COLORS: Record<string, string> = { indigo: "bg-indigo-500", blue: "bg-blue-500", green: "bg-green-500", red: "bg-red-500", amber: "bg-amber-500" };
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -32,6 +32,15 @@ export default function WorkCalendarPage() {
     if (res.ok) setEvents((await res.json()).events || []);
   }, [year, month]);
 
+  // 공휴일 (읽기 전용 표시 — 관리는 관리자 > 공휴일 관리에서)
+  const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    fetch(`/api/holidays?year=${year}`)
+      .then((r) => (r.ok ? r.json() : { holidays: [] }))
+      .then((d) => setHolidays(new Map((d.holidays || []).map((h: { date: string; name: string }) => [h.date, h.name]))))
+      .catch(() => {});
+  }, [year]);
+
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => setRole(d.user?.role || "EMPLOYEE")).catch(() => {});
@@ -41,23 +50,55 @@ export default function WorkCalendarPage() {
   const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(cursor), end: endOfMonth(cursor) }), [cursor]);
   const startPad = getDay(startOfMonth(cursor));
 
+  // 상단 필터: 전체 / 전사 / 지점 / 원장
+  const [viewFilter, setViewFilter] = useState<"all" | "company" | "branch" | "managers">("all");
+  const hasManagerEvents = events.some((e) => e.managersOnly);
+  const visibleEvents = useMemo(() => {
+    if (viewFilter === "company") return events.filter((e) => !e.branch && !e.managersOnly);
+    if (viewFilter === "branch") return events.filter((e) => !!e.branch);
+    if (viewFilter === "managers") return events.filter((e) => e.managersOnly);
+    return events;
+  }, [events, viewFilter]);
+
   function eventsOn(day: Date) {
     const d = format(day, "yyyy-MM-dd");
-    return events.filter((e) => format(new Date(e.startDate), "yyyy-MM-dd") <= d && d <= format(new Date(e.endDate), "yyyy-MM-dd"));
+    return visibleEvents.filter((e) => format(new Date(e.startDate), "yyyy-MM-dd") <= d && d <= format(new Date(e.endDate), "yyyy-MM-dd"));
+  }
+
+  // 편집 모드 (일정 더블클릭)
+  const [editId, setEditId] = useState<string | null>(null);
+  function openEdit(e: Ev) {
+    setForm({
+      title: e.title,
+      description: e.description || "",
+      startDate: format(new Date(e.startDate), "yyyy-MM-dd"),
+      endDate: format(new Date(e.endDate), "yyyy-MM-dd"),
+      branch: e.managersOnly ? "__MGR__" : e.branch || "__ALL__",
+      color: e.color || "indigo",
+    });
+    setEditId(e.id);
+    setOpen(true);
   }
 
   async function save() {
     if (!form.title.trim() || !form.startDate) { toast.error("제목과 시작일을 입력해주세요."); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/work/calendar", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, branch: form.branch === "__ALL__" ? null : form.branch, endDate: form.endDate || form.startDate }),
+      const res = await fetch(editId ? `/api/work/calendar/${editId}` : "/api/work/calendar", {
+        method: editId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          branch: form.branch === "__ALL__" || form.branch === "__MGR__" ? null : form.branch,
+          managersOnly: form.branch === "__MGR__",
+          endDate: form.endDate || form.startDate,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || "등록 실패"); return; }
-      toast.success("일정이 등록되었습니다.");
+      if (!res.ok) { toast.error(data.error || (editId ? "수정 실패" : "등록 실패")); return; }
+      toast.success(editId ? "일정이 수정되었습니다." : "일정이 등록되었습니다.");
       setOpen(false);
+      setEditId(null);
       setForm({ title: "", description: "", startDate: "", endDate: "", branch: "__ALL__", color: "indigo" });
       fetchEvents();
     } finally { setSaving(false); }
@@ -83,6 +124,20 @@ export default function WorkCalendarPage() {
         <span className="text-lg font-semibold">{year}년 {month}월</span>
         <Button variant="ghost" size="icon" onClick={() => setCursor(new Date(year, month, 1))}><ChevronRight size={18} /></Button>
         <Button variant="ghost" size="sm" onClick={() => setCursor(new Date())}>오늘</Button>
+        {/* 일정 종류 필터 */}
+        <div className="flex gap-1.5 ml-2">
+          {([
+            { v: "all", label: "전체" },
+            { v: "company", label: "전사" },
+            { v: "branch", label: "지점" },
+            ...(hasManagerEvents ? [{ v: "managers", label: "👑 원장" }] : []),
+          ] as { v: typeof viewFilter; label: string }[]).map((f) => (
+            <button key={f.v} onClick={() => setViewFilter(f.v)}
+              className={`text-xs rounded-full px-3 py-1 border ${viewFilter === f.v ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">
@@ -96,14 +151,22 @@ export default function WorkCalendarPage() {
           {days.map((day) => {
             const evs = eventsOn(day);
             const dow = getDay(day);
+            const holidayName = holidays.get(format(day, "yyyy-MM-dd"));
             return (
-              <div key={day.toISOString()} className={`min-h-[110px] border-b border-r p-1.5 ${isToday(day) ? "bg-indigo-50/50" : ""}`}>
-                <div className={`text-xs font-medium mb-1 ${dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-600"}`}>{day.getDate()}</div>
+              <div key={day.toISOString()} className={`min-h-[110px] border-b border-r p-1.5 ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""}`}>
+                <div className={`text-xs font-medium mb-1 ${dow === 0 || holidayName ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-600"}`}>
+                  {day.getDate()}
+                  {holidayName && <span className="ml-1 font-normal text-[10px] text-red-400">{holidayName}</span>}
+                </div>
                 <div className="space-y-1">
                   {evs.map((e) => (
                     <div key={e.id + day.toISOString()} className="group relative">
-                      <div className={`text-[11px] text-white rounded px-1.5 py-0.5 truncate ${COLORS[e.color] || COLORS.indigo}`} title={e.title}>
-                        {e.branch ? `[${e.branch}] ` : ""}{e.title}
+                      <div
+                        className={`text-[11px] text-white rounded px-1.5 py-0.5 truncate ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-pointer" : ""}`}
+                        title={e.canEdit ? `${e.title} (더블클릭: 편집)` : e.title}
+                        onDoubleClick={() => { if (e.canEdit) openEdit(e); }}
+                      >
+                        {e.managersOnly ? "👑 " : e.branch ? `[${e.branch}] ` : ""}{e.title}
                       </div>
                       {e.canEdit && format(new Date(e.startDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd") && (
                         <button onClick={() => remove(e.id)} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>
@@ -119,9 +182,9 @@ export default function WorkCalendarPage() {
 
       <p className="text-xs text-gray-400 mt-3">※ 회사 전체(전사) 또는 지점 공통 일정만 표시됩니다. 개인 근무일정·휴가와는 별개입니다.</p>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm({ title: "", description: "", startDate: "", endDate: "", branch: "__ALL__", color: "indigo" }); } }}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>전체 일정 등록</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editId ? "일정 편집" : "전체 일정 등록"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Input placeholder="일정 제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />
             <Textarea placeholder="설명 (선택)" rows={3} value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} />
@@ -137,11 +200,18 @@ export default function WorkCalendarPage() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__ALL__">전사 공통</SelectItem>
+                      <SelectItem value="__MGR__">👑 원장 전용 (원장·관리자만 보임)</SelectItem>
                       {branches.map((b) => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="text-sm py-2 text-gray-600">내 지점 일정으로 등록됩니다</div>
+                  <Select value={form.branch === "__MGR__" ? "__MGR__" : "__ALL__"} onValueChange={(v) => setForm(f => ({ ...f, branch: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__ALL__">내 지점</SelectItem>
+                      <SelectItem value="__MGR__">👑 원장 전용 (원장·관리자만 보임)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
               <div>
@@ -156,7 +226,7 @@ export default function WorkCalendarPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
-              <Button onClick={save} disabled={saving}>{saving ? "등록 중..." : "등록"}</Button>
+              <Button onClick={save} disabled={saving}>{saving ? "저장 중..." : editId ? "수정" : "등록"}</Button>
             </div>
           </div>
         </DialogContent>

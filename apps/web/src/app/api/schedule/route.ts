@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -23,8 +24,9 @@ export async function GET(request: NextRequest) {
   // 본인 일정만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
 
-  // 지점 필터 (MANAGER는 자기 지점만)
-  const branchUserWhere = session.role === "MANAGER" ? { branch: session.branch } : {};
+  // 지점 필터 (MANAGER는 담당 지점 — 대표+겸직)
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchUserWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
   // 지점 내 활성 직원 ID 목록 (집계 기준)
   const branchUserIds = !selfOnly && session.role === "MANAGER"

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { calcStatus } from "@/lib/attendance-status";
 
 const NINE_HOURS_MS = 9 * 60 * 60 * 1000;
 
@@ -43,10 +44,8 @@ export async function PATCH(
     );
   }
 
-  // 상태 재계산: 지각(9시 이후 출근) 여부 + 조퇴(18시 이전 퇴근) 여부
-  const isLate = clockIn.getHours() > 9 || (clockIn.getHours() === 9 && clockIn.getMinutes() > 0);
-  const isEarlyLeave = clockOut.getHours() < 18;
-  const status = isLate ? "LATE" : isEarlyLeave ? "EARLY_LEAVE" : "NORMAL";
+  // 상태 재계산 — 공용 판정 함수 (지각/조퇴, 공휴일 제외, 한국시간 기준)
+  const status = await calcStatus(clockIn, clockOut, record.date.toISOString().slice(0, 10));
 
   const updated = await prisma.attendance.update({
     where: { id },

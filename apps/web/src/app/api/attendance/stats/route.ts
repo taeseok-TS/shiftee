@@ -10,6 +10,7 @@ import {
   eachDayOfInterval, format, subDays,
   subWeeks, subMonths, subQuarters, subYears,
 } from "date-fns";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 
@@ -67,12 +68,13 @@ export async function GET(request: NextRequest) {
   if (session.role === "EMPLOYEE") {
     userWhere = { userId: session.userId };
   } else if (session.role === "MANAGER") {
-    // 원장: 항상 자기 지점 한정. 지점별 조회면 지점 전체, 아니면 지정 직원(자기 지점일 때만)
+    // 원장: 항상 담당 지점(대표+겸직) 한정. 지점별 조회면 지점 전체, 아니면 지정 직원(담당 지점일 때만)
+    const myBranches = await getManagerBranches(session.userId);
     if (branchParam) {
-      userWhere = { user: { branch: session.branch } };
+      userWhere = { user: { branch: { in: myBranches } } };
     } else {
       const target = await prisma.user.findUnique({ where: { id: userId }, select: { branch: true } });
-      userWhere = (target && target.branch === session.branch) ? { userId } : { user: { branch: session.branch } };
+      userWhere = (target && !!target.branch && myBranches.includes(target.branch)) ? { userId } : { user: { branch: { in: myBranches } } };
     }
   } else {
     // 관리자: 지점별 조회 우선, 없으면 지정 직원
@@ -168,6 +170,8 @@ export async function GET(request: NextRequest) {
       clockIn: r.clockIn,
       clockOut: r.clockOut,
       status: r.status,
+      userName: r.user.name,
+      userBranch: r.user.branch,
       minutes: r.clockIn && r.clockOut
         ? Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000)
         : 0,

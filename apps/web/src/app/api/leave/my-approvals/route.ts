@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 내가 결재해야 하는 휴가 신청 목록
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const steps = await prisma.leaveApprovalStep.findMany({
     where: {
       status: "PENDING",
       OR: [
         { approverId: session.userId }, // 레거시 고정 결재자
         ...(session.role === "ADMIN" ? [{ approverRole: "ADMIN" }] : []),
-        ...(session.role === "MANAGER" ? [{ approverRole: "MANAGER", branch: session.branch }] : []),
+        ...(session.role === "MANAGER" ? [{ approverRole: "MANAGER", branch: { in: myBranches } }] : []),
       ],
     },
     include: {

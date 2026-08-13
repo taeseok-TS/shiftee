@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 import * as XLSX from "xlsx";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ export async function GET() {
   if (!session || session.role === "EMPLOYEE")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  const branchWhere = session.role === "MANAGER" && session.branch ? { branch: session.branch } : {};
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
   const employees = await prisma.user.findMany({
     where: { isActive: true, role: { not: "ADMIN" }, ...branchWhere },
     select: { empNo: true, name: true, email: true, role: true, department: true, jobGroup: true, position: true, branch: true, hireDate: true, phone: true },
@@ -21,7 +23,7 @@ export async function GET() {
   });
 
   const rows = employees.map((e) => ({
-    사원번호: e.empNo ?? "",
+    사원번호: e.empNo != null ? String(e.empNo).padStart(5, "0") : "", // 5자리 표기 (예: 01013)
     이름: e.name,
     이메일: e.email,
     역할: ROLE_LABEL[e.role] ?? e.role,

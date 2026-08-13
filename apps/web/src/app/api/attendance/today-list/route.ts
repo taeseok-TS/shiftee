@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 오늘 출퇴근한 직원 목록 (관리자=전체, 원장=자기 지점)
 export async function GET() {
@@ -13,8 +14,9 @@ export async function GET() {
   const now = new Date();
   const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
 
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchWhere =
-    session.role === "MANAGER" && session.branch ? { branch: session.branch } : {};
+    session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
   const records = await prisma.attendance.findMany({
     where: {

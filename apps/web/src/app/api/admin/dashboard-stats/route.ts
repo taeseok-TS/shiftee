@@ -13,12 +13,18 @@ export async function GET() {
   const nowDate = new Date();
   const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
 
-  // 재직 중인 직원 (관리자 제외)
+  // 재직 중인 직원 (관리자 제외). "통계 포함" 꺼진 지점(테스트지점·본부 등) 소속은 카운트 제외
+  const excludedBranches = (
+    await prisma.branch.findMany({ where: { countInStats: false }, select: { name: true } })
+  ).map((b) => b.name);
   const employeeWhere = {
     role: { not: "ADMIN" as const },
     isActive: true,
     deletedAt: null,
     employmentStatus: "ACTIVE" as const,
+    ...(excludedBranches.length > 0
+      ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }
+      : {}),
   };
 
   const [totalEmployees, todayRecords, onLeave, pendingLeave, pendingSchedule, pendingLeaveItems, pendingScheduleItems, missingRecords] =

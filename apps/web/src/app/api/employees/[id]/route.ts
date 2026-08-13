@@ -3,6 +3,8 @@ import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { logAudit } from "@/lib/audit";
+import { getManagerBranches } from "@/lib/manager-branches";
+import bcrypt from "bcryptjs";
 
 // 변경 내역 요약(감사 로그용)
 function diffSummary(
@@ -29,24 +31,25 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { name, role, department, jobGroup, position, branch, phone, hireDate } = body;
+  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo } = body;
 
   // 변경 전 값(감사 로그용)
   const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });
 
-  // MANAGER는 자기 지점 구성원만 수정 가능
+  // MANAGER는 담당 지점(대표+겸직) 구성원만 수정 가능
   if (session.role === "MANAGER") {
     const target = await prisma.user.findUnique({ where: { id }, select: { branch: true } });
     // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 직접 비교
-    const managerBranch = session.branch;
+    const myBranches = await getManagerBranches(session.userId);
     const targetBranch = target?.branch;
-    if (!target || targetBranch !== managerBranch) {
+    if (!target || !targetBranch || !myBranches.includes(targetBranch)) {
       return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     }
     // MANAGER는 role만 변경 불가, branch는 변경 가능
     const updated = await prisma.user.update({
       where: { id },
-      data: { name, department, jobGroup: jobGroup ?? null, position, branch: branch || null, phone, hireDate: hireDate ? new Date(hireDate) : undefined },
+      // 미전송(undefined) 필드는 건드리지 않음 — 부분 수정 시 기존 값 보존
+      data: { name, department, jobGroup: jobGroup === undefined ? undefined : jobGroup || null, position, branch: branch === undefined ? undefined : branch || null, phone, hireDate: hireDate ? new Date(hireDate) : undefined, birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null },
     });
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
@@ -62,21 +65,59 @@ export async function PATCH(
     return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
   }
 
-  // ADMIN: 전체 수정 가능
-  const finalBranch = branch || null;
+  // ADMIN: 전체 수정 가능 (미전송 필드는 기존 값 보존)
+  const finalBranch = branch === undefined ? undefined : branch || null;
+
+  // 사원번호 변경 (선택 — 타 시스템 사번으로 맞추는 경우. 다른 직원과 중복 불가)
+  let empNoVal: number | undefined;
+  if (empNo !== undefined && empNo !== null && String(empNo).trim() !== "") {
+    const n = parseInt(String(empNo).trim());
+    if (!Number.isInteger(n) || n <= 0)
+      return NextResponse.json({ error: "사원번호는 양의 정수여야 합니다." }, { status: 400 });
+    const dupNo = await prisma.user.findUnique({ where: { empNo: n }, select: { id: true, name: true } });
+    if (dupNo && dupNo.id !== id)
+      return NextResponse.json({ error: `사원번호 ${n}은(는) 이미 ${dupNo.name}님이 사용 중입니다.` }, { status: 409 });
+    empNoVal = n;
+  }
+
+  // 비밀번호 재설정 (선택 — 입력된 경우에만, 최소 8자)
+  let hashedPassword: string | undefined;
+  if (typeof password === "string" && password.trim() !== "") {
+    if (password.trim().length < 8)
+      return NextResponse.json({ error: "비밀번호는 8자 이상이어야 합니다." }, { status: 400 });
+    hashedPassword = await bcrypt.hash(password.trim(), 10);
+  }
+
   const updated = await prisma.user.update({
     where: { id },
     data: {
       name,
       role,
       department,
-      jobGroup: jobGroup ?? null,
+      jobGroup: jobGroup === undefined ? undefined : jobGroup || null,
       position,
       branch: finalBranch,
       phone,
       hireDate: hireDate ? new Date(hireDate) : undefined,
+      birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null,
+      password: hashedPassword,
+      // 관리자가 새 비번을 직접 지정하면 임시 비번(1234) 상태가 아니므로 알림 대상에서 해제
+      passwordResetAt: hashedPassword ? null : undefined,
+      empNo: empNoVal,
     },
   });
+
+  // 겸직 지점 목록 교체 (배열이 넘어온 경우에만 — undefined면 기존 유지)
+  if (Array.isArray(managerBranches)) {
+    const names = managerBranches.filter((b: unknown): b is string => typeof b === "string" && b.trim() !== "");
+    await prisma.managerBranch.deleteMany({ where: { userId: id } });
+    if (names.length > 0) {
+      await prisma.managerBranch.createMany({
+        data: names.map((branchName: string) => ({ userId: id, branchName })),
+        skipDuplicates: true, // 중복 지점명 방어 (@@unique[userId, branchName])
+      });
+    }
+  }
 
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
