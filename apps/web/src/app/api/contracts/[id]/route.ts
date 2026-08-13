@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getAppUrl } from "@/lib/app-url";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import type { Contract } from "@shiftee/api";
@@ -262,7 +263,7 @@ export async function PATCH(
 
   // 상태가 SENT로 변경되면 첫 번째 승인 단계의 담당자에게 알림 이메일 발송
   if (status === "SENT") {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = getAppUrl();
 
     // 첫 번째 PENDING 단계 찾기
     const firstPendingStep = updated.approvalLine?.steps.find(s => s.status === "PENDING");

@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getAppUrl } from "@/lib/app-url";
 import {
   sendLeaveApprovalRequest,
   sendLeaveApprovalCompletion,
   sendLeaveRejectionNotification,
 } from "@/lib/email";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
+import { botNotifyDecision } from "@/lib/bot";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 export async function POST(
   request: NextRequest,
@@ -16,6 +20,7 @@ export async function POST(
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const { id } = await params;
   const { action, reason } = await request.json(); // action: 'approve' | 'reject'
 
@@ -40,7 +45,7 @@ export async function POST(
     const myStep = steps.find((s) => {
       if (s.status !== "PENDING") return false;
       if (s.approverRole === "ADMIN") return session.role === "ADMIN";
-      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && session.branch === s.branch;
+      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && !!s.branch && myBranches.includes(s.branch);
       return s.approverId === session.userId;
     });
 
@@ -51,11 +56,11 @@ export async function POST(
 
     // 결재라인을 우회하는 경우 (지정된 결재 차례가 아님)
     if (!myStep && session.role !== "EMPLOYEE") {
-      // MANAGER는 자기 지점 휴가만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
-      if (session.role === "MANAGER" && leaveRequest.user.branch !== session.branch) {
+      // MANAGER는 담당 지점(대표+겸직) 휴가만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
+      if (session.role === "MANAGER" && (!leaveRequest.user.branch || !myBranches.includes(leaveRequest.user.branch))) {
         return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
       }
-      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, session.branch);
+      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);
     }
 
     // 단계별 처리
@@ -111,10 +116,10 @@ export async function POST(
           // 잔여 휴가 차감 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감)
           if (isLeaveDeductible(leaveRequest.type)) {
             await tx.leaveBalance.upsert({
-              where:  { userId: leaveRequest.userId },
+              where:  { userId_year: { userId: leaveRequest.userId, year: currentLeaveYear() } },
               create: {
                 userId:    leaveRequest.userId,
-                year:      new Date().getFullYear(),
+                year:      currentLeaveYear(),
                 total:     15,
                 used:      leaveRequest.days,
                 remaining: 15 - leaveRequest.days,
@@ -131,7 +136,7 @@ export async function POST(
     });
 
     // 이메일 발송 (트랜잭션 후)
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = getAppUrl();
     const requesterName = leaveRequest.user.name;
     const requesterEmail = leaveRequest.user.email;
     const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
@@ -188,6 +193,17 @@ export async function POST(
       detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}`,
     });
 
+    // 최종 결정(전체 승인/반려) 시 신청자에게 봇 DM (중간 단계 승인은 발송 안 함)
+    if (emailAction === "approve" || emailAction === "reject") {
+      botNotifyDecision(
+        leaveRequest.userId,
+        `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
+        emailAction === "approve",
+        approverName,
+        reason
+      ).catch(() => {});
+    }
+
     return NextResponse.json({ success: true });
   }
 
@@ -195,7 +211,7 @@ export async function POST(
   if (session.role === "EMPLOYEE")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, session.branch);
+  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);
 }
 
 // 관리자 직접 승인/반려 (결재라인 우회)
@@ -207,7 +223,7 @@ async function adminOverride(
   reason: string | undefined,
   approverId: string,
   role?: string,
-  branch?: string
+  branches?: string[]
 ) {
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
@@ -218,8 +234,8 @@ async function adminOverride(
     return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // MANAGER의 지점 검증
-  if (role === "MANAGER" && leaveRequest.user.branch !== branch) {
+  // MANAGER의 담당 지점(대표+겸직) 검증
+  if (role === "MANAGER" && (!leaveRequest.user.branch || !(branches ?? []).includes(leaveRequest.user.branch))) {
     return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
   }
 
@@ -235,10 +251,10 @@ async function adminOverride(
   // 잔여 휴가 차감 (연차 차감 유형만)
   if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
     await prisma.leaveBalance.upsert({
-      where:  { userId },
+      where:  { userId_year: { userId, year: currentLeaveYear() } },
       create: {
         userId,
-        year:      new Date().getFullYear(),
+        year:      currentLeaveYear(),
         total:     15,
         used:      days,
         remaining: 15 - days,
@@ -251,7 +267,7 @@ async function adminOverride(
   }
 
   // 이메일 발송
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = getAppUrl();
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   const approverName = approver?.name || "관리자";
   const requesterName = leaveRequest.user.name;
@@ -297,6 +313,15 @@ async function adminOverride(
     targetType: "LEAVE", targetId: id, targetName: requesterName,
     detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"} (직접처리)`,
   });
+
+  // 신청자에게 봇 DM
+  botNotifyDecision(
+    userId,
+    `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
+    action === "approve",
+    approverName,
+    reason
+  ).catch(() => {});
 
   return NextResponse.json({ success: true });
 }

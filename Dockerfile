@@ -6,9 +6,9 @@
 
 ####################  Base  ####################
 FROM node:24-slim AS base
-# Prisma 는 OpenSSL, 한글 PDF 생성은 나눔폰트가 필요
+# Prisma 는 OpenSSL, 한글 PDF 생성은 나눔폰트, 대용량 영상 자동 압축은 ffmpeg 필요
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates fonts-nanum \
+  && apt-get install -y --no-install-recommends openssl ca-certificates fonts-nanum ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 # pnpm 을 직접 전역 설치 (lockfileVersion 9.0 호환 → pnpm 10)
 RUN npm install -g pnpm@10
@@ -32,11 +32,8 @@ RUN pnpm install --no-frozen-lockfile --ignore-scripts
 # 2) 전체 소스 복사 (.dockerignore 로 node_modules/.next/uploads 제외)
 COPY . .
 
-# 3) 클라이언트에 인라인되는 공개 환경변수는 빌드 시점에 주입돼야 함
-ARG NEXT_PUBLIC_APP_URL
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# 3) 링크용 주소(APP_URL/API_URL)는 런타임에 주입한다 — 빌드에 박지 않아야
+#    한 번 만든 이미지를 고객사마다 그대로 쓸 수 있다(deploy/README.md 참고).
 
 # 4) 공유 패키지 빌드 → Prisma 클라이언트 생성 → 웹 빌드
 #    실제 사용되는 스키마는 apps/web/prisma/schema.prisma (기본 위치)

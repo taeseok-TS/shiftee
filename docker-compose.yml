@@ -23,10 +23,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        # NEXT_PUBLIC_* 는 빌드 시점에 클라이언트 번들로 인라인됨
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: unless-stopped
     depends_on:
       db:
@@ -35,8 +31,10 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-shiftee}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 를 .env 에 설정하세요}
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # 알림·메일 링크에 쓰는 주소(런타임 주입). 빌드에 박히지 않으므로 이미지를 공용으로 쓸 수 있다.
+      # 기존 .env 를 그대로 둬도 되게 NEXT_PUBLIC_* 를 fallback 으로 읽는다.
+      APP_URL: ${APP_URL:-${NEXT_PUBLIC_APP_URL}}
+      API_URL: ${API_URL:-${NEXT_PUBLIC_API_URL}}
       # HTTPS 적용 전(HTTP 임시)에는 .env에 COOKIE_SECURE=false. HTTPS 되면 true(또는 삭제).
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getAppUrl } from "@/lib/app-url";
 import { emitWork } from "@/lib/work-events";
 
 // 화상회의 초대: 선택한 직원들에게 DM으로 참여 링크 발송
@@ -37,7 +38,7 @@ export async function POST(
     skipDuplicates: true,
   });
 
-  const base = process.env.NEXT_PUBLIC_APP_URL || "https://cubetee.co.kr";
+  const base = getAppUrl();
   // ?join=회의ID → 링크 클릭 시 해당 회의로 즉시 자동 입장
   const text = `📹 화상회의 초대: "${meeting.title}"\n지금 참여하기 → ${base}/work/meeting?join=${id}`;
 

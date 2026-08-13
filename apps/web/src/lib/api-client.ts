@@ -26,7 +26,8 @@ export async function getApiClient(): Promise<ShifteeApiClient> {
     };
 
     apiClient = initializeApi(
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api",
+      // 런타임 변수. NEXT_PUBLIC_* 은 이미지에 박혀 고객사마다 재빌드가 필요해진다.
+      process.env.API_URL || "http://localhost:3000/api",
       getServerToken,
       () => {
         // 401 시 처리 (필요시)

@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getAppUrl } from "@/lib/app-url";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
@@ -148,7 +149,7 @@ export async function POST(
     }
 
     // 이메일 알림 발송
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = getAppUrl();
     if (nextStep?.approver?.email) {
       // 다음 승인자에게 알림
       await sendApprovalRequest(
@@ -229,7 +230,7 @@ export async function POST(
     }
 
     // 이메일 알림 발송
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = getAppUrl();
     if (nextStep?.approver?.email) {
       // 다음 단계가 직원 서명인지 확인
       if (nextStep.approverId === finalContract.userId) {
