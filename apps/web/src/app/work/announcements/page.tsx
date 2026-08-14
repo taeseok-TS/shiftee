@@ -29,16 +29,18 @@ function linkify(text: string, keyPrefix: string) {
 }
 
 // 본문 렌더: ![alt](url) → 인라인 이미지, 나머지는 텍스트(줄바꿈 유지 + URL 링크화)
-function renderBody(text: string) {
+// 사진은 새 탭으로 나가지 않고 확대 뷰어로 연다(onImageClick).
+function renderBody(text: string, onImageClick?: (url: string) => void) {
   const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
   const out: React.ReactNode[] = [];
   let last = 0; let m: RegExpExecArray | null; let i = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(...linkify(text.slice(last, m.index), `s${i}`));
+    const url = m[2];
     out.push(
-      <a key={`i${i}`} href={m[2]} target="_blank" rel="noreferrer" className="block my-2">
-        <img src={m[2]} alt={m[1]} className="max-h-80 rounded-lg border" />
-      </a>
+      <button key={`i${i}`} type="button" onClick={() => onImageClick?.(url)} className="block my-2 cursor-zoom-in">
+        <img src={url} alt={m[1]} className="max-h-80 rounded-lg border" />
+      </button>
     );
     last = m.index + m[0].length; i++;
   }
@@ -65,6 +67,22 @@ export default function WorkAnnouncementsPage() {
   const [editId, setEditId] = useState<string | null>(null); // 수정 중인 공지 ID (null=새 공지)
   const [form, setForm] = useState<{ title: string; content: string; pinned: boolean; attachments: Attachment[] }>({ title: "", content: "", pinned: false, attachments: [] });
   const [saving, setSaving] = useState(false);
+  // 사진 확대 뷰어 — 새 탭으로 나가지 않고 이 화면에서 본다(휠 확대, 드래그 이동, Esc 닫기)
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, [lightbox]);
+  useEffect(() => {
+    if (!lightbox) return;
+    // wheel 은 passive 기본이라 preventDefault 하려면 직접 등록해야 한다(페이지가 같이 스크롤됨)
+    const onWheel = (e: WheelEvent) => { e.preventDefault(); setZoom((z) => Math.min(5, Math.max(1, z - e.deltaY * 0.002))); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setLightbox(null); };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("wheel", onWheel); window.removeEventListener("keydown", onKey); };
+  }, [lightbox]);
+  useEffect(() => { if (zoom === 1) setPan({ x: 0, y: 0 }); }, [zoom]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -220,14 +238,14 @@ export default function WorkAnnouncementsPage() {
                 </div>
                 {isOpen && (
                   <div className="pl-6 mt-1">
-                    <div className="text-sm text-gray-700 mt-1">{renderBody(a.content)}</div>
+                    <div className="text-sm text-gray-700 mt-1">{renderBody(a.content, setLightbox)}</div>
                     {a.attachments?.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-3">
                         {a.attachments.map((att, i) =>
                           att.type === "image" ? (
-                            <a key={i} href={att.url} target="_blank" rel="noreferrer">
+                            <button key={i} type="button" onClick={() => setLightbox(att.url)} className="cursor-zoom-in">
                               <img src={att.url} alt={att.name} className="max-h-48 rounded-lg border" />
-                            </a>
+                            </button>
                           ) : (
                             <a key={i} href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs text-indigo-600 underline border rounded-lg px-3 py-2">
                               <Paperclip size={12} />{att.name}
@@ -290,6 +308,30 @@ export default function WorkAnnouncementsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {lightbox && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center" onClick={() => setLightbox(null)}>
+          <img
+            src={lightbox}
+            alt=""
+            draggable={false}
+            className="max-h-[88vh] max-w-[92vw] select-none"
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, cursor: zoom > 1 ? "grab" : "default", transition: dragRef.current ? "none" : "transform 80ms" }}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => { e.stopPropagation(); setZoom((z) => (z > 1 ? 1 : 2)); }}
+            onMouseDown={(e) => { if (zoom <= 1) return; e.preventDefault(); dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }; }}
+            onMouseMove={(e) => { const d = dragRef.current; if (!d) return; setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) }); }}
+            onMouseUp={() => { dragRef.current = null; }}
+            onMouseLeave={() => { dragRef.current = null; }}
+          />
+          <button className="absolute top-4 right-4 text-white/80 hover:text-white" onClick={() => setLightbox(null)} title="닫기 (Esc)"><X size={26} /></button>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/60 rounded-full px-2 py-1" onClick={(e) => e.stopPropagation()}>
+            <button className="text-white w-8 h-8 rounded-full hover:bg-white/10" onClick={() => setZoom((z) => Math.max(1, z - 0.5))}>−</button>
+            <span className="text-white text-xs w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <button className="text-white w-8 h-8 rounded-full hover:bg-white/10" onClick={() => setZoom((z) => Math.min(5, z + 0.5))}>＋</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

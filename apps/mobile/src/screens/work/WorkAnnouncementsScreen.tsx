@@ -14,6 +14,8 @@ import {
   Platform,
   Image,
   Linking,
+  StyleProp,
+  TextStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -35,6 +37,37 @@ export function linkifyText(text: string) {
       ? <Text key={i} style={{ color: "#4f46e5", textDecorationLine: "underline" }} onPress={() => Linking.openURL(p)}>{p}</Text>
       : <Text key={i}>{p}</Text>
   );
+}
+
+// 공지 본문을 블록으로 렌더한다.
+// 본문에 붙여넣은 사진은 attachments 가 아니라 마크다운 ![alt](url) 로 들어간다(웹 작성기 방식).
+// 그대로 두면 앱에서는 사진 대신 "![paste-….png](/api/uploads/…)" 글자가 보인다.
+const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+export function renderAnnouncementBody(
+  text: string,
+  textStyle: StyleProp<TextStyle>,
+  onImagePress?: (urls: string[], index: number) => void
+) {
+  const urls: string[] = [];
+  for (const m of text.matchAll(MD_IMAGE_RE)) urls.push(m[2].startsWith("http") ? m[2] : FILE_ORIGIN + m[2]);
+
+  const out: React.ReactNode[] = [];
+  let last = 0, i = 0, imgIdx = 0;
+  for (const m of text.matchAll(MD_IMAGE_RE)) {
+    const at = m.index ?? 0;
+    const before = text.slice(last, at).replace(/\n+$/, "");
+    if (before.trim()) out.push(<Text key={`t${i++}`} style={textStyle}>{linkifyText(before)}</Text>);
+    const uri = urls[imgIdx], idx = imgIdx;
+    out.push(
+      <TouchableOpacity key={`i${i++}`} activeOpacity={0.9} onPress={() => onImagePress?.(urls, idx)}>
+        <Image source={{ uri }} style={{ width: "100%", height: 200, borderRadius: 10, marginVertical: 8, backgroundColor: "#f3f4f6" }} resizeMode="cover" />
+      </TouchableOpacity>
+    );
+    last = at + m[0].length; imgIdx++;
+  }
+  const rest = text.slice(last).replace(/^\n+/, "");
+  if (rest.trim()) out.push(<Text key={`t${i++}`} style={textStyle}>{linkifyText(rest)}</Text>);
+  return out;
 }
 
 export default function WorkAnnouncementsScreen() {
@@ -212,7 +245,7 @@ export default function WorkAnnouncementsScreen() {
                 </View>
               )}
             </View>
-            <Text style={styles.content}>{linkifyText(item.content)}</Text>
+            <View>{renderAnnouncementBody(item.content, styles.content, (urls, index) => setPhotoViewer({ urls, index }))}</View>
             {(item.attachments?.length ?? 0) > 0 && (
               <View style={styles.attList}>
                 {item.attachments.map((att, i) =>

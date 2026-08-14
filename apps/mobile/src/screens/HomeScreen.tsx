@@ -16,7 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { DashboardStats, Announcement } from "@shiftee/api";
 import * as api from "../services/api";
 import * as storage from "../services/storage";
-import { linkifyText } from "./work/WorkAnnouncementsScreen";
+import { renderAnnouncementBody } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
 import { FILE_ORIGIN } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
@@ -237,7 +237,7 @@ export default function HomeScreen() {
                   {activeAnn.authorName} · {new Date(activeAnn.createdAt).toLocaleDateString("ko-KR")}
                 </Text>
                 <ScrollView style={{ maxHeight: 400 }}>
-                  <Text style={styles.popupBody}>{linkifyText(activeAnn.content)}</Text>
+                  <View>{renderAnnouncementBody(activeAnn.content, styles.popupBody, (urls, index) => setPhotoViewer({ urls, index }))}</View>
                   {(activeAnn.attachments?.length ?? 0) > 0 && (
                     <View style={styles.attList}>
                       {activeAnn.attachments.map((att, i) =>
