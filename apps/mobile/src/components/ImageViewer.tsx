@@ -4,8 +4,8 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  GestureResponderEvent,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -71,51 +71,57 @@ export function ViewerPage({ uri, width, height, active, onZoomChange }: { uri: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  const pinchPan = useRef(
-    PanResponder.create({
-      // 두 번째 손가락이 닿는 순간 바로 responder 를 확보한다(부모 페이징에 선점당하면 핀치가 안 잡힌다).
-      onStartShouldSetPanResponderCapture: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
-      // 한 손가락 탭은 가로채지 않는다. 1배일 때 한 손가락 스와이프도 부모 페이징에 넘겨야 한다.
-      onMoveShouldSetPanResponder: (e, g) =>
-        Platform.OS === "android" &&
-        (e.nativeEvent.touches.length === 2 || (cur.current.s > 1.01 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2))),
-      // 부모(가로 페이징 FlatList)가 먼저 responder를 잡아도 가로챈다
-      onMoveShouldSetPanResponderCapture: (e, g) =>
-        Platform.OS === "android" &&
-        (e.nativeEvent.touches.length === 2 || (cur.current.s > 1.01 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2))),
-      onPanResponderTerminationRequest: () => false, // 제스처 도중 부모의 탈취 금지(확대가 튀는 현상 방지)
-      onPanResponderGrant: (e) => {
-        const t = e.nativeEvent.touches;
-        start.current = {
-          dist: t.length === 2 ? Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY) : 0,
-          s: cur.current.s, x: cur.current.x, y: cur.current.y,
-        };
-      },
-      onPanResponderMove: (e, g) => {
-        const t = e.nativeEvent.touches;
-        if (t.length === 2) {
-          const d = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
-          if (!start.current.dist) { start.current.dist = d; return; }
-          const s = Math.min(VIEWER_MAX_SCALE, Math.max(1, start.current.s * (d / start.current.dist)));
-          const p = clampXY(s, start.current.x, start.current.y);
-          apply(s, p.x, p.y);
-        } else if (cur.current.s > 1.01) {
-          const p = clampXY(cur.current.s, start.current.x + g.dx, start.current.y + g.dy);
-          apply(cur.current.s, p.x, p.y);
-        }
-      },
-      onPanResponderRelease: () => {
-        start.current.dist = 0;
-        // 1배 이하로 오므리면 원위치. 확대 상태면 그대로 두되 경계 안으로만 정리한다.
-        if (cur.current.s <= 1.01) springTo(1, 0, 0);
-        else { const p = clampXY(cur.current.s, cur.current.x, cur.current.y); springTo(cur.current.s, p.x, p.y); }
-      },
-      onPanResponderTerminate: () => {
-        start.current.dist = 0;
-        if (cur.current.s <= 1.01) springTo(1, 0, 0);
-      },
-    })
-  ).current;
+  // Android 제스처는 PanResponder 가 아니라 View 의 터치 이벤트로 직접 처리한다.
+  // PanResponder 는 부모의 가로 페이징(네이티브 스크롤)과의 responder 경쟁에서 져서
+  // 두 번째 손가락이 콜백까지 오지 않았다(핀치가 아예 시작되지 않음). onTouch* 는 경쟁과 무관하게 들어온다.
+  const last1 = useRef({ x: 0, y: 0 }); // 한 손가락 이동(팬) 계산용 직전 좌표
+
+  const onTouchStart = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches;
+    tapStart.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, at: Date.now(), multi: t.length > 1 };
+    if (t.length === 2) {
+      start.current = {
+        dist: Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY),
+        s: cur.current.s, x: cur.current.x, y: cur.current.y,
+      };
+    } else {
+      last1.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+    }
+  };
+
+  const onTouchMove = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches;
+    if (t.length >= 2) {
+      tapStart.current.multi = true;
+      const d = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
+      if (!start.current.dist) { start.current = { dist: d, s: cur.current.s, x: cur.current.x, y: cur.current.y }; return; }
+      const s = Math.min(VIEWER_MAX_SCALE, Math.max(1, start.current.s * (d / start.current.dist)));
+      const p = clampXY(s, start.current.x, start.current.y);
+      apply(s, p.x, p.y);
+    } else if (t.length === 1 && cur.current.s > 1.01) {
+      // 확대 상태에서만 이동. 1배일 때는 부모의 좌우 넘김을 방해하지 않는다.
+      const nx = e.nativeEvent.pageX, ny = e.nativeEvent.pageY;
+      const p = clampXY(cur.current.s, cur.current.x + (nx - last1.current.x), cur.current.y + (ny - last1.current.y));
+      last1.current = { x: nx, y: ny };
+      apply(cur.current.s, p.x, p.y);
+    }
+  };
+
+  const onTouchEnd = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches;
+    if (t.length === 0) {
+      start.current.dist = 0;
+      if (cur.current.s <= 1.01) springTo(1, 0, 0);
+      else { const p = clampXY(cur.current.s, cur.current.x, cur.current.y); springTo(cur.current.s, p.x, p.y); }
+      // 끌었거나·길게 눌렀거나·두 손가락이었으면 탭이 아니다
+      const s0 = tapStart.current;
+      if (!s0.multi && Date.now() - s0.at < 400 && Math.hypot(e.nativeEvent.pageX - s0.x, e.nativeEvent.pageY - s0.y) <= 12) onDoubleTap();
+    } else if (t.length === 1) {
+      // 두 손가락 중 하나만 떼면 남은 손가락 기준으로 팬을 이어간다
+      last1.current = { x: t[0].pageX, y: t[0].pageY };
+      start.current.dist = 0;
+    }
+  };
 
   // 더블탭 — iOS 는 ScrollView 줌 리셋, Android 는 2.5배↔원복 토글
   const onDoubleTap = () => {
@@ -162,23 +168,13 @@ export function ViewerPage({ uri, width, height, active, onZoomChange }: { uri: 
           </Pressable>
         </ScrollView>
       ) : (
-        // Pressable 로 감싸면 그쪽이 터치를 잡아 두 번째 손가락이 PanResponder 까지 오지 않는다(핀치 불가).
-        // 그래서 탭 판정은 View 의 onTouchStart/End 로 직접 한다 — responder 경쟁과 무관하게 들어온다.
+        // 핀치·팬·더블탭을 전부 터치 이벤트로 처리한다(PanResponder 는 부모 페이징에 선점당함).
         <View
           style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}
-          {...pinchPan.panHandlers}
-          onTouchStart={(e) => {
-            const t = e.nativeEvent;
-            tapStart.current = { x: t.pageX, y: t.pageY, at: Date.now(), multi: t.touches.length > 1 };
-          }}
-          onTouchEnd={(e) => {
-            const t = e.nativeEvent;
-            const s = tapStart.current;
-            // 끌었거나(12px 초과) 길게 눌렀거나 두 손가락이었으면 탭이 아니다
-            if (s.multi || Date.now() - s.at > 400) return;
-            if (Math.hypot(t.pageX - s.x, t.pageY - s.y) > 12) return;
-            onDoubleTap();
-          }}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
         >
           {img}
         </View>
