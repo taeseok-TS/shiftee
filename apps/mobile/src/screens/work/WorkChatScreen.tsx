@@ -31,6 +31,7 @@ import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import Avatar from "../../components/Avatar";
+import { ViewerPage } from "../../components/ImageViewer";
 import VideoBubble from "../../components/VideoBubble";
 import VoiceBubble from "../../components/VoiceBubble";
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
@@ -122,99 +123,6 @@ function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
   );
 }
 
-// 사진 뷰어 한 페이지 — 원본 로딩 중 스피너, 실패 시 안내, 핀치 줌
-// iOS: ScrollView 내장 줌(확대 유지 + 드래그 이동, 더블탭·페이지 이탈 시 리셋).
-// Android: 두 손가락 핀치로 확대(놓으면 복귀 — gesture-handler 미설치 환경의 최소 구현)
-function ViewerPage({ uri, width, height, active }: { uri: string; width: number; height: number; active: boolean }) {
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const scale = useRef(new Animated.Value(1)).current;
-  const baseDist = useRef(0);
-  const scrollRef = useRef<ScrollView>(null);
-  const lastTap = useRef(0);
-
-  const resetZoom = () => {
-    (scrollRef.current as any)?.scrollResponderZoomTo?.({ x: 0, y: 0, width, height, animated: true });
-  };
-  // 다른 페이지로 넘어가면 확대 상태 초기화 — 돌아왔을 때 확대가 남아 페이징이 막히는 문제 방지
-  useEffect(() => {
-    if (!active && Platform.OS === "ios") resetZoom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
-
-  const pinchPan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
-      // 부모(가로 페이징 FlatList)가 먼저 responder를 잡아도 2터치면 가로챈다
-      onMoveShouldSetPanResponderCapture: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
-      onPanResponderTerminationRequest: () => false, // 핀치 도중 부모의 탈취 금지(확대가 튀는 현상 방지)
-      onPanResponderMove: (e) => {
-        const t = e.nativeEvent.touches;
-        if (t.length < 2) return;
-        const dist = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
-        if (!baseDist.current) { baseDist.current = dist; return; }
-        scale.setValue(Math.min(4, Math.max(1, dist / baseDist.current)));
-      },
-      onPanResponderRelease: () => {
-        baseDist.current = 0;
-        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
-      },
-      onPanResponderTerminate: () => {
-        baseDist.current = 0;
-        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
-      },
-    })
-  ).current;
-
-  const img = failed ? (
-    <Text style={{ color: "#9ca3af", fontSize: 13 }}>사진을 불러오지 못했습니다</Text>
-  ) : (
-    <Animated.Image
-      source={{ uri }}
-      style={{ width: "100%", height: "100%", transform: Platform.OS === "android" ? [{ scale }] : undefined }}
-      resizeMode="contain"
-      onLoadEnd={() => setLoading(false)}
-      onError={() => { setLoading(false); setFailed(true); }}
-    />
-  );
-
-  return (
-    <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}>
-      {Platform.OS === "ios" ? (
-        <ScrollView
-          ref={scrollRef}
-          style={{ width, height: "100%" }}
-          contentContainerStyle={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}
-          minimumZoomScale={1}
-          maximumZoomScale={4}
-          bouncesZoom
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          centerContent
-        >
-          {/* 더블탭 = 확대 초기화 (확대 상태에서 페이징이 잠기는 것의 탈출구) */}
-          <Pressable
-            style={{ width: "100%", height: "100%" }}
-            onPress={() => {
-              const now = Date.now();
-              if (now - lastTap.current < 300) resetZoom();
-              lastTap.current = now;
-            }}
-          >
-            {img}
-          </Pressable>
-        </ScrollView>
-      ) : (
-        <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }} {...pinchPan.panHandlers}>
-          {img}
-        </View>
-      )}
-      {loading && !failed && (
-        <ActivityIndicator size="large" color="#fff" style={{ position: "absolute" }} />
-      )}
-    </View>
-  );
-}
 
 export default function WorkChatScreen() {
   const route = useRoute<RouteProp<ParamList, "WorkChat">>();
@@ -243,6 +151,9 @@ export default function WorkChatScreen() {
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
   // keys는 다운로드 시 현재 사진이 속한 메시지(앨범 여부)를 찾는 데도 쓴다
   const [imageViewer, setImageViewer] = useState<{ urls: string[]; keys: string[]; index: number } | null>(null);
+  // 확대 중에는 좌우 페이징을 잠근다 — 안 그러면 확대한 사진을 끌 때 옆 사진으로 넘어간다
+  const [viewerZoomed, setViewerZoomed] = useState(false);
+  useEffect(() => { if (!imageViewer) setViewerZoomed(false); }, [imageViewer]);
   // 긴 메시지 접기: "전체 보기"를 누른 메시지 ID 집합
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
 
@@ -2087,7 +1998,8 @@ export default function WorkChatScreen() {
               getItemLayout={(_d, i) => ({ length: winW, offset: winW * i, index: i })}
               onScroll={(e) => setViewerIndex(Math.round(e.nativeEvent.contentOffset.x / winW))}
               scrollEventThrottle={16}
-              renderItem={({ item: u, index: pi }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} height={winH} active={pi === viewerIndex} />}
+              scrollEnabled={!viewerZoomed}
+              renderItem={({ item: u, index: pi }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} height={winH} active={pi === viewerIndex} onZoomChange={setViewerZoomed} />}
             />
             <View style={styles.viewerHead}>
               <Text style={styles.viewerCount}>{viewerIndex + 1} / {imageViewer.urls.length}</Text>

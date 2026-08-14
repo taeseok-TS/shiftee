@@ -32,6 +32,8 @@ export type LeaveInboxStep = InboxStepInfo & {
     endDate: string;
     days: number;
     reason: string | null;
+    attachmentUrl?: string | null;
+    attachmentName?: string | null;
     user: InboxUser;
     approvalSteps?: InboxStepInfo[];
   };

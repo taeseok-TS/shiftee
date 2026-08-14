@@ -8,7 +8,8 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://cubetee.co.kr/api"
+        "EXPO_PUBLIC_API_URL": "https://cubetee.co.kr/api",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -21,7 +22,8 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://cubetee.co.kr/api"
+        "EXPO_PUBLIC_API_URL": "https://cubetee.co.kr/api",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "app-bundle"

@@ -10,10 +10,17 @@ import {
   ScrollView,
   RefreshControl,
   Modal,
+  Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useHeaderHeight } from "@react-navigation/elements";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
+import { uploadFile, FILE_ORIGIN } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -63,15 +70,20 @@ const STATUS: Record<string, { label: string; color: string }> = {
   PENDING: { label: "대기중", color: "#f59e0b" },
   APPROVED: { label: "승인", color: "#10b981" },
   REJECTED: { label: "반려", color: "#ef4444" },
+  CANCELLED: { label: "취소", color: "#9ca3af" },
 };
 
 export default function LeaveRequestScreen() {
+  const headerHeight = useHeaderHeight();
   const [category, setCategory] = useState("ANNUAL");
   const [leaveType, setLeaveType] = useState<LeaveType>("ANNUAL");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [attachmentName, setAttachmentName] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
@@ -82,6 +94,34 @@ export default function LeaveRequestScreen() {
   const activeCategory = CATEGORIES.find((c) => c.key === category)!;
   const activeOption = activeCategory.options.find((o) => o.value === leaveType) ?? activeCategory.options[0];
   const isSingleDay = SINGLE_DAY.has(leaveType);
+  const isCompensatory = leaveType === "COMPENSATORY";
+
+  const doUpload = async (file: { uri: string; name: string; mimeType?: string | null }) => {
+    setAttaching(true);
+    try {
+      const res = await uploadFile(file);
+      setAttachmentUrl(res.fileUrl);
+      setAttachmentName(res.fileName);
+    } catch (e: any) {
+      Alert.alert("첨부 실패", e?.response?.data?.error || e?.message || "파일 업로드 중 오류가 발생했습니다.");
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  const pickImageAttach = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    const a = result.assets[0];
+    await doUpload({ uri: a.uri, name: a.fileName || `photo_${Date.now()}.jpg`, mimeType: a.mimeType || "image/jpeg" });
+  };
+
+  const pickFileAttach = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (result.canceled || !result.assets?.length) return;
+    const a = result.assets[0];
+    await doUpload({ uri: a.uri, name: a.name, mimeType: a.mimeType });
+  };
 
   const pickCategory = (key: string) => {
     const cat = CATEGORIES.find((c) => c.key === key)!;
@@ -120,16 +160,26 @@ export default function LeaveRequestScreen() {
       Alert.alert("오류", "시작일과 종료일을 입력해주세요");
       return;
     }
+    if (!reason.trim()) {
+      Alert.alert("오류", "신청 사유를 입력해주세요");
+      return;
+    }
+    if (isCompensatory && !attachmentUrl) {
+      Alert.alert("오류", "대체휴무는 대체휴무 동의서 첨부가 필요합니다");
+      return;
+    }
     const finalEnd = isSingleDay ? startDate : endDate;
 
     setIsLoading(true);
     try {
-      await api.createLeaveRequest({ type: leaveType, startDate, endDate: finalEnd, reason });
+      await api.createLeaveRequest({ type: leaveType, startDate, endDate: finalEnd, reason, attachmentUrl, attachmentName });
       Alert.alert("성공", "휴가 신청이 완료되었습니다");
       pickCategory("ANNUAL");
       setStartDate("");
       setEndDate("");
       setReason("");
+      setAttachmentUrl(null);
+      setAttachmentName(null);
       load(); // 잔여/내역 갱신
     } catch (error: any) {
       Alert.alert("오류", error.response?.data?.error || "휴가 신청 중 오류가 발생했습니다");
@@ -144,6 +194,11 @@ export default function LeaveRequestScreen() {
   };
 
   return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={headerHeight}
+    >
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -211,15 +266,41 @@ export default function LeaveRequestScreen() {
           </>
         )}
 
-        <Text style={styles.label}>신청 사유</Text>
+        <Text style={styles.label}>신청 사유 *</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
-          placeholder="(선택사항)"
+          placeholder="신청 사유를 입력하세요 (필수)"
           value={reason}
           onChangeText={setReason}
           multiline
           editable={!isLoading}
         />
+
+        {/* 첨부 (대체휴무는 동의서 필수) */}
+        <Text style={styles.label}>
+          첨부파일{isCompensatory ? " (대체휴무 동의서 필수)" : " (선택)"}
+        </Text>
+        {attachmentUrl ? (
+          <View style={styles.attachRow}>
+            <Ionicons name="document-attach-outline" size={18} color="#2563eb" />
+            <Text style={styles.attachName} numberOfLines={1}>{attachmentName}</Text>
+            <TouchableOpacity onPress={() => { setAttachmentUrl(null); setAttachmentName(null); }}>
+              <Ionicons name="close-circle" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.attachButtons}>
+            <TouchableOpacity style={styles.attachBtn} onPress={pickImageAttach} disabled={attaching}>
+              <Ionicons name="image-outline" size={18} color="#2563eb" />
+              <Text style={styles.attachBtnText}>사진</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={pickFileAttach} disabled={attaching}>
+              <Ionicons name="document-outline" size={18} color="#2563eb" />
+              <Text style={styles.attachBtnText}>파일</Text>
+            </TouchableOpacity>
+            {attaching && <ActivityIndicator color="#2563eb" style={{ marginLeft: 8 }} />}
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.submitButton, isLoading && styles.buttonDisabled]}
@@ -258,6 +339,12 @@ export default function LeaveRequestScreen() {
                   {fmtDate(r.startDate)} ~ {fmtDate(r.endDate)}
                 </Text>
                 {r.reason ? <Text style={styles.histReason}>{r.reason}</Text> : null}
+                {r.attachmentUrl ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + r.attachmentUrl)} style={styles.attachRow}>
+                    <Ionicons name="document-attach-outline" size={16} color="#2563eb" />
+                    <Text style={styles.attachName} numberOfLines={1}>{r.attachmentName || "첨부 보기"}</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {r.status === "REJECTED" && r.rejectedReason ? (
                   <Text style={styles.histRejected}>반려 사유: {r.rejectedReason}</Text>
                 ) : null}
@@ -292,6 +379,7 @@ export default function LeaveRequestScreen() {
         </TouchableOpacity>
       </Modal>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -352,6 +440,30 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
+  attachButtons: { flexDirection: "row", alignItems: "center", gap: 8 },
+  attachBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+  },
+  attachBtnText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
+  attachRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+  },
+  attachName: { flex: 1, fontSize: 13, color: "#1f2937" },
   submitButton: {
     backgroundColor: "#2563eb",
     paddingVertical: 14,

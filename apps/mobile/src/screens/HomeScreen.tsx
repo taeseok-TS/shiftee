@@ -19,6 +19,7 @@ import * as storage from "../services/storage";
 import { linkifyText } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
 import { FILE_ORIGIN } from "../services/work";
+import { ImageViewerModal } from "../components/ImageViewer";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
 const TYPE_LABEL: Record<string, string> = {
@@ -44,6 +45,8 @@ export default function HomeScreen() {
 
   const [modal, setModal] = useState<ModalKind | null>(null);
   const [activeAnn, setActiveAnn] = useState<Announcement | null>(null);
+  // 공지 사진은 앱 안에서 확대해 본다(예전엔 브라우저로 나가서 다운로드해야 했다)
+  const [photoViewer, setPhotoViewer] = useState<{ urls: string[]; index: number } | null>(null);
   const [approvalLines, setApprovalLines] = useState<string[] | null>(null); // null=로딩중
 
   const load = useCallback(async () => {
@@ -239,7 +242,16 @@ export default function HomeScreen() {
                     <View style={styles.attList}>
                       {activeAnn.attachments.map((att, i) =>
                         att.type === "image" ? (
-                          <TouchableOpacity key={i} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => {
+                              const imgs = (activeAnn.attachments || []).filter((a) => a.type === "image");
+                              setPhotoViewer({
+                                urls: imgs.map((a) => FILE_ORIGIN + a.url),
+                                index: Math.max(0, imgs.findIndex((a) => a.url === att.url)),
+                              });
+                            }}
+                          >
                             <Image source={{ uri: FILE_ORIGIN + att.url }} style={styles.attImage} resizeMode="cover" />
                           </TouchableOpacity>
                         ) : (
@@ -260,6 +272,11 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
+
+        {/* 사진 뷰어는 이 팝업 '안'에 둔다 — 형제로 두면 iOS 에서 팝업 위로 안 올라온다 */}
+        {photoViewer && (
+          <ImageViewerModal urls={photoViewer.urls} index={photoViewer.index} onClose={() => setPhotoViewer(null)} />
+        )}
       </Modal>
     </ScrollView>
   );

@@ -23,6 +23,7 @@ import { Announcement } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
 import { createAnnouncement, pinAnnouncement, deleteAnnouncement, uploadFile, FILE_ORIGIN } from "../../services/work";
+import { ImageViewerModal } from "../../components/ImageViewer";
 
 type Attachment = { url: string; name: string; type: string };
 
@@ -39,6 +40,8 @@ export function linkifyText(text: string) {
 export default function WorkAnnouncementsScreen() {
   const navigation = useNavigation<any>();
   const [items, setItems] = useState<Announcement[]>([]);
+  // 공지 사진은 앱 안에서 확대해 본다(예전엔 브라우저로 나가서 다운로드해야 했다)
+  const [photoViewer, setPhotoViewer] = useState<{ urls: string[]; index: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -214,7 +217,16 @@ export default function WorkAnnouncementsScreen() {
               <View style={styles.attList}>
                 {item.attachments.map((att, i) =>
                   att.type === "image" ? (
-                    <TouchableOpacity key={i} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => {
+                        const imgs = (item.attachments || []).filter((a) => a.type === "image");
+                        setPhotoViewer({
+                          urls: imgs.map((a) => FILE_ORIGIN + a.url),
+                          index: Math.max(0, imgs.findIndex((a) => a.url === att.url)),
+                        });
+                      }}
+                    >
                       <Image source={{ uri: FILE_ORIGIN + att.url }} style={styles.attImage} resizeMode="cover" />
                     </TouchableOpacity>
                   ) : (
@@ -296,6 +308,10 @@ export default function WorkAnnouncementsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {photoViewer && (
+        <ImageViewerModal urls={photoViewer.urls} index={photoViewer.index} onClose={() => setPhotoViewer(null)} />
+      )}
     </View>
   );
 }
