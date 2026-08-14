@@ -34,6 +34,7 @@ export function ViewerPage({ uri, width, height, active, onZoomChange }: { uri: 
   // 확정값을 따로 들고 있어야 한다(cur). start 는 제스처 시작 시점의 스냅샷.
   const cur = useRef({ s: 1, x: 0, y: 0 });
   const start = useRef({ dist: 0, s: 1, x: 0, y: 0 });
+  const tapStart = useRef({ x: 0, y: 0, at: 0, multi: false });
   const zoomedRef = useRef(false);
 
   const notifyZoom = (s: number) => {
@@ -72,8 +73,9 @@ export function ViewerPage({ uri, width, height, active, onZoomChange }: { uri: 
 
   const pinchPan = useRef(
     PanResponder.create({
-      // 탭은 가로채지 않는다(더블탭은 Pressable 이 받는다). 1배일 때 한 손가락 스와이프도
-      // 부모 페이징에 넘겨야 하므로 아래 조건에서만 responder 를 잡는다.
+      // 두 번째 손가락이 닿는 순간 바로 responder 를 확보한다(부모 페이징에 선점당하면 핀치가 안 잡힌다).
+      onStartShouldSetPanResponderCapture: (e) => Platform.OS === "android" && e.nativeEvent.touches.length === 2,
+      // 한 손가락 탭은 가로채지 않는다. 1배일 때 한 손가락 스와이프도 부모 페이징에 넘겨야 한다.
       onMoveShouldSetPanResponder: (e, g) =>
         Platform.OS === "android" &&
         (e.nativeEvent.touches.length === 2 || (cur.current.s > 1.01 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2))),
@@ -160,11 +162,25 @@ export function ViewerPage({ uri, width, height, active, onZoomChange }: { uri: 
           </Pressable>
         </ScrollView>
       ) : (
-        <View style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }} {...pinchPan.panHandlers}>
-          {/* 더블탭 = 2.5배↔원복. 확대는 핀치로, 이동은 확대 상태에서 한 손가락 끌기 */}
-          <Pressable style={{ width: "100%", height: "100%" }} onPress={onDoubleTap}>
-            {img}
-          </Pressable>
+        // Pressable 로 감싸면 그쪽이 터치를 잡아 두 번째 손가락이 PanResponder 까지 오지 않는다(핀치 불가).
+        // 그래서 탭 판정은 View 의 onTouchStart/End 로 직접 한다 — responder 경쟁과 무관하게 들어온다.
+        <View
+          style={{ width, height: "100%", justifyContent: "center", alignItems: "center" }}
+          {...pinchPan.panHandlers}
+          onTouchStart={(e) => {
+            const t = e.nativeEvent;
+            tapStart.current = { x: t.pageX, y: t.pageY, at: Date.now(), multi: t.touches.length > 1 };
+          }}
+          onTouchEnd={(e) => {
+            const t = e.nativeEvent;
+            const s = tapStart.current;
+            // 끌었거나(12px 초과) 길게 눌렀거나 두 손가락이었으면 탭이 아니다
+            if (s.multi || Date.now() - s.at > 400) return;
+            if (Math.hypot(t.pageX - s.x, t.pageY - s.y) > 12) return;
+            onDoubleTap();
+          }}
+        >
+          {img}
         </View>
       )}
       {loading && !failed && (
