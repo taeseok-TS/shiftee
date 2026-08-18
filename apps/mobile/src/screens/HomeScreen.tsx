@@ -10,6 +10,7 @@ import {
   Modal,
   Image,
   Linking,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -192,8 +193,11 @@ export default function HomeScreen() {
 
       {/* 팝업 */}
       <Modal visible={modal !== null} transparent animationType="fade" onRequestClose={() => setModal(null)}>
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setModal(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.popup} onPress={() => {}}>
+        {/* 배경은 카드의 '형제' Pressable 로 둔다 — 터치 가능한 컴포넌트가 스크롤의 부모면
+            안드로이드에서 제스처를 선점해 긴 공지가 스크롤되지 않는다(iOS 는 협상해서 됨). */}
+        <View style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModal(null)} />
+          <View style={styles.popup}>
             {modal === "contract" && (
               <>
                 <Text style={styles.popupTitle}>서명 대기 계약</Text>
@@ -270,8 +274,8 @@ export default function HomeScreen() {
             <TouchableOpacity style={styles.popupClose} onPress={() => setModal(null)}>
               <Text style={styles.popupCloseText}>닫기</Text>
             </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </View>
+        </View>
 
         {/* 사진 뷰어는 이 팝업 '안'에 둔다 — 형제로 두면 iOS 에서 팝업 위로 안 올라온다 */}
         {photoViewer && (
