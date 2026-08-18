@@ -215,6 +215,11 @@ class ShifteeApiClient {
         const response = await this.axiosInstance.get(`/work/channels/${channelId}/messages`);
         return response.data.messages || [];
     }
+    // 메시지 + 채널 고정 공지 함께 조회
+    async getMessagesFull(channelId) {
+        const response = await this.axiosInstance.get(`/work/channels/${channelId}/messages`);
+        return { messages: response.data.messages || [], notice: response.data.notice ?? null };
+    }
     async sendMessage(channelId, content) {
         const response = await this.axiosInstance.post(`/work/channels/${channelId}/messages`, { content });
         return response.data.message;

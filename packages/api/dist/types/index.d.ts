@@ -12,6 +12,7 @@ export interface User {
     branch: string | null;
     department?: string | null;
     position?: string | null;
+    avatarUrl?: string | null;
 }
 export interface Session extends User {
     userId: string;
@@ -79,7 +80,7 @@ export interface ContractSignRequest {
     signatureData: string;
     isApprover?: boolean;
 }
-export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 export type LeaveType = "ANNUAL" | "SICK" | "PERSONAL" | "MATERNITY" | "BEREAVEMENT" | "HALF_AM" | "HALF_PM" | "QUARTER_AM" | "QUARTER_PM" | "SPECIAL" | "COMPENSATORY" | "COMPENSATORY_HALF" | "CIVIL_DEFENSE" | "RESERVE_FORCES" | "FAMILY_EVENT" | "FAMILY_MARRIAGE" | "FAMILY_BIRTH" | "FAMILY_BEREAVEMENT";
 export interface LeaveRequest {
     id: string;
@@ -89,6 +90,8 @@ export interface LeaveRequest {
     endDate: string;
     days: number;
     reason: string | null;
+    attachmentUrl?: string | null;
+    attachmentName?: string | null;
     status: LeaveStatus;
     approverId?: string | null;
     rejectedReason?: string | null;
@@ -193,6 +196,10 @@ export interface WorkChannel {
     memberCount: number;
     unread: number;
     notify: string;
+    pinned?: boolean;
+    labelText?: string | null;
+    labelColor?: string | null;
+    avatarUrl?: string | null;
     lastMessage: {
         content: string;
         createdAt: string;
@@ -202,15 +209,43 @@ export interface WorkMessage {
     id: string;
     userId: string;
     userName: string;
+    userAvatar?: string | null;
+    userBranch?: string | null;
     content: string;
     fileUrl: string | null;
     fileName: string | null;
     fileType: string | null;
+    albumUrls?: string[] | null;
     createdAt: string;
     mine: boolean;
     reactions: any[];
     replyCount: number;
     parentId?: string | null;
+    editedAt?: string | null;
+    deleted?: boolean;
+    system?: boolean;
+    replyTo?: {
+        id: string;
+        userName: string;
+        content: string;
+        deleted: boolean;
+    } | null;
+    unreadBy?: number;
+    poll?: WorkPollInfo | null;
+    bookmarked?: boolean;
+    attachFirst?: boolean;
+}
+export interface WorkPollInfo {
+    id: string;
+    question: string;
+    options: string[];
+    multiple: boolean;
+    closed: boolean;
+    counts: number[];
+    myVotes: number[];
+    totalVoters: number;
+    creatorId: string;
+    creatorName: string;
 }
 export interface DashboardStats {
     leaveRemaining: number;
@@ -223,7 +258,11 @@ export interface Announcement {
     title: string;
     content: string;
     pinned: boolean;
-    attachments: string[];
+    attachments: {
+        url: string;
+        name: string;
+        type: string;
+    }[];
     authorName: string;
     createdAt: string;
     canEdit: boolean;

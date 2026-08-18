@@ -293,6 +293,16 @@ export class ShifteeApiClient {
     return response.data.messages || [];
   }
 
+  // 메시지 + 채널 고정 공지 함께 조회
+  async getMessagesFull(
+    channelId: string
+  ): Promise<{ messages: WorkMessage[]; notice: { content: string; imageUrl: string | null; by: string | null; at: string | null; important?: boolean; unreadCount?: number } | null }> {
+    const response = await this.axiosInstance.get<
+      ApiResponse<{ messages: WorkMessage[]; notice: { content: string; imageUrl: string | null; by: string | null; at: string | null; important?: boolean; unreadCount?: number } | null }>
+    >(`/work/channels/${channelId}/messages`);
+    return { messages: response.data.messages || [], notice: response.data.notice ?? null };
+  }
+
   async sendMessage(channelId: string, content: string): Promise<WorkMessage> {
     const response = await this.axiosInstance.post<ApiResponse<{ message: WorkMessage }>>(
       `/work/channels/${channelId}/messages`,

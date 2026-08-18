@@ -61,6 +61,17 @@ export declare class ShifteeApiClient {
     getScheduleRequests(status?: string): Promise<ScheduleRequest[]>;
     getChannels(): Promise<WorkChannel[]>;
     getMessages(channelId: string): Promise<WorkMessage[]>;
+    getMessagesFull(channelId: string): Promise<{
+        messages: WorkMessage[];
+        notice: {
+            content: string;
+            imageUrl: string | null;
+            by: string | null;
+            at: string | null;
+            important?: boolean;
+            unreadCount?: number;
+        } | null;
+    }>;
     sendMessage(channelId: string, content: string): Promise<WorkMessage>;
     markChannelRead(channelId: string): Promise<void>;
 }
