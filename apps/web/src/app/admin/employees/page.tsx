@@ -25,6 +25,8 @@ type Employee = {
   branch: string | null;
   hireDate: string | null;
   birthDate: string | null;
+  resignDate: string | null; // 있으면 그날까지 재직, 지나면 자동으로 퇴직자 처리
+  resignReason: string | null;
   phone: string | null;
   leaveBalance?: {
     remaining: number;
@@ -234,6 +236,8 @@ export default function EmployeesPage() {
           phone: editEmployee.phone,
           hireDate: editEmployee.hireDate,
           birthDate: editEmployee.birthDate,
+          resignDate: editEmployee.resignDate,
+          resignReason: editEmployee.resignReason,
           // 겸직 지점: 원장만 유지, 역할이 바뀌면 비움
           managerBranches: editEmployee.role === "MANAGER" ? (editEmployee.managerBranches || []) : [],
         }),
@@ -826,7 +830,8 @@ export default function EmployeesPage() {
                               <PenLine size={16} />
                             </DialogTrigger>
                             {editEmployee?.id === emp.id && (
-                              <DialogContent className="max-w-2xl">
+                              // 화면이 낮으면 저장 버튼이 창 밖으로 밀려 안 보였다 → 내부 스크롤
+                              <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
                                 <DialogHeader>
                                   <DialogTitle>직원 정보 수정</DialogTitle>
                                 </DialogHeader>
@@ -990,6 +995,37 @@ export default function EmployeesPage() {
                                           birthDate: e.target.value || null,
                                         })
                                       }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label>퇴사일</Label>
+                                    <Input
+                                      type="date"
+                                      value={editEmployee.resignDate ? editEmployee.resignDate.split("T")[0] : ""}
+                                      onChange={(e) =>
+                                        setEditEmployee({ ...editEmployee, resignDate: e.target.value || null })
+                                      }
+                                    />
+                                    <p className="text-[11px] text-gray-500 mt-1">
+                                      {(() => {
+                                        if (!editEmployee.resignDate) return "비워두면 재직 상태입니다.";
+                                        const d = editEmployee.resignDate.split("T")[0];
+                                        const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+                                        return d < today
+                                          ? "지난 날짜 — 직원 목록에서 빠지고 퇴직자 현황에 표시됩니다."
+                                          : "퇴사일까지 목록에 계속 표시되고, 이후 자동으로 퇴직자로 넘어갑니다.";
+                                      })()}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label>퇴사 사유 (선택)</Label>
+                                    <Input
+                                      value={editEmployee.resignReason ?? ""}
+                                      onChange={(e) =>
+                                        setEditEmployee({ ...editEmployee, resignReason: e.target.value || null })
+                                      }
+                                      placeholder="예: 개인 사정"
+                                      disabled={!editEmployee.resignDate}
                                     />
                                   </div>
                                 </div>

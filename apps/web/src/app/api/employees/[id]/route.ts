@@ -31,7 +31,14 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo } = body;
+  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason } = body;
+
+  // 퇴사일 — 빈 문자열/null 이면 해제(재직 복귀), 값이 있으면 그날짜로 설정.
+  // 지난 날짜면 목록에서 자동으로 빠지고, 앞으로의 날짜면 그날까지는 계속 보인다(조회 시 판정).
+  const resignVal =
+    resignDate === undefined ? undefined : resignDate ? new Date(`${String(resignDate).slice(0, 10)}T00:00:00+09:00`) : null;
+  if (resignVal !== undefined && resignVal !== null && isNaN(resignVal.getTime()))
+    return NextResponse.json({ error: "퇴사일 형식이 올바르지 않습니다." }, { status: 400 });
 
   // 변경 전 값(감사 로그용)
   const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });
@@ -104,6 +111,8 @@ export async function PATCH(
       // 관리자가 새 비번을 직접 지정하면 임시 비번(1234) 상태가 아니므로 알림 대상에서 해제
       passwordResetAt: hashedPassword ? null : undefined,
       empNo: empNoVal,
+      resignDate: resignVal,
+      resignReason: resignDate === undefined ? undefined : resignDate ? (resignReason ?? undefined) : null,
     },
   });
 

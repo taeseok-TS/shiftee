@@ -22,11 +22,22 @@ export async function GET(request: NextRequest) {
   const includeAdmins =
     new URL(request.url).searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
 
+  // 퇴사일이 지난 직원은 목록에서 제외한다(별도 배치 없이 조회 시점에 판정).
+  // 앞으로의 퇴사일이면 그날까지는 계속 보인다 — 인수인계·마지막 근무일 처리를 위해.
+  // ?includeResigned=true 면 퇴사자까지 포함(퇴직자 조회용).
+  const includeResigned = new URL(request.url).searchParams.get("includeResigned") === "true";
+  const kstToday = new Date(Date.now() + 9 * 3600 * 1000);
+  const todayKstStart = new Date(Date.UTC(kstToday.getUTCFullYear(), kstToday.getUTCMonth(), kstToday.getUTCDate()) - 9 * 3600 * 1000);
+  const resignWhere = includeResigned
+    ? {}
+    : { OR: [{ resignDate: null }, { resignDate: { gte: todayKstStart } }] };
+
   const employees = await prisma.user.findMany({
-    where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere },
+    where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere, ...resignWhere },
     select: {
       id: true, name: true, email: true, role: true, empNo: true,
       department: true, jobGroup: true, position: true, branch: true, hireDate: true, birthDate: true, phone: true,
+      resignDate: true, resignReason: true,
       leaveBalance: { where: { year: currentLeaveYear() }, select: { remaining: true, used: true, total: true } },
       device: { select: { deviceName: true, platform: true, createdAt: true } },
       managerBranches: { select: { branchName: true } },
@@ -49,6 +60,8 @@ export async function GET(request: NextRequest) {
     hireDate: emp.hireDate,
     birthDate: emp.birthDate,
     phone: emp.phone,
+    resignDate: emp.resignDate,
+    resignReason: emp.resignReason,
     leaveBalance: emp.leaveBalance[0] ?? null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
     device: emp.device,
     managerBranches: emp.managerBranches.map(b => b.branchName), // 원장 겸직 지점 목록
