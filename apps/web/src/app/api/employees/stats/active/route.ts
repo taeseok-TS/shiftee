@@ -89,7 +89,14 @@ export async function GET(request: NextRequest) {
             { employmentStatus: "ACTIVE" },
             ...(includeAdmins ? [] : [{ role: { not: "ADMIN" as const } }]),
             ...(excludedBranches.length > 0
-              ? [{ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }]
+              ? [{
+                  OR: [
+                    // "관리자 포함"을 켰으면 관리자는 소속 지점과 무관하게 전원 보여준다
+                    ...(includeAdmins ? [{ role: "ADMIN" as const }] : []),
+                    { branch: null },
+                    { branch: { notIn: excludedBranches } },
+                  ],
+                }]
               : []),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
