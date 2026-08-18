@@ -64,7 +64,8 @@ async function notifyNewMessage(
   await sendPushToUsers(recipients, {
     title: channel.name,
     body: `${message.user.name}: ${preview}`,
-    data: { channelId: channel.id, type: "work-message" },
+    // 알림을 누르면 앱이 이 값으로 해당 채팅방(그리고 그 메시지)까지 바로 연다
+    data: { channelId: channel.id, channelName: channel.name, channelType: channel.type, messageId: message.id, type: "work-message" },
   }, { respectWorkMute: true, withWorkBadge: true });
 }
 

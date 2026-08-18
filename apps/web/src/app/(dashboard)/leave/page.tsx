@@ -128,6 +128,8 @@ export default function LeavePage() {
 
   /* 신청 목록 */
   const [requests, setRequests]         = useState<LeaveRequest[]>([]);
+  // 메일 링크(/leave?id=…)로 들어오면 그 건을 찾아 스크롤·강조한다
+  const [highlightId, setHighlightId]   = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterYear, setFilterYear]     = useState(String(CURRENT_YEAR));
   const [filterMonth, setFilterMonth]   = useState("all");
@@ -175,6 +177,16 @@ export default function LeavePage() {
     const data = await fetch(`/api/leave?${p}`).then(r => r.json());
     setRequests(data.requests || []);
   }, [filterStatus, filterYear, filterMonth]);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("id");
+    if (id) setHighlightId(id);
+  }, []);
+  useEffect(() => {
+    if (!highlightId || requests.length === 0) return;
+    const el = document.getElementById(`leave-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId, requests]);
 
   const fetchBalance = useCallback(async () => {
     const data = await fetch("/api/leave/balance?scope=self").then(r => r.json());
@@ -436,7 +448,13 @@ export default function LeavePage() {
                     ) : requests.map(r => {
                       const s = STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED;
                       return (
-                        <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50/70 transition-colors">
+                        <tr
+                          key={r.id}
+                          id={`leave-${r.id}`}
+                          className={`border-b last:border-0 transition-colors ${
+                            highlightId === r.id ? "bg-amber-50 ring-2 ring-amber-300" : "hover:bg-gray-50/70"
+                          }`}
+                        >
                           {isAdmin && (
                             <td className="px-4 py-3">
                               <p className="font-medium text-gray-900">{r.user.name}</p>

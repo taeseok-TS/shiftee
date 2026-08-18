@@ -187,7 +187,8 @@ export async function sendLeaveApprovalRequest(
   endDate: string,
   reason: string,
   appUrl: string
-): Promise<void> {
+,
+  leaveId?: string): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>휴가 승인 요청</h2>
@@ -203,7 +204,7 @@ export async function sendLeaveApprovalRequest(
       </div>
 
       <p>
-        <a href="${appUrl}/leave" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${appUrl}/leave${leaveId ? `?id=${leaveId}` : ""}" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           승인하기
         </a>
       </p>
@@ -233,7 +234,8 @@ export async function sendLeaveApprovalCompletion(
   endDate: string,
   approverName: string,
   appUrl: string
-): Promise<void> {
+,
+  leaveId?: string): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>휴가 승인 완료</h2>
@@ -248,7 +250,7 @@ export async function sendLeaveApprovalCompletion(
       </div>
 
       <p>
-        <a href="${appUrl}/leave" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${appUrl}/leave${leaveId ? `?id=${leaveId}` : ""}" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           휴가 내역 확인
         </a>
       </p>
@@ -279,7 +281,8 @@ export async function sendLeaveRejectionNotification(
   approverName: string,
   reason: string | null,
   appUrl: string
-): Promise<void> {
+,
+  leaveId?: string): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>휴가 신청 반려</h2>
@@ -296,7 +299,7 @@ export async function sendLeaveRejectionNotification(
 
       <p>다시 신청하시려면 아래 링크를 클릭해주세요.</p>
       <p>
-        <a href="${appUrl}/leave" style="background: #ef4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${appUrl}/leave${leaveId ? `?id=${leaveId}` : ""}" style="background: #ef4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           휴가 신청하기
         </a>
       </p>

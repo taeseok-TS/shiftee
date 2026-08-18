@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DeviceEventEmitter } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
@@ -41,6 +42,36 @@ export default function AppNavigator() {
     const t = setInterval(tick, 15000);
     return () => { alive = false; clearInterval(t); };
   }, []);
+
+  // 알림을 누르면 그 메시지가 있는 채팅방으로 바로 들어간다.
+  // 앱이 꺼져 있다가 알림으로 실행된 경우(cold start)까지 처리해야 해서 두 경로를 모두 본다.
+  const navigation = useNavigation<any>();
+  const handledRef = useRef<string | null>(null); // 같은 알림을 두 번 처리하지 않게
+  useEffect(() => {
+    const open = (res: Notifications.NotificationResponse | null) => {
+      if (!res) return;
+      const id = res.notification.request.identifier;
+      if (handledRef.current === id) return;
+      handledRef.current = id;
+      const d: any = res.notification.request.content.data || {};
+      if (d.type !== "work-message" || !d.channelId) return;
+      // 탭(메신저) → 스택(채팅방) 순으로 이동. 파라미터는 채팅 화면이 쓰는 것과 같은 형태.
+      navigation.navigate("Work", {
+        screen: "WorkChat",
+        params: {
+          channelId: String(d.channelId),
+          name: d.channelName ? String(d.channelName) : undefined,
+          type: d.channelType ? String(d.channelType) : undefined,
+          focusMessageId: d.messageId ? String(d.messageId) : undefined,
+        },
+      });
+    };
+    // 앱이 꺼져 있다가 알림으로 실행된 경우
+    Notifications.getLastNotificationResponseAsync().then(open).catch(() => {});
+    // 앱이 살아 있는 동안 알림을 누른 경우
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [navigation]);
 
   const canApprove = role === "ADMIN" || role === "MANAGER";
 

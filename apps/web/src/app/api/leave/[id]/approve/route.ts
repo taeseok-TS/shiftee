@@ -162,7 +162,8 @@ export async function POST(
         endDateStr,
         approverName,
         reason || null,
-        appUrl
+        appUrl,
+        id,
       );
     } else if (emailAction === "approve") {
       await sendLeaveApprovalCompletion(
@@ -172,7 +173,8 @@ export async function POST(
         startDateStr,
         endDateStr,
         approverName,
-        appUrl
+        appUrl,
+        id,
       );
     } else if (emailAction === "next_approver" && nextApprover) {
       await sendLeaveApprovalRequest(
@@ -183,7 +185,8 @@ export async function POST(
         startDateStr,
         endDateStr,
         leaveRequest.reason || "",
-        appUrl
+        appUrl,
+        id,
       );
     }
 
@@ -293,7 +296,8 @@ async function adminOverride(
       startDateStr,
       endDateStr,
       approverName,
-      appUrl
+      appUrl,
+      id,
     );
   } else {
     await sendLeaveRejectionNotification(
@@ -304,7 +308,8 @@ async function adminOverride(
       endDateStr,
       approverName,
       reason || null,
-      appUrl
+      appUrl,
+      id,
     );
   }
 

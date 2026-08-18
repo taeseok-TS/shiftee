@@ -201,6 +201,10 @@ export default function WorkChatScreen() {
   const [viewerIndex, setViewerIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const listRef = useRef<FlatList<WorkMessage>>(null);
+  // 알림을 눌러 들어온 경우 그 메시지로 스크롤하고 잠깐 강조한다
+  const focusMessageId: string | undefined = (route.params as any)?.focusMessageId;
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const focusedRef = useRef<string | null>(null);
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
   // iOS: 헤더 높이 + 하단 안전영역(홈 인디케이터)만큼 올려야 입력창이 키보드 위로 완전히 올라옴.
@@ -643,6 +647,26 @@ export default function WorkChatScreen() {
     return reversedMessages.filter((m) => !m.deleted && (m.content || "").toLowerCase().includes(q));
   }, [reversedMessages, searchQuery]);
 
+  // 알림으로 들어왔을 때: 목록이 준비되면 그 메시지로 스크롤하고 3초간 강조.
+  // 목록에 없으면(오래된 메시지) 스크롤은 건너뛴다 — 채팅방을 여는 것까지는 된다.
+  useEffect(() => {
+    if (!focusMessageId || focusedRef.current === focusMessageId) return;
+    const idx = displayedMessages.findIndex((m) => m.id === focusMessageId);
+    if (idx < 0) return;
+    focusedRef.current = focusMessageId;
+    setHighlightId(focusMessageId);
+    // 렌더가 끝난 뒤 스크롤(측정 실패 시 근사 위치로 재시도)
+    setTimeout(() => {
+      try {
+        listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+      } catch {
+        listRef.current?.scrollToOffset({ offset: idx * 80, animated: true });
+      }
+    }, 350);
+    const t = setTimeout(() => setHighlightId(null), 3000);
+    return () => clearTimeout(t);
+  }, [focusMessageId, displayedMessages]);
+
   const load = useCallback(async () => {
     try {
       const { messages: m, notice: n } = await api.getMessagesFull(channelId);
@@ -1018,7 +1042,7 @@ export default function WorkChatScreen() {
     }
     const reactions = (item.reactions as any[]) || [];
     const body = (
-      <View style={[styles.row, item.mine ? styles.rowMine : styles.rowOther]}>
+      <View style={[styles.row, item.mine ? styles.rowMine : styles.rowOther, highlightId === item.id && styles.rowHighlight]}>
         {!item.mine && <Text style={styles.sender}>{item.userName}{item.userBranch ? ` · ${item.userBranch}` : ""}</Text>}
         <Pressable
           onLongPress={() => !item.deleted && setReactionTarget(item.id)}
@@ -1319,6 +1343,13 @@ export default function WorkChatScreen() {
           keyExtractor={(m) => m.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          // 아직 그려지지 않은 위치로 스크롤하면 예외가 난다 — 근사 위치로 보낸 뒤 다시 시도
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+            setTimeout(() => {
+              try { listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }); } catch { /* 무시 */ }
+            }, 400);
+          }}
         />
       )}
 
@@ -2028,6 +2059,8 @@ const styles = StyleSheet.create({
   row: { marginBottom: 12, maxWidth: "80%" },
   rowMine: { alignSelf: "flex-end", alignItems: "flex-end" },
   rowOther: { alignSelf: "flex-start", alignItems: "flex-start" },
+  // 알림을 눌러 찾아온 메시지 — 잠깐 노란 배경으로 어느 것인지 알려준다
+  rowHighlight: { backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 6, paddingVertical: 4 },
   otherRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: 4 },
   otherBody: { flex: 1 },
   chatSearchBar: { flexDirection: "row", alignItems: "center", gap: 6, margin: 8, paddingHorizontal: 12, height: 40, borderRadius: 8, backgroundColor: "#f3f4f6" },
