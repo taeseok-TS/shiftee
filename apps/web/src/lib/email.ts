@@ -204,7 +204,8 @@ export async function sendLeaveApprovalRequest(
       </div>
 
       <p>
-        <a href="${appUrl}/leave${leaveId ? `?id=${leaveId}` : ""}" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <!-- 승인자는 결재 화면에서 처리한다. /leave 는 본인이 '신청한' 목록이라 이 건이 안 보인다. -->
+        <a href="${appUrl}/admin/leave-approvals${leaveId ? `?id=${leaveId}` : ""}" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           승인하기
         </a>
       </p>
