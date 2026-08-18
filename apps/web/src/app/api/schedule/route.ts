@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     role: { not: "ADMIN" as const },
     isActive: true,
     deletedAt: null,
+    employmentStatus: "ACTIVE" as const,
     ...branchUserWhere,
   };
 

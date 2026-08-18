@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   // 현황 명단 = 재직 중인 직원만 (관리자·서브관리자 제외)
   const userWhere   = selfOnly
     ? { id: session.userId }
-    : { role: { not: "ADMIN" as const }, isActive: true, deletedAt: null, ...branchWhere };
+    : { role: { not: "ADMIN" as const }, isActive: true, deletedAt: null, employmentStatus: "ACTIVE" as const, ...branchWhere };
   const recordWhere = selfOnly ? { userId: session.userId } : {};
 
   const [employees, schedules, attendances, leaves] = await Promise.all([
