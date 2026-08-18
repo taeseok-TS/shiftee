@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { setSession } from "@/lib/auth";
+import { isResigned } from "@/lib/resign";
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +20,15 @@ export async function POST(request: NextRequest) {
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
+    }
+
+    // 퇴사자 차단 — 퇴사일 '당일'은 마지막 근무일이라 로그인이 되어야 한다(출퇴근 기록).
+    // 날짜 필드는 UTC 자정 저장이므로 기준도 KST 오늘의 자정으로 맞춘다.
+    if (isResigned(user.resignDate)) {
+      return NextResponse.json(
+        { error: "퇴사 처리된 계정입니다. 잘못된 경우 관리자에게 문의해주세요." },
+        { status: 403 }
+      );
     }
 
     // 기기 등록 검사 (앱 로그인만 — deviceId를 보내는 클라이언트). 관리자(ADMIN)는 예외.

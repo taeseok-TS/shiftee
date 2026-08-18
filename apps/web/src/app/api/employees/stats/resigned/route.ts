@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayMidnight } from "@/lib/resign";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
-
-// 퇴사일 당일은 아직 재직이다 — 기준은 KST 오늘 자정(날짜 필드는 UTC 자정 저장)
-function kstTodayMidnight() {
-  const k = new Date(Date.now() + 9 * 3600 * 1000);
-  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
-}
 
 export async function GET(request: NextRequest) {
   try {

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { kstTodayMidnight } from "@/lib/resign";
 import bcrypt from "bcryptjs";
 
 // 변경 내역 요약(감사 로그용)
@@ -39,9 +40,8 @@ export async function PATCH(
     resignDate === undefined ? undefined : resignDate ? new Date(`${String(resignDate).slice(0, 10)}T00:00:00.000Z`) : null;
   if (resignVal !== undefined && resignVal !== null && isNaN(resignVal.getTime()))
     return NextResponse.json({ error: "퇴사일 형식이 올바르지 않습니다." }, { status: 400 });
-  // KST 오늘의 자정(같은 형식). 퇴사일 당일은 아직 재직이므로 "이 날짜보다 이전"이어야 퇴직이다.
-  const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
-  const todayMidnight = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
+  // 퇴사일 당일은 아직 재직이므로 "이 날짜보다 이전"이어야 퇴직이다.
+  const todayMidnight = kstTodayMidnight();
 
   // 변경 전 값(감사 로그용)
   const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });

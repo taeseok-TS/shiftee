@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession, signToken } from "@/lib/auth";
+import { isResigned } from "@/lib/resign";
 import { prisma } from "@/lib/db";
 
 // 토큰 갱신 — 아직 유효한 토큰이면 새 7일 토큰 발급 (슬라이딩 세션).
@@ -11,10 +12,13 @@ export async function POST() {
   // 최신 상태로 재발급 (퇴사 처리된 계정 차단 + 이름/지점 변경 반영)
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, email: true, role: true, name: true, branch: true, isActive: true },
+    select: { id: true, email: true, role: true, name: true, branch: true, isActive: true, resignDate: true },
   });
   if (!user || !user.isActive)
     return NextResponse.json({ error: "사용할 수 없는 계정입니다." }, { status: 401 });
+  // 퇴사일이 지나면 갱신을 끊는다 — 이미 발급된 토큰은 남은 기간만 쓰이고 자연히 만료된다
+  if (isResigned(user.resignDate))
+    return NextResponse.json({ error: "퇴사 처리된 계정입니다." }, { status: 401 });
 
   const token = await signToken({
     userId: user.id,
