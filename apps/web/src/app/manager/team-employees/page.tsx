@@ -7,7 +7,9 @@ export default async function ManagerEmployeesPage() {
   // MANAGER의 지점에 속한 직원만 조회
   const employees = await prisma.user.findMany({
     where: {
+      role: { not: "ADMIN" },
       isActive: true,
+      deletedAt: null,
       branch: session?.branch,
     },
     select: {

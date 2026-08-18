@@ -28,9 +28,17 @@ export async function GET(request: NextRequest) {
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchUserWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
+  // 집계 대상 = 재직 중인 직원만 (관리자·서브관리자는 인원 수에 넣지 않는다)
+  const countableUserWhere = {
+    role: { not: "ADMIN" as const },
+    isActive: true,
+    deletedAt: null,
+    ...branchUserWhere,
+  };
+
   // 지점 내 활성 직원 ID 목록 (집계 기준)
   const branchUserIds = !selfOnly && session.role === "MANAGER"
-    ? (await prisma.user.findMany({ where: { isActive: true, ...branchUserWhere }, select: { id: true } })).map(u => u.id)
+    ? (await prisma.user.findMany({ where: countableUserWhere, select: { id: true } })).map(u => u.id)
     : null; // null = 전체
 
   const userIdFilter = selfOnly
@@ -63,7 +71,7 @@ export async function GET(request: NextRequest) {
     }),
     selfOnly
       ? Promise.resolve(1)
-      : prisma.user.count({ where: { isActive: true, ...branchUserWhere } }),
+      : prisma.user.count({ where: countableUserWhere }),
   ]);
 
   // 날짜별 집계

@@ -20,7 +20,14 @@ export async function GET() {
     const branchesWithCount = await Promise.all(
       branches.map(async (branch) => {
         const userCount = await prisma.user.count({
-          where: { branch: branch.name, isActive: true },
+          // 인원 배지 = 재직 중인 직원만. 관리자(서브 포함)·보관함·퇴사자는 세지 않는다
+          where: {
+            branch: branch.name,
+            role: { not: "ADMIN" },
+            isActive: true,
+            deletedAt: null,
+            employmentStatus: "ACTIVE",
+          },
         });
         return {
           ...branch,

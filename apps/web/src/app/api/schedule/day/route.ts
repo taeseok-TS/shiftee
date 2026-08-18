@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
-  const userWhere   = selfOnly ? { id: session.userId } : { isActive: true, ...branchWhere };
+  // 현황 명단 = 재직 중인 직원만 (관리자·서브관리자 제외)
+  const userWhere   = selfOnly
+    ? { id: session.userId }
+    : { role: { not: "ADMIN" as const }, isActive: true, deletedAt: null, ...branchWhere };
   const recordWhere = selfOnly ? { userId: session.userId } : {};
 
   const [employees, schedules, attendances, leaves] = await Promise.all([

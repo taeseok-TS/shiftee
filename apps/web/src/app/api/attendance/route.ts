@@ -84,8 +84,8 @@ export async function GET(request: NextRequest) {
     if (target && !!target.branch && myBranches.includes(target.branch)) {
       userWhere = { userId };
     } else {
-      // 담당 지점 구성원 전체
-      userWhere = { user: { branch: { in: myBranches } } };
+      // 담당 지점 구성원 전체 (관리자·서브관리자 제외 — 관리자 화면과 동일 기준)
+      userWhere = { user: { branch: { in: myBranches }, role: { not: "ADMIN" } } };
     }
   } else {
     userWhere = { userId };
