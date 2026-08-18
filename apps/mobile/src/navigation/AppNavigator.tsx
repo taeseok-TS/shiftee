@@ -56,8 +56,11 @@ export default function AppNavigator() {
       const d: any = res.notification.request.content.data || {};
       if (d.type !== "work-message" || !d.channelId) return;
       // 탭(메신저) → 스택(채팅방) 순으로 이동. 파라미터는 채팅 화면이 쓰는 것과 같은 형태.
+      // initial: false 가 핵심 — 없으면 채팅방이 스택의 첫 화면이 되어 채널 목록으로
+      // 돌아갈 수 없다(뒤로 갈 곳이 없어 그 방에 갇힌다).
       navigation.navigate("Work", {
         screen: "WorkChat",
+        initial: false,
         params: {
           channelId: String(d.channelId),
           name: d.channelName ? String(d.channelName) : undefined,
