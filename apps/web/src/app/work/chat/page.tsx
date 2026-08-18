@@ -1365,8 +1365,9 @@ export default function WorkChatPage() {
                               </>
                             )}
                           </div>
-                          {/* 호버 액션 */}
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 relative">
+                          {/* 호버 액션 — opacity 는 자리를 차지하므로 폰에서는 아예 숨긴다
+                              (아이콘 8개가 말풍선 폭을 절반 이하로 압축시킴. 폰 사용자는 앱의 롱프레스 사용) */}
+                          <div className="hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity items-center gap-1 relative">
                             {!m.deleted && <button onClick={() => startReply(m)} title="답장" className="text-gray-400 hover:text-gray-700"><Reply size={15} /></button>}
                             {!m.deleted && !m.poll && !!m.content && <button onClick={() => navigator.clipboard.writeText(m.content).then(() => toast.success("복사되었습니다."))} title="복사" className="text-gray-400 hover:text-gray-700"><Copy size={14} /></button>}
                             {!m.deleted && !m.poll && <button onClick={() => setForwardFor(m)} title="전달" className="text-gray-400 hover:text-gray-700"><Share2 size={14} /></button>}
