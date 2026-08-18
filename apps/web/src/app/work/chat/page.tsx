@@ -596,10 +596,24 @@ export default function WorkChatPage() {
   }
   async function clearChannelNotice() {
     if (!activeId) return;
-    if (!window.confirm("채팅방 공지를 내릴까요?")) return;
+    if (!window.confirm("방 전체에서 공지를 내릴까요?\n모든 구성원의 화면에서 사라집니다.")) return;
     const res = await fetch(`/api/work/channels/${activeId}/notice`, { method: "DELETE" });
     if (res.ok) { setNotice(null); toast.success("공지를 내렸습니다."); }
     else { const d = await res.json(); toast.error(d.error || "공지 내리기 실패"); }
+  }
+  // X = 나에게만 숨김(카톡 방식). 등록 시각(at)을 기억해 같은 공지만 숨기고,
+  // 새 공지가 올라오면(다른 at) 자동으로 다시 보인다. 서버는 건드리지 않는다.
+  const noticeKey = (id: string) => `workNoticeHidden:${id}`;
+  const noticeStamp = notice ? (notice.at ?? notice.content) : null;
+  const [noticeHidden, setNoticeHidden] = useState(false);
+  useEffect(() => {
+    if (!activeId || !noticeStamp) { setNoticeHidden(false); return; }
+    try { setNoticeHidden(localStorage.getItem(noticeKey(activeId)) === noticeStamp); } catch { setNoticeHidden(false); }
+  }, [activeId, noticeStamp]);
+  function hideNoticeForMe() {
+    if (!activeId || !noticeStamp) return;
+    try { localStorage.setItem(noticeKey(activeId), noticeStamp); } catch { /* 무시 */ }
+    setNoticeHidden(true);
   }
 
   // 링크 모아보기
@@ -1184,8 +1198,8 @@ export default function WorkChatPage() {
               </div>
             </div>
 
-            {/* 채널 고정 공지 */}
-            {notice && (
+            {/* 채널 고정 공지 — X 는 나에게만 숨김, 전체 내리기는 관리자·등록자만 */}
+            {notice && !noticeHidden && (
               <div className={`mx-6 mt-3 rounded-lg border px-4 py-2.5 flex items-start gap-2 ${notice.important ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
                 <span className="shrink-0 mt-0.5">📌</span>
                 {notice.important && <span className="shrink-0 mt-0.5 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">중요</span>}
@@ -1217,7 +1231,10 @@ export default function WorkChatPage() {
                 <button onClick={() => setNoticeCollapsed((v) => !v)} title={noticeCollapsed ? "공지 펼치기" : "공지 접기"} className="text-amber-500 hover:text-amber-700 shrink-0">
                   {noticeCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
                 </button>
-                <button onClick={clearChannelNotice} title="공지 내리기" className="text-amber-400 hover:text-amber-700 shrink-0"><X size={14} /></button>
+                {(isAdmin || (notice.by && notice.by === myName)) && (
+                  <button onClick={clearChannelNotice} title="방 전체에서 내리기 (모두에게서 사라짐)" className="text-red-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
+                )}
+                <button onClick={hideNoticeForMe} title="나에게만 숨기기 (새 공지가 오면 다시 표시)" className="text-amber-400 hover:text-amber-700 shrink-0"><X size={14} /></button>
               </div>
             )}
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-1"

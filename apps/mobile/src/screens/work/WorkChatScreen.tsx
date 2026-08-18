@@ -28,6 +28,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { WorkMessage, WorkChannel } from "@shiftee/api";
 import * as Clipboard from "expo-clipboard";
+import * as SecureStore from "expo-secure-store";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import Avatar from "../../components/Avatar";
@@ -254,6 +255,20 @@ export default function WorkChatScreen() {
   // 채널 고정 공지
   const [notice, setNotice] = useState<{ content: string; imageUrl?: string | null; by: string | null; at: string | null; important?: boolean; unreadCount?: number } | null>(null);
   const [noticeCollapsed, setNoticeCollapsed] = useState(true); // 기본 접힘 — 긴 공지가 화면을 덮지 않게
+  // X = 나에게만 숨김(카톡 방식). 등록 시각을 기억해 같은 공지만 숨기고, 새 공지가 오면 다시 보인다.
+  const [noticeHidden, setNoticeHidden] = useState(false);
+  const noticeStamp = notice ? (notice.at ?? notice.content) : null;
+  useEffect(() => {
+    if (!noticeStamp) { setNoticeHidden(false); return; }
+    SecureStore.getItemAsync(`workNoticeHidden_${channelId}`)
+      .then((v) => setNoticeHidden(v === noticeStamp))
+      .catch(() => setNoticeHidden(false));
+  }, [channelId, noticeStamp]);
+  const hideNoticeForMe = () => {
+    if (!noticeStamp) return;
+    SecureStore.setItemAsync(`workNoticeHidden_${channelId}`, noticeStamp).catch(() => {});
+    setNoticeHidden(true);
+  };
 
   // 링크 모아보기
   const [linksOpen, setLinksOpen] = useState(false);
@@ -297,8 +312,9 @@ export default function WorkChatScreen() {
     }
   };
 
+  // 방 전체에서 내리기 — 모두의 화면에서 사라진다(관리자·등록자용)
   const removeNotice = () => {
-    Alert.alert("공지 내리기", "채팅방 공지를 내릴까요?", [
+    Alert.alert("방 전체에서 내리기", "모든 구성원의 화면에서 공지가 사라집니다. 내릴까요?", [
       { text: "취소", style: "cancel" },
       { text: "내리기", style: "destructive", onPress: async () => { try { await clearChannelNotice(channelId); setNotice(null); } catch {} } },
     ]);
@@ -495,6 +511,7 @@ export default function WorkChatScreen() {
   const [memberList, setMemberList] = useState<ChannelMemberInfo[]>([]);
   const [myId, setMyId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string>("");
+  const [myName, setMyName] = useState<string>("");
 
   // 멤버 추가 모달
   const [addOpen, setAddOpen] = useState(false);
@@ -684,7 +701,7 @@ export default function WorkChatScreen() {
     api.markChannelRead(channelId).catch(() => {});
     // @멘션 자동완성용: 이 채널 구성원 로드
     getChannelMembersList(channelId).then(setChanMembers).catch(() => {});
-    storage.getUser().then((u) => { setMyId(u?.id ?? null); setMyRole(u?.role ?? ""); }).catch(() => {});
+    storage.getUser().then((u) => { setMyId(u?.id ?? null); setMyRole(u?.role ?? ""); setMyName(u?.name ?? ""); }).catch(() => {});
     // 간단한 실시간: 4초마다 폴링
     const timer = setInterval(load, 4000);
     // 타이핑 표시: 2초마다 폴링
@@ -1281,8 +1298,8 @@ export default function WorkChatScreen() {
           ) : null}
         </View>
       )}
-      {/* 채널 고정 공지 */}
-      {notice && (
+      {/* 채널 고정 공지 — X 는 나에게만 숨김, 전체 내리기는 관리자·등록자만 */}
+      {notice && !noticeHidden && (
         <View style={[styles.noticeBar, notice.important && styles.noticeBarImportant]}>
           <Text style={styles.noticePin}>📌</Text>
           {notice.important ? (
@@ -1317,7 +1334,12 @@ export default function WorkChatScreen() {
           <TouchableOpacity onPress={() => setNoticeCollapsed((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginRight: 8 }}>
             <Ionicons name={noticeCollapsed ? "chevron-down" : "chevron-up"} size={16} color="#b45309" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={removeNotice} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          {(myRole === "ADMIN" || (notice.by && notice.by === myName)) && (
+            <TouchableOpacity onPress={removeNotice} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginRight: 8 }}>
+              <Ionicons name="trash-outline" size={15} color="#dc2626" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={hideNoticeForMe} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={16} color="#b45309" />
           </TouchableOpacity>
         </View>
