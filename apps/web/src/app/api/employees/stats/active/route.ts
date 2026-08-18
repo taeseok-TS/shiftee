@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
     const period = searchParams.get("period") || "month"; // month | year
     const dateParam = searchParams.get("date"); // "2026-05" | "2026"
 
+    // 관리자(서브 포함)는 본부 소속이라 기본 제외. 화면의 "관리자 포함" 체크 시에만 넣는다
+    const includeAdmins =
+      searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
+
     // 기본값: 현재 월/년
     let targetDate: Date;
     if (!dateParam) {
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
             },
             { isActive: true },
             { employmentStatus: "ACTIVE" },
-            { role: { not: "ADMIN" } },
+            ...(includeAdmins ? [] : [{ role: { not: "ADMIN" as const } }]),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },

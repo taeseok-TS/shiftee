@@ -27,9 +27,18 @@ export async function GET(request: NextRequest) {
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
+  // 관리자(서브 포함)는 본부 소속이라 기본적으로 명단에서 뺀다. 화면의 "관리자 포함" 체크 시에만 넣는다
+  const includeAdmins =
+    searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
+
   const [employees, balances] = await Promise.all([
     prisma.user.findMany({
-      where: { isActive: true, ...branchWhere },
+      where: {
+        isActive: true,
+        deletedAt: null,
+        ...(includeAdmins ? {} : { role: { not: "ADMIN" as const } }),
+        ...branchWhere,
+      },
       select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),

@@ -73,6 +73,8 @@ export default function EmployeeStatsPage() {
   );
 
   const [loading, setLoading] = useState(false);
+  // 관리자(서브 포함) 포함 여부 — 관리자는 본부 소속이라 기본 미포함
+  const [inclAdmins, setInclAdmins] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ResignedStatsMonthly['employees'][0] | null>(null);
 
@@ -106,12 +108,13 @@ export default function EmployeeStatsPage() {
   }
 
   // 재직자 현황 조회
-  async function fetchActiveStats() {
+  async function fetchActiveStats(inclOverride?: boolean) {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       params.set("period", activePeriod);
       params.set("date", activeDate);
+      if (inclOverride ?? inclAdmins) params.set("includeAdmins", "true");
 
       console.log("[fetchActiveStats] Calling API with params:", { activePeriod, activeDate });
       const res = await fetch(`/api/employees/stats/active?${params}`, {
@@ -198,11 +201,20 @@ export default function EmployeeStatsPage() {
     }
   }
 
-  // 초기 로드
+  // 초기 로드 — 관리자 포함 여부는 브라우저에 기억된 값을 그대로 쓴다
   useEffect(() => {
-    fetchActiveStats();
+    const saved = localStorage.getItem("activeStatsInclAdmins") === "1";
+    setInclAdmins(saved);
+    fetchActiveStats(saved);
     fetchResignedAnnual();
   }, []);
+
+  // "관리자 포함" 토글 — 켜는 즉시 다시 조회한다(조회 버튼을 또 누르지 않게)
+  const toggleInclAdmins = (v: boolean) => {
+    setInclAdmins(v);
+    localStorage.setItem("activeStatsInclAdmins", v ? "1" : "0");
+    fetchActiveStats(v);
+  };
 
   // 재직자 현황 기간 변경
   useEffect(() => {
@@ -279,7 +291,7 @@ export default function EmployeeStatsPage() {
                   className="px-3 py-2 border rounded-md text-sm"
                 />
               )}
-              <Button onClick={fetchActiveStats} disabled={loading}>
+              <Button onClick={() => fetchActiveStats()} disabled={loading}>
                 조회
               </Button>
               <Button
@@ -296,6 +308,15 @@ export default function EmployeeStatsPage() {
                 <Download size={16} />
                 엑셀 다운로드
               </Button>
+              <label className="flex items-center gap-1.5 pl-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-indigo-600 cursor-pointer"
+                  checked={inclAdmins}
+                  onChange={(e) => toggleInclAdmins(e.target.checked)}
+                />
+                관리자 포함
+              </label>
             </div>
           </div>
         </div>

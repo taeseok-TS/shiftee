@@ -1,16 +1,20 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 export default async function ManagerEmployeesPage() {
   const session = await getSession();
 
-  // MANAGER의 지점에 속한 직원만 조회
+  // 담당 지점 = 대표 지점 + 겸직 지점. session.branch 는 토큰에 박제된 값이라 단독으로 쓰지 않는다
+  const myBranches = session ? await getManagerBranches(session.userId) : [];
+
+  // 담당 지점에 속한 직원만 조회
   const employees = await prisma.user.findMany({
     where: {
       role: { not: "ADMIN" },
       isActive: true,
       deletedAt: null,
-      branch: session?.branch,
+      branch: { in: myBranches },
     },
     select: {
       id: true,
@@ -29,7 +33,7 @@ export default async function ManagerEmployeesPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-900">팀 직원 관리</h2>
-        <p className="text-gray-600 mt-2">{session?.branch} - 총 {employees.length}명</p>
+        <p className="text-gray-600 mt-2">{myBranches.join(" · ") || "담당 지점 없음"} - 총 {employees.length}명</p>
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">

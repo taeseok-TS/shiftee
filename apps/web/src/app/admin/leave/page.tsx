@@ -182,6 +182,16 @@ export default function LeavePage() {
   const permissions = useMemo(() => getPermissionSummary(role as UserRole), [role]);
   const isAdmin = permissions.canManageEmployees;
 
+  // 관리자(서브 포함) 포함 여부 — 관리자는 본부 소속이라 기본 미포함. 선택은 브라우저에 기억된다
+  const [inclAdmins, setInclAdmins] = useState(false);
+  useEffect(() => {
+    setInclAdmins(localStorage.getItem("leaveBalanceInclAdmins") === "1");
+  }, []);
+  const toggleInclAdmins = (v: boolean) => {
+    setInclAdmins(v);
+    localStorage.setItem("leaveBalanceInclAdmins", v ? "1" : "0");
+  };
+
   /* ── 데이터 로드 ── */
   const fetchRequests = useCallback(async () => {
     const p = new URLSearchParams();
@@ -193,10 +203,11 @@ export default function LeavePage() {
   }, [filterStatus, filterYear, filterMonth]);
 
   const fetchBalance = useCallback(async () => {
-    const data = await fetch("/api/leave/balance").then(r => r.json());
+    const q = inclAdmins ? "?includeAdmins=true" : "";
+    const data = await fetch(`/api/leave/balance${q}`).then(r => r.json());
     if (data.balance)  setBalance(data.balance);
     if (data.balances) setEmpBalances(data.balances);
-  }, []);
+  }, [inclAdmins]);
 
   const fetchMySteps = useCallback(async () => {
     const data = await fetch("/api/leave/my-approvals").then(r => r.json());
@@ -700,8 +711,17 @@ export default function LeavePage() {
           <TabsContent value="balance" className="mt-4">
             <Card>
               <CardHeader className="pb-2 flex-row items-center justify-between gap-2">
-                <CardTitle className="text-sm text-gray-600 font-medium">
-                  전체 {empBalances.length}명 · {CURRENT_YEAR}년 기준
+                <CardTitle className="text-sm text-gray-600 font-medium flex items-center gap-3">
+                  <span>전체 {empBalances.length}명 · {CURRENT_YEAR}년 기준</span>
+                  <label className="flex items-center gap-1.5 text-xs font-normal text-gray-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-indigo-600 cursor-pointer"
+                      checked={inclAdmins}
+                      onChange={e => toggleInclAdmins(e.target.checked)}
+                    />
+                    관리자 포함
+                  </label>
                 </CardTitle>
                 <div className="flex gap-2 shrink-0">
                   <Button variant="outline" size="sm" className="gap-1" onClick={recalcAll} disabled={recalcing}>
