@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { excludedBranchNames } from "@/lib/employee-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,6 +34,9 @@ export async function GET(request: NextRequest) {
     const branchFilter =
       session.role === "MANAGER" ? { in: myBranches } : undefined;
 
+    // 지점 관리에서 "통계 포함"을 끈 지점(본부·테스트지점)은 현황에서 뺀다
+    const excludedBranches = await excludedBranchNames();
+
     if (monthParam) {
       // 월간 조회
       const [year, month] = monthParam.split("-");
@@ -47,6 +51,9 @@ export async function GET(request: NextRequest) {
             { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
             { resignDate: { gte: monthStart, lte: monthEnd } },
             { role: { not: "ADMIN" } },
+            ...(excludedBranches.length > 0
+              ? [{ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }]
+              : []),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },
@@ -83,6 +90,9 @@ export async function GET(request: NextRequest) {
             { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
             { resignDate: { gte: yearStart, lte: yearEnd } },
             { role: { not: "ADMIN" } },
+            ...(excludedBranches.length > 0
+              ? [{ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }]
+              : []),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },

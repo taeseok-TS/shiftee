@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { countableEmployeeWhere } from "@/lib/employee-scope";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
 export async function GET() {
@@ -12,14 +13,10 @@ export async function GET() {
 
   // MANAGER는 담당 지점(대표+겸직), ADMIN(테스트용)은 전체
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
-  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
-  const memberWhere = {
-    role: { not: "ADMIN" as const },
-    isActive: true,
-    deletedAt: null,
-    employmentStatus: "ACTIVE" as const,
-    ...branchWhere,
-  };
+  // "통계 포함" 꺼진 지점(본부·테스트지점)은 팀 인원에서 뺀다
+  const memberWhere = await countableEmployeeWhere(
+    session.role === "MANAGER" ? { branches: myBranches } : {}
+  );
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { countableEmployeeWhere } from "@/lib/employee-scope";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -28,14 +29,10 @@ export async function GET(request: NextRequest) {
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchUserWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
-  // 집계 대상 = 재직 중인 직원만 (관리자·서브관리자는 인원 수에 넣지 않는다)
-  const countableUserWhere = {
-    role: { not: "ADMIN" as const },
-    isActive: true,
-    deletedAt: null,
-    employmentStatus: "ACTIVE" as const,
-    ...branchUserWhere,
-  };
+  // 집계 대상 = 지점 근무 직원만 (관리자 + "통계 포함" 꺼진 지점 제외)
+  const countableUserWhere = await countableEmployeeWhere(
+    session.role === "MANAGER" ? { branches: myBranches } : {}
+  );
 
   // 지점 내 활성 직원 ID 목록 (집계 기준)
   const branchUserIds = !selfOnly && session.role === "MANAGER"

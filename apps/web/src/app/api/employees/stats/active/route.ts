@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { excludedBranchNames } from "@/lib/employee-scope";
 import { endOfMonth, endOfYear } from "date-fns";
 
 export async function GET(request: NextRequest) {
@@ -30,6 +31,9 @@ export async function GET(request: NextRequest) {
     // 관리자(서브 포함)는 본부 소속이라 기본 제외. 화면의 "관리자 포함" 체크 시에만 넣는다
     const includeAdmins =
       searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
+
+    // 지점 관리에서 "통계 포함"을 끈 지점(본부·테스트지점)은 현황에서 뺀다
+    const excludedBranches = await excludedBranchNames();
 
     // 기본값: 현재 월/년
     let targetDate: Date;
@@ -84,6 +88,9 @@ export async function GET(request: NextRequest) {
             { isActive: true },
             { employmentStatus: "ACTIVE" },
             ...(includeAdmins ? [] : [{ role: { not: "ADMIN" as const } }]),
+            ...(excludedBranches.length > 0
+              ? [{ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }]
+              : []),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
           ],
         },

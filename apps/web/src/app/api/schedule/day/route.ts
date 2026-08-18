@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { countableEmployeeWhere } from "@/lib/employee-scope";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -20,11 +21,10 @@ export async function GET(request: NextRequest) {
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
-  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
-  // 현황 명단 = 재직 중인 직원만 (관리자·서브관리자 제외)
+  // 현황 명단 = 지점 근무 직원만 (관리자 + "통계 포함" 꺼진 지점 제외)
   const userWhere   = selfOnly
     ? { id: session.userId }
-    : { role: { not: "ADMIN" as const }, isActive: true, deletedAt: null, employmentStatus: "ACTIVE" as const, ...branchWhere };
+    : await countableEmployeeWhere(session.role === "MANAGER" ? { branches: myBranches } : {});
   const recordWhere = selfOnly ? { userId: session.userId } : {};
 
   const [employees, schedules, attendances, leaves] = await Promise.all([
