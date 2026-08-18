@@ -3,6 +3,7 @@ import { createReadStream } from "fs";
 import { Readable } from "stream";
 import fs from "fs/promises";
 import path from "path";
+import { getSession } from "@/lib/auth";
 
 // 업로드 파일은 요청 시점에 디스크에서 읽어야 하므로 정적 프리렌더 금지(항상 동적 실행)
 export const dynamic = "force-dynamic";
@@ -37,6 +38,16 @@ export async function GET(
   // 비공개 자산(회사 직인 등)은 URL로 절대 서빙하지 않음 — 서버 내부 코드만 접근
   if (decoded[0] === "private" || pathParts[0] === "private")
     return NextResponse.json({ error: "접근할 수 없습니다." }, { status: 403 });
+
+  // 계약 템플릿은 관리자만. 원래 URL만 알면 로그인 없이 받아갈 수 있었다.
+  // (signatures·contracts 는 앱이 헤더 없이 <Image>·WebView 로 직접 열고 있어 함께 막을 수 없다 —
+  //  앱 접근 경로를 정비한 뒤 차단할 것. work·avatars 도 같은 이유로 현행 유지.)
+  if (decoded[0] === "templates" || pathParts[0] === "templates") {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    if (session.role !== "ADMIN")
+      return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  }
 
   // 파일 전체를 메모리에 올리지 않고 stat만 확인 후 스트리밍 (500MB 영상 대응)
   async function tryStat(parts: string[]) {
