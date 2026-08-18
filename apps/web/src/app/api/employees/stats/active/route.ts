@@ -131,14 +131,13 @@ export async function GET(request: NextRequest) {
 
       byPosition[pos] = (byPosition[pos] || 0) + 1;
 
-      // 지점별 집계
-      if (emp.branch) {
-        if (!byBranch[emp.branch]) {
-          byBranch[emp.branch] = { total: 0 };
-        }
-        byBranch[emp.branch].total++;
-        byBranch[emp.branch][pos] = (byBranch[emp.branch][pos] || 0) + 1;
+      // 지점별 집계 — 소속 지점이 없으면 따로 묶는다(지점별 합계가 총원과 어긋나지 않게)
+      const bKey = emp.branch || "(지점 미지정)";
+      if (!byBranch[bKey]) {
+        byBranch[bKey] = { total: 0 };
       }
+      byBranch[bKey].total++;
+      byBranch[bKey][pos] = (byBranch[bKey][pos] || 0) + 1;
     });
 
     const total = employees.length;
