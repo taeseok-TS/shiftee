@@ -4,6 +4,12 @@ import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 
+// 퇴사일 당일은 아직 재직이다 — 기준은 KST 오늘 자정(날짜 필드는 UTC 자정 저장)
+function kstTodayMidnight() {
+  const k = new Date(Date.now() + 9 * 3600 * 1000);
+  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
+}
+
 export async function GET(request: NextRequest) {
   try {
     // 요청 헤더 로깅
@@ -43,7 +49,7 @@ export async function GET(request: NextRequest) {
         where: {
           AND: [
             // 재직상태가 RESIGNED 이거나, 퇴사일이 이미 지난 사람(앞으로의 퇴사일을 걸어둔 경우 자동 전환)
-            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lte: new Date() } }] },
+            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
             { resignDate: { gte: monthStart, lte: monthEnd } },
             { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
@@ -79,7 +85,7 @@ export async function GET(request: NextRequest) {
         where: {
           AND: [
             // 재직상태가 RESIGNED 이거나, 퇴사일이 이미 지난 사람(앞으로의 퇴사일을 걸어둔 경우 자동 전환)
-            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lte: new Date() } }] },
+            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
             { resignDate: { gte: yearStart, lte: yearEnd } },
             { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),

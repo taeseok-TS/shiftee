@@ -26,11 +26,12 @@ export async function GET(request: NextRequest) {
   // 앞으로의 퇴사일이면 그날까지는 계속 보인다 — 인수인계·마지막 근무일 처리를 위해.
   // ?includeResigned=true 면 퇴사자까지 포함(퇴직자 조회용).
   const includeResigned = new URL(request.url).searchParams.get("includeResigned") === "true";
-  const kstToday = new Date(Date.now() + 9 * 3600 * 1000);
-  const todayKstStart = new Date(Date.UTC(kstToday.getUTCFullYear(), kstToday.getUTCMonth(), kstToday.getUTCDate()) - 9 * 3600 * 1000);
+  // 날짜 필드는 UTC 자정으로 저장되므로 기준도 같은 형식으로 만든다(KST 오늘의 자정).
+  const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
+  const todayMidnight = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
   const resignWhere = includeResigned
     ? {}
-    : { OR: [{ resignDate: null }, { resignDate: { gte: todayKstStart } }] };
+    : { OR: [{ resignDate: null }, { resignDate: { gte: todayMidnight } }] };
 
   const employees = await prisma.user.findMany({
     where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere, ...resignWhere },

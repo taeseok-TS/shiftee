@@ -34,11 +34,14 @@ export async function PATCH(
   const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason } = body;
 
   // 퇴사일 — 빈 문자열/null 이면 해제(재직 복귀), 값이 있으면 그날짜로 설정.
-  // 지난 날짜면 목록에서 자동으로 빠지고, 앞으로의 날짜면 그날까지는 계속 보인다(조회 시 판정).
+  // 입사일·생일과 같이 UTC 자정으로 저장한다(KST 오프셋을 붙이면 화면에서 하루 앞당겨 보인다).
   const resignVal =
-    resignDate === undefined ? undefined : resignDate ? new Date(`${String(resignDate).slice(0, 10)}T00:00:00+09:00`) : null;
+    resignDate === undefined ? undefined : resignDate ? new Date(`${String(resignDate).slice(0, 10)}T00:00:00.000Z`) : null;
   if (resignVal !== undefined && resignVal !== null && isNaN(resignVal.getTime()))
     return NextResponse.json({ error: "퇴사일 형식이 올바르지 않습니다." }, { status: 400 });
+  // KST 오늘의 자정(같은 형식). 퇴사일 당일은 아직 재직이므로 "이 날짜보다 이전"이어야 퇴직이다.
+  const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
+  const todayMidnight = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
 
   // 변경 전 값(감사 로그용)
   const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });
@@ -118,7 +121,7 @@ export async function PATCH(
       employmentStatus:
         resignVal === undefined
           ? undefined
-          : resignVal && resignVal.getTime() <= Date.now()
+          : resignVal && resignVal < todayMidnight
           ? "RESIGNED"
           : "ACTIVE",
     },
