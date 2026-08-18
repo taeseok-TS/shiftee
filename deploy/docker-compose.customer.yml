@@ -50,6 +50,9 @@ services:
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
+      # 발신자 표시. email.ts 가 From 헤더에 그대로 쓰므로 빠지면 안 된다.
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-큐브티}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-${SMTP_USER:-}}
     ports:
       - "${WEB_PORT:?WEB_PORT 가 .env 에 없습니다}:3000"
     volumes:

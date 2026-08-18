@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testSMTPConnection, sendLeaveApprovalRequest } from "@/lib/email";
+import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getAppUrl } from "@/lib/app-url";
 
 /**
  * SMTP 연결 테스트 및 테스트 이메일 발송
  * GET /api/test/smtp - 연결만 테스트
  * POST /api/test/smtp - 테스트 이메일 발송
+ *
+ * ⚠️ 메인 관리자 전용. 인증이 없으면 임의 주소로 메일을 쏠 수 있는 통로가 된다.
  */
+async function guard() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (!(await isSuperAdmin(session.userId)))
+    return NextResponse.json({ error: "메인 관리자만 접근 가능합니다." }, { status: 403 });
+  return null;
+}
 
 export async function GET() {
+  const denied = await guard();
+  if (denied) return denied;
+
   try {
     const isConnected = await testSMTPConnection();
 
@@ -38,6 +52,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await guard();
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { recipientEmail, testType = "leave" } = body;
@@ -59,7 +76,7 @@ export async function POST(request: NextRequest) {
         "2026-06-01",
         "2026-06-03",
         "가족 행사",
-        "http://localhost:3000"
+        getAppUrl()
       );
     }
 

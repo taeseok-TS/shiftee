@@ -22,14 +22,23 @@ interface EmailOptions {
  */
 async function sendEmail(options: EmailOptions): Promise<void> {
   try {
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
       console.warn("⚠️ SMTP credentials not configured. Email not sent.");
       console.warn(`To: ${options.to}, Subject: ${options.subject}`);
       return;
     }
 
+    // FROM_* 가 비면 "undefined <undefined>" 로 나간다. 발신 계정으로 대체하되,
+    // Resend 처럼 SMTP_USER 가 이메일이 아닌 경우(사용자명이 "resend")까지 걸러낸다.
+    const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "";
+    if (!fromEmail.includes("@")) {
+      console.warn(`⚠️ SMTP_FROM_EMAIL 이 유효한 주소가 아닙니다 ("${fromEmail}"). Email not sent.`);
+      console.warn(`To: ${options.to}, Subject: ${options.subject}`);
+      return;
+    }
+
     const result = await transporter.sendMail({
-      from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
+      from: `${process.env.SMTP_FROM_NAME || "큐브티"} <${fromEmail}>`,
       ...options,
     });
 
@@ -67,7 +76,8 @@ export async function sendContractNotification(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;
@@ -110,7 +120,8 @@ export async function sendApprovalRequest(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;
@@ -151,7 +162,8 @@ export async function sendContractCompletion(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;
@@ -197,7 +209,8 @@ export async function sendLeaveApprovalRequest(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;
@@ -241,7 +254,8 @@ export async function sendLeaveApprovalCompletion(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;
@@ -288,7 +302,8 @@ export async function sendLeaveRejectionNotification(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하지 마세요.
+        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
+        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
   `;

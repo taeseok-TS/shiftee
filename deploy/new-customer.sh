@@ -77,11 +77,14 @@ WEB_PORT=$PORT
 APP_URL=https://$DOMAIN
 COOKIE_SECURE=true
 
-# 메일 발송이 필요하면 채우세요
+# 메일 발송이 필요하면 채우세요 (전자계약 서명 요청은 메일로 나갑니다)
 SMTP_HOST=
-SMTP_PORT=
+SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
+# 수신자에게 보이는 발신자. 비우면 SMTP_USER 주소로 나갑니다.
+SMTP_FROM_NAME=큐브티
+SMTP_FROM_EMAIL=
 EOF
 chmod 600 "$DIR/.env"
 echo "  $DIR/.env (600)"
