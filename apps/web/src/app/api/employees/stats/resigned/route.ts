@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
       const resignedEmployees = await prisma.user.findMany({
         where: {
           AND: [
-            { employmentStatus: "RESIGNED" },
+            // 재직상태가 RESIGNED 이거나, 퇴사일이 이미 지난 사람(앞으로의 퇴사일을 걸어둔 경우 자동 전환)
+            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lte: new Date() } }] },
             { resignDate: { gte: monthStart, lte: monthEnd } },
             { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),
@@ -77,7 +78,8 @@ export async function GET(request: NextRequest) {
       const allResigned = await prisma.user.findMany({
         where: {
           AND: [
-            { employmentStatus: "RESIGNED" },
+            // 재직상태가 RESIGNED 이거나, 퇴사일이 이미 지난 사람(앞으로의 퇴사일을 걸어둔 경우 자동 전환)
+            { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lte: new Date() } }] },
             { resignDate: { gte: yearStart, lte: yearEnd } },
             { role: { not: "ADMIN" } },
             ...(branchFilter ? [{ branch: branchFilter }] : []),

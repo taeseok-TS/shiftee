@@ -113,6 +113,14 @@ export async function PATCH(
       empNo: empNoVal,
       resignDate: resignVal,
       resignReason: resignDate === undefined ? undefined : resignDate ? (resignReason ?? undefined) : null,
+      // 재직상태도 함께 맞춘다 — 퇴직자 현황이 이 값으로 조회하기 때문.
+      // 앞으로의 퇴사일이면 아직 재직이므로 ACTIVE 로 두고, 날짜가 지나면 조회 시점에 퇴직자로 잡힌다.
+      employmentStatus:
+        resignVal === undefined
+          ? undefined
+          : resignVal && resignVal.getTime() <= Date.now()
+          ? "RESIGNED"
+          : "ACTIVE",
     },
   });
 
