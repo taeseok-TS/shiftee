@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string };
+type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null };
 type LogRow = { id: string; actorName: string; action: string; targetName: string | null; detail: string | null; createdAt: string };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -61,16 +61,25 @@ export default function AdminSettingsPage() {
     }
   };
 
-  // 서브 관리자 정보 수정 (이름·연락처·비밀번호 재설정)
+  // 서브 관리자 정보 수정 (이름·연락처·입사일·생일·직책·직급·비밀번호 재설정)
   const [editAdmin, setEditAdmin] = useState<AdminRow | null>(null);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editHireDate, setEditHireDate] = useState("");
+  const [editBirthDate, setEditBirthDate] = useState("");
+  const [editPosition, setEditPosition] = useState("");
+  const [editJobGroup, setEditJobGroup] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [savingAdmin, setSavingAdmin] = useState(false);
 
   const openEditAdmin = (a: AdminRow) => {
     setEditName(a.name);
     setEditPhone(a.phone || "");
+    // 날짜는 UTC 자정 저장이라 ISO 앞 10자리가 곧 표시할 날짜다
+    setEditHireDate(a.hireDate ? a.hireDate.slice(0, 10) : "");
+    setEditBirthDate(a.birthDate ? a.birthDate.slice(0, 10) : "");
+    setEditPosition(a.position || "");
+    setEditJobGroup(a.jobGroup || "");
     setEditPassword("");
     setEditAdmin(a);
   };
@@ -86,6 +95,10 @@ export default function AdminSettingsPage() {
         body: JSON.stringify({
           name: editName.trim(),
           phone: editPhone.trim() || null,
+          hireDate: editHireDate || null,
+          birthDate: editBirthDate || null,
+          position: editPosition.trim() || null,
+          jobGroup: editJobGroup.trim() || null,
           ...(editPassword.trim() ? { password: editPassword.trim() } : {}), // 비우면 비밀번호 유지
         }),
       });
@@ -205,6 +218,24 @@ export default function AdminSettingsPage() {
               <div>
                 <Label>연락처</Label>
                 <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="010-0000-0000" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>입사일</Label>
+                  <Input type="date" value={editHireDate} onChange={(e) => setEditHireDate(e.target.value)} />
+                </div>
+                <div>
+                  <Label>생일 <span className="text-xs text-gray-400">(봇 축하용)</span></Label>
+                  <Input type="date" value={editBirthDate} onChange={(e) => setEditBirthDate(e.target.value)} />
+                </div>
+                <div>
+                  <Label>직책</Label>
+                  <Input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="예: 팀장" />
+                </div>
+                <div>
+                  <Label>직급</Label>
+                  <Input value={editJobGroup} onChange={(e) => setEditJobGroup(e.target.value)} placeholder="예: 과장" />
+                </div>
               </div>
               <div>
                 <Label>새 비밀번호 <span className="text-xs text-gray-400">(비우면 기존 유지 · 8자 이상)</span></Label>
