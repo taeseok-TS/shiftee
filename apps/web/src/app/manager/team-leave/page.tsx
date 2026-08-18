@@ -102,6 +102,17 @@ export default function ManagerApprovalsPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  // 메일의 "승인하기" 로 들어오면(?id=…) 그 건으로 스크롤·강조한다
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("id");
+    if (id) setHighlightId(id);
+  }, []);
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById("leave-" + highlightId);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("leave");
 
@@ -355,7 +366,11 @@ export default function ManagerApprovalsPage() {
                       const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
 
                       return (
-                        <tr key={step.id} className="hover:bg-gray-50">
+                        <tr
+                          key={step.id}
+                          id={"leave-" + req.id}
+                          className={highlightId === req.id ? "bg-amber-50 ring-2 ring-amber-300" : "hover:bg-gray-50"}
+                        >
                           <td className="px-6 py-4">
                             <div className="font-medium text-gray-900">{req.user.name}</div>
                             <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
