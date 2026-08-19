@@ -124,25 +124,47 @@ rm -rf /opt/cubetee/customers/rolltest                     # 디렉터리는 일
 
 ## 운영
 
-### 업데이트 배포 (전 고객사)
+### 업데이트 배포
+
+`update-customers.sh` 하나로 끝난다. **반드시 한 곳(`--only`)에서 먼저 확인하고 전체(`--all`)로 넘어간다.**
 
 ```bash
-docker build -t cubetee:1.1.0 /opt/qubetee
-for d in /opt/cubetee/customers/*/; do
-  code=$(basename "$d")
-  sed -i "s|^CUBETEE_IMAGE=.*|CUBETEE_IMAGE=cubetee:1.1.0|" "$d/.env"
-  (cd "$d" && docker compose -p "cubetee-$code" -f docker-compose.customer.yml up -d web)
-done
+# 0) 새 이미지 준비 — 직영을 방금 배포했다면 재빌드 없이 태그만 붙이면 된다
+docker tag qubetee-web:latest cubetee:1.1.0
+
+# 1) 무엇이 바뀔지만 본다
+/opt/qubetee/deploy/update-customers.sh --image cubetee:1.1.0 --all --dry-run
+
+# 2) 한 곳에서 확인
+/opt/qubetee/deploy/update-customers.sh --image cubetee:1.1.0 --only acme
+
+# 3) 문제 없으면 전체
+/opt/qubetee/deploy/update-customers.sh --image cubetee:1.1.0 --all
 ```
 
-**스키마가 바뀌었으면** 각 인스턴스에 `db push` 를 먼저 돌린다.
+고객사마다 이 순서로 돈다.
 
-```bash
-(cd "$d" && docker compose -p "cubetee-$code" -f docker-compose.customer.yml \
-   run --rm --no-deps -T web pnpm exec prisma db push --skip-generate)
-```
+| 단계 | 내용 |
+|---|---|
+| 1 | **DB 백업** → `backup/pre-update-<시각>.sql.gz` (gzip 무결성까지 확인) |
+| 2 | **설정 파일 갱신** — compose·init-tenant 를 최신본으로. `.env`(비밀값)는 건드리지 않는다 |
+| 3 | 이미지 태그 교체 |
+| 4 | `prisma db push` — 데이터가 지워질 변경이면 prisma 가 스스로 멈춘다 |
+| 5 | 컨테이너 교체 |
+| 6 | **헬스체크** (최대 60초, `/login` 200) |
 
-> ⚠️ **한 곳에서 먼저 검증하고 전체에 돌릴 것.** 회귀 테스트가 아직 없다(과제목록 P1-6).
+4·5·6 중 어디서든 실패하면 **그 고객사를 이전 이미지로 되돌리고 전체를 중단**한다(뒤 고객사는 손대지 않는다).
+DB 는 자동 복구하지 않고 백업 위치만 알려준다 — 되돌릴지는 사람이 판단할 일이다.
+
+**2단계가 중요하다.** compose 파일은 설치 당시 복사본이라, 새 환경변수가 추가된 버전을 배포하면서
+이 파일을 갱신하지 않으면 그 값이 컨테이너에 주입되지 않는다(직영은 되는데 고객사만 안 되는 전형적인 자리).
+
+옵션: `--dry-run`(확인만) `--skip-db-push`(스키마 무변경) `--no-backup`(권장하지 않음)
+
+**검증(2026-08-18)**: 설치 → 업데이트 → 데이터 보존·이미지 교체·로그인 200 확인,
+일부러 잘못된 이미지를 넣어 **헬스체크 실패 → 자동 롤백 → 서비스 200 복구**까지 실측. 직영 무영향.
+
+> 아직 기능 회귀 테스트는 없다. 업데이트 후 고객사 화면을 한 번은 눈으로 볼 것.
 
 ### 백업
 
