@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { botSendDM } from "@/lib/bot";
+import { getAppUrl } from "@/lib/app-url";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -21,7 +23,7 @@ export async function POST(
 
   const contracts = await prisma.contract.findMany({
     where: { bundleId },
-    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true },
+    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true },
   });
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
@@ -78,6 +80,27 @@ export async function POST(
 
   if (sent === 0)
     return NextResponse.json({ error: "발송할 문서가 없습니다. 모든 문서가 이미 서명 완료되었습니다." }, { status: 400 });
+
+  // 외부 패키지 발송 → 결재선의 내부 결재자들에게 봇 DM 으로 서명 링크 전달
+  // (발송자는 PC, 문자 보낼 현장 관리자는 폰 — 채팅의 중계 링크 탭 → 문자 앱 자동 오픈)
+  if (externalSignToken) {
+    const rep = contracts.find((c) => c.externalName && !c.employeeOnly);
+    const internalIds = approverIds.filter((a: string) => a !== "EXTERNAL");
+    if (rep && internalIds.length > 0) {
+      const base = getAppUrl();
+      const msg = [
+        `📩 외부 계약 발송 — ${rep.externalName} 님${rep.externalPhone ? ` (${rep.externalPhone})` : ""}`,
+        `「${rep.title}」 외 ${sent - 1}건 (패키지 — 링크 하나로 전 문서 서명)`,
+        ``,
+        `아래 링크를 누르면 문자 앱이 열립니다(내용 자동 입력, 보내기만 누르면 됨):`,
+        `${base}/sms-relay/${externalSignToken}`,
+        ``,
+        `서명 링크만 직접 전달하려면:`,
+        `${base}/sign/${externalSignToken}`,
+      ].join("\n");
+      for (const uid of internalIds) await botSendDM(uid, msg);
+    }
+  }
 
   return NextResponse.json({ success: true, sent, externalSignToken });
 }

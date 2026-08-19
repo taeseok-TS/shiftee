@@ -2,6 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl } from "@/lib/app-url";
+import { botSendDM } from "@/lib/bot";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import type { Contract } from "@shiftee/api";
@@ -260,6 +261,30 @@ export async function PATCH(
       },
     },
   });
+
+  // 외부 계약 발송 → 결재선의 내부 결재자들에게 큐브티워크 봇 DM 으로 서명 링크 전달.
+  // 발송자는 PC 앞이어도, 문자를 실제로 보낼 현장 관리자는 폰을 들고 있다 —
+  // 채팅의 문자 중계 링크(https)를 탭하면 문자 앱이 번호·본문 채워진 채 열린다.
+  if (status === "SENT" && contract.externalName) {
+    const extStep = updated.approvalLine?.steps.find(s => !s.approverId && s.signToken);
+    const internalIds = (updated.approvalLine?.steps || [])
+      .map(s => s.approverId)
+      .filter((v): v is string => !!v);
+    if (extStep?.signToken && internalIds.length > 0) {
+      const base = getAppUrl();
+      const msg = [
+        `📩 외부 계약 발송 — ${contract.externalName} 님${contract.externalPhone ? ` (${contract.externalPhone})` : ""}`,
+        `「${updated.title}」`,
+        ``,
+        `아래 링크를 누르면 문자 앱이 열립니다(내용 자동 입력, 보내기만 누르면 됨):`,
+        `${base}/sms-relay/${extStep.signToken}`,
+        ``,
+        `서명 링크만 직접 전달하려면:`,
+        `${base}/sign/${extStep.signToken}`,
+      ].join("\n");
+      for (const uid of internalIds) await botSendDM(uid, msg);
+    }
+  }
 
   // 상태가 SENT로 변경되면 첫 번째 승인 단계의 담당자에게 알림 이메일 발송
   if (status === "SENT") {
