@@ -154,6 +154,9 @@ export default function ContractsPage() {
   const [externalMode, setExternalMode] = useState(false); // 외부(미가입) 계약자 — 게스트 서명 링크 발송
   const [extBundleMode, setExtBundleMode] = useState(false); // 외부 채용 패키지 — 계약서 + 비밀유지 + 개인정보동의서
   const [externalForm, setExternalForm] = useState({ name: "", phone: "" });
+  // 발송 직후 서명 링크 안내 다이얼로그 — 링크를 찾아 헤매지 않게 그 자리에서 복사·문자 전송
+  const [extLinkOpen, setExtLinkOpen] = useState(false);
+  const [extLink, setExtLink] = useState<{ url: string; name: string; phone: string | null }>({ url: "", name: "", phone: null });
   const [employeeSearchText, setEmployeeSearchText] = useState("");
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -955,6 +958,21 @@ export default function ContractsPage() {
     fetchContracts();
   }
 
+  // 폰의 기본 문자 앱을 수신번호·본문이 채워진 채로 연다(법인폰 요금제로 발송 — 서버 발송 아님).
+  // iOS 는 sms:번호&body=, 그 외는 sms:번호?body= 형식을 쓴다.
+  function openSmsApp(phone: string, text: string) {
+    const num = phone.replace(/[^0-9+]/g, "");
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    window.location.href = `sms:${num}${isIos ? "&" : "?"}body=${encodeURIComponent(text)}`;
+  }
+
+  function smsBody(name: string, url: string) {
+    return `[큐브티 전자계약]
+${name}님, 계약서가 도착했습니다.
+아래 링크에서 내용 확인 후 서명해 주세요.
+${url}`;
+  }
+
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
 
@@ -968,7 +986,15 @@ export default function ContractsPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
       if (sendTarget?.externalName) {
-        toast.success(`패키지 ${data.sent}종 발송됨 — 결재 현황에서 서명 링크를 복사해 전달하세요. 링크 하나로 3종을 함께 서명합니다.`, { duration: 8000 });
+        toast.success(`패키지 ${data.sent}종 발송됨 — 링크 하나로 전 문서를 함께 서명합니다.`);
+        if (data.externalSignToken) {
+          setExtLink({
+            url: `${window.location.origin}/sign/${data.externalSignToken}`,
+            name: sendTarget.externalName,
+            phone: sendTarget.externalPhone || null,
+          });
+          setExtLinkOpen(true);
+        }
       } else {
         toast.success(`패키지 ${data.sent}종 발송됨`);
       }
@@ -987,7 +1013,18 @@ export default function ContractsPage() {
     if (!res.ok) { toast.error(data.error); return; }
     // 재발송 시 결재라인이 새로 만들어져 외부 서명 링크도 재생성됨 — 기존 링크는 무효
     if (sendTarget?.externalName) {
-      toast.success("계약서 발송됨 — 서명 링크가 새로 생성되었습니다. 결재 현황에서 새 링크를 복사해 전달하세요.", { duration: 8000 });
+      toast.success("계약서 발송됨 — 서명 링크가 새로 생성되었습니다(기존 링크는 무효).");
+      const extStep = (data.contract?.approvalLine?.steps || []).find(
+        (st: { approverId?: string | null; signToken?: string | null }) => !st.approverId && st.signToken
+      );
+      if (extStep?.signToken) {
+        setExtLink({
+          url: `${window.location.origin}/sign/${extStep.signToken}`,
+          name: sendTarget.externalName,
+          phone: sendTarget.externalPhone || null,
+        });
+        setExtLinkOpen(true);
+      }
     } else {
       toast.success("계약서 발송됨");
     }
@@ -1097,7 +1134,8 @@ export default function ContractsPage() {
                         <Input placeholder="예: 010-1234-5678" value={externalForm.phone}
                           onChange={e => setExternalForm(p => ({ ...p, phone: e.target.value }))} /></div>
                       <p className="text-[11px] text-violet-700">
-                        발송 후 <b>서명 링크를 복사해 카톡·문자로 전달</b>하면, 외부 계약자가 가입 없이 문서를 확인하고 서명합니다.
+                        발송하면 <b>서명 링크가 바로 표시</b>됩니다 — 복사하거나, 폰에서는 [문자로 보내기]로 전달하세요.
+                        <b> 문자가 자동으로 발송되지는 않습니다.</b> 외부 계약자는 가입 없이 링크로 서명합니다.
                         생년월일·주소 등 계약서에 필요한 정보는 아래 입력란에 직접 입력하세요.
                       </p>
                     </div>
@@ -2367,6 +2405,33 @@ export default function ContractsPage() {
       </Dialog>
 
       {/* 결재/서명 회수 확인 다이얼로그 */}
+      {/* 외부 계약 발송 직후 — 서명 링크 안내 (문자 자동 발송은 없다. 여기서 복사하거나 폰 문자 앱으로 보낸다) */}
+      <Dialog open={extLinkOpen} onOpenChange={setExtLinkOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>서명 링크 전달</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              <b>{extLink.name}</b> 님께 아래 링크를 전달하면 가입 없이 서명할 수 있습니다.
+              {extLink.phone && <> ({extLink.phone})</>}
+            </p>
+            <div className="rounded-md border bg-gray-50 p-2.5 text-xs break-all select-all">{extLink.url}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" className="w-full"
+                onClick={() => navigator.clipboard.writeText(extLink.url).then(() => toast.success("링크가 복사되었습니다. 카톡·문자에 붙여넣어 전달하세요."))}>
+                🔗 링크 복사
+              </Button>
+              <Button type="button" variant="outline" className="w-full" disabled={!extLink.phone}
+                onClick={() => extLink.phone && openSmsApp(extLink.phone, smsBody(extLink.name, extLink.url))}>
+                💬 문자로 보내기
+              </Button>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              문자는 자동으로 발송되지 않습니다. [문자로 보내기]는 <b>폰에서 눌렀을 때</b> 문자 앱이 내용이 채워진 채 열립니다(발송은 내 번호로 나갑니다). PC에서는 [링크 복사]를 쓰세요. 링크 유효기간은 14일입니다.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={revokeConfirmOpen} onOpenChange={setRevokeConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -2537,13 +2602,24 @@ export default function ContractsPage() {
                         approvalDetailsTarget.employeeOnly && approvalDetailsTarget.bundleId ? (
                           <p className="mt-1 text-[11px] text-gray-400">패키지 대표 계약서의 서명 링크로 함께 서명됩니다 — 이 문서의 링크는 전달하지 마세요.</p>
                         ) : (
-                        <button type="button" className="mt-1 text-xs text-violet-600 underline"
-                          onClick={() => {
-                            const url = `${window.location.origin}/sign/${(step as { signToken?: string }).signToken}`;
-                            navigator.clipboard.writeText(url).then(() => toast.success("서명 링크가 복사되었습니다. 카톡·문자로 전달하세요."));
-                          }}>
-                          🔗 서명 링크 복사
-                        </button>
+                        <span className="mt-1 flex items-center gap-3">
+                          <button type="button" className="text-xs text-violet-600 underline"
+                            onClick={() => {
+                              const url = `${window.location.origin}/sign/${(step as { signToken?: string }).signToken}`;
+                              navigator.clipboard.writeText(url).then(() => toast.success("서명 링크가 복사되었습니다. 카톡·문자로 전달하세요."));
+                            }}>
+                            🔗 서명 링크 복사
+                          </button>
+                          {approvalDetailsTarget.externalPhone && (
+                            <button type="button" className="text-xs text-violet-600 underline"
+                              onClick={() => {
+                                const url = `${window.location.origin}/sign/${(step as { signToken?: string }).signToken}`;
+                                openSmsApp(approvalDetailsTarget.externalPhone!, smsBody(approvalDetailsTarget.externalName || "계약자", url));
+                              }}>
+                              💬 문자로 보내기
+                            </button>
+                          )}
+                        </span>
                         )
                       )}
                     </div>

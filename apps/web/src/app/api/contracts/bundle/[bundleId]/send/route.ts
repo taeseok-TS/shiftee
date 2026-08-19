@@ -38,6 +38,9 @@ export async function POST(
   const tokenExpiresAt = new Date(Date.now() + 14 * 24 * 3600 * 1000);
 
   let sent = 0;
+  // 외부 패키지의 대표 계약서(일반 문서) 새 토큰 — 발송 직후 화면에서 바로 복사·문자 전송할 수 있게 응답에 담는다.
+  // 관리자 전용 라우트라 노출해도 GET /api/contracts 의 ADMIN 노출 범위와 같다.
+  let externalSignToken: string | null = null;
   for (const c of contracts) {
     // 서명 완료 문서만 보존 — 그 외에는 재발송 허용(결재라인·게스트 토큰 재생성, 만료 링크 복구 경로)
     if (c.status === "SIGNED") continue;
@@ -57,6 +60,11 @@ export async function POST(
             : { approverId: approverId as string | null, order: idx + 1, status };
         });
 
+    if (c.externalName && !c.employeeOnly) {
+      const ext = stepsData.find((st) => st.signToken);
+      if (ext?.signToken) externalSignToken = ext.signToken;
+    }
+
     await prisma.contractApprovalLine.deleteMany({ where: { contractId: c.id } });
     await prisma.contractApprovalLine.create({
       data: {
@@ -71,5 +79,5 @@ export async function POST(
   if (sent === 0)
     return NextResponse.json({ error: "발송할 문서가 없습니다. 모든 문서가 이미 서명 완료되었습니다." }, { status: 400 });
 
-  return NextResponse.json({ success: true, sent });
+  return NextResponse.json({ success: true, sent, externalSignToken });
 }
