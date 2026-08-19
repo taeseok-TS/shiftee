@@ -9,7 +9,7 @@
 #   ./update-customers.sh --image cubetee:1.1.0 --all
 #
 # 하는 일 (고객사마다): DB 백업 → 설정파일 갱신 → 이미지 태그 교체 →
-#                       스키마 반영 → 컨테이너 교체 → 헬스체크
+#                       스키마 반영 → 컨테이너 교체 → 헬스체크 → 기능 점검
 # 어느 단계든 실패하면 그 고객사는 이전 이미지로 되돌리고 전체를 중단한다.
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -17,7 +17,7 @@ set -euo pipefail
 BASE_DIR="${CUBETEE_BASE_DIR:-/opt/cubetee/customers}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-IMAGE=""; ONLY=""; ALL=0; DRY=0; SKIP_PUSH=0; NO_BACKUP=0
+IMAGE=""; ONLY=""; ALL=0; DRY=0; SKIP_PUSH=0; NO_BACKUP=0; SKIP_SMOKE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run)   DRY=1;      shift ;;
     --skip-db-push) SKIP_PUSH=1; shift ;;
     --no-backup) NO_BACKUP=1; shift ;;
+    --skip-smoke) SKIP_SMOKE=1; shift ;;
     -h|--help)
       sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -176,6 +177,19 @@ for CODE in "${TARGETS[@]}"; do
     die "[$CODE] 헬스체크 실패"
   fi
   ok "HTTP 200"
+
+  # ── 7) 기능 점검 ───────────────────────────────────────────
+  # 헬스체크는 "서버가 살아있다"까지만 본다. 그 뒤 화면들이 500 을 내도 통과한다.
+  if [[ $SKIP_SMOKE -eq 0 && -x "$HERE/smoke-test.sh" ]]; then
+    step "[$CODE] 기능 점검"
+    if "$HERE/smoke-test.sh" --code "$CODE" > /tmp/smoke-$CODE.log 2>&1; then
+      ok "$(grep -oE '통과 — [0-9]+ 개' /tmp/smoke-$CODE.log | head -1)"
+    else
+      grep -E '✗|실패 항목' /tmp/smoke-$CODE.log | sed 's/^/    /'
+      rollback
+      die "[$CODE] 기능 점검 실패 — 전체 결과: /tmp/smoke-$CODE.log"
+    fi
+  fi
 
   rm -f "$DIR/.env.bak-$STAMP"
   DONE+=("$CODE")
