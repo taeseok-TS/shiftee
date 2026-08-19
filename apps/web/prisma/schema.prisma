@@ -278,6 +278,8 @@ model Contract {
   versions         ContractVersion[]
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
+
+  @@index([bundleId])
 }
 
 enum ContractType {
@@ -311,7 +313,8 @@ model ContractApprovalStep {
   approvalLine   ContractApprovalLine @relation(fields: [approvalLineId], references: [id], onDelete: Cascade)
   order          Int
   approverId     String? // null = 외부(미가입) 서명 단계
-  approver       User?                @relation("ContractApprover", fields: [approverId], references: [id])
+  // 운영 DB가 RESTRICT — 결재 이력이 있는 직원은 하드 삭제를 막는다(고객사도 동일 동작이어야 함)
+  approver       User?                @relation("ContractApprover", fields: [approverId], references: [id], onDelete: Restrict)
   externalName   String? // 외부 서명자 이름 (approverId null인 단계)
   signToken      String?              @unique // 외부 서명 링크 토큰
   tokenExpiresAt DateTime? // 외부 서명 링크 만료 시각
