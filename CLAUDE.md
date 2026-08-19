@@ -76,7 +76,7 @@ Next.js 16 (App Router) + Prisma + PostgreSQL + Expo(SDK 54) React Native 모노
 
 ```
 apps/web       — Next.js 웹 (관리자/원장/직원 대시보드 + 큐브티워크 메신저)
-apps/mobile    — Expo RN 앱 (iOS TestFlight + Android APK, 운영 중)
+apps/mobile    — Expo RN 앱 (App Store·Google Play 정식 출시 2026-08-19, 운영 중)
 packages/api   — 웹·앱 공유 API 클라이언트 타입 (@shiftee/api, tsc dist 빌드 필요)
 packages/db    — (레거시) 실제 활성 스키마는 apps/web/prisma/schema.prisma
 ```
@@ -96,6 +96,9 @@ packages/db    — (레거시) 실제 활성 스키마는 apps/web/prisma/schema
   cd /opt/qubetee && docker compose build --no-cache web && docker compose up -d --force-recreate web
   ```
   빌드가 SSH 세션보다 오래 걸리므로 `nohup sh -c "... && echo BUILD_OK >> /tmp/b.log" &` 후 폴링.
+  **배포 직후 캐시 정리 필수**: `docker builder prune -af` — `--no-cache` 빌드 1회당 약 4GB 쌓인다.
+  하루 8회 배포로 37.9GB까지 차서 디스크 80% 경고가 떴다(2026-08-18). 정리 cron 은 새벽 4시 1회뿐이라
+  그 사이 배포가 몰리면 하루 만에 찬다.
 - **DB(운영)**: 컨테이너 `qubetee-db-1`, user `postgres`, db `qubetee`
   ```bash
   docker exec -i qubetee-db-1 psql -U postgres -d qubetee
