@@ -14,7 +14,8 @@ BASE_DIR="${CUBETEE_BASE_DIR:-/opt/cubetee/customers}"
 IMAGE="${CUBETEE_IMAGE:-cubetee:latest}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CODE=""; DOMAIN=""; PORT=""; EMAIL=""; NAME="관리자"; BRANCH=""
+BASE_DOMAIN="${CUBETEE_BASE_DOMAIN:-cubetee.co.kr}"
+CODE=""; DOMAIN=""; PORT=""; EMAIL=""; NAME="관리자"; BRANCH=""; NO_PROXY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --name)   NAME="$2";   shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     --image)  IMAGE="$2";  shift 2 ;;
+    --no-proxy) NO_PROXY=1; shift ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 1 ;;
   esac
 done
@@ -33,7 +35,12 @@ die() { echo "✗ $*" >&2; exit 1; }
 step() { echo; echo "▸ $*"; }
 
 [[ -n "$CODE"   ]] || die "--code 필요 (영문 소문자·숫자·하이픈)"
-[[ -n "$DOMAIN" ]] || die "--domain 필요 (예: hr.acme.co.kr)"
+# --domain 을 안 주면 큐브티 하위 도메인을 쓴다(고객사가 도메인이 없어도 당일 오픈).
+# 와일드카드 A 레코드(*.cubetee.co.kr)가 걸려 있어야 인증서가 발급된다.
+if [[ -z "$DOMAIN" ]]; then
+  DOMAIN="${CODE}.${BASE_DOMAIN}"
+  echo "  도메인 미지정 → $DOMAIN 사용"
+fi
 [[ -n "$PORT"   ]] || die "--port 필요 (예: 3101)"
 [[ -n "$EMAIL"  ]] || die "--email 필요 (관리자 계정)"
 [[ "$CODE" =~ ^[a-z0-9-]+$ ]] || die "--code 는 영문 소문자·숫자·하이픈만 가능"
@@ -139,6 +146,54 @@ echo "$INIT_OUT"
 
 trap - ERR
 
+# ── 도메인 연결 (Caddy) ──────────────────────────────────────
+# Caddy 가 도메인별로 인증서를 자동 발급·갱신한다. 와일드카드 인증서(DNS-01)를
+# 쓰지 않으므로 별도 DNS API 토큰이 필요 없다. 대신 그 도메인의 A 레코드가
+# 이 서버를 가리켜야 발급된다(*.cubetee.co.kr 와일드카드 한 줄이면 전부 해결).
+CADDY_DIR=/etc/caddy/customers
+PROXY_NOTE=""
+if [[ $NO_PROXY -eq 1 ]]; then
+  PROXY_NOTE="  프록시 등록  건너뜀(--no-proxy) — 직접 연결할 것"
+elif [[ ! -d "$CADDY_DIR" ]]; then
+  PROXY_NOTE="  프록시 등록  건너뜀($CADDY_DIR 없음) — Caddy 설정을 확인할 것"
+else
+  step "도메인 연결"
+  cat > "$CADDY_DIR/${CODE}.caddy" <<CADDYEOF
+# $CODE — new-customer.sh 가 생성 ($(date '+%Y-%m-%d %H:%M'))
+$DOMAIN {
+    reverse_proxy localhost:$PORT
+}
+CADDYEOF
+  if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    rm -f "$CADDY_DIR/${CODE}.caddy"
+    die "Caddy 설정이 유효하지 않아 되돌렸습니다 — 도메인($DOMAIN)을 확인하세요"
+  fi
+  systemctl reload caddy || die "caddy reload 실패"
+  echo "  $DOMAIN → 127.0.0.1:$PORT"
+
+  # 인증서 발급까지 기다린다(보통 수 초). 실패해도 설치는 성공으로 둔다 —
+  # DNS 전파처럼 우리 손 밖의 이유일 수 있고, 나중에 저절로 발급된다.
+  HTTPS_OK=0
+  for _ in $(seq 1 15); do
+    if [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://$DOMAIN/login" 2>/dev/null)" == "200" ]]; then
+      HTTPS_OK=1; break
+    fi
+    sleep 2
+  done
+  if [[ $HTTPS_OK -eq 1 ]]; then
+    echo "  ✓ https://$DOMAIN 접속 확인 (인증서 발급 완료)"
+    PROXY_NOTE="  접속 주소    https://$DOMAIN   ← 바로 쓸 수 있다"
+  else
+    DNSIP="$(dig +short A "$DOMAIN" 2>/dev/null | tail -1)"
+    MYIP="$(curl -s -4 --max-time 5 ifconfig.me 2>/dev/null)"
+    echo "  ⚠ 아직 https 응답이 없다 (인증서 발급 대기)"
+    PROXY_NOTE="  접속 주소    https://$DOMAIN  ← 아직 응답 없음
+    DNS 확인   $DOMAIN → ${DNSIP:-(레코드 없음)} / 이 서버 ${MYIP:-?}
+    두 값이 다르면 DNS 문제다. 가비아에 와일드카드 A 레코드(*)가 있는지 확인할 것.
+    DNS 가 맞으면 1~2분 뒤 저절로 발급된다."
+  fi
+fi
+
 # ── 결과 저장 ────────────────────────────────────────────────
 COMPOSE_HINT="docker compose -p $PROJECT -f docker-compose.customer.yml"
 INFO="$DIR/접속정보.txt"
@@ -162,12 +217,11 @@ cat <<EOF
   접속정보  $INFO   (초기 비밀번호 포함, 권한 600)
   내부주소  http://127.0.0.1:$PORT
 
-  남은 일 (수동)
-    1) 리버스 프록시에 $DOMAIN → 127.0.0.1:$PORT 연결 + TLS 발급
-       ※ TLS 를 붙이기 전에는 브라우저 로그인이 되지 않는다. 세션 쿠키가 Secure 라
-         http 접속에서는 브라우저가 저장하지 않기 때문(API 는 200 이 와도 화면은 로그인 상태가 안 됨).
-         TLS 없이 먼저 확인하려면: COOKIE_SECURE=false $COMPOSE_HINT up -d web
-    2) 지점 좌표·반경을 실제 값으로 수정 (출퇴근 판정에 사용됨)
-    3) 이 인스턴스를 백업 대상에 추가 (deploy/README.md 참고)
+$PROXY_NOTE
+  오픈 후 함께 정할 것
+    · 지점 좌표·반경 — 출퇴근 판정에 쓰인다. 주소만으로는 부정확하니 실제 값으로 고칠 것
+    · 근무·휴가 정책 (결재선, 연차 기준, 주말 근무 승인)
+    · 발신 메일(SMTP) — 고객사 도메인 인증이 필요하다
+  (백업은 자동이다 — 매일 KST 04:45, backup/ 에 14일 보관)
 ════════════════════════════════════════════════════════════
 EOF
