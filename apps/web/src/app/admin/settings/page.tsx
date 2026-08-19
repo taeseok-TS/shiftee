@@ -20,6 +20,7 @@ const ACTION_LABEL: Record<string, string> = {
   EMPLOYEE_RESTORE: "직원 복구",
   LEAVE_DECISION: "휴가 결재",
   SCHEDULE_DECISION: "근무일정 결재",
+  CONTRACT_DELETE: "계약서 삭제",
 };
 
 export default function AdminSettingsPage() {

@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl } from "@/lib/app-url";
 import { botSendDM } from "@/lib/bot";
+import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import type { Contract } from "@shiftee/api";
@@ -337,7 +338,10 @@ export async function DELETE(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { id: true, status: true, title: true, bundleId: true },
+    select: {
+      id: true, status: true, title: true, bundleId: true,
+      externalName: true, user: { select: { name: true } },
+    },
   });
 
   if (!contract) {
@@ -376,6 +380,24 @@ export async function DELETE(
     await tx.contract.deleteMany({
       where: { id: { in: targetIds } },
     });
+  });
+
+  // 하드 삭제라 지운 뒤에는 무엇이 있었는지 알 길이 없다 — 감사 로그가 유일한 흔적.
+  // (2026-08-19 계약 전체가 비었을 때 누가 지웠는지 추적 불가했던 사고의 재발 방지)
+  const targetName = contract.externalName
+    ? `${contract.externalName}(외부)`
+    : contract.user?.name || "-";
+  await logAudit({
+    actorId: session.userId,
+    actorName: session.name,
+    action: "CONTRACT_DELETE",
+    targetType: "Contract",
+    targetId: id,
+    targetName,
+    detail:
+      contract.bundleId && targetIds.length > 1
+        ? `${targetName} — "${contract.title}" 포함 패키지 ${targetIds.length}종 삭제`
+        : `${targetName} — "${contract.title}" 삭제`,
   });
 
   return NextResponse.json({
