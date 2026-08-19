@@ -56,6 +56,18 @@ export default function SuggestionsPage() {
     } finally { setUploading(false); }
   }
 
+  // 캡처 후 Ctrl+V 로 바로 첨부. 파일로 저장했다가 고르는 단계를 없앤다(제안 15호).
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imgs = items.filter((it) => it.type.startsWith("image/"));
+    if (imgs.length === 0) return;      // 글자만 붙여넣기면 그대로 둔다
+    e.preventDefault();
+    for (const it of imgs) {
+      const f = it.getAsFile();
+      if (f) await handleUpload(f);
+    }
+  }, []);
+
   async function submit() {
     if (!title.trim() || !content.trim()) { toast.error("제목과 내용을 입력해주세요."); return; }
     setSaving(true);
@@ -86,15 +98,15 @@ export default function SuggestionsPage() {
       <Card>
         <CardContent className="pt-5 pb-5 space-y-3">
           <Input placeholder="제목 (예: 채팅방 멤버 목록 스크롤이 잘 안 돼요)" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} />
-          <Textarea placeholder="내용 — 어떤 화면에서, 어떤 점이 불편했는지 적어주시면 반영이 빨라집니다." rows={5}
-            value={content} onChange={(e) => setContent(e.target.value)} className="min-h-[120px]" />
+          <Textarea placeholder="내용 — 어떤 화면에서, 어떤 점이 불편했는지 적어주시면 반영이 빨라집니다.&#10;화면을 캡처한 뒤 여기에 Ctrl+V 로 바로 붙여넣을 수 있습니다." rows={5}
+            value={content} onChange={(e) => setContent(e.target.value)} onPaste={handlePaste} className="min-h-[120px]" />
           <input ref={fileRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => fileRef.current?.click()} disabled={uploading || images.length >= 5}>
               <ImageIcon size={14} />{uploading ? "업로드 중..." : "스크린샷 첨부"}
             </Button>
-            <span className="text-xs text-gray-400">화면 캡처를 붙이면 이해가 빨라요 (최대 5장)</span>
+            <span className="text-xs text-gray-400">캡처 후 내용칸에 <b className="text-gray-500">Ctrl+V</b> 로 바로 붙여넣어도 됩니다 (최대 5장)</span>
           </div>
           {images.length > 0 && (
             <div className="flex flex-wrap gap-3">

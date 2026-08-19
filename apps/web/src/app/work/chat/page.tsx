@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -127,6 +127,10 @@ export default function WorkChatPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // 메시지 기능 메뉴(점3개 버튼 / 말풍선 우클릭).
+  // 아이콘을 말풍선 옆에 늘어놓으면 그 폭만큼 말풍선이 밀려서, 짧은 말풍선
+  // (삭제된 메시지 등)과 좌우 줄이 어긋나 보인다(개선 제안 16호) → 하나로 접었다.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [pickerMore, setPickerMore] = useState(false); // 리액션 이모지 전체 그리드 펼침
   useEffect(() => { setPickerMore(false); }, [pickerFor]);
   const [inputEmojiOpen, setInputEmojiOpen] = useState(false); // 입력창 이모지 선택기
@@ -516,6 +520,7 @@ export default function WorkChatPage() {
 
   async function toggleReaction(messageId: string, emoji: string) {
     setPickerFor(null);
+    setMenuFor(null);
     await fetch(`/api/work/messages/${messageId}/reactions`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emoji }),
     });
@@ -1286,7 +1291,10 @@ export default function WorkChatPage() {
                               {format(new Date(m.createdAt), "HH:mm")}
                             </span>
                           )}
-                          <div className={
+                          <div
+                            // 말풍선 우클릭으로도 기능 메뉴를 연다(점3개 버튼과 동일 — 제안 16호)
+                            onContextMenu={(e) => { if (m.deleted) return; e.preventDefault(); setPickerFor(null); setMenuFor(menuFor === m.id ? null : m.id); }}
+                            className={
                             // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
                             !m.deleted && !m.poll && !m.fileUrl && !m.albumUrls?.length && !m.replyTo && !!m.content && isEmojiOnly(m.content)
                               ? "text-sm"
@@ -1365,18 +1373,72 @@ export default function WorkChatPage() {
                               </>
                             )}
                           </div>
-                          {/* 호버 액션 — opacity 는 자리를 차지하므로 폰에서는 아예 숨긴다
-                              (아이콘 8개가 말풍선 폭을 절반 이하로 압축시킴. 폰 사용자는 앱의 롱프레스 사용) */}
-                          <div className="hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity items-center gap-1 relative">
-                            {!m.deleted && <button onClick={() => startReply(m)} title="답장" className="text-gray-400 hover:text-gray-700"><Reply size={15} /></button>}
-                            {!m.deleted && !m.poll && !!m.content && <button onClick={() => navigator.clipboard.writeText(m.content).then(() => toast.success("복사되었습니다."))} title="복사" className="text-gray-400 hover:text-gray-700"><Copy size={14} /></button>}
-                            {!m.deleted && !m.poll && <button onClick={() => setForwardFor(m)} title="전달" className="text-gray-400 hover:text-gray-700"><Share2 size={14} /></button>}
-                            {!m.deleted && !m.poll && <button onClick={() => toggleBookmark(m)} title={m.bookmarked ? "보관함에서 빼기" : "보관함에 담기"} className={m.bookmarked ? "text-yellow-500" : "text-gray-400 hover:text-yellow-500"}><Star size={14} className={m.bookmarked ? "fill-yellow-400" : ""} /></button>}
-                            {!m.deleted && !m.poll && <button onClick={() => { const d = new Date(Date.now() + 60 * 60 * 1000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); setReminderAt(d.toISOString().slice(0, 16)); setReminderFor(m); }} title="리마인더" className="text-gray-400 hover:text-indigo-600"><AlarmClock size={14} /></button>}
-                            {!m.deleted && !m.poll && (m.content || m.fileType === "image") && <button onClick={() => { setNoticeImportantChk(false); setNoticeDlgFor(m); }} title="공지로 등록" className="text-gray-400 hover:text-amber-600"><Megaphone size={14} /></button>}
-                            <button onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)} className="text-gray-400 hover:text-gray-700"><Smile size={15} /></button>
-                            {m.mine && !m.deleted && !m.fileUrl && !m.poll && <button onClick={() => startEdit(m)} title="수정" className="text-gray-400 hover:text-gray-700"><Pencil size={14} /></button>}
-                            {m.mine && !m.deleted && <button onClick={() => deleteMsg(m)} title="삭제" className="text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>}
+                          {/* 기능은 점3개 버튼 하나로 접는다.
+                              아이콘을 늘어놓으면 그 폭만큼 말풍선이 밀려 짧은 말풍선과 줄이 어긋난다(제안 16호).
+                              말풍선 우클릭으로도 같은 메뉴가 열린다. 폰은 앱의 롱프레스를 쓴다. */}
+                          <div
+                            className={`hidden md:flex ${menuFor === m.id || pickerFor === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity items-center gap-0.5 relative`}
+                          >
+                            <button
+                              onClick={() => { setPickerFor(null); setMenuFor(menuFor === m.id ? null : m.id); }}
+                              title="기능 더보기 (말풍선 우클릭도 가능)"
+                              className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded p-0.5"
+                            >
+                              <MoreHorizontal size={16} />
+                            </button>
+                            <button
+                              onClick={() => { setMenuFor(null); setPickerFor(pickerFor === m.id ? null : m.id); }}
+                              title="이모지"
+                              className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded p-0.5"
+                            >
+                              <Smile size={15} />
+                            </button>
+
+                            {menuFor === m.id && (
+                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-20 bg-white border rounded-lg shadow-lg py-1 w-44 text-sm`}>
+                                {!m.deleted && (
+                                  <button onClick={() => { setMenuFor(null); startReply(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Reply size={14} className="text-gray-400" />답장
+                                  </button>
+                                )}
+                                {!m.deleted && !m.poll && !!m.content && (
+                                  <button onClick={() => { setMenuFor(null); navigator.clipboard.writeText(m.content).then(() => toast.success("복사되었습니다.")); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Copy size={14} className="text-gray-400" />복사
+                                  </button>
+                                )}
+                                {!m.deleted && !m.poll && (
+                                  <button onClick={() => { setMenuFor(null); setForwardFor(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Share2 size={14} className="text-gray-400" />전달
+                                  </button>
+                                )}
+                                {!m.deleted && !m.poll && (
+                                  <button onClick={() => { setMenuFor(null); toggleBookmark(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Star size={14} className={m.bookmarked ? "text-yellow-500 fill-yellow-400" : "text-gray-400"} />{m.bookmarked ? "보관함에서 빼기" : "보관함에 담기"}
+                                  </button>
+                                )}
+                                {!m.deleted && !m.poll && (
+                                  <button onClick={() => { setMenuFor(null); const d = new Date(Date.now() + 60 * 60 * 1000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); setReminderAt(d.toISOString().slice(0, 16)); setReminderFor(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <AlarmClock size={14} className="text-gray-400" />리마인더
+                                  </button>
+                                )}
+                                {!m.deleted && !m.poll && (m.content || m.fileType === "image") && (
+                                  <button onClick={() => { setMenuFor(null); setNoticeImportantChk(false); setNoticeDlgFor(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Megaphone size={14} className="text-gray-400" />공지로 등록
+                                  </button>
+                                )}
+                                {m.mine && !m.deleted && !m.fileUrl && !m.poll && (
+                                  <button onClick={() => { setMenuFor(null); startEdit(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Pencil size={14} className="text-gray-400" />수정
+                                  </button>
+                                )}
+                                {m.mine && !m.deleted && (
+                                  <button onClick={() => { setMenuFor(null); deleteMsg(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50">
+                                    <Trash2 size={14} />삭제
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
                             {pickerFor === m.id && (
                               <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-10 bg-white border shadow ${pickerMore ? "rounded-xl p-2 grid grid-cols-6 gap-1 w-56" : "rounded-full px-2 py-1 flex gap-1"}`}>
                                 {(pickerMore ? EMOJIS_ALL : EMOJIS).map((e) => (
