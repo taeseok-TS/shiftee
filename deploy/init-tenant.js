@@ -59,11 +59,13 @@ async function main() {
 
   const email = args.email;
   const name = args.name || "관리자";
-  const branchName = args.branch || null;
+  // 지점은 쉼표로 여러 개 받는다: --branch "본점,강남점,분당점"
+  const branchNames = String(args.branch === true ? "" : args.branch || "")
+    .split(",").map((b) => b.trim()).filter(Boolean);
   const password = args.password || generatePassword();
 
   if (!email || email === true) {
-    console.error("사용법: node init-tenant.js --email <관리자이메일> [--name <이름>] [--branch <지점명>] [--password <비밀번호>]");
+    console.error("사용법: node init-tenant.js --email <관리자이메일> [--name <이름>] [--branch '지점1,지점2'] [--password <비밀번호>]");
     process.exit(1);
   }
 
@@ -79,12 +81,16 @@ async function main() {
       process.exit(2);
     }
 
-    let branch = null;
-    if (branchName) {
-      branch = await prisma.branch.create({
-        data: { name: branchName, address: "", latitude: 37.5665, longitude: 126.978, radius: 200 },
-      });
+    // 좌표는 서울시청 기본값. 출퇴근 판정에 쓰이므로 오픈 전에 실제 값으로 고쳐야 한다.
+    const branches = [];
+    for (const bn of branchNames) {
+      branches.push(
+        await prisma.branch.create({
+          data: { name: bn, address: "", latitude: 37.5665, longitude: 126.978, radius: 200 },
+        })
+      );
     }
+    const branch = branches[0] || null;
 
     const admin = await prisma.user.create({
       data: {
@@ -105,7 +111,10 @@ async function main() {
     console.log(line);
     console.log(`  관리자 이메일 : ${admin.email}`);
     console.log(`  초기 비밀번호 : ${password}`);
-    if (branch) console.log(`  최초 지점     : ${branch.name}  ← 좌표는 관리자 화면에서 수정 필요`);
+    if (branches.length)
+      console.log(
+        `  지점 ${branches.length}개   : ${branches.map((b) => b.name).join(", ")}  ← 좌표는 관리자 화면에서 수정 필요`
+      );
     console.log(line);
     console.log("  * 첫 로그인 후 비밀번호를 반드시 변경하세요.");
     console.log("  * 지점 좌표(위경도)와 반경은 출퇴근 판정에 쓰이므로 실제 값으로 고쳐야 합니다.\n");

@@ -15,7 +15,7 @@ IMAGE="${CUBETEE_IMAGE:-cubetee:latest}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BASE_DOMAIN="${CUBETEE_BASE_DOMAIN:-cubetee.co.kr}"
-CODE=""; DOMAIN=""; PORT=""; EMAIL=""; NAME="관리자"; BRANCH=""; NO_PROXY=0
+CODE=""; DOMAIN=""; PORT=""; EMAIL=""; NAME="관리자"; BRANCH=""; NO_PROXY=0; CONFIG=""; COMPANY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --branch) BRANCH="$2"; shift 2 ;;
     --image)  IMAGE="$2";  shift 2 ;;
     --no-proxy) NO_PROXY=1; shift ;;
+    --config) CONFIG="$2"; shift 2 ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 1 ;;
   esac
 done
@@ -34,14 +35,43 @@ done
 die() { echo "✗ $*" >&2; exit 1; }
 step() { echo; echo "▸ $*"; }
 
-[[ -n "$CODE"   ]] || die "--code 필요 (영문 소문자·숫자·하이픈)"
+
+# ── 설정 파일(--config) ──────────────────────────────────────
+# 고객사에게 받은 온보딩 양식을 그대로 쓴다. 명령행 인자가 우선한다.
+# source 하지 않고 한 줄씩 읽는다 — 값에 무엇이 들어올지 모른다.
+if [[ -n "$CONFIG" ]]; then
+  [[ -f "$CONFIG" ]] || die "설정 파일이 없습니다: $CONFIG"
+  cfg() { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs; }
+  [[ -n "$CODE"   ]] || CODE="$(cfg code)"
+  [[ -n "$EMAIL"  ]] || EMAIL="$(cfg admin_email)"
+  [[ -n "$BRANCH" ]] || BRANCH="$(cfg branches)"
+  [[ -n "$DOMAIN" ]] || DOMAIN="$(cfg domain)"
+  [[ -n "$PORT"   ]] || PORT="$(cfg port)"
+  COMPANY="$(cfg company)"
+  N="$(cfg admin_name)"; [[ -n "$N" && "$NAME" == "관리자" ]] && NAME="$N"
+  echo "  설정 파일 $CONFIG ${COMPANY:+— $COMPANY}"
+fi
+
+# ── 포트 자동 할당 ───────────────────────────────────────────
+# 포트는 우리 내부 사정이라 고객사에게 물을 값이 아니다. 비어 있는 것을 찾아 쓴다.
+if [[ -z "$PORT" ]]; then
+  for try in $(seq 3101 3199); do
+    if ! ss -ltn 2>/dev/null | grep -q ":${try}"        && ! grep -rqs "^WEB_PORT=${try}$" "$BASE_DIR"/*/.env 2>/dev/null; then
+      PORT="$try"; break
+    fi
+  done
+  [[ -n "$PORT" ]] || die "3101~3199 에 빈 포트가 없습니다"
+  echo "  포트 미지정 → $PORT 사용"
+fi
+
 # --domain 을 안 주면 큐브티 하위 도메인을 쓴다(고객사가 도메인이 없어도 당일 오픈).
 # 와일드카드 A 레코드(*.cubetee.co.kr)가 걸려 있어야 인증서가 발급된다.
 if [[ -z "$DOMAIN" ]]; then
   DOMAIN="${CODE}.${BASE_DOMAIN}"
   echo "  도메인 미지정 → $DOMAIN 사용"
 fi
-[[ -n "$PORT"   ]] || die "--port 필요 (예: 3101)"
+
+[[ -n "$CODE"   ]] || die "--code 필요 (영문 소문자·숫자·하이픈). --config 파일에 code= 로 넣어도 된다"
 [[ -n "$EMAIL"  ]] || die "--email 필요 (관리자 계정)"
 [[ "$CODE" =~ ^[a-z0-9-]+$ ]] || die "--code 는 영문 소문자·숫자·하이픈만 가능"
 
