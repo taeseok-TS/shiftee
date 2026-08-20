@@ -21,6 +21,7 @@ const ACTION_LABEL: Record<string, string> = {
   LEAVE_DECISION: "휴가 결재",
   SCHEDULE_DECISION: "근무일정 결재",
   CONTRACT_DELETE: "계약서 삭제",
+  DEVICE_REREGISTER: "기기 재등록(앱 재설치)",
 };
 
 export default function AdminSettingsPage() {

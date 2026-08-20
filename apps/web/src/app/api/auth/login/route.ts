@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { setSession } from "@/lib/auth";
 import { isResigned } from "@/lib/resign";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,10 +50,39 @@ export async function POST(request: NextRequest) {
         }
       }
       if (registered && registered.deviceId !== deviceId) {
-        return NextResponse.json(
-          { error: "등록되지 않은 기기입니다. 등록된 본인 휴대폰에서만 로그인할 수 있습니다. 기기를 변경했다면 관리자에게 기기 초기화를 요청해주세요." },
-          { status: 403 }
-        );
+        // 같은 폰에서 앱만 다시 깐 경우를 통과시킨다.
+        // 안드로이드는 SecureStore 가 앱 데이터와 함께 지워져 재설치하면 새 UUID 가 발급된다
+        // (iOS 는 키체인이라 유지). APK → 플레이스토어 전환처럼 전원이 재설치하는 상황에서
+        // 이걸 막으면 멀쩡한 본인 폰인데 전부 로그인이 안 된다.
+        // 기기 이름은 재설치해도 그대로이므로, 이름과 플랫폼이 정확히 같으면 동일 기기로 본다.
+        // (이름이 없거나 다르면 종전대로 차단 — 다른 사람 폰은 계속 막힌다)
+        const sameDevice =
+          !!deviceName &&
+          !!registered.deviceName &&
+          registered.deviceName === deviceName &&
+          registered.platform === platform;
+
+        if (!sameDevice) {
+          return NextResponse.json(
+            { error: "등록되지 않은 기기입니다. 등록된 본인 휴대폰에서만 로그인할 수 있습니다. 기기를 변경했다면 관리자에게 기기 초기화를 요청해주세요." },
+            { status: 403 }
+          );
+        }
+
+        // 같은 기기로 판단 — 새 식별자로 갱신하고 흔적을 남긴다.
+        await prisma.userDevice.update({
+          where: { userId: user.id },
+          data: { deviceId, deviceName, platform: platform ?? null },
+        });
+        await logAudit({
+          actorId: user.id,
+          actorName: user.name,
+          action: "DEVICE_REREGISTER",
+          targetType: "UserDevice",
+          targetId: user.id,
+          targetName: user.name,
+          detail: `앱 재설치로 기기 식별자 갱신 — ${deviceName} (${platform ?? "-"})`,
+        });
       }
     }
 
