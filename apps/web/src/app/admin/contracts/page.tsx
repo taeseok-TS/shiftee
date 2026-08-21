@@ -559,7 +559,9 @@ export default function ContractsPage() {
     .filter(f => (!AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))) && !FORM_FIELDS.includes(f) && f !== "계약구분")
     .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
-  const isDateField = (f: string) => /시작|종료|날짜|일자|기간|일$/.test(f);
+  // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
+  const isTimeField = (f: string) => /시각$/.test(f);
+  const isDateField = (f: string) => !isTimeField(f) && !/시간$/.test(f) && /시작|종료|날짜|일자|기간|일$/.test(f);
   // 금액류 필드 — 입력 시 천 단위 쉼표 자동 포맷 (문서에는 서버가 "1,210,000원"으로 변환)
   const isMoneyField = (f: string) => /금액|급여액|월급|수당액|비용/.test(f);
 
@@ -1590,7 +1592,7 @@ ${url}`;
                     <div key={f} className="space-y-1">
                       <Label className="text-sm">{f}{required && " *"}</Label>
                       <Input
-                        type={isDateField(f) ? "date" : "text"}
+                        type={isTimeField(f) ? "time" : isDateField(f) ? "date" : "text"}
                         value={extraFields[f] || ""}
                         onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
                       />
