@@ -69,8 +69,10 @@ export default function ContractListScreen() {
   const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
-  const empFieldType = (f: string): "check" | "date" | "text" => f.startsWith("체크_") ? "check" : isEmpDateField(f) ? "date" : "text";
-  const empFieldLabel = (f: string) => f.startsWith("체크_") ? f.slice(3) : f;
+  // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
+  const empFieldType = (f: string): "check" | "confirm" | "date" | "text" =>
+    f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : isEmpDateField(f) ? "date" : "text";
+  const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
 
   useEffect(() => {
     loadContracts();
@@ -118,6 +120,10 @@ export default function ContractListScreen() {
       for (const f of empFields) {
         const type = empFieldType(f);
         if (type === "check") { fields[f] = empFieldInput[f] === "□" ? "□" : "☑"; continue; } // 기본 체크, 명시적 해제만 □
+        if (type === "confirm") { // 설명확인 — 직접 체크해야 서명 가능
+          if (empFieldInput[f] !== "☑") { Alert.alert("확인 필요", `"${empFieldLabel(f)}" 항목을 확인하고 체크해주세요.`); return; }
+          fields[f] = "☑"; continue;
+        }
         const v = (empFieldInput[f] || "").trim();
         const optional = f.includes("기타");
         if (!v) { if (optional) { fields[f] = ""; continue; } Alert.alert("알림", `${empFieldLabel(f)}을(를) 입력해주세요.`); return; }
@@ -353,8 +359,9 @@ export default function ContractListScreen() {
                   )}
                   {empFields.map(f => {
                     const type = empFieldType(f);
-                    if (type === "check") {
-                      const checked = empFieldInput[f] !== "□"; // 기본 체크
+                    if (type === "check" || type === "confirm") {
+                      // check = 기본 체크(해제 가능), confirm = 기본 해제(직접 체크 필수)
+                      const checked = type === "check" ? empFieldInput[f] !== "□" : empFieldInput[f] === "☑";
                       return (
                         <TouchableOpacity key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 3 }}
                           onPress={() => setEmpFieldInput(p => ({ ...p, [f]: checked ? "□" : "☑" }))}>

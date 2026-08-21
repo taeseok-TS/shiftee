@@ -57,7 +57,7 @@ export async function fillDocxTemplate(
     // 미선택(□)으로 보여야 한다 — 값 누락 시 항목 글자만 남고 네모가 사라지는 것 방지
     nullGetter: (part: { value?: string }) => {
       const tag = part?.value || "";
-      return tag.startsWith("체크_") || tag.startsWith("선택_") ? "□" : "";
+      return tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_") ? "□" : "";
     },
   });
   doc.render(data);
@@ -180,7 +180,8 @@ const SYSTEM_FIELDS = new Set([
 
 // 직원이 서명 시 직접 입력하는 필드는 화이트리스트('사유'류 자유서술)만 — 그 외 모든 필드는
 // 관리자가 작성 시 입력. (교육평가시작 등 새 템플릿 필드가 직원에게 잘못 넘어가는 사고 방지)
-const EMPLOYEE_INPUT_PATTERN = /사유/;
+// 사유류 자유서술 + 확인_ 체크(설명확인 등 — 직원이 서명하며 직접 체크하는 항목)
+const EMPLOYEE_INPUT_PATTERN = /사유|^확인_/;
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
 // 화이트리스트(퇴사사유 등 '사유'류)만 직원 입력 — 나머지는 전부 관리자 작성 폼에 표시.
