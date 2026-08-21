@@ -53,7 +53,12 @@ export async function fillDocxTemplate(
     paragraphLoop: true,
     linebreaks: true,
     delimiters: { start: "{", end: "}" },
-    nullGetter: () => "", // 값이 없는 필드는 빈 문자열
+    // 값이 없는 필드는 빈 문자열. 단 체크박스류(체크_/선택_)는 빈칸이 아니라
+    // 미선택(□)으로 보여야 한다 — 값 누락 시 항목 글자만 남고 네모가 사라지는 것 방지
+    nullGetter: (part: { value?: string }) => {
+      const tag = part?.value || "";
+      return tag.startsWith("체크_") || tag.startsWith("선택_") ? "□" : "";
+    },
   });
   doc.render(data);
 
