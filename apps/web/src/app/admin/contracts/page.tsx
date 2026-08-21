@@ -842,6 +842,8 @@ export default function ContractsPage() {
       }
       // 손대지 않은 체크박스 필드(지급금품 등)는 기본 체크(☑)
       for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
+      // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
+      for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       const year = new Date().getFullYear();
       const empName = employees.find(e => e.id === createForm.userId)?.name || "";
       const [rSajik, rGeum, rToejikgeum, rYeoncha, rNda] = resignTemplates as NonNullable<typeof resignTemplates[number]>[];
@@ -940,6 +942,8 @@ export default function ContractsPage() {
       }
       // 손대지 않은 체크박스 필드는 기본 체크(☑)로 전송
       for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
+      // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
+      for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
     }
@@ -1549,7 +1553,19 @@ ${url}`;
                     외부 채용 패키지는 서약서·동의서용 필드(생년월일·주소·원장명)를 별도 구역으로 분리해
                     폰 화면에서도 놓치지 않게 표시 */}
                 {(() => {
+                  // 선택_ 필드 = 여럿 중 하나만 고르는 항목(임신기 신청구분 등). 기본은 전부 해제.
+                  // 체크_ 는 여러 개를 함께 고르는 항목이라 기본 체크 — 둘은 성격이 달라 나눠 둔다.
+                  // (한 템플릿에 선택 그룹이 둘 이상 필요해지면 선택_<그룹>_<옵션> 으로 확장할 것)
+                  const pickFields = dynamicFields.filter(f => f.startsWith("선택_"));
+                  const pickOne = (chosen: string) =>
+                    setExtraFields(prev => {
+                      const next = { ...prev };
+                      for (const f of pickFields) next[f] = f === chosen ? "☑" : "□";
+                      return next;
+                    });
+
                   const renderDynField = (f: string, required = false) => (
+                    f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
                     f.startsWith("체크_") ? (
                       // 체크박스 필드(지급금품 임금·퇴직금·기타 등) — 기본 체크, 해당 없으면 해제
                       <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -1591,6 +1607,26 @@ ${url}`;
                       {mainFields.length > 0 && (
                         <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
                           <p className="text-xs font-semibold text-indigo-700">{splitNda ? "계약서 입력 필드" : "이 템플릿의 추가 입력 필드"}</p>
+                          {pickFields.length > 0 && (
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">
+                                {pickFields[0].split("_")[1] && pickFields.length > 1 ? "해당 항목 선택" : "선택"} *
+                              </Label>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                                {pickFields.map(f => (
+                                  <label key={f} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="dyn-pick"
+                                      checked={extraFields[f] === "☑"}
+                                      onChange={() => pickOne(f)}
+                                    />
+                                    {f.slice(3)}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {mainFields.map(f => renderDynField(f))}
                         </div>
                       )}
