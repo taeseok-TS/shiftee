@@ -629,6 +629,18 @@ export default function ContractsPage() {
       Object.assign(fieldConds, d.fieldConditions || {});
     }
     setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill);
+
+    // 시각 필드 기본값 — 직영 표준 근무가 13~20시라 미리 채워 둔다(수정 가능).
+    // 개시·출근·시작류 = 13:00, 종료·퇴근류 = 20:00
+    setExtraFields(prev => {
+      const next = { ...prev };
+      for (const f of fields) {
+        if (!/시각$/.test(f) || next[f]) continue;
+        if (/개시|출근|시작/.test(f)) next[f] = "13:00";
+        else if (/종료|퇴근/.test(f)) next[f] = "20:00";
+      }
+      return next;
+    });
   };
 
   // 제목 자동 생성 — "올해연도 + 직원명 + 근로계약서(또는 템플릿명)"
