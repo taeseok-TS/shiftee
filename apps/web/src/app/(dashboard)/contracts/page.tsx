@@ -1509,7 +1509,8 @@ export default function ContractsPage() {
                       </td>
                       <td className="py-3 space-x-1">
                         {/* 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만 */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                        {/* 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24) */}
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -2068,7 +2069,7 @@ export default function ContractsPage() {
                     {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
                   </p>
                   {approvalDetailsTarget.status === "SIGNED" && (
-                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document`} className="block">
+                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document?pdf=1`} className="block">
                       <Button className="w-full gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명 완료본 다운로드</Button>
                     </a>
                   )}
