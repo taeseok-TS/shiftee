@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
     phone: emp.phone,
     resignDate: emp.resignDate,
     resignReason: emp.resignReason,
+    isContractApprover: emp.isContractApprover, // 전자계약 승인자 노출 토글 (시스템 설정)
     leaveBalance: emp.leaveBalance[0] ?? null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
     device: emp.device,
     managerBranches: emp.managerBranches.map(b => b.branchName), // 원장 겸직 지점 목록
