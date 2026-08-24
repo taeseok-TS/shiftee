@@ -10,6 +10,14 @@ import { toast } from "sonner";
 
 type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null };
 type LogRow = { id: string; actorName: string; action: string; targetName: string | null; detail: string | null; createdAt: string };
+type LoginFailRow = { id: string; email: string; userName: string | null; reason: string; deviceName: string | null; platform: string | null; createdAt: string };
+const FAIL_REASON: Record<string, { label: string; tip: string }> = {
+  UNKNOWN_EMAIL: { label: "없는 이메일", tip: "이메일 오타 가능성 — 정확한 주소를 안내" },
+  BAD_PASSWORD: { label: "비밀번호 불일치", tip: "직원관리에서 비밀번호 초기화(1234)" },
+  INACTIVE: { label: "비활성 계정", tip: "직원관리에서 계정 상태 확인" },
+  RESIGNED: { label: "퇴사 계정", tip: "퇴사 처리된 계정 — 잘못이면 퇴사일 확인" },
+  DEVICE_BLOCKED: { label: "미등록 기기", tip: "폰을 바꾼 경우 — 직원관리에서 기기 초기화" },
+};
 
 const ACTION_LABEL: Record<string, string> = {
   LEAVE_BALANCE_UPDATE: "연차 수정",
@@ -28,13 +36,14 @@ export default function AdminSettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [loginFails, setLoginFails] = useState<LoginFailRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const loadSummary = () => {
     setLoadingData(true);
     fetch("/api/admin/summary")
       .then((r) => (r.ok ? r.json() : { admins: [], logs: [] }))
-      .then((d) => { setAdmins(d.admins || []); setLogs(d.logs || []); })
+      .then((d) => { setAdmins(d.admins || []); setLogs(d.logs || []); setLoginFails(d.loginFails || []); })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   };
@@ -284,6 +293,50 @@ export default function AdminSettingsPage() {
                         <span className="text-xs rounded px-2 py-0.5 bg-blue-50 text-blue-700">{ACTION_LABEL[l.action] || l.action}</span>
                       </td>
                       <td className="px-4 py-2 text-gray-700">{l.detail || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 로그인 실패 — "로그인이 안 돼요" 문의의 원인을 여기서 바로 확인 */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>로그인 실패 <span className="text-sm font-normal text-gray-500">· 최근 50건</span></CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loadingData ? (
+            <p className="p-4 text-sm text-gray-400">불러오는 중…</p>
+          ) : loginFails.length === 0 ? (
+            <p className="p-4 text-sm text-gray-400">기록된 로그인 실패가 없습니다.</p>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0">
+                  <tr className="border-b text-xs text-gray-500 bg-gray-50 text-left">
+                    <th className="px-4 py-2 font-medium w-36">시간</th>
+                    <th className="px-4 py-2 font-medium">누구</th>
+                    <th className="px-4 py-2 font-medium">사유</th>
+                    <th className="px-4 py-2 font-medium">기기</th>
+                    <th className="px-4 py-2 font-medium">조치</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loginFails.map((f) => (
+                    <tr key={f.id} className="border-b last:border-0 align-top">
+                      <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmt(f.createdAt)}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="text-gray-900">{f.userName || "?"}</span>
+                        <span className="block text-xs text-gray-400">{f.email}</span>
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        <span className="text-xs rounded px-2 py-0.5 bg-red-50 text-red-700">{FAIL_REASON[f.reason]?.label || f.reason}</span>
+                      </td>
+                      <td className="px-4 py-2 text-gray-500 text-xs whitespace-nowrap">{f.deviceName ? `${f.deviceName} (${f.platform || "-"})` : "웹"}</td>
+                      <td className="px-4 py-2 text-gray-500 text-xs">{FAIL_REASON[f.reason]?.tip || "-"}</td>
                     </tr>
                   ))}
                 </tbody>

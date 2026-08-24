@@ -9,14 +9,15 @@ export async function GET() {
   if (!(await isSuperAdmin(session.userId)))
     return NextResponse.json({ error: "메인 관리자만 접근 가능합니다." }, { status: 403 });
 
-  const [admins, logs] = await Promise.all([
+  const [admins, logs, loginFails] = await Promise.all([
     prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
       select: { id: true, name: true, email: true, phone: true, isSuperAdmin: true, createdAt: true, hireDate: true, birthDate: true, position: true, jobGroup: true },
       orderBy: [{ isSuperAdmin: "desc" }, { createdAt: "asc" }],
     }),
     prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.loginFailLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
   ]);
 
-  return NextResponse.json({ admins, logs });
+  return NextResponse.json({ admins, logs, loginFails });
 }

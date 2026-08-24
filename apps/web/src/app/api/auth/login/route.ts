@@ -5,6 +5,29 @@ import { setSession } from "@/lib/auth";
 import { isResigned } from "@/lib/resign";
 import { logAudit } from "@/lib/audit";
 
+// 로그인 실패 기록 — 문의("로그인이 안 돼요")가 오면 원인을 역추적하기 위한 것.
+// 기록 실패가 로그인 응답을 막으면 안 되므로 통째로 삼킨다.
+async function logLoginFail(input: {
+  email: string; userId?: string; userName?: string;
+  reason: "UNKNOWN_EMAIL" | "BAD_PASSWORD" | "INACTIVE" | "RESIGNED" | "DEVICE_BLOCKED";
+  deviceName?: string | null; platform?: string | null;
+}) {
+  try {
+    await prisma.loginFailLog.create({
+      data: {
+        email: String(input.email).slice(0, 190),
+        userId: input.userId ?? null,
+        userName: input.userName ?? null,
+        reason: input.reason,
+        deviceName: input.deviceName ?? null,
+        platform: input.platform ?? null,
+      },
+    });
+  } catch (e) {
+    console.error("loginFailLog failed:", e);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { email, password, deviceId, deviceName, platform } = await request.json();
@@ -15,17 +38,23 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) {
+      await logLoginFail({
+        email, userId: user?.id, userName: user?.name,
+        reason: user ? "INACTIVE" : "UNKNOWN_EMAIL", deviceName, platform,
+      });
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
+      await logLoginFail({ email, userId: user.id, userName: user.name, reason: "BAD_PASSWORD", deviceName, platform });
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
 
     // 퇴사자 차단 — 퇴사일 '당일'은 마지막 근무일이라 로그인이 되어야 한다(출퇴근 기록).
     // 날짜 필드는 UTC 자정 저장이므로 기준도 KST 오늘의 자정으로 맞춘다.
     if (isResigned(user.resignDate)) {
+      await logLoginFail({ email, userId: user.id, userName: user.name, reason: "RESIGNED", deviceName, platform });
       return NextResponse.json(
         { error: "퇴사 처리된 계정입니다. 잘못된 경우 관리자에게 문의해주세요." },
         { status: 403 }
@@ -63,6 +92,7 @@ export async function POST(request: NextRequest) {
           registered.platform === platform;
 
         if (!sameDevice) {
+          await logLoginFail({ email, userId: user.id, userName: user.name, reason: "DEVICE_BLOCKED", deviceName, platform });
           return NextResponse.json(
             { error: "등록되지 않은 기기입니다. 등록된 본인 휴대폰에서만 로그인할 수 있습니다. 기기를 변경했다면 관리자에게 기기 초기화를 요청해주세요." },
             { status: 403 }
