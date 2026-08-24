@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { uploadFile, getMySuggestions, createSuggestion, SuggestionItem, FILE_ORIGIN } from "../services/work";
+import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, FILE_ORIGIN } from "../services/work";
 
 // 개선 제안함 — 작성자와 관리자만 보는 비공개 창구. 처리 상태는 봇 DM으로도 통지된다.
 
@@ -48,6 +48,27 @@ export default function SuggestionScreen() {
       Alert.alert("첨부 실패", e?.message || "이미지 업로드 중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 접수 상태인 내 제안 인라인 수정 (디렉터 지시 2026-08-24)
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const saveEdit = async () => {
+    if (!editId || editSaving) return;
+    if (!editTitle.trim() || !editContent.trim()) { Alert.alert("알림", "제목과 내용을 입력해주세요."); return; }
+    setEditSaving(true);
+    try {
+      await updateSuggestion(editId, { title: editTitle.trim(), content: editContent.trim() });
+      setEditId(null);
+      load();
+    } catch (e: any) {
+      Alert.alert("수정 실패", e?.response?.data?.error || "제안 수정 중 오류가 발생했습니다.");
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -130,9 +151,32 @@ export default function SuggestionScreen() {
                     <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.label}</Text>
                   </View>
                   <Text style={styles.itemTitle} numberOfLines={1}>{s.title}</Text>
+                  {/* 검토 전(접수)에만 본인 수정 가능 */}
+                  {s.status === "RECEIVED" && editId !== s.id && (
+                    <TouchableOpacity onPress={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="pencil" size={14} color="#9ca3af" />
+                    </TouchableOpacity>
+                  )}
                   <Text style={styles.itemDate}>{new Date(s.createdAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}</Text>
                 </View>
+                {editId === s.id ? (
+                  <View style={{ marginTop: 8 }}>
+                    <TextInput style={styles.titleInput} value={editTitle} onChangeText={setEditTitle} maxLength={100} />
+                    <TextInput style={styles.contentInput} value={editContent} onChangeText={setEditContent} multiline />
+                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditId(null)}>
+                        <Text style={{ color: "#6b7280", fontSize: 13 }}>취소</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.submitBtn, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 14 }, editSaving && styles.submitBtnDisabled]}
+                        onPress={saveEdit} disabled={editSaving}>
+                        <Text style={styles.submitText}>{editSaving ? "저장 중..." : "수정 저장"}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
                 <Text style={styles.itemContent}>{s.content}</Text>
+                )}
                 {(s.imageUrls?.length ?? 0) > 0 && (
                   <View style={styles.thumbRow}>
                     {s.imageUrls!.map((u, i) => (
@@ -181,6 +225,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#374151", alignItems: "center", justifyContent: "center",
   },
   submitBtn: { backgroundColor: "#4f46e5", borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 12 },
+  editCancelBtn: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
   submitBtnDisabled: { backgroundColor: "#c7d2fe" },
   submitText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   sectionTitle: { fontSize: 14, fontWeight: "700", color: "#374151", marginBottom: 8, marginTop: 4 },

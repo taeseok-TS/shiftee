@@ -42,6 +42,30 @@ function inlineSigDrawing(rId: string, docPrId: number, square = false): string 
   );
 }
 
+// 떠 있는(앵커) 서명 이미지 — 마커 뒤의 "(인)"/"(서명 / 인)" 표기 위에 겹쳐 찍는다.
+// 모두싸인처럼 도장이 글자 위에 올라가는 모양 (개선 제안 2026-08-24).
+// wrapNone 이라 글자 배치는 전혀 밀리지 않고, (인) 글자도 그대로 남는다.
+// 위치는 마커 지점 기준: 가로 -3mm(이름 끝에 살짝 걸침), 세로는 줄 중앙에 오도록 위로.
+function overlaySigDrawing(rId: string, docPrId: number, square = false): string {
+  const cx = square ? 612000 : 1080000, cy = square ? 612000 : 378000;
+  const offH = -108000; // -3mm
+  const offV = square ? -180000 : -105000; // 줄 높이(~4.2mm) 중앙 정렬
+  return (
+    `<w:drawing>` +
+    `<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
+    `<wp:simplePos x="0" y="0"/>` +
+    `<wp:positionH relativeFrom="character"><wp:posOffset>${offH}</wp:posOffset></wp:positionH>` +
+    `<wp:positionV relativeFrom="line"><wp:posOffset>${offV}</wp:posOffset></wp:positionV>` +
+    `<wp:extent cx="${cx}" cy="${cy}"/><wp:wrapNone/><wp:docPr id="${docPrId}" name="overlaySig${docPrId}"/>` +
+    `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:nvPicPr><pic:cNvPr id="${docPrId}" name="overlaySig${docPrId}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+    `</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`
+  );
+}
+
 // ── 워드(.docx)에 서명 섹션 합성 ──
 // 템플릿에 서명 마커(《근로자서명》/《대표서명》)가 있으면 그 자리에 서명 이미지를 인라인 배치하고
 // 말미에는 서명 일시 텍스트만 남긴다. 마커가 없으면 기존처럼 문서 끝에 서명 섹션을 붙인다.
@@ -97,16 +121,26 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
         "</Relationships>",
         `<Relationship Id="${t.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${t.media}"/></Relationships>`
       );
-      // 마커 뒤에 "(인)" 표기가 붙어 있으면 서명이 그 자리를 대신하도록 흡수한다
-      // (개선 제안 2026-08-24 — 서명 옆에 빈 (인)이 따로 남지 않게). 같은 텍스트 노드에
-      // "마커   (인)" 형태로 존재하는 경우만 — 결재표처럼 마커 단독인 곳은 영향 없음.
-      docXml = docXml.replace(new RegExp(t.marker + "\\s*\\(인\\)", "g"), t.marker);
-      // 마커가 있는 텍스트 run을 쪼개서 그 자리에 이미지 run 삽입 (여러 곳이면 전부)
+      // 마커 처리 (개선 제안 2026-08-24 2차 — 모두싸인처럼 (인) "위에" 겹쳐 찍기):
+      //  · 마커 뒤 같은 텍스트 노드에 "(인)"/"(서명 / 인)" 표기가 있으면 → 글자는 남기고
+      //    떠 있는(앵커) 이미지를 그 위에 오버레이 (글자 배치 안 밀림)
+      //  · 그 외(결재표 칸처럼 마커 단독) → 기존대로 인라인 이미지
+      const sealRe = new RegExp(t.marker + "(\\s*\\((?:서명\\s*/\\s*)?인\\))");
       while (docXml.includes(t.marker)) {
-        docXml = docXml.replace(
-          t.marker,
-          `</w:t></w:r><w:r>${inlineSigDrawing(t.rId, docPrId++, t.square)}</w:r><w:r><w:t xml:space="preserve">`
-        );
+        const m = sealRe.exec(docXml);
+        if (m && docXml.indexOf(t.marker) === m.index) {
+          // (인) 표기 유지 + 오버레이 — 마커만 이미지 run으로 치환
+          docXml =
+            docXml.slice(0, m.index) +
+            `</w:t></w:r><w:r>${overlaySigDrawing(t.rId, docPrId++, t.square)}</w:r><w:r><w:t xml:space="preserve">` +
+            m[1] +
+            docXml.slice(m.index + m[0].length);
+        } else {
+          docXml = docXml.replace(
+            t.marker,
+            `</w:t></w:r><w:r>${inlineSigDrawing(t.rId, docPrId++, t.square)}</w:r><w:r><w:t xml:space="preserve">`
+          );
+        }
       }
     }
     zip.file(relsPath, rels);

@@ -11,6 +11,33 @@ const STATUS_LABEL: Record<string, string> = {
   HOLD: "보류",
 };
 
+// 본인 제안 수정 — 아직 검토 전(접수 상태)일 때만 (디렉터 지시 2026-08-24)
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+  const { id } = await params;
+  const { title, content } = await request.json();
+  if (!title?.trim() || !content?.trim())
+    return NextResponse.json({ error: "제목과 내용을 입력해주세요." }, { status: 400 });
+
+  const before = await prisma.suggestion.findUnique({ where: { id } });
+  if (!before) return NextResponse.json({ error: "제안을 찾을 수 없습니다." }, { status: 404 });
+  if (before.userId !== session.userId)
+    return NextResponse.json({ error: "본인이 작성한 제안만 수정할 수 있습니다." }, { status: 403 });
+  if (before.status !== "RECEIVED")
+    return NextResponse.json({ error: "검토가 시작된 제안은 수정할 수 없습니다." }, { status: 400 });
+
+  const suggestion = await prisma.suggestion.update({
+    where: { id },
+    data: { title: title.trim().slice(0, 100), content: content.trim().slice(0, 5000) },
+  });
+  return NextResponse.json({ suggestion });
+}
+
 // 상태·답변 변경 — 관리자 전용. 변경 시 작성자에게 봇 DM 통지
 export async function PATCH(
   request: NextRequest,

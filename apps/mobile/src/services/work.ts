@@ -221,3 +221,8 @@ export async function createSuggestion(data: { title: string; content: string; i
   const res = await axios.post(`${API_URL}/suggestions`, data, { headers: await authHeaders() });
   return res.data?.suggestion;
 }
+// 접수 상태인 본인 제안 수정 (검토 시작 후에는 서버가 거부)
+export async function updateSuggestion(id: string, data: { title: string; content: string }) {
+  const res = await axios.put(`${API_URL}/suggestions/${id}`, data, { headers: await authHeaders() });
+  return res.data?.suggestion;
+}

@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Lightbulb, ImageIcon, X } from "lucide-react";
+import { Lightbulb, ImageIcon, X, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -37,6 +37,28 @@ export default function SuggestionsPage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 접수 상태인 내 제안 인라인 수정 (디렉터 지시 2026-08-24)
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  async function saveEdit() {
+    if (!editId) return;
+    if (!editTitle.trim() || !editContent.trim()) { toast.error("제목과 내용을 입력해주세요."); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/suggestions/${editId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editTitle, content: editContent }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "수정 실패"); return; }
+      toast.success("제안이 수정되었습니다.");
+      setEditId(null);
+      fetchList();
+    } finally { setEditSaving(false); }
+  }
 
   const fetchList = useCallback(async () => {
     const res = await fetch("/api/suggestions");
@@ -140,9 +162,28 @@ export default function SuggestionsPage() {
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
                     <h3 className="font-semibold flex-1 truncate">{s.title}</h3>
+                    {/* 검토 전(접수)에만 본인 수정 가능 */}
+                    {s.status === "RECEIVED" && editId !== s.id && (
+                      <button
+                        onClick={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); }}
+                        className="text-gray-400 hover:text-indigo-600 shrink-0" title="수정 (검토 시작 전까지만 가능)">
+                        <Pencil size={14} />
+                      </button>
+                    )}
                     <span className="text-xs text-gray-400 shrink-0">{format(new Date(s.createdAt), "yyyy.MM.dd")}</span>
                   </div>
+                  {editId === s.id ? (
+                    <div className="mt-2 space-y-2">
+                      <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={100} />
+                      <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={4} />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setEditId(null)}>취소</Button>
+                        <Button size="sm" onClick={saveEdit} disabled={editSaving}>{editSaving ? "저장 중..." : "수정 저장"}</Button>
+                      </div>
+                    </div>
+                  ) : (
                   <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{s.content}</p>
+                  )}
                   {(s.imageUrls?.length ?? 0) > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {s.imageUrls!.map((u, i) => (

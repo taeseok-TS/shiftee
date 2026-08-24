@@ -855,7 +855,8 @@ export default function ContractsPage() {
         allExtra[k] = v;
       }
       // 손대지 않은 체크박스 필드(지급금품 등)는 기본 체크(☑)
-      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
+      // "기타"류는 실수 방지를 위해 기본 해제 (개선 제안 2026-08-24)
+      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
       // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
       for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       const year = new Date().getFullYear();
@@ -955,7 +956,8 @@ export default function ContractsPage() {
         allExtra[k] = v;
       }
       // 손대지 않은 체크박스 필드는 기본 체크(☑)로 전송
-      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = "☑";
+      // "기타"류는 실수 방지를 위해 기본 해제 (개선 제안 2026-08-24)
+      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
       // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
       for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
@@ -1468,19 +1470,15 @@ ${url}`;
                         onChange={e => {
                           const v = e.target.value;
                           setCreateForm(f => {
-                            // 종료일 자동 채움 — 직영 계약 주기(분기)에 맞춘다 (개선 제안 2026-08-24)
-                            //  · 분기 첫날(1/1·4/1·7/1·10/1) 시작 = 재직자 갱신 → +1년-1일 (그대로 분기 말일)
-                            //  · 분기 중간 시작 = 신규 입사 → 해당 분기 말일 (3/31·6/30·9/30·12/31)
+                            // 종료일 자동 채움 — 직영 계약 주기(분기)에 맞춘다
+                            // QA 확정 규칙(2026-08-24, 이예지대리): 시작일이 언제든
+                            // "다음 해"의 해당 분기 말일. 예) 26-07-01 시작 → 27-09-30
                             // Date 객체를 쓰지 않고 문자열 계산 — 시간대에 따른 하루 밀림 방지
                             let end = f.endDate;
                             if (v && !f.endDate) {
-                              const [y, m, d] = v.split("-").map(Number);
+                              const [y, m] = v.split("-").map(Number);
                               const QEND = ["03-31", "06-30", "09-30", "12-31"];
-                              const q = Math.floor((m - 1) / 3); // 0~3
-                              const isQuarterStart = d === 1 && (m - 1) % 3 === 0;
-                              end = isQuarterStart
-                                ? `${q === 0 ? y : y + 1}-${QEND[(q + 3) % 4]}` // 1/1→같은해 12/31, 4/1→다음해 3/31 …
-                                : `${y}-${QEND[q]}`;
+                              end = `${y + 1}-${QEND[Math.floor((m - 1) / 3)]}`;
                             }
                             return { ...f, startDate: v, endDate: end };
                           });
@@ -1489,7 +1487,7 @@ ${url}`;
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 신규입사는 분기 말일 · 분기 첫날 시작은 1년)</span></label>
+                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 다음 해의 분기 말일)</span></label>
                       <Input
                         type="date"
                         value={createForm.endDate}
@@ -1587,9 +1585,9 @@ ${url}`;
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
                     f.startsWith("체크_") ? (
-                      // 체크박스 필드(지급금품 임금·퇴직금·기타 등) — 기본 체크, 해당 없으면 해제
+                      // 체크박스 필드(지급금품 임금·퇴직금 등) — 기본 체크. 단 "기타"류는 기본 해제
                       <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="checkbox" checked={extraFields[f] !== "□"}
+                        <input type="checkbox" checked={extraFields[f] ? extraFields[f] !== "□" : !f.includes("기타")}
                           onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "□" }))} />
                         {f.slice(3)}
                       </label>

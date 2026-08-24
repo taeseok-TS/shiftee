@@ -329,7 +329,7 @@ export async function PATCH(
       const isEmployee = firstPendingStep.approverId === updated.userId;
       const dm = isEmployee
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
-        : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${updated.user.name}\n웹 관리자 [계약 결재]에서 처리해 주세요.`;
+        : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}/admin/contract-approvals`;
       botSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }
   }
