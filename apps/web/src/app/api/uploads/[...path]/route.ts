@@ -40,13 +40,27 @@ export async function GET(
     return NextResponse.json({ error: "접근할 수 없습니다." }, { status: 403 });
 
   // 계약 템플릿은 관리자만. 원래 URL만 알면 로그인 없이 받아갈 수 있었다.
-  // (signatures·contracts 는 앱이 헤더 없이 <Image>·WebView 로 직접 열고 있어 함께 막을 수 없다 —
-  //  앱 접근 경로를 정비한 뒤 차단할 것. work·avatars 도 같은 이유로 현행 유지.)
   if (decoded[0] === "templates" || pathParts[0] === "templates") {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
     if (session.role !== "ADMIN")
       return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  }
+
+  // 접근 게이트 (2026-08-24) — 세션(웹 쿠키/Bearer) 또는 접근 티켓(?t=) 필수.
+  // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL에 부착한다(lib/upload-ticket).
+  // 경로군별 단계 적용: 기본 signatures·contracts. 앱 OTA 확산 후 work·avatars 확대 예정
+  // (환경변수 UPLOADS_GATE 로 조절, "off" 면 게이트 없음).
+  const gateEnv = process.env.UPLOADS_GATE ?? "signatures,contracts";
+  const gated = gateEnv === "off" ? [] : gateEnv.split(",").map((s) => s.trim()).filter(Boolean);
+  if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
+    const { verifyUploadTicket } = await import("@/lib/upload-ticket");
+    const ticket = new URL(_request.url).searchParams.get("t");
+    if (!verifyUploadTicket(ticket)) {
+      const session = await getSession();
+      if (!session)
+        return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    }
   }
 
   // 파일 전체를 메모리에 올리지 않고 stat만 확인 후 스트리밍 (500MB 영상 대응)

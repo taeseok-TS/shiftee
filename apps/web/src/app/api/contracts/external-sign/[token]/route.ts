@@ -76,11 +76,16 @@ export async function GET(
       ]
     : [];
 
+  // 게스트는 세션이 없으므로 파일 접근 티켓을 함께 발급 — 뷰어가 문서를 열 때 ?t= 로 사용.
+  // uploads 게이트(contracts/)와 세트 (2026-08-24)
+  const { issueUploadTicket } = await import("@/lib/upload-ticket");
+
   return NextResponse.json({
     title: contract.title,
     externalName: step.externalName,
     fileUrl: ready ? firstFileUrl(contract.fileUrl) : null,
     documents,
+    fileTicket: ready ? issueUploadTicket(2 * 3600 * 1000) : null,
     // 개인정보동의서가 포함된 패키지면 게스트가 선택 항목 동의/미동의 선택 가능
     consentDoc: ready && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
     state,

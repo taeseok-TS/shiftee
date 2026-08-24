@@ -20,6 +20,7 @@ import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { API_URL } from "../../config";
+import { fileUri } from "../../services/work";
 
 // 브라우저 열람용 URL (워드 등 오피스 문서는 MS 온라인 뷰어)
 function viewerUrl(raw?: string | null): string | null {
@@ -31,10 +32,11 @@ function viewerUrl(raw?: string | null): string | null {
   } catch { /* 그대로 사용 */ }
   if (!path) return null;
   const origin = API_URL.replace(/\/api$/, "");
-  const full = path.startsWith("http") ? path : origin + path;
+  // 계약서 경로에 인증 게이트가 켜져 있어 접근 티켓을 붙인다 (fileUri)
+  const full = fileUri(path);
   // 워드는 웹의 자체 인앱 뷰어(즉시 렌더). 엑셀·PPT만 MS 온라인 뷰어 유지
-  if (/\.docx?$/i.test(full)) return `${origin}/docs/viewer?src=${encodeURIComponent(full)}`;
-  if (/\.(pptx?|xlsx?)$/i.test(full))
+  if (/\.docx?($|\?)/i.test(full)) return `${origin}/docs/viewer?src=${encodeURIComponent(full)}`;
+  if (/\.(pptx?|xlsx?)($|\?)/i.test(full))
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(full)}`;
   return full;
 }
@@ -388,7 +390,8 @@ export default function ContractListScreen() {
                   <View style={{ flex: 1, padding: 20 }}>
                     <Text style={styles.consentLabel}>저장된 내 서명</Text>
                     <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, backgroundColor: "#fff", height: 120, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
-                      <Image source={{ uri: `${API_URL.replace(/\/api$/, "")}${mySigUrl}` }} style={{ width: 220, height: 90 }} resizeMode="contain" />
+                      {/* 서명 이미지 경로는 인증 게이트 대상 — 접근 티켓 부착 */}
+                      <Image source={{ uri: fileUri(mySigUrl || "") }} style={{ width: 220, height: 90 }} resizeMode="contain" />
                     </View>
                     <TouchableOpacity onPress={() => setDrawNewSig(true)}>
                       <Text style={{ color: "#2563eb", fontSize: 13, marginTop: 10 }}>새로 그리기 (기존 저장 서명 교체)</Text>

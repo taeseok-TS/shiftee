@@ -16,6 +16,28 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// ── 업로드 파일 접근 티켓 (2026-08-24) ─────────────────────────────
+// 서버가 /api/uploads 일부 경로(서명·계약서)에 인증 게이트를 켰다.
+// <Image>·WebView 는 Authorization 헤더를 못 실으므로 URL 에 ?t= 티켓을 부착한다.
+// 앱 실행·포그라운드(refreshToken 직후)마다 갱신 — 티켓 수명 12시간.
+let uploadsTicket = "";
+
+export async function fetchUploadsTicket(): Promise<void> {
+  try {
+    const res = await axios.get(`${API_URL}/uploads/ticket`, { headers: await authHeaders() });
+    if (res.data?.t) uploadsTicket = res.data.t;
+  } catch {
+    // 구서버 등으로 실패해도 앱 동작은 유지 (게이트 없는 경로는 그대로 열린다)
+  }
+}
+
+// 업로드 파일 URI — 게이트가 켜진 경로도 열리도록 티켓을 붙인 절대 URL 을 만든다
+export function fileUri(path: string): string {
+  const full = /^https?:\/\//.test(path) ? path : FILE_ORIGIN + path;
+  if (!uploadsTicket) return full;
+  return full + (full.includes("?") ? "&" : "?") + "t=" + uploadsTicket;
+}
+
 // 파일 업로드 → { fileUrl, fileName, fileType("image"|"file") }
 // XHR 사용: RN의 fetch가 XHR 위에 구현돼 있어 FormData multipart boundary 처리는 동일하게 안전하고,
 // XHR만 업로드 진행률(onprogress) 이벤트를 지원한다. (Content-Type 지정 금지 → boundary 포함해 자동 설정)

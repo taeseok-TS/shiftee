@@ -39,6 +39,9 @@ export async function login(email: string, password: string): Promise<User | nul
     await storage.saveToken(token);
     await storage.saveUser(user);
 
+    // 업로드 파일 접근 티켓 수급 (서명·계약서 열람용, 실패 무해)
+    import("./work").then((w) => w.fetchUploadsTicket()).catch(() => {});
+
     // 푸시 토큰 등록(권한 요청 포함) — 로그인 흐름을 막지 않게 비동기
     registerPushToken();
 
@@ -121,6 +124,8 @@ export async function refreshToken(): Promise<string | null> {
     const newToken = response.data.token;
     await storage.saveToken(newToken);
     console.log("✅ Token refreshed");
+    // 업로드 파일 접근 티켓도 함께 갱신 (서명·계약서 이미지·문서 열람용, 실패 무해)
+    import("./work").then((w) => w.fetchUploadsTicket()).catch(() => {});
     return newToken;
   } catch (error: any) {
     if (error.response?.status === 401) {

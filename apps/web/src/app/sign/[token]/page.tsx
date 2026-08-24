@@ -13,6 +13,7 @@ type Info = {
   documents: Doc[];
   consentDoc: boolean;
   state: "ready" | "waiting" | "done" | "expired" | "rejected";
+  fileTicket?: string | null; // 게스트 파일 접근 티켓 — 뷰어 URL 에 ?t= 로 부착
 };
 
 export default function ExternalSignPage({ params }: { params: Promise<{ token: string }> }) {
@@ -63,7 +64,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   // 문서는 서명 차례(ready)일 때만 서버가 내려줌 — 그 외 상태는 안내문만 표시
   const docs: Doc[] = info?.documents?.length ? info.documents : info?.fileUrl ? [{ title: info.title, fileUrl: info.fileUrl }] : [];
   const currentDoc = docs[Math.min(docIdx, Math.max(docs.length - 1, 0))];
-  const viewerSrc = currentDoc?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(currentDoc.fileUrl)}` : "";
+  // 게스트는 세션이 없어 파일 접근 티켓을 URL 에 부착 (uploads 게이트와 세트)
+  const ticketQs = info?.fileTicket ? `?t=${info.fileTicket}` : "";
+  const viewerSrc = currentDoc?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(currentDoc.fileUrl + ticketQs)}` : "";
 
   return (
     <div className="min-h-screen bg-gray-100">
