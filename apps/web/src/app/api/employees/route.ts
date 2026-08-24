@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     select: {
       id: true, name: true, email: true, role: true, empNo: true,
       department: true, jobGroup: true, position: true, branch: true, hireDate: true, birthDate: true, phone: true,
-      resignDate: true, resignReason: true,
+      resignDate: true, resignReason: true, isContractApprover: true,
       leaveBalance: { where: { year: currentLeaveYear() }, select: { remaining: true, used: true, total: true } },
       device: { select: { deviceName: true, platform: true, createdAt: true } },
       managerBranches: { select: { branchName: true } },

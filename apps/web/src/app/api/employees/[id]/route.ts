@@ -32,7 +32,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason } = body;
+  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason, isContractApprover } = body;
 
   // 퇴사일 — 빈 문자열/null 이면 해제(재직 복귀), 값이 있으면 그날짜로 설정.
   // 입사일·생일과 같이 UTC 자정으로 저장한다(KST 오프셋을 붙이면 화면에서 하루 앞당겨 보인다).
@@ -116,6 +116,8 @@ export async function PATCH(
       empNo: empNoVal,
       resignDate: resignVal,
       resignReason: resignDate === undefined ? undefined : resignDate ? (resignReason ?? undefined) : null,
+      // 전자계약 승인자 노출 토글 (관리자 계정 현황 체크박스)
+      isContractApprover: typeof isContractApprover === "boolean" ? isContractApprover : undefined,
       // 재직상태도 함께 맞춘다 — 퇴직자 현황이 이 값으로 조회하기 때문.
       // 앞으로의 퇴사일이면 아직 재직이므로 ACTIVE 로 두고, 날짜가 지나면 조회 시점에 퇴직자로 잡힌다.
       employmentStatus:

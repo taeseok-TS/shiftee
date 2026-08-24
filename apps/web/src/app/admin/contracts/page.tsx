@@ -2295,6 +2295,8 @@ ${url}`;
                                           ))}
                                           {employees
                                             .filter(e => !approverIds.includes(e.id) && e.id !== sendTarget.userId)
+                                            // 시스템 설정에서 "계약 결재자" 를 끈 관리자는 후보에서 제외
+                                            .filter(e => e.role !== "ADMIN" || (e as { isContractApprover?: boolean }).isContractApprover !== false)
                                             .filter(e => !approverSearch
                                               || e.name.toLowerCase().includes(approverSearch.toLowerCase())
                                               || (e.branch || "").toLowerCase().includes(approverSearch.toLowerCase()))
@@ -2435,6 +2437,7 @@ ${url}`;
               />
               <div className="border rounded max-h-48 overflow-y-auto divide-y">
                 {employees
+                  .filter(emp => emp.role !== "ADMIN" || (emp as { isContractApprover?: boolean }).isContractApprover !== false)
                   .filter(emp => !updateApproverSearch
                     || emp.name.toLowerCase().includes(updateApproverSearch.toLowerCase())
                     || (emp.branch || "").toLowerCase().includes(updateApproverSearch.toLowerCase()))

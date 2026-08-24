@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null };
+type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null; isContractApprover?: boolean };
 type LogRow = { id: string; actorName: string; action: string; targetName: string | null; detail: string | null; createdAt: string };
 type LoginFailRow = { id: string; email: string; userName: string | null; reason: string; deviceName: string | null; platform: string | null; createdAt: string };
 const FAIL_REASON: Record<string, { label: string; tip: string }> = {
@@ -142,7 +142,7 @@ export default function AdminSettingsPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">시스템 설정</h1>
         <p className="text-gray-600 mt-2">시스템 관리자용 설정입니다.</p>
@@ -166,6 +166,7 @@ export default function AdminSettingsPage() {
                   <th className="px-4 py-2 font-medium">이메일</th>
                   <th className="px-4 py-2 font-medium">구분</th>
                   <th className="px-4 py-2 font-medium">생성일</th>
+                  <th className="px-4 py-2 font-medium text-center">계약 결재자</th>
                   <th className="px-4 py-2 font-medium text-right">관리</th>
                 </tr>
               </thead>
@@ -180,6 +181,30 @@ export default function AdminSettingsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-gray-500">{fmt(a.createdAt)}</td>
+                    <td className="px-4 py-2 text-center">
+                      {/* 전자계약 승인자 검색에 이 관리자를 노출할지 — 클릭 즉시 저장 */}
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-indigo-600 cursor-pointer"
+                        checked={a.isContractApprover !== false}
+                        title="체크 해제하면 전자계약 승인자 검색에 나오지 않습니다"
+                        onChange={async (e) => {
+                          const v = e.target.checked;
+                          setAdmins(prev => prev.map(x => x.id === a.id ? { ...x, isContractApprover: v } : x));
+                          const res = await fetch(`/api/employees/${a.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ isContractApprover: v }),
+                          });
+                          if (res.ok) {
+                            toast.success(`${a.name} — 계약 결재자 ${v ? "노출" : "숨김"} 처리했습니다.`);
+                          } else {
+                            setAdmins(prev => prev.map(x => x.id === a.id ? { ...x, isContractApprover: !v } : x));
+                            toast.error("저장에 실패했습니다.");
+                          }
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-2 text-right">
                       {a.isSuperAdmin ? (
                         <span className="text-xs text-gray-300">—</span>
