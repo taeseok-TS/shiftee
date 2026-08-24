@@ -1468,13 +1468,19 @@ ${url}`;
                         onChange={e => {
                           const v = e.target.value;
                           setCreateForm(f => {
-                            // 종료일이 비어 있으면 1년 계약으로 자동 채움 (시작일 +1년 -1일)
+                            // 종료일 자동 채움 — 직영 계약 주기(분기)에 맞춘다 (개선 제안 2026-08-24)
+                            //  · 분기 첫날(1/1·4/1·7/1·10/1) 시작 = 재직자 갱신 → +1년-1일 (그대로 분기 말일)
+                            //  · 분기 중간 시작 = 신규 입사 → 해당 분기 말일 (3/31·6/30·9/30·12/31)
+                            // Date 객체를 쓰지 않고 문자열 계산 — 시간대에 따른 하루 밀림 방지
                             let end = f.endDate;
                             if (v && !f.endDate) {
-                              const d = new Date(v);
-                              d.setFullYear(d.getFullYear() + 1);
-                              d.setDate(d.getDate() - 1);
-                              end = d.toISOString().slice(0, 10);
+                              const [y, m, d] = v.split("-").map(Number);
+                              const QEND = ["03-31", "06-30", "09-30", "12-31"];
+                              const q = Math.floor((m - 1) / 3); // 0~3
+                              const isQuarterStart = d === 1 && (m - 1) % 3 === 0;
+                              end = isQuarterStart
+                                ? `${q === 0 ? y : y + 1}-${QEND[(q + 3) % 4]}` // 1/1→같은해 12/31, 4/1→다음해 3/31 …
+                                : `${y}-${QEND[q]}`;
                             }
                             return { ...f, startDate: v, endDate: end };
                           });
@@ -1483,7 +1489,7 @@ ${url}`;
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(시작일 선택 시 1년 자동)</span></label>
+                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 신규입사는 분기 말일 · 분기 첫날 시작은 1년)</span></label>
                       <Input
                         type="date"
                         value={createForm.endDate}
