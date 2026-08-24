@@ -74,12 +74,22 @@ export async function GET(
       : "application/octet-stream");
   // 기본 inline(미리보기/오피스 뷰어가 렌더 가능). ?download=1 이면 다운로드로 강제.
   // (워드도 inline이면 브라우저가 자체 렌더 못 해 결국 다운로드되므로 다운로드 UX엔 지장 없음)
-  const forceDownload = new URL(_request.url).searchParams.get("download") === "1";
+  const url = new URL(_request.url);
+  const forceDownload = url.searchParams.get("download") === "1";
   const disposition = forceDownload ? "attachment" : "inline";
+
+  // ?name= 으로 저장 파일명 지정 가능 (개선 제안 2026-08-24 — 계약서를 제목으로 저장).
+  // 헤더용 표시 이름일 뿐 디스크 경로와 무관. 경로 문자만 제거하고 확장자는 실제 파일 것을 보장.
+  let downloadName = usedName;
+  const rawName = url.searchParams.get("name");
+  if (rawName) {
+    const safe = rawName.replace(/[\\/:*?"<>|\r\n]/g, "").trim().slice(0, 120);
+    if (safe) downloadName = safe.toLowerCase().endsWith(ext) ? safe : safe + ext;
+  }
 
   const baseHeaders: Record<string, string> = {
     "Content-Type": contentType,
-    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(usedName)}`,
+    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
     "Accept-Ranges": "bytes",
   };
 

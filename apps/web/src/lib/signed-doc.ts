@@ -97,6 +97,10 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
         "</Relationships>",
         `<Relationship Id="${t.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${t.media}"/></Relationships>`
       );
+      // 마커 뒤에 "(인)" 표기가 붙어 있으면 서명이 그 자리를 대신하도록 흡수한다
+      // (개선 제안 2026-08-24 — 서명 옆에 빈 (인)이 따로 남지 않게). 같은 텍스트 노드에
+      // "마커   (인)" 형태로 존재하는 경우만 — 결재표처럼 마커 단독인 곳은 영향 없음.
+      docXml = docXml.replace(new RegExp(t.marker + "\\s*\\(인\\)", "g"), t.marker);
       // 마커가 있는 텍스트 run을 쪼개서 그 자리에 이미지 run 삽입 (여러 곳이면 전부)
       while (docXml.includes(t.marker)) {
         docXml = docXml.replace(

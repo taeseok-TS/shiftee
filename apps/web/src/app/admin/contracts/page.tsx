@@ -2183,7 +2183,8 @@ ${url}`;
                         {/* 뷰어(미리보기): 완료본(signedUrl) 우선, 없으면 원본 — MS 오피스 뷰어로 브라우저 열람 */}
                         <a href={officeViewHref(c.status === "SIGNED" && c.signedUrl ? c.signedUrl : getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" title="미리보기"><Button size="sm" variant="ghost" className="h-7"><Eye size={12} /></Button></a>
                         {/* 완료된 계약은 서명·직인이 들어간 완료본을 다운로드 (원본엔 서명 마커가 남아 있음) */}
-                        <a href={c.status === "SIGNED" ? (c.signedUrl ? `${c.signedUrl}?download=1` : `/api/contracts/${c.id}/signed-document`) : `${getFileUrl(c.fileUrl)}?download=1`} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드" : "원본 다운로드"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        {/* ?name= 으로 저장 파일명을 계약 제목으로 (개선 제안 2026-08-24) */}
+                        <a href={c.status === "SIGNED" ? (c.signedUrl ? `${c.signedUrl}?download=1&name=${encodeURIComponent(c.title + "_서명완료")}` : `/api/contracts/${c.id}/signed-document`) : `${getFileUrl(c.fileUrl)}?download=1&name=${encodeURIComponent(c.title)}`} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드" : "원본 다운로드"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"

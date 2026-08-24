@@ -40,6 +40,8 @@ export async function POST(
   const tokenExpiresAt = new Date(Date.now() + 14 * 24 * 3600 * 1000);
 
   let sent = 0;
+  // 발송 후 봇 DM 대상 — 문서별 첫 결재 단계의 내부 인원 (개선 제안 2026-08-24)
+  const dmTargets = new Map<string, { isEmployee: boolean; titles: string[]; empName: string }>();
   // 외부 패키지의 대표 계약서(일반 문서) 새 토큰 — 발송 직후 화면에서 바로 복사·문자 전송할 수 있게 응답에 담는다.
   // 관리자 전용 라우트라 노출해도 GET /api/contracts 의 ADMIN 노출 범위와 같다.
   let externalSignToken: string | null = null;
@@ -76,6 +78,14 @@ export async function POST(
     });
     await prisma.contract.update({ where: { id: c.id }, data: { status: "SENT" } });
     sent++;
+
+    // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
+    const firstStep = stepsData[0];
+    if (firstStep?.approverId) {
+      const prev = dmTargets.get(firstStep.approverId) || { isEmployee: firstStep.approverId === c.userId, titles: [] as string[], empName: "" };
+      prev.titles.push(c.title);
+      dmTargets.set(firstStep.approverId, prev);
+    }
   }
 
   if (sent === 0)
@@ -100,6 +110,15 @@ export async function POST(
       ].join("\n");
       for (const uid of internalIds) await botSendDM(uid, msg);
     }
+  }
+
+  // 사내 발송 봇 DM — 직원에게는 서명 요청, 결재자에게는 결재 요청
+  for (const [uid, info] of dmTargets) {
+    const head = info.titles.length > 1 ? `「${info.titles[0]}」 외 ${info.titles.length - 1}건` : `「${info.titles[0]}」`;
+    const dm = info.isEmployee
+      ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
+      : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n웹 관리자 [계약 결재]에서 처리해 주세요.`;
+    botSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
   }
 
   return NextResponse.json({ success: true, sent, externalSignToken });

@@ -153,7 +153,19 @@ export default function WorkCalendarPage() {
             const dow = getDay(day);
             const holidayName = holidays.get(format(day, "yyyy-MM-dd"));
             return (
-              <div key={day.toISOString()} className={`min-h-[110px] border-b border-r p-1.5 ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""}`}>
+              <div
+                key={day.toISOString()}
+                className={`min-h-[110px] border-b border-r p-1.5 ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""} ${role !== "EMPLOYEE" ? "cursor-pointer hover:bg-indigo-50/70 transition-colors" : ""}`}
+                title={role !== "EMPLOYEE" ? "클릭: 이 날짜로 일정 등록" : undefined}
+                onClick={() => {
+                  // 빈 공간 클릭 → 그 날짜가 채워진 등록 다이얼로그 (개선 제안 2026-08-24)
+                  // 일정 칩 클릭은 각자 stopPropagation 하므로 여기 안 옴
+                  if (role === "EMPLOYEE") return;
+                  const d = format(day, "yyyy-MM-dd");
+                  setForm(f => ({ ...f, startDate: d, endDate: d }));
+                  setOpen(true);
+                }}
+              >
                 <div className={`text-xs font-medium mb-1 ${dow === 0 || holidayName ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-600"}`}>
                   {day.getDate()}
                   {holidayName && <span className="ml-1 font-normal text-[10px] text-red-400">{holidayName}</span>}
@@ -164,12 +176,13 @@ export default function WorkCalendarPage() {
                       <div
                         className={`text-[11px] text-white rounded px-1.5 py-0.5 truncate ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-pointer" : ""}`}
                         title={e.canEdit ? `${e.title} (더블클릭: 편집)` : e.title}
-                        onDoubleClick={() => { if (e.canEdit) openEdit(e); }}
+                        onClick={(ev) => ev.stopPropagation()}
+                        onDoubleClick={(ev) => { ev.stopPropagation(); if (e.canEdit) openEdit(e); }}
                       >
                         {e.managersOnly ? "👑 " : e.branch ? `[${e.branch}] ` : ""}{e.title}
                       </div>
                       {e.canEdit && format(new Date(e.startDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd") && (
-                        <button onClick={() => remove(e.id)} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>
+                        <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>
                       )}
                     </div>
                   ))}

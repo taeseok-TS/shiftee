@@ -318,6 +318,16 @@ export async function PATCH(
         );
       }
     }
+
+    // 신청서·계약서 발송 봇 DM (개선 제안 2026-08-24) — 이메일과 별개로 큐브티워크로도 알린다.
+    // 외부 서명 단계(approverId 없음)는 위의 문자 중계 DM이 담당.
+    if (firstPendingStep?.approverId) {
+      const isEmployee = firstPendingStep.approverId === updated.userId;
+      const dm = isEmployee
+        ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
+        : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${updated.user.name}\n웹 관리자 [계약 결재]에서 처리해 주세요.`;
+      botSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
+    }
   }
 
   return NextResponse.json({ success: true, contract: updated });

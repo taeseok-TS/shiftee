@@ -228,6 +228,16 @@ export async function POST(
 
   emitWork({ type: "message", channelId: id, senderId: session.userId, msgId: message.id });
 
+  // 전송 직후에도 안읽음 "1"이 바로 보이게 응답에 unreadBy 포함 (개선 제안 2026-08-24)
+  // GET 의 계산식과 동일: 발신자 제외, lastReadAt 이 메시지 시각보다 이전이면 안 읽음
+  const unreadBy = await prisma.workChannelMember.count({
+    where: {
+      channelId: id,
+      userId: { not: session.userId },
+      OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
+    },
+  });
+
   // 푸시 알림(발신자 제외, MUTE 제외, MENTION이면 멘션 시만). 응답을 막지 않게 비동기 발송.
   notifyNewMessage(acc.channel, message, session.userId).catch((e) =>
     console.error("[push] notify 오류:", e)
@@ -256,6 +266,7 @@ export async function POST(
       mine: true,
       reactions: [],
       replyCount: 0,
+      unreadBy,
     },
   });
 }

@@ -32,6 +32,28 @@ function DocViewer() {
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
   const [errMsg, setErrMsg] = useState("");
 
+  // 축소 배율에 맞춰 표 선 두께를 키운다 — 0.5pt 선이 모바일 축소(×0.4~0.5) 후
+  // 0.3px 이하가 되어 화면에서 사라지는 문제(개선 제안 2026-08-24 — 사직원 선 안 보임).
+  // docx-preview 는 테두리를 td 인라인 스타일로 넣으므로 원본값을 dataset 에 보관해 두고
+  // 매번 원본 기준으로 계산한다(리사이즈 반복 호출에도 안전).
+  const boostBorders = (el: HTMLElement, scale: number) => {
+    const SIDES = ["Top", "Right", "Bottom", "Left"] as const;
+    el.querySelectorAll<HTMLElement>("td, th, table").forEach((cell) => {
+      SIDES.forEach((side) => {
+        const prop = `border${side}Width` as "borderTopWidth";
+        const key = `ow${side}`;
+        if (cell.dataset[key] === undefined) cell.dataset[key] = cell.style[prop] || "";
+        const orig = cell.dataset[key];
+        if (!orig) return; // 원래 테두리 없는 변은 건드리지 않는다
+        const origPx = parseFloat(orig) * (orig.endsWith("pt") ? 4 / 3 : 1);
+        if (!origPx) return;
+        // 축소 후 최소 1px 은 보이게 — 과하지 않게 2.5px 상한
+        const target = scale < 1 ? Math.max(origPx, Math.min(2.5, 1 / scale)) : origPx;
+        cell.style[prop] = scale < 1 ? `${target.toFixed(2)}px` : orig;
+      });
+    });
+  };
+
   // 문서 원본 폭이 화면보다 넓으면(모바일) 통째로 축소해서 한 화면에 맞춤 — 잘림 방지
   const applyScale = () => {
     const el = containerRef.current;
@@ -42,6 +64,7 @@ function DocViewer() {
     const naturalW = section.offsetWidth; // transform 영향 없는 원본 폭
     const avail = document.documentElement.clientWidth - 8;
     const scale = Math.min(1, avail / naturalW);
+    boostBorders(el, scale);
     if (scale < 1) {
       // 래퍼가 flex 중앙정렬이라 컨테이너가 문서보다 좁으면 좌측이 화면 밖으로 밀림
       // → 컨테이너 폭을 문서 원본 폭(+래퍼 패딩)으로 고정한 뒤 통째로 축소
