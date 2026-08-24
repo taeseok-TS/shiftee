@@ -83,6 +83,10 @@ export default function ContractListScreen() {
 
   const loadContracts = async () => {
     try {
+      // 콜드스타트 직후 티켓 수급이 아직 안 끝났을 수 있어 화면 진입 시 한 번 더 보장
+      // (티켓 없이 뷰어를 열면 게이트에서 401) — 이미 있으면 서버 1회 조회일 뿐 무해
+      const { fetchUploadsTicket } = await import("../../services/work");
+      await fetchUploadsTicket().catch(() => {});
       const [data, approvals] = await Promise.all([
         api.getContracts(),
         api.getMyContractApprovals().catch(() => []),

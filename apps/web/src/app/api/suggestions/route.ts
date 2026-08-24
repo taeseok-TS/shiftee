@@ -6,12 +6,14 @@ import { botSendDM } from "@/lib/bot";
 // 개선 제안함 — 작성자와 관리자만 열람 (비공개 창구)
 
 // 목록: 관리자는 전체, 그 외에는 본인 것만
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
+  // ?mine=1 — 관리자여도 본인 것만 ("내 제안" 화면용). 관리자 처리 화면은 파라미터 없이 전체.
+  const mineOnly = new URL(request.url).searchParams.get("mine") === "1";
   const suggestions = await prisma.suggestion.findMany({
-    where: session.role === "ADMIN" ? {} : { userId: session.userId },
+    where: session.role === "ADMIN" && !mineOnly ? {} : { userId: session.userId },
     orderBy: { createdAt: "desc" },
     take: 200,
   });

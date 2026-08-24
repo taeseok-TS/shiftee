@@ -562,6 +562,8 @@ export default function ContractsPage() {
   // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
   // 요일별 근무시간(계약직 주근무시간 합산 보조) — 계산 보조일 뿐 문서에는 합계만 들어간다
   const [dayHours, setDayHours] = useState<string[]>(Array(7).fill(""));
+  // 종료일 자동값 추적 — 사용자가 직접 고친 종료일은 보존하고, 자동값이면 시작일 변경 시 재계산
+  const lastAutoEnd = useRef<string>("");
 
   const isTimeField = (f: string) => /시각$/.test(f);
   const isDateField = (f: string) => !isTimeField(f) && !/시간$/.test(f) && /시작|종료|날짜|일자|기간|일$/.test(f);
@@ -609,6 +611,8 @@ export default function ContractsPage() {
 
   // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
+    setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
+    lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
     setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]);
     const ids = [templateId];
     if (includeBundle) {
@@ -663,7 +667,6 @@ export default function ContractsPage() {
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
-      setDayHours(Array(7).fill("")); // 요일별 계산 보조칸 초기화
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
       scanFields(templateId, bundleMode || extBundleMode, resignBundleMode);
     }
@@ -719,16 +722,26 @@ export default function ContractsPage() {
         const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
         let mins = toMin(outT) - toMin(inT);
         if (mins < 0) mins += 1440; // 자정 넘김
-        // 휴게: "30분"/"1시간"/"1시간 30분"/"30"(분으로 간주) 모두 허용
-        const hm = /(\d+)\s*시간/.exec(rest);
-        const mm = /(\d+)\s*분/.exec(rest);
-        const restMin = hm || mm ? (hm ? Number(hm[1]) * 60 : 0) + (mm ? Number(mm[1]) : 0) : Number(rest.replace(/[^\d]/g, "")) || 0;
+        // 휴게: "30분"/"1시간"/"1시간 30분"/"1.5시간"/"1:30"/"30"(분 간주) 모두 허용
+        // 소수 표기("1.5시간")까지 받도록 [\d.] — 정수만 잡으면 "1.5시간"이 "5시간"으로 오파싱된다(검증관 지적)
+        const colon = /^(\d+):(\d{1,2})$/.exec(rest.trim());
+        const hm = /([\d.]+)\s*시간/.exec(rest);
+        const mm = /([\d.]+)\s*분/.exec(rest);
+        const restMin = colon
+          ? Number(colon[1]) * 60 + Number(colon[2])
+          : hm || mm
+          ? (hm ? parseFloat(hm[1]) * 60 : 0) + (mm ? parseFloat(mm[1]) : 0)
+          : parseFloat(rest.replace(/[^\d.]/g, "")) || 0;
         const work = (mins - restMin) / 60;
-        if (work > 0) u["일근무시간"] = fmtH(work);
+        // 휴게가 근무시간보다 크면 잘못된 입력 — 옛 계산값이 남지 않게 비운다
+        u["일근무시간"] = work > 0 ? fmtH(work) : "";
       }
       if (week > 0) {
         const weeklyRest = Math.min((week / 40) * 8, 8); // 주휴시간 (비례, 최대 8h)
         u["월근로시간"] = String(Math.round((week + weeklyRest) * 4.345));
+      } else if (!(extraFields["주근무시간"] || "").trim()) {
+        // 주근무시간을 지우면 파생된 월근로시간도 비운다 — 옛 값이 계약서에 남는 것 방지
+        u["월근로시간"] = "";
       }
       // 변화 없으면 그대로 반환해 불필요한 리렌더 방지
       return u["일근무시간"] === prev["일근무시간"] && u["월근로시간"] === prev["월근로시간"] ? prev : u;
@@ -1509,11 +1522,18 @@ ${url}`;
                             // QA 확정 규칙(2026-08-24, 이예지대리): 시작일이 언제든
                             // "다음 해"의 해당 분기 말일. 예) 26-07-01 시작 → 27-09-30
                             // Date 객체를 쓰지 않고 문자열 계산 — 시간대에 따른 하루 밀림 방지
+                            // 종료일이 비었거나 "직전 자동값 그대로"면 재계산해 덮는다 —
+                            // 시작일을 정정했는데 낡은 자동 종료일이 남는 사고 방지(검증관 지적).
+                            // 사용자가 직접 고친 종료일은 건드리지 않는다.
                             let end = f.endDate;
-                            if (v && !f.endDate) {
+                            if (v && (!f.endDate || f.endDate === lastAutoEnd.current)) {
                               const [y, m] = v.split("-").map(Number);
-                              const QEND = ["03-31", "06-30", "09-30", "12-31"];
-                              end = `${y + 1}-${QEND[Math.floor((m - 1) / 3)]}`;
+                              // date input 타이핑 중 "0002-.." 같은 중간값이 오면 자동 채움 보류
+                              if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+                                const QEND = ["03-31", "06-30", "09-30", "12-31"];
+                                end = `${y + 1}-${QEND[Math.floor((m - 1) / 3)]}`;
+                                lastAutoEnd.current = end;
+                              }
                             }
                             return { ...f, startDate: v, endDate: end };
                           });
@@ -1655,15 +1675,17 @@ ${url}`;
                                   value={dayHours[i]}
                                   onChange={e => {
                                     const v = e.target.value;
-                                    setDayHours(prevD => {
-                                      const n = [...prevD]; n[i] = v;
-                                      const sum = n.reduce((a, x) => a + (parseFloat(x) || 0), 0);
-                                      if (sum > 0) {
-                                        const val = Number.isInteger(sum) ? String(sum) : String(Math.round(sum * 100) / 100);
-                                        setExtraFields(p => ({ ...p, 주근무시간: val }));
-                                      }
-                                      return n;
-                                    });
+                                    const n = [...dayHours]; n[i] = v;
+                                    setDayHours(n);
+                                    const sum = n.reduce((a, x) => a + (parseFloat(x) || 0), 0);
+                                    const hadAny = dayHours.some(x => (parseFloat(x) || 0) > 0);
+                                    if (sum > 0) {
+                                      const val = Number.isInteger(sum) ? String(sum) : String(Math.round(sum * 100) / 100);
+                                      setExtraFields(p => ({ ...p, 주근무시간: val }));
+                                    } else if (hadAny) {
+                                      // 요일칸을 전부 지우면 합산했던 주근무시간도 비운다 (옛 값 잔존 방지)
+                                      setExtraFields(p => ({ ...p, 주근무시간: "" }));
+                                    }
                                   }}
                                 />
                               </div>

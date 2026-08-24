@@ -236,7 +236,8 @@ export type SuggestionItem = {
   status: string; adminComment: string | null; createdAt: string;
 };
 export async function getMySuggestions(): Promise<SuggestionItem[]> {
-  const res = await axios.get(`${API_URL}/suggestions`, { headers: await authHeaders() });
+  // mine=1 — 관리자 계정으로 봐도 남의 제안이 안 섞이게 ("내 제안" 화면 전용)
+  const res = await axios.get(`${API_URL}/suggestions?mine=1`, { headers: await authHeaders() });
   return (res.data?.suggestions as SuggestionItem[]) || [];
 }
 export async function createSuggestion(data: { title: string; content: string; imageUrls: string[] }) {

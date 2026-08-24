@@ -47,8 +47,9 @@ function DocViewer() {
         if (!orig) return; // 원래 테두리 없는 변은 건드리지 않는다
         const origPx = parseFloat(orig) * (orig.endsWith("pt") ? 4 / 3 : 1);
         if (!origPx) return;
-        // 축소 후 최소 1px 은 보이게 — 과하지 않게 2.5px 상한
-        const target = scale < 1 ? Math.max(origPx, Math.min(2.5, 1 / scale)) : origPx;
+        // 축소 후 최소 1px 은 보이게 — 상한 3.2px (320px 급 좁은 화면·가로형 문서의
+        // scale 0.32 까지 렌더 1px 유지, 검증관 지적)
+        const target = scale < 1 ? Math.max(origPx, Math.min(3.2, 1 / scale)) : origPx;
         cell.style[prop] = scale < 1 ? `${target.toFixed(2)}px` : orig;
       });
     });

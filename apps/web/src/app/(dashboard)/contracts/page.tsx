@@ -1314,9 +1314,10 @@ export default function ContractsPage() {
                   <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
                 </div>
                 <div className="flex gap-2">
-                  {/* 결재자는 다운로드 대신 브라우저 열람 (파일 보관 방지) */}
+                  {/* 결재자는 다운로드 대신 브라우저 열람 (파일 보관 방지).
+                      MS 뷰어는 서버가 쿠키 없이 파일을 가져와 게이트에 막힌다 — 인앱 뷰어 라우팅(viewHref) 사용 */}
                   {getFileUrl(c.fileUrl) && (
-                    <a href={/\.(pptx?|xlsx?|docx?)$/i.test(getFileUrl(c.fileUrl)) ? `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + getFileUrl(c.fileUrl))}` : getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
+                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}

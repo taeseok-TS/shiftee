@@ -8,13 +8,14 @@ import crypto from "crypto";
 const secret = () => process.env.JWT_SECRET || "";
 
 export function issueUploadTicket(ttlMs = 12 * 3600 * 1000): string {
+  if (!secret()) throw new Error("JWT_SECRET 미설정 — 업로드 티켓을 발급할 수 없습니다.");
   const exp = Date.now() + ttlMs;
   const sig = crypto.createHmac("sha256", secret()).update("uploads:" + exp).digest("hex").slice(0, 32);
   return `${exp}.${sig}`;
 }
 
 export function verifyUploadTicket(t: string | null | undefined): boolean {
-  if (!t) return false;
+  if (!t || !secret()) return false; // 시크릿이 비면 어떤 티켓도 인정하지 않는다 (빈 키 HMAC 위조 방지)
   const dot = t.indexOf(".");
   if (dot <= 0) return false;
   const exp = Number(t.slice(0, dot));

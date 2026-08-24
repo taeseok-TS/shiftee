@@ -98,7 +98,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
     const SEAL_PATH = path.join(process.cwd(), "uploads", "private", "seal.png");
     const sealExists = await fs.access(SEAL_PATH).then(() => true).catch(() => false);
 
-    let docPrId = 200;
+    let docPrId = 900001; // 템플릿에 이미 든 그림(docPr id, 보통 1~수백)과 충돌하지 않게 큰 값에서 시작
     const targets: { marker: string; signer: Signer | null; media: string; rId: string; imagePath?: string; square?: boolean }[] = [
       { marker: "《근로자서명》", signer: employeeSigner, media: "inlineSigEmp.png", rId: "rIdInlineSigEmp" },
       // 대표 (인): 직인 파일이 있으면 직인, 없으면 최종 결재자 손서명 (하위 호환)

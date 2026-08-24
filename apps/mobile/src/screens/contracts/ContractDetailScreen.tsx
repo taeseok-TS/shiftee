@@ -15,7 +15,7 @@ import { useRoute, RouteProp } from "@react-navigation/native";
 import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas";
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
-import { API_URL } from "../../config";
+import { fileUri } from "../../services/work";
 
 const STATUS: Record<string, { label: string; color: string }> = {
   DRAFT: { label: "작성중", color: "#6b7280" },
@@ -36,9 +36,8 @@ function firstUrl(raw?: string | null): string | null {
 }
 
 function fullUrl(path: string): string {
-  if (path.startsWith("http")) return path;
-  const origin = API_URL.replace(/\/api$/, "");
-  return origin + path;
+  // 계약서·서명 경로는 인증 게이트 대상 — 접근 티켓을 붙인 URL 로 연다 (검증관 지적 2026-08-24)
+  return fileUri(path);
 }
 
 type ParamList = { ContractDetail: { id: string } };

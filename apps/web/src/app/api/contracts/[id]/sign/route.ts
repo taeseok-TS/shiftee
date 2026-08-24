@@ -275,7 +275,7 @@ export async function POST(
 
     // 봇 DM (개선 제안 2026-08-24): 다음 단계 담당자에게 알림, 없으면 직원에게 완료 알림
     if (nextStep?.approverId) {
-      const dm = nextStep.approverId === finalContract.userId
+      const dm = nextStep.approverId === finalContract.userId && !contract.externalName
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${finalContract.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
         : `\ud83d\udd8b 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}/admin/contract-approvals`;
       botSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));

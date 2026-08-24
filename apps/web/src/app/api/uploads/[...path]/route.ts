@@ -51,7 +51,9 @@ export async function GET(
   // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL에 부착한다(lib/upload-ticket).
   // 경로군별 단계 적용: 기본 signatures·contracts. 앱 OTA 확산 후 work·avatars 확대 예정
   // (환경변수 UPLOADS_GATE 로 조절, "off" 면 게이트 없음).
-  const gateEnv = process.env.UPLOADS_GATE ?? "signatures,contracts";
+  // 빈 문자열은 오설정으로 보고 기본값 사용 — 끄려면 명시적으로 "off"
+  const gateEnvRaw = (process.env.UPLOADS_GATE ?? "").trim();
+  const gateEnv = gateEnvRaw === "" ? "signatures,contracts" : gateEnvRaw;
   const gated = gateEnv === "off" ? [] : gateEnv.split(",").map((s) => s.trim()).filter(Boolean);
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
@@ -101,9 +103,13 @@ export async function GET(
     if (safe) downloadName = safe.toLowerCase().endsWith(ext) ? safe : safe + ext;
   }
 
+  // RFC 5987: encodeURIComponent 가 남기는 '()* 도 attr-char 가 아니라 추가 인코딩,
+  // 엄격한 파서용 ASCII filename= 폴백도 함께 (검증관 지적 — 제목에 괄호가 흔함)
+  const rfc5987 = encodeURIComponent(downloadName).replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+  const asciiFallback = downloadName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "'") || usedName;
   const baseHeaders: Record<string, string> = {
     "Content-Type": contentType,
-    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
+    "Content-Disposition": `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${rfc5987}`,
     "Accept-Ranges": "bytes",
   };
 

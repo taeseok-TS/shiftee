@@ -41,7 +41,7 @@ export async function POST(
 
   let sent = 0;
   // 발송 후 봇 DM 대상 — 문서별 첫 결재 단계의 내부 인원 (개선 제안 2026-08-24)
-  const dmTargets = new Map<string, { isEmployee: boolean; titles: string[]; empName: string }>();
+  const dmTargets = new Map<string, { isEmployee: boolean; titles: string[] }>();
   // 외부 패키지의 대표 계약서(일반 문서) 새 토큰 — 발송 직후 화면에서 바로 복사·문자 전송할 수 있게 응답에 담는다.
   // 관리자 전용 라우트라 노출해도 GET /api/contracts 의 ADMIN 노출 범위와 같다.
   let externalSignToken: string | null = null;
@@ -82,7 +82,7 @@ export async function POST(
     // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
     const firstStep = stepsData[0];
     if (firstStep?.approverId) {
-      const prev = dmTargets.get(firstStep.approverId) || { isEmployee: firstStep.approverId === c.userId, titles: [] as string[], empName: "" };
+      const prev = dmTargets.get(firstStep.approverId) || { isEmployee: firstStep.approverId === c.userId && !c.externalName, titles: [] as string[] };
       prev.titles.push(c.title);
       dmTargets.set(firstStep.approverId, prev);
     }

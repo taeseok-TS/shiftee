@@ -57,11 +57,13 @@ export default function SuggestionsPage() {
       toast.success("제안이 수정되었습니다.");
       setEditId(null);
       fetchList();
+    } catch {
+      toast.error("네트워크 오류로 수정하지 못했습니다.");
     } finally { setEditSaving(false); }
   }
 
   const fetchList = useCallback(async () => {
-    const res = await fetch("/api/suggestions");
+    const res = await fetch("/api/suggestions?mine=1"); // 관리자 계정으로 봐도 남의 제안이 안 섞이게
     if (res.ok) setList((await res.json()).suggestions || []);
   }, []);
   useEffect(() => { fetchList(); }, [fetchList]);

@@ -238,7 +238,7 @@ export default function WorkCalendarPage() {
               </div>
             </div>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setOpen(false)}>취소</Button>
+              <Button variant="outline" onClick={() => { setOpen(false); setEditId(null); setForm({ title: "", description: "", startDate: "", endDate: "", branch: "__ALL__", color: "indigo" }); }}>취소</Button>
               <Button onClick={save} disabled={saving}>{saving ? "저장 중..." : editId ? "수정" : "등록"}</Button>
             </div>
           </div>
