@@ -2300,7 +2300,9 @@ ${url}`;
                                             </button>
                                           ))}
                                           {employees
-                                            .filter(e => !approverIds.includes(e.id) && e.id !== sendTarget.userId)
+                                            // 외부 계약의 userId 는 당사자가 아니라 "작성한 관리자" — 본인도 결재자로
+                                            // 참여할 수 있어야 하므로 제외하지 않는다 (이예지대리 QA 2026-08-24)
+                                            .filter(e => !approverIds.includes(e.id) && (sendTarget.externalName ? true : e.id !== sendTarget.userId))
                                             // 시스템 설정에서 "계약 결재자" 를 끈 관리자는 후보에서 제외
                                             .filter(e => e.role !== "ADMIN" || (e as { isContractApprover?: boolean }).isContractApprover !== false)
                                             .filter(e => !approverSearch
