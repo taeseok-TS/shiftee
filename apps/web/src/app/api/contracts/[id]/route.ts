@@ -268,9 +268,13 @@ export async function PATCH(
   // 채팅의 문자 중계 링크(https)를 탭하면 문자 앱이 번호·본문 채워진 채 열린다.
   if (status === "SENT" && contract.externalName) {
     const extStep = updated.approvalLine?.steps.find(s => !s.approverId && s.signToken);
-    const internalIds = (updated.approvalLine?.steps || [])
+    // 결재선에 내부 결재자가 없으면(신청서·동의서처럼 외부인 서명만 받는 경우)
+    // 발송자 본인에게 중계 링크 DM — 채용 패키지 외 문서도 같은 경로로 문자 전달 가능
+    // (개선 제안 2026-08-24: 출산휴가원 등 신청서도 채팅봇 연결)
+    const stepApproverIds = (updated.approvalLine?.steps || [])
       .map(s => s.approverId)
       .filter((v): v is string => !!v);
+    const internalIds = stepApproverIds.length > 0 ? stepApproverIds : [session.userId];
     if (extStep?.signToken && internalIds.length > 0) {
       const base = getAppUrl();
       const msg = [

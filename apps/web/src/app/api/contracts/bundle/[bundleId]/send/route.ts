@@ -95,7 +95,9 @@ export async function POST(
   // (발송자는 PC, 문자 보낼 현장 관리자는 폰 — 채팅의 중계 링크 탭 → 문자 앱 자동 오픈)
   if (externalSignToken) {
     const rep = contracts.find((c) => c.externalName && !c.employeeOnly);
-    const internalIds = approverIds.filter((a: string) => a !== "EXTERNAL");
+    // 내부 결재자가 없으면 발송자 본인에게 중계 링크 DM (개선 제안 2026-08-24)
+    const stepApproverIds = approverIds.filter((a: string) => a !== "EXTERNAL");
+    const internalIds = stepApproverIds.length > 0 ? stepApproverIds : [session.userId];
     if (rep && internalIds.length > 0) {
       const base = getAppUrl();
       const msg = [
