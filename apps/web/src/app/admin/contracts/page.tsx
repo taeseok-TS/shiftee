@@ -560,6 +560,9 @@ export default function ContractsPage() {
     .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
+  // 요일별 근무시간(계약직 주근무시간 합산 보조) — 계산 보조일 뿐 문서에는 합계만 들어간다
+  const [dayHours, setDayHours] = useState<string[]>(Array(7).fill(""));
+
   const isTimeField = (f: string) => /시각$/.test(f);
   const isDateField = (f: string) => !isTimeField(f) && !/시간$/.test(f) && /시작|종료|날짜|일자|기간|일$/.test(f);
   // 금액류 필드 — 입력 시 천 단위 쉼표 자동 포맷 (문서에는 서버가 "1,210,000원"으로 변환)
@@ -660,6 +663,7 @@ export default function ContractsPage() {
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
+      setDayHours(Array(7).fill("")); // 요일별 계산 보조칸 초기화
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
       scanFields(templateId, bundleMode || extBundleMode, resignBundleMode);
     }
@@ -700,6 +704,37 @@ export default function ContractsPage() {
     if (Object.keys(updates).length) setExtraFields(prev => ({ ...prev, ...updates }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, templateFields]);
+
+  // 계약직 근로시간 자동 계산 (개선 제안 2026-08-24, 공식은 이예지대리 확정)
+  //  일근무시간 = (퇴근-출근) - 휴게   /   월근로시간 = (주 + min(주/40×8, 8)) × 4.345 반올림
+  // 소스 값(시각·휴게·주근무시간)이 바뀔 때마다 재계산해 덮는다 — 수기 실수 방지가 목적.
+  useEffect(() => {
+    if (!templateFields.includes("월근로시간")) return; // 계약직 계약서에만 있는 필드
+    const inT = extraFields["출근시각"] || "", outT = extraFields["퇴근시각"] || "", rest = extraFields["휴게시간"] || "";
+    const week = parseFloat(extraFields["주근무시간"] || "");
+    setExtraFields(prev => {
+      const u = { ...prev };
+      const fmtH = (h: number) => (Number.isInteger(h) ? String(h) : String(Math.round(h * 100) / 100));
+      if (/^\d{2}:\d{2}$/.test(inT) && /^\d{2}:\d{2}$/.test(outT) && rest.trim()) {
+        const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+        let mins = toMin(outT) - toMin(inT);
+        if (mins < 0) mins += 1440; // 자정 넘김
+        // 휴게: "30분"/"1시간"/"1시간 30분"/"30"(분으로 간주) 모두 허용
+        const hm = /(\d+)\s*시간/.exec(rest);
+        const mm = /(\d+)\s*분/.exec(rest);
+        const restMin = hm || mm ? (hm ? Number(hm[1]) * 60 : 0) + (mm ? Number(mm[1]) : 0) : Number(rest.replace(/[^\d]/g, "")) || 0;
+        const work = (mins - restMin) / 60;
+        if (work > 0) u["일근무시간"] = fmtH(work);
+      }
+      if (week > 0) {
+        const weeklyRest = Math.min((week / 40) * 8, 8); // 주휴시간 (비례, 최대 8h)
+        u["월근로시간"] = String(Math.round((week + weeklyRest) * 4.345));
+      }
+      // 변화 없으면 그대로 반환해 불필요한 리렌더 방지
+      return u["일근무시간"] === prev["일근무시간"] && u["월근로시간"] === prev["월근로시간"] ? prev : u;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
   // 퇴사일자 입력 시 근무종료일·연차종료일 자동 기입 (이후 수동 수정 가능)
   useEffect(() => {
@@ -1607,6 +1642,35 @@ ${url}`;
                     ) : (
                     <div key={f} className="space-y-1">
                       <Label className="text-sm">{f}{required && " *"}</Label>
+                      {f === "주근무시간" && (
+                        <div className="border rounded-md p-2 bg-gray-50/60 space-y-1">
+                          <p className="text-[11px] text-gray-500">요일별 근무시간(숫자)을 넣으면 자동 합산됩니다 — 쉬는 요일은 비워두세요</p>
+                          <div className="grid grid-cols-7 gap-1">
+                            {["월", "화", "수", "목", "금", "토", "일"].map((d, i) => (
+                              <div key={d} className="text-center">
+                                <div className="text-[10px] text-gray-500">{d}</div>
+                                <Input
+                                  className="h-7 px-1 text-center text-xs"
+                                  inputMode="decimal"
+                                  value={dayHours[i]}
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    setDayHours(prevD => {
+                                      const n = [...prevD]; n[i] = v;
+                                      const sum = n.reduce((a, x) => a + (parseFloat(x) || 0), 0);
+                                      if (sum > 0) {
+                                        const val = Number.isInteger(sum) ? String(sum) : String(Math.round(sum * 100) / 100);
+                                        setExtraFields(p => ({ ...p, 주근무시간: val }));
+                                      }
+                                      return n;
+                                    });
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <Input
                         type={isTimeField(f) ? "time" : isDateField(f) ? "date" : "text"}
                         value={extraFields[f] || ""}
