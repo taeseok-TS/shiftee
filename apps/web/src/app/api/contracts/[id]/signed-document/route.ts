@@ -50,9 +50,35 @@ export async function GET(
   const orig = firstFile(contract.fileUrl);
   const isDocx = !!orig && orig.toLowerCase().endsWith(".docx");
 
+  // ?pdf=1 — 워드 완료본을 PDF로 변환해 제공 (개선 제안 2026-08-24: 다운로드 후 수정 방지).
+  // 변환기(gotenberg)가 죽어 있으면 워드로 폴백해 다운로드 자체는 항상 된다.
+  const wantPdf = new URL(_request.url).searchParams.get("pdf") === "1";
+
   try {
     if (isDocx) {
       const buf = await buildSignedDocx(diskPath(orig!), contract.title, signers);
+      if (wantPdf) {
+        try {
+          const fd = new FormData();
+          fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+          const gres = await fetch(
+            `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
+            { method: "POST", body: fd }
+          );
+          if (gres.ok) {
+            const pdf = Buffer.from(await gres.arrayBuffer());
+            return new NextResponse(pdf, {
+              headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
+              },
+            });
+          }
+          console.error("PDF 변환 실패(gotenberg):", gres.status, await gres.text().catch(() => ""));
+        } catch (e) {
+          console.error("PDF 변환 오류(gotenberg):", e);
+        }
+      }
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

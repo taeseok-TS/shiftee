@@ -38,6 +38,8 @@ services:
       # HTTPS 적용 전(HTTP 임시)에는 .env에 COOKIE_SECURE=false. HTTPS 되면 true(또는 삭제).
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
+      # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
+      GOTENBERG_URL: http://gotenberg:3000
       # SMTP(이메일 발송). .env 가 비어 있으면 빈 값이 들어가고 메일은 보내지 않는다(경고 로그).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
@@ -51,6 +53,16 @@ services:
     volumes:
       # 업로드 파일(계약서/서명/템플릿)은 컨테이너 재생성에도 보존
       - uploads:/app/apps/web/uploads
+
+  # 워드→PDF 변환기 (완료 계약서 PDF 다운로드용). 내부 네트워크 전용 — 포트 미노출.
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    mem_limit: 768m
+    command:
+      - gotenberg
+      - --api-timeout=60s
+      - --libreoffice-restart-after=20
 
 volumes:
   pgdata:
