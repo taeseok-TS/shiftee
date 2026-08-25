@@ -185,7 +185,7 @@ const SYSTEM_FIELDS = new Set([
 const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
 const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보)
 const isEmployeeInputField = (name: string) =>
-  !EMPLOYEE_INPUT_EXCLUDE.has(name) && isEmployeeInputField(name);
+  !EMPLOYEE_INPUT_EXCLUDE.has(name) && EMPLOYEE_INPUT_PATTERN.test(name);
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
 // 화이트리스트(퇴사사유 등 '사유'류)만 직원 입력 — 나머지는 전부 관리자 작성 폼에 표시.
