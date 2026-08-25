@@ -48,7 +48,9 @@ function inlineSigDrawing(rId: string, docPrId: number, square = false): string 
 // 위치는 마커 지점 기준: 가로 -3mm(이름 끝에 살짝 걸침), 세로는 줄 중앙에 오도록 위로.
 function overlaySigDrawing(rId: string, docPrId: number, square = false): string {
   const cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
-  const offH = -108000; // -3mm
+  // 가로: 이미지 "중심"이 마커 뒤 "(인)" 위(앵커점 오른쪽 약 5mm)에 오도록 —
+  // 앵커점에서 오른쪽으로만 뻗으면 오른쪽 정렬 서명줄에서 페이지 밖으로 나간다 (QA 2026-08-25 실측)
+  const offH = -Math.round(cx / 2) + 180000;
   const offV = square ? -158000 : -105000; // 줄 높이(~4.2mm) 중앙 정렬
   return (
     `<w:drawing>` +
