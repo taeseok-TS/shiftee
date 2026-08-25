@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getAppUrl } from "@/lib/app-url";
+import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { botSendDM } from "@/lib/bot";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
@@ -134,7 +134,7 @@ export async function POST(
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, email: true } } },
+              include: { approver: { select: { id: true, name: true, email: true, role: true } } },
             },
           },
         },
@@ -174,7 +174,7 @@ export async function POST(
 
     // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 직원에게 완료 알림
     if (nextStep?.approverId) {
-      botSendDM(nextStep.approverId, `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}/admin/contract-approvals`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+      botSendDM(nextStep.approverId, `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep) {
       botSendDM(updated.user.id, `\u2705 전자계약 완료\n「${updated.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
     }
@@ -222,7 +222,7 @@ export async function POST(
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, email: true } } },
+              include: { approver: { select: { id: true, name: true, email: true, role: true } } },
             },
           },
         },
@@ -277,7 +277,7 @@ export async function POST(
     if (nextStep?.approverId) {
       const dm = nextStep.approverId === finalContract.userId && !contract.externalName
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${finalContract.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
-        : `\ud83d\udd8b 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}/admin/contract-approvals`;
+        : `\ud83d\udd8b 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
       botSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep && !contract.externalName) {
       botSendDM(finalContract.user.id, `\u2705 전자계약 완료\n「${finalContract.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));

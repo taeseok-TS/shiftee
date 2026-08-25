@@ -85,7 +85,7 @@ export async function GET(
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.docx")}`,
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.docx")}`,
         },
       });
     } else {
@@ -93,7 +93,7 @@ export async function GET(
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
         },
       });
     }

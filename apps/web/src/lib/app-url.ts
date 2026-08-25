@@ -21,3 +21,9 @@ export function getAppUrl(): string {
   }
   return "http://localhost:3000";
 }
+
+// 결재자 역할별 계약 결재함 경로 — /admin/* 은 관리자 전용(레이아웃이 그 외 role 을 로그인으로 리다이렉트)
+// 원장(MANAGER)은 자체 결재함(/manager/team-contracts)을 쓴다 (검증관 지적 2026-08-25)
+export function approvalPageUrl(role?: string | null): string {
+  return role === "MANAGER" ? "/manager/team-contracts" : "/admin/contract-approvals";
+}

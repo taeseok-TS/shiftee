@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getAppUrl } from "@/lib/app-url";
+import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { botSendDM } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
@@ -257,7 +257,7 @@ export async function PATCH(
       user: { select: { id: true, name: true, email: true, department: true } },
       approvalLine: {
         include: {
-          steps: { include: { approver: { select: { id: true, name: true, email: true } } } },
+          steps: { include: { approver: { select: { id: true, name: true, email: true, role: true } } } },
         },
       },
     },
@@ -330,7 +330,7 @@ export async function PATCH(
       const isEmployee = firstPendingStep.approverId === updated.userId && !contract.externalName;
       const dm = isEmployee
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
-        : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}/admin/contract-approvals`;
+        : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((firstPendingStep as { approver?: { role?: string } }).approver?.role)}`;
       botSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }
   }

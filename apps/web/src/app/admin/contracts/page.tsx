@@ -591,7 +591,7 @@ export default function ContractsPage() {
     || templates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디") && !t.name.includes("기타직무"));
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
-  // 퇴사 패키지 5종 — 사직원(결재라인) + 정산·동의 3종(결재라인) + 비밀유지서약서(퇴직시, 직원 서명만)
+  // 퇴사 패키지 5종 — 전부 결재라인(비밀유지서약서(퇴직시)도 결재표 신설로 결재라인, 2026-08-25)
   // 코디 채용 패키지 — 코디 계약서 4종(정규직 주40/주35·계약직 일반/단기) 중 선택 + 비밀유지·개인정보동의서
   const codiTemplates = templates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
   const canCodiBundle = codiTemplates.length > 0 && !!ndaTemplate && !!privacyTemplate;
@@ -1385,7 +1385,7 @@ ${url}`;
                         {resignBundleMode && (
                           <p className="text-[11px] text-rose-700 pl-6">
                             사직원 + 금품청산 동의서 + 퇴직금·연차수당 정산 신청서 + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
-                            비밀유지서약서(퇴직시)는 <b>직원 서명만</b> 받으며, 나머지 4종은 설정한 결재라인으로 진행됩니다.
+                            <b>5종 모두</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.
                           </p>
                         )}
                       </div>

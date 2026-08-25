@@ -188,7 +188,7 @@ const isEmployeeInputField = (name: string) =>
   !EMPLOYEE_INPUT_EXCLUDE.has(name) && EMPLOYEE_INPUT_PATTERN.test(name);
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
-// 화이트리스트(퇴사사유 등 '사유'류)만 직원 입력 — 나머지는 전부 관리자 작성 폼에 표시.
+// 화이트리스트(선사용사유 등 '사유'류·주민등록번호)만 직원 입력 — 퇴사사유는 관리자 작성 — 나머지는 전부 관리자 작성 폼에 표시.
 // 프로필 필드(주소/생년월일)와 달리 프로필에 저장하지 않고 해당 문서에만 반영한다.
 export async function scanEmployeeFillFields(templateFileUrl: string): Promise<string[]> {
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
