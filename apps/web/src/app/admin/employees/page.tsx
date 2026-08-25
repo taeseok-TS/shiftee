@@ -1055,20 +1055,20 @@ export default function EmployeesPage() {
                                     </Button>
                                   )}
                                 </div>
-                                {/* 비밀번호 초기화 (직원이 비번을 잊었을 때 — 임시 비번 1234) */}
+                                {/* 비밀번호 초기화 (직원이 비번을 잊었을 때 — 임시 비번 12345678) */}
                                 <div className="mt-2 p-3 bg-gray-50 rounded-lg flex items-center justify-between gap-2">
                                   <div className="text-sm">
                                     <div className="font-medium text-gray-700">비밀번호</div>
                                     <div className="text-gray-500 text-xs mt-0.5">
-                                      초기화하면 임시 비번 <b>1234</b>로 바뀝니다. 24시간 내 미변경 시 봇이 변경을 요청합니다.
+                                      초기화하면 임시 비번 <b>12345678</b>로 바뀝니다. 24시간 내 미변경 시 봇이 변경을 요청합니다.
                                     </div>
                                   </div>
                                   <Button variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50 shrink-0"
                                     onClick={async () => {
-                                      if (!window.confirm(`${editEmployee.name}님의 비밀번호를 임시 비번(1234)으로 초기화합니다.\n직원에게 1234로 로그인 후 비밀번호를 변경하도록 안내해주세요.\n진행할까요?`)) return;
+                                      if (!window.confirm(`${editEmployee.name}님의 비밀번호를 임시 비번(12345678)으로 초기화합니다.\n직원에게 12345678로 로그인 후 비밀번호를 변경하도록 안내해주세요.\n진행할까요?`)) return;
                                       const res = await fetch(`/api/employees/${editEmployee.id}/reset-password`, { method: "PATCH" });
                                       const d = await res.json().catch(() => ({}));
-                                      if (res.ok) toast.success(d.message || "비밀번호를 1234로 초기화했습니다.");
+                                      if (res.ok) toast.success(d.message || "비밀번호를 12345678로 초기화했습니다.");
                                       else toast.error(d.error || "초기화에 실패했습니다.");
                                     }}>
                                     비밀번호 초기화

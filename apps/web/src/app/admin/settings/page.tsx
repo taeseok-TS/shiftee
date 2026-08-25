@@ -13,7 +13,7 @@ type LogRow = { id: string; actorName: string; action: string; targetName: strin
 type LoginFailRow = { id: string; email: string; userName: string | null; reason: string; deviceName: string | null; platform: string | null; createdAt: string };
 const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   UNKNOWN_EMAIL: { label: "없는 이메일", tip: "이메일 오타 가능성 — 정확한 주소를 안내" },
-  BAD_PASSWORD: { label: "비밀번호 불일치", tip: "직원관리에서 비밀번호 초기화(1234)" },
+  BAD_PASSWORD: { label: "비밀번호 불일치", tip: "본인 셀프 재설정 안내(로그인 화면) 또는 직원관리에서 초기화(12345678)" },
   INACTIVE: { label: "비활성 계정", tip: "직원관리에서 계정 상태 확인" },
   RESIGNED: { label: "퇴사 계정", tip: "퇴사 처리된 계정 — 잘못이면 퇴사일 확인" },
   DEVICE_BLOCKED: { label: "미등록 기기", tip: "폰을 바꾼 경우 — 직원관리에서 기기 초기화" },

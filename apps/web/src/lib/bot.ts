@@ -402,7 +402,7 @@ export async function runReminders() {
   }
 }
 
-// 임시 비번(1234) 미변경 알림 — 관리자 초기화 후 24시간이 지나도 본인이 안 바꿨으면
+// 임시 비번(12345678) 미변경 알림 — 관리자 초기화 후 24시간이 지나도 본인이 안 바꿨으면
 // 바꿀 때까지 매일 1회 봇 DM(+푸시). 본인이 변경하면 passwordResetAt이 null이 되어 자동 중단.
 export async function runPasswordResetReminders() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -414,7 +414,7 @@ export async function runPasswordResetReminders() {
     await botSendDM(
       u.id,
       "🔐 비밀번호를 변경해주세요\n" +
-        "임시 비밀번호(1234)를 계속 사용 중입니다. 보안을 위해 본인만 아는 비밀번호로 바꿔주세요.\n" +
+        "임시 비밀번호(12345678)를 계속 사용 중입니다. 보안을 위해 본인만 아는 비밀번호로 바꿔주세요.\n" +
         "· 앱: 더보기 > 설정 > 비밀번호 변경\n" +
         "· 웹: 환경설정 > 비밀번호 변경"
     );
@@ -449,7 +449,7 @@ export function startBotScheduler() {
     if (k.getUTCHours() === 9 && k.getUTCMinutes() < 2 && g.__botRemLastRun !== today) {
       g.__botRemLastRun = today;
       try { await runNoticeReminders(); } catch (e) { console.error("[bot] 공지 재알림 오류:", e); }
-      // 임시 비번(1234) 24시간 이상 미변경자에게 변경 요청 (매일 09:00, 바꿀 때까지)
+      // 임시 비번(12345678) 24시간 이상 미변경자에게 변경 요청 (매일 09:00, 바꿀 때까지)
       try { await runPasswordResetReminders(); } catch (e) { console.error("[bot] 비번 변경 요청 오류:", e); }
     }
 
