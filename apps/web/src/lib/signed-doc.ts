@@ -47,11 +47,12 @@ function inlineSigDrawing(rId: string, docPrId: number, square = false): string 
 // wrapNone 이라 글자 배치는 전혀 밀리지 않고, (인) 글자도 그대로 남는다.
 // 위치는 마커 지점 기준: 가로 -3mm(이름 끝에 살짝 걸침), 세로는 줄 중앙에 오도록 위로.
 function overlaySigDrawing(rId: string, docPrId: number, square = false): string {
-  const cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
-  // 가로: 이미지 "중심"이 마커 뒤 "(인)" 위(앵커점 오른쪽 약 5mm)에 오도록 —
-  // 앵커점에서 오른쪽으로만 뻗으면 오른쪽 정렬 서명줄에서 페이지 밖으로 나간다 (QA 2026-08-25 실측)
-  const offH = -Math.round(cx / 2) + 180000;
-  const offV = square ? -158000 : -105000; // 줄 높이(~4.2mm) 중앙 정렬
+  // 오버레이 손서명은 인라인(2.86cm)보다 작게 2.0cm — 넓으면 왼쪽 절반이 이름을 덮는다
+  // (디렉터 실물 확인 2026-08-25: "서명이 이름을 덮어버린다")
+  const cx = square ? 468000 : 756000, cy = square ? 468000 : 310000;
+  // 가로: 이미지 중심이 앵커점(마커 자리) 오른쪽 8mm — "(인)" 위. 이름 침범은 2mm 이내
+  const offH = -Math.round(cx / 2) + 288000;
+  const offV = square ? -158000 : -80000; // 줄 높이(~4.2mm) 중앙 정렬
   return (
     `<w:drawing>` +
     `<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
