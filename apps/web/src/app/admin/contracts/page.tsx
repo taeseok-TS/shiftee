@@ -752,6 +752,55 @@ export default function ContractsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
+  // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25, 공식은 이예지대리 확정)
+  //  교육평가: 입사일 ~ (영업일 14일째 + 2일 — 주휴수당 처리), 영업일 = 주말·공휴일 제외
+  //  실무평가: 교육 종료 다음날 ~ 입사일 + 3개월 - 1일
+  const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!templateFields.includes("교육평가시작") || !createForm.startDate) return;
+    const y = Number(createForm.startDate.slice(0, 4));
+    if (!y || y < 2000) return;
+    // 3개월 범위가 다음 해로 넘어갈 수 있어 두 해 로드
+    Promise.all([y, y + 1].map(yy => fetch(`/api/holidays?year=${yy}`).then(r => r.json()).catch(() => ({ holidays: [] }))))
+      .then(res => setHolidaySet(new Set(res.flatMap(d => (d.holidays || []).map((h: { date: string }) => h.date)))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFields, createForm.startDate?.slice(0, 4)]);
+
+  useEffect(() => {
+    if (!templateFields.includes("교육평가시작")) return;
+    const start = createForm.startDate;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || "") || holidaySet.size === 0) return;
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const isBiz = (d: Date) => {
+      const dow = d.getUTCDay();
+      return dow !== 0 && dow !== 6 && !holidaySet.has(fmt(d));
+    };
+    // 영업일 14일째 되는 날 (입사일이 영업일이면 1일째)
+    const d = new Date(start + "T00:00:00Z");
+    let count = 0;
+    let guard = 0;
+    while (count < 14 && guard++ < 60) {
+      if (isBiz(d)) count++;
+      if (count < 14) d.setUTCDate(d.getUTCDate() + 1);
+    }
+    d.setUTCDate(d.getUTCDate() + 2); // 주휴수당 처리 +2일
+    const eduEnd = fmt(d);
+    const pracStart = new Date(d); pracStart.setUTCDate(pracStart.getUTCDate() + 1);
+    const p3 = new Date(start + "T00:00:00Z");
+    p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1); // +3개월 - 1일
+    setExtraFields(prev => {
+      const u = {
+        ...prev,
+        교육평가시작: start,
+        교육평가종료: eduEnd,
+        실무평가시작: fmt(pracStart),
+        실무평가종료: fmt(p3),
+      };
+      return u.교육평가종료 === prev.교육평가종료 && u.실무평가종료 === prev.실무평가종료 && u.교육평가시작 === prev.교육평가시작 && u.실무평가시작 === prev.실무평가시작 ? prev : u;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFields, createForm.startDate, holidaySet]);
+
   // 퇴사일자 입력 시 근무종료일·연차종료일 자동 기입 (이후 수동 수정 가능)
   useEffect(() => {
     const d = extraFields["퇴사일자"];
