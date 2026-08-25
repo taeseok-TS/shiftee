@@ -32,6 +32,7 @@ type Contract = {
   id: string;
   title: string;
   templateId?: string | null;
+  fileUrl?: string | null;
   createdAt: string;
   user: {
     id: string;
@@ -52,6 +53,16 @@ type ContractApprovalData = Contract & {
     myStep?: { id: string; order: number; status: string };
   };
 };
+
+/* 계약 파일 URL — JSON 배열 형태면 첫 파일 (개선 제안 2026-08-25: 결재 전에 문서 실물 확인) */
+function firstFileUrl(fileUrl?: string | null): string {
+  if (!fileUrl) return "";
+  try { const a = JSON.parse(fileUrl); return Array.isArray(a) ? a[0] || "" : fileUrl; } catch { return fileUrl; }
+}
+function viewHref(fileUrl: string): string {
+  if (/\.docx?$/i.test(fileUrl)) return `/docs/viewer?src=${encodeURIComponent(fileUrl)}`;
+  return fileUrl;
+}
 
 /* ── 상수 ── */
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
@@ -280,6 +291,12 @@ export default function ContractApprovalsPage() {
                       {/* 처리 버튼 */}
                       <td className="px-6 py-4 text-right">
                         <div className="flex gap-2 justify-end">
+                          {/* 결재 전에 문서 실물을 눈으로 확인 (개선 제안 2026-08-25) */}
+                          {firstFileUrl(contract.fileUrl) && (
+                            <a href={viewHref(firstFileUrl(contract.fileUrl))} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="outline">문서 보기</Button>
+                            </a>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"

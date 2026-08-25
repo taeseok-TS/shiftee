@@ -26,9 +26,9 @@ const fmt = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() +
 export type Signer = { label: string; name: string; date: Date | null; sigPath: string };
 
 // 인라인 서명 이미지 drawing XML (문장 안 (인) 자리에 들어가는 작은 도장 크기)
-// square=true면 정사각 직인 크기(1.7cm), 아니면 손서명 비율(2.86cm x 1cm)
+// square=true면 정사각 직인 크기(1.3cm — 1.7cm가 너무 크다는 QA 2026-08-25 반영), 아니면 손서명 비율(2.86cm x 1cm)
 function inlineSigDrawing(rId: string, docPrId: number, square = false): string {
-  const cx = square ? 612000 : 1080000, cy = square ? 612000 : 378000;
+  const cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
   return (
     `<w:drawing>` +
     `<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0">` +
@@ -47,9 +47,9 @@ function inlineSigDrawing(rId: string, docPrId: number, square = false): string 
 // wrapNone 이라 글자 배치는 전혀 밀리지 않고, (인) 글자도 그대로 남는다.
 // 위치는 마커 지점 기준: 가로 -3mm(이름 끝에 살짝 걸침), 세로는 줄 중앙에 오도록 위로.
 function overlaySigDrawing(rId: string, docPrId: number, square = false): string {
-  const cx = square ? 612000 : 1080000, cy = square ? 612000 : 378000;
+  const cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
   const offH = -108000; // -3mm
-  const offV = square ? -180000 : -105000; // 줄 높이(~4.2mm) 중앙 정렬
+  const offV = square ? -158000 : -105000; // 줄 높이(~4.2mm) 중앙 정렬
   return (
     `<w:drawing>` +
     `<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
