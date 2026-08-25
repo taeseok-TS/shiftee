@@ -134,6 +134,14 @@ export async function POST(
     where: { id: step.id },
     data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
   });
+  // 발송한 관리자(외부 계약의 userId)에게 서명 진행 알림 (개선 제안 2026-08-25, 이예지대리)
+  {
+    const { botSendDM } = await import("@/lib/bot");
+    botSendDM(
+      contract.userId,
+      `\u270d\ufe0f 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.`
+    ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
+  }
   const nextStep = steps.find((s) => s.order === step.order + 1);
   if (nextStep) {
     await prisma.contractApprovalStep.update({ where: { id: nextStep.id }, data: { status: "PENDING" } });

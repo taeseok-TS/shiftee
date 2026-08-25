@@ -52,7 +52,10 @@ export async function GET(
 
   // ?pdf=1 — 워드 완료본을 PDF로 변환해 제공 (개선 제안 2026-08-24: 다운로드 후 수정 방지).
   // 변환기(gotenberg)가 죽어 있으면 워드로 폴백해 다운로드 자체는 항상 된다.
-  const wantPdf = new URL(_request.url).searchParams.get("pdf") === "1";
+  const reqUrl = new URL(_request.url);
+  const wantPdf = reqUrl.searchParams.get("pdf") === "1";
+  // inline=1 — 저장(다운로드) 대신 브라우저 탭에서 바로 열람 (미리보기 용도)
+  const dispo = reqUrl.searchParams.get("inline") === "1" ? "inline" : "attachment";
 
   try {
     if (isDocx) {
@@ -70,7 +73,7 @@ export async function GET(
             return new NextResponse(pdf, {
               headers: {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
+                "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
               },
             });
           }

@@ -703,7 +703,9 @@ export default function ContractsPage() {
     fetchContracts();
   }
 
+  const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
   async function handleSign(id: string, isApprover = false) {
+    if (signSubmitting) return;
     if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
@@ -737,18 +739,21 @@ export default function ContractsPage() {
       }
     }
 
-    const res = await fetch(`/api/contracts/${id}/sign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
-    });
-    const data = await res.json();
-    if (!res.ok) { toast.error(data.error); return; }
-    // 입력한 프로필을 로컬에도 반영 (다음 계약서에서 다시 안 묻도록)
-    if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
-    toast.success(isApprover ? "계약 승인됨" : "서명 완료");
-    setSignOpen(false);
-    fetchContracts();
+    setSignSubmitting(true);
+    try {
+      const res = await fetch(`/api/contracts/${id}/sign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      // 입력한 프로필을 로컬에도 반영 (다음 계약서에서 다시 안 묻도록)
+      if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
+      toast.success(isApprover ? "계약 승인됨" : "서명 완료");
+      setSignOpen(false);
+      fetchContracts();
+    } finally { setSignSubmitting(false); }
   }
 
   return (
@@ -1613,7 +1618,7 @@ export default function ContractsPage() {
 
       {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-sm max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{consentKeys.length > 0 ? (signStep === 1 ? "개인정보 동의 확인" : "서명") : "서명"}</DialogTitle></DialogHeader>
           {signTarget && (
             <div className="space-y-4">
@@ -1730,8 +1735,12 @@ export default function ContractsPage() {
                       })}
                     </div>
                   )}
+                  {/* 무슨 내용에 서명하는지 같은 화면에서 보이게 — 내용 미리보기 내장 (QA 2026-08-25, 김가산) */}
                   {consentKeys.length === 0 && (
-                    <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일 보기</a>
+                    <>
+                      <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기" className="w-full border rounded" style={{ height: "38vh" }} />
+                      <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600">크게 보기 (새 창)</a>
+                    </>
                   )}
                   <div className="space-y-2">
                     <Label>서명 *</Label>
@@ -1740,7 +1749,7 @@ export default function ContractsPage() {
                   <div className="flex gap-2 justify-end">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
-                    <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>서명</Button>
+                    <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")} disabled={signSubmitting}>{signSubmitting ? "서명 중..." : "서명"}</Button>
                   </div>
                 </>
               )}

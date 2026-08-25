@@ -911,15 +911,17 @@ export default function ContractsPage() {
       // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
       for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       const year = new Date().getFullYear();
-      const empName = employees.find(e => e.id === createForm.userId)?.name || "";
+      const resignEmp = employees.find(e => e.id === createForm.userId);
+      const empName = resignEmp?.name || "";
+      const prefix = `${year}${resignEmp?.branch ? ` ${resignEmp.branch}` : ""} ${empName}`; // 지점 포함 (동명이인 대비)
       const [rSajik, rGeum, rToejikgeum, rYeoncha, rNda] = resignTemplates as NonNullable<typeof resignTemplates[number]>[];
       const items = [
-        { templateId: rSajik.id, title: `${year} ${empName} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        { templateId: rGeum.id, title: `${year} ${empName} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        { templateId: rToejikgeum.id, title: `${year} ${empName} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        { templateId: rYeoncha.id, title: `${year} ${empName} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        // 비밀유지서약서(퇴직시)는 결재란이 없는 서약서 — 직원 서명만, 해당 직원에게만 표시
-        { templateId: rNda.id, title: `${year} ${empName} 비밀유지서약서(퇴직시)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: true },
+        { templateId: rSajik.id, title: `${prefix} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rGeum.id, title: `${prefix} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        { templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        // 비밀유지서약서(퇴직시) — 결재표(원장·본부)가 서식에 추가되어 결재라인을 태운다 (QA 2026-08-25)
+        { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직시)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -2268,7 +2270,8 @@ ${url}`;
                       </td>
                       <td className="py-3 space-x-1">
                         {/* 뷰어(미리보기): 완료본(signedUrl) 우선, 없으면 원본 — MS 오피스 뷰어로 브라우저 열람 */}
-                        <a href={officeViewHref(c.status === "SIGNED" && c.signedUrl ? c.signedUrl : getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" title="미리보기"><Button size="sm" variant="ghost" className="h-7"><Eye size={12} /></Button></a>
+                        {/* 완료본은 PDF 로 열람 — 웹 뷰어가 떠 있는 서명 이미지를 못 그려 서명이 안 보였다 (QA 2026-08-25) */}
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : officeViewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" title="미리보기"><Button size="sm" variant="ghost" className="h-7"><Eye size={12} /></Button></a>
                         {/* 완료된 계약은 서명·직인이 들어간 완료본을 다운로드 (원본엔 서명 마커가 남아 있음) */}
                         {/* 완료본은 PDF로(수정 방지, 파일명=제목_서명완료.pdf) — 변환 실패 시 서버가 워드로 폴백.
                             미완료 원본은 워드 그대로, 파일명만 제목으로 (개선 제안 2026-08-24) */}

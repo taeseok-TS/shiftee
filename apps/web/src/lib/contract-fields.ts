@@ -183,7 +183,7 @@ const SYSTEM_FIELDS = new Set([
 // 사유류 자유서술 + 확인_ 체크(설명확인 등 — 직원이 서명하며 직접 체크하는 항목)
 // 퇴사사유는 노무 이슈 방지를 위해 관리자(본사)가 작성 — 직원 입력에서 제외 (2026-08-25 디렉터 확정)
 const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
-const EMPLOYEE_INPUT_PATTERN = /사유|^확인_/;
+const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보)
 const isEmployeeInputField = (name: string) =>
   !EMPLOYEE_INPUT_EXCLUDE.has(name) && isEmployeeInputField(name);
 
