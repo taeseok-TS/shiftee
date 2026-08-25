@@ -28,3 +28,24 @@ export function verifyUploadTicket(t: string | null | undefined): boolean {
     return false;
   }
 }
+
+// 완료본 열람 티켓 — 특정 계약 1건에만 유효한 단기 서명(기본 30분).
+// 앱이 외부 브라우저로 PDF 완료본을 열 때 사용: 권한(당사자·관리자)은 발급 API에서
+// 세션으로 검증하고, 이 티켓은 "그 검증을 통과한 요청"임을 계약 단위로 증명한다.
+export function issueSignedDocTicket(contractId: string, ttlMs = 30 * 60 * 1000): string {
+  if (!secret()) throw new Error("JWT_SECRET 미설정");
+  const exp = Date.now() + ttlMs;
+  const sig = crypto.createHmac("sha256", secret()).update(`signeddoc:${contractId}:${exp}`).digest("hex").slice(0, 32);
+  return `${exp}.${sig}`;
+}
+
+export function verifySignedDocTicket(contractId: string, t: string | null | undefined): boolean {
+  if (!t || !secret()) return false;
+  const dot = t.indexOf(".");
+  if (dot <= 0) return false;
+  const exp = Number(t.slice(0, dot));
+  const sig = t.slice(dot + 1);
+  if (!exp || exp < Date.now() || sig.length !== 32) return false;
+  const good = crypto.createHmac("sha256", secret()).update(`signeddoc:${contractId}:${exp}`).digest("hex").slice(0, 32);
+  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good)); } catch { return false; }
+}

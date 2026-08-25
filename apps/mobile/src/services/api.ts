@@ -169,3 +169,11 @@ export async function getMyProfile(): Promise<any> {
   const res = await axios.get(`${API_URL}/profile`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   return res.data.user || {};
 }
+
+// 완료본 열람 링크(계약 1건·30분 티켓) — 외부 브라우저에서 PDF 로 열람 (2026-08-25)
+export async function getSignedDocLink(id: string): Promise<string> {
+  const token = await getToken();
+  const res = await axios.get(`${API_URL}/contracts/${id}/signed-link`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return res.data?.url;
+}

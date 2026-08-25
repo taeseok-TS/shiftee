@@ -7,10 +7,13 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-
   const { id } = await params;
+  // ?st= 계약 바인딩 단기 티켓 — 앱이 외부 브라우저로 열 때(세션 못 실음). 권한은 발급 API에서 검증됨
+  const { verifySignedDocTicket } = await import("@/lib/upload-ticket");
+  const st = new URL(_request.url).searchParams.get("st");
+  const ticketOk = verifySignedDocTicket(id, st);
+  const session = ticketOk ? null : await getSession();
+  if (!ticketOk && !session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const contract = await prisma.contract.findUnique({
     where: { id },
     include: {
@@ -21,7 +24,7 @@ export async function GET(
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
   // 권한: 관리자 / 계약 당사자 본인만 (원장 등 결재자는 서명본 보관 불가 — 개인정보 보호)
-  const allowed = session.role === "ADMIN" || contract.userId === session.userId;
+  const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
   if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
 
   if (contract.status !== "SIGNED")

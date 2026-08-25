@@ -145,9 +145,21 @@ export default function ContractDetailScreen() {
           <Ionicons name="open-outline" size={18} color="#9ca3af" />
         </TouchableOpacity>
         {signedFile ? (
-          <TouchableOpacity style={styles.fileBtn} onPress={() => openFile(signedFile)}>
+          <TouchableOpacity
+            style={styles.fileBtn}
+            onPress={async () => {
+              // 워드 파일 직링크 대신 재생성 PDF(수정 불가·최신 서명 배치) — 계약 1건짜리 단기 링크
+              try {
+                const url = await api.getSignedDocLink(contract.id);
+                if (url) Linking.openURL(url);
+                else Alert.alert("오류", "완료본 링크를 만들지 못했습니다.");
+              } catch {
+                Alert.alert("오류", "완료본을 여는 중 오류가 발생했습니다.");
+              }
+            }}
+          >
             <Ionicons name="checkmark-circle-outline" size={20} color="#10b981" />
-            <Text style={styles.fileBtnText}>서명 완료본 보기</Text>
+            <Text style={styles.fileBtnText}>서명 완료본 보기 (PDF)</Text>
             <Ionicons name="open-outline" size={18} color="#9ca3af" />
           </TouchableOpacity>
         ) : null}
