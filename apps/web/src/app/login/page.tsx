@@ -83,6 +83,10 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "로그인 중..." : "로그인"}
             </Button>
+            {/* 셀프 비밀번호 재설정 — 관리자 초기화 없이 이메일로 (2026-08-25) */}
+            <p className="text-center text-sm">
+              <a href="/forgot-password" className="text-gray-500 hover:text-indigo-600 hover:underline">비밀번호를 잊으셨나요?</a>
+            </p>
           </form>
         </CardContent>
       </Card>

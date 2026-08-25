@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/docs/viewer", "/sign/", "/sms-relay/", "/privacy"]; // /docs/viewer·/sign/: 계약서 인앱 뷰어 + 외부 게스트 서명(토큰 인증), /sms-relay/: 서명 링크 문자 중계(동일 토큰), /privacy: 앱 스토어 필수 공개 방침
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/forgot-password", "/api/auth/reset-password", "/forgot-password", "/reset-password/", "/api/seed", "/docs/viewer", "/sign/", "/sms-relay/", "/privacy"]; // /docs/viewer·/sign/: 계약서 인앱 뷰어 + 외부 게스트 서명(토큰 인증), /sms-relay/: 서명 링크 문자 중계(동일 토큰), /privacy: 앱 스토어 필수 공개 방침
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

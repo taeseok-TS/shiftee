@@ -50,6 +50,28 @@ async function sendEmail(options: EmailOptions): Promise<void> {
 }
 
 /**
+ * 비밀번호 셀프 재설정 링크 발송 (1시간 유효)
+ */
+export async function sendPasswordReset(email: string, name: string, resetUrl: string): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: "[큐브티] 비밀번호 재설정 안내",
+    html: `
+      <div style="font-family: 'Malgun Gothic', sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="color: #4f46e5; margin-top: 0;">비밀번호 재설정</h2>
+        <p>${name} 님, 안녕하세요.</p>
+        <p>아래 버튼을 누르면 새 비밀번호를 설정할 수 있습니다. 링크는 <b>1시간 동안, 1회만</b> 사용할 수 있습니다.</p>
+        <p style="text-align: center; margin: 28px 0;">
+          <a href="${resetUrl}" style="background: #4f46e5; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: bold;">새 비밀번호 설정</a>
+        </p>
+        <p style="font-size: 13px; color: #6b7280;">버튼이 눌리지 않으면 다음 주소를 브라우저에 붙여넣으세요:<br/>${resetUrl}</p>
+        <p style="font-size: 13px; color: #6b7280;">본인이 요청하지 않았다면 이 메일은 무시하셔도 됩니다. 비밀번호는 변경되지 않습니다.</p>
+      </div>
+    `,
+  });
+}
+
+/**
  * Send contract notification when contract is sent to employee
  */
 export async function sendContractNotification(

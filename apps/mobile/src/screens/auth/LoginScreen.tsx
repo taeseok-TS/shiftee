@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import * as auth from "../../services/auth";
 import { useAuth } from "../../context/AuthContext";
@@ -79,6 +80,11 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>로그인</Text>
           )}
         </TouchableOpacity>
+
+        {/* 셀프 비밀번호 재설정 — 웹 페이지에서 이메일로 재설정 (2026-08-25) */}
+        <TouchableOpacity onPress={() => Linking.openURL("https://cubetee.co.kr/forgot-password")} disabled={isLoading}>
+          <Text style={styles.forgotLink}>비밀번호를 잊으셨나요?</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.footer}>
@@ -89,6 +95,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  forgotLink: { textAlign: "center", color: "#9ca3af", fontSize: 13, marginTop: 14, textDecorationLine: "underline" },
   container: {
     flex: 1,
     backgroundColor: "#f9fafb",
