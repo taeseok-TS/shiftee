@@ -125,26 +125,32 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
         "</Relationships>",
         `<Relationship Id="${t.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${t.media}"/></Relationships>`
       );
-      // 마커 처리 (개선 제안 2026-08-24 2차 — 모두싸인처럼 (인) "위에" 겹쳐 찍기):
-      //  · 마커 뒤 같은 텍스트 노드에 "(인)"/"(서명 / 인)" 표기가 있으면 → 글자는 남기고
+      // 마커 처리 (개선 제안 2026-08-24 2차 → 2026-08-25 재수리 — 모두싸인처럼 (인) "위에" 겹쳐 찍기):
+      //  · 마커 뒤에 "(인)"/"(서명 / 인)"/"(서명 또는 인)" 표기가 이어지면 → 글자는 남기고
       //    떠 있는(앵커) 이미지를 그 위에 오버레이 (글자 배치 안 밀림)
       //  · 그 외(결재표 칸처럼 마커 단독) → 기존대로 인라인 이미지
-      const sealRe = new RegExp(t.marker + "(\\s*\\((?:서명\\s*/\\s*)?인\\))");
+      // 판정은 "같은 텍스트 노드"가 아니라 **마커가 든 문단 전체의 텍스트**로 한다 —
+      // docxtemplater 가 {근로자서명} 치환값을 자기만의 run 에 넣어 "(인)"과 노드가 분리되고
+      // (근로계약서류), "(서명 또는 인)" 같은 변형 표기도 있어 노드 단위 매치가 계속 새었다
+      // (QA 2026-08-25 이예지대리 — "어떤 양식은 되고 어떤 양식은 안 됨"의 실체).
+      const sealAfter = new RegExp(t.marker + "\\s*\\((?:서명\\s*(?:또는|/)\\s*)?인\\)");
       while (docXml.includes(t.marker)) {
-        const m = sealRe.exec(docXml);
-        if (m && docXml.indexOf(t.marker) === m.index) {
-          // (인) 표기 유지 + 오버레이 — 마커만 이미지 run으로 치환
-          docXml =
-            docXml.slice(0, m.index) +
-            `</w:t></w:r><w:r>${overlaySigDrawing(t.rId, docPrId++, t.square)}</w:r><w:r><w:t xml:space="preserve">` +
-            m[1] +
-            docXml.slice(m.index + m[0].length);
-        } else {
-          docXml = docXml.replace(
-            t.marker,
-            `</w:t></w:r><w:r>${inlineSigDrawing(t.rId, docPrId++, t.square)}</w:r><w:r><w:t xml:space="preserve">`
-          );
-        }
+        const idx = docXml.indexOf(t.marker);
+        // 마커가 속한 문단(w:p) 범위의 순수 텍스트를 이어붙여 (인) 동반 여부 판정
+        const pStart = docXml.lastIndexOf("<w:p", idx);
+        const pEnd = docXml.indexOf("</w:p>", idx);
+        const para = pStart !== -1 && pEnd !== -1 ? docXml.slice(pStart, pEnd) : "";
+        const paraText = (para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
+          .map((x) => x.replace(/<[^>]+>/g, ""))
+          .join("");
+        const overlay = sealAfter.test(paraText);
+        const drawing = overlay
+          ? overlaySigDrawing(t.rId, docPrId++, t.square)
+          : inlineSigDrawing(t.rId, docPrId++, t.square);
+        docXml =
+          docXml.slice(0, idx) +
+          `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:t xml:space="preserve">` +
+          docXml.slice(idx + t.marker.length);
       }
     }
     zip.file(relsPath, rels);
