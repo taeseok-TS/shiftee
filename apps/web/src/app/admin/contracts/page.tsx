@@ -654,13 +654,16 @@ export default function ContractsPage() {
   // 패키지/근로계약서(EMPLOYMENT)/템플릿 미선택 → "근로계약서", 그 외 단일 템플릿 → 템플릿명
   const autoContractTitle = (userId: string, templateId?: string, bundle?: boolean, resign?: boolean) => {
     const year = new Date().getFullYear();
-    const empName = employees.find(e => e.id === userId)?.name || "";
+    const emp = employees.find(e => e.id === userId);
+    const empName = emp?.name || "";
     if (!empName) return "";
-    if (resign) return `${year} ${empName} 사직원`; // 퇴사 패키지 대표 문서
+    // 지점 포함 — 동명이인 구분 (김가산 제안, 디렉터 확정 2026-08-25)
+    const branchPart = emp?.branch ? ` ${emp.branch}` : "";
+    if (resign) return `${year}${branchPart} ${empName} 사직원`; // 퇴사 패키지 대표 문서
     const t = templateId ? templates.find(x => x.id === templateId) : undefined;
     // 코디 계약서는 구분(정규직/계약직 등)이 이름에 있어 템플릿명을 그대로 사용
     const docName = bundle || !t ? "근로계약서" : t.name.includes("코디") ? t.name : t.type === "EMPLOYMENT" ? "근로계약서" : t.name;
-    return `${year} ${empName} ${docName}`;
+    return `${year}${branchPart} ${empName} ${docName}`;
   };
 
   const handleTemplateSelect = (templateId: string) => {

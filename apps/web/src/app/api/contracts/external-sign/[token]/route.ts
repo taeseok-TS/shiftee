@@ -137,6 +137,17 @@ export async function POST(
   const nextStep = steps.find((s) => s.order === step.order + 1);
   if (nextStep) {
     await prisma.contractApprovalStep.update({ where: { id: nextStep.id }, data: { status: "PENDING" } });
+    // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가
+    // 자기 차례를 모르는 문제가 있었다 (QA 2026-08-25, 이예지대리)
+    if (nextStep.approverId) {
+      const { botSendDM } = await import("@/lib/bot");
+      const { getAppUrl } = await import("@/lib/app-url");
+      const contractRow = step.approvalLine.contract;
+      botSendDM(
+        nextStep.approverId,
+        `\ud83d\udd8b 전자계약 결재 요청\n「${contractRow.title}」 — 대상: ${contractRow.externalName || "외부 계약자"}\n외부 계약자의 서명이 완료되어 결재 차례가 되었습니다.\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}/admin/contract-approvals`
+      ).catch((e) => console.error("[external-sign] 결재 DM 오류:", e));
+    }
   }
   await prisma.contract.update({
     where: { id: contractId },

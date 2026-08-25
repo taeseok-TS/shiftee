@@ -105,9 +105,13 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
       sealExists
         ? { marker: "《대표서명》", signer: repSigner, media: "inlineSealRep.png", rId: "rIdInlineSealRep", imagePath: SEAL_PATH, square: true }
         : { marker: "《대표서명》", signer: repSigner, media: "inlineSigRep.png", rId: "rIdInlineSigRep" },
-      // 결재란 원장/본부 — 각 결재자의 손서명 (사직원 등 결재 박스 문서)
+      // 결재란 원장 — 원장 개인의 손서명 (사직원 등 결재 박스 문서)
       { marker: "《원장서명》", signer: mgrSigner, media: "inlineSigMgr.png", rId: "rIdInlineSigMgr" },
-      { marker: "《본부서명》", signer: hqSigner, media: "inlineSigHq.png", rId: "rIdInlineSigHq" },
+      // 결재란 본부 — 본부(관리자) 결재는 회사 직인으로 통일 (디렉터 확정 2026-08-25).
+      // 직인 파일이 없으면 종전대로 결재자 손서명
+      sealExists
+        ? { marker: "《본부서명》", signer: hqSigner, media: "inlineSealHq.png", rId: "rIdInlineSealHq", imagePath: SEAL_PATH, square: true }
+        : { marker: "《본부서명》", signer: hqSigner, media: "inlineSigHq.png", rId: "rIdInlineSigHq" },
     ];
     for (const t of targets) {
       if (!docXml.includes(t.marker)) continue;

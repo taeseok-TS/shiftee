@@ -181,7 +181,11 @@ const SYSTEM_FIELDS = new Set([
 // 직원이 서명 시 직접 입력하는 필드는 화이트리스트('사유'류 자유서술)만 — 그 외 모든 필드는
 // 관리자가 작성 시 입력. (교육평가시작 등 새 템플릿 필드가 직원에게 잘못 넘어가는 사고 방지)
 // 사유류 자유서술 + 확인_ 체크(설명확인 등 — 직원이 서명하며 직접 체크하는 항목)
+// 퇴사사유는 노무 이슈 방지를 위해 관리자(본사)가 작성 — 직원 입력에서 제외 (2026-08-25 디렉터 확정)
+const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
 const EMPLOYEE_INPUT_PATTERN = /사유|^확인_/;
+const isEmployeeInputField = (name: string) =>
+  !EMPLOYEE_INPUT_EXCLUDE.has(name) && isEmployeeInputField(name);
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
 // 화이트리스트(퇴사사유 등 '사유'류)만 직원 입력 — 나머지는 전부 관리자 작성 폼에 표시.
@@ -200,7 +204,7 @@ export async function scanEmployeeFillFields(templateFileUrl: string): Promise<s
         const name = m[1].trim();
         if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 제외
         if (SYSTEM_FIELDS.has(name)) continue;
-        if (!EMPLOYEE_INPUT_PATTERN.test(name)) continue; // 화이트리스트 외 전부 관리자 입력
+        if (!isEmployeeInputField(name)) continue; // 화이트리스트 외 전부 관리자 입력 (퇴사사유는 관리자)
         if (!found.includes(name)) found.push(name);
       }
     }

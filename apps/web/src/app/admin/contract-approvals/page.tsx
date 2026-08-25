@@ -45,15 +45,11 @@ type Contract = {
   };
 };
 
-type ContractApprovalData = {
-  id: string;
-  order: number;
-  status: string;
-  approverId: string;
+// /api/contracts/my-approvals 응답 항목 — 계약이 최상위이고 approvalLine.steps/myStep 이 붙는다
+type ContractApprovalData = Contract & {
   approvalLine: {
-    contract: Contract;
     steps: ContractApprovalStep[];
-    myStep?: any;
+    myStep?: { id: string; order: number; status: string };
   };
 };
 
@@ -79,7 +75,8 @@ export default function ContractApprovalsPage() {
       const res = await fetch("/api/contracts/my-approvals");
       if (res.ok) {
         const data = await res.json();
-        setContracts(data.data || []);
+        // 응답 키는 contracts — data.data 를 읽던 탓에 결재함이 항상 0건이었다 (2026-08-25 수리)
+        setContracts(data.contracts || []);
       } else {
         toast.error("결재 대기 요청을 불러올 수 없습니다");
       }
@@ -97,7 +94,7 @@ export default function ContractApprovalsPage() {
   // 검색 필터링
   const filteredContracts = useMemo(() => {
     return contracts.filter(approval => {
-      const contract = approval.approvalLine.contract;
+      const contract = approval; // 응답 항목이 곧 계약
       const nameMatch = contract.user.name.toLowerCase().includes(searchName.toLowerCase());
       const dateMatch = !searchDate ||
         contract.createdAt.includes(searchDate);
@@ -109,15 +106,22 @@ export default function ContractApprovalsPage() {
   const handleApprove = async (contractId: string) => {
     try {
       setProcessingId(contractId);
+      // 저장된 서명으로 원클릭 승인 — 저장 서명이 없으면 전자계약 화면에서 서명하도록 안내
+      const me = await fetch("/api/auth/me").then(r => r.json()).catch(() => ({}));
+      if (!me?.user?.signatureUrl) {
+        toast.error("저장된 서명이 없습니다. 전자계약 화면에서 서명해 승인해주세요.");
+        window.location.href = "/admin/contracts";
+        return;
+      }
       const res = await fetch(`/api/contracts/${contractId}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isApprover: true }),
+        body: JSON.stringify({ useSaved: true, isApprover: true }),
       });
 
       if (res.ok) {
         toast.success("승인되었습니다");
-        setContracts(contracts.filter(c => c.approvalLine.contract.id !== contractId));
+        setContracts(contracts.filter(c => c.id !== contractId));
       } else {
         const data = await res.json();
         toast.error(data.error || "승인 처리 중 오류가 발생했습니다");
@@ -218,7 +222,7 @@ export default function ContractApprovalsPage() {
               </thead>
               <tbody className="divide-y">
                 {filteredContracts.map((approval) => {
-                  const contract = approval.approvalLine.contract;
+                  const contract = approval; // 응답 항목이 곧 계약
                   const createdDate = new Date(contract.createdAt);
                   const dateStr = format(createdDate, "yyyy년 MM월 dd일", { locale: ko });
 
