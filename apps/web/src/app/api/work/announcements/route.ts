@@ -3,9 +3,19 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 // 공지 목록
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+  // ?times=1 — 사이드바 새 글 뱃지용 경량 응답 (최근 공지 시각만, 개선 제안 2026-08-25 김나현팀장)
+  if (new URL(request.url).searchParams.get("times") === "1") {
+    const rows = await prisma.workAnnouncement.findMany({
+      select: { createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return NextResponse.json({ times: rows.map((r) => r.createdAt) });
+  }
 
   const announcements = await prisma.workAnnouncement.findMany({
     include: { author: { select: { id: true, name: true } } },

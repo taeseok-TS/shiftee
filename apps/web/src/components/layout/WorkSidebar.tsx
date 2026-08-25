@@ -13,10 +13,72 @@ const workNavItems = [
   { href: "/work/meeting", label: "화상회의", icon: Video },
 ];
 
+// 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
+// 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수
+const NOTICE_SEEN_KEY = "work_notice_seen_at";
+
+function useWorkBadges(pathname: string) {
+  const [chatUnread, setChatUnread] = useState(0);
+  const [noticeNew, setNoticeNew] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const [chRes, anRes] = await Promise.all([
+          fetch("/api/work/channels"),
+          fetch("/api/work/announcements?times=1"),
+        ]);
+        if (!alive) return;
+        if (chRes.ok) {
+          const d = await chRes.json();
+          const sum = (d.channels || []).reduce((a: number, c: { unread?: number }) => a + (c.unread || 0), 0);
+          setChatUnread(sum);
+        }
+        if (anRes.ok) {
+          const d = await anRes.json();
+          const seen = localStorage.getItem(NOTICE_SEEN_KEY);
+          const seenTime = seen ? new Date(seen).getTime() : 0;
+          const cnt = (d.times || []).filter((t: string) => new Date(t).getTime() > seenTime).length;
+          setNoticeNew(cnt);
+        }
+      } catch { /* 네트워크 오류는 무시 — 다음 주기에 재시도 */ }
+    }
+    load();
+    const iv = window.setInterval(load, 60_000); // 1분 주기
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; window.clearInterval(iv); window.removeEventListener("focus", onFocus); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]); // 화면 이동(방 읽음 등) 때마다 즉시 갱신
+
+  // 공지 화면에 들어오면 확인한 것으로 기록하고 뱃지 소등
+  useEffect(() => {
+    if (pathname.startsWith("/work/announcements")) {
+      localStorage.setItem(NOTICE_SEEN_KEY, new Date().toISOString());
+      setNoticeNew(0);
+    }
+  }, [pathname]);
+
+  return { "/work/chat": chatUnread, "/work/announcements": noticeNew } as Record<string, number>;
+}
+
+function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) {
+  if (!count) return null;
+  if (collapsed)
+    return <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full" />;
+  return (
+    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export function WorkSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const badges = useWorkBadges(pathname);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("work_sidebar_collapsed") === "1");
@@ -74,7 +136,7 @@ export function WorkSidebar() {
             href={href}
             title={collapsed ? label : undefined}
             className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+              "relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
               collapsed && "justify-center px-0",
               pathname === href || pathname.startsWith(href + "/")
                 ? "bg-indigo-500 text-white"
@@ -83,6 +145,7 @@ export function WorkSidebar() {
           >
             <Icon size={18} />
             {!collapsed && label}
+            <NavBadge count={badges[href] || 0} collapsed={collapsed} />
           </Link>
         ))}
       </nav>
@@ -118,6 +181,7 @@ export function WorkSidebar() {
 // 모바일 전용 상단 바 — 폰 폭에서는 좌측 사이드바 대신 이 바로 이동한다
 export function WorkMobileNav() {
   const pathname = usePathname();
+  const badges = useWorkBadges(pathname);
   return (
     <div className="md:hidden sticky top-0 z-40 h-12 shrink-0 bg-indigo-950 text-white flex items-center px-2 gap-1">
       <button onClick={() => (window.location.href = "/dashboard")} title="큐브티로 돌아가기"
@@ -131,13 +195,14 @@ export function WorkMobileNav() {
         {workNavItems.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href}
             className={cn(
-              "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+              "relative flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
               pathname === href || pathname.startsWith(href + "/")
                 ? "bg-indigo-500 text-white"
                 : "text-indigo-200"
             )}>
             <Icon size={15} />
             {label}
+            {(badges[href] || 0) > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />}
           </Link>
         ))}
       </nav>
