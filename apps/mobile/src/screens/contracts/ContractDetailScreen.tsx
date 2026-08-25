@@ -47,6 +47,10 @@ export default function ContractDetailScreen() {
   const { id } = route.params;
   const [contract, setContract] = useState<Contract | null>(null);
   const [loading, setLoading] = useState(true);
+  const [myRole, setMyRole] = useState<string>("");
+  useEffect(() => {
+    import("../../services/storage").then((st) => st.getUser().then((u) => setMyRole(u?.role || ""))).catch(() => {});
+  }, []);
   const [showSign, setShowSign] = useState(false);
   const [signing, setSigning] = useState(false);
   const sigRef = useRef<SignatureViewRef>(null);
@@ -108,6 +112,7 @@ export default function ContractDetailScreen() {
 
   const st = STATUS[contract.status] || STATUS.DRAFT;
   const originalFile = firstUrl(contract.fileUrl);
+  const isAdmin = myRole === "ADMIN";
   const signedFile = firstUrl(contract.signedUrl);
   // 본인 서명은 결재 순서상 자기 차례(내 단계가 PENDING)일 때만 — 결재라인 없는 구계약은 기존 SENT 기준
   const steps: any[] = (contract as any).approvalLine?.steps || [];
@@ -139,11 +144,24 @@ export default function ContractDetailScreen() {
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>문서</Text>
-        <TouchableOpacity style={styles.fileBtn} onPress={() => openFile(originalFile)} disabled={!originalFile}>
-          <Ionicons name="document-text-outline" size={20} color="#2563eb" />
-          <Text style={styles.fileBtnText}>계약서 원본 보기</Text>
-          <Ionicons name="open-outline" size={18} color="#9ca3af" />
-        </TouchableOpacity>
+        {/* 직원은 완료된 계약에서 원본(서명 전 워드) 대신 완료본만 — 워드 파일 유출 방지 (디렉터 확정 2026-08-25).
+            진행 중 계약은 내용 확인이 필요하니 원본을 "열람"(뷰어)으로만 연다. 관리자는 기존대로. */}
+        {(isAdmin || !signedFile) && originalFile ? (
+          <TouchableOpacity
+            style={styles.fileBtn}
+            onPress={() => {
+              if (isAdmin) { openFile(originalFile); return; }
+              // 직원: 다운로드가 아니라 인앱 뷰어(웹 docs/viewer)로 열람만
+              const viewer = fileUri(originalFile);
+              const origin = viewer.split("/api/")[0];
+              Linking.openURL(`${origin}/docs/viewer?src=${encodeURIComponent(viewer)}`);
+            }}
+          >
+            <Ionicons name="document-text-outline" size={20} color="#2563eb" />
+            <Text style={styles.fileBtnText}>{isAdmin ? "계약서 원본 보기" : "계약서 내용 보기"}</Text>
+            <Ionicons name="open-outline" size={18} color="#9ca3af" />
+          </TouchableOpacity>
+        ) : null}
         {signedFile ? (
           <TouchableOpacity
             style={styles.fileBtn}
