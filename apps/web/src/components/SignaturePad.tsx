@@ -8,6 +8,7 @@ export type SignaturePadHandle = {
   isEmpty: () => boolean;
   toDataURL: () => string;
   clear: () => void;
+  loadImage: (url: string) => Promise<boolean>; // 저장된 서명 불러오기 (개선 제안 #75)
 };
 
 // 마우스·터치·펜으로 손글씨 서명을 그리는 캔버스
@@ -77,6 +78,26 @@ export const SignaturePad = forwardRef<SignaturePadHandle, { height?: number }>(
       isEmpty: () => empty,
       toDataURL: () => canvasRef.current!.toDataURL("image/png"),
       clear,
+      loadImage: (url: string) =>
+        new Promise<boolean>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = canvasRef.current;
+            if (!canvas) { resolve(false); return; }
+            const ctx = canvas.getContext("2d")!;
+            const rect = canvas.getBoundingClientRect();
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, rect.width, rect.height);
+            // 비율 유지로 가운데 배치 (원본이 더 크면 축소)
+            const scale = Math.min(rect.width / img.width, rect.height / img.height, 1);
+            const w = img.width * scale, h = img.height * scale;
+            ctx.drawImage(img, (rect.width - w) / 2, (rect.height - h) / 2, w, h);
+            setEmpty(false);
+            resolve(true);
+          };
+          img.onerror = () => resolve(false);
+          img.src = url;
+        }),
     }));
 
     return (

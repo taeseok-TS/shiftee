@@ -150,7 +150,7 @@ export default function SuggestionScreen() {
                   <View style={[styles.badge, { backgroundColor: badge.bg }]}>
                     <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.label}</Text>
                   </View>
-                  <Text style={styles.itemTitle} numberOfLines={1}>{s.title}</Text>
+                  <Text style={styles.itemTitle} numberOfLines={1}>{s.seqNo ? `#${s.seqNo} ` : ""}{s.title}</Text>
                   {/* 검토 전(접수)에만 본인 수정 가능 */}
                   {s.status === "RECEIVED" && editId !== s.id && (
                     <TouchableOpacity onPress={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); }}

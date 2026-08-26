@@ -232,7 +232,7 @@ export async function createAnnouncement(data: {
 
 // ── 개선 제안함 (작성자·관리자만 열람) ──
 export type SuggestionItem = {
-  id: string; title: string; content: string; imageUrls: string[] | null;
+  id: string; seqNo?: number; title: string; content: string; imageUrls: string[] | null;
   status: string; adminComment: string | null; createdAt: string;
 };
 export async function getMySuggestions(): Promise<SuggestionItem[]> {

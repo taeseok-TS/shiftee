@@ -67,7 +67,7 @@ export async function PATCH(
   const statusChanged = status && status !== before.status;
   const commentAdded = adminComment !== undefined && (adminComment?.trim() || "") !== (before.adminComment || "");
   if (statusChanged || commentAdded) {
-    const lines = [`💡 개선 제안 "${suggestion.title}" 처리 현황이 업데이트되었습니다.`];
+    const lines = [`💡 개선 제안 #${suggestion.seqNo} "${suggestion.title}" 처리 현황이 업데이트되었습니다.`];
     if (statusChanged) lines.push(`상태: ${STATUS_LABEL[before.status] || before.status} → ${STATUS_LABEL[suggestion.status]}`);
     if (commentAdded && suggestion.adminComment) lines.push(`답변: ${suggestion.adminComment}`);
     botSendDM(suggestion.userId, lines.join("\n")).catch((e) => console.error("[suggestion] 작성자 알림 오류:", e));

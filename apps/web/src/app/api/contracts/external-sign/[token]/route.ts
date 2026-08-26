@@ -136,8 +136,8 @@ export async function POST(
   });
   // 발송한 관리자(외부 계약의 userId)에게 서명 진행 알림 (개선 제안 2026-08-25, 이예지대리)
   {
-    const { botSendDM } = await import("@/lib/bot");
-    botSendDM(
+    const { hrBotSendDM } = await import("@/lib/bot");
+    hrBotSendDM(
       contract.userId,
       `\u270d\ufe0f 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.`
     ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
@@ -148,12 +148,12 @@ export async function POST(
     // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가
     // 자기 차례를 모르는 문제가 있었다 (QA 2026-08-25, 이예지대리)
     if (nextStep.approverId) {
-      const { botSendDM } = await import("@/lib/bot");
+      const { hrBotSendDM } = await import("@/lib/bot");
       const { getAppUrl, approvalPageUrl } = await import("@/lib/app-url");
       const contractRow = step.approvalLine.contract;
       // 원장은 /admin 접근이 막혀 있어 역할별 결재함 경로로 안내 (검증관 지적)
       const approverRole = (await prisma.user.findUnique({ where: { id: nextStep.approverId }, select: { role: true } }))?.role;
-      botSendDM(
+      hrBotSendDM(
         nextStep.approverId,
         `\ud83d\udd8b 전자계약 결재 요청\n「${contractRow.title}」 — 대상: ${contractRow.externalName || "외부 계약자"}\n외부 계약자의 서명이 완료되어 결재 차례가 되었습니다.\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(approverRole)}`
       ).catch((e) => console.error("[external-sign] 결재 DM 오류:", e));

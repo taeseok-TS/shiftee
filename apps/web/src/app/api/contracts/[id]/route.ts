@@ -2,7 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
-import { botSendDM } from "@/lib/bot";
+import { hrBotSendDM } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
@@ -287,7 +287,7 @@ export async function PATCH(
         `서명 링크만 직접 전달하려면:`,
         `${base}/sign/${extStep.signToken}`,
       ].join("\n");
-      for (const uid of internalIds) await botSendDM(uid, msg);
+      for (const uid of internalIds) await hrBotSendDM(uid, msg);
     }
   }
 
@@ -329,9 +329,9 @@ export async function PATCH(
       // 외부 계약의 userId 는 작성 관리자 — 직원 서명 문구가 아니라 결재 요청 문구여야 한다
       const isEmployee = firstPendingStep.approverId === updated.userId && !contract.externalName;
       const dm = isEmployee
-        ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
+        ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
         : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((firstPendingStep as { approver?: { role?: string } }).approver?.role)}`;
-      botSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
+      hrBotSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }
   }
 

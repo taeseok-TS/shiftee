@@ -178,6 +178,14 @@ export default function ContractsPage() {
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
+  const [mySigUrl, setMySigUrl] = useState(""); // 저장된 내 서명 (재사용, 개선 제안 #75)
+  const [saveSig, setSaveSig] = useState(true); // 서명 후 저장 여부
+  const [previewZoom, setPreviewZoom] = useState(false); // 미리보기 클릭 확대 (개선 제안 #73)
+  // 주민등록번호 자동 하이픈 (개선 제안 #74): 숫자만 받아 6자리 뒤에 - 삽입, 13자리 제한
+  const formatRrn = (raw: string) => {
+    const d = raw.replace(/\D/g, "").slice(0, 13);
+    return d.length > 6 ? `${d.slice(0, 6)}-${d.slice(6)}` : d;
+  };
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도) — 본인(계약 대상 직원)이 서명할 때만
   // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
   const missingProfile = (signTarget?.userId === myId ? (signTarget?.profileFields || []) : []).filter((f: string) =>
@@ -561,6 +569,7 @@ export default function ContractsPage() {
       setMyId(d.user?.id || "");
       setMyName(d.user?.name || "");
       setMyProfile({ address: d.user?.address || "", birthDate: d.user?.birthDate ? String(d.user.birthDate).slice(0, 10) : "" });
+      setMySigUrl(d.user?.signatureUrl || "");
     });
   }, []);
 
@@ -735,6 +744,8 @@ export default function ContractsPage() {
         const optional = f.includes("기타"); // 기타 내용 등 조건부 입력은 선택
         if (!v) { if (optional) { fields[f] = ""; continue; } toast.error(`${empFieldLabel(f)}을(를) 입력해주세요.`); return; }
         if (type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast.error(`${empFieldLabel(f)}을(를) YYYY-MM-DD 형식으로 입력해주세요.`); return; }
+        // 주민등록번호는 반드시 13자리 (개선 제안 #74)
+        if (f === "주민등록번호" && v.replace(/\D/g, "").length !== 13) { toast.error("주민등록번호 13자리를 정확히 입력해주세요."); return; }
         fields[f] = v;
       }
     }
@@ -744,7 +755,7 @@ export default function ContractsPage() {
       const res = await fetch(`/api/contracts/${id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault: saveSig, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -1726,6 +1737,11 @@ export default function ContractsPage() {
                             {type === "date" ? (
                               <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
                                 value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                            ) : f === "주민등록번호" ? (
+                              // 숫자만 입력받아 하이픈 자동 삽입 + 13자리 제한 (개선 제안 #74)
+                              <input type="text" inputMode="numeric" className="w-full border rounded px-2 py-1.5 text-sm"
+                                placeholder="숫자만 입력 (하이픈 자동)" maxLength={14}
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: formatRrn(e.target.value) }))} />
                             ) : (
                               <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${empFieldLabel(f)} 입력`}
                                 value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
@@ -1738,13 +1754,33 @@ export default function ContractsPage() {
                   {/* 무슨 내용에 서명하는지 같은 화면에서 보이게 — 내용 미리보기 내장 (QA 2026-08-25, 김가산) */}
                   {consentKeys.length === 0 && (
                     <>
-                      <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기" className="w-full border rounded" style={{ height: "38vh" }} />
+                      {/* 미리보기 아무 데나 클릭하면 크게 보기 (개선 제안 #73) */}
+                      <div className="relative">
+                        <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기" className="w-full border rounded" style={{ height: "38vh" }} />
+                        <button type="button" onClick={() => setPreviewZoom(true)} title="클릭하여 크게 보기"
+                          className="absolute inset-0 cursor-zoom-in flex items-end justify-center pb-2">
+                          <span className="text-[11px] bg-black/50 text-white rounded-full px-2.5 py-1">🔍 클릭하면 크게 보입니다</span>
+                        </button>
+                      </div>
                       <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600">크게 보기 (새 창)</a>
                     </>
                   )}
                   <div className="space-y-2">
-                    <Label>서명 *</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>서명 *</Label>
+                      {mySigUrl && (
+                        <button type="button" className="text-xs text-indigo-600 underline"
+                          onClick={async () => { const ok = await sigRef.current?.loadImage(mySigUrl); if (!ok) toast.error("저장된 서명을 불러오지 못했습니다."); }}>
+                          저장된 서명 불러오기
+                        </button>
+                      )}
+                    </div>
                     <SignaturePad ref={sigRef} />
+                    {/* 서명 재사용 저장 (개선 제안 #75) */}
+                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                      <input type="checkbox" checked={saveSig} onChange={e => setSaveSig(e.target.checked)} />
+                      이 서명을 저장해두고 다음 서명 때 재사용
+                    </label>
                   </div>
                   <div className="flex gap-2 justify-end">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
@@ -1755,6 +1791,21 @@ export default function ContractsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 미리보기 확대 — 미리보기를 클릭하면 크게 (개선 제안 #73) */}
+      <Dialog open={previewZoom} onOpenChange={setPreviewZoom}>
+        <DialogContent className="!max-w-[96vw] w-[96vw] h-[94vh] sm:!max-w-[96vw] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle className="text-base">{signTarget?.title || "계약서"}</DialogTitle>
+          </DialogHeader>
+          {signTarget && previewZoom && (
+            <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} className="flex-1 w-full border-0" title="계약서 확대" />
+          )}
+          <div className="px-4 py-3 border-t shrink-0 flex justify-end">
+            <Button onClick={() => setPreviewZoom(false)} variant="outline">닫기</Button>
+          </div>
         </DialogContent>
       </Dialog>
 

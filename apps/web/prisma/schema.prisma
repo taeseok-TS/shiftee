@@ -573,6 +573,7 @@ model AppSetting {
 // 개선 제안함 — 직원이 남기는 기능 개선 요청 (작성자와 관리자만 열람)
 model Suggestion {
   id           String   @id @default(cuid())
+  seqNo        Int      @default(autoincrement()) @unique // 접수 번호 — 등록순 (2026-08-26)
   userId       String
   userName     String // 작성 시점 스냅샷 (조인 없이 표시)
   userBranch   String?

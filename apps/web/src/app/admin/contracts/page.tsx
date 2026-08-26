@@ -158,6 +158,10 @@ export default function ContractsPage() {
   const [extLinkOpen, setExtLinkOpen] = useState(false);
   const [extLink, setExtLink] = useState<{ url: string; name: string; phone: string | null }>({ url: "", name: "", phone: null });
   const [employeeSearchText, setEmployeeSearchText] = useState("");
+  // 일괄 발송 (개선 제안 #80, 김가산·디렉터 확정 2026-08-26): 같은 조건의 신입 여러 명에게 동시 작성
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkUserIds, setBulkUserIds] = useState<string[]>([]);
+  const [previewing, setPreviewing] = useState(false); // 발송 전 미리보기 생성 중 (개선 제안 #76)
   const [createForm, setCreateForm] = useState({
     userId: "",
     title: "",
@@ -752,9 +756,10 @@ export default function ContractsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
-  // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25, 공식은 이예지대리 확정)
-  //  교육평가: 입사일 ~ (영업일 14일째 + 2일 — 주휴수당 처리), 영업일 = 주말·공휴일 제외
-  //  실무평가: 교육 종료 다음날 ~ 입사일 + 3개월 - 1일
+  // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25 → 공식 수정 2026-08-26 #22)
+  //  실무평가 시작 = 입사일부터 15번째 영업일, 교육평가 종료 = 그 전날(캘린더). 영업일 = 주말·공휴일 제외.
+  //  (7/6 입사→실무 7/27, 8/31 입사→실무 9/18 두 확정례 모두 이 공식으로 성립 — 기존 "+2일"은 8/31 케이스에서 이틀 밀렸음)
+  //  실무평가 종료 = 입사일 + 3개월 - 1일
   const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (!templateFields.includes("교육평가시작") || !createForm.startDate) return;
@@ -775,17 +780,17 @@ export default function ContractsPage() {
       const dow = d.getUTCDay();
       return dow !== 0 && dow !== 6 && !holidaySet.has(fmt(d));
     };
-    // 영업일 14일째 되는 날 (입사일이 영업일이면 1일째)
+    // 영업일 15일째 되는 날 = 실무평가 시작 (입사일이 영업일이면 1일째)
     const d = new Date(start + "T00:00:00Z");
     let count = 0;
     let guard = 0;
-    while (count < 14 && guard++ < 60) {
+    while (count < 15 && guard++ < 60) {
       if (isBiz(d)) count++;
-      if (count < 14) d.setUTCDate(d.getUTCDate() + 1);
+      if (count < 15) d.setUTCDate(d.getUTCDate() + 1);
     }
-    d.setUTCDate(d.getUTCDate() + 2); // 주휴수당 처리 +2일
+    const pracStart = new Date(d);
+    d.setUTCDate(d.getUTCDate() - 1); // 교육평가 종료 = 실무 시작 전날
     const eduEnd = fmt(d);
-    const pracStart = new Date(d); pracStart.setUTCDate(pracStart.getUTCDate() + 1);
     const p3 = new Date(start + "T00:00:00Z");
     p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1); // +3개월 - 1일
     setExtraFields(prev => {
@@ -865,6 +870,96 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
 
     setUploading(true);
+
+    // 일괄 작성 (개선 제안 #80): 같은 날짜·조건으로 여러 직원에게 각각 작성.
+    // 개인별 필드(생년월일·근무시작일·연차시작일·원장명)는 공통 입력값 대신 각자 것으로 덮어쓴다.
+    if (bulkMode && !externalMode) {
+      if (bulkUserIds.length === 0) { toast.error("일괄 발송할 직원을 선택해주세요."); setUploading(false); return; }
+      if (!(useTemplate && selectedTemplate)) { toast.error("일괄 발송은 템플릿 선택 시에만 가능합니다."); setUploading(false); return; }
+      // 퇴사·코디 패키지는 일괄과 병용 불가 — 상태 꼬임으로 단일 문서만 생성되는 사고 방지 (검증관 2026-08-26)
+      if (resignBundleMode || codiBundleMode) {
+        toast.error("퇴사·코디 패키지는 일괄 발송을 지원하지 않습니다. 일괄 체크를 해제해주세요."); setUploading(false); return;
+      }
+      if (bundleMode && empTemplate && selectedTemplate !== empTemplate.id) {
+        toast.error("신규입사 패키지는 에듀플렉스 근로계약서로만 발송할 수 있습니다."); setUploading(false); return;
+      }
+      // 계약시작일과 입사일이 다른 직원이 섞이면 평가 단계(공통 계산)와 어긋난다 — 확인 후 진행
+      if (createForm.startDate) {
+        const mismatch = bulkUserIds
+          .map(uid => employees.find(x => x.id === uid))
+          .filter(x => x?.hireDate && String(x.hireDate).slice(0, 10) !== createForm.startDate)
+          .map(x => x!.name);
+        if (mismatch.length && !confirm(`입사일이 계약시작일(${createForm.startDate})과 다른 직원이 있습니다: ${mismatch.join(", ")}\n교육·실무평가 기간은 계약시작일 기준으로 전원 동일하게 들어갑니다. 계속할까요?`)) {
+          setUploading(false); return;
+        }
+      }
+      const common: Record<string, string> = {};
+      for (const [k, v] of Object.entries(extraFields)) {
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        common[k] = v;
+      }
+      for (const f of templateFields) if (f.startsWith("체크_") && !(f in common)) common[f] = f.includes("기타") ? "□" : "☑";
+      for (const f of templateFields) if (f.startsWith("선택_") && !(f in common)) common[f] = "□";
+      if (templateConditions.includes("신규입사")) common["계약구분"] = contractKind;
+      let ok = 0; const failed: string[] = [];
+      for (const uid of bulkUserIds) {
+        const emp = employees.find(x => x.id === uid);
+        if (!emp) continue;
+        const per = { ...common };
+        if (templateFields.includes("생년월일")) per["생년월일"] = emp.birthDate ? String(emp.birthDate).slice(0, 10) : "";
+        {
+          // hireDate 없는 직원에게 공통값(첫 직원 것)이 새어 들어가지 않게 항상 덮어쓴다 (검증관 2026-08-26)
+          const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : "";
+          if (templateFields.includes("근무시작일")) per["근무시작일"] = hire;
+          if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
+        }
+        if (templateFields.includes("원장명")) {
+          const mgr = employees.find(x => x.role === "MANAGER" && (x.branch === emp.branch || (x.managerBranches || []).includes(emp.branch!)));
+          per["원장명"] = mgr?.name || "";
+        }
+        const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
+        try {
+          let res: Response;
+          if (bundleMode && ndaTemplate && privacyTemplate) {
+            const items = [
+              { templateId: selectedTemplate, title, type: "EMPLOYMENT",
+                startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+                extraFields: per, employeeOnly: false },
+              { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${emp.name}`, type: "CONFIDENTIAL",
+                extraFields: per, employeeOnly: true },
+              { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${emp.name}`, type: "OTHER",
+                extraFields: { ...per, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+            ];
+            res = await fetch("/api/contracts/bundle", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: uid, items }),
+            });
+          } else {
+            const fd = new FormData();
+            fd.append("templateId", selectedTemplate);
+            fd.append("userId", uid);
+            fd.append("title", title);
+            fd.append("type", createForm.type);
+            fd.append("startDate", createForm.startDate);
+            fd.append("endDate", createForm.endDate);
+            fd.append("salary", createForm.salary);
+            fd.append("extraFields", JSON.stringify(per));
+            res = await fetch("/api/contracts", { method: "POST", body: fd });
+          }
+          if (res.ok) ok++; else failed.push(emp.name);
+        } catch { failed.push(emp.name); }
+      }
+      setUploading(false);
+      if (failed.length) toast.error(`${ok}명 작성 완료, 실패: ${failed.join(", ")}`);
+      else toast.success(`${ok}명에게 ${bundleMode ? "신규입사 패키지 3종이" : "계약서가"} 작성되었습니다. 목록에서 각각 발송해주세요.`);
+      setCreateOpen(false);
+      setBulkMode(false); setBulkUserIds([]);
+      setUseTemplate(false); setSelectedTemplate(""); setBundleMode(false); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
+      setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+      return;
+    }
 
     // 외부 채용 패키지: 기타직무 계약서 + 비밀유지 + 개인정보동의서 3종 묶음 (게스트 링크 하나로 함께 서명)
     if (externalMode && extBundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
@@ -1266,7 +1361,17 @@ ${url}`;
 
                 {!externalMode && (
                 <div className="space-y-2">
-                  <Label>직원 *</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>직원 *</Label>
+                    {/* 일괄 발송 — 같은 날짜·조건의 신입 여러 명 (개선 제안 #80). 퇴사·코디 패키지와는 병용 불가 */}
+                    {useTemplate && !resignBundleMode && !codiBundleMode && (
+                      <label className="flex items-center gap-1.5 text-xs text-indigo-700 cursor-pointer">
+                        <input type="checkbox" checked={bulkMode}
+                          onChange={ev => { setBulkMode(ev.target.checked); if (!ev.target.checked) setBulkUserIds([]); }} />
+                        여러 명에게 동시 발송
+                      </label>
+                    )}
+                  </div>
                   {/* 직원 검색 */}
                   <div className="space-y-2">
                     <Input
@@ -1276,13 +1381,33 @@ ${url}`;
                       className="text-sm"
                     />
                     {/* 선택된 직원 표시 */}
-                    {createForm.userId && (
+                    {bulkMode && bulkUserIds.length > 0 ? (
+                      <div className="bg-blue-50 border border-blue-200 rounded p-2 flex flex-wrap gap-1.5">
+                        {bulkUserIds.map(uid => {
+                          const e = employees.find(x => x.id === uid);
+                          return (
+                            <span key={uid} className="inline-flex items-center gap-1 text-xs bg-white border border-blue-300 rounded-full px-2 py-0.5 text-blue-700">
+                              {e?.name}{e?.branch ? ` [${e.branch}]` : ""}
+                              <button type="button" onClick={() => {
+                                setBulkUserIds(p => {
+                                  const next = p.filter(x => x !== uid);
+                                  // 자동 채움 기준 직원이 빠지면 남은 첫 직원으로 갱신 (검증관 2026-08-26)
+                                  setCreateForm(f => f.userId === uid ? { ...f, userId: next[0] || "" } : f);
+                                  return next;
+                                });
+                              }} className="text-blue-400 hover:text-blue-700">✕</button>
+                            </span>
+                          );
+                        })}
+                        <span className="text-xs text-blue-700 font-medium self-center">총 {bulkUserIds.length}명</span>
+                      </div>
+                    ) : createForm.userId ? (
                       <div className="bg-blue-50 border border-blue-200 rounded p-2">
                         <p className="text-xs text-blue-700 font-medium">
                           선택됨: {employees.find(e => e.id === createForm.userId)?.name}
                         </p>
                       </div>
-                    )}
+                    ) : null}
                     {/* 검색 결과 */}
                     <div className="border rounded bg-white max-h-48 overflow-y-auto">
                       {employees
@@ -1297,11 +1422,17 @@ ${url}`;
                             key={e.id}
                             type="button"
                             onClick={() => {
+                              if (bulkMode) {
+                                // 일괄: 클릭할 때마다 추가/제거. 첫 선택은 필드 자동 채움용으로 단일 선택에도 반영
+                                setBulkUserIds(p => p.includes(e.id) ? p.filter(x => x !== e.id) : [...p, e.id]);
+                                setCreateForm(f => ({ ...f, userId: f.userId || e.id }));
+                                return;
+                              }
                               setCreateForm(f => ({ ...f, userId: e.id }));
                               setEmployeeSearchText("");
                             }}
                             className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b last:border-b-0 transition ${
-                              createForm.userId === e.id ? "bg-blue-100 font-medium" : ""
+                              (bulkMode ? bulkUserIds.includes(e.id) : createForm.userId === e.id) ? "bg-blue-100 font-medium" : ""
                             }`}
                           >
                             <span className="font-medium">{e.name}</span>
@@ -1418,7 +1549,7 @@ ${url}`;
                             onChange={e => {
                               const checked = e.target.checked;
                               setResignBundleMode(checked);
-                              if (checked) setCodiBundleMode(false);
+                              if (checked) { setCodiBundleMode(false); setBulkMode(false); setBulkUserIds([]); } // 일괄과 병용 불가 (검증관 2026-08-26)
                               const sajik = resignTemplates[0];
                               if (checked && sajik) {
                                 // 사직원을 대표 문서로 자동 선택 + 5종 필드 합집합 스캔
@@ -1448,6 +1579,7 @@ ${url}`;
                             onChange={e => {
                               const checked = e.target.checked;
                               setCodiBundleMode(checked);
+                              if (checked) { setBulkMode(false); setBulkUserIds([]); } // 일괄과 병용 불가 (검증관 2026-08-26)
                               if (checked) {
                                 // 코디 계약서가 하나뿐이면 자동 선택
                                 if (codiTemplates.length === 1) {
@@ -1800,6 +1932,41 @@ ${url}`;
                 })()}
 
                 <div className="flex gap-2 justify-end">
+                  {/* 발송 전 입력값이 치환된 실물(PDF) 확인 (개선 제안 #76) */}
+                  {useTemplate && selectedTemplate && (
+                    <Button type="button" variant="outline" disabled={previewing} className="mr-auto gap-1"
+                      onClick={async () => {
+                        if (!externalMode && !createForm.userId && !bulkUserIds.length) { toast.error("직원을 먼저 선택해주세요."); return; }
+                        setPreviewing(true);
+                        try {
+                          const allExtra: Record<string, string> = {};
+                          for (const [k, v] of Object.entries(extraFields)) {
+                            if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+                            allExtra[k] = v;
+                          }
+                          for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
+                          for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
+                          if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+                          const res = await fetch("/api/contracts/preview", {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              templateId: selectedTemplate,
+                              userId: externalMode ? undefined : (createForm.userId || bulkUserIds[0]),
+                              externalName: externalMode ? externalForm.name.trim() : undefined,
+                              externalPhone: externalMode ? externalForm.phone.trim() : undefined,
+                              title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate,
+                              salary: createForm.salary, extraFields: allExtra,
+                            }),
+                          });
+                          if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "미리보기 실패"); return; }
+                          const blob = await res.blob();
+                          const w = window.open(URL.createObjectURL(blob), "_blank");
+                          if (!w) toast.error("팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도해주세요.");
+                        } finally { setPreviewing(false); }
+                      }}>
+                      <Eye size={14} />{previewing ? "생성 중..." : "미리보기"}
+                    </Button>
+                  )}
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
                   <Button type="submit" disabled={uploading}>{uploading ? "업로드" : "작성"}</Button>
                 </div>
@@ -2324,7 +2491,8 @@ ${url}`;
                         {/* 완료된 계약은 서명·직인이 들어간 완료본을 다운로드 (원본엔 서명 마커가 남아 있음) */}
                         {/* 완료본은 PDF로(수정 방지, 파일명=제목_서명완료.pdf) — 변환 실패 시 서버가 워드로 폴백.
                             미완료 원본은 워드 그대로, 파일명만 제목으로 (개선 제안 2026-08-24) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `${getFileUrl(c.fileUrl)}?download=1&name=${encodeURIComponent(c.title)}`} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        {/* 원본도 PDF로 — 워드 파일 그대로 나가면 수정 가능 (개선 제안 #67~#71) */}
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"

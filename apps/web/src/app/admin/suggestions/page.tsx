@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 type Suggestion = {
   id: string;
+  seqNo: number;
   userName: string;
   userBranch: string | null;
   title: string;
@@ -96,7 +97,7 @@ export default function AdminSuggestionsPage() {
               <CardContent className="pt-4 pb-4 space-y-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
-                  <h3 className="font-semibold flex-1 min-w-0 truncate">{s.title}</h3>
+                  <h3 className="font-semibold flex-1 min-w-0 truncate"><span className="text-gray-400 font-normal mr-1">#{s.seqNo}</span>{s.title}</h3>
                   <span className="text-xs text-gray-500 shrink-0">
                     {s.userName}{s.userBranch ? ` · ${s.userBranch}` : ""} · {format(new Date(s.createdAt), "MM/dd HH:mm")}
                   </span>

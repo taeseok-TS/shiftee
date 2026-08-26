@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { botSendDM } from "@/lib/bot";
+import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl } from "@/lib/app-url";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
@@ -110,7 +110,7 @@ export async function POST(
         `서명 링크만 직접 전달하려면:`,
         `${base}/sign/${externalSignToken}`,
       ].join("\n");
-      for (const uid of internalIds) await botSendDM(uid, msg);
+      for (const uid of internalIds) await hrBotSendDM(uid, msg);
     }
   }
 
@@ -118,9 +118,9 @@ export async function POST(
   for (const [uid, info] of dmTargets) {
     const head = info.titles.length > 1 ? `「${info.titles[0]}」 외 ${info.titles.length - 1}건` : `「${info.titles[0]}」`;
     const dm = info.isEmployee
-      ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.`
+      ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contracts`
       : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n웹 관리자 [계약 결재]에서 처리해 주세요.`;
-    botSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
+    hrBotSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
   }
 
   return NextResponse.json({ success: true, sent, externalSignToken });

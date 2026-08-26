@@ -21,6 +21,10 @@ const LEAVE_LABEL: Record<string, string> = {
   FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
 };
 
+// 인사봇 — 전자계약(발송·서명·결재·완료) 안내 전담. 관리자용 알림(제안·시스템·브리핑)과
+// 채팅방이 분리되어 계약 건을 놓치지 않는다 (개선 제안 #81, 디렉터 확정 2026-08-26)
+const HR_BOT_ID = "cubetee-hr-bot";
+
 export async function ensureBot(): Promise<string> {
   // upsert — 동시 호출 시 find→create 레이스로 PK 충돌 나지 않게
   await prisma.user.upsert({
@@ -31,10 +35,27 @@ export async function ensureBot(): Promise<string> {
   return BOT_ID;
 }
 
+export async function ensureHrBot(): Promise<string> {
+  await prisma.user.upsert({
+    where: { id: HR_BOT_ID },
+    update: {},
+    create: { id: HR_BOT_ID, email: "hr-bot@cubetee.co.kr", password: "LOCKED", name: "큐브티 인사봇", role: "EMPLOYEE", isActive: false },
+  });
+  return HR_BOT_ID;
+}
+
+// 인사봇 → 사용자 1:1 DM (전자계약 안내 전용)
+export async function hrBotSendDM(userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
+  return sendDMAs(await ensureHrBot(), "큐브티 인사봇", userId, content, opts);
+}
+
 // 봇 → 사용자 1:1 DM (+ 푸시)
 export async function botSendDM(userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
+  return sendDMAs(await ensureBot(), "큐브티 봇", userId, content, opts);
+}
+
+async function sendDMAs(botId: string, botName: string, userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
   try {
-    const botId = await ensureBot();
     let dm = await prisma.workChannel.findFirst({
       where: {
         type: "DM",
@@ -61,7 +82,7 @@ export async function botSendDM(userId: string, content: string, opts?: { respec
     await prisma.workMessage.create({ data: { channelId: dm.id, userId: botId, content } });
     emitWork({ type: "message", channelId: dm.id });
     await sendPushToUsers([userId], {
-      title: "큐브티 봇",
+      title: botName,
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
     }, { withWorkBadge: true, ...(opts?.respectWorkMute ? { respectWorkMute: true } : {}) });

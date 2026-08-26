@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 type Suggestion = {
   id: string;
+  seqNo: number;
   title: string;
   content: string;
   imageUrls: string[] | null;
@@ -163,7 +164,7 @@ export default function SuggestionsPage() {
                 <CardContent className="pt-4 pb-4">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
-                    <h3 className="font-semibold flex-1 truncate">{s.title}</h3>
+                    <h3 className="font-semibold flex-1 truncate"><span className="text-gray-400 font-normal mr-1">#{s.seqNo}</span>{s.title}</h3>
                     {/* 검토 전(접수)에만 본인 수정 가능 */}
                     {s.status === "RECEIVED" && editId !== s.id && (
                       <button
