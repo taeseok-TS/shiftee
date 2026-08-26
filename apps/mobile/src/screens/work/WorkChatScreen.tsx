@@ -185,7 +185,11 @@ export default function WorkChatScreen() {
     prevChannelRef.current = channelId;
     if (prev === channelId) return;
     if (prev) draftsRef.current[prev] = textValRef.current;
-    setText(draftsRef.current[channelId] ?? "");
+    const restored = draftsRef.current[channelId] ?? "";
+    // 복원 직후 캐럿 점프 이벤트가 멘션 드롭다운을 열지 않게 — 복원할 초안이 있을 때만.
+    // 마운트(빈 초안)에서 무장하면 selection 이벤트가 안 와 첫 @ 입력을 삼킨다 (검증관 M2/M4)
+    if (restored) progTextRef.current = Date.now();
+    setText(restored);
     setMentionQuery(null);
     setEditTarget(null);
     setReplyTarget(null);
@@ -448,6 +452,7 @@ export default function WorkChatScreen() {
     try {
       await createScheduledMessage(channelId, text.trim(), at.toISOString());
       setText("");
+      setMentionQuery(null);
       setScheduleOpen(false);
       Alert.alert("완료", "메시지를 예약했습니다. 시간이 되면 자동으로 전송됩니다.");
     } catch (e: any) {
@@ -714,11 +719,35 @@ export default function WorkChatScreen() {
     };
   }, [load, channelId]);
 
-  // 입력 중 마지막 토큰이 @로 시작하면 멘션 자동완성 쿼리 추출
+  // 멘션 자동완성: 커서 바로 앞 토큰이 @로 시작하면 쿼리 추출 — 문장 중간에서도 동작해야 하므로
+  // 문자열 끝이 아니라 커서 위치 기준으로 판정 (2026-08-26 김나현팀장 제안).
+  // onChangeText/onSelectionChange 발화 순서가 플랫폼마다 달라 양쪽 모두에서 재계산한다.
+  const chatSelRef = useRef(0);
+  const chatTextRef = useRef("");
+  chatTextRef.current = text; // 전송·답장 등 다른 경로의 setText와도 동기화
+  // 프로그램적 setText(멘션 픽·수정 진입·초안 복원) 직후엔 캐럿이 끝으로 튄 selection 이벤트가
+  // 따라오는데, 이걸 멘션 판정에 쓰면 엉뚱한 드롭다운이 열린다 — 무시 플래그.
+  // 이벤트가 안 오는 경로에서 다음 진짜 이벤트를 삼키지 않게 500ms 타임스탬프로 만료 (검증관 M2/M4)
+  const progTextRef = useRef(0);
+  // 멘션 픽 직후 캐럿을 삽입 지점으로 되돌리는 1회성 selection 제어 (검증관 M1)
+  const [selOverride, setSelOverride] = useState<{ start: number; end: number } | null>(null);
+  const refreshMention = (v: string, pos: number) => {
+    const m = v.slice(0, Math.min(pos, v.length)).match(/@([가-힣A-Za-z0-9_]*)$/);
+    setMentionQuery(m ? m[1] : null);
+  };
   const onChangeText = (v: string) => {
     setText(v);
-    const m = v.match(/@([가-힣A-Za-z0-9_]*)$/);
-    setMentionQuery(m ? m[1] : null);
+    if (selOverride) setSelOverride(null);
+    // 편집 지점 계산: 길이 델타 추정은 드래그 선택 치환·붙여넣기에서 틀린다 —
+    // 이전/새 문자열의 공통 접두·접미를 걷어낸 "삽입이 끝난 지점"을 캐럿으로 본다 (검증관 M3)
+    const prev = chatTextRef.current;
+    let p = 0;
+    while (p < prev.length && p < v.length && prev[p] === v[p]) p++;
+    let se = prev.length, sn = v.length;
+    while (se > p && sn > p && prev[se - 1] === v[sn - 1]) { se--; sn--; }
+    chatSelRef.current = sn;
+    chatTextRef.current = v;
+    refreshMention(v, chatSelRef.current);
     // 타이핑 신호 (2초에 한 번만 전송)
     const now = Date.now();
     if (v && now - lastTypingPost.current > 2000) {
@@ -727,7 +756,22 @@ export default function WorkChatScreen() {
     }
   };
   const pickMention = (name: string) => {
-    setText((cur) => cur.replace(/@([가-힣A-Za-z0-9_]*)$/, `@${name} `));
+    const cur = chatTextRef.current;
+    const pos = Math.min(chatSelRef.current, cur.length);
+    const after = cur.slice(pos);
+    const sep = after.startsWith(" ") ? "" : " "; // 뒤가 이미 공백이면 이중 공백 방지
+    const before = cur.slice(0, pos).replace(/@([가-힣A-Za-z0-9_]*)$/, `@${name}${sep}`);
+    const next = before + after;
+    // 캐럿은 구분 공백 "뒤" — 이름 바로 뒤에 두면 그 위치가 다시 멘션 진행 중으로 판정된다 (검증관 NEW-1)
+    const caret = before.length + (sep ? 0 : 1);
+    chatTextRef.current = next;
+    chatSelRef.current = caret;
+    if (after.length > 0) {
+      // 문장 중간 삽입일 때만 캐럿 복원 필요 — 끝 삽입은 네이티브 캐럿이 이미 옳다
+      progTextRef.current = Date.now();
+      setSelOverride({ start: caret, end: caret });
+    }
+    setText(next);
     setMentionQuery(null);
   };
   const mentionCands =
@@ -745,6 +789,7 @@ export default function WorkChatScreen() {
       if (!content || sending) return;
       setSending(true);
       setText("");
+      setMentionQuery(null);
       const replying = replyTarget;
       setEditTarget(null);
       setReplyTarget(null);
@@ -773,6 +818,7 @@ export default function WorkChatScreen() {
     const attachFirst = attachFirstRef.current;
     setSending(true);
     setUploading(true);
+    setMentionQuery(null);
     try {
       let caption = content;
       let replyId: string | undefined = replyTarget?.id; // 캡션 유무와 무관하게 첫 메시지에 답장 연결
@@ -823,7 +869,7 @@ export default function WorkChatScreen() {
       Alert.alert("알림", "첨부 대기 중에는 메시지를 수정할 수 없습니다.\n첨부를 먼저 보내거나 삭제해주세요.");
       return;
     }
-    setEditTarget(m); setReplyTarget(null); setText(m.content);
+    setEditTarget(m); setReplyTarget(null); progTextRef.current = Date.now(); setText(m.content); setMentionQuery(null);
   };
   const confirmDelete = (m: WorkMessage) => {
     setReactionTarget(null);
@@ -1425,7 +1471,7 @@ export default function WorkChatScreen() {
               {(editTarget || replyTarget)?.content || "첨부파일"}
             </Text>
           </View>
-          <TouchableOpacity onPress={() => { const wasEdit = !!editTarget; setReplyTarget(null); setEditTarget(null); if (wasEdit) setText(""); }}>
+          <TouchableOpacity onPress={() => { const wasEdit = !!editTarget; setReplyTarget(null); setEditTarget(null); if (wasEdit) { setText(""); setMentionQuery(null); } }}>
             <Ionicons name="close" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
@@ -1513,7 +1559,23 @@ export default function WorkChatScreen() {
           style={styles.input}
           placeholder="메시지 입력... (@로 멘션)"
           value={text}
+          selection={selOverride ?? undefined}
           onChangeText={onChangeText}
+          onSelectionChange={(e) => {
+            const start = e.nativeEvent.selection.start;
+            // override가 실제로 적용된 이벤트에서만 해제 — 적용 전(끝점프) 이벤트에 해제하면
+            // 캐럿 복원 자체가 취소된다 (검증관 M1). 계속 제어하면 IME가 깨지므로 즉시 1회 해제.
+            if (selOverride && start === selOverride.start) setSelOverride(null);
+            // 프로그램적 setText 직후의 캐럿 점프 이벤트는 멘션 판정·chatSelRef 갱신 모두 제외
+            if (progTextRef.current && Date.now() - progTextRef.current < 500) {
+              progTextRef.current = 0;
+              setMentionQuery(null);
+              return;
+            }
+            progTextRef.current = 0;
+            chatSelRef.current = start;
+            refreshMention(chatTextRef.current, start);
+          }}
           onFocus={checkClipboard}
           multiline
         />

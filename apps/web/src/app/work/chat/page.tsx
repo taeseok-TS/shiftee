@@ -378,11 +378,17 @@ export default function WorkChatPage() {
     if (nearBottomRef.current || (last && last.mine)) el.scrollTo({ top: el.scrollHeight });
   }, [messages]);
 
-  function onInputChange(v: string) {
-    setInput(v);
-    // @멘션 자동완성: 마지막 토큰이 @로 시작하면 쿼리 추출
-    const m = v.match(/@([가-힣A-Za-z0-9_]*)$/);
+  // @멘션 자동완성: 커서 바로 앞 토큰이 @로 시작하면 쿼리 추출 — 문장 중간에서도 동작해야 하므로
+  // 전체 문자열 끝이 아니라 커서 위치 기준으로 판정한다 (2026-08-26 김나현팀장 제안)
+  function refreshMentionQuery(v: string, pos?: number) {
+    const p = pos ?? inputRef.current?.selectionStart ?? v.length;
+    const m = v.slice(0, p).match(/@([가-힣A-Za-z0-9_]*)$/);
     setMentionQuery(m ? m[1] : null);
+  }
+
+  function onInputChange(v: string, pos?: number) {
+    setInput(v);
+    refreshMentionQuery(v, pos);
     const now = Date.now();
     if (activeId && now - lastTypingSent.current > 2000) {
       lastTypingSent.current = now;
@@ -391,10 +397,26 @@ export default function WorkChatPage() {
   }
 
   function pickMention(name: string) {
-    setInput((cur) => cur.replace(/@([가-힣A-Za-z0-9_]*)$/, `@${name} `));
+    const ta = inputRef.current;
+    const cur = inputValRef.current;
+    const pos = ta?.selectionStart ?? cur.length;
+    const after = cur.slice(pos);
+    const sep = after.startsWith(" ") ? "" : " "; // 뒤가 이미 공백이면 이중 공백 방지
+    const before = cur.slice(0, pos).replace(/@([가-힣A-Za-z0-9_]*)$/, `@${name}${sep}`);
+    // 캐럿은 반드시 구분 공백 "뒤" — 이름 바로 뒤(공백 앞)에 두면 그 위치가 다시 멘션 진행 중으로
+    // 판정되어 드롭다운이 재개방되고 Enter 전송이 막힌다 (검증관 NEW-1)
+    const caret = before.length + (sep ? 0 : 1);
+    setInput(before + after);
     setMentionQuery(null);
-    inputRef.current?.focus();
+    setTimeout(() => { ta?.focus(); ta?.setSelectionRange(caret, caret); }, 0);
   }
+
+  // 드롭다운 "실제 표시" 여부 — Enter 전송 가드는 mentionQuery 유무가 아니라 이걸 봐야 한다.
+  // (문장 속 이메일 a@gmail.com 위에 커서만 놓여도 query가 잡히는데, 후보 0명이면
+  //  드롭다운이 안 뜨므로 그때 Enter를 막으면 전송 먹통이 된다 — 검증관 W1)
+  const mentionCands = mentionQuery !== null ? channelMembers.filter((m) => m.name.includes(mentionQuery)) : [];
+  const mentionShowAll = mentionQuery !== null && "전체".includes(mentionQuery);
+  const mentionOpen = mentionCands.length > 0 || mentionShowAll;
 
   // 메시지 검색 (디바운스)
   useEffect(() => {
@@ -416,8 +438,8 @@ export default function WorkChatPage() {
   }
 
   function startReply(m: Message) { setReplyTo(m); setEditingId(null); }
-  function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); }
-  function cancelReplyEdit() { const wasEdit = !!editingId; setReplyTo(null); setEditingId(null); if (wasEdit) setInput(""); }
+  function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); setMentionQuery(null); }
+  function cancelReplyEdit() { const wasEdit = !!editingId; setReplyTo(null); setEditingId(null); if (wasEdit) { setInput(""); setMentionQuery(null); } }
   async function deleteMsg(m: Message) {
     if (!confirm("이 메시지를 삭제할까요?")) return;
     const res = await fetch(`/api/work/messages/${m.id}`, { method: "DELETE" });
@@ -438,7 +460,7 @@ export default function WorkChatPage() {
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || "수정 실패"); return; }
-        setInput(""); setEditingId(null);
+        setInput(""); setEditingId(null); setMentionQuery(null);
         fetchMessages(activeId);
       } else if (pendingFiles.length > 0) {
         // 대기 첨부 업로드 → 글(캡션)과 함께 발송. 이미지 2장 이상은 앨범 묶음, 나머지는 개별
@@ -472,7 +494,7 @@ export default function WorkChatPage() {
         }
         pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
         attachFirstRef.current = false;
-        setPendingFiles([]); setInput(""); setReplyTo(null);
+        setPendingFiles([]); setInput(""); setReplyTo(null); setMentionQuery(null);
         fetchMessages(activeId); fetchChannels();
       } else {
         const res = await fetch(`/api/work/channels/${activeId}/messages`, {
@@ -481,7 +503,7 @@ export default function WorkChatPage() {
         });
         const data = await res.json();
         if (!res.ok) { toast.error(data.error || "전송 실패"); return; }
-        setInput(""); setReplyTo(null);
+        setInput(""); setReplyTo(null); setMentionQuery(null);
         setMessages((m) => [...m, data.message]);
       }
     } finally { setSending(false); }
@@ -762,7 +784,7 @@ export default function WorkChatPage() {
     const d = await res.json();
     if (!res.ok) { toast.error(d.error || "예약 실패"); return; }
     toast.success("메시지를 예약했습니다.");
-    setInput(""); if (inputRef.current) inputRef.current.style.height = "auto";
+    setInput(""); setMentionQuery(null); if (inputRef.current) inputRef.current.style.height = "auto";
     setScheduleOpen(false);
   }
   async function cancelScheduled(sid: string) {
@@ -1541,20 +1563,17 @@ export default function WorkChatPage() {
 
             <div className="px-4 py-3 border-t bg-white flex gap-2 items-end relative">
               {/* @멘션 자동완성 드롭다운 */}
-              {mentionQuery !== null && (() => {
+              {mentionOpen && (() => {
                 // 멘션 대상은 현재 채널 구성원만 (채팅방에 없는 사람은 노출 안 됨). 전원 표시 + 스크롤
-                const cands = channelMembers.filter((m) => m.name.includes(mentionQuery));
-                const showAll = "전체".includes(mentionQuery); // @전체 = 방 전체 멘션
-                if (cands.length === 0 && !showAll) return null;
                 return (
                   <div className="absolute bottom-14 left-12 z-20 bg-white border rounded-lg shadow w-48 max-h-52 overflow-y-auto">
                     <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b flex items-center gap-1"><AtSign size={11} />멘션할 사람</div>
-                    {showAll && (
+                    {mentionShowAll && (
                       <button onClick={() => pickMention("전체")} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 border-b">
                         <span className="font-semibold text-indigo-600">전체</span><span className="text-xs text-gray-400"> · 방 전체 알림</span>
                       </button>
                     )}
-                    {cands.map((m) => (
+                    {mentionCands.map((m) => (
                       <button key={m.userId} onClick={() => pickMention(m.name)} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
                         {m.name}{m.branch && <span className="text-xs text-gray-400"> · {m.branch}</span>}
                       </button>
@@ -1578,7 +1597,7 @@ export default function WorkChatPage() {
                           const ta = inputRef.current;
                           const pos = ta?.selectionStart ?? input.length;
                           const next = input.slice(0, pos) + e + input.slice(pos);
-                          onInputChange(next);
+                          onInputChange(next, pos + e.length); // DOM 캐럿은 아직 옛 위치라 커서를 명시 전달 (검증관 W2)
                           setTimeout(() => { ta?.focus(); ta?.setSelectionRange(pos + e.length, pos + e.length); }, 0);
                         }}>{e}</button>
                     ))}
@@ -1593,7 +1612,14 @@ export default function WorkChatPage() {
                   e.target.style.height = "auto";
                   e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
                 }}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && mentionQuery === null) { e.preventDefault(); send(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && mentionOpen) { setMentionQuery(null); return; } // 드롭다운 탈출구
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  e.preventDefault();
+                  // 드롭다운이 실제로 떠 있을 때만 전송 보류 (query만 잡히고 후보 0명이면 정상 전송)
+                  if (!mentionOpen) send();
+                }}
+                onSelect={(e) => refreshMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)}
                 onPaste={(e) => {
                   // 클립보드의 이미지(스크린샷 등) 붙여넣기 → 대기 첨부로 추가 (전송 버튼으로 발송). 텍스트는 기본 동작 유지.
                   const items = e.clipboardData?.items;
