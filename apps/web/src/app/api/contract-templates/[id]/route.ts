@@ -21,17 +21,21 @@ export async function PATCH(
 
   const data: Record<string, unknown> = {};
   const ct = request.headers.get("content-type") || "";
+  // 서명 완료 후 근로자 접근 (#129) — full(열람+다운로드) | view(열람만) | none(접근 불가)
+  const POST_SIGN_ACCESS = ["full", "view", "none"];
 
   if (ct.includes("multipart/form-data")) {
     const form = await request.formData();
     const name = form.get("name") as string | null;
     const description = form.get("description") as string | null;
     const type = form.get("type") as string | null;
+    const postSignAccess = form.get("postSignAccess") as string | null;
     const file = form.get("file") as File | null;
 
     if (name != null) data.name = name;
     if (description != null) data.description = description || null;
     if (type != null) data.type = type;
+    if (postSignAccess != null && POST_SIGN_ACCESS.includes(postSignAccess)) data.postSignAccess = postSignAccess;
 
     if (file && file.size > 0) {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -47,6 +51,7 @@ export async function PATCH(
     if (body.name != null) data.name = body.name;
     if (body.description !== undefined) data.description = body.description || null;
     if (body.type != null) data.type = body.type;
+    if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
     if (body.fileUrl) { data.fileUrl = body.fileUrl; data.version = existing.version + 1; }
   }
 

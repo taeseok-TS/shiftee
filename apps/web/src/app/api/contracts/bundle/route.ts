@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       const c = await prisma.contract.create({
         data: {
           userId,
+          createdBy: session.userId, // 작성자 — 단계·완료 알림 대상 (#136)
           title: item.title,
           type: item.type as never,
           fileUrl,

@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 type Contract = {
   id: string;
+  postSignAccess?: string; // 서명 완료 후 근로자 접근: full | view | none (#129)
   userId: string;
   title: string;
   type: string;
@@ -174,6 +175,8 @@ export default function ContractsPage() {
   const sigRef = useRef<SignaturePadHandle>(null);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({}); // 개인정보동의서 선택 항목
   const [consentRequired, setConsentRequired] = useState(false); // 필수 항목 명시 동의 (#104 — 자동 처리 금지)
+  const [consentRead, setConsentRead] = useState(false); // 전문을 끝까지 확인했는가 (#104 — 열람 없이는 진행 불가)
+  const [viewerAtBottom, setViewerAtBottom] = useState(false); // 전문 스크롤 바닥 도달
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [docViewerOpen, setDocViewerOpen] = useState(false); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
@@ -181,6 +184,7 @@ export default function ContractsPage() {
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
   const [mySigUrl, setMySigUrl] = useState(""); // 저장된 내 서명 (재사용, 개선 제안 #75)
   const [saveSig, setSaveSig] = useState(true); // 서명 후 저장 여부
+  const [drawNewSig, setDrawNewSig] = useState(false); // 저장 서명 대신 새로 그리기 (#127 — 저장 서명이 기본)
   const [previewZoom, setPreviewZoom] = useState(false); // 미리보기 클릭 확대 (개선 제안 #73)
   // 주민등록번호 자동 하이픈 (개선 제안 #74): 숫자만 받아 6자리 뒤에 - 삽입, 13자리 제한
   const formatRrn = (raw: string) => {
@@ -716,7 +720,9 @@ export default function ContractsPage() {
   const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
   async function handleSign(id: string, isApprover = false) {
     if (signSubmitting) return;
-    if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
+    // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1)
+    const useSaved = !!mySigUrl && !drawNewSig;
+    if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
     if (missingProfile.length) {
@@ -756,7 +762,7 @@ export default function ContractsPage() {
       const res = await fetch(`/api/contracts/${id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault: saveSig, ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -1338,7 +1344,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -1365,7 +1371,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1528,8 +1534,12 @@ export default function ContractsPage() {
                       <td className="py-3 space-x-1">
                         {/* 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만 */}
                         {/* 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24) */}
-                        {/* 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110, 2026-08-27) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                        {/* 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129) */}
+                        {c.status === "SIGNED" && c.postSignAccess === "none" ? (
+                          <span className="text-[11px] text-gray-400 px-1" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
+                        ) : (
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1643,9 +1653,9 @@ export default function ContractsPage() {
               {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
               {consentKeys.length > 0 && signStep === 1 && (
                 <>
-                  <button type="button" onClick={() => setDocViewerOpen(true)}
-                    className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50">
-                    <Eye size={15} />동의서 전문 보기
+                  <button type="button" onClick={() => { setViewerAtBottom(false); setDocViewerOpen(true); }}
+                    className={`flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border text-sm font-medium ${consentRead ? "border-green-300 text-green-700 bg-green-50" : "border-indigo-300 text-indigo-700 hover:bg-indigo-50"}`}>
+                    <Eye size={15} />{consentRead ? "전문 확인 완료 (다시 보기)" : "동의서 전문 보기 (필수)"}
                   </button>
                   {/* 필수 항목도 명시적 동의 — 자동 처리는 개인정보보호법 위반 (#104, 2026-08-27) */}
                   <label className="flex items-start gap-2 rounded-lg border border-gray-300 bg-gray-50 p-3 text-xs text-gray-700 cursor-pointer">
@@ -1688,6 +1698,8 @@ export default function ContractsPage() {
                   <div className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                     <Button onClick={() => {
+                      // 전문을 열람해야 진행 — 사전 체크 금지와 세트 (#104)
+                      if (!consentRead) { toast.error("동의서 전문을 먼저 끝까지 확인해주세요. [동의서 전문 보기]를 눌러주세요."); return; }
                       // 필수·선택 동의는 명시적으로 (#104)
                       if (!consentRequired) { toast.error("필수 항목 동의에 체크해주세요."); return; }
                       for (const k of consentKeys) {
@@ -1774,16 +1786,21 @@ export default function ContractsPage() {
                       <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600">크게 보기 (새 창)</a>
                     </>
                   )}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>서명 *</Label>
-                      {mySigUrl && (
-                        <button type="button" className="text-xs text-indigo-600 underline"
-                          onClick={async () => { const ok = await sigRef.current?.loadImage(mySigUrl); if (!ok) toast.error("저장된 서명을 불러오지 못했습니다."); }}>
-                          저장된 서명 불러오기
-                        </button>
-                      )}
+                  {/* 저장된 서명이 있으면 기본으로 표시, 새로 그리기는 선택 (#127) */}
+                  {mySigUrl && !drawNewSig ? (
+                    <div className="space-y-2">
+                      <Label>저장된 내 서명</Label>
+                      <div className="border rounded-lg bg-white p-2 flex items-center justify-center h-24">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={mySigUrl} alt="저장된 서명" className="max-h-20 object-contain" />
+                      </div>
+                      <button type="button" className="text-xs text-blue-600 underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
+                        수정하기 (새로 그리기 — 저장 서명 교체)
+                      </button>
                     </div>
+                  ) : (
+                  <div className="space-y-2">
+                    <Label>서명 *</Label>
                     <SignaturePad ref={sigRef} />
                     {/* 서명 재사용 저장 (개선 제안 #75) */}
                     <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
@@ -1791,6 +1808,7 @@ export default function ContractsPage() {
                       이 서명을 저장해두고 다음 서명 때 재사용
                     </label>
                   </div>
+                  )}
                   <div className="flex gap-2 justify-end">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
@@ -1829,10 +1847,29 @@ export default function ContractsPage() {
               src={viewHref(getFileUrl(signTarget.fileUrl))}
               className="flex-1 w-full border-0"
               title="동의서 전문"
+              onLoad={(e) => {
+                // 같은 출처(docs/viewer)라 내부 스크롤 감지 가능 — 바닥 도달 시 확인 활성 (#104)
+                // 구조가 바뀌어 감지 못 하면 8초 후 활성 (막히는 것보다 안전)
+                const fallback = setTimeout(() => setViewerAtBottom(true), 8000);
+                try {
+                  const win = (e.target as HTMLIFrameElement).contentWindow;
+                  const docEl = win?.document?.scrollingElement || win?.document?.documentElement;
+                  if (!win || !docEl) return;
+                  const check = () => {
+                    if (docEl.scrollTop + win.innerHeight >= docEl.scrollHeight - 40) {
+                      setViewerAtBottom(true);
+                      clearTimeout(fallback);
+                    }
+                  };
+                  check(); // 문서가 한 화면이면 즉시 통과
+                  win.addEventListener("scroll", check);
+                } catch { /* 교차 출처 등 — fallback 타이머가 처리 */ }
+              }}
             />
           )}
-          <div className="px-4 py-3 border-t shrink-0 flex justify-end">
-            <Button onClick={() => setDocViewerOpen(false)} className="bg-indigo-600 hover:bg-indigo-700">
+          <div className="px-4 py-3 border-t shrink-0 flex items-center justify-between gap-3">
+            <span className="text-xs text-gray-400">{viewerAtBottom ? "끝까지 확인하셨습니다." : "문서를 끝까지 스크롤해주세요."}</span>
+            <Button disabled={!viewerAtBottom} onClick={() => { setConsentRead(true); setDocViewerOpen(false); }} className="bg-indigo-600 hover:bg-indigo-700">
               확인 (다 읽었습니다) →
             </Button>
           </div>

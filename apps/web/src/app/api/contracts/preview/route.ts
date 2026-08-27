@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const { templateId, items, userId, title, startDate, endDate, salary, extraFields, externalName, externalPhone } = body;
+  const highlight = body.highlight === true || body.highlight === 1; // 입력값 하이라이트 (#100)
   // items[] — 패키지 미리보기: 여러 템플릿을 각각 렌더해 PDF 하나로 합친다 (#117, 2026-08-27)
   const templateIds: string[] = Array.isArray(items) && items.length
     ? items.map((x: { templateId?: string }) => x?.templateId).filter((x: unknown): x is string => typeof x === "string")
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
         extraFields: extraFields && typeof extraFields === "object" ? extraFields : null,
         external: externalName ? { name: externalName, phone: externalPhone || null } : null,
       });
-      const tmpUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
+      const tmpUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData, { highlight });
       tmpUrls.push(tmpUrl);
       const buf = await fs.readFile(path.join(process.cwd(), "uploads", tmpUrl.replace(/^\/api\/uploads\//, "")));
       const fd = new FormData();

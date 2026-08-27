@@ -70,11 +70,18 @@ export async function GET(request: NextRequest) {
     if (searchText && searchText.trim()) {
       whereBase.title = { contains: searchText.trim(), mode: "insensitive" };
     }
+    // 문서 종류(템플릿)·패키지 여부 필터 (#135, 2026-08-27)
+    const templateIdF = searchParams.get("templateId");
+    if (templateIdF) whereBase.templateId = templateIdF;
+    const pkg = searchParams.get("pkg");
+    if (pkg === "bundle") whereBase.bundleId = { not: null };
+    else if (pkg === "single") whereBase.bundleId = null;
 
     const contracts = await prisma.contract.findMany({
       where: whereBase,
       include: {
         user: { select: { id: true, name: true, email: true, department: true, branch: true } },
+        template: { select: { postSignAccess: true } }, // 서명 완료 후 근로자 접근 (#129) — 완료본 버튼 게이트용
         approvalLine: {
           include: {
             steps: {
@@ -88,8 +95,10 @@ export async function GET(request: NextRequest) {
     });
 
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
-    const filteredContracts = contracts.map(contract => ({
+    const filteredContracts = contracts.map(({ template, ...contract }) => ({
       ...contract,
+      // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
+      postSignAccess: template?.postSignAccess || "full",
       user: {
         id: contract.user.id,
         name: contract.user.name,
@@ -236,6 +245,7 @@ export async function POST(request: NextRequest) {
     const contract = await prisma.contract.create({
       data: {
         userId: effectiveUserId,
+        createdBy: session.userId, // 작성자 — 단계·완료 알림 대상 (#136)
         externalName: externalName || undefined,
         externalPhone: externalPhone || undefined,
         title,

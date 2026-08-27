@@ -118,6 +118,21 @@ export default function ContractDetailScreen() {
   const steps: any[] = (contract as any).approvalLine?.steps || [];
   const myTurn = steps.some((s) => s.approverId === (contract as any).userId && s.status === "PENDING");
   const canSign = steps.length > 0 ? myTurn : contract.status === "SENT";
+  // 서명 완료 후 근로자 접근 (#129) — 템플릿 설정. 관리자는 무제한 현행
+  const postSignAccess = contract.postSignAccess || "full";
+  // 진행 중 계약 — 내 서명이 반영된 진행본 열람 (#110). 완료되면 완료본 버튼이 대신 뜬다
+  const inProgressViewable = !isAdmin && contract.status !== "SIGNED" && !!contract.employeeSignedAt && !signedFile;
+
+  // 서명 진행본/완료본 열기 — 계약 1건짜리 단기 링크(PDF, 최신 서명 배치)
+  const openSignedDoc = async () => {
+    try {
+      const url = await api.getSignedDocLink(contract.id);
+      if (url) Linking.openURL(url);
+      else Alert.alert("오류", "문서 링크를 만들지 못했습니다.");
+    } catch (e: any) {
+      Alert.alert("오류", e?.response?.data?.error || "문서를 여는 중 오류가 발생했습니다.");
+    }
+  };
 
   return (
     <ScrollView style={styles.container}>
@@ -162,19 +177,24 @@ export default function ContractDetailScreen() {
             <Ionicons name="open-outline" size={18} color="#9ca3af" />
           </TouchableOpacity>
         ) : null}
-        {signedFile ? (
+        {/* 진행 중 계약 — 내 서명이 반영된 진행본 열람 (#110) */}
+        {inProgressViewable ? (
+          <TouchableOpacity style={styles.fileBtn} onPress={openSignedDoc}>
+            <Ionicons name="create-outline" size={20} color="#f59e0b" />
+            <Text style={styles.fileBtnText}>서명 진행본 보기 (PDF)</Text>
+            <Ionicons name="open-outline" size={18} color="#9ca3af" />
+          </TouchableOpacity>
+        ) : null}
+        {/* 완료본 — 템플릿의 "서명 완료 후 근로자 접근"이 none 이면 버튼 대신 안내만 (#129). 관리자는 현행 */}
+        {signedFile && !isAdmin && postSignAccess === "none" ? (
+          <View style={styles.fileBtn}>
+            <Ionicons name="checkmark-circle-outline" size={20} color="#9ca3af" />
+            <Text style={[styles.fileBtnText, { color: "#6b7280" }]}>제출 완료 (사본은 관리자에게 요청)</Text>
+          </View>
+        ) : signedFile ? (
           <TouchableOpacity
             style={styles.fileBtn}
-            onPress={async () => {
-              // 워드 파일 직링크 대신 재생성 PDF(수정 불가·최신 서명 배치) — 계약 1건짜리 단기 링크
-              try {
-                const url = await api.getSignedDocLink(contract.id);
-                if (url) Linking.openURL(url);
-                else Alert.alert("오류", "완료본 링크를 만들지 못했습니다.");
-              } catch {
-                Alert.alert("오류", "완료본을 여는 중 오류가 발생했습니다.");
-              }
-            }}
+            onPress={openSignedDoc /* 워드 파일 직링크 대신 재생성 PDF(수정 불가·최신 서명 배치) */}
           >
             <Ionicons name="checkmark-circle-outline" size={20} color="#10b981" />
             <Text style={styles.fileBtnText}>서명 완료본 보기 (PDF)</Text>

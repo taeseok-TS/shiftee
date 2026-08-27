@@ -22,6 +22,7 @@ export async function GET(
     where: { id },
     include: {
       user: { select: { id: true, name: true, email: true, department: true, branch: true } },
+      template: { select: { postSignAccess: true } }, // 서명 완료 후 근로자 접근 (#129)
       approvalLine: {
         include: {
           steps: {
@@ -38,7 +39,8 @@ export async function GET(
   if (session.role !== "ADMIN" && session.userId !== contract.userId)
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  return NextResponse.json({ contract });
+  const { template, ...rest } = contract;
+  return NextResponse.json({ contract: { ...rest, postSignAccess: template?.postSignAccess || "full" } });
 }
 
 export async function PATCH(

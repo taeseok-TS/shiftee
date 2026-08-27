@@ -43,6 +43,7 @@ export interface Contract {
     revocationLog?: any[];
     employeeSignedAt?: string | null;
     signedAt?: string | null;
+    postSignAccess?: string;
     user: {
         id: string;
         name: string;

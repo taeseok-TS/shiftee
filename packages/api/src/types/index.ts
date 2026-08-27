@@ -53,6 +53,8 @@ export interface Contract {
   revocationLog?: any[]; // 회수 이력
   employeeSignedAt?: string | null;
   signedAt?: string | null;
+  // 서명 완료 후 근로자 접근 (#129): "full" | "view" | "none" — 템플릿 미사용 계약은 "full"
+  postSignAccess?: string;
   user: {
     id: string;
     name: string;

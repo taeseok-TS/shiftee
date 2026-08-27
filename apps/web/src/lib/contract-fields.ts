@@ -40,13 +40,27 @@ export const fmtKoreanDate = (d: string | null) => {
 };
 
 // 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성
+// opts.highlight (#100, 2026-08-27): 미리보기 전용 — 치환된 값을 노란 하이라이트로,
+// 값이 비어 있는 필드는 붉은 〔미입력〕 표시로 렌더해 확인 포인트가 한눈에 보이게 한다.
+// 방식: 값을 사설영역 센티널(~)로 감싸 렌더한 뒤 XML 후처리로 하이라이트 run 분리.
 export async function fillDocxTemplate(
   templateFileUrl: string,
-  data: Record<string, string>
+  data: Record<string, string>,
+  opts?: { highlight?: boolean }
 ): Promise<string> {
   const relPath = templateFileUrl.replace(/^\/api\/uploads\//, "");
   const srcPath = path.join(process.cwd(), "uploads", relPath);
   const content = await fs.readFile(srcPath);
+
+  const hl = !!opts?.highlight;
+  const HS = "", HE = "", MS = "", ME = ""; // 하이라이트 센티널 (사설영역)
+  const renderData: Record<string, string> = hl
+    ? Object.fromEntries(Object.entries(data).map(([k, v]) => {
+        // 조건 플래그·서명 마커·빈 값은 감싸지 않는다
+        if (k === "신규입사" || k === "재계약" || !v || /^《.*》$/.test(v)) return [k, v];
+        return [k, HS + v + HE];
+      }))
+    : data;
 
   const zip = new PizZip(content);
   const doc = new Docxtemplater(zip, {
@@ -57,10 +71,22 @@ export async function fillDocxTemplate(
     // 미선택(□)으로 보여야 한다 — 값 누락 시 항목 글자만 남고 네모가 사라지는 것 방지
     nullGetter: (part: { value?: string }) => {
       const tag = part?.value || "";
-      return tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_") ? "□" : "";
+      if (tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_")) return "□";
+      return hl ? MS + "〔미입력〕" + ME : "";
     },
   });
-  doc.render(data);
+  doc.render(renderData);
+
+  if (hl) {
+    // 센티널 → 하이라이트 run 분리 (센티널은 항상 w:t 안에 있다)
+    let xml = doc.getZip().file("word/document.xml")!.asText();
+    xml = xml
+      .replace(//g, '</w:t></w:r><w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t xml:space="preserve">')
+      .replace(//g, '</w:t></w:r><w:r><w:t xml:space="preserve">')
+      .replace(//g, '</w:t></w:r><w:r><w:rPr><w:b/><w:color w:val="CC0000"/></w:rPr><w:t xml:space="preserve">')
+      .replace(//g, '</w:t></w:r><w:r><w:t xml:space="preserve">');
+    doc.getZip().file("word/document.xml", xml);
+  }
 
   const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
   const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-contract.docx`;

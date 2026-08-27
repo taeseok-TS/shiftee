@@ -244,8 +244,8 @@ export async function createSuggestion(data: { title: string; content: string; i
   const res = await axios.post(`${API_URL}/suggestions`, data, { headers: await authHeaders() });
   return res.data?.suggestion;
 }
-// 접수 상태인 본인 제안 수정 (검토 시작 후에는 서버가 거부)
-export async function updateSuggestion(id: string, data: { title: string; content: string }) {
+// 접수 상태인 본인 제안 수정 (검토 시작 후에는 이미지 추가만 서버가 허용 — #138)
+export async function updateSuggestion(id: string, data: { title: string; content: string; imageUrls?: string[] }) {
   const res = await axios.put(`${API_URL}/suggestions/${id}`, data, { headers: await authHeaders() });
   return res.data?.suggestion;
 }

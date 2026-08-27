@@ -235,6 +235,9 @@ export default function ContractsPage() {
   const [filterMonth, setFilterMonth] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUserId, setFilterUserId] = useState("");
+  const [fieldDocs, setFieldDocs] = useState<Record<string, string>>({}); // 필드 → 출처 문서명 (#113)
+  const [filterTemplateId, setFilterTemplateId] = useState(""); // 문서 종류 (#135)
+  const [filterPkg, setFilterPkg] = useState(""); // 패키지/단건 (#135)
   const [filterBranch, setFilterBranch] = useState("");
   const [filterSearchText, setFilterSearchText] = useState("");
   const [showHiddenRevoked, setShowHiddenRevoked] = useState(false);
@@ -249,6 +252,8 @@ export default function ContractsPage() {
       branch: filterBranch,
       searchText: filterSearchText,
       showHiddenRevoked: showHiddenRevoked,
+      templateId: filterTemplateId,
+      pkg: filterPkg,
     };
 
     if (useFilters.year) params.append("year", useFilters.year);
@@ -258,6 +263,8 @@ export default function ContractsPage() {
     if (useFilters.branch) params.append("branch", useFilters.branch);
     if (useFilters.searchText) params.append("searchText", useFilters.searchText);
     if (useFilters.showHiddenRevoked) params.append("showHiddenRevoked", "true");
+    if (useFilters.templateId) params.append("templateId", useFilters.templateId);
+    if (useFilters.pkg) params.append("pkg", useFilters.pkg);
 
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
@@ -268,7 +275,7 @@ export default function ContractsPage() {
       const approvalData = await approvalRes.json();
       setMyApprovals(approvalData.contracts || []);
     }
-  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked]);
+  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked, filterTemplateId, filterPkg]);
 
   const fetchTemplates = useCallback(async () => {
     if (role === "EMPLOYEE") return;
@@ -634,13 +641,18 @@ export default function ContractsPage() {
     const conditions: string[] = [];
     const empFill: string[] = [];
     const fieldConds: Record<string, string> = {};
-    for (const d of results) {
-      for (const f of d.fields || []) if (!fields.includes(f)) fields.push(f);
+    const docsMap: Record<string, string> = {}; // 필드 → 출처 문서명 (#113)
+    results.forEach((d, i) => {
+      const docName = templates.find(t => t.id === ids[i])?.name || "";
+      for (const f of d.fields || []) {
+        if (!fields.includes(f)) fields.push(f);
+        if (docName) docsMap[f] = docsMap[f] && docsMap[f] !== docName ? "여러 문서 공통" : (docsMap[f] || docName);
+      }
       for (const c of d.conditions || []) if (!conditions.includes(c)) conditions.push(c);
       for (const f of d.employeeFields || []) if (!empFill.includes(f)) empFill.push(f);
       Object.assign(fieldConds, d.fieldConditions || {});
-    }
-    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill);
+    });
+    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill); setFieldDocs(docsMap);
 
     // 시각 필드 기본값 — 직영 표준 근무가 13~20시라 미리 채워 둔다(수정 가능).
     // 개시·출근·시작류 = 13:00, 종료·퇴근류 = 20:00
@@ -1864,8 +1876,10 @@ ${url}`;
                     "실무평가시작": "근로계약서 제3조·제8조", "실무평가종료": "근로계약서 제3조·제8조",
                     "실무지급률": "근로계약서 제8조 ⑤항 — 튜터 출신은 100",
                   };
-                  const docHint = (f: string) => FIELD_DOC_HINT[f]
-                    ? <span className="text-[10px] text-gray-400 font-normal ml-1.5">→ {FIELD_DOC_HINT[f]}</span> : null;
+                  const docHint = (f: string) => {
+                    const hint = FIELD_DOC_HINT[f] || fieldDocs[f];
+                    return hint ? <span className="text-[10px] text-gray-400 font-normal ml-1.5">→ {hint}</span> : null;
+                  };
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
                     f === "실무지급률" ? (
@@ -2028,6 +2042,7 @@ ${url}`;
                               externalPhone: externalMode ? externalForm.phone.trim() : undefined,
                               title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate,
                               salary: createForm.salary, extraFields: allExtra,
+                              highlight: true, // 입력값 노랑·미입력 붉은 표시 (#100)
                             }),
                           });
                           if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "미리보기 실패"); return; }
@@ -2476,6 +2491,36 @@ ${url}`;
               </div>
             )}
 
+            {/* 문서 종류 (#135) */}
+            {role !== "EMPLOYEE" && (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">문서 종류</Label>
+                <Select value={filterTemplateId} onValueChange={setFilterTemplateId}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="전체" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">전체</SelectItem>
+                    {templates.map(t => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {/* 패키지 여부 (#135) */}
+            {role !== "EMPLOYEE" && (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">패키지</Label>
+                <Select value={filterPkg} onValueChange={setFilterPkg}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="전체" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">전체</SelectItem>
+                    <SelectItem value="bundle">패키지(묶음)만</SelectItem>
+                    <SelectItem value="single">단건만</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* 검색 */}
             <div className="space-y-1">
               <Label className="text-xs font-medium">검색</Label>
@@ -2645,8 +2690,9 @@ ${url}`;
                                     <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요. (최대 3명 · 통상 ①본부 ②원장 ③근로자)</p>
                                     {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99) */}
                                     <div className="flex gap-2">
-                                      <a href={`/api/contracts/${sendTarget.id}/original-document?inline=1`} target="_blank" rel="noreferrer" className="flex-1">
-                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8"><Eye size={13} />발송 문서 미리보기</Button>
+                                      {/* 패키지면 포함 문서 전체를 한 PDF 로 (#124) */}
+                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1">
+                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8"><Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}</Button>
                                       </a>
                                       {!sendTarget.externalName && (
                                         <Button type="button" variant="outline" size="sm" className="flex-1 gap-1 h-8"
@@ -2769,12 +2815,20 @@ ${url}`;
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
                 {signTarget.extraFields && Object.keys(signTarget.extraFields).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                    {Object.entries(signTarget.extraFields).map(([k, v]) => (
-                      <span key={k} className="contents"><span className="text-gray-400">{k}</span><span>{v}</span></span>
-                    ))}
+                    {/* 내부 필드명(체크_·선택_) 그대로 노출 금지 — 사람 말로 (#125) */}
+                    {Object.entries(signTarget.extraFields)
+                      .sort(([a], [b]) => (a.startsWith("체크_") || a.startsWith("선택_") ? 1 : 0) - (b.startsWith("체크_") || b.startsWith("선택_") ? 1 : 0))
+                      .map(([k, v]) => {
+                        const label = k.startsWith("체크_") ? `지급 금품 · ${k.slice(3)}`
+                          : k.startsWith("선택_") ? `수령 방법 · ${k.slice(3)}`
+                          : k.startsWith("확인_") ? `확인 · ${k.slice(3)}` : k;
+                        return <span key={k} className="contents"><span className="text-gray-400">{label}</span><span>{v}</span></span>;
+                      })}
                   </div>
                 )}
               </div>
+              {/* 실제 서명할 문서 실물 — 패키지는 전 문서가 이어진 PDF (#125) */}
+              <iframe src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`} title="문서 미리보기" className="w-full border rounded" style={{ height: "36vh" }} />
               {mySignatureUrl && !drawNewSig ? (
                 /* 저장된 서명 원클릭 승인 */
                 <div className="space-y-2">
@@ -2797,9 +2851,9 @@ ${url}`;
                   </label>
                 </div>
               )}
-              {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101) */}
-              <a href={`/api/contracts/${signTarget.id}/original-document?inline=1`} target="_blank" rel="noreferrer" className="block">
-                <Button type="button" variant="outline" size="sm" className="w-full gap-1"><Eye size={13} />계약서 크게 보기 (PDF)</Button>
+              {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125) */}
+              <a href={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="block">
+                <Button type="button" variant="outline" size="sm" className="w-full gap-1"><Eye size={13} />크게 보기 (새 창{signTarget.bundleId ? " · 패키지 전체" : ""})</Button>
               </a>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>

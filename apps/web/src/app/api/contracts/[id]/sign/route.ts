@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
+import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
@@ -172,17 +173,12 @@ export async function POST(
       );
     }
 
-    // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 직원에게 완료 알림
+    // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 완료 알림 (#136 재정리)
     if (nextStep?.approverId) {
-      hrBotSendDM(nextStep.approverId, `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+      hrBotSendDM(nextStep.approverId, `🖋 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep) {
-      hrBotSendDM(updated.user.id, `\u2705 전자계약 완료\n「${updated.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
-      // 결재에 참여한 내부 관계자(원장·본부)에게도 완료 통지 (#107, 2026-08-27)
-      for (const stp of approvalLine.steps) {
-        if (stp.approverId && stp.approverId !== updated.user.id) {
-          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
-        }
-      }
+      // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원 (근로자가 마지막 스텝이면 근로자 DM 생략) (#136)
+      notifyContractCompleted(id).catch((e) => console.error("[contract] 완료 알림 오류:", e));
     }
 
     return NextResponse.json({ success: true, contract: updated });
@@ -279,26 +275,27 @@ export async function POST(
       );
     }
 
-    // 봇 DM (개선 제안 2026-08-24): 다음 단계 담당자에게 알림, 없으면 직원에게 완료 알림
-    if (nextStep?.approverId) {
-      const dm = nextStep.approverId === finalContract.userId && !contract.externalName
-        ? `\ud83d\udcdd 전자계약 서명 요청\n「${finalContract.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
-        : `\ud83d\udd8b 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
-      hrBotSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
-    } else if (!nextStep && !contract.externalName) {
-      hrBotSendDM(finalContract.user.id, `\u2705 전자계약 완료\n「${finalContract.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
-      for (const stp of approvalLine.steps) {
-        if (stp.approverId && stp.approverId !== finalContract.user.id) {
-          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${finalContract.title}」 — 대상: ${finalContract.user.name}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
-        }
+    // 봇 DM (개선 제안 2026-08-24): 다음 단계 담당자에게 알림, 없으면 완료 알림 (#136 재정리)
+    if (nextStep) {
+      if (nextStep.approverId) {
+        const dm = nextStep.approverId === finalContract.userId && !contract.externalName
+          ? `📝 전자계약 서명 요청\n「${finalContract.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
+          : `🖋 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
+        hrBotSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
       }
-    } else if (!nextStep && contract.externalName) {
-      // 외부 계약 완료 — 내부 결재자 전원에게 통지 (#107)
-      for (const stp of approvalLine.steps) {
-        if (stp.approverId) {
-          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${finalContract.title}」 — 대상: ${contract.externalName}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
-        }
-      }
+      // 중간 단계 결재 완료 → 작성자(createdBy)에게 진행 알림 (#136)
+      // 마지막 단계는 아래 완료 알림이 대신한다. 작성자가 이 단계 결재자 본인이면 헬퍼가 생략.
+      notifyStepApprovedToCreator({
+        createdBy: contract.createdBy,
+        approverId: session.userId,
+        approverRole: myStep.approver?.role,
+        order: myStep.order,
+        title: finalContract.title,
+        targetName: contract.externalName || finalContract.user.name,
+      });
+    } else {
+      // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원 (근로자가 마지막 스텝이면 근로자 DM 생략) (#136)
+      notifyContractCompleted(id).catch((e) => console.error("[contract] 완료 알림 오류:", e));
     }
 
     return NextResponse.json({ success: true, contract: finalContract });

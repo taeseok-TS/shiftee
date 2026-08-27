@@ -14,7 +14,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -134,16 +134,15 @@ export async function POST(
     where: { id: step.id },
     data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
   });
-  // 발송한 관리자(외부 계약의 userId)에게 서명 진행 알림 (개선 제안 2026-08-25, 이예지대리)
-  {
+  const nextStep = steps.find((s) => s.order === step.order + 1);
+  // 발송 작성자(createdBy, 없으면 외부 계약 소유자=작성 관리자)에게 서명 진행 알림
+  // (개선 제안 2026-08-25, 이예지대리). 마지막 단계면 아래 완료 알림이 대신한다 (#136)
+  if (nextStep) {
     const { hrBotSendDM } = await import("@/lib/bot");
     hrBotSendDM(
-      contract.userId,
-      `\u270d\ufe0f 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.`
+      contract.createdBy || contract.userId,
+      `✍️ 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.`
     ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
-  }
-  const nextStep = steps.find((s) => s.order === step.order + 1);
-  if (nextStep) {
     await prisma.contractApprovalStep.update({ where: { id: nextStep.id }, data: { status: "PENDING" } });
     // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가
     // 자기 차례를 모르는 문제가 있었다 (QA 2026-08-25, 이예지대리)
@@ -155,7 +154,7 @@ export async function POST(
       const approverRole = (await prisma.user.findUnique({ where: { id: nextStep.approverId }, select: { role: true } }))?.role;
       hrBotSendDM(
         nextStep.approverId,
-        `\ud83d\udd8b 전자계약 결재 요청\n「${contractRow.title}」 — 대상: ${contractRow.externalName || "외부 계약자"}\n외부 계약자의 서명이 완료되어 결재 차례가 되었습니다.\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(approverRole)}`
+        `🖋 전자계약 결재 요청\n「${contractRow.title}」 — 대상: ${contractRow.externalName || "외부 계약자"}\n외부 계약자의 서명이 완료되어 결재 차례가 되었습니다.\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(approverRole)}`
       ).catch((e) => console.error("[external-sign] 결재 DM 오류:", e));
     }
   }
@@ -168,12 +167,15 @@ export async function POST(
     },
   });
 
-  // 마지막 단계면 서명 완료본(서명+직인 포함) 생성
+  // 마지막 단계면 서명 완료본(서명+직인 포함) 생성 + 완료 알림 (#136)
   if (!nextStep) {
     try {
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(contractId);
     } catch (e) { console.error("외부 서명 완료본 생성 오류:", e); }
+    // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원에게 통지 (외부 계약자는 계정이 없어 DM 없음)
+    const { notifyContractCompleted } = await import("@/lib/contract-notify");
+    await notifyContractCompleted(contractId);
   }
 
   // 패키지 동반 문서(비밀유지·개인정보동의서) — 같은 서명으로 함께 완료

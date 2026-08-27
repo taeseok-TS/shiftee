@@ -24,6 +24,7 @@ type ContractTemplate = {
   createdBy: string;
   createdByUser: { id: string; name: string };
   approverIds: string[];
+  postSignAccess: string; // 서명 완료 후 근로자 접근 (#129)
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +34,13 @@ const typeLabel: Record<string, string> = {
   PART_TIME: "단시간근로계약서",
   CONFIDENTIAL: "비밀유지계약",
   OTHER: "기타",
+};
+
+// 서명 완료 후 근로자 접근 (#129) — 템플릿별로 완료본을 근로자에게 어디까지 열어줄지
+const postSignAccessLabel: Record<string, string> = {
+  full: "열람 + 다운로드",
+  view: "열람만 (다운로드 불가)",
+  none: "접근 불가 (제출 완료만 표시)",
 };
 
 export default function ContractTemplatesPage() {
@@ -47,6 +55,7 @@ export default function ContractTemplatesPage() {
     name: "",
     description: "",
     type: "EMPLOYMENT",
+    postSignAccess: "full",
     file: null as File | null,
   });
 
@@ -101,7 +110,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 생성되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", file: null });
+      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null });
       setCreateOpen(false);
       fetchTemplates();
     } catch (error) {
@@ -127,6 +136,7 @@ export default function ContractTemplatesPage() {
       formData.append("name", form.name);
       formData.append("description", form.description || "");
       formData.append("type", form.type);
+      formData.append("postSignAccess", form.postSignAccess); // 서명 완료 후 근로자 접근 (#129)
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
@@ -140,7 +150,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 수정되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", file: null });
+      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null });
       setEditOpen(false);
       setEditTarget(null);
       fetchTemplates();
@@ -180,6 +190,7 @@ export default function ContractTemplatesPage() {
       name: template.name,
       description: template.description || "",
       type: template.type,
+      postSignAccess: template.postSignAccess || "full",
       file: null,
     });
     setEditOpen(true);
@@ -197,7 +208,7 @@ export default function ContractTemplatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">계약서 템플릿</h1>
-        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", file: null }); setCreateOpen(true); }} className="gap-2">
+        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null }); setCreateOpen(true); }} className="gap-2">
           <Plus size={16} />
           새 템플릿 만들기
         </Button>
@@ -229,7 +240,9 @@ export default function ContractTemplatesPage() {
                 {template.description && (
                   <p className="text-sm text-gray-600">{template.description}</p>
                 )}
-                <p className="text-xs text-gray-500">v{template.version}</p>
+                <p className="text-xs text-gray-500">
+                  v{template.version} · 서명 완료 후 근로자 접근: {postSignAccessLabel[template.postSignAccess] || postSignAccessLabel.full}
+                </p>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -369,6 +382,24 @@ export default function ContractTemplatesPage() {
               <div className="space-y-2">
                 <Label>계약서 유형 (읽기 전용)</Label>
                 <Input value={typeLabel[editTarget.type] || editTarget.type} disabled />
+              </div>
+
+              <div className="space-y-2">
+                <Label>서명 완료 후 근로자 접근</Label>
+                <Select value={form.postSignAccess} onValueChange={postSignAccess => setForm(f => ({ ...f, postSignAccess }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(postSignAccessLabel).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500">
+                  서명 완료 후 근로자(계약 당사자)에게 완료본을 어디까지 열어줄지 정합니다.
+                  &quot;접근 불가&quot;는 근로자 화면에 &quot;제출 완료&quot;만 표시됩니다. 관리자는 항상 무제한입니다.
+                </p>
               </div>
 
               <div className="space-y-2">

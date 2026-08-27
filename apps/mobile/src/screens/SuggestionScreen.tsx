@@ -32,17 +32,18 @@ export default function SuggestionScreen() {
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const pickImage = async () => {
-    if (uploading || images.length >= 5) return;
+  // 작성·수정 폼 공용 픽커 — current/setFn 으로 어느 이미지 목록에 붙일지 정한다 (#138)
+  const pickImageTo = async (current: string[], setFn: React.Dispatch<React.SetStateAction<string[]>>) => {
+    if (uploading || current.length >= 5) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, quality: 0.8 });
       if (result.canceled) return;
       setUploading(true);
       const now = Date.now();
       for (const [i, a] of (result.assets ?? []).entries()) {
-        if (images.length + i >= 5) break;
+        if (current.length + i >= 5) break;
         const up = await uploadFile({ uri: a.uri, name: a.fileName || `suggest_${now}_${i}.jpg`, mimeType: a.mimeType || "image/jpeg" });
-        setImages((prev) => [...prev, up.fileUrl].slice(0, 5));
+        setFn((prev) => [...prev, up.fileUrl].slice(0, 5));
       }
     } catch (e: any) {
       Alert.alert("첨부 실패", e?.message || "이미지 업로드 중 오류가 발생했습니다.");
@@ -50,11 +51,14 @@ export default function SuggestionScreen() {
       setUploading(false);
     }
   };
+  const pickImage = () => pickImageTo(images, setImages);
 
   // 접수 상태인 내 제안 인라인 수정 (디렉터 지시 2026-08-24)
+  // 이미지'만' 추가하는 수정은 검토중·반영예정에서도 가능 — 담당자 추가 캡처 요청 대응 (#138)
   const [editId, setEditId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  const [editImages, setEditImages] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
 
   const saveEdit = async () => {
@@ -62,7 +66,7 @@ export default function SuggestionScreen() {
     if (!editTitle.trim() || !editContent.trim()) { Alert.alert("알림", "제목과 내용을 입력해주세요."); return; }
     setEditSaving(true);
     try {
-      await updateSuggestion(editId, { title: editTitle.trim(), content: editContent.trim() });
+      await updateSuggestion(editId, { title: editTitle.trim(), content: editContent.trim(), imageUrls: editImages });
       setEditId(null);
       load();
     } catch (e: any) {
@@ -151,9 +155,9 @@ export default function SuggestionScreen() {
                     <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.label}</Text>
                   </View>
                   <Text style={styles.itemTitle} numberOfLines={1}>{s.seqNo ? `#${s.seqNo} ` : ""}{s.title}</Text>
-                  {/* 검토 전(접수)에만 본인 수정 가능 */}
-                  {s.status === "RECEIVED" && editId !== s.id && (
-                    <TouchableOpacity onPress={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); }}
+                  {/* 검토 전(접수)엔 전체 수정, 검토중·반영예정엔 이미지 추가만 가능 (#138) */}
+                  {["RECEIVED", "REVIEWING", "PLANNED"].includes(s.status) && editId !== s.id && (
+                    <TouchableOpacity onPress={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); setEditImages(s.imageUrls || []); }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Ionicons name="pencil" size={14} color="#9ca3af" />
                     </TouchableOpacity>
@@ -162,14 +166,37 @@ export default function SuggestionScreen() {
                 </View>
                 {editId === s.id ? (
                   <View style={{ marginTop: 8 }}>
-                    <TextInput style={styles.titleInput} value={editTitle} onChangeText={setEditTitle} maxLength={100} />
-                    <TextInput style={styles.contentInput} value={editContent} onChangeText={setEditContent} multiline />
+                    {/* 검토 시작 후에는 글은 잠그고 이미지만 추가 가능 (#138) */}
+                    <TextInput style={styles.titleInput} value={editTitle} onChangeText={setEditTitle} maxLength={100}
+                      editable={s.status === "RECEIVED"} />
+                    <TextInput style={styles.contentInput} value={editContent} onChangeText={setEditContent} multiline
+                      editable={s.status === "RECEIVED"} />
+                    {editImages.length > 0 && (
+                      <View style={styles.thumbRow}>
+                        {editImages.map((u, i) => (
+                          <View key={`${u}-${i}`} style={styles.thumbWrap}>
+                            <Image source={{ uri: FILE_ORIGIN + u }} style={styles.thumb} />
+                            <TouchableOpacity style={styles.thumbRemove} onPress={() => setEditImages((prev) => prev.filter((_, idx) => idx !== i))}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                              <Ionicons name="close" size={12} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    <View style={styles.attachRow}>
+                      <TouchableOpacity style={styles.attachBtn} onPress={() => pickImageTo(editImages, setEditImages)} disabled={uploading || editImages.length >= 5}>
+                        {uploading ? <ActivityIndicator size="small" color="#4f46e5" /> : <Ionicons name="image-outline" size={18} color="#4f46e5" />}
+                        <Text style={styles.attachBtnText}>스크린샷 추가</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.attachHint}>최대 5장</Text>
+                    </View>
                     <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
                       <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditId(null)}>
                         <Text style={{ color: "#6b7280", fontSize: 13 }}>취소</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.submitBtn, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 14 }, editSaving && styles.submitBtnDisabled]}
-                        onPress={saveEdit} disabled={editSaving}>
+                      <TouchableOpacity style={[styles.submitBtn, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 14 }, (editSaving || uploading) && styles.submitBtnDisabled]}
+                        onPress={saveEdit} disabled={editSaving || uploading}>
                         <Text style={styles.submitText}>{editSaving ? "저장 중..." : "수정 저장"}</Text>
                       </TouchableOpacity>
                     </View>
@@ -177,7 +204,7 @@ export default function SuggestionScreen() {
                 ) : (
                 <Text style={styles.itemContent}>{s.content}</Text>
                 )}
-                {(s.imageUrls?.length ?? 0) > 0 && (
+                {editId !== s.id && (s.imageUrls?.length ?? 0) > 0 && (
                   <View style={styles.thumbRow}>
                     {s.imageUrls!.map((u, i) => (
                       <Image key={i} source={{ uri: FILE_ORIGIN + u }} style={styles.thumb} />

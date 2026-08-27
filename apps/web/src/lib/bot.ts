@@ -447,7 +447,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -472,6 +472,16 @@ export function startBotScheduler() {
       try { await runNoticeReminders(); } catch (e) { console.error("[bot] 공지 재알림 오류:", e); }
       // 임시 비번(12345678) 24시간 이상 미변경자에게 변경 요청 (매일 09:00, 바꿀 때까지)
       try { await runPasswordResetReminders(); } catch (e) { console.error("[bot] 비번 변경 요청 오류:", e); }
+    }
+
+    // 전자계약 미결재·미서명 리마인더 — 매일 KST 10:00경 1회 (#128)
+    // remindedAt(DB)으로도 하루 1회를 보장하지만, 인프로세스 플래그로 같은 날 재실행 자체를 막는다
+    if (k.getUTCHours() === 10 && k.getUTCMinutes() < 2 && g.__botContractRemLastRun !== today) {
+      g.__botContractRemLastRun = today;
+      try {
+        const { runContractReminders } = await import("@/lib/contract-notify");
+        await runContractReminders();
+      } catch (e) { console.error("[bot] 전자계약 리마인더 오류:", e); }
     }
 
     // 예약 전송 + 메시지 리마인더 (매분)

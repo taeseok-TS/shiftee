@@ -275,6 +275,7 @@ model Contract {
   employeeFields   Json? // 직원이 서명 시 직접 입력하는 문서 전용 필드(["퇴사일자","퇴사사유"]) — 프로필 저장 X, 문서에만 반영
   externalName     String? // 외부(미가입) 계약자 이름 — 있으면 외부 계약(userId는 작성 관리자)
   externalPhone    String? // 외부 계약자 연락처(링크 전달 참고용)
+  createdBy        String? // 작성자(발송 관리자) userId — 단계·완료 알림 대상 (#136). 기존 계약은 null(작성자 알림 생략)
   employeeSignedAt DateTime?
   signedAt         DateTime?
   approvalLine     ContractApprovalLine?
@@ -325,6 +326,7 @@ model ContractApprovalStep {
   comment        String?
   signatureUrl   String? // 손글씨 서명 이미지 (PNG)
   decidedAt      DateTime?
+  remindedAt     DateTime? // 미결재·미서명 리마인더 마지막 발송 시각 — 하루 1회 보장 (#128)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -395,6 +397,8 @@ model ContractTemplate {
   createdBy     String
   createdByUser User         @relation("TemplateCreator", fields: [createdBy], references: [id])
   approverIds   String       @default("[]") // JSON array: ["id1", "id2"]
+  // 서명 완료 후 근로자(당사자) 접근 — "full"(열람+다운로드) | "view"(열람만) | "none"(접근 불가, 제출 완료만 표시) (#129)
+  postSignAccess String      @default("full")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

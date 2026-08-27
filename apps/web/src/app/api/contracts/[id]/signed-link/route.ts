@@ -17,18 +17,36 @@ export async function GET(
   const { id } = await params;
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { id: true, userId: true, status: true },
+    select: {
+      id: true, userId: true, status: true, templateId: true,
+      approvalLine: { select: { steps: { select: { signatureUrl: true } } } },
+    },
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
   const allowed = session.role === "ADMIN" || contract.userId === session.userId;
   if (!allowed)
     return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 볼 수 있습니다." }, { status: 403 });
-  if (contract.status !== "SIGNED")
-    return NextResponse.json({ error: "아직 서명이 완료되지 않은 계약서입니다." }, { status: 400 });
+
+  // #110 진행 중 계약도 서명이 1개 이상이면 지금까지의 서명 반영본을 열람할 수 있게 완화
+  const inProgress = contract.status !== "SIGNED";
+  const hasSignature = (contract.approvalLine?.steps || []).some((s) => !!s.signatureUrl);
+  if (!hasSignature)
+    return NextResponse.json({ error: "아직 서명이 없습니다." }, { status: 400 });
+
+  // #129 서명 완료 후 문서별 근로자 접근 — 완료본(SIGNED)에만 적용, 진행 중 열람은 본인 확인용이라 허용
+  if (session.role !== "ADMIN" && !inProgress && contract.templateId) {
+    const tmpl = await prisma.contractTemplate.findUnique({
+      where: { id: contract.templateId },
+      select: { postSignAccess: true },
+    });
+    if ((tmpl?.postSignAccess || "full") === "none")
+      return NextResponse.json({ error: "이 문서는 제출 완료 상태로, 사본이 필요하면 관리자에게 요청해주세요." }, { status: 403 });
+  }
 
   const st = issueSignedDocTicket(id);
   return NextResponse.json({
     url: `${getAppUrl()}/api/contracts/${id}/signed-document?pdf=1&inline=1&st=${st}`,
+    inProgress,
   });
 }

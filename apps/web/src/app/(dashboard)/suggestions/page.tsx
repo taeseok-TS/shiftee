@@ -39,10 +39,13 @@ export default function SuggestionsPage() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   // 접수 상태인 내 제안 인라인 수정 (디렉터 지시 2026-08-24)
+  // 이미지'만' 추가하는 수정은 검토중·반영예정에서도 가능 — 담당자 추가 캡처 요청 대응 (#138)
   const [editId, setEditId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  const [editImages, setEditImages] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
+  const editFileRef = useRef<HTMLInputElement>(null);
 
   async function saveEdit() {
     if (!editId) return;
@@ -51,7 +54,7 @@ export default function SuggestionsPage() {
     try {
       const res = await fetch(`/api/suggestions/${editId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: editTitle, content: editContent }),
+        body: JSON.stringify({ title: editTitle, content: editContent, imageUrls: editImages }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "수정 실패"); return; }
@@ -69,7 +72,8 @@ export default function SuggestionsPage() {
   }, []);
   useEffect(() => { fetchList(); }, [fetchList]);
 
-  async function handleUpload(file: File) {
+  // 작성·수정 폼 공용 업로더 — setFn 으로 어느 이미지 목록에 붙일지 정한다 (#138)
+  async function handleUpload(file: File, setFn: React.Dispatch<React.SetStateAction<string[]>> = setImages) {
     setUploading(true);
     try {
       const fd = new FormData();
@@ -77,19 +81,19 @@ export default function SuggestionsPage() {
       const res = await fetch("/api/work/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || "업로드 실패"); return; }
-      setImages((prev) => [...prev, data.fileUrl].slice(0, 5));
+      setFn((prev) => [...prev, data.fileUrl].slice(0, 5));
     } finally { setUploading(false); }
   }
 
   // 캡처 후 Ctrl+V 로 바로 첨부. 파일로 저장했다가 고르는 단계를 없앤다(제안 15호).
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+  const handlePaste = useCallback(async (e: React.ClipboardEvent, setFn?: React.Dispatch<React.SetStateAction<string[]>>) => {
     const items = Array.from(e.clipboardData?.items || []);
     const imgs = items.filter((it) => it.type.startsWith("image/"));
     if (imgs.length === 0) return;      // 글자만 붙여넣기면 그대로 둔다
     e.preventDefault();
     for (const it of imgs) {
       const f = it.getAsFile();
-      if (f) await handleUpload(f);
+      if (f) await handleUpload(f, setFn);
     }
   }, []);
 
@@ -165,11 +169,12 @@ export default function SuggestionsPage() {
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
                     <h3 className="font-semibold flex-1 truncate"><span className="text-gray-400 font-normal mr-1">#{s.seqNo}</span>{s.title}</h3>
-                    {/* 검토 전(접수)에만 본인 수정 가능 */}
-                    {s.status === "RECEIVED" && editId !== s.id && (
+                    {/* 검토 전(접수)엔 전체 수정, 검토중·반영예정엔 이미지 추가만 가능 (#138) */}
+                    {["RECEIVED", "REVIEWING", "PLANNED"].includes(s.status) && editId !== s.id && (
                       <button
-                        onClick={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); }}
-                        className="text-gray-400 hover:text-indigo-600 shrink-0" title="수정 (검토 시작 전까지만 가능)">
+                        onClick={() => { setEditId(s.id); setEditTitle(s.title); setEditContent(s.content); setEditImages(s.imageUrls || []); }}
+                        className="text-gray-400 hover:text-indigo-600 shrink-0"
+                        title={s.status === "RECEIVED" ? "수정 (검토 시작 전까지만 가능)" : "스크린샷 추가 (검토 시작 후에는 글 수정 불가)"}>
                         <Pencil size={14} />
                       </button>
                     )}
@@ -177,17 +182,42 @@ export default function SuggestionsPage() {
                   </div>
                   {editId === s.id ? (
                     <div className="mt-2 space-y-2">
-                      <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={100} />
-                      <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={4} />
+                      {/* 검토 시작 후에는 글은 잠그고 이미지만 추가 가능 (#138) */}
+                      <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={100} disabled={s.status !== "RECEIVED"} />
+                      {/* readOnly(비활성 아님)라 검토 후에도 Ctrl+V 이미지 붙여넣기는 동작한다 */}
+                      <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={4}
+                        readOnly={s.status !== "RECEIVED"} className={s.status !== "RECEIVED" ? "text-gray-500 bg-gray-50" : undefined}
+                        onPaste={(e) => handlePaste(e, setEditImages)} />
+                      {editImages.length > 0 && (
+                        <div className="flex flex-wrap gap-3">
+                          {editImages.map((u, i) => (
+                            <div key={i} className="relative border rounded-lg p-1">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={u} alt="첨부" className="max-h-24 rounded" />
+                              <button onClick={() => setEditImages((prev) => prev.filter((_, idx) => idx !== i))}
+                                className="absolute -top-2 -right-2 bg-white border rounded-full p-0.5 text-red-500"><X size={12} /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <input ref={editFileRef} type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f, setEditImages); e.target.value = ""; }} />
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" className="gap-1"
+                          onClick={() => editFileRef.current?.click()} disabled={uploading || editImages.length >= 5}>
+                          <ImageIcon size={14} />{uploading ? "업로드 중..." : "스크린샷 추가"}
+                        </Button>
+                        <span className="text-xs text-gray-400">내용칸에 <b className="text-gray-500">Ctrl+V</b> 붙여넣기 가능 (최대 5장)</span>
+                      </div>
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => setEditId(null)}>취소</Button>
-                        <Button size="sm" onClick={saveEdit} disabled={editSaving}>{editSaving ? "저장 중..." : "수정 저장"}</Button>
+                        <Button size="sm" onClick={saveEdit} disabled={editSaving || uploading}>{editSaving ? "저장 중..." : "수정 저장"}</Button>
                       </div>
                     </div>
                   ) : (
                   <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{s.content}</p>
                   )}
-                  {(s.imageUrls?.length ?? 0) > 0 && (
+                  {editId !== s.id && (s.imageUrls?.length ?? 0) > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {s.imageUrls!.map((u, i) => (
                         <a key={i} href={u} target="_blank" rel="noreferrer">

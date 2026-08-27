@@ -27,8 +27,13 @@ export type Signer = { label: string; name: string; date: Date | null; sigPath: 
 
 // 인라인 서명 이미지 drawing XML (문장 안 (인) 자리에 들어가는 작은 도장 크기)
 // square=true면 정사각 직인 크기(1.3cm — 1.7cm가 너무 크다는 QA 2026-08-25 반영), 아니면 손서명 비율(2.86cm x 1cm)
-function inlineSigDrawing(rId: string, docPrId: number, square = false): string {
-  const cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
+// maxCx: 삽입 위치(표 셀)의 폭 상한(EMU) — 칸보다 크면 비율 유지로 축소해 칸 밖 이탈 방지 (#132, 2026-08-27)
+function inlineSigDrawing(rId: string, docPrId: number, square = false, maxCx?: number): string {
+  let cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
+  if (maxCx && maxCx > 0 && cx > maxCx) {
+    cy = Math.round((cy * maxCx) / cx);
+    cx = maxCx;
+  }
   return (
     `<w:drawing>` +
     `<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0">` +
@@ -198,7 +203,18 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
         const paraText = (para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
           .map((x) => x.replace(/<[^>]+>/g, ""))
           .join("");
-        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square);
+        // 마커가 표 셀 안이면 셀 폭(tcW)의 85%를 이미지 폭 상한으로 — 칸 밖 이탈 방지 (#132)
+        let maxCx: number | undefined;
+        {
+          const lastOpen = docXml.lastIndexOf("<w:tc>", idx) >= docXml.lastIndexOf("<w:tc ", idx)
+            ? docXml.lastIndexOf("<w:tc>", idx) : docXml.lastIndexOf("<w:tc ", idx);
+          const lastClose = docXml.lastIndexOf("</w:tc>", idx);
+          if (lastOpen !== -1 && lastOpen > lastClose) {
+            const tcw = docXml.slice(lastOpen, idx).match(/<w:tcW[^>]*w:w="(\d+)"[^>]*w:type="dxa"/);
+            if (tcw) maxCx = Math.round(Number(tcw[1]) * 635 * 0.85);
+          }
+        }
+        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square, maxCx);
         if (para && sealAfter.test(paraText)) {
           // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 인라인 서명으로 대체
           docXml = docXml.slice(0, pStart) + replaceMarkerAndSeal(para, t.marker, drawing) + docXml.slice(paraEnd);

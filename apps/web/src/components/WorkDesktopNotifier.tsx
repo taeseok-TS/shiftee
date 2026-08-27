@@ -42,8 +42,11 @@ export default function WorkDesktopNotifier() {
       if (!ch || ch.notify === "MUTE") return;
       const preview = ch.lastMessage?.content?.trim() || "새 메시지가 도착했습니다";
       if (ch.notify === "MENTION" && !preview.includes(`@${myNameRef.current}`)) return;
+      // 발신 구분 (#137): DM 제목은 상대 이름(봇이면 "큐브티 봇"/"큐브티 인사봇")이 그대로 표시된다.
+      // 인사봇(전자계약 전담)은 제목 앞에 🖋 를 붙여 일반 봇·사람 알림과 한눈에 구분되게 한다.
+      const title = ch.name === "큐브티 인사봇" ? `🖋 ${ch.name}` : ch.name;
       // renotify: 같은 방의 연속 메시지(같은 tag)로 교체될 때도 배너·소리를 다시 울린다
-      const n = new Notification(ch.name, {
+      const n = new Notification(title, {
         body: preview.slice(0, 120),
         icon: "/favicon.ico",
         tag: `work-${channelId}`,
