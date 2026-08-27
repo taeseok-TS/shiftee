@@ -123,6 +123,9 @@ export async function buildContractMergeData(
     // 서명 자리 마커 — 서명 완료본 생성 시 이 자리에 서명 이미지가 들어간다
     근로자서명: "《근로자서명》",
     대표서명: "《대표서명》",
+    // 지점명 — "…{지점명} 지점" 조합용. 지점 이름에 이미 "지점"이 붙어 있으면(테스트지점 등)
+    // "테스트지점 지점"처럼 중복되던 문제 해결 (#96·#116·#120, 2026-08-27)
+    지점명: (targetUser?.branch ?? "").replace(/\s*지점$/, ""),
   };
   // 계약 구분 — 템플릿의 {#신규입사}/{#재계약} 조건 구간 제어 (빈 문자열=구간 제거)
   const isRenewal = opts.extraFields?.["계약구분"] === "재계약";
@@ -150,6 +153,17 @@ export async function buildContractMergeData(
       }
     }
   }
+  // 실무평가 단계 급여 지급률 — 기본 85, 관리자가 100 선택 시 반영 (#92).
+  // ⚠️ extraFields 루프 "이후"에 기본값을 채워야 한다 — 미리 시딩하면 위 가드(k in mergeData)가
+  //    내부 계약에서 관리자 선택값을 건너뛰어 항상 85로 찍힌다 (검증관 2026-08-27 CONFIRMED)
+  if (!mergeData["실무지급률"]) mergeData["실무지급률"] = "85";
+  // 파생 표기 필드 — extraFields 반영 이후에 계산 (2026-08-27)
+  // 금품청산 "기타" — 체크했고 내용이 있을 때만 괄호로 표기, 아니면 빈칸 (#120)
+  const gitaOn = (opts.extraFields?.["체크_기타"] || "") === "☑";
+  const gitaTxt = (opts.extraFields?.["지급기타내용"] || "").trim();
+  mergeData["지급기타표기"] = gitaOn && gitaTxt ? `( ${gitaTxt} )` : "";
+  // 개인정보동의서 필수 항목 — 서명 시 명시 동의(동의필수="동의")해야 ☒, 그 전엔 빈 체크 (#104)
+  mergeData["동의필수표기"] = consentBox(opts.extraFields?.["동의필수"]);
   return mergeData;
 }
 
@@ -176,6 +190,7 @@ const SYSTEM_FIELDS = new Set([
   "사원번호", "제목", "계약시작일", "계약종료일", "연봉", "작성일",
   "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자", "신규입사", "재계약",
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
+  "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
 ]);
 
 // 직원이 서명 시 직접 입력하는 필드는 화이트리스트('사유'류 자유서술)만 — 그 외 모든 필드는
@@ -216,9 +231,10 @@ export async function scanEmployeeFillFields(templateFileUrl: string): Promise<s
 
 // 동의 체크박스 문자열 — "미동의"면 동의하지 않음에 체크, 그 외(기본)는 동의함에 체크
 export function consentBox(choice?: string): string {
-  return choice === "미동의"
-    ? "(□ 동의함    ☒ 동의하지 않음)"
-    : "(☒ 동의함    □ 동의하지 않음)";
+  // 값이 없으면(발송본·서명 전) 빈 체크 상태 — 사전 체크는 개인정보보호법 위반 (#104, 2026-08-27)
+  if (choice === "동의") return "(☒ 동의함    □ 동의하지 않음)";
+  if (choice === "미동의") return "(□ 동의함    ☒ 동의하지 않음)";
+  return "(□ 동의함    □ 동의하지 않음)";
 }
 
 // 결재 승인 창 표시용 입력값 요약 (연봉 + 템플릿 동적 필드, 표시용 포맷)

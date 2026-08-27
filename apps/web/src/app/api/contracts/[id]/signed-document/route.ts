@@ -18,7 +18,7 @@ export async function GET(
     where: { id },
     include: {
       user: { select: { id: true, name: true, branch: true } },
-      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true } } } } } },
+      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true } } } } } },
     },
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -27,8 +27,8 @@ export async function GET(
   const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
   if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
 
-  if (contract.status !== "SIGNED")
-    return NextResponse.json({ error: "아직 서명이 완료되지 않은 계약서입니다." }, { status: 400 });
+  // 진행 중 계약도 지금까지 된 서명을 반영해 보여준다 (#110, 2026-08-27) — 서명이 하나도 없으면 안내
+  const inProgress = contract.status !== "SIGNED";
 
   // 서명자 목록 구성
   const steps = contract.approvalLine?.steps || [];
@@ -45,10 +45,12 @@ export async function GET(
       name: st.approver?.name || st.externalName || "외부 서명자",
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
+      role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
     });
   }
   if (signers.length === 0)
-    return NextResponse.json({ error: "서명 정보가 없습니다." }, { status: 400 });
+    return NextResponse.json({ error: inProgress ? "아직 서명이 없습니다." : "서명 정보가 없습니다." }, { status: 400 });
+  const suffix = inProgress ? "_서명진행본" : "_서명완료";
 
   const orig = firstFile(contract.fileUrl);
   const isDocx = !!orig && orig.toLowerCase().endsWith(".docx");
@@ -76,7 +78,7 @@ export async function GET(
             return new NextResponse(pdf, {
               headers: {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
+                "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
               },
             });
           }
@@ -88,7 +90,7 @@ export async function GET(
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.docx")}`,
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".docx")}`,
         },
       });
     } else {
@@ -96,7 +98,7 @@ export async function GET(
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + "_서명완료.pdf")}`,
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
         },
       });
     }

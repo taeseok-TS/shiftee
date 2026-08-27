@@ -173,6 +173,7 @@ export default function ContractsPage() {
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const sigRef = useRef<SignaturePadHandle>(null);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({}); // 개인정보동의서 선택 항목
+  const [consentRequired, setConsentRequired] = useState(false); // 필수 항목 명시 동의 (#104 — 자동 처리 금지)
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [docViewerOpen, setDocViewerOpen] = useState(false); // 동의서 전문 인앱 뷰어
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
@@ -755,7 +756,7 @@ export default function ContractsPage() {
       const res = await fetch(`/api/contracts/${id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault: saveSig, ...(consentKeys.length ? { consent: consentChoices } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault: saveSig, ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -1337,7 +1338,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -1364,7 +1365,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1527,7 +1528,8 @@ export default function ContractsPage() {
                       <td className="py-3 space-x-1">
                         {/* 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만 */}
                         {/* 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                        {/* 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110, 2026-08-27) */}
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1645,9 +1647,11 @@ export default function ContractsPage() {
                     className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-medium hover:bg-indigo-50">
                     <Eye size={15} />동의서 전문 보기
                   </button>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-                    개인정보 수집·이용, 민감정보, 제3자 제공 등 <b>필수 항목은 동의로 처리</b>됩니다 (미동의 시 채용이 제한될 수 있음). 아래 <b>선택 항목</b>만 자유롭게 고르세요.
-                  </div>
+                  {/* 필수 항목도 명시적 동의 — 자동 처리는 개인정보보호법 위반 (#104, 2026-08-27) */}
+                  <label className="flex items-start gap-2 rounded-lg border border-gray-300 bg-gray-50 p-3 text-xs text-gray-700 cursor-pointer">
+                    <input type="checkbox" className="mt-0.5" checked={consentRequired} onChange={e => setConsentRequired(e.target.checked)} />
+                    <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 <b>동의합니다</b>. (동의하지 않으면 채용이 취소·제한될 수 있습니다)</span>
+                  </label>
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
                     <p className="text-xs font-semibold text-amber-800">선택 동의 항목 (동의하지 않아도 됩니다)</p>
                     {consentKeys.map(k => (
@@ -1656,7 +1660,7 @@ export default function ContractsPage() {
                         <div className="flex gap-3 text-sm">
                           {["동의", "미동의"].map(opt => (
                             <label key={opt} className="flex items-center gap-1 cursor-pointer">
-                              <input type="radio" checked={(consentChoices[k] || "동의") === opt}
+                              <input type="radio" checked={consentChoices[k] === opt}
                                 onChange={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))} />
                               {opt}
                             </label>
@@ -1684,6 +1688,11 @@ export default function ContractsPage() {
                   <div className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                     <Button onClick={() => {
+                      // 필수·선택 동의는 명시적으로 (#104)
+                      if (!consentRequired) { toast.error("필수 항목 동의에 체크해주세요."); return; }
+                      for (const k of consentKeys) {
+                        if (consentChoices[k] !== "동의" && consentChoices[k] !== "미동의") { toast.error(`"${CONSENT_LABELS[k]}" 항목의 동의 여부를 선택해주세요.`); return; }
+                      }
                       // 프로필 입력 검증 후 서명 단계로
                       if (missingProfile.includes("주소") && !profileInput.주소.trim()) { toast.error("주소를 입력해주세요."); return; }
                       if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { toast.error("생년월일을 입력해주세요."); return; }

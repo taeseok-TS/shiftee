@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   (async () => {
     const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
     for (const a of admins) {
-      await botSendDM(a.id, `💡 새 개선 제안 #${suggestion.seqNo} 이(가) 접수되었습니다.\n"${suggestion.title}" — ${suggestion.userName}${suggestion.userBranch ? ` (${suggestion.userBranch})` : ""}\n관리자 화면 → 개선 제안에서 확인해주세요.`);
+      await botSendDM(a.id, `📥 [접수] #${suggestion.seqNo} ${suggestion.title}\n${suggestion.userName}${suggestion.userBranch ? ` (${suggestion.userBranch})` : ""}\n관리자 화면 → 개선 제안에서 확인해주세요.`);
     }
   })().catch((e) => console.error("[suggestion] 관리자 알림 오류:", e));
 

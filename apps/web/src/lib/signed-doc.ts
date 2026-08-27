@@ -23,7 +23,7 @@ export function diskPath(url: string): string {
 }
 const fmt = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "");
 
-export type Signer = { label: string; name: string; date: Date | null; sigPath: string };
+export type Signer = { label: string; name: string; date: Date | null; sigPath: string; role?: string | null };
 
 // 인라인 서명 이미지 drawing XML (문장 안 (인) 자리에 들어가는 작은 도장 크기)
 // square=true면 정사각 직인 크기(1.3cm — 1.7cm가 너무 크다는 QA 2026-08-25 반영), 아니면 손서명 비율(2.86cm x 1cm)
@@ -42,7 +42,54 @@ function inlineSigDrawing(rId: string, docPrId: number, square = false): string 
   );
 }
 
-// 떠 있는(앵커) 서명 이미지 — 마커 뒤의 "(인)"/"(서명 / 인)" 표기 위에 겹쳐 찍는다.
+// 문단 안의 마커 + 뒤따르는 "(인)"/"(서명 또는 인)" 문구를 지우고 그 자리에 인라인 서명을 넣는다 (#105).
+// 표기가 docxtemplater 치환으로 여러 w:t 노드에 걸쳐 있어도 동작하도록, 문단의 w:t 들을 이어붙인
+// 텍스트 좌표에서 삭제 범위를 계산해 노드별로 걷어낸다. (마커·표기 문자에는 XML 엔티티가 없어
+// 엔티티 중간이 잘릴 일은 없다 — 삭제 범위 밖 텍스트는 원문 그대로 복사)
+function replaceMarkerAndSeal(para: string, marker: string, drawing: string): string {
+  const parts: { s: number; e: number; text: string; openEnd: number }[] = [];
+  const re = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(para))) {
+    parts.push({ s: m.index, e: m.index + m[0].length, text: m[1], openEnd: m.index + m[0].indexOf(">") + 1 });
+  }
+  const concat = parts.map((p) => p.text).join("");
+  const mi = concat.indexOf(marker);
+  if (mi === -1) return para.split(marker).join("");
+  const tail = concat.slice(mi + marker.length);
+  const sm = tail.match(/^\s*\((?:서명\s*(?:또는|\/)\s*)?인\)/);
+  const delStart = mi;
+  const delEnd = mi + marker.length + (sm ? sm[0].length : 0);
+  let out = "";
+  let cursor = 0;
+  let acc = 0;
+  let inserted = false;
+  for (const p of parts) {
+    out += para.slice(cursor, p.s);
+    const openTag = para.slice(p.s, p.openEnd);
+    let keptBefore = "";
+    let keptAfter = "";
+    let hitStart = false;
+    for (let i = 0; i < p.text.length; i++) {
+      const g = acc + i;
+      if (g === delStart) hitStart = true;
+      if (g < delStart) keptBefore += p.text[i];
+      else if (g >= delEnd) keptAfter += p.text[i];
+    }
+    if (hitStart && !inserted) {
+      inserted = true;
+      out += openTag + keptBefore + `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:t xml:space="preserve">` + keptAfter + "</w:t>";
+    } else {
+      out += openTag + keptBefore + keptAfter + "</w:t>";
+    }
+    cursor = p.e;
+    acc += p.text.length;
+  }
+  out += para.slice(cursor);
+  return out;
+}
+
+// (구방식 — 현재 미사용, 이력 보존) 떠 있는(앵커) 서명 이미지 — 마커 뒤의 "(인)"/"(서명 / 인)" 표기 위에 겹쳐 찍는다.
 // 모두싸인처럼 도장이 글자 위에 올라가는 모양 (개선 제안 2026-08-24).
 // wrapNone 이라 글자 배치는 전혀 밀리지 않고, (인) 글자도 그대로 남는다.
 // 위치는 마커 지점 기준: 가로 -3mm(이름 끝에 살짝 걸침), 세로는 줄 중앙에 오도록 위로.
@@ -85,9 +132,11 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
   const employeeSigner = signers.find((s) => s.label === "직원 서명") || null;
   const approverSigners = signers.filter((s) => s.label !== "직원 서명");
   const repSigner = approverSigners[approverSigners.length - 1] || null;
-  // 결재란 서명 — 직원 외 결재자를 순서대로: 첫 결재자=원장, 마지막 결재자=본부
-  const mgrSigner = approverSigners[0] || null;         // 원장(첫 결재)
-  const hqSigner = approverSigners[approverSigners.length - 1] || null; // 본부(마지막 결재)
+  // 결재란 서명 — 역할 기반 매핑 (2026-08-27 #111): 실운영 순서가 본부→원장→근로자라
+  // "첫 결재자=원장" 순서 가정이 깨질 수 있다. role 이 있으면 원장=MANAGER, 본부=ADMIN 으로
+  // 정확히 배정하고, role 정보가 없는 옛 경로에서는 종전 순서 가정으로 폴백.
+  const mgrSigner = approverSigners.find((s) => s.role === "MANAGER") || (approverSigners.some((s) => s.role) ? null : approverSigners[0] || null);
+  const hqSigner = approverSigners.find((s) => s.role === "ADMIN") || (approverSigners.some((s) => s.role) ? null : approverSigners[approverSigners.length - 1] || null);
   let docXml = zip.file("word/document.xml")!.asText();
   const hasMarkers = docXml.includes("《근로자서명》") || docXml.includes("《대표서명》")
     || docXml.includes("《원장서명》") || docXml.includes("《본부서명》");
@@ -136,24 +185,30 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
       // docxtemplater 가 {근로자서명} 치환값을 자기만의 run 에 넣어 "(인)"과 노드가 분리되고
       // (근로계약서류), "(서명 또는 인)" 같은 변형 표기도 있어 노드 단위 매치가 계속 새었다
       // (QA 2026-08-25 이예지대리 — "어떤 양식은 되고 어떤 양식은 안 됨"의 실체).
+      // (#105, 2026-08-27 김가산·디렉터 확정) 오버레이 대신 모두싸인처럼 "(서명 또는 인)" 문구를
+      // 지우고 그 자리에 인라인 서명을 넣는다 — 겹침·어긋남 원천 차단.
       const sealAfter = new RegExp(t.marker + "\\s*\\((?:서명\\s*(?:또는|/)\\s*)?인\\)");
       while (docXml.includes(t.marker)) {
         const idx = docXml.indexOf(t.marker);
         // 마커가 속한 문단(w:p) 범위의 순수 텍스트를 이어붙여 (인) 동반 여부 판정
         const pStart = docXml.lastIndexOf("<w:p", idx);
-        const pEnd = docXml.indexOf("</w:p>", idx);
-        const para = pStart !== -1 && pEnd !== -1 ? docXml.slice(pStart, pEnd) : "";
+        const pEndTag = docXml.indexOf("</w:p>", idx);
+        const paraEnd = pEndTag === -1 ? -1 : pEndTag + 6;
+        const para = pStart !== -1 && pEndTag !== -1 ? docXml.slice(pStart, paraEnd) : "";
         const paraText = (para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
           .map((x) => x.replace(/<[^>]+>/g, ""))
           .join("");
-        const overlay = sealAfter.test(paraText);
-        const drawing = overlay
-          ? overlaySigDrawing(t.rId, docPrId++, t.square)
-          : inlineSigDrawing(t.rId, docPrId++, t.square);
-        docXml =
-          docXml.slice(0, idx) +
-          `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:t xml:space="preserve">` +
-          docXml.slice(idx + t.marker.length);
+        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square);
+        if (para && sealAfter.test(paraText)) {
+          // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 인라인 서명으로 대체
+          docXml = docXml.slice(0, pStart) + replaceMarkerAndSeal(para, t.marker, drawing) + docXml.slice(paraEnd);
+        } else {
+          // 결재표 칸처럼 마커 단독 — 마커 자리에 인라인 이미지
+          docXml =
+            docXml.slice(0, idx) +
+            `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:t xml:space="preserve">` +
+            docXml.slice(idx + t.marker.length);
+        }
       }
     }
     zip.file(relsPath, rels);
@@ -274,7 +329,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
     include: {
-      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true } } } } } },
+      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true } } } } } },
     },
   });
   if (!contract || contract.status !== "SIGNED") return null;
@@ -294,6 +349,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
       name: st.approver?.name || st.externalName || "외부 서명자",
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
+      role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
     });
   }
   if (signers.length === 0) return null;

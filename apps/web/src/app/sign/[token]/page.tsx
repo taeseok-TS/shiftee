@@ -23,9 +23,10 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [submitting, setSubmitting] = useState(false);
   const [finished, setFinished] = useState(false);
   const [docIdx, setDocIdx] = useState(0);
-  // 개인정보동의서 선택 항목 — 기본 동의, 게스트가 해제 가능
-  const [consentUnique, setConsentUnique] = useState(true);
-  const [consentRecruit, setConsentRecruit] = useState(true);
+  // 개인정보동의서 — 사전 체크 금지(개인정보보호법), 게스트가 직접 선택 (#104, 2026-08-27)
+  const [consentRequired, setConsentRequired] = useState(false); // 필수 항목 명시 동의
+  const [consentUnique, setConsentUnique] = useState<"" | "동의" | "미동의">("");
+  const [consentRecruit, setConsentRecruit] = useState<"" | "동의" | "미동의">("");
   const sigRef = useRef<SignaturePadHandle>(null);
 
   useEffect(() => {
@@ -39,14 +40,19 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   }, [token]);
 
   async function submit() {
+    if (info?.consentDoc) {
+      if (!consentRequired) { alert("필수 항목 동의에 체크해주세요."); return; }
+      if (!consentUnique || !consentRecruit) { alert("선택 항목의 동의 여부를 각각 선택해주세요."); return; }
+    }
     if (!sigRef.current || sigRef.current.isEmpty()) { alert("서명을 입력해주세요."); return; }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL() };
       if (info?.consentDoc) {
         body.consent = {
-          동의고유식별: consentUnique ? "동의" : "미동의",
-          동의채용정보: consentRecruit ? "동의" : "미동의",
+          동의필수: "동의",
+          동의고유식별: consentUnique,
+          동의채용정보: consentRecruit,
         };
       }
       const res = await fetch(`/api/contracts/external-sign/${token}`, {
@@ -126,16 +132,25 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
             ) : (
               <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
                 {info.consentDoc && (
-                  <div className="rounded-lg border bg-gray-50 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-gray-700">개인정보 수집·이용 선택 동의</p>
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input type="checkbox" checked={consentUnique} onChange={(e) => setConsentUnique(e.target.checked)} />
-                      고유식별정보 수집·이용에 동의합니다 (선택)
+                  <div className="rounded-lg border bg-gray-50 p-3 space-y-2.5">
+                    <p className="text-xs font-semibold text-gray-700">개인정보 수집·이용 동의</p>
+                    {/* 사전 체크 금지 — 서명자가 직접 선택 (#104) */}
+                    <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                      <input type="checkbox" className="mt-0.5" checked={consentRequired} onChange={(e) => setConsentRequired(e.target.checked)} />
+                      <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 동의합니다 (미동의 시 채용이 취소·제한될 수 있습니다)</span>
                     </label>
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input type="checkbox" checked={consentRecruit} onChange={(e) => setConsentRecruit(e.target.checked)} />
-                      채용 관련 정보 수집·이용에 동의합니다 (선택)
-                    </label>
+                    {([["고유식별정보 수집·이용 (선택)", consentUnique, setConsentUnique], ["채용 관련 정보 수신 (선택)", consentRecruit, setConsentRecruit]] as const).map(([label, val, setter]) => (
+                      <div key={label} className="text-xs text-gray-600">
+                        <p className="mb-1">{label}</p>
+                        <div className="flex gap-4">
+                          {(["동의", "미동의"] as const).map(opt => (
+                            <label key={opt} className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={val === opt} onChange={() => (setter as (v: "동의" | "미동의") => void)(opt)} />{opt}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                     <p className="text-[11px] text-gray-400">위 선택이 개인정보동의서 문서에 반영된 뒤 서명이 적용됩니다.</p>
                   </div>
                 )}

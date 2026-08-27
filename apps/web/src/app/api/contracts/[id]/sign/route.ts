@@ -177,6 +177,12 @@ export async function POST(
       hrBotSendDM(nextStep.approverId, `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep) {
       hrBotSendDM(updated.user.id, `\u2705 전자계약 완료\n「${updated.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+      // 결재에 참여한 내부 관계자(원장·본부)에게도 완료 통지 (#107, 2026-08-27)
+      for (const stp of approvalLine.steps) {
+        if (stp.approverId && stp.approverId !== updated.user.id) {
+          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+        }
+      }
     }
 
     return NextResponse.json({ success: true, contract: updated });
@@ -281,6 +287,18 @@ export async function POST(
       hrBotSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep && !contract.externalName) {
       hrBotSendDM(finalContract.user.id, `\u2705 전자계약 완료\n「${finalContract.title}」 결재가 모두 완료되었습니다.\n앱 [전자계약]에서 완료본을 확인하세요.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+      for (const stp of approvalLine.steps) {
+        if (stp.approverId && stp.approverId !== finalContract.user.id) {
+          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${finalContract.title}」 — 대상: ${finalContract.user.name}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+        }
+      }
+    } else if (!nextStep && contract.externalName) {
+      // 외부 계약 완료 — 내부 결재자 전원에게 통지 (#107)
+      for (const stp of approvalLine.steps) {
+        if (stp.approverId) {
+          hrBotSendDM(stp.approverId, `\u2705 전자계약 완료\n「${finalContract.title}」 — 대상: ${contract.externalName}\n결재가 모두 완료되었습니다.`).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+        }
+      }
     }
 
     return NextResponse.json({ success: true, contract: finalContract });

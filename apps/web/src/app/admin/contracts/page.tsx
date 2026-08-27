@@ -18,6 +18,7 @@ import { toast } from "sonner";
 type Contract = {
   id: string;
   userId: string;
+  templateId?: string | null;
   title: string;
   type: string;
   fileUrl: string;
@@ -69,7 +70,7 @@ type ContractVersion = {
 const typeLabel: Record<string, string> = {
   EMPLOYMENT: "근로계약서",
   PART_TIME: "단시간근로계약서",
-  CONFIDENTIAL: "비밀유지계약",
+  CONFIDENTIAL: "비밀유지서약서",
   OTHER: "기타",
 };
 
@@ -806,14 +807,25 @@ export default function ContractsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateFields, createForm.startDate, holidaySet]);
 
-  // 퇴사일자 입력 시 근무종료일·연차종료일 자동 기입 (이후 수동 수정 가능)
+  // 퇴사일자 입력 시 근무종료일·연차종료일 + 지급희망일 자동 기입 (이후 수동 수정 가능)
+  // 지급희망일 규칙 (#115, 이예지대리 확정 2026-08-27): 임금은 항상 해당 월 말일,
+  // 퇴직금은 말일 이전 퇴사 → 해당 월 말일 / 말일 퇴사 → 익월 10일.
+  // 두 지급희망일 필드는 퇴직금 기준(익월 조건 포함)으로 채운다 — 필요 시 수동 수정.
   useEffect(() => {
     const d = extraFields["퇴사일자"];
     if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    const [y, m, day] = d.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // 해당 월 말일
+    const fmt = (yy: number, mm: number, dd: number) => `${yy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+    const severanceDay = day >= lastDay
+      ? (m === 12 ? fmt(y + 1, 1, 10) : fmt(y, m + 1, 10)) // 말일 퇴사 → 익월 10일
+      : fmt(y, m, lastDay); // 그 외 → 해당 월 말일
     setExtraFields(prev => {
       const u = { ...prev };
       if (templateFields.includes("근무종료일")) u["근무종료일"] = d;
       if (templateFields.includes("연차종료일")) u["연차종료일"] = d;
+      if (templateFields.includes("지급희망일")) u["지급희망일"] = severanceDay;
+      if (templateFields.includes("금품청산 지급희망일")) u["금품청산 지급희망일"] = severanceDay;
       return u;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -928,7 +940,7 @@ export default function ContractsPage() {
               { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${emp.name}`, type: "CONFIDENTIAL",
                 extraFields: per, employeeOnly: true },
               { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${emp.name}`, type: "OTHER",
-                extraFields: { ...per, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+                extraFields: { ...per, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
             ];
             res = await fetch("/api/contracts/bundle", {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -990,7 +1002,7 @@ export default function ContractsPage() {
           extraFields: allExtra, employeeOnly: true },
         { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${extName}`, type: "OTHER",
           // 선택 항목은 기본 동의 — 외부 계약자가 서명 페이지에서 미동의로 바꿀 수 있음
-          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+          extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1024,7 +1036,7 @@ export default function ContractsPage() {
         { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${empName}`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
         { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
-          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+          extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1106,7 +1118,7 @@ export default function ContractsPage() {
           extraFields: allExtra, employeeOnly: true },
         { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
           // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
-          extraFields: { ...allExtra, 동의고유식별: "동의", 동의채용정보: "동의" }, employeeOnly: true },
+          extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1158,6 +1170,12 @@ export default function ContractsPage() {
       // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
       for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
       if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+      // 개인정보동의서 "단독" 발송에도 동의 단계가 뜨도록 키를 심는다 — 키가 없으면 서명 화면이
+      // 동의 확인을 건너뛰어 빈 체크로 완료되는 회귀 (검증관 2026-08-27)
+      if (privacyTemplate && selectedTemplate === privacyTemplate.id) {
+        if (!allExtra["동의고유식별"]) allExtra["동의고유식별"] = "미선택";
+        if (!allExtra["동의채용정보"]) allExtra["동의채용정보"] = "미선택";
+      }
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
     }
 
@@ -1250,7 +1268,9 @@ ${url}`;
     fetchContracts();
   }
 
+  const [signBusy, setSignBusy] = useState(false); // 더블클릭 중복 요청 방지 (#102, 2026-08-27)
   async function handleSign(id: string, isApprover = false) {
+    if (signBusy) return;
     const useSaved = !!mySignatureUrl && !drawNewSig;
     let body: Record<string, unknown>;
     if (useSaved) {
@@ -1259,6 +1279,8 @@ ${url}`;
       if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
       body = { signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault };
     }
+    setSignBusy(true);
+    try {
     const res = await fetch(`/api/contracts/${id}/sign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1273,6 +1295,7 @@ ${url}`;
       fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
     }
     fetchContracts();
+    } finally { setSignBusy(false); }
   }
 
   return (
@@ -1614,7 +1637,7 @@ ${url}`;
                             </div>
                             <p className="text-[11px] text-sky-700">
                               선택한 코디 계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
-                              비밀유지·개인정보동의서는 <b>직원 서명만</b>, 계약서는 <b>원장 → 직원 → 본부</b> 순으로 결재라인을 선택해 발송하세요.
+                              비밀유지·개인정보동의서는 <b>직원 서명만</b>, 계약서는 발송 시 결재라인을 직접 선택합니다 (통상 <b>1단계 본부 → 2단계 원장 → 3단계 근로자</b>).
                             </p>
                           </div>
                         )}
@@ -1680,6 +1703,10 @@ ${url}`;
                   <Label>제목 *</Label>
                   <Input value={createForm.title} onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))} required />
                 </div>
+                {/* 유형은 문서 분류·목록 필터용 — 템플릿 선택 시 자동 지정되므로 직접 고를 필요 없음 (#112) */}
+                {useTemplate && selectedTemplate ? (
+                  <p className="text-xs text-gray-400">유형: {typeLabel[createForm.type] || createForm.type} (템플릿에 따라 자동 지정)</p>
+                ) : (
                 <div className="space-y-2">
                   <Label>유형</Label>
                   <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
@@ -1691,6 +1718,7 @@ ${url}`;
                     </SelectContent>
                   </Select>
                 </div>
+                )}
 
                 {(!useTemplate || templateFields.includes("계약시작일") || templateFields.includes("계약종료일")) && (
                 <div className="space-y-2">
@@ -1823,8 +1851,47 @@ ${url}`;
                       return next;
                     });
 
+                  // 필드가 어느 문서 어느 자리에 들어가는지 표시 (#113, 2026-08-27)
+                  const FIELD_DOC_HINT: Record<string, string> = {
+                    "지급희망일": "퇴직금·연차수당 정산 신청서",
+                    "금품청산 지급희망일": "금품청산 지급기일연장 동의서",
+                    "지급기타내용": "금품청산 동의서 — '기타' 체크 시 괄호 안",
+                    "퇴사일자": "사직원·금품청산·퇴직금 (공통)",
+                    "미소진연차일수": "연차수당 정산 신청서",
+                    "근무시작일": "연차수당 정산 신청서", "근무종료일": "연차수당 정산 신청서",
+                    "연차시작일": "연차수당 정산 신청서", "연차종료일": "연차수당 정산 신청서",
+                    "교육평가시작": "근로계약서 제3조·제8조", "교육평가종료": "근로계약서 제3조·제8조",
+                    "실무평가시작": "근로계약서 제3조·제8조", "실무평가종료": "근로계약서 제3조·제8조",
+                    "실무지급률": "근로계약서 제8조 ⑤항 — 튜터 출신은 100",
+                  };
+                  const docHint = (f: string) => FIELD_DOC_HINT[f]
+                    ? <span className="text-[10px] text-gray-400 font-normal ml-1.5">→ {FIELD_DOC_HINT[f]}</span> : null;
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
+                    f === "실무지급률" ? (
+                      // 실무평가 단계 급여 지급률 — 85% 기본, 튜터 출신 100% (#92)
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm">실무평가 급여 지급률{docHint(f)}</Label>
+                        <div className="flex gap-3 text-sm">
+                          {["85", "100"].map(v => (
+                            <label key={v} className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={(extraFields[f] || "85") === v}
+                                onChange={() => setExtraFields(prev => ({ ...prev, [f]: v }))} />
+                              {v}%
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) :
+                    f === "지급기타내용" ? (
+                      // '기타' 체크 시에만 입력 (#114)
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm">{f}{docHint(f)}</Label>
+                        <Input value={extraFields[f] || ""} disabled={extraFields["체크_기타"] !== "☑"}
+                          placeholder={extraFields["체크_기타"] === "☑" ? "기타 금품 내용 입력" : "'기타' 체크 시에만 입력 — 특이사항 없으면 미기재"}
+                          onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))} />
+                      </div>
+                    ) :
                     f.startsWith("체크_") ? (
                       // 체크박스 필드(지급금품 임금·퇴직금 등) — 기본 체크. 단 "기타"류는 기본 해제
                       <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -1835,7 +1902,7 @@ ${url}`;
                     ) : isMoneyField(f) ? (
                     // 금액 필드 — 숫자만 입력받아 천 단위 쉼표 자동 표시
                     <div key={f} className="space-y-1">
-                      <Label className="text-sm">{f}{required && " *"}</Label>
+                      <Label className="text-sm">{f}{required && " *"}{docHint(f)}</Label>
                       <Input
                         type="text" inputMode="numeric" placeholder="예: 2,100,000"
                         value={extraFields[f] || ""}
@@ -1847,7 +1914,7 @@ ${url}`;
                     </div>
                     ) : (
                     <div key={f} className="space-y-1">
-                      <Label className="text-sm">{f}{required && " *"}</Label>
+                      <Label className="text-sm">{f}{required && " *"}{docHint(f)}</Label>
                       {f === "주근무시간" && (
                         <div className="border rounded-md p-2 bg-gray-50/60 space-y-1">
                           <p className="text-[11px] text-gray-500">요일별 근무시간(숫자)을 넣으면 자동 합산됩니다 — 쉬는 요일은 비워두세요</p>
@@ -1900,7 +1967,7 @@ ${url}`;
                           {pickFields.length > 0 && (
                             <div className="space-y-1.5">
                               <Label className="text-sm">
-                                {pickFields[0].split("_")[1] && pickFields.length > 1 ? "해당 항목 선택" : "선택"} *
+                                {pickFields.some(pf => pf.includes("본인수령") || pf.includes("IRP")) ? "퇴직금 수령 방법" : pickFields[0].split("_")[1] && pickFields.length > 1 ? "해당 항목 선택" : "선택"} *
                               </Label>
                               <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                                 {pickFields.map(f => (
@@ -1947,10 +2014,15 @@ ${url}`;
                           for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
                           for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
                           if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+                          // 패키지 모드면 포함 문서 전체를 한 PDF 로 이어 미리보기 (#117)
+                          const pkgIds =
+                            resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.map(t => t!.id)
+                            : (bundleMode || extBundleMode || codiBundleMode) && ndaTemplate && privacyTemplate ? [selectedTemplate, ndaTemplate.id, privacyTemplate.id]
+                            : [selectedTemplate];
                           const res = await fetch("/api/contracts/preview", {
                             method: "POST", headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
-                              templateId: selectedTemplate,
+                              items: pkgIds.map(tid => ({ templateId: tid })),
                               userId: externalMode ? undefined : (createForm.userId || bulkUserIds[0]),
                               externalName: externalMode ? externalForm.name.trim() : undefined,
                               externalPhone: externalMode ? externalForm.phone.trim() : undefined,
@@ -2549,6 +2621,19 @@ ${url}`;
                                 <Trash2 size={12} />삭제
                               </Button>
                             )}
+                            {/* 초안을 최신 템플릿으로 재생성 — 입력값 유지, 문서만 새 양식 (#109) */}
+                            {c.status === "DRAFT" && c.templateId && (
+                              <Button size="sm" variant="outline" className="h-7 gap-1" title="양식이 수정된 경우 입력값은 그대로 두고 문서만 최신 양식으로 다시 만듭니다"
+                                onClick={async () => {
+                                  const res = await fetch(`/api/contracts/${c.id}/regenerate`, { method: "POST" });
+                                  const d = await res.json().catch(() => ({}));
+                                  if (!res.ok) { toast.error(d.error || "재생성 실패"); return; }
+                                  toast.success("최신 양식으로 다시 생성했습니다.");
+                                  fetchContracts();
+                                }}>
+                                <History size={12} />최신 양식
+                              </Button>
+                            )}
                             <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); setApproverSearch(""); setSendOpen(true); }}>
                               <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
@@ -2557,7 +2642,27 @@ ${url}`;
                                 <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
                                 {sendTarget && (
                                   <div className="space-y-3">
-                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요. (최대 3명)</p>
+                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요. (최대 3명 · 통상 ①본부 ②원장 ③근로자)</p>
+                                    {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99) */}
+                                    <div className="flex gap-2">
+                                      <a href={`/api/contracts/${sendTarget.id}/original-document?inline=1`} target="_blank" rel="noreferrer" className="flex-1">
+                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8"><Eye size={13} />발송 문서 미리보기</Button>
+                                      </a>
+                                      {!sendTarget.externalName && (
+                                        <Button type="button" variant="outline" size="sm" className="flex-1 gap-1 h-8"
+                                          onClick={() => {
+                                            // 1단계(본부)를 먼저 고른 뒤 누르면 원장·근로자가 ②③단계로 채워진다
+                                            const emp = employees.find(e => e.id === sendTarget.userId);
+                                            const mgr = emp?.branch ? employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!))) : undefined;
+                                            setApproverIds(prev => {
+                                              const next = [...prev];
+                                              if (mgr && !next.includes(mgr.id)) next.push(mgr.id);
+                                              if (!next.includes(sendTarget.userId)) next.push(sendTarget.userId);
+                                              return next.slice(0, 3);
+                                            });
+                                          }}>원장·근로자 자동 채움</Button>
+                                      )}
+                                    </div>
                                     {sendTarget.status !== "DRAFT" && (
                                       <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
                                         재발송하면 기존 결재 진행이 초기화되고 1단계부터 다시 진행됩니다.
@@ -2628,7 +2733,12 @@ ${url}`;
                                     )}
                                     <div className="flex gap-2 justify-end">
                                       <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
-                                      <Button onClick={() => handleSend(sendTarget.id)}>발송</Button>
+                                      {/* 발송 후 수정 불가 — 최종 확인 (#100) */}
+                                      <Button onClick={() => {
+                                        const names = approverIds.map((id, i) => `${i + 1}단계 ${id === "EXTERNAL" ? (sendTarget.externalName || "외부") : id === sendTarget.userId ? (sendTarget.user?.name || "직원") : (employees.find(e => e.id === id)?.name || "?")}`).join(" → ");
+                                        if (!confirm(`${names}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
+                                        handleSend(sendTarget.id);
+                                      }}>발송</Button>
                                     </div>
                                   </div>
                                 )}
@@ -2687,10 +2797,14 @@ ${url}`;
                   </label>
                 </div>
               )}
+              {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101) */}
+              <a href={`/api/contracts/${signTarget.id}/original-document?inline=1`} target="_blank" rel="noreferrer" className="block">
+                <Button type="button" variant="outline" size="sm" className="w-full gap-1"><Eye size={13} />계약서 크게 보기 (PDF)</Button>
+              </a>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
-                <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>
-                  {mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "서명"}
+                <Button disabled={signBusy} onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>
+                  {signBusy ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "서명"}
                 </Button>
               </div>
             </div>
