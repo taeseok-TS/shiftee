@@ -19,6 +19,8 @@ import {
   Calendar,
   CheckCircle,
   Lightbulb,
+  CalendarDays,
+  Bot,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -34,6 +36,8 @@ const adminNavItems = [
   { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
   { href: "/admin/branches", label: "지점 관리", icon: Building2 },
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
+  { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
+  { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
   { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
 ];
 

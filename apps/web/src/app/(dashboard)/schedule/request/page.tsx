@@ -86,6 +86,11 @@ export default function ScheduleRequestPage() {
   const [myRole, setMyRole] = useState("");
   // 날짜별 승인된 휴가 비율 (1=종일, 0.5=반차, 0.25=반반차)
   const [leaveMap, setLeaveMap] = useState<Record<string, number>>({});
+  // 공휴일 맵 ("YYYY-MM-DD" → 공휴일명) — 평일 자동선택에서 제외하고 달력에 표시
+  const [holidayMap, setHolidayMap] = useState<Record<string, string>>({});
+  // 공휴일 로딩 상태 — "미로딩"과 "공휴일 없음"을 구분해야 한다.
+  // 조회에 실패했는데 그냥 빈 맵으로 두면 추석이 근무일로 잡히는 옛 버그가 조용히 되살아난다.
+  const [holidayState, setHolidayState] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
   // 본인 ID/역할 조회
   useEffect(() => {
@@ -94,6 +99,41 @@ export default function ScheduleRequestPage() {
       setMyRole(d.user?.role || "");
     }).catch(() => {});
   }, []);
+
+  // 선택 기간의 공휴일 조회 (기간이 연도를 넘길 수 있으므로 걸치는 연도를 모두 조회)
+  useEffect(() => {
+    if (!startDate || !endDate) { setHolidayMap({}); setHolidayState("idle"); return; }
+    const y1 = new Date(startDate).getFullYear();
+    const y2 = new Date(endDate).getFullYear();
+    if (!y1 || !y2 || y2 < y1) { setHolidayMap({}); setHolidayState("idle"); return; }
+    const years = [];
+    for (let y = y1; y <= y2; y++) years.push(y);
+
+    let alive = true;                 // 기간을 바꾸면 이전 응답은 버린다(오래된 맵이 남지 않게)
+    setHolidayMap({});                // 새 기간의 조회가 끝나기 전까지는 "모름" 상태
+    setHolidayState("loading");
+    Promise.all(
+      years.map(y =>
+        fetch(`/api/holidays?year=${y}`).then(r => {
+          if (!r.ok) throw new Error("holiday fetch failed");
+          return r.json();
+        })
+      )
+    )
+      .then(results => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        results.forEach(d => (d.holidays || []).forEach((h: { date: string; name: string }) => { map[h.date] = h.name; }));
+        setHolidayMap(map);
+        setHolidayState("ready");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setHolidayMap({});
+        setHolidayState("error");
+      });
+    return () => { alive = false; };
+  }, [startDate, endDate]);
 
   // 선택 기간의 승인된 휴가 조회 → 날짜별 차감 비율 맵 생성
   useEffect(() => {
@@ -118,7 +158,7 @@ export default function ScheduleRequestPage() {
       .catch(() => setLeaveMap({}));
   }, [startDate, myId]);
 
-  // 날짜 범위의 모든 평일 계산
+  // 날짜 범위의 모든 평일 계산 (주말 + 공휴일 제외 — 추석·설 연휴가 자동으로 잡히면 안 된다)
   const calculateWeekdays = useCallback(() => {
     if (!startDate || !endDate) return [];
 
@@ -130,12 +170,23 @@ export default function ScheduleRequestPage() {
       return [];
     }
 
-    const days = eachDayOfInterval({ start, end }).filter(day => !isWeekend(day));
+    const days = eachDayOfInterval({ start, end }).filter(
+      day => !isWeekend(day) && !holidayMap[format(day, "yyyy-MM-dd")]
+    );
     return days;
-  }, [startDate, endDate]);
+  }, [startDate, endDate, holidayMap]);
 
   // 달력 페이지에서 평일 자동 선택
   const handleAutoSelectWeekdays = () => {
+    // 공휴일을 모르는 상태로 자동선택하면 연휴가 근무일로 잡힌다 — 확인될 때까지 막는다
+    if (holidayState === "loading") {
+      toast.info("공휴일 정보를 불러오는 중입니다. 잠시 후 다시 눌러주세요.");
+      return;
+    }
+    if (holidayState === "error") {
+      toast.error("공휴일 정보를 불러오지 못했습니다. 연휴가 근무일로 잡힐 수 있어 자동 선택을 중단합니다. 새로고침 후 다시 시도해주세요.");
+      return;
+    }
     const weekdays = calculateWeekdays();
     if (weekdays.length === 0) {
       toast.error("선택할 평일이 없습니다");
@@ -158,8 +209,9 @@ export default function ScheduleRequestPage() {
   ) / 10;                                                  // 휴가 차감시간
   const totalHours = Math.round((selectedDates.size * dailyNet - leaveDeduction) * 10) / 10;
 
-  // 선택 날짜에 주말(토/일) 근무가 포함되는지 (결재 정책 분기 기준)
+  // 선택 날짜에 휴일(토/일 또는 공휴일) 근무가 포함되는지 (결재 정책 분기 기준 — 서버와 동일)
   const hasWeekendSel = Array.from(selectedDates).some(d => {
+    if (holidayMap[d]) return true;
     const [y, m, dd] = d.split("-").map(Number);
     if (!y || !m || !dd) return false;
     const dow = new Date(y, m - 1, dd).getDay();
@@ -373,8 +425,9 @@ export default function ScheduleRequestPage() {
                       size="sm"
                       variant="outline"
                       onClick={handleAutoSelectWeekdays}
+                      disabled={holidayState === "loading"}
                     >
-                      모든 평일 선택
+                      {holidayState === "loading" ? "공휴일 확인 중…" : "모든 평일 선택"}
                     </Button>
                   </div>
 
@@ -398,14 +451,15 @@ export default function ScheduleRequestPage() {
                     }).map(day => {
                       const dateStr = format(day, "yyyy-MM-dd");
                       const isSelected = selectedDates.has(dateStr);
-                      const isWeekendDay = isWeekend(day);
+                      const holidayName = holidayMap[dateStr];       // 법정·임시 공휴일
+                      const isWeekendDay = isWeekend(day) || !!holidayName; // 공휴일도 주말과 동일 취급
                       const leaveFrac = leaveMap[dateStr] || 0;
 
                       return (
                         <button
                           key={dateStr}
                           onClick={() => {
-                            // 주말도 선택 가능 (주말 근무는 사전승인 결재로 분기됨)
+                            // 주말·공휴일도 선택 가능 (그 근무는 사전승인 결재로 분기됨)
                             const newDates = new Set(selectedDates);
                             if (newDates.has(dateStr)) {
                               newDates.delete(dateStr);
@@ -418,11 +472,16 @@ export default function ScheduleRequestPage() {
                             isSelected
                               ? "bg-blue-600 text-white"
                               : isWeekendDay
-                              ? `bg-gray-50 hover:bg-gray-200 ${getDay(day) === 0 ? "text-red-500" : "text-blue-500"}`
+                              ? `bg-gray-50 hover:bg-gray-200 ${getDay(day) === 0 || holidayName ? "text-red-500" : "text-blue-500"}`
                               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                           }`}
                         >
                           {format(day, "d")}
+                          {holidayName && (
+                            <span className={`block text-[9px] leading-tight truncate ${isSelected ? "text-red-100" : "text-red-500"}`}>
+                              {holidayName}
+                            </span>
+                          )}
                           {leaveFrac > 0 && !isWeekendDay && (
                             <span className={`block text-[9px] leading-tight ${isSelected ? "text-amber-200" : "text-amber-600"}`}>
                               {leaveFrac === 1 ? "휴가" : leaveFrac === 0.5 ? "반차" : "반반차"}
@@ -501,7 +560,7 @@ export default function ScheduleRequestPage() {
                   </div>
                 ))}
                 <p className="text-xs text-gray-400">
-                  {hasWeekendSel ? "주말 근무가 포함되어" : "평일 근무만 신청하여"} 위 순서로 결재됩니다.
+                  {hasWeekendSel ? "주말·공휴일 근무가 포함되어" : "평일 근무만 신청하여"} 위 순서로 결재됩니다.
                 </p>
               </div>
 

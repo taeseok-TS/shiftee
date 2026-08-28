@@ -107,6 +107,10 @@ export default function ScheduleScreen() {
   const [reqEnd, setReqEnd] = useState("");
   const [reqDays, setReqDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5])); // 기본 월~금
   const [reqSubmitting, setReqSubmitting] = useState(false);
+  // 신청 기간의 공휴일 ("YYYY-MM-DD" → 이름). 위 holidays 는 달력 표시용으로 이번 달만 담겨 있어
+  // 신청 기간 전체를 덮지 못한다 — 신청용으로 따로 조회한다(추석 연휴가 근무일로 잡히던 원인).
+  const [reqHolidays, setReqHolidays] = useState<Record<string, string>>({});
+  const [reqHolidayState, setReqHolidayState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   // 시간 직접 설정 (주말 4.5시간 근무 등 — 30분 단위)
   const [customOn, setCustomOn] = useState(false);
   const [customStart, setCustomStart] = useState("09:00");
@@ -171,7 +175,35 @@ export default function ScheduleScreen() {
     return `${d.getMonth() + 1}/${d.getDate()} (${WEEKDAYS[d.getDay()]})`;
   };
 
-  // 신청 기간 × 선택 요일 → 근무 날짜 목록 (달력 날짜 기준, TZ 무관)
+  // 신청 기간의 공휴일 조회 (기간이 연도를 넘길 수 있어 걸치는 연도를 모두 조회)
+  useEffect(() => {
+    if (!reqStart || !reqEnd || reqStart > reqEnd) { setReqHolidays({}); setReqHolidayState("idle"); return; }
+    const y1 = Number(reqStart.slice(0, 4));
+    const y2 = Number(reqEnd.slice(0, 4));
+    if (!y1 || !y2 || y2 < y1) { setReqHolidays({}); setReqHolidayState("idle"); return; }
+    const years: number[] = [];
+    for (let y = y1; y <= y2; y++) years.push(y);
+
+    let alive = true;
+    setReqHolidays({});
+    setReqHolidayState("loading");
+    Promise.all(years.map((y) => getHolidays(y)))
+      .then((results) => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        results.forEach((list) => (list || []).forEach((h) => { map[h.date] = h.name; }));
+        setReqHolidays(map);
+        setReqHolidayState("ready");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setReqHolidays({});
+        setReqHolidayState("error");
+      });
+    return () => { alive = false; };
+  }, [reqStart, reqEnd]);
+
+  // 신청 기간 × 선택 요일 → 근무 날짜 목록 (달력 날짜 기준, TZ 무관). 공휴일은 제외한다.
   const reqDates = useMemo(() => {
     if (!reqStart || !reqEnd || reqStart > reqEnd) return [] as string[];
     const out: string[] = [];
@@ -183,12 +215,25 @@ export default function ScheduleScreen() {
       if (reqDays.has(cur.getDay())) {
         const mm = String(cur.getMonth() + 1).padStart(2, "0");
         const dd = String(cur.getDate()).padStart(2, "0");
-        out.push(`${cur.getFullYear()}-${mm}-${dd}`);
+        const ymd = `${cur.getFullYear()}-${mm}-${dd}`;
+        if (!reqHolidays[ymd]) out.push(ymd); // 추석·설 등 공휴일은 근무일에서 뺀다
       }
       cur.setDate(cur.getDate() + 1);
     }
     return out;
-  }, [reqStart, reqEnd, reqDays]);
+  }, [reqStart, reqEnd, reqDays, reqHolidays]);
+
+  // 기간 안에서 실제로 빠진 공휴일 (사용자에게 왜 줄었는지 알려준다)
+  const reqExcludedHolidays = useMemo(() => {
+    if (!reqStart || !reqEnd || reqStart > reqEnd) return [] as string[];
+    return Object.keys(reqHolidays)
+      .filter((d) => d >= reqStart && d <= reqEnd)
+      .filter((d) => {
+        const [y, m, dd] = d.split("-").map(Number);
+        return reqDays.has(new Date(y, m - 1, dd).getDay());
+      })
+      .sort();
+  }, [reqStart, reqEnd, reqDays, reqHolidays]);
 
   const reqNetDaily = reqTemplate ? Math.max(reqTemplate.hours - breakHours(reqTemplate.hours), 0) : 0;
   const reqTotalHours = Math.round(reqDates.length * reqNetDaily * 10) / 10;
@@ -488,6 +533,16 @@ export default function ScheduleScreen() {
                   <Text style={styles.reqSummaryText}>
                     근무일 {reqDates.length}일 · 총 {reqTotalHours}시간 (일 {reqNetDaily}시간, 휴게 제외)
                   </Text>
+                  {reqExcludedHolidays.length > 0 && (
+                    <Text style={styles.reqHolidayNote}>
+                      🎌 공휴일 {reqExcludedHolidays.length}일 제외 ({reqExcludedHolidays.map((d) => reqHolidays[d]).join(", ")})
+                    </Text>
+                  )}
+                  {reqHolidayState === "error" && (
+                    <Text style={styles.reqWeekendNote}>
+                      ⚠️ 공휴일 정보를 불러오지 못했습니다. 연휴가 근무일로 포함될 수 있으니 날짜를 확인해주세요.
+                    </Text>
+                  )}
                   {reqHasWeekend && (
                     <Text style={styles.reqWeekendNote}>⚠️ 주말 근무 포함 — 승인 후 주말 출근이 가능해집니다.</Text>
                   )}
@@ -571,6 +626,7 @@ const styles = StyleSheet.create({
   reqSummary: { marginTop: 14, backgroundColor: "#f0f9ff", borderRadius: 10, padding: 12 },
   reqSummaryText: { fontSize: 13, color: "#0369a1", fontWeight: "600" },
   reqWeekendNote: { fontSize: 12, color: "#b45309", marginTop: 4 },
+  reqHolidayNote: { fontSize: 12, color: "#dc2626", marginTop: 4 },
   reqBtns: { flexDirection: "row", gap: 8, marginTop: 14 },
   reqCancel: { flex: 1, height: 48, borderRadius: 10, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
   reqCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },

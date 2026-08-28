@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
 import { branchHasManager } from "@/lib/manager-branches";
+import { getHolidaySet } from "@/lib/holidays";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -52,9 +53,20 @@ export async function POST(request: NextRequest) {
     select: { role: true, branch: true },
   });
 
-  // scheduleData(날짜 배열)에 토/일 근무가 포함되는지 판별 (서버 시간대 무관하게 달력 날짜로 계산)
+  // scheduleData(날짜 배열)에 휴일 근무가 포함되는지 판별 (서버 시간대 무관하게 달력 날짜로 계산)
+  // 공휴일(추석·설 등) 근무도 주말과 같이 사전 승인 대상이므로 함께 본다
+  // 조회 범위는 startDate~endDate 가 아니라 실제 제출된 날짜의 최소~최대로 잡는다.
+  // (신청 화면에서 기간을 좁혀도 이미 선택된 날짜는 payload 에 남을 수 있어, 범위 밖 공휴일을 놓친다)
+  const submittedDates = (Array.isArray(scheduleData) ? scheduleData : [])
+    .map((e: any) => (typeof e?.date === "string" ? e.date : ""))
+    .filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  const holidaySet = submittedDates.length
+    ? await getHolidaySet(new Date(submittedDates[0]), new Date(submittedDates[submittedDates.length - 1]))
+    : new Set<string>();
   const hasWeekend = Array.isArray(scheduleData) && scheduleData.some((e: any) => {
     if (!e?.date || typeof e.date !== "string") return false;
+    if (holidaySet.has(e.date)) return true;
     const [y, m, d] = e.date.split("-").map(Number);
     if (!y || !m || !d) return false;
     const dow = new Date(y, m - 1, d).getDay();
