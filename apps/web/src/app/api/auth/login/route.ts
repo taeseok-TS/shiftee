@@ -64,7 +64,9 @@ export async function POST(request: NextRequest) {
     // 기기 등록 검사 (앱 로그인만 — deviceId를 보내는 클라이언트). 관리자(ADMIN)는 예외.
     // 첫 앱 로그인 시 그 기기를 자동 등록, 이후 다른 기기에서는 로그인 차단(대리 출퇴근 방지).
     // 기기 변경 시 관리자가 직원관리에서 "기기 초기화" 후 재로그인하면 새 기기로 등록된다.
-    // 스토어 심사용 데모 계정은 예외 — 심사관 여러 명이 서로 다른 기기로 로그인해도 차단되지 않게
+    // 스토어 심사용 데모 계정은 예외 — 심사관 여러 명이 서로 다른 기기로 로그인해도 차단되지 않게.
+    // 운영 규칙: 이 계정은 평소 비활성(isActive=false)으로 두고 심사 제출 기간에만 활성화한다.
+    // (기기 잠금이 면제되는 계정이므로 상시 열어두지 않는다 — 2026-08-28 정리)
     const DEVICE_LOCK_EXEMPT = ["review@cubetee.co.kr"];
     if (deviceId && user.role !== "ADMIN" && !DEVICE_LOCK_EXEMPT.includes(user.email)) {
       let registered = await prisma.userDevice.findUnique({ where: { userId: user.id } });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { logAudit } from "@/lib/audit";
 
 // 직원 등록 기기 초기화 (관리자/매니저) — 초기화 후 직원이 새 기기에서 로그인하면 그 기기로 재등록됨
 export async function DELETE(
@@ -15,6 +16,14 @@ export async function DELETE(
 
   const { id } = await params;
 
+  // 자기 자신은 초기화할 수 없다 — 잠금 대상(원장)이 스스로 기기 바인딩을 풀고
+  // 임의 기기를 재등록하면 기기 잠금이 무의미해진다. 본인 기기 변경은 관리자에게 요청.
+  if (id === session.userId && session.role !== "ADMIN")
+    return NextResponse.json(
+      { error: "본인의 기기는 초기화할 수 없습니다. 관리자에게 요청해주세요." },
+      { status: 403 }
+    );
+
   // MANAGER는 담당 지점(대표+겸직) 직원만 초기화 가능
   if (session.role === "MANAGER") {
     const myBranches = await getManagerBranches(session.userId);
@@ -23,6 +32,18 @@ export async function DELETE(
       return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
 
-  await prisma.userDevice.deleteMany({ where: { userId: id } });
+  const removed = await prisma.userDevice.deleteMany({ where: { userId: id } });
+  if (removed.count > 0) {
+    const target = await prisma.user.findUnique({ where: { id }, select: { name: true } });
+    await logAudit({
+      actorId: session.userId,
+      actorName: session.name,
+      action: "DEVICE_RESET",
+      targetType: "UserDevice",
+      targetId: id,
+      targetName: target?.name ?? id,
+      detail: `등록 기기 초기화 (${target?.name ?? id})`,
+    });
+  }
   return NextResponse.json({ success: true });
 }

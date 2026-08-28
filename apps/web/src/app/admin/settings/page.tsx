@@ -30,6 +30,9 @@ const ACTION_LABEL: Record<string, string> = {
   SCHEDULE_DECISION: "근무일정 결재",
   CONTRACT_DELETE: "계약서 삭제",
   DEVICE_REREGISTER: "기기 재등록(앱 재설치)",
+  DEVICE_RESET: "기기 초기화",
+  HOLIDAY_ADD: "공휴일 등록",
+  HOLIDAY_DELETE: "공휴일 삭제",
 };
 
 export default function AdminSettingsPage() {
