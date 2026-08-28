@@ -16,18 +16,22 @@ export async function POST(request: NextRequest) {
   const deviceError = await verifyAttendanceDevice(session.userId, session.role, request.headers.get("x-device-id"));
   if (deviceError) return NextResponse.json({ error: deviceError }, { status: 403 });
 
-  // 주말(토·일, KST 기준) 출근은 사전 승인된 근무일정이 있어야 가능 (서버 TZ는 UTC이므로 +9h로 KST 계산)
+  // 휴일(토·일 또는 공휴일, KST 기준) 출근은 사전 승인된 근무일정이 있어야 가능
+  // (서버 TZ는 UTC이므로 +9h로 KST 계산)
   if (session.role !== "ADMIN") {
     const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const kstDay = kstNow.getUTCDay(); // 0=일, 6=토
-    if (kstDay === 0 || kstDay === 6) {
+    // 공휴일도 주말과 동일 규칙 — 연휴 근무는 사전 승인이 있어야 한다
+    const isHolidayToday = await isHoliday(kstTodayYmd());
+    if (kstDay === 0 || kstDay === 6 || isHolidayToday) {
       const schedDate = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
       const weekendSchedule = await prisma.schedule.findFirst({
         where: { userId: session.userId, date: schedDate, type: "WORK" },
       });
       if (!weekendSchedule) {
+        const kind = kstDay === 0 || kstDay === 6 ? "주말" : "공휴일";
         return NextResponse.json(
-          { error: "주말 근무는 사전에 근무일정을 신청하고 승인받은 후에만 출근할 수 있습니다." },
+          { error: `${kind} 근무는 사전에 근무일정을 신청하고 승인받은 후에만 출근할 수 있습니다.` },
           { status: 403 }
         );
       }

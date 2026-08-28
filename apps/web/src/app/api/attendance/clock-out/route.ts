@@ -31,13 +31,16 @@ export async function POST(request: NextRequest) {
   }
 
   // 퇴근 시간 상한 (주 52시간 리스크 방지) — 초과 시 앱 퇴근 차단, 관리자가 수동 처리
-  // 평일: 출근 후 10시간 30분까지. 주말: 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분까지.
+  // 평일: 출근 후 10시간 30분까지.
+  // 휴일(주말·공휴일): 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분까지.
   if (session.role !== "ADMIN") {
     const elapsedMs = Date.now() - existing.clockIn.getTime();
     const kstIn = new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000); // 출근 시각의 KST
     const kstDay = kstIn.getUTCDay(); // 0=일, 6=토
+    // 공휴일 근무도 주말과 같은 규칙 — 평일 10.5h 캡을 씌우면 승인받은 연휴 근무가 막힌다
+    const isHolidayIn = await isHoliday(kstIn.toISOString().slice(0, 10));
     let capMs = 10.5 * 60 * 60 * 1000;
-    if (kstDay === 0 || kstDay === 6) {
+    if (kstDay === 0 || kstDay === 6 || isHolidayIn) {
       const schedDate = new Date(Date.UTC(kstIn.getUTCFullYear(), kstIn.getUTCMonth(), kstIn.getUTCDate()));
       const sched = await prisma.schedule.findFirst({
         where: { userId: session.userId, date: schedDate, type: "WORK" },
