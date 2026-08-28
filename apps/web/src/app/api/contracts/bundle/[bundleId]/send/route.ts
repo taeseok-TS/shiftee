@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hrBotSendDM } from "@/lib/bot";
-import { getAppUrl } from "@/lib/app-url";
+import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
+import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -23,7 +24,7 @@ export async function POST(
 
   const contracts = await prisma.contract.findMany({
     where: { bundleId },
-    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true },
+    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true },
   });
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
@@ -76,7 +77,32 @@ export async function POST(
         steps: { createMany: { data: stepsData } },
       },
     });
-    await prisma.contract.update({ where: { id: c.id }, data: { status: "SENT" } });
+    // 발송 시 최신 템플릿으로 문서 재생성 (#163) — 양식 수정이 발송 문서에 반드시 반영되게.
+    // 입력값은 그대로 쓰므로 내용은 바뀌지 않는다. 실패해도 발송은 막지 않는다.
+    let reRendered: string | null = null;
+    if (c.templateId) {
+      try {
+        const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true } });
+        if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+          const extra = (c.extraFields as Record<string, string>) || {};
+          const mergeData = await buildContractMergeData(c.userId, {
+            title: c.title,
+            startDate: c.startDate ? c.startDate.toISOString() : null,
+            endDate: c.endDate ? c.endDate.toISOString() : null,
+            salary: ((extra["연봉"] || "").replace(/[^0-9]/g, "")) || null,
+            extraFields: extra,
+            external: c.externalName ? { name: c.externalName, phone: c.externalPhone } : null,
+          });
+          reRendered = await fillDocxTemplate(tmpl.fileUrl, mergeData);
+        }
+      } catch (e) {
+        console.error("패키지 발송 재렌더 오류(기존 문서로 진행):", c.id, e);
+      }
+    }
+    await prisma.contract.update({
+      where: { id: c.id },
+      data: { status: "SENT", ...(reRendered ? { fileUrl: JSON.stringify([reRendered]) } : {}) },
+    });
     sent++;
 
     // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
@@ -115,11 +141,20 @@ export async function POST(
   }
 
   // 사내 발송 봇 DM — 직원에게는 서명 요청, 결재자에게는 결재 요청
+  // 결재자 DM 에도 역할별 바로가기 링크를 넣는다 (#167)
+  const dmRoles = new Map<string, string>(
+    (
+      await prisma.user.findMany({
+        where: { id: { in: [...dmTargets.keys()] } },
+        select: { id: true, role: true },
+      })
+    ).map((u) => [u.id, u.role as string] as [string, string])
+  );
   for (const [uid, info] of dmTargets) {
     const head = info.titles.length > 1 ? `「${info.titles[0]}」 외 ${info.titles.length - 1}건` : `「${info.titles[0]}」`;
     const dm = info.isEmployee
       ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contracts`
-      : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n웹 관리자 [계약 결재]에서 처리해 주세요.`;
+      : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(dmRoles.get(uid))}`;
     hrBotSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
   }
 

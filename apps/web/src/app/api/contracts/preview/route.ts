@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
       const buf = await fs.readFile(path.join(process.cwd(), "uploads", tmpUrl.replace(/^\/api\/uploads\//, "")));
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+      // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
+      fd.append("metadata", JSON.stringify({ Title: title || tmpl.name }));
       const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd });
       if (!gres.ok) {
         console.error("미리보기 변환 실패(gotenberg):", gres.status);
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
       // 여러 문서 → 한 PDF (파일명 정렬 순서대로 병합됨)
       const fd = new FormData();
       pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
+      fd.append("metadata", JSON.stringify({ Title: title || firstName })); // 탭 제목 (#147)
       const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd });
       if (!mres.ok) {
         console.error("미리보기 병합 실패(gotenberg):", mres.status);

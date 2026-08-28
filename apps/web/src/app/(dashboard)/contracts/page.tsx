@@ -1695,22 +1695,31 @@ export default function ContractsPage() {
                       )}
                     </div>
                   )}
-                  <div className="flex gap-2 justify-end">
-                    <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
-                    <Button onClick={() => {
-                      // 전문을 열람해야 진행 — 사전 체크 금지와 세트 (#104)
-                      if (!consentRead) { toast.error("동의서 전문을 먼저 끝까지 확인해주세요. [동의서 전문 보기]를 눌러주세요."); return; }
-                      // 필수·선택 동의는 명시적으로 (#104)
-                      if (!consentRequired) { toast.error("필수 항목 동의에 체크해주세요."); return; }
-                      for (const k of consentKeys) {
-                        if (consentChoices[k] !== "동의" && consentChoices[k] !== "미동의") { toast.error(`"${CONSENT_LABELS[k]}" 항목의 동의 여부를 선택해주세요.`); return; }
-                      }
-                      // 프로필 입력 검증 후 서명 단계로
-                      if (missingProfile.includes("주소") && !profileInput.주소.trim()) { toast.error("주소를 입력해주세요."); return; }
-                      if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { toast.error("생년월일을 입력해주세요."); return; }
-                      setSignStep(2);
-                    }}>확인 완료 · 서명하기 →</Button>
-                  </div>
+                  {/* 막힌 이유를 버튼 위에 그대로 보여준다 — 토스트로만 알리면 왜 안 되는지 모른다 (#164).
+                      선택 항목 미동의는 경고·확인창 없이 "선택 여부만" 안내한다(동의 유도 금지) */}
+                  {(() => {
+                    const blockReason =
+                      !consentRead ? "동의서 전문을 끝까지 확인해주세요"
+                      : !consentRequired ? "필수 항목에 동의해야 서명을 진행할 수 있습니다. 동의하지 않는 경우 채용이 취소·제한될 수 있습니다"
+                      : consentKeys.some(k => consentChoices[k] !== "동의" && consentChoices[k] !== "미동의") ? "선택 항목의 동의 여부를 선택해주세요"
+                      : null;
+                    return (
+                      <div className="space-y-2">
+                        {blockReason && <p className="text-xs text-gray-500 text-right">{blockReason}</p>}
+                        <div className="flex gap-2 justify-end">
+                          <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
+                          <Button
+                            disabled={!!blockReason}
+                            onClick={() => {
+                              // 프로필 입력 검증 후 서명 단계로
+                              if (missingProfile.includes("주소") && !profileInput.주소.trim()) { toast.error("주소를 입력해주세요."); return; }
+                              if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) { toast.error("생년월일을 입력해주세요."); return; }
+                              setSignStep(2);
+                            }}>확인 완료 · 서명하기 →</Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
@@ -1847,28 +1856,16 @@ export default function ContractsPage() {
               src={viewHref(getFileUrl(signTarget.fileUrl))}
               className="flex-1 w-full border-0"
               title="동의서 전문"
-              onLoad={(e) => {
-                // 같은 출처(docs/viewer)라 내부 스크롤 감지 가능 — 바닥 도달 시 확인 활성 (#104)
-                // 구조가 바뀌어 감지 못 하면 8초 후 활성 (막히는 것보다 안전)
-                const fallback = setTimeout(() => setViewerAtBottom(true), 8000);
-                try {
-                  const win = (e.target as HTMLIFrameElement).contentWindow;
-                  const docEl = win?.document?.scrollingElement || win?.document?.documentElement;
-                  if (!win || !docEl) return;
-                  const check = () => {
-                    if (docEl.scrollTop + win.innerHeight >= docEl.scrollHeight - 40) {
-                      setViewerAtBottom(true);
-                      clearTimeout(fallback);
-                    }
-                  };
-                  check(); // 문서가 한 화면이면 즉시 통과
-                  win.addEventListener("scroll", check);
-                } catch { /* 교차 출처 등 — fallback 타이머가 처리 */ }
+              onLoad={() => {
+                // 문서 뷰어가 PDF(iframe)로 바뀌면서 바깥 문서는 스크롤되지 않는다 —
+                // 스크롤 도달 판정이 로드 즉시 참이 되어 열람 통제가 무력화됐다 (검증관 M2, 2026-08-28).
+                // PDF 내부 스크롤 위치는 브라우저가 노출하지 않으므로 최소 열람 시간으로 대체한다.
+                setTimeout(() => setViewerAtBottom(true), 8000);
               }}
             />
           )}
           <div className="px-4 py-3 border-t shrink-0 flex items-center justify-between gap-3">
-            <span className="text-xs text-gray-400">{viewerAtBottom ? "끝까지 확인하셨습니다." : "문서를 끝까지 스크롤해주세요."}</span>
+            <span className="text-xs text-gray-400">{viewerAtBottom ? "확인이 완료되었습니다." : "동의서를 읽어주세요 — 잠시 후 확인 버튼이 활성화됩니다."}</span>
             <Button disabled={!viewerAtBottom} onClick={() => { setConsentRead(true); setDocViewerOpen(false); }} className="bg-indigo-600 hover:bg-indigo-700">
               확인 (다 읽었습니다) →
             </Button>

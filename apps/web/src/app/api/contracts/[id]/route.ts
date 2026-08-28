@@ -129,7 +129,7 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -243,6 +243,35 @@ export async function PATCH(
     });
   }
 
+  // 발송 시 최신 템플릿으로 문서 재생성 (#163, 2026-08-27 디렉터 확정)
+  // 계약서는 "작성 시점"에 워드로 굳는다 — 그 뒤 템플릿(양식)을 고쳐도 이미 만들어 둔 초안은
+  // 옛 양식 그대로 서명·보존됐다. 발송이 곧 계약 문서 확정 시점이므로, 이때 최신 양식으로
+  // 다시 렌더한다. 입력값(extraFields·기간·연봉)은 그대로 쓰므로 내용은 바뀌지 않는다.
+  // 이미 발송된 건의 재발송에도 적용된다(결재선이 초기화되어 처음부터 다시 받으므로 동일 기준).
+  let sendRenderUrl: string | null = null;
+  if (status === "SENT" && contract.templateId && !newFileUrl) {
+    try {
+      const tmpl = await prisma.contractTemplate.findUnique({
+        where: { id: contract.templateId }, select: { fileUrl: true },
+      });
+      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+        const prevExtra = (contract.extraFields as Record<string, string>) || {};
+        const mergeData = await buildContractMergeData(contract.userId, {
+          title: title || contract.title,
+          startDate: startDate ? new Date(startDate).toISOString() : (contract.startDate ? contract.startDate.toISOString() : null),
+          endDate: endDate ? new Date(endDate).toISOString() : (contract.endDate ? contract.endDate.toISOString() : null),
+          salary: ((prevExtra["연봉"] || "").replace(/[^0-9]/g, "")) || null,
+          extraFields: prevExtra,
+          external: contract.externalName ? { name: contract.externalName, phone: contract.externalPhone } : null,
+        });
+        sendRenderUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
+      }
+    } catch (e) {
+      // 재렌더 실패해도 발송 자체는 막지 않는다(기존 문서로 진행)
+      console.error("발송 시 문서 재생성 오류(기존 문서로 진행):", e);
+    }
+  }
+
   const updated = await prisma.contract.update({
     where: { id },
     data: {
@@ -252,7 +281,7 @@ export async function PATCH(
       ...(startDate ? { startDate: new Date(startDate) } : {}),
       ...(endDate ? { endDate: new Date(endDate) } : {}),
       ...(hideRevoked !== undefined ? { hideRevoked } : {}),
-      ...(newFileUrl ? { fileUrl: newFileUrl } : {}),
+      ...(newFileUrl ? { fileUrl: newFileUrl } : sendRenderUrl ? { fileUrl: JSON.stringify([sendRenderUrl]) } : {}),
       ...(fieldSummary ? { extraFields: fieldSummary } : {}),
     },
     include: {
@@ -320,7 +349,8 @@ export async function PATCH(
           updated.title,
           updated.user.name,
           firstPendingStep.order,
-          appUrl
+          appUrl,
+          firstPendingStep.approverId || undefined
         );
       }
     }

@@ -179,6 +179,14 @@ export async function buildContractMergeData(
       }
     }
   }
+  // 근로계약 기간 시작일(제1조) — 재계약은 "이번 계약 시작일"이 아니라 최초 입사일이어야
+  // 근속기간이 맞다. 신규입사는 계약시작일과 같다. 관리자가 폼에서 직접 넣으면 그 값 우선.
+  // (#169, 2026-08-28 이예지대리 — 재계약자 제1조에 재계약일이 들어가 근속이 잘못 표시)
+  if (!mergeData["근로시작일"]) {
+    mergeData["근로시작일"] = isRenewal
+      ? (targetUser?.hireDate ? fmtKoreanDate(targetUser.hireDate.toISOString()) : fmtKoreanDate(opts.startDate))
+      : fmtKoreanDate(opts.startDate);
+  }
   // 실무평가 단계 급여 지급률 — 기본 85, 관리자가 100 선택 시 반영 (#92).
   // ⚠️ extraFields 루프 "이후"에 기본값을 채워야 한다 — 미리 시딩하면 위 가드(k in mergeData)가
   //    내부 계약에서 관리자 선택값을 건너뛰어 항상 85로 찍힌다 (검증관 2026-08-27 CONFIRMED)
@@ -211,7 +219,7 @@ export async function scanTemplateProfileFields(templateFileUrl: string): Promis
 }
 
 // 시스템이 자동으로 채우거나 별도 처리하는 필드(직원 입력 대상이 아님)
-const SYSTEM_FIELDS = new Set([
+export const SYSTEM_FIELDS = new Set([
   "직원명", "이름", "이메일", "연락처", "지점", "직책", "직급", "입사일", "생년월일", "주소",
   "사원번호", "제목", "계약시작일", "계약종료일", "연봉", "작성일",
   "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자", "신규입사", "재계약",

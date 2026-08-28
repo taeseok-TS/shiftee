@@ -23,9 +23,16 @@ function kstStamp(d: Date): string {
   return `${k.getUTCFullYear()}-${p(k.getUTCMonth() + 1)}-${p(k.getUTCDate())} ${p(k.getUTCHours())}:${p(k.getUTCMinutes())}`;
 }
 
-// 완료 확인 링크 — 원장(MANAGER)은 /admin 접근이 막혀 있어 자체 결재함으로 (검증관 지적 2026-08-25)
-function completionLink(role?: string | null): string {
+// 인사봇 알림에 넣는 역할별 계약 화면 링크 (#167) — 모든 알림이 같은 규칙을 쓴다.
+// 원장(MANAGER)은 /admin 접근이 막혀 있어 자체 결재함으로 (검증관 지적 2026-08-25)
+export function contractPageLink(role?: string | null): string {
+  if (role === "EMPLOYEE") return "/contracts";
   return role === "MANAGER" ? "/manager/team-contracts" : "/admin/contracts";
+}
+
+// 완료 확인 링크
+function completionLink(role?: string | null): string {
+  return contractPageLink(role);
 }
 
 // 결재 단계 승인 → 작성자(createdBy)에게 진행 알림. 작성자가 그 단계 결재자 본인이면 생략.
@@ -38,11 +45,16 @@ export function notifyStepApprovedToCreator(opts: {
   targetName: string;
 }) {
   if (!opts.createdBy || opts.createdBy === opts.approverId) return;
+  const createdBy = opts.createdBy;
   const roleLabel = ROLE_LABEL[opts.approverRole || ""] || "결재자";
-  hrBotSendDM(
-    opts.createdBy,
-    `🖋 ${opts.order}단계(${roleLabel}) 결재 완료 — 「${opts.title}」 대상 ${opts.targetName}`
-  ).catch((e) => console.error("[contract] 작성자 단계 알림 오류:", e));
+  // 작성자 역할에 맞는 바로가기까지 붙여서 보낸다 (#167)
+  (async () => {
+    const creator = await prisma.user.findUnique({ where: { id: createdBy }, select: { role: true } });
+    await hrBotSendDM(
+      createdBy,
+      `🖋 ${opts.order}단계(${roleLabel}) 결재 완료 — 「${opts.title}」 대상 ${opts.targetName}\n확인: ${getAppUrl()}${contractPageLink(creator?.role)}`
+    );
+  })().catch((e) => console.error("[contract] 작성자 단계 알림 오류:", e));
 }
 
 // 전체 완료 → 작성자 + 결재 참여 내부 결재자 전원 (+마지막 스텝이 아니었던 근로자). 중복 제거.
@@ -148,6 +160,7 @@ export async function runContractReminders() {
   if (!steps.length) return;
 
   const appUrl = getAppUrl();
+  const creatorRoles = new Map<string, string | null>(); // 작성자 역할 캐시 (링크 분기용 #167)
   let sentCount = 0;
   for (const step of steps) {
     try {
@@ -169,9 +182,13 @@ export async function runContractReminders() {
           ? `${ROLE_LABEL[step.approver?.role || ""] || "결재자"} ${step.approver?.name || ""}`.trim()
           : `외부 ${step.externalName || contract.externalName || "계약자"}`;
         const verb = step.approverId && !isEmployeeStep ? "미결재" : "미서명";
+        if (!creatorRoles.has(contract.createdBy)) {
+          const creator = await prisma.user.findUnique({ where: { id: contract.createdBy }, select: { role: true } });
+          creatorRoles.set(contract.createdBy, creator?.role ?? null);
+        }
         await hrBotSendDM(
           contract.createdBy,
-          `⏳ 결재 지연 — 「${contract.title}」\n${who} ${verb} ${days}일째`
+          `⏳ 결재 지연 — 「${contract.title}」\n${who} ${verb} ${days}일째\n확인: ${appUrl}${contractPageLink(creatorRoles.get(contract.createdBy))}`
         );
       }
 

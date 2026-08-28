@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
-import { scanEmployeeFillFields } from "@/lib/contract-fields";
+import { scanEmployeeFillFields, SYSTEM_FIELDS } from "@/lib/contract-fields";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -53,7 +53,13 @@ export async function GET(
     }
     // 직원이 서명 시 직접 입력하는 필드(퇴사일자 등) — 관리자 입력란에서 제외 대상
     const employeeFields = await scanEmployeeFillFields(template.fileUrl);
-    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields });
+    // 시스템이 자동으로 채우는 파생 필드({지점명}·{동의필수표기}·{지급기타표기} 등)는 작성 폼에 노출하지 않는다.
+    // 노출되면 "무엇을 입력하는 칸인지 모르겠다"·오타 입력으로 이어진다 (#144·#145, 2026-08-28)
+    // 외부(미가입) 계약은 직원 레코드가 없어 생년월일·주소·지점 등을 관리자가 직접 넣어야 한다.
+    // 여기서 걸러 버리면 입력란이 사라져 빈 문서가 발송된다 (검증관 C2, 2026-08-28)
+    const isExternal = new URL(_request.url).searchParams.get("external") === "1";
+    const visible = isExternal ? fields : fields.filter((f) => !SYSTEM_FIELDS.has(f));
+    return NextResponse.json({ fields: visible, conditions: [...conditions], fieldConditions, employeeFields });
   } catch (e) {
     console.error("템플릿 필드 스캔 오류:", e);
     return NextResponse.json({ fields: [] });

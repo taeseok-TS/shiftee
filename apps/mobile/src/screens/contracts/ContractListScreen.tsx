@@ -51,7 +51,8 @@ export default function ContractListScreen() {
   const [signing, setSigning] = useState(false);
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({});
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
-  const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null); // 동의서 전문 인앱 뷰어
+  const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null); // (미사용) 구 인앱 뷰어 — PDF 전환 후 외부 브라우저 사용
+  const [docRead, setDocRead] = useState(false); // 동의서 전문을 열어봤는지 (H1)
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [myId, setMyId] = useState("");
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
@@ -288,9 +289,16 @@ export default function ContractListScreen() {
           {consentKeys.length > 0 && signStep === 1 && (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
               <TouchableOpacity style={styles.viewDocBtn}
-                onPress={() => { const u = viewerUrl(signTarget.fileUrl); if (u) setDocViewerUrl(u); }}>
+                onPress={() => {
+                  // 문서 뷰어가 PDF 로 바뀌어 WebView(특히 안드로이드)에서는 열리지 않는다 —
+                  // 기기 브라우저로 열고, 돌아오면 전문 확인으로 간주한다 (검증관 H1, 2026-08-28)
+                  const u = viewerUrl(signTarget.fileUrl);
+                  if (!u) { Alert.alert("알림", "문서를 찾을 수 없습니다."); return; }
+                  Linking.openURL(u).catch(() => Alert.alert("알림", "문서를 여는 중 오류가 발생했습니다."));
+                  setDocRead(true);
+                }}>
                 <Ionicons name="eye-outline" size={16} color="#4338ca" />
-                <Text style={styles.viewDocBtnText}>동의서 전문 보기</Text>
+                <Text style={styles.viewDocBtnText}>{docRead ? "동의서 전문 다시 보기" : "동의서 전문 보기"}</Text>
               </TouchableOpacity>
               <Text style={styles.consentNotice}>
                 개인정보 수집·이용, 민감정보, 제3자 제공 등 필수 항목은 동의로 처리됩니다 (미동의 시 채용 제한). 아래 선택 항목만 자유롭게 고르세요.

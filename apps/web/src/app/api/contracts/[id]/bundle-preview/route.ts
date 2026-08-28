@@ -79,6 +79,8 @@ export async function GET(
       }
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+      // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
+      fd.append("metadata", JSON.stringify({ Title: (d as { title?: string }).title || contract.title }));
       const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd });
       if (!gres.ok) return NextResponse.json({ error: "PDF 변환기가 응답하지 않습니다." }, { status: 502 });
       pdfs.push(Buffer.from(await gres.arrayBuffer()));
@@ -89,6 +91,7 @@ export async function GET(
     else {
       const fd = new FormData();
       pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
+      fd.append("metadata", JSON.stringify({ Title: contract.title + `_외${docs.length - 1}건` })); // 탭 제목 (#147)
       const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd });
       if (!mres.ok) return NextResponse.json({ error: "PDF 병합에 실패했습니다." }, { status: 502 });
       out = Buffer.from(await mres.arrayBuffer());

@@ -25,11 +25,43 @@ const fmt = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() +
 
 export type Signer = { label: string; name: string; date: Date | null; sigPath: string; role?: string | null };
 
+// 이미지 픽셀 크기 읽기 (PNG IHDR / JPEG SOF) — 서명 이미지의 실제 가로세로비를 알아야
+// 줄 높이에 맞춰 넣어도 눌리거나 늘어나지 않는다. 외부 라이브러리 없이 헤더만 파싱한다.
+function imageSize(buf: Buffer): { w: number; h: number } | null {
+  try {
+    // PNG: 8바이트 시그니처 + IHDR(길이4+타입4) → 폭·높이 각 4바이트
+    if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50) {
+      return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    }
+    // JPEG: SOF0~SOF3 마커에서 높이·폭
+    if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        const len = buf.readUInt16BE(i + 2);
+        if (marker >= 0xc0 && marker <= 0xc3) {
+          return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+        }
+        i += 2 + len;
+      }
+    }
+  } catch { /* 헤더가 예상과 다르면 비율 계산 생략 */ }
+  return null;
+}
+
 // 인라인 서명 이미지 drawing XML (문장 안 (인) 자리에 들어가는 작은 도장 크기)
 // square=true면 정사각 직인 크기(1.3cm — 1.7cm가 너무 크다는 QA 2026-08-25 반영), 아니면 손서명 비율(2.86cm x 1cm)
 // maxCx: 삽입 위치(표 셀)의 폭 상한(EMU) — 칸보다 크면 비율 유지로 축소해 칸 밖 이탈 방지 (#132, 2026-08-27)
-function inlineSigDrawing(rId: string, docPrId: number, square = false, maxCx?: number): string {
-  let cx = square ? 468000 : 1080000, cy = square ? 468000 : 378000;
+function inlineSigDrawing(rId: string, docPrId: number, square = false, maxCx?: number, ratio?: number): string {
+  // 세로 기준: 본문 줄(10pt) 옆에 들어가도 위로 솟지 않는 높이 — 손서명 0.55cm, 직인 0.75cm.
+  // 예전에는 손서명 1cm(28pt)라 이름 줄보다 반 줄 위로 떠 보였다 (#166, 2026-08-27)
+  let cy = square ? 270000 : 198000;
+  // 가로: 이미지 실제 비율대로 (비율을 못 읽으면 종래 비율로 폴백)
+  let cx = ratio && ratio > 0 ? Math.round(cy * ratio) : (square ? 270000 : Math.round(cy * (1080000 / 378000)));
+  // 손서명이 지나치게 길어지지 않게 상한 (가로로 흘려 쓴 서명 대비)
+  const HARD_MAX = square ? 360000 : 1300000;
+  if (cx > HARD_MAX) { cy = Math.round((cy * HARD_MAX) / cx); cx = HARD_MAX; }
   if (maxCx && maxCx > 0 && cx > maxCx) {
     cy = Math.round((cy * maxCx) / cx);
     cx = maxCx;
@@ -177,7 +209,10 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
         docXml = docXml.split(t.marker).join("");
         continue;
       }
-      zip.file(`word/media/${t.media}`, await fs.readFile(t.imagePath || t.signer.sigPath));
+      const imgBuf = await fs.readFile(t.imagePath || t.signer.sigPath);
+      zip.file(`word/media/${t.media}`, imgBuf);
+      const dim = imageSize(imgBuf);
+      const ratio = dim && dim.h > 0 ? dim.w / dim.h : undefined; // 실제 가로세로비 (#166)
       rels = rels.replace(
         "</Relationships>",
         `<Relationship Id="${t.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${t.media}"/></Relationships>`
@@ -214,7 +249,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
             if (tcw) maxCx = Math.round(Number(tcw[1]) * 635 * 0.85);
           }
         }
-        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square, maxCx);
+        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square, maxCx, ratio);
         if (para && sealAfter.test(paraText)) {
           // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 인라인 서명으로 대체
           docXml = docXml.slice(0, pStart) + replaceMarkerAndSeal(para, t.marker, drawing) + docXml.slice(paraEnd);

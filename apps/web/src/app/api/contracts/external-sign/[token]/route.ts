@@ -139,9 +139,14 @@ export async function POST(
   // (개선 제안 2026-08-25, 이예지대리). 마지막 단계면 아래 완료 알림이 대신한다 (#136)
   if (nextStep) {
     const { hrBotSendDM } = await import("@/lib/bot");
+    const { getAppUrl } = await import("@/lib/app-url");
+    const { contractPageLink } = await import("@/lib/contract-notify");
+    // 알림에는 항상 해당 화면 바로가기를 넣는다 (#167)
+    const creatorId = contract.createdBy || contract.userId;
+    const creatorRole = (await prisma.user.findUnique({ where: { id: creatorId }, select: { role: true } }))?.role;
     hrBotSendDM(
-      contract.createdBy || contract.userId,
-      `✍️ 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.`
+      creatorId,
+      `✍️ 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.\n확인: ${getAppUrl()}${contractPageLink(creatorRole)}`
     ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
     await prisma.contractApprovalStep.update({ where: { id: nextStep.id }, data: { status: "PENDING" } });
     // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가

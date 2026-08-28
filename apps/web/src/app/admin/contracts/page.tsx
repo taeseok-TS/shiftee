@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -81,6 +81,26 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
 };
+
+// 상태 필터 트리거에 코드값 대신 표시할 라벨 (#141)
+const FILTER_STATUS_LABEL: Record<string, string> = {
+  DRAFT: "초안", SENT: "직원 서명 대기", APPROVED: "결재 중", SIGNED: "완료", EXPIRED: "만료",
+};
+
+// 발송 승인자 3칸 고정 슬롯 (#158·#159) — 단계와 역할이 화면에 고정으로 보이게
+type ApproverSlots = [string | null, string | null, string | null];
+const SLOT_ROLES = ["본부", "원장", "근로자"] as const;
+
+// 문서 종류 필터 그룹 (#168) — 템플릿 이름으로 4그룹 분류. "퇴직시 비밀유지"는 퇴사 쪽
+const DOC_GROUPS = ["근로계약서", "신규입사 서류", "퇴사 서류", "신청 서류"] as const;
+type DocGroup = (typeof DOC_GROUPS)[number];
+function docGroupOf(name: string): DocGroup {
+  if (name.includes("퇴직시")) return "퇴사 서류";
+  if (name.includes("근로계약서") || name.includes("코디") || name.includes("기타직무")) return "근로계약서";
+  if (name.includes("비밀유지") || name.includes("개인정보")) return "신규입사 서류";
+  if (name.includes("사직원") || name.includes("금품청산") || name.includes("퇴직금") || name.includes("연차수당")) return "퇴사 서류";
+  return "신청 서류";
+}
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 function getFileUrl(fileUrl: string): string {
@@ -176,7 +196,11 @@ export default function ContractsPage() {
 
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTarget, setSendTarget] = useState<Contract | null>(null);
-  const [approverIds, setApproverIds] = useState<string[]>([]);
+  // 승인자는 3칸 고정 슬롯 — 1단계 본부 / 2단계 원장 / 3단계 근로자 (#158·#159).
+  // 서버 계약은 그대로라 발송 시 null 을 뺀 배열(approverIds)로 변환해 보낸다.
+  const [approverSlots, setApproverSlots] = useState<ApproverSlots>([null, null, null]);
+  const [activeSlot, setActiveSlot] = useState<number | null>(null); // 슬롯을 먼저 눌러 "지금 채울 칸" 지정
+  const approverIds = approverSlots.filter((x): x is string => !!x);
   const [approverSearch, setApproverSearch] = useState(""); // 승인자 검색 (발송 다이얼로그)
   const [updateApproverSearch, setUpdateApproverSearch] = useState(""); // 결재자 수정 검색
 
@@ -187,6 +211,7 @@ export default function ContractsPage() {
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
+  const [signZoom, setSignZoom] = useState(1); // 서명 모달 문서 확대·축소 0.75~2.0 (#160)
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -635,7 +660,7 @@ export default function ContractsPage() {
       for (const t of resignTemplates) if (t && !ids.includes(t.id)) ids.push(t.id);
     }
     const results = await Promise.all(
-      ids.map(id => fetch(`/api/contract-templates/${id}/fields`).then(r => r.json()).catch(() => ({})))
+      ids.map(id => fetch(`/api/contract-templates/${id}/fields${externalMode ? "?external=1" : ""}`).then(r => r.json()).catch(() => ({})))
     );
     const fields: string[] = [];
     const conditions: string[] = [];
@@ -669,6 +694,13 @@ export default function ContractsPage() {
 
   // 제목 자동 생성 — "올해연도 + 직원명 + 근로계약서(또는 템플릿명)"
   // 패키지/근로계약서(EMPLOYMENT)/템플릿 미선택 → "근로계약서", 그 외 단일 템플릿 → 템플릿명
+  // 문서 제목 접두사 "연도 지점 이름" — 모든 문서가 같은 규칙을 쓰게 (#161, 2026-08-28)
+  const titlePrefix = (userId: string) => {
+    const emp = employees.find(e => e.id === userId);
+    const year = new Date().getFullYear();
+    return `${year}${emp?.branch ? ` ${emp.branch}` : ""} ${emp?.name || ""}`.trim();
+  };
+
   const autoContractTitle = (userId: string, templateId?: string, bundle?: boolean, resign?: boolean) => {
     const year = new Date().getFullYear();
     const emp = employees.find(e => e.id === userId);
@@ -949,9 +981,9 @@ export default function ContractsPage() {
               { templateId: selectedTemplate, title, type: "EMPLOYMENT",
                 startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
                 extraFields: per, employeeOnly: false },
-              { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${emp.name}`, type: "CONFIDENTIAL",
+              { templateId: ndaTemplate.id, title: `${titlePrefix(emp.id)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
                 extraFields: per, employeeOnly: true },
-              { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${emp.name}`, type: "OTHER",
+              { templateId: privacyTemplate.id, title: `${titlePrefix(emp.id)} 개인정보수집이용동의서`, type: "OTHER",
                 extraFields: { ...per, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
             ];
             res = await fetch("/api/contracts/bundle", {
@@ -1010,9 +1042,9 @@ export default function ContractsPage() {
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
           startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
           extraFields: allExtra, employeeOnly: false },
-        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${extName}`, type: "CONFIDENTIAL",
+        { templateId: ndaTemplate.id, title: `${new Date().getFullYear()} ${extName} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
-        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${extName}`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${new Date().getFullYear()} ${extName} 개인정보수집이용동의서`, type: "OTHER",
           // 선택 항목은 기본 동의 — 외부 계약자가 서명 페이지에서 미동의로 바꿀 수 있음
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
@@ -1045,9 +1077,9 @@ export default function ContractsPage() {
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
           startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
           extraFields: allExtra, employeeOnly: false },
-        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${empName}`, type: "CONFIDENTIAL",
+        { templateId: ndaTemplate.id, title: `${titlePrefix(createForm.userId)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
-        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} 개인정보수집이용동의서`, type: "OTHER",
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
       const res = await fetch("/api/contracts/bundle", {
@@ -1089,7 +1121,7 @@ export default function ContractsPage() {
         { templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         { templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         // 비밀유지서약서(퇴직시) — 결재표(원장·본부)가 서식에 추가되어 결재라인을 태운다 (QA 2026-08-25)
-        { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직시)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
+        { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1126,9 +1158,9 @@ export default function ContractsPage() {
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
           startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
           extraFields: allExtra, employeeOnly: false },
-        { templateId: ndaTemplate.id, title: `비밀유지서약서 - ${empName}`, type: "CONFIDENTIAL",
+        { templateId: ndaTemplate.id, title: `${titlePrefix(createForm.userId)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
-        { templateId: privacyTemplate.id, title: `개인정보수집이용동의서 - ${empName}`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} 개인정보수집이용동의서`, type: "OTHER",
           // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
@@ -1246,7 +1278,7 @@ ${url}`;
         toast.success(`패키지 ${data.sent}종 발송됨`);
       }
       setSendOpen(false);
-      setApproverIds([]);
+      resetApproverSlots();
       fetchContracts();
       return;
     }
@@ -1276,8 +1308,51 @@ ${url}`;
       toast.success("계약서 발송됨");
     }
     setSendOpen(false);
-    setApproverIds([]);
+    resetApproverSlots();
     fetchContracts();
+  }
+
+  // ── 승인자 슬롯 조작 (#158·#159) ──────────────────────────────
+  function resetApproverSlots() {
+    setApproverSlots([null, null, null]);
+    setActiveSlot(null);
+  }
+
+  // 후보 클릭 → 지정한 슬롯(없으면 비어 있는 가장 앞 슬롯)에 배정. 같은 사람 중복 배치는 방지
+  function assignApprover(id: string) {
+    setApproverSlots(prev => {
+      const idx = activeSlot !== null ? activeSlot : prev.findIndex(x => !x);
+      if (idx < 0) return prev;
+      const next = [...prev] as ApproverSlots;
+      for (let i = 0; i < next.length; i++) if (next[i] === id) next[i] = null;
+      next[idx] = id;
+      return next;
+    });
+    setActiveSlot(null);
+  }
+
+  function clearApproverSlot(i: number) {
+    setApproverSlots(prev => {
+      const next = [...prev] as ApproverSlots;
+      next[i] = null;
+      return next;
+    });
+    setActiveSlot(null);
+  }
+
+  // 슬롯에 표시할 이름 — 외부 계약의 userId 는 "작성한 관리자"라 당사자 표기에서 제외
+  function approverName(id: string): string {
+    if (!sendTarget) return "?";
+    if (id === "EXTERNAL") return sendTarget.externalName || "외부 서명자";
+    if (id === sendTarget.userId && !sendTarget.externalName) return sendTarget.user?.name || "직원";
+    return employees.find(x => x.id === id)?.name || "?";
+  }
+  function approverLabel(id: string): string {
+    if (!sendTarget) return "?";
+    if (id === "EXTERNAL") return `${sendTarget.externalName || "외부 서명자"} (외부 · 링크 서명)`;
+    if (id === sendTarget.userId && !sendTarget.externalName) return `${sendTarget.user?.name || "직원"} (당사자)`;
+    const e = employees.find(x => x.id === id);
+    return e ? `${e.branch ? `[${e.branch}] ` : ""}${e.name}` : "?";
   }
 
   const [signBusy, setSignBusy] = useState(false); // 더블클릭 중복 요청 방지 (#102, 2026-08-27)
@@ -1355,7 +1430,8 @@ ${url}`;
                 </DropdownMenu>
               )}
             </div>
-            <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+            {/* 데스크톱에서 입력 폼이 너무 좁아 라벨이 두 줄로 감기던 문제 (#143) */}
+            <DialogContent className="w-[95vw] sm:!max-w-[880px] max-h-[85vh] overflow-y-auto">
               <DialogHeader><DialogTitle>계약서 작성</DialogTitle></DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4">
                 {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송 */}
@@ -1878,14 +1954,16 @@ ${url}`;
                   };
                   const docHint = (f: string) => {
                     const hint = FIELD_DOC_HINT[f] || fieldDocs[f];
-                    return hint ? <span className="text-[10px] text-gray-400 font-normal ml-1.5">→ {hint}</span> : null;
+                    // 회색 10px 는 사실상 안 보인다는 지적 (#142) — 진하게.
+                    // 라벨(flex)은 flex-wrap 이라 한 줄에 안 들어가면 라벨 아래 줄로 내려간다
+                    return hint ? <span className="text-[11px] text-indigo-500 font-normal">→ {hint}</span> : null;
                   };
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
                     f === "실무지급률" ? (
                       // 실무평가 단계 급여 지급률 — 85% 기본, 튜터 출신 100% (#92)
                       <div key={f} className="space-y-1">
-                        <Label className="text-sm">실무평가 급여 지급률{docHint(f)}</Label>
+                        <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">실무평가 급여 지급률{docHint(f)}</Label>
                         <div className="flex gap-3 text-sm">
                           {["85", "100"].map(v => (
                             <label key={v} className="flex items-center gap-1 cursor-pointer">
@@ -1900,7 +1978,7 @@ ${url}`;
                     f === "지급기타내용" ? (
                       // '기타' 체크 시에만 입력 (#114)
                       <div key={f} className="space-y-1">
-                        <Label className="text-sm">{f}{docHint(f)}</Label>
+                        <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{docHint(f)}</Label>
                         <Input value={extraFields[f] || ""} disabled={extraFields["체크_기타"] !== "☑"}
                           placeholder={extraFields["체크_기타"] === "☑" ? "기타 금품 내용 입력" : "'기타' 체크 시에만 입력 — 특이사항 없으면 미기재"}
                           onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))} />
@@ -1916,7 +1994,7 @@ ${url}`;
                     ) : isMoneyField(f) ? (
                     // 금액 필드 — 숫자만 입력받아 천 단위 쉼표 자동 표시
                     <div key={f} className="space-y-1">
-                      <Label className="text-sm">{f}{required && " *"}{docHint(f)}</Label>
+                      <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{required && " *"}{docHint(f)}</Label>
                       <Input
                         type="text" inputMode="numeric" placeholder="예: 2,100,000"
                         value={extraFields[f] || ""}
@@ -1927,8 +2005,9 @@ ${url}`;
                       />
                     </div>
                     ) : (
-                    <div key={f} className="space-y-1">
-                      <Label className="text-sm">{f}{required && " *"}{docHint(f)}</Label>
+                    /* 요일 7칸이 들어가는 주근무시간은 2열 그리드에서 전체폭 유지 (#143) */
+                    <div key={f} className={`space-y-1${f === "주근무시간" ? " md:col-span-2" : ""}`}>
+                      <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{required && " *"}{docHint(f)}</Label>
                       {f === "주근무시간" && (
                         <div className="border rounded-md p-2 bg-gray-50/60 space-y-1">
                           <p className="text-[11px] text-gray-500">요일별 근무시간(숫자)을 넣으면 자동 합산됩니다 — 쉬는 요일은 비워두세요</p>
@@ -1998,14 +2077,19 @@ ${url}`;
                               </div>
                             </div>
                           )}
-                          {mainFields.map(f => renderDynField(f))}
+                          {/* 데스크톱 2열 (#143) */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {mainFields.map(f => renderDynField(f))}
+                          </div>
                         </div>
                       )}
                       {ndaFields.length > 0 && (
                         <div className="space-y-3 border border-violet-200 rounded-lg p-3 bg-violet-50/40">
                           <p className="text-xs font-semibold text-violet-700">비밀유지서약서 · 개인정보동의서 입력 (필수)</p>
                           <p className="text-[11px] text-violet-600">서약서 본문의 성명 줄(생년월일)과 주소, 수신인(원장명)에 들어갑니다.</p>
-                          {ndaFields.map(f => renderDynField(f, true))}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {ndaFields.map(f => renderDynField(f, true))}
+                          </div>
                         </div>
                       )}
                     </>
@@ -2362,7 +2446,7 @@ ${url}`;
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignOpen(true); }} className="gap-1">
+                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignOpen(true); }} className="gap-1">
                   <PenLine size={14} />승인
                 </Button>
               </div>
@@ -2385,10 +2469,10 @@ ${url}`;
                   <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
                 </div>
                 <div className="flex gap-2">
-                  <a href={getFileUrl(c.fileUrl)} target="_blank" rel="noreferrer">
+                  <a href={`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(c.fileUrl))}&title=${encodeURIComponent(c.title)}&download=1`} target="_blank" rel="noreferrer" title="PDF로 내려받기">
                     <Button size="sm" variant="outline"><Download size={14} /></Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -2403,15 +2487,16 @@ ${url}`;
         <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />계약서 목록</CardTitle></CardHeader>
         <CardContent>
           {/* 필터 */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4 pb-4 border-b">
+          {/* 값이 잘리지 않도록 12칸 기준으로 폭 재배분 (#141) — 문서종류·지점·직원은 넓게 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mb-4 pb-4 border-b">
             {/* 연도 */}
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2 min-w-0">
               <Label className="text-xs font-medium">연도</Label>
               <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setFilterMonth(""); }}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="h-8 text-xs w-full">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-80">
                   {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (
                     <SelectItem key={year} value={year.toString()}>{year}년</SelectItem>
                   ))}
@@ -2420,13 +2505,13 @@ ${url}`;
             </div>
 
             {/* 월 */}
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2 min-w-0">
               <Label className="text-xs font-medium">월</Label>
               <Select value={filterMonth} onValueChange={setFilterMonth} disabled={!filterYear}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="h-8 text-xs w-full">
                   <SelectValue placeholder="전체" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-80">
                   <SelectItem value="">전체</SelectItem>
                   {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map(month => (
                     <SelectItem key={month} value={month}>{month}월</SelectItem>
@@ -2436,13 +2521,16 @@ ${url}`;
             </div>
 
             {/* 상태 */}
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-3 min-w-0">
               <Label className="text-xs font-medium">상태</Label>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="전체" />
+                <SelectTrigger className="h-8 text-xs w-full">
+                  {/* items 를 Root 에 넘기지 않으면 라벨이 아니라 코드값(DRAFT 등)이 그대로 보인다 */}
+                  <SelectValue placeholder="전체">
+                    {FILTER_STATUS_LABEL[filterStatus] || "전체"}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-80 min-w-[200px]">
                   <SelectItem value="">전체</SelectItem>
                   <SelectItem value="DRAFT">초안</SelectItem>
                   <SelectItem value="SENT">직원 서명 대기</SelectItem>
@@ -2455,16 +2543,16 @@ ${url}`;
 
             {/* 지점 (ADMIN/MANAGER만) — 계약 당사자의 소속 지점으로 조회 */}
             {role !== "EMPLOYEE" && (
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-5 min-w-0">
                 <Label className="text-xs font-medium">지점</Label>
                 <Select value={filterBranch} onValueChange={(v) => { setFilterBranch(v); setFilterUserId(""); }}>
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
                     <SelectValue placeholder="전체" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-80 min-w-[280px]">
                     <SelectItem value="">전체</SelectItem>
                     {[...new Set(employees.map(e => e.branch).filter(Boolean))].sort().map(b => (
-                      <SelectItem key={b as string} value={b as string}>{b}</SelectItem>
+                      <SelectItem key={b as string} value={b as string} title={b as string}>{b}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -2473,16 +2561,19 @@ ${url}`;
 
             {/* 직원 (ADMIN/MANAGER만) */}
             {role !== "EMPLOYEE" && (
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-4 min-w-0">
                 <Label className="text-xs font-medium">직원</Label>
                 <Select value={filterUserId} onValueChange={setFilterUserId}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="전체" />
+                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
+                    {/* 선택값이 ID로 표시되지 않도록 이름을 직접 렌더 */}
+                    <SelectValue placeholder="전체">
+                      {filterUserId ? (employees.find(e => e.id === filterUserId)?.name ?? "전체") : "전체"}
+                    </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-80 min-w-[280px]">
                     <SelectItem value="">전체</SelectItem>
                     {employees.filter(emp => !filterBranch || emp.branch === filterBranch).map(emp => (
-                      <SelectItem key={emp.id} value={emp.id}>
+                      <SelectItem key={emp.id} value={emp.id} title={`${emp.branch ? `[${emp.branch}] ` : ''}${emp.name}`}>
                         {emp.branch ? `[${emp.branch}] ` : ''}{emp.name}
                       </SelectItem>
                     ))}
@@ -2493,26 +2584,40 @@ ${url}`;
 
             {/* 문서 종류 (#135) */}
             {role !== "EMPLOYEE" && (
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-6 min-w-0">
                 <Label className="text-xs font-medium">문서 종류</Label>
                 <Select value={filterTemplateId} onValueChange={setFilterTemplateId}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="전체" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
+                    <SelectValue placeholder="전체">
+                      {filterTemplateId ? (templates.find(t => t.id === filterTemplateId)?.name ?? "전체") : "전체"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  {/* 성격별 4그룹으로 묶어 표시 (#168) */}
+                  <SelectContent className="max-h-80 min-w-[320px]">
                     <SelectItem value="">전체</SelectItem>
-                    {templates.map(t => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
+                    {DOC_GROUPS.map(g => {
+                      const list = templates.filter(t => docGroupOf(t.name) === g);
+                      if (list.length === 0) return null;
+                      return (
+                        <SelectGroup key={g}>
+                          <SelectLabel className="mt-1 border-t pt-1.5 text-[11px] font-semibold text-gray-500">{g}</SelectLabel>
+                          {list.map(t => (
+                            <SelectItem key={t.id} value={t.id} title={t.name}>{t.name}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
             )}
             {/* 패키지 여부 (#135) */}
             {role !== "EMPLOYEE" && (
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-2 min-w-0">
                 <Label className="text-xs font-medium">패키지</Label>
                 <Select value={filterPkg} onValueChange={setFilterPkg}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="전체" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="전체" /></SelectTrigger>
+                  <SelectContent className="max-h-80 min-w-[160px]">
                     <SelectItem value="">전체</SelectItem>
                     <SelectItem value="bundle">패키지(묶음)만</SelectItem>
                     <SelectItem value="single">단건만</SelectItem>
@@ -2522,7 +2627,7 @@ ${url}`;
             )}
 
             {/* 검색 */}
-            <div className="space-y-1">
+            <div className="space-y-1 sm:col-span-2 md:col-span-12 min-w-0">
               <Label className="text-xs font-medium">검색</Label>
               <Input
                 type="text"
@@ -2679,7 +2784,7 @@ ${url}`;
                                 <History size={12} />최신 양식
                               </Button>
                             )}
-                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); setApproverIds([]); setApproverSearch(""); setSendOpen(true); }}>
+                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendOpen(true); }}>
                               <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
                             <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
@@ -2687,26 +2792,33 @@ ${url}`;
                                 <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
                                 {sendTarget && (
                                   <div className="space-y-3">
-                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 순서대로 선택하세요. (최대 3명 · 통상 ①본부 ②원장 ③근로자)</p>
-                                    {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99) */}
+                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 단계별로 지정하세요. (1단계 본부 · 2단계 원장 · 3단계 근로자)</p>
+                                    {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99·#159) */}
                                     <div className="flex gap-2">
                                       {/* 패키지면 포함 문서 전체를 한 PDF 로 (#124) */}
-                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1">
+                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1 basis-0">
                                         <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8"><Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}</Button>
                                       </a>
                                       {!sendTarget.externalName && (
-                                        <Button type="button" variant="outline" size="sm" className="flex-1 gap-1 h-8"
+                                        <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 gap-1 h-8 whitespace-normal leading-tight"
                                           onClick={() => {
-                                            // 1단계(본부)를 먼저 고른 뒤 누르면 원장·근로자가 ②③단계로 채워진다
+                                            // 원장은 반드시 2번, 근로자는 3번 슬롯 — 1번(본부)은 직접 고른다 (#159)
                                             const emp = employees.find(e => e.id === sendTarget.userId);
                                             const mgr = emp?.branch ? employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!))) : undefined;
-                                            setApproverIds(prev => {
-                                              const next = [...prev];
-                                              if (mgr && !next.includes(mgr.id)) next.push(mgr.id);
-                                              if (!next.includes(sendTarget.userId)) next.push(sendTarget.userId);
-                                              return next.slice(0, 3);
+                                            setApproverSlots(prev => {
+                                              const next = [...prev] as ApproverSlots;
+                                              // 근로자(당사자)를 3단계에 먼저 두고, 원장은 당사자와 다른 사람일 때만 2단계에.
+                                              // 원장 본인의 계약서면 원장=근로자라 같은 사람이 두 번 결재하게 된다 (검증관 M1)
+                                              next[2] = sendTarget.userId;
+                                              next[1] = mgr && mgr.id !== sendTarget.userId ? mgr.id : null;
+                                              // 1단계에 이미 같은 사람이 들어가 있으면 비운다
+                                              if (next[0] && (next[0] === next[1] || next[0] === next[2])) next[0] = null;
+                                              return next;
                                             });
-                                          }}>원장·근로자 자동 채움</Button>
+                                            setActiveSlot(null);
+                                            if (!mgr) toast.error("담당 원장을 찾지 못했습니다 — 2단계는 직접 선택해주세요.");
+                                            else if (mgr.id === sendTarget.userId) toast.error("당사자가 해당 지점 원장입니다 — 2단계 결재자는 직접 선택해주세요.");
+                                          }}>원장·근로자 자동 채움 (본부는 직접 선택)</Button>
                                       )}
                                     </div>
                                     {sendTarget.status !== "DRAFT" && (
@@ -2714,28 +2826,31 @@ ${url}`;
                                         재발송하면 기존 결재 진행이 초기화되고 1단계부터 다시 진행됩니다.
                                       </p>
                                     )}
-                                    {/* 선택된 승인자 순서 */}
-                                    {approverIds.length === 0 ? (
-                                      <p className="text-xs text-gray-400">아래에서 검색해 선택하면 순서대로 단계가 됩니다.</p>
-                                    ) : (
-                                      <div className="space-y-1">
-                                        {approverIds.map((id, i) => {
-                                          const person = id === "EXTERNAL"
-                                            ? { name: `${sendTarget.externalName || "외부 서명자"} (외부 · 링크 서명)`, branch: null as string | null }
-                                            : id === sendTarget.userId
-                                            ? { name: `${sendTarget.user?.name || "직원"} (당사자)`, branch: null as string | null }
-                                            : employees.find(e => e.id === id);
-                                          return (
-                                            <div key={id} className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 text-sm">
-                                              <span>{i + 1}단계 · {person && "branch" in person && person.branch ? `[${person.branch}] ` : ""}{person?.name || "?"}</span>
-                                              <button type="button" onClick={() => setApproverIds(prev => prev.filter(x => x !== id))} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
+                                    {/* 단계 슬롯 3칸 고정 — 빈 칸도 항상 보인다 (#158) */}
+                                    <div className="space-y-1.5">
+                                      {approverSlots.map((id, i) => (
+                                        <div key={i}>
+                                          {id ? (
+                                            <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm ${activeSlot === i ? "border-indigo-400 bg-indigo-100 ring-2 ring-indigo-200" : "border-indigo-200 bg-indigo-50"}`}>
+                                              <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
+                                                className="text-[11px] font-semibold text-indigo-500 shrink-0" title="이 칸에 다른 사람을 넣으려면 누르세요">
+                                                {i + 1}단계 · {SLOT_ROLES[i]}
+                                              </button>
+                                              <span className="truncate">{approverLabel(id)}</span>
+                                              <button type="button" onClick={() => clearApproverSlot(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="비우기"><X size={14} /></button>
+                                            </span>
+                                          ) : (
+                                            <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
+                                              className={`flex w-full items-center justify-between rounded-md border border-dashed px-2 py-1.5 text-xs ${activeSlot === i ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-gray-300 text-gray-400 hover:border-gray-400"}`}>
+                                              <span>{i + 1}단계 · {SLOT_ROLES[i]} — 선택 필요</span>
+                                              {activeSlot === i && <span className="font-semibold">아래에서 고르세요</span>}
+                                            </button>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
                                     {/* 승인자 검색 + 후보 리스트 */}
-                                    {approverIds.length < 3 && (
+                                    {(approverSlots.some(x => !x) || activeSlot !== null) && (
                                       <>
                                         <Input
                                           placeholder="이름 또는 지점으로 검색..."
@@ -2747,14 +2862,14 @@ ${url}`;
                                           {/* 계약서 당사자 - 상단 고정 (외부 계약은 링크 서명 항목) */}
                                           {sendTarget.externalName ? (
                                             !approverIds.includes("EXTERNAL") && (
-                                              <button type="button" onClick={() => setApproverIds(prev => [...prev, "EXTERNAL"])}
+                                              <button type="button" onClick={() => assignApprover("EXTERNAL")}
                                                 className="w-full text-left px-2.5 py-1.5 text-sm text-emerald-700 font-semibold hover:bg-emerald-50">
                                                 🔗 {sendTarget.externalName} (외부 · 링크로 서명)
                                               </button>
                                             )
                                           ) : (
                                           !approverIds.includes(sendTarget.userId) && (
-                                            <button type="button" onClick={() => setApproverIds(prev => [...prev, sendTarget.userId])}
+                                            <button type="button" onClick={() => assignApprover(sendTarget.userId)}
                                               className="w-full text-left px-2.5 py-1.5 text-sm text-blue-600 font-semibold hover:bg-blue-50">
                                               👤 {sendTarget.user?.name || "직원"} (당사자)
                                             </button>
@@ -2769,7 +2884,7 @@ ${url}`;
                                               || e.name.toLowerCase().includes(approverSearch.toLowerCase())
                                               || (e.branch || "").toLowerCase().includes(approverSearch.toLowerCase()))
                                             .map(e => (
-                                              <button type="button" key={e.id} onClick={() => setApproverIds(prev => [...prev, e.id])}
+                                              <button type="button" key={e.id} onClick={() => assignApprover(e.id)}
                                                 className="w-full text-left px-2.5 py-1.5 text-sm hover:bg-gray-50">
                                                 {e.branch ? `[${e.branch}] ` : ""}{e.name}{e.role === "ADMIN" ? " · 관리자" : ""}
                                               </button>
@@ -2780,8 +2895,12 @@ ${url}`;
                                     <div className="flex gap-2 justify-end">
                                       <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
                                       {/* 발송 후 수정 불가 — 최종 확인 (#100) */}
-                                      <Button onClick={() => {
-                                        const names = approverIds.map((id, i) => `${i + 1}단계 ${id === "EXTERNAL" ? (sendTarget.externalName || "외부") : id === sendTarget.userId ? (sendTarget.user?.name || "직원") : (employees.find(e => e.id === id)?.name || "?")}`).join(" → ");
+                                      <Button disabled={approverIds.length === 0} onClick={() => {
+                                        // 어느 단계에 누가 들어갔는지 그대로 보여준다 (#158)
+                                        const names = approverSlots
+                                          .map((id, i) => (id ? `${i + 1}단계 ${SLOT_ROLES[i]} ${approverName(id)}` : null))
+                                          .filter(Boolean)
+                                          .join(" → ");
                                         if (!confirm(`${names}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
                                         handleSend(sendTarget.id);
                                       }}>발송</Button>
@@ -2811,7 +2930,7 @@ ${url}`;
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
-                <a href={getFileUrl(signTarget.fileUrl)} target="_blank" rel="noreferrer" className="text-xs text-blue-600">파일</a>
+                <a href={`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(signTarget.fileUrl))}&title=${encodeURIComponent(signTarget.title)}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600">문서 보기 (PDF)</a>
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
                 {signTarget.extraFields && Object.keys(signTarget.extraFields).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
@@ -2827,8 +2946,31 @@ ${url}`;
                   </div>
                 )}
               </div>
-              {/* 실제 서명할 문서 실물 — 패키지는 전 문서가 이어진 PDF (#125) */}
-              <iframe src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`} title="문서 미리보기" className="w-full border rounded" style={{ height: "36vh" }} />
+              {/* 실제 서명할 문서 실물 — 패키지는 전 문서가 이어진 PDF (#125) + 확대·축소 (#160) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-end gap-1">
+                  <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" title="축소"
+                    onClick={() => setSignZoom(z => Math.max(0.75, Math.round((z - 0.25) * 100) / 100))}>−</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" title="100%로 되돌리기"
+                    onClick={() => setSignZoom(1)}>{Math.round(signZoom * 100)}%</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" title="확대"
+                    onClick={() => setSignZoom(z => Math.min(2, Math.round((z + 0.25) * 100) / 100))}>+</Button>
+                </div>
+                {/* scale 로 키우면 잘리므로 iframe 크기를 1/zoom 으로 역보정 */}
+                <div className="w-full overflow-auto border rounded" style={{ height: "36vh" }}>
+                  <iframe
+                    src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`}
+                    title="문서 미리보기"
+                    style={{
+                      width: `${100 / signZoom}%`,
+                      height: `${100 / signZoom}%`,
+                      border: 0,
+                      transform: `scale(${signZoom})`,
+                      transformOrigin: "top left",
+                    }}
+                  />
+                </div>
+              </div>
               {mySignatureUrl && !drawNewSig ? (
                 /* 저장된 서명 원클릭 승인 */
                 <div className="space-y-2">
@@ -2889,7 +3031,7 @@ ${url}`;
                         이전 버전
                       </Badge>
                     </div>
-                    <a href={getFileUrl(v.fileUrl)} target="_blank" rel="noreferrer">
+                    <a href={`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(v.fileUrl))}&title=${encodeURIComponent(v.title)}&download=1`} target="_blank" rel="noreferrer">
                       <Button size="sm" variant="outline" className="w-full gap-1">
                         <Download size={12} />다운로드
                       </Button>

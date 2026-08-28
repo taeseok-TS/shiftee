@@ -78,7 +78,8 @@ export async function sendContractNotification(
   employeeEmail: string,
   employeeName: string,
   contractTitle: string,
-  appUrl: string
+  appUrl: string,
+  recipientId?: string // 본인 확인 관문용 (#140) — 남의 세션으로 열리는 것 방지
 ): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
@@ -92,7 +93,7 @@ export async function sendContractNotification(
       </div>
 
       <p>
-        <a href="${appUrl}/contracts" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           계약서 확인하기
         </a>
       </p>
@@ -120,7 +121,9 @@ export async function sendApprovalRequest(
   contractTitle: string,
   employeeName: string,
   stepOrder: number,
-  appUrl: string
+  appUrl: string,
+  // 본인 확인 관문용 (#140) — 링크 수신자
+  recipientId?: string
 ): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
@@ -136,7 +139,7 @@ export async function sendApprovalRequest(
       </div>
 
       <p>
-        <a href="${appUrl}/contracts" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           승인하기
         </a>
       </p>
@@ -163,7 +166,9 @@ export async function sendContractCompletion(
   recipientName: string,
   contractTitle: string,
   employeeName: string,
-  appUrl: string
+  appUrl: string,
+  // 본인 확인 관문용 (#140) — 링크 수신자
+  recipientId?: string
 ): Promise<void> {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
@@ -178,7 +183,7 @@ export async function sendContractCompletion(
       </div>
 
       <p>
-        <a href="${appUrl}/contracts" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           계약서 확인하기
         </a>
       </p>

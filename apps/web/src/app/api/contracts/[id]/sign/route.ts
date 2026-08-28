@@ -160,7 +160,8 @@ export async function POST(
         updated.title,
         updated.user.name,
         nextStep.order,
-        appUrl
+        appUrl,
+        nextStep.approverId || undefined
       );
     } else if (!nextStep && updated.user.email) {
       // 계약 완료
