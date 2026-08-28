@@ -338,7 +338,8 @@ export async function PATCH(
           updated.user.email,
           updated.user.name,
           updated.title,
-          appUrl
+          appUrl,
+          updated.user.id // 본인 확인 관문(#140) — 빠뜨리면 옛 링크(/contracts)로 나가 남의 세션으로 열린다
         );
       } else if (firstPendingStep.approver?.email) {
         // 직원이 아닌 다른 승인자가 첫 번째인 경우 - 승인 요청 이메일

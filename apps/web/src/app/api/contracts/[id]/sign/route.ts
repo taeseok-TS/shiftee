@@ -170,7 +170,8 @@ export async function POST(
         updated.user.name,
         updated.title,
         updated.user.name,
-        appUrl
+        appUrl,
+        updated.user.id // 본인 확인 관문(#140)
       );
     }
 
@@ -252,7 +253,8 @@ export async function POST(
           finalContract.title,
           finalContract.user.name,
           nextStep.order,
-          appUrl
+          appUrl,
+          finalContract.user.id // 본인 확인 관문(#140)
         );
       } else if (nextStep.approver?.email) {
         // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
@@ -262,7 +264,8 @@ export async function POST(
           finalContract.title,
           finalContract.user.name,
           nextStep.order,
-          appUrl
+          appUrl,
+          nextStep.approverId || undefined // 본인 확인 관문(#140)
         );
       }
     } else if (!nextStep && finalContract.user.email) {
@@ -272,7 +275,8 @@ export async function POST(
         finalContract.user.name,
         finalContract.title,
         finalContract.user.name,
-        appUrl
+        appUrl,
+        finalContract.user.id // 본인 확인 관문(#140)
       );
     }
 
