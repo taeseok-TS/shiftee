@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayDateUTC } from "@/lib/kst";
 
 // 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
 export async function GET() {
@@ -11,7 +12,7 @@ export async function GET() {
 
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
   const nowDate = new Date();
-  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
+  const today = kstTodayDateUTC();
 
   // 재직 중인 직원 (관리자 제외). "통계 포함" 꺼진 지점(테스트지점·본부 등) 소속은 카운트 제외
   const excludedBranches = (

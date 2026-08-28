@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
   // (신청 화면에서 기간을 좁혀도 이미 선택된 날짜는 payload 에 남을 수 있어, 범위 밖 공휴일을 놓친다)
   const submittedDates = (Array.isArray(scheduleData) ? scheduleData : [])
     .map((e: any) => (typeof e?.date === "string" ? e.date : ""))
-    .filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    // 형식만 맞고 실재하지 않는 날짜("2026-99-99")는 여기서 걸러낸다 —
+    // Invalid Date 가 prisma 쿼리로 들어가면 try 블록 밖이라 미처리 500 이 된다
+    .filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(new Date(d).getTime()))
     .sort();
   const holidaySet = submittedDates.length
     ? await getHolidaySet(new Date(submittedDates[0]), new Date(submittedDates[submittedDates.length - 1]))

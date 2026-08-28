@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
 
 // 오늘 출퇴근한 직원 목록 (관리자=전체, 원장=자기 지점)
@@ -12,7 +13,7 @@ export async function GET() {
 
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
   const now = new Date();
-  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const today = kstTodayDateUTC();
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const branchWhere =

@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { haversineDistance } from "@/lib/geofence";
 import { verifyAttendanceDevice } from "@/lib/device";
-import { kstHour } from "@/lib/kst";
+import { kstHour, kstTodayDateUTC } from "@/lib/kst";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { Attendance } from "@shiftee/api";
@@ -16,9 +16,8 @@ export async function POST(request: NextRequest) {
   const deviceError = await verifyAttendanceDevice(session.userId, session.role, request.headers.get("x-device-id"));
   if (deviceError) return NextResponse.json({ error: deviceError }, { status: 403 });
 
-  // 오늘 날짜를 UTC 자정으로 조회 (clock-in과 동일 규칙, @db.Date 시간대 문제 방지)
-  const nowDate = new Date();
-  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
+  // 오늘(KST) 날짜를 @db.Date 용 UTC 자정으로 (clock-in 과 동일 규칙, kst.ts 참고)
+  const today = kstTodayDateUTC();
 
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },
@@ -104,8 +103,10 @@ export async function POST(request: NextRequest) {
   }
 
   const now = new Date();
-  // 조퇴 판정은 한국시간 기준 (UTC getHours를 쓰면 KST 새벽 3시까지 조퇴로 찍히던 버그). 공휴일에는 조퇴 판정 안 함
-  const holiday = await isHoliday(kstTodayYmd());
+  // 조퇴 판정은 한국시간 기준 (UTC getHours를 쓰면 KST 새벽 3시까지 조퇴로 찍히던 버그).
+  // 휴일에는 조퇴 판정 안 함 — 기준은 "퇴근일"이 아니라 **출근일**이다.
+  // (공휴일 20시 출근 → 익일 01시 퇴근이면 퇴근일 기준으로는 평일이라 조퇴로 오기록됐다)
+  const holiday = await isHoliday(new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10));
   const isEarlyLeave = !holiday && kstHour(now) < 18;
   const status = existing.status === "LATE"
     ? (isEarlyLeave ? "EARLY_LEAVE" : "LATE")

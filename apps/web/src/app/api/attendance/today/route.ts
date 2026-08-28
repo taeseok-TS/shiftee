@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayDateUTC } from "@/lib/kst";
 
 // 오늘 본인 출퇴근 상태 (앱 출퇴근 버튼 상태 결정용)
 export async function GET() {
@@ -9,7 +10,7 @@ export async function GET() {
 
   // clock-in과 동일하게 UTC 자정 기준
   const nowDate = new Date();
-  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
+  const today = kstTodayDateUTC();
 
   const att = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },

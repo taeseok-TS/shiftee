@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { haversineDistance } from "@/lib/geofence";
 import { verifyAttendanceDevice } from "@/lib/device";
-import { kstHour, kstMinute } from "@/lib/kst";
+import { kstHour, kstMinute, kstTodayDateUTC } from "@/lib/kst";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { Attendance } from "@shiftee/api";
@@ -38,10 +38,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 오늘 날짜를 UTC 자정으로 저장 (@db.Date 컬럼은 UTC 날짜만 보관하므로
-  // 로컬 자정(KST 00:00 = 전날 15:00Z)을 쓰면 하루 전 날짜로 저장됨)
-  const nowDate = new Date();
-  const today = new Date(Date.UTC(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()));
+  // 오늘(KST) 날짜를 @db.Date 용 UTC 자정으로 (kst.ts 참고 — 컨테이너 TZ 가 UTC 라
+  // Date.UTC(now.getFullYear(), ...) 를 쓰면 하루 경계가 09:00 KST 가 된다)
+  const today = kstTodayDateUTC();
 
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },

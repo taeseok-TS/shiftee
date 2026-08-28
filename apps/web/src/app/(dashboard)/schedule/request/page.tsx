@@ -209,6 +209,14 @@ export default function ScheduleRequestPage() {
   ) / 10;                                                  // 휴가 차감시간
   const totalHours = Math.round((selectedDates.size * dailyNet - leaveDeduction) * 10) / 10;
 
+  // 신청 기간 중 평일인데 공휴일이라 자동선택에서 빠진 날 (화면에 근거를 남긴다)
+  const excludedHolidays =
+    startDate && endDate && new Date(startDate) <= new Date(endDate)
+      ? eachDayOfInterval({ start: new Date(startDate), end: new Date(endDate) })
+          .filter(d => !isWeekend(d) && !!holidayMap[format(d, "yyyy-MM-dd")])
+          .map(d => `${format(d, "M/d")} ${holidayMap[format(d, "yyyy-MM-dd")]}`)
+      : [];
+
   // 선택 날짜에 휴일(토/일 또는 공휴일) 근무가 포함되는지 (결재 정책 분기 기준 — 서버와 동일)
   const hasWeekendSel = Array.from(selectedDates).some(d => {
     if (holidayMap[d]) return true;
@@ -482,7 +490,7 @@ export default function ScheduleRequestPage() {
                               {holidayName}
                             </span>
                           )}
-                          {leaveFrac > 0 && !isWeekendDay && (
+                          {leaveFrac > 0 && !isWeekend(day) && (
                             <span className={`block text-[9px] leading-tight ${isSelected ? "text-amber-200" : "text-amber-600"}`}>
                               {leaveFrac === 1 ? "휴가" : leaveFrac === 0.5 ? "반차" : "반반차"}
                             </span>
@@ -506,6 +514,19 @@ export default function ScheduleRequestPage() {
                       </span>
                     )}
                   </div>
+                  {excludedHolidays.length > 0 && (
+                    <div className="text-sm text-red-600">
+                      공휴일 <span className="font-semibold">{excludedHolidays.length}일</span> 제외
+                      <span className="ml-1 text-xs text-red-500">
+                        ({excludedHolidays.slice(0, 3).join(", ")}{excludedHolidays.length > 3 ? " 외" : ""})
+                      </span>
+                    </div>
+                  )}
+                  {holidayState === "error" && (
+                    <div className="text-sm text-amber-700">
+                      ⚠️ 공휴일 정보를 불러오지 못했습니다 — 연휴가 근무일로 잡힐 수 있으니 날짜를 확인해주세요.
+                    </div>
+                  )}
                   {leaveDeduction > 0 && (
                     <div className="text-sm text-amber-700">
                       승인된 휴가 차감: <span className="font-semibold">-{leaveDeduction}시간</span>

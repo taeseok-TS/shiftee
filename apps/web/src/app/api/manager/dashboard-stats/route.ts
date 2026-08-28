@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
 
@@ -22,7 +23,7 @@ export async function GET() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
-  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const today = kstTodayDateUTC();
 
   const [teamCount, todayRecords, onLeave, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
     await Promise.all([
