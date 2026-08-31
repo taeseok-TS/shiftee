@@ -57,7 +57,10 @@ export async function fillDocxTemplate(
   const renderData: Record<string, string> = hl
     ? Object.fromEntries(Object.entries(data).map(([k, v]) => {
         // 조건 플래그·서명 마커·빈 값은 감싸지 않는다
-        if (k === "신규입사" || k === "재계약" || !v || /^《.*》$/.test(v)) return [k, v];
+        if (k === "신규입사" || k === "재계약" || /^《.*》$/.test(v)) return [k, v];
+        // 주소·생년월일은 프로필이 비어도 항상 ""로 실려 nullGetter 를 타지 않는다 —
+        // 계약자가 서명 단계에 채우는 자리라 빈칸 대신 진행 상태를 표시 (#190, 2026-08-31 이예지대리)
+        if (!v) return [k, EMPLOYEE_FILL_AT_SIGN.has(k) ? MS + "〔계약자 입력〕" + ME : v];
         return [k, HS + v + HE];
       }))
     : data;
@@ -72,7 +75,10 @@ export async function fillDocxTemplate(
     nullGetter: (part: { value?: string }) => {
       const tag = part?.value || "";
       if (tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_")) return "□";
-      return hl ? MS + "〔미입력〕" + ME : "";
+      if (!hl) return "";
+      // 계약자(근로자)가 서명 단계에서 채우는 항목은 누락이 아니라 정상 진행 상태다 —
+      // 〔미입력〕이 오류처럼 읽혀 결재자가 반려·문의하던 문제 (#190, 2026-08-31 이예지대리)
+      return MS + (isEmployeeInputField(tag) ? "〔계약자 입력〕" : "〔미입력〕") + ME;
     },
   });
   doc.render(renderData);
@@ -226,6 +232,9 @@ export const SYSTEM_FIELDS = new Set([
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
 ]);
+
+// 프로필 필드지만 비어 있으면 계약자가 서명 단계에서 직접 채운다 (scanTemplateProfileFields 대상과 동일)
+const EMPLOYEE_FILL_AT_SIGN = new Set(["주소", "생년월일"]);
 
 // 직원이 서명 시 직접 입력하는 필드는 화이트리스트('사유'류 자유서술)만 — 그 외 모든 필드는
 // 관리자가 작성 시 입력. (교육평가시작 등 새 템플릿 필드가 직원에게 잘못 넘어가는 사고 방지)

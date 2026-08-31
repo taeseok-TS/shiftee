@@ -1665,7 +1665,9 @@ export default function ContractsPage() {
                     <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 <b>동의합니다</b>. (동의하지 않으면 채용이 취소·제한될 수 있습니다)</span>
                   </label>
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-amber-800">선택 동의 항목 (동의하지 않아도 됩니다)</p>
+                    {/* 괄호 안내가 미동의를 권유하는 것처럼 읽혀 중립 문구로 교체 (#181, 2026-08-31 김가산) */}
+                    <p className="text-xs font-semibold text-amber-800">선택 동의 항목</p>
+                    <p className="text-[11px] text-amber-700">동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</p>
                     {consentKeys.map(k => (
                       <div key={k} className="space-y-1">
                         <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>

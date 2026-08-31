@@ -304,7 +304,9 @@ export default function ContractListScreen() {
                 개인정보 수집·이용, 민감정보, 제3자 제공 등 필수 항목은 동의로 처리됩니다 (미동의 시 채용 제한). 아래 선택 항목만 자유롭게 고르세요.
               </Text>
               <View style={styles.consentBox}>
-                <Text style={styles.consentTitle}>선택 동의 항목 (동의하지 않아도 됩니다)</Text>
+                {/* 괄호 안내가 미동의를 권유하는 것처럼 읽혀 중립 문구로 교체 (#181, 2026-08-31 김가산) */}
+                <Text style={styles.consentTitle}>선택 동의 항목</Text>
+                <Text style={styles.consentTitleNote}>동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</Text>
                 {consentKeys.map(k => (
                   <View key={k} style={{ marginBottom: 6 }}>
                     <Text style={styles.consentLabel}>{CONSENT_LABELS[k]}</Text>
@@ -581,6 +583,8 @@ const styles = StyleSheet.create({
   consentBox: { marginHorizontal: 20, marginBottom: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb" },
   consentTitle: { fontSize: 12, fontWeight: "700", color: "#92400e", marginBottom: 6 },
   consentLabel: { fontSize: 12, color: "#374151" },
+  // 동의 항목 라벨(consentLabel)과 같은 글꼴이면 첫 항목의 일부처럼 읽힌다 — 크기·색·간격으로 분리
+  consentTitleNote: { fontSize: 11, color: "#b45309", marginBottom: 8 },
   consentOpt: { fontSize: 13, color: "#374151" },
   profileInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, backgroundColor: "#fff", marginTop: 3, color: "#111827" },
   viewDocBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#c7d2fe", backgroundColor: "#eef2ff", marginBottom: 10 },
