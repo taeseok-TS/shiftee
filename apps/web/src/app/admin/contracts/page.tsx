@@ -581,7 +581,9 @@ export default function ContractsPage() {
     "원장서명", "본부서명", // 결재란 서명 마커 — 서명본에서 자동 삽입
     "주소", "생년월일", // 프로필 자동 채움(비면 직원이 서명 시 입력)
     "연봉한글", "기본급", "월급여합계", "연봉총액", "식대", "연봉숫자", // 연봉에서 자동 계산되는 필드
-    "동의고유식별", "동의채용정보"]; // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
+    "동의고유식별", "동의채용정보", // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
+    "지점명", "지급기타표기", "동의필수표기", // 서버가 다른 값에서 만들어내는 파생 표기 필드 (#144·#145)
+    "신규입사", "재계약"]; // 계약 구분 라디오가 담당 — 입력란으로 노출하지 않는다
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
   const [employeeFillFields, setEmployeeFillFields] = useState<string[]>([]); // 직원이 서명 시 직접 입력(퇴사일자 등)
@@ -806,19 +808,23 @@ export default function ContractsPage() {
   //  (7/6 입사→실무 7/27, 8/31 입사→실무 9/18 두 확정례 모두 이 공식으로 성립 — 기존 "+2일"은 8/31 케이스에서 이틀 밀렸음)
   //  실무평가 종료 = 입사일 + 3개월 - 1일
   const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
+  // 기준일 — 담당자가 문서의 {근로시작일}을 직접 넣었으면 그 값이 우선, 없으면 계약 시작일.
+  // 재계약의 근로시작일은 "최초 입사일"이라 평가 단계 기준으로 쓰면 안 된다 (#175, 2026-08-31)
+  const evalBaseDate =
+    (contractKind === "신규입사" && (extraFields["근로시작일"] || "").trim()) || createForm.startDate;
   useEffect(() => {
-    if (!templateFields.includes("교육평가시작") || !createForm.startDate) return;
-    const y = Number(createForm.startDate.slice(0, 4));
+    if (!templateFields.includes("교육평가시작") || !evalBaseDate) return;
+    const y = Number(evalBaseDate.slice(0, 4));
     if (!y || y < 2000) return;
     // 3개월 범위가 다음 해로 넘어갈 수 있어 두 해 로드
     Promise.all([y, y + 1].map(yy => fetch(`/api/holidays?year=${yy}`).then(r => r.json()).catch(() => ({ holidays: [] }))))
       .then(res => setHolidaySet(new Set(res.flatMap(d => (d.holidays || []).map((h: { date: string }) => h.date)))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateFields, createForm.startDate?.slice(0, 4)]);
+  }, [templateFields, evalBaseDate?.slice(0, 4)]);
 
   useEffect(() => {
     if (!templateFields.includes("교육평가시작")) return;
-    const start = createForm.startDate;
+    const start = evalBaseDate;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || "") || holidaySet.size === 0) return;
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
     const isBiz = (d: Date) => {
@@ -849,7 +855,7 @@ export default function ContractsPage() {
       return u.교육평가종료 === prev.교육평가종료 && u.실무평가종료 === prev.실무평가종료 && u.교육평가시작 === prev.교육평가시작 && u.실무평가시작 === prev.실무평가시작 ? prev : u;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateFields, createForm.startDate, holidaySet]);
+  }, [templateFields, evalBaseDate, holidaySet]);
 
   // 퇴사일자 입력 시 근무종료일·연차종료일 + 지급희망일 자동 기입 (이후 수동 수정 가능)
   // 지급희망일 규칙 (#115, 이예지대리 확정 2026-08-27): 임금은 항상 해당 월 말일,
@@ -2788,19 +2794,21 @@ ${url}`;
                               <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
                             <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
-                              <DialogContent className="max-w-sm">
+                              {/* 폭 — 안내 문구가 박스 밖으로 삐져나오던 것 (#178, 2026-08-31 이예지대리) */}
+                              <DialogContent className="max-w-lg sm:max-w-lg">
                                 <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
                                 {sendTarget && (
                                   <div className="space-y-3">
                                     <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 단계별로 지정하세요. (1단계 본부 · 2단계 원장 · 3단계 근로자)</p>
                                     {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99·#159) */}
+                                    {/* min-w-0 이 없으면 flex 항목이 글자 최소폭 밑으로 줄지 않아 모달 밖으로 밀려난다 (#178) */}
                                     <div className="flex gap-2">
                                       {/* 패키지면 포함 문서 전체를 한 PDF 로 (#124) */}
-                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1 basis-0">
-                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8"><Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}</Button>
+                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1 basis-0 min-w-0">
+                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8 whitespace-normal leading-tight"><Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}</Button>
                                       </a>
                                       {!sendTarget.externalName && (
-                                        <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 gap-1 h-8 whitespace-normal leading-tight"
+                                        <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 min-w-0 gap-1 h-8 whitespace-normal leading-tight"
                                           onClick={() => {
                                             // 원장은 반드시 2번, 근로자는 3번 슬롯 — 1번(본부)은 직접 고른다 (#159)
                                             const emp = employees.find(e => e.id === sendTarget.userId);

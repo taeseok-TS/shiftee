@@ -186,6 +186,8 @@ export default function ContractsPage() {
   const [saveSig, setSaveSig] = useState(true); // 서명 후 저장 여부
   const [drawNewSig, setDrawNewSig] = useState(false); // 저장 서명 대신 새로 그리기 (#127 — 저장 서명이 기본)
   const [previewZoom, setPreviewZoom] = useState(false); // 미리보기 클릭 확대 (개선 제안 #73)
+  const [previewLoading, setPreviewLoading] = useState(true); // 미리보기 로딩 표시 (#179)
+  const [zoomLoading, setZoomLoading] = useState(true); // 확대 창 로딩 표시 (#179)
   // 주민등록번호 자동 하이픈 (개선 제안 #74): 숫자만 받아 6자리 뒤에 - 삽입, 13자리 제한
   const formatRrn = (raw: string) => {
     const d = raw.replace(/\D/g, "").slice(0, 13);
@@ -1344,7 +1346,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -1371,7 +1373,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -1784,13 +1786,25 @@ export default function ContractsPage() {
                   {/* 무슨 내용에 서명하는지 같은 화면에서 보이게 — 내용 미리보기 내장 (QA 2026-08-25, 김가산) */}
                   {consentKeys.length === 0 && (
                     <>
-                      {/* 미리보기 아무 데나 클릭하면 크게 보기 (개선 제안 #73) */}
+                      {/* 미리보기 아무 데나 클릭하면 크게 보기 (개선 제안 #73)
+                          38vh 였을 땐 A4 한 장이 통째로 줄어들어 본문 글씨가 1~2px 이 됐다 —
+                          "확대하지 않은 상태에서도 조항이 읽혀야 한다"는 지적(#180)에 따라 높이를 키웠다.
+                          변환 PDF 는 글꼴이 박힌 벡터 문서라 확대하면 선명하다(해상도 문제가 아니었다). */}
                       <div className="relative">
-                        <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기" className="w-full border rounded" style={{ height: "38vh" }} />
-                        <button type="button" onClick={() => setPreviewZoom(true)} title="클릭하여 크게 보기"
-                          className="absolute inset-0 cursor-zoom-in flex items-end justify-center pb-2">
-                          <span className="text-[11px] bg-black/50 text-white rounded-full px-2.5 py-1">🔍 클릭하면 크게 보입니다</span>
+                        <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기"
+                          className="w-full border rounded bg-gray-50" style={{ height: "60vh" }}
+                          onLoad={() => setPreviewLoading(false)} />
+                        <button type="button" onClick={() => { setZoomLoading(true); setPreviewZoom(true); }} title="클릭하여 크게 보기"
+                          className="absolute inset-0 cursor-zoom-in flex items-start justify-end p-2">
+                          <span className="text-[11px] bg-black/60 text-white rounded-full px-2.5 py-1 shadow">🔍 클릭하면 크게 보입니다</span>
                         </button>
+                        {/* 로딩 중 빈 화면이면 오류인지 대기 중인지 구분이 안 된다는 지적 (#179) */}
+                        {previewLoading && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/80 pointer-events-none">
+                            <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
+                            <span className="text-xs text-gray-500">문서를 불러오는 중입니다…</span>
+                          </div>
+                        )}
                       </div>
                       <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600">크게 보기 (새 창)</a>
                     </>
@@ -1837,7 +1851,16 @@ export default function ContractsPage() {
             <DialogTitle className="text-base">{signTarget?.title || "계약서"}</DialogTitle>
           </DialogHeader>
           {signTarget && previewZoom && (
-            <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} className="flex-1 w-full border-0" title="계약서 확대" />
+            <div className="relative flex-1 min-h-0">
+              <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} className="h-full w-full border-0" title="계약서 확대"
+                onLoad={() => setZoomLoading(false)} />
+              {zoomLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/80 pointer-events-none">
+                  <span className="h-7 w-7 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
+                  <span className="text-xs text-gray-500">문서를 불러오는 중입니다…</span>
+                </div>
+              )}
+            </div>
           )}
           <div className="px-4 py-3 border-t shrink-0 flex justify-end">
             <Button onClick={() => setPreviewZoom(false)} variant="outline">닫기</Button>

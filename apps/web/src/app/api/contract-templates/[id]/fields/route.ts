@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
-import { scanEmployeeFillFields, SYSTEM_FIELDS } from "@/lib/contract-fields";
+import { scanEmployeeFillFields } from "@/lib/contract-fields";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -53,13 +53,12 @@ export async function GET(
     }
     // 직원이 서명 시 직접 입력하는 필드(퇴사일자 등) — 관리자 입력란에서 제외 대상
     const employeeFields = await scanEmployeeFillFields(template.fileUrl);
-    // 시스템이 자동으로 채우는 파생 필드({지점명}·{동의필수표기}·{지급기타표기} 등)는 작성 폼에 노출하지 않는다.
-    // 노출되면 "무엇을 입력하는 칸인지 모르겠다"·오타 입력으로 이어진다 (#144·#145, 2026-08-28)
-    // 외부(미가입) 계약은 직원 레코드가 없어 생년월일·주소·지점 등을 관리자가 직접 넣어야 한다.
-    // 여기서 걸러 버리면 입력란이 사라져 빈 문서가 발송된다 (검증관 C2, 2026-08-28)
-    const isExternal = new URL(_request.url).searchParams.get("external") === "1";
-    const visible = isExternal ? fields : fields.filter((f) => !SYSTEM_FIELDS.has(f));
-    return NextResponse.json({ fields: visible, conditions: [...conditions], fieldConditions, employeeFields });
+    // ⚠️ 여기서 필드를 걸러내지 않는다. 작성 폼은 이 목록으로 "템플릿별 동적 입력란"만 만드는 게 아니라
+    //    계약 기간·연봉 입력란과 자동 채움 패널을 띄울지도 판단한다(templateFields.includes("계약시작일") 등).
+    //    #144·#145(파생 필드 노출) 때문에 여기서 SYSTEM_FIELDS 를 걸렀더니 계약 기간·연봉 입력란이
+    //    통째로 사라져 빈 값으로 계약이 발송될 뻔했다 (#175·#176, 2026-08-31 이예지대리).
+    //    파생 필드를 입력란에서 감추는 일은 작성 폼의 AUTO_FIELDS 가 담당한다 — 기준은 한 곳에만 둔다.
+    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields });
   } catch (e) {
     console.error("템플릿 필드 스캔 오류:", e);
     return NextResponse.json({ fields: [] });
