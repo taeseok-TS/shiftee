@@ -50,23 +50,42 @@ function imageSize(buf: Buffer): { w: number; h: number } | null {
   return null;
 }
 
-// 인라인 서명 이미지 drawing XML (문장 안 (인) 자리에 들어가는 작은 도장 크기)
-// square=true면 정사각 직인 크기(1.3cm — 1.7cm가 너무 크다는 QA 2026-08-25 반영), 아니면 손서명 비율(2.86cm x 1cm)
+// 인라인 서명 이미지 drawing XML
+// 크기는 "어디에 들어가는가"로 갈린다 (디렉터 확정 2026-08-31, #184·#198)
+//  · 결재 표 칸  → 칸을 채운다 (targetCy 로 행 높이 기준 크기를 받는다)
+//  · 본문 (인) 자리 → 글자 줄 옆이라 작게, 대신 줄 세로 중앙에 맞춘다 (baseline)
 // maxCx: 삽입 위치(표 셀)의 폭 상한(EMU) — 칸보다 크면 비율 유지로 축소해 칸 밖 이탈 방지 (#132, 2026-08-27)
-function inlineSigDrawing(rId: string, docPrId: number, square = false, maxCx?: number, ratio?: number): string {
-  // 세로 기준: 본문 줄(10pt) 옆에 들어가도 위로 솟지 않는 높이 — 손서명 0.55cm, 직인 0.75cm.
-  // 예전에는 손서명 1cm(28pt)라 이름 줄보다 반 줄 위로 떠 보였다 (#166, 2026-08-27)
-  let cy = square ? 270000 : 198000;
+function inlineSigDrawing(
+  rId: string, docPrId: number, square = false, maxCx?: number, ratio?: number,
+  opts?: { targetCy?: number; baseline?: boolean }
+): string {
+  // 본문 기준 높이 — 손서명 0.55cm, 직인 0.75cm.
+  // ⚠ 본문 크기를 0.8cm 로 키웠더니 가로도 함께 늘어 서명이 표 칸을 넘어가 표 오른쪽 선이
+  //   밀려 나갔다(2026-09-01 실물 확인). 본문은 칸 폭에 묶여 있으니 크기로 키우지 말고,
+  //   아래 baseline 보정으로 "줄 가운데"에 오게 해서 또렷하게 보이도록 한다.
+  //   결재 표 칸은 칸이 넓어 targetCy 로 따로 키운다 (#198).
+  let cy = opts?.targetCy ?? (square ? 270000 : 198000);
   // 가로: 이미지 실제 비율대로 (비율을 못 읽으면 종래 비율로 폴백)
   let cx = ratio && ratio > 0 ? Math.round(cy * ratio) : (square ? 270000 : Math.round(cy * (1080000 / 378000)));
   // 손서명이 지나치게 길어지지 않게 상한 (가로로 흘려 쓴 서명 대비)
-  const HARD_MAX = square ? 360000 : 1300000;
+  // 결재 칸을 채울 때(targetCy)는 상한을 걸지 않는다 — 칸 크기가 이미 상한이다
+  const HARD_MAX = opts?.targetCy ? Infinity : square ? 360000 : 1300000;
   if (cx > HARD_MAX) { cy = Math.round((cy * HARD_MAX) / cx); cx = HARD_MAX; }
   if (maxCx && maxCx > 0 && cx > maxCx) {
     cy = Math.round((cy * maxCx) / cx);
     cx = maxCx;
   }
+  // 인라인 이미지는 아래 끝이 글자 바닥선(baseline)에 놓인다. 그래서 이미지가 글자보다
+  // 크면 그만큼 위로 솟는다 — #185("근로자 서명은 맞는데 직인만 위로 올라감")의 원인이다.
+  // 이미지 세로 중앙이 글자 세로 중앙에 오도록 바닥선 아래로 내린다(w:position, 0.5pt 단위).
+  // 본문 기본 글꼴 11pt 기준 글자 중앙은 바닥선 위 약 4pt.
+  let rPr = "";
+  if (opts?.baseline) {
+    const drop = Math.round(2 * (cy / 12700 / 2 - 4));
+    if (drop > 0) rPr = `<w:rPr><w:position w:val="-${drop}"/></w:rPr>`;
+  }
   return (
+    rPr +
     `<w:drawing>` +
     `<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0">` +
     `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docPrId}" name="inlineSig${docPrId}"/>` +
@@ -249,8 +268,24 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
             if (tcw) maxCx = Math.round(Number(tcw[1]) * 635 * 0.85);
           }
         }
-        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square, maxCx, ratio);
-        if (para && sealAfter.test(paraText)) {
+        const inCell = maxCx !== undefined;
+        const isBody = Boolean(para) && sealAfter.test(paraText);
+        // 결재 표 칸(마커 단독 + 표 셀 안)은 칸을 채운다 — 행 높이의 75% (#198).
+        // 행 높이를 못 읽으면 종전 크기 그대로 둔다(표가 깨지는 것보다 작은 게 낫다).
+        let targetCy: number | undefined;
+        if (!isBody && inCell) {
+          const trOpen = Math.max(docXml.lastIndexOf("<w:tr>", idx), docXml.lastIndexOf("<w:tr ", idx));
+          const trClose = docXml.lastIndexOf("</w:tr>", idx);
+          if (trOpen !== -1 && trOpen > trClose) {
+            const h = docXml.slice(trOpen, idx).match(/<w:trHeight[^>]*w:val="(\d+)"/);
+            if (h) targetCy = Math.round(Number(h[1]) * 635 * 0.75);
+          }
+        }
+        const drawing = inlineSigDrawing(t.rId, docPrId++, t.square, maxCx, ratio, {
+          targetCy,
+          baseline: isBody,   // 글자 줄 옆에 들어갈 때만 세로 중앙 보정 (#185)
+        });
+        if (isBody) {
           // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 인라인 서명으로 대체
           docXml = docXml.slice(0, pStart) + replaceMarkerAndSeal(para, t.marker, drawing) + docXml.slice(paraEnd);
         } else {
