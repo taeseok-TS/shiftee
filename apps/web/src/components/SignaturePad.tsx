@@ -31,8 +31,11 @@ export const SignaturePad = forwardRef<SignaturePadHandle, { height?: number }>(
       ctx.scale(ratio, ratio);
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, rect.width, rect.height);
-      ctx.strokeStyle = "#111827";
-      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = "#0b1220";
+      // 서명은 문서에 0.55cm 높이로 들어가며 캔버스 대비 약 1/8 로 줄어든다.
+      // 2.2px 로 그리면 축소 후 0.27px 가 되어 회색으로 흐려진다(#184 "너무 연함").
+      // 3배 가까이 굵게 그려야 문서에서 또렷하다 — 실측 비교로 확인.
+      ctx.lineWidth = 6;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
     }, []);

@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import PdfViewer from "@/components/PdfViewer";
 
 type Contract = {
   id: string;
@@ -81,6 +82,25 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 // 서명 전 계약서는 다운로드 대신 브라우저 열람만 (다운로드는 서명 완료본만 허용)
+// 서명 화면 미리보기용 — /docs/viewer 를 한 번 더 거치지 않고 변환 PDF 로 바로 간다.
+// 중첩 iframe(모달 → viewer → PDF) 이 로딩을 두 배로 늘리고 있었다 (#179).
+// #zoom=page-width 로 문서가 보기 영역 폭에 맞춰져 오른쪽이 잘리지 않는다 (#197).
+// PdfViewer 는 주소 해시(#zoom=...)를 쓰지 않는다 — 브라우저 내장 뷰어용 옵션이라 붙이면 안 된다
+function pdfSrc(fileUrl: string): string {
+  return pdfHref(fileUrl).split("#")[0];
+}
+
+function pdfHref(fileUrl: string): string {
+  const [rawPath, query] = fileUrl.split("?");
+  const t = new URLSearchParams(query || "").get("t");
+  const hash = "#zoom=page-width&toolbar=0&navpanes=0";
+  if (/\.pdf$/i.test(rawPath)) return fileUrl + hash;
+  if (!/\.docx?$/i.test(rawPath)) return viewHref(fileUrl);
+  const qs = new URLSearchParams({ src: rawPath });
+  if (t) qs.set("t", t);
+  return `/api/docs/pdf?${qs.toString()}${hash}`;
+}
+
 function viewHref(fileUrl: string): string {
   // 워드는 자체 인앱 뷰어(즉시 렌더). 엑셀·PPT만 MS 온라인 뷰어 유지
   if (/\.docx?$/i.test(fileUrl)) return `/docs/viewer?src=${encodeURIComponent(fileUrl)}`;
@@ -1643,10 +1663,12 @@ export default function ContractsPage() {
 
       {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{consentKeys.length > 0 ? (signStep === 1 ? "개인정보 동의 확인" : "서명") : "서명"}</DialogTitle></DialogHeader>
+        {/* 창을 확대하면 모달이 화면보다 길어져 하단 승인 버튼이 밀려 나가 서명을 못 하던 문제(#196) —
+            높이를 화면 안으로 묶고 본문만 스크롤시킨다. */}
+        <DialogContent className="max-w-2xl h-[92vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0"><DialogTitle>{consentKeys.length > 0 ? (signStep === 1 ? "개인정보 동의 확인" : "서명") : "서명"}</DialogTitle></DialogHeader>
           {signTarget && (
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
@@ -1793,9 +1815,9 @@ export default function ContractsPage() {
                           "확대하지 않은 상태에서도 조항이 읽혀야 한다"는 지적(#180)에 따라 높이를 키웠다.
                           변환 PDF 는 글꼴이 박힌 벡터 문서라 확대하면 선명하다(해상도 문제가 아니었다). */}
                       <div className="relative">
-                        <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} title="계약서 미리보기"
-                          className="w-full border rounded bg-gray-50" style={{ height: "60vh" }}
-                          onLoad={() => setPreviewLoading(false)} />
+                        <PdfViewer url={pdfSrc(getFileUrl(signTarget.fileUrl))}
+                          className="w-full border rounded" style={{ height: "52vh" }}
+                          onLoaded={() => setPreviewLoading(false)} />
                         <button type="button" onClick={() => { setZoomLoading(true); setPreviewZoom(true); }} title="클릭하여 크게 보기"
                           className="absolute inset-0 cursor-zoom-in flex items-start justify-end p-2">
                           <span className="text-[11px] bg-black/60 text-white rounded-full px-2.5 py-1 shadow">🔍 클릭하면 크게 보입니다</span>
@@ -1834,7 +1856,8 @@ export default function ContractsPage() {
                     </label>
                   </div>
                   )}
-                  <div className="flex gap-2 justify-end">
+                  {/* 스크롤해도 항상 보이도록 하단에 붙인다 (#196) */}
+                  <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                     <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")} disabled={signSubmitting}>{signSubmitting ? "서명 중..." : "서명"}</Button>
@@ -1854,8 +1877,8 @@ export default function ContractsPage() {
           </DialogHeader>
           {signTarget && previewZoom && (
             <div className="relative flex-1 min-h-0">
-              <iframe src={viewHref(getFileUrl(signTarget.fileUrl))} className="h-full w-full border-0" title="계약서 확대"
-                onLoad={() => setZoomLoading(false)} />
+              <PdfViewer url={pdfSrc(getFileUrl(signTarget.fileUrl))} className="h-full w-full"
+                onLoaded={() => setZoomLoading(false)} />
               {zoomLoading && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/80 pointer-events-none">
                   <span className="h-7 w-7 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
@@ -1877,20 +1900,16 @@ export default function ContractsPage() {
             <DialogTitle className="text-base">동의서 전문 — 끝까지 확인해주세요</DialogTitle>
           </DialogHeader>
           {signTarget && docViewerOpen && (
-            <iframe
-              src={viewHref(getFileUrl(signTarget.fileUrl))}
-              className="flex-1 w-full border-0"
-              title="동의서 전문"
-              onLoad={() => {
-                // 문서 뷰어가 PDF(iframe)로 바뀌면서 바깥 문서는 스크롤되지 않는다 —
-                // 스크롤 도달 판정이 로드 즉시 참이 되어 열람 통제가 무력화됐다 (검증관 M2, 2026-08-28).
-                // PDF 내부 스크롤 위치는 브라우저가 노출하지 않으므로 최소 열람 시간으로 대체한다.
-                setTimeout(() => setViewerAtBottom(true), 8000);
-              }}
+            /* 내장 PDF 뷰어(iframe)는 스크롤 위치를 바깥에 알려주지 않아 최소 열람 시간(8초)으로
+               대체했었다. PdfViewer 는 스크롤을 직접 다루므로 끝까지 읽었는지 정확히 판정한다 (#182). */
+            <PdfViewer
+              url={pdfSrc(getFileUrl(signTarget.fileUrl))}
+              className="flex-1 w-full"
+              onReachEnd={() => setViewerAtBottom(true)}
             />
           )}
           <div className="px-4 py-3 border-t shrink-0 flex items-center justify-between gap-3">
-            <span className="text-xs text-gray-400">{viewerAtBottom ? "확인이 완료되었습니다." : "동의서를 읽어주세요 — 잠시 후 확인 버튼이 활성화됩니다."}</span>
+            <span className="text-xs text-gray-400">{viewerAtBottom ? "확인이 완료되었습니다." : "동의서를 끝까지 내려서 읽어주세요."}</span>
             <Button disabled={!viewerAtBottom} onClick={() => { setConsentRead(true); setDocViewerOpen(false); }} className="bg-indigo-600 hover:bg-indigo-700">
               확인 (다 읽었습니다) →
             </Button>

@@ -90,7 +90,9 @@ export async function GET(request: NextRequest) {
     "Content-Type": type,
     "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(title + ext)}`,
     // 문서는 서명·재생성으로 바뀔 수 있어 캐시 금지 (구버전 표시 방지)
-    "Cache-Control": "no-store",
+    // 같은 문서를 서명 모달·확대·목록에서 반복해 열면 매번 LibreOffice 변환이 돌아 느렸다(#179).
+      // 파일 URL 에 업로드 타임스탬프가 박혀 있어 내용이 바뀌면 주소도 바뀌므로 짧게 캐시해도 안전하다.
+      "Cache-Control": "private, max-age=600",
   });
 
   // 이미 PDF 면 그대로

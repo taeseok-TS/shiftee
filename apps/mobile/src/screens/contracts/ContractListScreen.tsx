@@ -427,6 +427,9 @@ export default function ContractListScreen() {
                       onEmpty={() => Alert.alert("알림", "서명을 입력해주세요.")}
                       descriptionText=""
                       imageType="image/png"
+                      penColor="#0b1220"
+                      minWidth={3}
+                      maxWidth={7}
                       webStyle={`.m-signature-pad--footer { display: none; }
                         .m-signature-pad { box-shadow: none; border: none; }
                         body, html { width: 100%; height: 100%; }`}
