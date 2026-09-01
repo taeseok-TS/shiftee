@@ -50,42 +50,60 @@ function imageSize(buf: Buffer): { w: number; h: number } | null {
   return null;
 }
 
-// 인라인 서명 이미지 drawing XML
-// 크기는 "어디에 들어가는가"로 갈린다 (디렉터 확정 2026-08-31, #184·#198)
-//  · 결재 표 칸  → 칸을 채운다 (targetCy 로 행 높이 기준 크기를 받는다)
-//  · 본문 (인) 자리 → 글자 줄 옆이라 작게, 대신 줄 세로 중앙에 맞춘다 (baseline)
+// 서명·직인 크기와 위치 (디렉터 확정 2026-09-01, #184·#185·#198)
+//
+//  · 결재 표 칸  → 칸을 채운다 (targetCy 로 행 높이 기준 크기를 받는다). 인라인.
+//  · 본문 (인) 자리 → 높이 1.0cm 로 키우고, "떠 있는" 이미지로 넣어 글자 줄 가운데에 맞춘다.
+//
+// 왜 떠 있는 이미지인가: 인라인 이미지는 아래 끝이 글자 바닥선에 놓여서, 이미지가 글자보다
+// 크면 무조건 위로 솟는다(#185 "직인만 위로 올라감"). 이걸 내리려고 w:position 을 줬더니
+// **변환기(LibreOffice)가 무시**했다 — 값만 바꾼 PDF 4개가 바이트까지 동일했다(2026-09-01 실측).
+// wp:anchor + positionV 는 반영되므로 그쪽으로 넣는다.
+const BODY_SIG_CY = 360000;        // 본문 서명·직인 높이 1.0cm
+const SIG_OFF_V = -90000;          // 줄 기준 0.25cm 위 — 이름 글자와 위아래가 맞는 지점
+const SIG_OFF_H = 72000;           // 이름 끝에서 0.2cm 띄움
+const SIG_MAX_CX = 2160000;        // 가로 상한 6cm — 길게 흘려 쓴 서명이 칸을 넘지 않게
+export const SIG_AFTER_TW = 500;   // 서명 줄 아래 여백 25pt (서명이 표 선에 닿지 않게)
+// 우측 정렬 줄에서 서명 오른쪽에 남길 여백.
+// 227(0.4cm)을 줬더니 실물에서 여유가 0 이 되어 서명이 표 선에 닿았다 — 우측 정렬 줄은
+// 끝의 공백이 버려져 글자 끝 위치가 계산과 어긋난다. 실측으로 두 배를 준다(2026-09-01).
+export const SIG_RIGHT_PAD = 454;
+
 // maxCx: 삽입 위치(표 셀)의 폭 상한(EMU) — 칸보다 크면 비율 유지로 축소해 칸 밖 이탈 방지 (#132, 2026-08-27)
 function inlineSigDrawing(
   rId: string, docPrId: number, square = false, maxCx?: number, ratio?: number,
   opts?: { targetCy?: number; baseline?: boolean }
 ): string {
-  // 본문 기준 높이 — 손서명 0.55cm, 직인 0.75cm.
-  // ⚠ 본문 크기를 0.8cm 로 키웠더니 가로도 함께 늘어 서명이 표 칸을 넘어가 표 오른쪽 선이
-  //   밀려 나갔다(2026-09-01 실물 확인). 본문은 칸 폭에 묶여 있으니 크기로 키우지 말고,
-  //   아래 baseline 보정으로 "줄 가운데"에 오게 해서 또렷하게 보이도록 한다.
-  //   결재 표 칸은 칸이 넓어 targetCy 로 따로 키운다 (#198).
-  let cy = opts?.targetCy ?? (square ? 270000 : 198000);
+  let cy = opts?.targetCy ?? (opts?.baseline ? BODY_SIG_CY : square ? 270000 : 198000);
   // 가로: 이미지 실제 비율대로 (비율을 못 읽으면 종래 비율로 폴백)
   let cx = ratio && ratio > 0 ? Math.round(cy * ratio) : (square ? 270000 : Math.round(cy * (1080000 / 378000)));
   // 손서명이 지나치게 길어지지 않게 상한 (가로로 흘려 쓴 서명 대비)
   // 결재 칸을 채울 때(targetCy)는 상한을 걸지 않는다 — 칸 크기가 이미 상한이다
-  const HARD_MAX = opts?.targetCy ? Infinity : square ? 360000 : 1300000;
+  const HARD_MAX = opts?.targetCy ? Infinity : opts?.baseline ? SIG_MAX_CX : square ? 360000 : 1300000;
   if (cx > HARD_MAX) { cy = Math.round((cy * HARD_MAX) / cx); cx = HARD_MAX; }
   if (maxCx && maxCx > 0 && cx > maxCx) {
     cy = Math.round((cy * maxCx) / cx);
     cx = maxCx;
   }
-  // 인라인 이미지는 아래 끝이 글자 바닥선(baseline)에 놓인다. 그래서 이미지가 글자보다
-  // 크면 그만큼 위로 솟는다 — #185("근로자 서명은 맞는데 직인만 위로 올라감")의 원인이다.
-  // 이미지 세로 중앙이 글자 세로 중앙에 오도록 바닥선 아래로 내린다(w:position, 0.5pt 단위).
-  // 본문 기본 글꼴 11pt 기준 글자 중앙은 바닥선 위 약 4pt.
-  let rPr = "";
+  // 본문 (인) 자리 — 떠 있는 이미지로 넣어 줄 기준으로 위치를 잡는다.
+  // 글자를 밀지 않으므로, 부르는 쪽에서 문단 오른쪽에 자리를 비워 준다(sigWidthTw).
   if (opts?.baseline) {
-    const drop = Math.round(2 * (cy / 12700 / 2 - 4));
-    if (drop > 0) rPr = `<w:rPr><w:position w:val="-${drop}"/></w:rPr>`;
+    return (
+      `<w:drawing>` +
+      `<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
+      `<wp:simplePos x="0" y="0"/>` +
+      `<wp:positionH relativeFrom="character"><wp:posOffset>${SIG_OFF_H}</wp:posOffset></wp:positionH>` +
+      `<wp:positionV relativeFrom="line"><wp:posOffset>${SIG_OFF_V}</wp:posOffset></wp:positionV>` +
+      `<wp:extent cx="${cx}" cy="${cy}"/><wp:wrapNone/><wp:docPr id="${docPrId}" name="sig${docPrId}"/>` +
+      `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+      `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+      `<pic:nvPicPr><pic:cNvPr id="${docPrId}" name="sig${docPrId}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+      `<pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+      `</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`
+    );
   }
   return (
-    rPr +
     `<w:drawing>` +
     `<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0">` +
     `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docPrId}" name="inlineSig${docPrId}"/>` +
@@ -96,6 +114,39 @@ function inlineSigDrawing(
     `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
     `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`
   );
+}
+
+// 서명이 들어가는 문단을 손본다 (2026-09-01)
+//  ① 아래 여백 — 서명을 1.0cm 로 키웠으니 그대로 두면 표 아래 선에 닿는다
+//  ② 우측 정렬 줄이면 오른쪽에 서명 자리를 비운다 — 떠 있는 이미지는 글자를 밀지 않아서,
+//     이름이 이미 오른쪽 끝에 붙어 있으면 서명이 표 밖으로 나간다(#185 서약서에서 실제로 났다).
+//     ※ 공백 문자로는 안 된다. 우측 정렬 줄 끝의 공백은 렌더링에서 버려진다(실측).
+function padSigParagraph(para: string, sigCx: number): string {
+  let out = para;
+  const addToPPr = (tag: string) => {
+    if (out.includes("<w:pPr>")) out = out.replace("<w:pPr>", `<w:pPr>${tag}`);
+    else out = out.replace(/<w:p(\s[^>]*)?>/, (m) => `${m}<w:pPr>${tag}</w:pPr>`);
+  };
+  // ① 아래 여백
+  if (/<w:spacing[^>]*w:after="\d+"/.test(out)) {
+    out = out.replace(/(<w:spacing[^>]*)w:after="\d+"/, `$1w:after="${SIG_AFTER_TW}"`);
+  } else if (out.includes("<w:spacing")) {
+    out = out.replace("<w:spacing", `<w:spacing w:after="${SIG_AFTER_TW}"`);
+  } else {
+    addToPPr(`<w:spacing w:after="${SIG_AFTER_TW}"/>`);
+  }
+  // ② 우측 정렬일 때만 오른쪽 자리 확보 (가운데 정렬은 이름 뒤에 이미 여유가 있다)
+  if (out.includes('<w:jc w:val="right"/>')) {
+    const rightTw = Math.round((sigCx + SIG_OFF_H) / 635) + SIG_RIGHT_PAD;
+    if (/<w:ind [^>]*w:right="\d+"/.test(out)) {
+      out = out.replace(/(<w:ind [^>]*)w:right="\d+"/, `$1w:right="${rightTw}"`);
+    } else if (out.includes("<w:ind ")) {
+      out = out.replace(/<w:ind ([^>]*?)\/>/, `<w:ind $1 w:right="${rightTw}"/>`);
+    } else {
+      addToPPr(`<w:ind w:right="${rightTw}"/>`);
+    }
+  }
+  return out;
 }
 
 // 문단 안의 마커 + 뒤따르는 "(인)"/"(서명 또는 인)" 문구를 지우고 그 자리에 인라인 서명을 넣는다 (#105).
@@ -286,8 +337,11 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
           baseline: isBody,   // 글자 줄 옆에 들어갈 때만 세로 중앙 보정 (#185)
         });
         if (isBody) {
-          // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 인라인 서명으로 대체
-          docXml = docXml.slice(0, pStart) + replaceMarkerAndSeal(para, t.marker, drawing) + docXml.slice(paraEnd);
+          // 문단 안에서 마커 + 뒤따르는 "(서명 또는 인)" 문구를 지우고 서명 이미지로 대체.
+          // 서명이 1.0cm 로 커졌으니 문단 아래 여백과(우측 정렬이면) 오른쪽 자리도 함께 확보한다.
+          const sigCx = Number(drawing.match(/<wp:extent cx="(\d+)"/)?.[1] || 0);
+          const replaced = replaceMarkerAndSeal(para, t.marker, drawing);
+          docXml = docXml.slice(0, pStart) + padSigParagraph(replaced, sigCx) + docXml.slice(paraEnd);
         } else {
           // 결재표 칸처럼 마커 단독 — 마커 자리에 인라인 이미지
           docXml =
