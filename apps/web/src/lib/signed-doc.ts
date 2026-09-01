@@ -142,6 +142,10 @@ function padSigParagraph(para: string, sigCx: number): string {
       out = out.replace(/(<w:ind [^>]*)w:right="\d+"/, `$1w:right="${rightTw}"`);
     } else if (out.includes("<w:ind ")) {
       out = out.replace(/<w:ind ([^>]*?)\/>/, `<w:ind $1 w:right="${rightTw}"/>`);
+    } else if (out.includes("<w:jc ")) {
+      // ⚠ w:ind 는 w:jc "앞"에 와야 한다 — OOXML 은 pPr 자식 순서가 정해져 있어서,
+      //   뒤에 넣으면 통째로 무시된다(근로계약서에서 서명이 페이지 밖으로 나갔다, 2026-09-01).
+      out = out.replace("<w:jc ", `<w:ind w:right="${rightTw}"/><w:jc `);
     } else {
       addToPPr(`<w:ind w:right="${rightTw}"/>`);
     }
