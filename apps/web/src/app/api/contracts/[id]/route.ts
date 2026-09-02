@@ -40,7 +40,19 @@ export async function GET(
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const { template, ...rest } = contract;
-  return NextResponse.json({ contract: { ...rest, postSignAccess: template?.postSignAccess || "full" } });
+  // 목록 API 와 같은 규칙 — 열람 금지 문서는 서명을 마친 뒤 파일 주소를 감춘다
+  const access = template?.postSignAccess || "full";
+  const hideFiles =
+    session.role !== "ADMIN" && access === "none" &&
+    (rest as { userId?: string }).userId === session.userId &&
+    !!(rest as { employeeSignedAt?: Date | null }).employeeSignedAt;
+  return NextResponse.json({
+    contract: {
+      ...rest,
+      ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),
+      postSignAccess: access,
+    },
+  });
 }
 
 export async function PATCH(

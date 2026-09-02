@@ -53,7 +53,10 @@ export async function GET(
   // (환경변수 UPLOADS_GATE 로 조절, "off" 면 게이트 없음).
   // 빈 문자열은 오설정으로 보고 기본값 사용 — 끄려면 명시적으로 "off"
   const gateEnvRaw = (process.env.UPLOADS_GATE ?? "").trim();
-  const gateEnv = gateEnvRaw === "" ? "signatures,contracts" : gateEnvRaw;
+  // work(채팅 첨부)도 게이트에 넣는다 — 종전에는 주소만 알면 **로그인 없이도** 받아졌다.
+  // 채널 멤버십 검사를 목록·ZIP 에 넣어도 파일 직접 주소가 열려 있으면 실효가 없다.
+  // 앱은 이미 ?t= 티켓을 붙이고(services/work.ts fileUri), 웹 <img> 는 쿠키가 실려 무해하다.
+  const gateEnv = gateEnvRaw === "" ? "signatures,contracts,work" : gateEnvRaw;
   const gated = gateEnv === "off" ? [] : gateEnv.split(",").map((s) => s.trim()).filter(Boolean);
   let contractViewOnly = false;   // 열람만 허용된 계약서 — 아래에서 다운로드 강제를 막는다
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
@@ -126,7 +129,10 @@ export async function GET(
   }
   // 열람만 허용된 계약서는 ?download=1 로도 첨부(다운로드)로 내려주지 않는다
   const forceDownload = url.searchParams.get("download") === "1" && !contractViewOnly;
-  const disposition = forceDownload ? "attachment" : "inline";
+  // svg 는 브라우저가 스크립트를 실행한다 — 우리 도메인에서 열리면 저장형 XSS 가 된다.
+  // 채팅에 올라온 svg 는 첨부로만 내려준다(미리보기 포기).
+  const isSvg = ext === ".svg";
+  const disposition = forceDownload || isSvg ? "attachment" : "inline";
 
   // ?name= 으로 저장 파일명 지정 가능 (개선 제안 2026-08-24 — 계약서를 제목으로 저장).
   // 헤더용 표시 이름일 뿐 디스크 경로와 무관. 경로 문자만 제거하고 확장자는 실제 파일 것을 보장.

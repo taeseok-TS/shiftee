@@ -30,13 +30,24 @@ export async function GET(
   // ?hl=1 — 입력값 하이라이트 미리보기: 템플릿+저장된 입력값으로 재렌더 (#100)
   const hl = new URL(request.url).searchParams.get("hl") === "1";
   const sel = { title: true, fileUrl: true, templateId: true, userId: true, startDate: true, endDate: true, extraFields: true, externalName: true, externalPhone: true } as const;
-  const docs = contract.bundleId
+  const allDocs = contract.bundleId
     ? await prisma.contract.findMany({
-        where: { bundleId: contract.bundleId },
+        where: { bundleId: contract.bundleId, userId: contract.userId },
         orderBy: { createdAt: "asc" },
-        select: sel,
+        select: { ...sel, id: true },
       })
-    : [await prisma.contract.findUnique({ where: { id }, select: sel }) as NonNullable<Awaited<ReturnType<typeof prisma.contract.findUnique>>> & { templateId: string | null }];
+    : [await prisma.contract.findUnique({ where: { id }, select: { ...sel, id: true } }) as NonNullable<Awaited<ReturnType<typeof prisma.contract.findUnique>>> & { templateId: string | null; id: string }];
+
+  // 묶음 안 문서를 **하나씩** 판정한다 — 요청한 1건만 보고 전체를 병합하면,
+  // full 문서 id 로 요청해 같은 묶음의 열람 금지(none) 문서까지 받을 수 있다 (2026-09-02).
+  const docs: typeof allDocs = [];
+  for (const d of allDocs) {
+    if (!d) continue;
+    const a = await canAccessContractFile({ contractId: (d as { id: string }).id }, { userId: session.userId, role: session.role });
+    if (a.allowed) docs.push(d);
+  }
+  if (docs.length === 0)
+    return NextResponse.json({ error: "볼 수 있는 문서가 없습니다." }, { status: 403 });
 
   const GOTENBERG = process.env.GOTENBERG_URL || "http://gotenberg:3000";
   const tmpFilesOuter: string[] = [];

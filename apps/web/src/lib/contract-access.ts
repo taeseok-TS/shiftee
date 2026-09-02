@@ -73,6 +73,8 @@ async function findContracts(target: { fileName?: string; contractId?: string })
     LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
     WHERE (CASE WHEN left(btrim(c."fileUrl"), 1) = '[' THEN c."fileUrl"::jsonb ? ${url} ELSE c."fileUrl" = ${url} END)
        OR c."signedUrl" = ${url}
+       -- 재발송·재생성 전 버전 파일도 그 계약 권한으로 본다 (안 보면 옛 링크가 영구 404)
+       OR EXISTS (SELECT 1 FROM "ContractVersion" v WHERE v."contractId" = c.id AND v."fileUrl" = ${url})
     GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
 }
 
