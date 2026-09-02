@@ -26,7 +26,10 @@ echo "  브랜치 $BRANCH / HEAD $(git rev-parse --short HEAD)"
 # 배포로 덮이는 것 전부를 본다. 종전에는 apps/web/src 만 봐서, 저장소 compose 가 운영보다
 # 낡아 있는 것을 못 잡았다 — 그대로 배포했으면 gotenberg 한글 폰트 마운트가 조용히 사라졌다
 # (2026-09-02). schema.prisma 는 운영 DB 와의 드리프트가 반복해서 사고를 냈던 파일이다.
-WATCH="apps/web/src apps/web/prisma docker-compose.yml deploy"
+# Dockerfile 이 `COPY . .` 로 저장소 전체를 이미지에 넣으므로 빌드에 들어가는 것은 전부 본다.
+# 2026-09-02 검증에서 packages/api, pnpm-workspace.yaml 등 9개가 운영과 어긋난 상태인데도
+# "일치, 배포해도 된다"가 나왔다.
+WATCH="apps/web/src apps/web/prisma apps/web/next.config.ts apps/web/package.json packages Dockerfile docker-compose.yml pnpm-workspace.yaml pnpm-lock.yaml package.json deploy"
 
 DIRTY=$(git status --porcelain -- $WATCH | wc -l)
 [[ $DIRTY -gt 0 ]] && echo "  ⚠ 커밋되지 않은 변경 ${DIRTY}건 (아래 대조에서 운영과 어긋나면 원인일 수 있음)"
@@ -42,12 +45,15 @@ echo "▸ 운영 파일 ↔ 로컬 대조 ($WATCH)"
 # core.quotepath=false: 한글 파일명을 ì... 로 이스케이프하지 않게 한다
 # (이스케이프되면 이름이 안 맞아 "로컬에만 있음"으로 잘못 잡히고 cat 도 실패한다)
 git -c core.quotepath=false ls-files --cached --others --exclude-standard $WATCH > /tmp/pf-files.txt
-REMOTE_MD5S=$($SSH "cd '$REMOTE_DIR' && while IFS= read -r p; do [ -f \"\$p\" ] && printf '%s %s\n' \"\$(tr -d '\r' < \"\$p\" | md5sum | cut -d' ' -f1)\" \"\$p\"; done" < /tmp/pf-files.txt)
+REMOTE_MD5S=$($SSH "cd '$REMOTE_DIR' && while IFS= read -r p; do [ -f \"\$p\" ] && printf '%s	%s\n' \"\$(tr -d '\r' < \"\$p\" | md5sum | cut -d' ' -f1)\" \"\$p\"; done" < /tmp/pf-files.txt)
 
 DIFF_COUNT=0
 while IFS= read -r f; do
   LOCAL_MD5=$(tr -d '\r' < "$f" | md5sum | cut -d' ' -f1)
-  REMOTE_MD5=$(printf '%s\n' "$REMOTE_MD5S" | awk -v p="$f" '$2==p {print $1}')
+  # 탭 구분 + ENVIRON - 파일명에 공백이 있으면 경로가 잘려 "로컬에만 있음" 오탐이 나고,
+  # awk -v 는 값 안의 역슬래시를 이스케이프로 해석한다
+  REMOTE_MD5=$(printf '%s
+' "$REMOTE_MD5S" | P="$f" awk -F'	' 'ENVIRON["P"]==$2 {print $1}')
   if [[ -z "$REMOTE_MD5" ]]; then
     echo "  + 로컬에만 있음(운영 미반영): $f"; DIFF_COUNT=$((DIFF_COUNT+1))
   elif [[ "$REMOTE_MD5" != "$LOCAL_MD5" ]]; then

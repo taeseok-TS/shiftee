@@ -41,7 +41,10 @@ step() { echo; echo "▸ $*"; }
 # source 하지 않고 한 줄씩 읽는다 — 값에 무엇이 들어올지 모른다.
 if [[ -n "$CONFIG" ]]; then
   [[ -f "$CONFIG" ]] || die "설정 파일이 없습니다: $CONFIG"
-  cfg() { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs; }
+  # || true 가 없으면 항목이 없을 때 grep 이 1 을 반환하고, set -euo pipefail 때문에
+  # 스크립트가 **아무 말 없이 종료**한다. 오늘 이전에 배포한 온보딩 양식에는 fonts_dir 이
+  # 없으므로, 그 양식으로 설치하면 화면에 아무것도 안 찍히고 죽는다 (2026-09-02).
+  cfg() { grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs || true; }
   [[ -n "$CODE"   ]] || CODE="$(cfg code)"
   [[ -n "$EMAIL"  ]] || EMAIL="$(cfg admin_email)"
   [[ -n "$BRANCH" ]] || BRANCH="$(cfg branches)"
@@ -160,9 +163,15 @@ cleanup_on_fail() {
   echo; echo "✗ 실패 — 정리합니다"
   "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
   echo "  컨테이너·볼륨 삭제됨. 디렉터리는 남겨둡니다(로그·설정 확인용): $DIR"
+  echo "  같은 코드로 다시 설치하기 전 볼륨까지 지웠는지 확인:  ${COMPOSE[*]} down -v"
   echo "  같은 코드로 다시 설치하려면 먼저 지우세요:  rm -rf $DIR"
 }
-trap cleanup_on_fail ERR
+# ERR 만 걸면 die(=exit 1)로 끝나는 실패(DB 대기 초과.웹 무응답.caddy 검증 실패)에서 정리가
+# 안 돌아 컨테이너와 pgdata 볼륨이 남는다. 그 상태로 같은 코드로 다시 설치하면 .env 의 새
+# 비밀번호와 볼륨의 옛 비밀번호가 어긋나 db push 가 깨진다(원인 추적이 어렵다).
+INSTALL_DONE=0
+cleanup_on_exit() { [[ $INSTALL_DONE -eq 1 ]] || cleanup_on_fail; }
+trap cleanup_on_exit EXIT
 
 # ── DB 기동 ──────────────────────────────────────────────────
 step "데이터베이스 기동"
@@ -200,7 +209,8 @@ INIT_ARGS=(--email "$EMAIL" --name "$NAME")
 INIT_OUT="$("${COMPOSE[@]}" exec -T web node init-tenant.js "${INIT_ARGS[@]}")"
 echo "$INIT_OUT"
 
-trap - ERR
+INSTALL_DONE=1
+trap - EXIT
 
 # ── 도메인 연결 (Caddy) ──────────────────────────────────────
 # Caddy 가 도메인별로 인증서를 자동 발급·갱신한다. 와일드카드 인증서(DNS-01)를

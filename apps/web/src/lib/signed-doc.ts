@@ -121,33 +121,106 @@ function inlineSigDrawing(
 //  ② 우측 정렬 줄이면 오른쪽에 서명 자리를 비운다 — 떠 있는 이미지는 글자를 밀지 않아서,
 //     이름이 이미 오른쪽 끝에 붙어 있으면 서명이 표 밖으로 나간다(#185 서약서에서 실제로 났다).
 //     ※ 공백 문자로는 안 된다. 우측 정렬 줄 끝의 공백은 렌더링에서 버려진다(실측).
+// OOXML `CT_PPr` 는 자식 순서가 **고정**이다. 순서를 어기면 렌더러(LibreOffice)가 그 요소를
+// 조용히 무시하고, 최악에는 pPr 전체를 버려 정렬.스타일까지 날아간다.
+// 2026-09-01 에 w:ind 를 w:jc 뒤에 넣었다가 서명이 페이지 밖으로 나갔고, 그때 w:ind 만
+// 특례로 고쳤다. 2026-09-02 검증에서 **w:spacing 이 같은 함정에 걸려 있는 것**이 드러났다 —
+// pPr 이 <w:pStyle> 로 시작하는 템플릿(코디 근로계약서 4종.임신기 신청서 2종, 10곳)에서
+// spacing 이 pStyle 앞에 들어가 순서 위반이 됐다. 이제 특례 없이 스펙 순서대로 넣는다.
+const PPR_ORDER = [
+  "w:pStyle", "w:keepNext", "w:keepLines", "w:pageBreakBefore", "w:framePr", "w:widowControl",
+  "w:numPr", "w:suppressLineNumbers", "w:pBdr", "w:shd", "w:tabs", "w:suppressAutoHyphens",
+  "w:kinsoku", "w:wordWrap", "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE",
+  "w:autoSpaceDN", "w:bidi", "w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind",
+  "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap", "w:jc", "w:textDirection",
+  "w:textAlignment", "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr",
+  "w:sectPr", "w:pPrChange",
+];
+
+/** pPr 의 **최상위** 자식만 훑는다 (w:rPr 안의 w:spacing 같은 런 속성을 문단 것으로 오인하지 않게) */
+function pPrTopChildren(inner: string): { name: string; start: number; end: number }[] {
+  const out: { name: string; start: number; end: number }[] = [];
+  const re = /<(\/?)(w:[A-Za-z0-9]+)((?:"[^"]*"|[^>"])*?)(\/?)>/g;
+  let depth = 0;
+  let m: RegExpExecArray | null;
+  let openName = "";
+  let openStart = 0;
+  while ((m = re.exec(inner))) {
+    const isClose = m[1] === "/";
+    const name = m[2];
+    const selfClose = m[4] === "/";
+    if (isClose) {
+      depth--;
+      if (depth === 0 && name === openName) out.push({ name, start: openStart, end: re.lastIndex });
+      continue;
+    }
+    if (depth === 0) {
+      if (selfClose) out.push({ name, start: m.index, end: re.lastIndex });
+      else { openName = name; openStart = m.index; }
+    }
+    if (!selfClose) depth++;
+  }
+  return out;
+}
+
+/** pPr 에 자식을 **스펙 순서에 맞는 자리**로 넣는다. pPr 이 없으면 만든다. */
+function putInPPr(para: string, tagName: string, tagXml: string): string {
+  const pprRe = /<w:pPr(?:\s(?:"[^"]*"|[^>"])*)?>([\s\S]*?)<\/w:pPr>/;
+  const m = pprRe.exec(para);
+  if (!m) {
+    // <w:pPr/> (빈 자기닫음) 또는 pPr 자체가 없음
+    if (/<w:pPr\s*\/>/.test(para)) return para.replace(/<w:pPr\s*\/>/, `<w:pPr>${tagXml}</w:pPr>`);
+    return para.replace(/<w:p(\s(?:"[^"]*"|[^>"])*)?>/, (open) => `${open}<w:pPr>${tagXml}</w:pPr>`);
+  }
+  const inner = m[1];
+  const innerStart = m.index + m[0].indexOf(inner);
+  const myIdx = PPR_ORDER.indexOf(tagName);
+  const after = pPrTopChildren(inner).find((c) => {
+    const i = PPR_ORDER.indexOf(c.name);
+    return i === -1 ? false : i > myIdx;
+  });
+  const at = after ? innerStart + after.start : innerStart + inner.length;
+  return para.slice(0, at) + tagXml + para.slice(at);
+}
+
+// 서명이 들어가는 문단을 손본다 (2026-09-01)
+//  ① 아래 여백 — 서명을 1.0cm 로 키웠으니 그대로 두면 표 아래 선에 닿는다
+//  ② 우측 정렬 줄이면 오른쪽에 서명 자리를 비운다 — 떠 있는 이미지는 글자를 밀지 않아서,
+//     이름이 이미 오른쪽 끝에 붙어 있으면 서명이 표 밖으로 나간다(#185 서약서에서 실제로 났다).
+//     ※ 공백 문자로는 안 된다. 우측 정렬 줄 끝의 공백은 렌더링에서 버려진다(실측).
 function padSigParagraph(para: string, sigCx: number): string {
   let out = para;
-  const addToPPr = (tag: string) => {
-    if (out.includes("<w:pPr>")) out = out.replace("<w:pPr>", `<w:pPr>${tag}`);
-    else out = out.replace(/<w:p(\s[^>]*)?>/, (m) => `${m}<w:pPr>${tag}</w:pPr>`);
-  };
+  // pPr 의 최상위 자식만 본다 — 런 속성(<w:rPr><w:spacing w:val=..>)을 문단 여백으로 오인하면
+  // 엉뚱한 속성에 w:after 를 붙이고 정작 여백은 안 생긴다.
+  const pprInner = /<w:pPr(?:\s(?:"[^"]*"|[^>"])*)?>([\s\S]*?)<\/w:pPr>/.exec(out)?.[1] ?? "";
+  const pprTop = pPrTopChildren(pprInner);
+  const spacingTop = pprTop.find((c) => c.name === "w:spacing");
+
   // ① 아래 여백
-  if (/<w:spacing[^>]*w:after="\d+"/.test(out)) {
-    out = out.replace(/(<w:spacing[^>]*)w:after="\d+"/, `$1w:after="${SIG_AFTER_TW}"`);
-  } else if (out.includes("<w:spacing")) {
-    out = out.replace("<w:spacing", `<w:spacing w:after="${SIG_AFTER_TW}"`);
+  if (spacingTop) {
+    const tag = pprInner.slice(spacingTop.start, spacingTop.end);
+    const fixed = /w:after="\d+"/.test(tag)
+      ? tag.replace(/w:after="\d+"/, `w:after="${SIG_AFTER_TW}"`)
+      : tag.replace(/^<w:spacing/, `<w:spacing w:after="${SIG_AFTER_TW}"`);
+    out = out.replace(tag, fixed);
   } else {
-    addToPPr(`<w:spacing w:after="${SIG_AFTER_TW}"/>`);
+    out = putInPPr(out, "w:spacing", `<w:spacing w:after="${SIG_AFTER_TW}"/>`);
   }
+
   // ② 우측 정렬일 때만 오른쪽 자리 확보 (가운데 정렬은 이름 뒤에 이미 여유가 있다)
   if (out.includes('<w:jc w:val="right"/>')) {
     const rightTw = Math.round((sigCx + SIG_OFF_H) / 635) + SIG_RIGHT_PAD;
-    if (/<w:ind [^>]*w:right="\d+"/.test(out)) {
-      out = out.replace(/(<w:ind [^>]*)w:right="\d+"/, `$1w:right="${rightTw}"`);
-    } else if (out.includes("<w:ind ")) {
-      out = out.replace(/<w:ind ([^>]*?)\/>/, `<w:ind $1 w:right="${rightTw}"/>`);
-    } else if (out.includes("<w:jc ")) {
-      // ⚠ w:ind 는 w:jc "앞"에 와야 한다 — OOXML 은 pPr 자식 순서가 정해져 있어서,
-      //   뒤에 넣으면 통째로 무시된다(근로계약서에서 서명이 페이지 밖으로 나갔다, 2026-09-01).
-      out = out.replace("<w:jc ", `<w:ind w:right="${rightTw}"/><w:jc `);
+    const indTop = pPrTopChildren(
+      /<w:pPr(?:\s(?:"[^"]*"|[^>"])*)?>([\s\S]*?)<\/w:pPr>/.exec(out)?.[1] ?? ""
+    ).find((c) => c.name === "w:ind");
+    if (indTop) {
+      out = out.replace(/(<w:ind\s(?:"[^"]*"|[^>"])*?)(\s*\/?>)/, (full, head: string, tail: string) =>
+        /w:right="\d+"/.test(head)
+          ? head.replace(/w:right="\d+"/, `w:right="${rightTw}"`) + tail
+          : `${head} w:right="${rightTw}"${tail}`
+      );
     } else {
-      addToPPr(`<w:ind w:right="${rightTw}"/>`);
+      out = putInPPr(out, "w:ind", `<w:ind w:right="${rightTw}"/>`);
     }
   }
   return out;
