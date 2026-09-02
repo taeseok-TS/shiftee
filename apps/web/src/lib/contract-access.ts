@@ -36,8 +36,10 @@ type Row = {
   id: string;
   userId: string;
   status: string;
+  employeeSignedAt: Date | null;
   branch: string | null;
   access: string | null;
+  hasTemplate: boolean;
   approverIds: string[] | null;
 };
 
@@ -45,8 +47,8 @@ type Row = {
 async function findContracts(target: { fileName?: string; contractId?: string }): Promise<Row[]> {
   if (target.contractId) {
     return prisma.$queryRaw<Row[]>`
-      SELECT c.id, c."userId", c.status::text AS status, u."branch",
-             t."postSignAccess" AS access,
+      SELECT c.id, c."userId", c.status::text AS status, c."employeeSignedAt", u."branch",
+             t."postSignAccess" AS access, (c."templateId" IS NOT NULL) AS "hasTemplate",
              array_remove(array_agg(s."approverId"), NULL) AS "approverIds"
       FROM "Contract" c
       LEFT JOIN "User" u ON u.id = c."userId"
@@ -54,49 +56,65 @@ async function findContracts(target: { fileName?: string; contractId?: string })
       LEFT JOIN "ContractApprovalLine" l ON l."contractId" = c.id
       LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
       WHERE c.id = ${target.contractId}
-      GROUP BY c.id, c."userId", c.status, u."branch", t."postSignAccess"`;
+      GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
   }
   const name = (target.fileName || "").trim();
   if (!name) return [];
   // 정확 매칭 — 예전엔 LIKE '%파일명%' 이라 다른 계약에 걸릴 수 있었다.
   const url = `/api/uploads/contracts/${name}`;
   return prisma.$queryRaw<Row[]>`
-    SELECT c.id, c."userId", c.status::text AS status, u."branch",
-           t."postSignAccess" AS access,
+    SELECT c.id, c."userId", c.status::text AS status, c."employeeSignedAt", u."branch",
+           t."postSignAccess" AS access, (c."templateId" IS NOT NULL) AS "hasTemplate",
            array_remove(array_agg(s."approverId"), NULL) AS "approverIds"
     FROM "Contract" c
     LEFT JOIN "User" u ON u.id = c."userId"
     LEFT JOIN "ContractTemplate" t ON t.id = c."templateId"
     LEFT JOIN "ContractApprovalLine" l ON l."contractId" = c.id
     LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
-    WHERE c."fileUrl"::jsonb ? ${url} OR c."signedUrl" = ${url}
-    GROUP BY c.id, c."userId", c.status, u."branch", t."postSignAccess"`;
+    WHERE (CASE WHEN left(btrim(c."fileUrl"), 1) = '[' THEN c."fileUrl"::jsonb ? ${url} ELSE c."fileUrl" = ${url} END)
+       OR c."signedUrl" = ${url}
+    GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
 }
 
 /** 계약 한 건에 대한 판정 */
 async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess> {
   if (who.role === "ADMIN") return OK();
-  if (!who.userId) return DENY_OTHER; // 게스트·티켓 단독은 이 함수를 부르는 쪽에서 따로 처리
+  if (!who.userId) return DENY_OTHER; // 주체를 모르는 접근(티켓 무주체 등)은 막는다
+
+  // 문서 정책. 템플릿 연결이 끊긴 계약은 "정책 없음"이지 "제한 없음"이 아니다 —
+  // 템플릿을 지우면 templateId 가 NULL 이 되므로, 그때 full 로 풀리면 안 된다.
+  const access = row.hasTemplate ? row.access || "full" : "full";
+  const policyLocked = row.hasTemplate && (access === "none" || access === "view");
 
   const isOwner = row.userId === who.userId;
   if (isOwner) {
-    // ⚠ 근로자는 자기 "서명" 단계 때문에 결재 스텝에도 들어간다. 결재자로 쳐서 정책을 건너뛰면
-    //   사직원(none)이 본인에게 그대로 열린다. 그래서 당사자 판정을 먼저 본다.
-    if (row.status !== "SIGNED") return OK(); // 서명 전 본인 확인
-    const access = row.access || "full";
+    // ⚠ 근로자는 자기 "서명" 단계 때문에 결재 스텝에도 잡힌다. 결재자로 쳐서 정책을 건너뛰면
+    //   사직원(none)이 본인에게 그대로 열린다. 당사자 판정을 먼저 본다.
+    //
+    // 정책 적용 시점은 계약 status 가 아니라 **본인이 서명을 마쳤는가**로 본다.
+    // status 로 보면 뒤에 결재가 남은 동안 APPROVED 에 머물러 그 구간이 통째로 열리고,
+    // 서명 회수(SENT 로 되돌림)로 다시 열린다.
+    if (!row.employeeSignedAt) return OK(); // 아직 서명 전 — 무엇에 서명하는지 봐야 한다
     if (access === "none") return DENY_NONE;
     return OK(access === "view");
   }
 
-  // 결재자(당사자 제외) — 결재하려면 봐야 한다
-  if ((row.approverIds || []).some((a) => a && a !== row.userId && a === who.userId))
-    return OK();
+  // 결재자(당사자 제외) — 결재하려면 봐야 한다. 다만 **열람까지만**.
+  // 완료본 라우트가 "원장 등 결재자는 서명본 보관 불가"로 막고 있어, 여기서 다운로드를
+  // 열어주면 같은 문서가 문에 따라 달라진다.
+  const isApprover = (row.approverIds || []).some((a) => a && a !== row.userId && a === who.userId);
+  if (isApprover) {
+    if (policyLocked && access === "none" && row.employeeSignedAt) return DENY_NONE;
+    return OK(true);
+  }
 
-  // 담당 지점 원장
+  // 담당 지점 원장 — 마찬가지로 열람까지만
   if (who.role === "MANAGER" && row.branch) {
     const { getManagerBranches } = await import("@/lib/manager-branches");
-    if ((await getManagerBranches(who.userId)).includes(row.branch))
-      return OK();
+    if ((await getManagerBranches(who.userId)).includes(row.branch)) {
+      if (policyLocked && access === "none" && row.employeeSignedAt) return DENY_NONE;
+      return OK(true);
+    }
   }
   return DENY_OTHER;
 }
@@ -111,7 +129,14 @@ export async function canAccessContractFile(
 ): Promise<ContractAccess> {
   if (who.role === "ADMIN") return OK();
 
-  const rows = await findContracts(target);
+  let rows: Row[];
+  try {
+    rows = await findContracts(target);
+  } catch (e) {
+    // 판정에 실패하면 연다가 아니라 막는다 (라우트가 catch 를 두더라도 fail-open 이 되지 않게)
+    console.error("[contract-access] 권한 조회 실패:", e);
+    return { allowed: false, viewOnly: false, status: 403, error: "접근 권한을 확인할 수 없습니다." };
+  }
   if (rows.length === 0)
     return { allowed: false, viewOnly: false, status: 404, error: "문서를 찾을 수 없습니다." };
 
@@ -122,4 +147,28 @@ export async function canAccessContractFile(
     best = best.allowed ? OK(best.viewOnly || r.viewOnly) : r;
   }
   return best;
+}
+
+/**
+ * 세션 또는 티켓 주체로 "누구인가"를 정한다.
+ * 티켓은 발급 때 새긴 주체(u:userId / c:contractId)를 그대로 신뢰한다 — 서명돼 있어 위조 불가.
+ */
+export async function resolvePrincipal(
+  session: { userId: string; role: string } | null,
+  ticketSubject: string | null
+): Promise<{ who: AccessPrincipal; guestContractId: string | null }> {
+  if (session) return { who: { userId: session.userId, role: session.role }, guestContractId: null };
+  if (ticketSubject?.startsWith("c:")) return { who: { userId: null, role: null }, guestContractId: ticketSubject.slice(2) };
+  if (ticketSubject?.startsWith("u:")) {
+    const uid = ticketSubject.slice(2);
+    const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, role: true, isActive: true } });
+    if (u?.isActive) return { who: { userId: u.id, role: u.role }, guestContractId: null };
+  }
+  return { who: { userId: null, role: null }, guestContractId: null };
+}
+
+/** 게스트 티켓(c:계약id)이 이 파일에 대해 유효한가 */
+export async function guestTicketCovers(contractId: string, fileName: string): Promise<boolean> {
+  const rows = await findContracts({ fileName });
+  return rows.some((r) => r.id === contractId);
 }

@@ -56,6 +56,10 @@ export async function GET(
     } catch (e) {
       console.error("원본 PDF 변환 오류(gotenberg):", e);
     }
+    // 열람만 허용된 문서는 워드 원본으로 폴백하지 않는다 — 브라우저가 못 그려 결국 저장되므로
+    // "열람만"이 무너진다. 변환이 안 되면 차라리 실패시킨다.
+    if (acc.viewOnly)
+      return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
     return new NextResponse(buf, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

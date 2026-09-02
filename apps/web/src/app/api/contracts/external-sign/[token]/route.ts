@@ -85,7 +85,8 @@ export async function GET(
     externalName: step.externalName,
     fileUrl: ready ? firstFileUrl(contract.fileUrl) : null,
     documents,
-    fileTicket: ready ? issueUploadTicket(2 * 3600 * 1000) : null,
+    // 게스트는 로그인이 없다 — 이 계약 파일에만 통하는 티켓을 준다 (2026-09-02)
+      fileTicket: ready ? issueUploadTicket(`c:${contract.id}`, 2 * 3600 * 1000) : null,
     // 개인정보동의서가 포함된 패키지면 게스트가 선택 항목 동의/미동의 선택 가능
     consentDoc: ready && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
     state,

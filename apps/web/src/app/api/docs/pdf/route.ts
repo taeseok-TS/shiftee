@@ -68,17 +68,23 @@ export async function GET(request: NextRequest) {
   } else {
     // 세션 또는 티켓 (게스트 서명·앱 WebView 는 티켓을 URL 에 싣는다)
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
+    const tk = verifyUploadTicket(ticket);
     const session = await getSession();
-    if (!verifyUploadTicket(ticket) && !session)
+    if (!tk && !session)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-    // 계약서는 파일 접근과 같은 규칙을 적용한다 — 이 라우트에 검사가 없어서,
-    // 화면에서 버튼을 감춘 문서도 주소만 넣으면 PDF 로 그대로 받아졌다 (2026-09-02).
-    if (group === "contracts" && session) {
-      const { canAccessContractFile } = await import("@/lib/contract-access");
-      const r = await canAccessContractFile({ fileName: filename }, { userId: session.userId, role: session.role });
-      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
-      if (r.viewOnly) viewOnly = true;
+    // 계약서는 파일 접근과 같은 규칙을 적용한다. 세션이 없어도 티켓 주체로 판정한다.
+    if (group === "contracts") {
+      const { canAccessContractFile, resolvePrincipal, guestTicketCovers } = await import("@/lib/contract-access");
+      const { who, guestContractId } = await resolvePrincipal(session, tk?.subject ?? null);
+      if (guestContractId) {
+        if (!(await guestTicketCovers(guestContractId, filename)))
+          return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+      } else {
+        const r = await canAccessContractFile({ fileName: filename }, who);
+        if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+        if (r.viewOnly) viewOnly = true;
+      }
     }
   }
 
@@ -101,7 +107,7 @@ export async function GET(request: NextRequest) {
     // 문서는 서명·재생성으로 바뀔 수 있어 캐시 금지 (구버전 표시 방지)
     // 같은 문서를 서명 모달·확대·목록에서 반복해 열면 매번 LibreOffice 변환이 돌아 느렸다(#179).
       // 파일 URL 에 업로드 타임스탬프가 박혀 있어 내용이 바뀌면 주소도 바뀌므로 짧게 캐시해도 안전하다.
-      "Cache-Control": "private, max-age=600",
+      "Cache-Control": viewOnly ? "no-store" : "private, max-age=600",
   });
 
   // 이미 PDF 면 그대로

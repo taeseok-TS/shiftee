@@ -59,19 +59,28 @@ export async function GET(
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const ticket = new URL(_request.url).searchParams.get("t");
+    const tk = verifyUploadTicket(ticket);
     const session = await getSession();
-    if (!verifyUploadTicket(ticket) && !session)
+    if (!tk && !session)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
     // 계약서 파일은 "로그인했는지"가 아니라 "이 사람이 이 계약을 볼 수 있는지"를 본다.
-    // 판정은 lib/contract-access 한 곳에서만 한다 — 라우트마다 제각각이라 문이 여러 개였다.
+    // 세션이 없어도(앱·게스트는 티켓만 온다) 티켓에 새겨진 주체로 똑같이 판정한다 —
+    // 종전에는 세션이 있을 때만 검사해서 티켓 하나로 정책이 통째로 우회됐다 (2026-09-02).
     const isContract = decoded[0] === "contracts" || pathParts[0] === "contracts";
-    if (isContract && session) {
-      const { canAccessContractFile } = await import("@/lib/contract-access");
+    if (isContract) {
+      const { canAccessContractFile, resolvePrincipal, guestTicketCovers } = await import("@/lib/contract-access");
       const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
-      const r = await canAccessContractFile({ fileName: fname }, { userId: session.userId, role: session.role });
-      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
-      contractViewOnly = r.viewOnly;
+      const { who, guestContractId } = await resolvePrincipal(session, tk?.subject ?? null);
+      if (guestContractId) {
+        // 외부(미가입) 계약자 — 자기 계약의 파일에만
+        if (!(await guestTicketCovers(guestContractId, fname)))
+          return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+      } else {
+        const r = await canAccessContractFile({ fileName: fname }, who);
+        if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+        contractViewOnly = r.viewOnly;
+      }
     }
   }
 
@@ -101,6 +110,20 @@ export async function GET(
   // 기본 inline(미리보기/오피스 뷰어가 렌더 가능). ?download=1 이면 다운로드로 강제.
   // (워드도 inline이면 브라우저가 자체 렌더 못 해 결국 다운로드되므로 다운로드 UX엔 지장 없음)
   const url = new URL(_request.url);
+  // 열람만 허용된 계약서(view)는 **원본 형식 자체를 내보내지 않는다.**
+  // 워드는 브라우저가 못 그려서 inline 이어도 결국 저장된다 — disposition 만 바꿔서는
+  // "열람만"이 지켜지지 않는다(운영 계약 파일은 전부 .docx). PDF 로 변환해 보는 경로
+  // (/api/docs/pdf)로 돌려보낸다.
+  if (contractViewOnly && /\.docx?$/i.test(usedName)) {
+    // ⚠ request.url 의 origin 은 컨테이너 내부 주소(localhost:3000)라 밖에서 따라갈 수 없다.
+    //    공개 주소(getAppUrl)로 만든다.
+    const { getAppUrl } = await import("@/lib/app-url");
+    const to = new URL("/api/docs/pdf", getAppUrl());
+    to.searchParams.set("src", `/api/uploads/${decoded[0] || pathParts[0]}/${usedName}`);
+    const t = new URL(_request.url).searchParams.get("t");
+    if (t) to.searchParams.set("t", t);
+    return NextResponse.redirect(to.toString(), 302);
+  }
   // 열람만 허용된 계약서는 ?download=1 로도 첨부(다운로드)로 내려주지 않는다
   const forceDownload = url.searchParams.get("download") === "1" && !contractViewOnly;
   const disposition = forceDownload ? "attachment" : "inline";
