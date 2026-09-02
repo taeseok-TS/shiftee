@@ -20,9 +20,11 @@ export async function GET(
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  const allowed = session.role === "ADMIN" || contract.userId === session.userId;
-  if (!allowed)
-    return NextResponse.json({ error: "관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
+  // 권한은 lib/contract-access 한 곳에서 판정한다 — 종전에는 당사자면 무조건 통과라
+  // 열람 금지(none) 문서도 이 경로로 첨부 다운로드가 됐다 (2026-09-02).
+  const { canAccessContractFile } = await import("@/lib/contract-access");
+  const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
+  if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const orig = firstFile(contract.fileUrl);
   if (!orig) return NextResponse.json({ error: "문서 파일이 없습니다." }, { status: 404 });
@@ -30,7 +32,8 @@ export async function GET(
   if (!fs.existsSync(path)) return NextResponse.json({ error: "문서 파일을 찾을 수 없습니다." }, { status: 404 });
   const buf = fs.readFileSync(path);
 
-  const dispo = new URL(request.url).searchParams.get("inline") === "1" ? "inline" : "attachment";
+  // 열람만 허용된 문서는 첨부(다운로드)로 내려주지 않는다
+  const dispo = acc.viewOnly || new URL(request.url).searchParams.get("inline") === "1" ? "inline" : "attachment";
 
   if (orig.toLowerCase().endsWith(".docx")) {
     try {

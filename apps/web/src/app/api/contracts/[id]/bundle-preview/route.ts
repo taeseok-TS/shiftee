@@ -21,16 +21,11 @@ export async function GET(
     select: { id: true, userId: true, title: true, fileUrl: true, bundleId: true },
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
-  // 결재자(원장 등)도 서명 전 확인이 필요하므로: 관리자·당사자·해당 계약 결재선의 결재자 허용
-  let allowed = session.role === "ADMIN" || contract.userId === session.userId;
-  if (!allowed) {
-    const step = await prisma.contractApprovalStep.findFirst({
-      where: { approverId: session.userId, approvalLine: { contractId: id } },
-      select: { id: true },
-    });
-    allowed = !!step;
-  }
-  if (!allowed) return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 권한은 lib/contract-access 한 곳에서 판정한다(관리자·당사자·결재자·담당 원장).
+  // 종전에는 열람 금지(none) 문서도 이 경로로 전문이 나갔다 (2026-09-02).
+  const { canAccessContractFile } = await import("@/lib/contract-access");
+  const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
+  if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   // ?hl=1 — 입력값 하이라이트 미리보기: 템플릿+저장된 입력값으로 재렌더 (#100)
   const hl = new URL(request.url).searchParams.get("hl") === "1";

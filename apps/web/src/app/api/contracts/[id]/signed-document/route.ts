@@ -23,13 +23,17 @@ export async function GET(
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  // 권한: 관리자 / 계약 당사자 본인만 (원장 등 결재자는 서명본 보관 불가 — 개인정보 보호)
+  // 권한: 관리자 / 계약 당사자 본인 (원장 등 결재자는 서명본 보관 불가 — 개인정보 보호).
+  // 계약 단위 티켓(st)은 발급 때 이미 권한을 확인했으므로 통과시킨다.
   const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
   if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
 
   // #129 서명 완료 후 문서별 근로자 접근 — 템플릿 설정(postSignAccess)에 따라 당사자 접근 제한.
-  // 완료본(SIGNED)에만 적용 — 진행 중 열람(#110)은 본인 확인용이라 현행 허용. 관리자·티켓(st)은 현행.
-  if (!ticketOk && session!.role !== "ADMIN" && contract.status === "SIGNED" && contract.templateId) {
+  // 완료본(SIGNED)에만 적용 — 진행 중 열람(#110)은 본인 확인용이라 현행 허용.
+  // ⚠ 티켓(st)도 정책을 면제받지 않는다. 티켓은 "권한 검증을 통과한 요청"이라는 증명일 뿐이라,
+  //   면제하면 앱이 받은 링크에서 &inline=1 만 지워 열람 전용 문서를 받을 수 있다 (2026-09-02).
+  //   면제는 관리자 세션에만 준다.
+  if (session?.role !== "ADMIN" && contract.status === "SIGNED" && contract.templateId) {
     const tmpl = await prisma.contractTemplate.findUnique({
       where: { id: contract.templateId },
       select: { postSignAccess: true },

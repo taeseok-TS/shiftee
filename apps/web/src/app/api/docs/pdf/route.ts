@@ -48,6 +48,7 @@ async function writeCache(dir: string, file: string, pdf: Buffer) {
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const src = url.searchParams.get("src") || "";
+  let viewOnly = false;   // 열람만 허용된 계약서 — 다운로드 강제를 막는다
   const ticket = url.searchParams.get("t");
 
   // /api/uploads/<군>/<파일명> 형태만 허용 (경로 이탈·외부 URL 차단)
@@ -67,9 +68,17 @@ export async function GET(request: NextRequest) {
   } else {
     // 세션 또는 티켓 (게스트 서명·앱 WebView 는 티켓을 URL 에 싣는다)
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
-    if (!verifyUploadTicket(ticket)) {
-      const session = await getSession();
-      if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    const session = await getSession();
+    if (!verifyUploadTicket(ticket) && !session)
+      return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+    // 계약서는 파일 접근과 같은 규칙을 적용한다 — 이 라우트에 검사가 없어서,
+    // 화면에서 버튼을 감춘 문서도 주소만 넣으면 PDF 로 그대로 받아졌다 (2026-09-02).
+    if (group === "contracts" && session) {
+      const { canAccessContractFile } = await import("@/lib/contract-access");
+      const r = await canAccessContractFile({ fileName: filename }, { userId: session.userId, role: session.role });
+      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+      if (r.viewOnly) viewOnly = true;
     }
   }
 
@@ -85,7 +94,7 @@ export async function GET(request: NextRequest) {
   }
 
   const title = url.searchParams.get("title") || filename.replace(/\.[^.]+$/, "");
-  const dispo = url.searchParams.get("download") === "1" ? "attachment" : "inline";
+  const dispo = url.searchParams.get("download") === "1" && !viewOnly ? "attachment" : "inline";
   const headers = (type: string, ext: string) => ({
     "Content-Type": type,
     "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(title + ext)}`,

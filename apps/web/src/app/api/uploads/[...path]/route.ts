@@ -55,13 +55,23 @@ export async function GET(
   const gateEnvRaw = (process.env.UPLOADS_GATE ?? "").trim();
   const gateEnv = gateEnvRaw === "" ? "signatures,contracts" : gateEnvRaw;
   const gated = gateEnv === "off" ? [] : gateEnv.split(",").map((s) => s.trim()).filter(Boolean);
+  let contractViewOnly = false;   // 열람만 허용된 계약서 — 아래에서 다운로드 강제를 막는다
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const ticket = new URL(_request.url).searchParams.get("t");
-    if (!verifyUploadTicket(ticket)) {
-      const session = await getSession();
-      if (!session)
-        return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    const session = await getSession();
+    if (!verifyUploadTicket(ticket) && !session)
+      return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+    // 계약서 파일은 "로그인했는지"가 아니라 "이 사람이 이 계약을 볼 수 있는지"를 본다.
+    // 판정은 lib/contract-access 한 곳에서만 한다 — 라우트마다 제각각이라 문이 여러 개였다.
+    const isContract = decoded[0] === "contracts" || pathParts[0] === "contracts";
+    if (isContract && session) {
+      const { canAccessContractFile } = await import("@/lib/contract-access");
+      const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
+      const r = await canAccessContractFile({ fileName: fname }, { userId: session.userId, role: session.role });
+      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+      contractViewOnly = r.viewOnly;
     }
   }
 
@@ -91,7 +101,8 @@ export async function GET(
   // 기본 inline(미리보기/오피스 뷰어가 렌더 가능). ?download=1 이면 다운로드로 강제.
   // (워드도 inline이면 브라우저가 자체 렌더 못 해 결국 다운로드되므로 다운로드 UX엔 지장 없음)
   const url = new URL(_request.url);
-  const forceDownload = url.searchParams.get("download") === "1";
+  // 열람만 허용된 계약서는 ?download=1 로도 첨부(다운로드)로 내려주지 않는다
+  const forceDownload = url.searchParams.get("download") === "1" && !contractViewOnly;
   const disposition = forceDownload ? "attachment" : "inline";
 
   // ?name= 으로 저장 파일명 지정 가능 (개선 제안 2026-08-24 — 계약서를 제목으로 저장).
