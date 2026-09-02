@@ -12,6 +12,12 @@ export function uploadGateGroups(): string[] {
   const raw = (process.env.UPLOADS_GATE ?? "").trim();
   // 빈 문자열은 오설정으로 보고 기본값 사용 — 끄려면 명시적으로 "off"
   const value = raw === "" ? DEFAULT_GROUPS : raw;
-  if (value === "off") return [];
-  return value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (value.toLowerCase() === "off") return []; // "OFF"/"Off" 도 끄기로 본다
+  const groups = value.split(",").map((s) => s.trim()).filter(Boolean);
+  // 쉼표만 넣는 등으로 목록이 비면 게이트가 조용히 꺼진다 - 오설정이므로 기본값으로 되돌린다.
+  if (groups.length === 0) {
+    console.warn(`[uploads] UPLOADS_GATE="${raw}" 를 해석할 수 없어 기본값(${DEFAULT_GROUPS})을 씁니다. 끄려면 off.`);
+    return DEFAULT_GROUPS.split(",");
+  }
+  return groups;
 }

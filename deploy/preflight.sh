@@ -23,7 +23,12 @@ echo "▸ 로컬 상태"
 BRANCH=$(git branch --show-current)
 echo "  브랜치 $BRANCH / HEAD $(git rev-parse --short HEAD)"
 
-DIRTY=$(git status --porcelain -- apps/web/src | wc -l)
+# 배포로 덮이는 것 전부를 본다. 종전에는 apps/web/src 만 봐서, 저장소 compose 가 운영보다
+# 낡아 있는 것을 못 잡았다 — 그대로 배포했으면 gotenberg 한글 폰트 마운트가 조용히 사라졌다
+# (2026-09-02). schema.prisma 는 운영 DB 와의 드리프트가 반복해서 사고를 냈던 파일이다.
+WATCH="apps/web/src apps/web/prisma docker-compose.yml deploy"
+
+DIRTY=$(git status --porcelain -- $WATCH | wc -l)
 [[ $DIRTY -gt 0 ]] && echo "  ⚠ 커밋되지 않은 변경 ${DIRTY}건 (아래 대조에서 운영과 어긋나면 원인일 수 있음)"
 
 # 급여 필드가 스테이지에 섞였는지 (weekend-pay 세션과의 사고 방지)
@@ -31,10 +36,12 @@ PAY=$(git diff --cached -- apps/web/src | grep -cE "canViewPayroll|monthlySalary
 [[ $PAY -gt 0 ]] && echo "  ✗ 스테이지에 급여 필드 ${PAY}건 — 커밋 전 확인 필요"
 
 echo
-echo "▸ 운영 파일 ↔ 로컬 대조 (apps/web/src)"
+echo "▸ 운영 파일 ↔ 로컬 대조 ($WATCH)"
 # 추적 파일 + 신규(untracked) 파일. 원격 해시는 한 번의 ssh 로 모아 온다(파일마다 접속하면 느리다).
 # 줄바꿈(CRLF/LF)은 제거하고 비교한다 — 윈도우 체크아웃과 서버 파일이 줄바꿈만 달라도 전부 다르게 잡힌다.
-git ls-files --cached --others --exclude-standard apps/web/src > /tmp/pf-files.txt
+# core.quotepath=false: 한글 파일명을 ì... 로 이스케이프하지 않게 한다
+# (이스케이프되면 이름이 안 맞아 "로컬에만 있음"으로 잘못 잡히고 cat 도 실패한다)
+git -c core.quotepath=false ls-files --cached --others --exclude-standard $WATCH > /tmp/pf-files.txt
 REMOTE_MD5S=$($SSH "cd '$REMOTE_DIR' && while IFS= read -r p; do [ -f \"\$p\" ] && printf '%s %s\n' \"\$(tr -d '\r' < \"\$p\" | md5sum | cut -d' ' -f1)\" \"\$p\"; done" < /tmp/pf-files.txt)
 
 DIFF_COUNT=0

@@ -51,7 +51,13 @@ export function fileUri(path: string | null | undefined): string {
   if (isAbsolute && !full.startsWith(FILE_ORIGIN + "/")) return full; // 외부 호스트엔 안 붙인다
   const rel = full.slice(FILE_ORIGIN.length);
   const m = /^\/api\/uploads\/([^/?#]+)\//.exec(rel);
-  if (!m || !uploadsGate.includes(decodeURIComponent(m[1]))) return full;
+  if (!m) return full;
+  // 공지 본문의 이미지 주소는 작성자가 자유 입력한 값이라 "/api/uploads/100%/a.png" 같은
+  // 잘못된 인코딩이 올 수 있다. decodeURIComponent 는 그때 URIError 를 던지고, 렌더 중이라
+  // 화면이 통째로 죽는다. 서버도 원본.디코드 양쪽을 보므로 여기서도 같게 맞춘다.
+  let seg = m[1];
+  try { seg = decodeURIComponent(seg); } catch { seg = m[1]; }
+  if (!uploadsGate.includes(seg) && !uploadsGate.includes(m[1])) return full;
   return full + (full.includes("?") ? "&" : "?") + "t=" + uploadsTicket;
 }
 
