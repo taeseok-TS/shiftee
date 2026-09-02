@@ -28,11 +28,17 @@ export async function GET(
   const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
   if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
 
-  // 문서별 정책은 lib/contract-access 에서 판정한다(계약 단위 티켓 st 는 발급 때 이미 확인).
+  // 문서별 정책은 lib/contract-access 에서 판정한다.
+  // ⚠ 티켓(st)은 "당사자임"의 증명일 뿐 **정책 면제가 아니다**. 면제하면 앱이 받은 링크에서
+  //   &inline=1 만 지워 열람 전용 문서를 받을 수 있다. 면제는 관리자 세션에만 준다.
   let viewOnly = false;
-  if (!ticketOk && session!.role !== "ADMIN") {
+  if (session?.role !== "ADMIN") {
     const { canAccessContractFile } = await import("@/lib/contract-access");
-    const acc = await canAccessContractFile({ contractId: id }, { userId: session!.userId, role: session!.role });
+    // 티켓만 온 요청(세션 없음)은 계약 당사자로 보고 정책만 확인한다 — 접근 자체는 위에서 허용됨
+    const acc = await canAccessContractFile(
+      { contractId: id },
+      session ? { userId: session.userId, role: session.role } : { userId: contract.userId, role: "EMPLOYEE" }
+    );
     if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
     viewOnly = acc.viewOnly;
   }

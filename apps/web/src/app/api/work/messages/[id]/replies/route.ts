@@ -21,6 +21,11 @@ export async function GET(
   });
   if (!parent) return NextResponse.json({ error: "메시지를 찾을 수 없습니다." }, { status: 404 });
 
+  // 그 채널 사람인지 확인 — 종전에는 검사가 없어 메시지 id 만 알면 남의 DM 원문이 나왔다
+  const { assertChannelAccess } = await import("@/lib/work-access");
+  const acc = await assertChannelAccess(parent.channelId, session.userId);
+  if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+
   const replies = await prisma.workMessage.findMany({
     where: { parentId: id },
     include: { user: { select: { id: true, name: true } } },

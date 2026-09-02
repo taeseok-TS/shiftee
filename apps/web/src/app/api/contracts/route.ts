@@ -97,9 +97,14 @@ export async function GET(request: NextRequest) {
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
     const filteredContracts = contracts.map(({ template, ...contract }) => {
       const access = template?.postSignAccess || "full";
-      // 열람 금지 문서는 파일 주소 자체를 내려주지 않는다 — 주소를 알면 다른 문(채팅 첨부 등)
-      // 으로 빼돌리는 시도가 가능하고, 애초에 화면에서 쓸 일도 없다 (2026-09-02)
-      const hideFiles = session.role !== "ADMIN" && access === "none" && contract.userId === session.userId;
+      // 열람 금지 문서는 **서명을 마친 뒤에만** 파일 주소를 감춘다.
+      // ⚠ 서명 전에도 감췄더니 서명 화면 뷰어에 빈 주소가 들어가 문서가 안 보이는 채로
+      //   서명 버튼이 눌렸다(백지 서명). 무엇에 서명하는지는 반드시 보여야 한다.
+      const hideFiles =
+        session.role !== "ADMIN" &&
+        access === "none" &&
+        contract.userId === session.userId &&
+        !!contract.employeeSignedAt;
       return ({
       ...contract,
       ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),

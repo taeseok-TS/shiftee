@@ -51,6 +51,11 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
 
+  // 관리 권한 이전에 **그 채널 사람인지** 부터 본다 — 원장은 채널 소속과 무관하게
+  // channelCanManage 를 통과하므로, 이 검사가 없으면 남의 DM 첨부까지 지울 수 있다.
+  const { assertChannelAccess } = await import("@/lib/work-access");
+  const acc = await assertChannelAccess(id, session.userId);
+  if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
   if (!(await channelCanManage(id, session.userId, session.role)))
     return NextResponse.json({ error: "파일을 정리할 권한이 없습니다." }, { status: 403 });
 

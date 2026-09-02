@@ -84,8 +84,12 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
   // 문서 정책. 템플릿 연결이 끊긴 계약은 "정책 없음"이지 "제한 없음"이 아니다 —
   // 템플릿을 지우면 templateId 가 NULL 이 되는데, 그때 full 로 풀리면 과거 계약이 전부 열린다.
   // 정해진 값이 아니면(오타·대소문자 등) 가장 엄격하게 본다 — 정책 필드는 fail-closed 여야 한다.
-  const raw = row.hasTemplate ? row.access : null;
-  const access = raw === "full" || raw === "view" || raw === "none" ? raw : row.hasTemplate ? "none" : "view";
+  // 정해진 값이 아니면(오타·대소문자 등) 가장 엄격하게 본다 — 정책 필드는 fail-closed 여야 한다.
+  // 단 **템플릿 없이 파일만 올린 계약은 정상 운용**이므로 종전대로 제한 없음(full)이다.
+  // ⚠ 이걸 view 로 잠갔더니 근로계약서 교부가 막혔다(업무 정지). 템플릿 삭제로 연결이 끊긴
+  //   경우와 구분이 안 되는 것은 아는 한계 — 삭제 쪽은 템플릿을 지우지 않는 운영으로 막는다.
+  const raw = row.hasTemplate ? row.access : "full";
+  const access = raw === "full" || raw === "view" || raw === "none" ? raw : "none";
 
   const isOwner = row.userId === who.userId;
   if (isOwner) {

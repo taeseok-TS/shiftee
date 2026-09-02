@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
+import { workFileDiskPath } from "@/lib/work-file";
 
 /**
  * 운영 모니터링 — 에러 로그 기록, 디스크/DB 헬스체크, 저장공간 집계
@@ -56,11 +57,11 @@ export function getDiskUsage(): { totalGb: number; usedGb: number; percent: numb
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
 // fileUrl("/api/uploads/...") → 디스크 경로
-function uploadPathFromUrl(url: string): string | null {
-  if (!url.startsWith("/api/uploads/")) return null;
-  const rel = url.slice("/api/uploads/".length);
-  if (rel.includes("..")) return null;
-  return path.join(UPLOADS_DIR, ...rel.split("/").map((p) => { try { return decodeURIComponent(p); } catch { return p; } }));
+function uploadPathFromUrl(fileUrl: string): string | null {
+  // 채팅 첨부 경로는 lib/work-file 한 곳에서만 만든다 — 종전 구현은 ".." 검사를 디코드
+  // **전에** 해서 %2e%2e 가 그대로 통과했다. 이 함수는 첨부 정리(파일 삭제)에도 쓰이므로
+  // 뚫리면 임의 파일 삭제가 된다.
+  return workFileDiskPath(fileUrl);
 }
 
 async function fileSize(url: string): Promise<number> {
