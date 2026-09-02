@@ -284,7 +284,10 @@ model Contract {
   updatedAt        DateTime              @updatedAt
 
   @@index([bundleId])
-  // 업로드 파일 접근 판정이 파일명으로 계약을 찾는다 (lib/contract-access.findContracts)
+  // 운영 DB 에 이미 만들어 둔 인덱스 - 스키마에 없으면 다음 migrate 가 떨어뜨리고
+  // 신규 고객사 인스턴스에는 처음부터 없다. 다만 lib/contract-access.findContracts 는
+  // OR 안에 JSON 배열 검사가 섞여 있어 현재로선 이 인덱스를 타지 못한다(전체 스캔).
+  // 계약 행 수가 적어 문제되지 않으며, 저장 형태를 단일 문자열로 정규화하면 그때 쓰인다.
   @@index([signedUrl])
 }
 

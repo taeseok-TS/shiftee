@@ -21,23 +21,37 @@ async function authHeaders() {
 // <Image>·WebView 는 Authorization 헤더를 못 실으므로 URL 에 ?t= 티켓을 부착한다.
 // 앱 실행·포그라운드(refreshToken 직후)마다 갱신 — 티켓 수명 12시간.
 let uploadsTicket = "";
+// 게이트가 켜진 경로군. 서버가 티켓과 함께 내려준다 — 서버에서 경로군을 늘려도 앱을
+// 다시 배포할 필요가 없다. 구서버(gate 미응답)는 당시의 게이트가 이 둘이었다.
+let uploadsGate: string[] = ["signatures", "contracts"];
 
 export async function fetchUploadsTicket(): Promise<void> {
   try {
     const res = await axios.get(`${API_URL}/uploads/ticket`, { headers: await authHeaders() });
     if (res.data?.t) uploadsTicket = res.data.t;
+    if (Array.isArray(res.data?.gate)) uploadsGate = res.data.gate;
   } catch {
     // 구서버 등으로 실패해도 앱 동작은 유지 (게이트 없는 경로는 그대로 열린다)
   }
 }
 
-// 업로드 파일 URI — 게이트가 켜진 경로도 열리도록 티켓을 붙인 절대 URL 을 만든다
-// 첨부 주소는 서버 응답에서 null 로 올 수 있다(파일 없는 메시지 등). 종전 `FILE_ORIGIN + url`
-// 은 "…/api/uploads/null" 같은 주소를 만들어 404 를 냈다 — 빈 문자열로 돌려 아예 요청을 막는다.
+// 업로드 파일 URI — 게이트가 켜진 경로도 열리도록 티켓을 붙인 절대 URL 을 만든다.
+//
+// 티켓은 **우리 서버의, 게이트가 켜진 경로에만** 붙인다 (2026-09-02):
+//  · 외부 호스트(공지 본문의 http 이미지 등)에 붙으면 12시간짜리 그 사람 권한 티켓이
+//    제3자 서버 접근 로그에 그대로 남는다. 그 티켓으로 계약서·서명까지 열린다.
+//  · 게이트 밖 경로(채팅 첨부·아바타)에 붙으면 얻는 것 없이 URL 만 매번 달라져
+//    RN 이미지·영상 캐시가 통째로 무효화되고(티켓은 갱신마다 문자열이 바뀐다),
+//    Linking.openURL 로 외부 브라우저 주소창·히스토리에 티켓이 박힌다.
 export function fileUri(path: string | null | undefined): string {
   if (!path) return "";
-  const full = /^https?:\/\//.test(path) ? path : FILE_ORIGIN + path;
+  const isAbsolute = /^https?:\/\//.test(path);
+  const full = isAbsolute ? path : FILE_ORIGIN + path;
   if (!uploadsTicket) return full;
+  if (isAbsolute && !full.startsWith(FILE_ORIGIN + "/")) return full; // 외부 호스트엔 안 붙인다
+  const rel = full.slice(FILE_ORIGIN.length);
+  const m = /^\/api\/uploads\/([^/?#]+)\//.exec(rel);
+  if (!m || !uploadsGate.includes(decodeURIComponent(m[1]))) return full;
   return full + (full.includes("?") ? "&" : "?") + "t=" + uploadsTicket;
 }
 

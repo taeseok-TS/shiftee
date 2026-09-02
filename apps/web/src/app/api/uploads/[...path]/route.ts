@@ -4,6 +4,7 @@ import { Readable } from "stream";
 import fs from "fs/promises";
 import path from "path";
 import { getSession } from "@/lib/auth";
+import { uploadGateGroups } from "@/lib/upload-gate";
 
 // 업로드 파일은 요청 시점에 디스크에서 읽어야 하므로 정적 프리렌더 금지(항상 동적 실행)
 export const dynamic = "force-dynamic";
@@ -48,17 +49,9 @@ export async function GET(
   }
 
   // 접근 게이트 (2026-08-24) — 세션(웹 쿠키/Bearer) 또는 접근 티켓(?t=) 필수.
-  // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL에 부착한다(lib/upload-ticket).
-  // 경로군별 단계 적용: 기본 signatures·contracts. 앱 OTA 확산 후 work·avatars 확대 예정
-  // (환경변수 UPLOADS_GATE 로 조절, "off" 면 게이트 없음).
-  // 빈 문자열은 오설정으로 보고 기본값 사용 — 끄려면 명시적으로 "off"
-  const gateEnvRaw = (process.env.UPLOADS_GATE ?? "").trim();
-  // work(채팅 첨부)는 아직 넣지 않는다. 2026-09-02 에 한 번 넣었다가 앱 첨부가 전부 401 이 됐다 —
-  // 앱은 계약서 화면에서만 fileUri()(티켓 부착)를 썼고 채팅·공지·제안·휴가·결재는 맨 URL 이었다.
-  // 같은 날 앱 14곳을 fileUri() 로 고쳤으나, **구버전 바이너리는 영원히 티켓을 안 붙인다.**
-  // OTA·스토어 확산을 확인한 뒤에 UPLOADS_GATE 에 work 를 추가할 것(코드 기본값을 먼저 바꾸지 말 것).
-  const gateEnv = gateEnvRaw === "" ? "signatures,contracts" : gateEnvRaw;
-  const gated = gateEnv === "off" ? [] : gateEnv.split(",").map((s) => s.trim()).filter(Boolean);
+  // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL 에 부착한다(lib/upload-ticket).
+  // 어떤 경로군을 막을지는 lib/upload-gate 한 곳에서 정하고, 앱도 같은 목록을 받아 쓴다.
+  const gated = uploadGateGroups();
   let contractViewOnly = false;   // 열람만 허용된 계약서 — 아래에서 다운로드 강제를 막는다
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");

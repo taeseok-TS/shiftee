@@ -37,6 +37,10 @@ services:
       API_URL: ${API_URL:-${NEXT_PUBLIC_API_URL}}
       # HTTPS 적용 전(HTTP 임시)에는 .env에 COOKIE_SECURE=false. HTTPS 되면 true(또는 삭제).
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # 업로드 파일 접근 게이트 - 이 경로군은 세션 또는 접근 티켓(?t=)이 있어야 열린다.
+      # work(채팅 첨부)를 넣기 전에 반드시 앱 확산 확인 + 채널 멤버십 판정을 먼저 할 것.
+      # 2026-09-02 에 그냥 켰다가 앱 첨부가 전부 401 이 됐다. "off" 면 게이트 없음.
+      UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
       GOTENBERG_URL: http://gotenberg:3000
@@ -59,6 +63,9 @@ services:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
     mem_limit: 768m
+    volumes:
+      # 한글 폰트(맑은고딕.바탕.굴림) - LibreOffice 변환 시 명조 폴백 방지 (2026-08-27 #118)
+      - ./gotenberg-fonts:/usr/share/fonts/custom:ro
     command:
       - gotenberg
       - --api-timeout=60s

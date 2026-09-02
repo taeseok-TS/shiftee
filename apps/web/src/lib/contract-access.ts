@@ -71,15 +71,21 @@ async function findContracts(target: { fileName?: string; contractId?: string })
     LEFT JOIN "ContractTemplate" t ON t.id = c."templateId"
     LEFT JOIN "ContractApprovalLine" l ON l."contractId" = c.id
     LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
-    WHERE (CASE WHEN left(btrim(c."fileUrl"), 1) = '[' THEN c."fileUrl"::jsonb ? ${url} ELSE c."fileUrl" = ${url} END)
-       OR (CASE WHEN left(btrim(c."signedUrl"), 1) = '[' THEN c."signedUrl"::jsonb ? ${url} ELSE c."signedUrl" = ${url} END)
-       -- 재발송·재생성 전 버전 파일도 그 계약 권한으로 본다 (안 보면 옛 링크가 영구 404).
-       -- ContractVersion.fileUrl 은 Contract.fileUrl 을 그대로 복사하므로 JSON 배열이다 —
-       -- 여기에 CASE 를 빼면 '["/api/..."]' 와 '/api/...' 비교라 영원히 안 맞는다 (2026-09-02).
+    -- fileUrl 은 JSON 배열 문자열로 저장되고(운영 7/7), signedUrl.ContractVersion.fileUrl 은
+    -- 단일 문자열로도 배열로도 올 수 있다. 두 형태를 OR 로 나눠서 본다 --
+    -- CASE 로 컬럼을 감싸면 조건이 표현식이 돼 인덱스를 못 타고 매번 전체 스캔이 된다.
+    -- IS JSON ARRAY(PG16)로 먼저 걸러, '[' 로 시작하는 깨진 값에 ::jsonb 캐스트가 터지는 것도 막는다
+    -- (터지면 쿼리가 죽어 계약 파일 접근이 통째로 막힌다).
+    WHERE c."fileUrl" = ${url}
+       OR (c."fileUrl" IS JSON ARRAY AND c."fileUrl"::jsonb ? ${url})
+       OR c."signedUrl" = ${url}
+       OR (c."signedUrl" IS JSON ARRAY AND c."signedUrl"::jsonb ? ${url})
+       -- 재발송.재생성 전 버전 파일도 그 계약 권한으로 본다 (안 보면 옛 링크가 영구 404).
+       -- ContractVersion.fileUrl 은 Contract.fileUrl 을 그대로 복사하므로 배열이다.
        OR EXISTS (
             SELECT 1 FROM "ContractVersion" v
             WHERE v."contractId" = c.id
-              AND (CASE WHEN left(btrim(v."fileUrl"), 1) = '[' THEN v."fileUrl"::jsonb ? ${url} ELSE v."fileUrl" = ${url} END)
+              AND (v."fileUrl" = ${url} OR (v."fileUrl" IS JSON ARRAY AND v."fileUrl"::jsonb ? ${url}))
           )
     GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
 }
