@@ -48,6 +48,8 @@ if [[ -n "$CONFIG" ]]; then
   [[ -n "$DOMAIN" ]] || DOMAIN="$(cfg domain)"
   [[ -n "$PORT"   ]] || PORT="$(cfg port)"
   COMPANY="$(cfg company)"
+  # 폰트 폴더는 설정 파일로도 받는다 (환경변수 CUBETEE_FONTS_DIR 이 있으면 그것이 우선)
+  [[ -n "${CUBETEE_FONTS_DIR:-}" ]] || CUBETEE_FONTS_DIR="$(cfg fonts_dir)"
   N="$(cfg admin_name)"; [[ -n "$N" && "$NAME" == "관리자" ]] && NAME="$N"
   echo "  설정 파일 $CONFIG ${COMPANY:+— $COMPANY}"
 fi
@@ -96,6 +98,25 @@ mkdir -p "$DIR/backup"
 cp "$HERE/docker-compose.customer.yml" "$DIR/"
 cp "$HERE/init-tenant.js" "$DIR/"
 
+# 워드->PDF 변환용 한글 폰트. MS 라이선스 폰트라 저장소에 두지 않고 서버의 공용 폴더를
+# 읽기전용으로 함께 쓴다(고객사마다 60MB 를 복사하지 않는다). 없으면 빈 폴더를 만들어
+# 기동은 되게 하고 경고만 남긴다 - 변환은 되지만 명조로 폴백돼 서식이 어긋난다.
+FONTS_DIR=""
+for cand in "${CUBETEE_FONTS_DIR:-}" /opt/cubetee/gotenberg-fonts /opt/qubetee/gotenberg-fonts; do
+  [[ -n "$cand" && -d "$cand" ]] || continue
+  if ls "$cand"/*.tt[cf] >/dev/null 2>&1; then FONTS_DIR="$cand"; break; fi
+done
+if [[ -z "$FONTS_DIR" ]]; then
+  mkdir -p "$DIR/gotenberg-fonts"
+  FONTS_DIR="./gotenberg-fonts"
+  FONTS_NOTE="  ⚠ 한글 폰트 폴더를 못 찾았습니다. 계약서 PDF 서식이 어긋날 수 있습니다."
+  FONTS_NOTE="$FONTS_NOTE
+    맑은고딕.바탕.굴림(.ttf/.ttc)을 $DIR/gotenberg-fonts 에 넣고 다시 기동하세요:
+      docker compose -p $PROJECT -f docker-compose.customer.yml up -d gotenberg"
+else
+  FONTS_NOTE=""
+fi
+
 POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | head -c 28)"
 JWT_SECRET="$(openssl rand -base64 48 | tr -d '/+=' | head -c 56)"
 
@@ -114,6 +135,9 @@ WEB_PORT=$PORT
 APP_URL=https://$DOMAIN
 COOKIE_SECURE=true
 
+# 워드->PDF 변환기가 읽는 한글 폰트 폴더 (읽기전용 마운트)
+GOTENBERG_FONTS_DIR=$FONTS_DIR
+
 # 메일 발송이 필요하면 채우세요 (전자계약 서명 요청은 메일로 나갑니다)
 SMTP_HOST=
 SMTP_PORT=587
@@ -125,6 +149,8 @@ SMTP_FROM_EMAIL=
 EOF
 chmod 600 "$DIR/.env"
 echo "  $DIR/.env (600)"
+echo "  폰트 폴더 $FONTS_DIR"
+[[ -n "$FONTS_NOTE" ]] && echo "$FONTS_NOTE"
 
 cd "$DIR"
 COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.customer.yml)

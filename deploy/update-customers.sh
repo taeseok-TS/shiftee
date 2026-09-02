@@ -124,6 +124,27 @@ for CODE in "${TARGETS[@]}"; do
   cp "$HERE/init-tenant.js"              "$DIR/init-tenant.js"
   ok "compose · init-tenant 최신화 (.env 는 그대로)"
 
+  # 새 compose 가 쓰는 값이 옛 .env 에 없으면 채워 넣는다(있는 값은 건드리지 않는다).
+  # GOTENBERG_FONTS_DIR 이 없으면 compose 기본값이 인스턴스 폴더의 빈 폴더가 돼
+  # 워드->PDF 변환이 명조로 폴백된다 (2026-08-27 #118).
+  if ! grep -q "^GOTENBERG_FONTS_DIR=" "$DIR/.env"; then
+    FONTS_DIR=""
+    for cand in "${CUBETEE_FONTS_DIR:-}" /opt/cubetee/gotenberg-fonts /opt/qubetee/gotenberg-fonts; do
+      [[ -n "$cand" && -d "$cand" ]] || continue
+      if ls "$cand"/*.tt[cf] >/dev/null 2>&1; then FONTS_DIR="$cand"; break; fi
+    done
+    if [[ -n "$FONTS_DIR" ]]; then
+      printf '
+# 워드->PDF 변환기가 읽는 한글 폰트 폴더 (읽기전용 마운트)
+GOTENBERG_FONTS_DIR=%s
+' "$FONTS_DIR" >> "$DIR/.env"
+      ok "GOTENBERG_FONTS_DIR=$FONTS_DIR 추가"
+    else
+      mkdir -p "$DIR/gotenberg-fonts"
+      echo "  ⚠ 한글 폰트 폴더를 못 찾았다 — 계약서 PDF 서식이 어긋날 수 있다($DIR/gotenberg-fonts 에 넣을 것)"
+    fi
+  fi
+
   # ── 3) 이미지 태그 교체 ────────────────────────────────────
   step "[$CODE] 이미지 태그 교체"
   cp "$DIR/.env" "$DIR/.env.bak-$STAMP"
