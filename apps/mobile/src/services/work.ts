@@ -32,7 +32,10 @@ export async function fetchUploadsTicket(): Promise<void> {
 }
 
 // 업로드 파일 URI — 게이트가 켜진 경로도 열리도록 티켓을 붙인 절대 URL 을 만든다
-export function fileUri(path: string): string {
+// 첨부 주소는 서버 응답에서 null 로 올 수 있다(파일 없는 메시지 등). 종전 `FILE_ORIGIN + url`
+// 은 "…/api/uploads/null" 같은 주소를 만들어 404 를 냈다 — 빈 문자열로 돌려 아예 요청을 막는다.
+export function fileUri(path: string | null | undefined): string {
+  if (!path) return "";
   const full = /^https?:\/\//.test(path) ? path : FILE_ORIGIN + path;
   if (!uploadsTicket) return full;
   return full + (full.includes("?") ? "&" : "?") + "t=" + uploadsTicket;

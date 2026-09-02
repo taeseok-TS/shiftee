@@ -38,7 +38,7 @@ import VoiceBubble from "../../components/VoiceBubble";
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, FILE_ORIGIN } from "../../services/work";
+import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, hideChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
 
@@ -1046,7 +1046,7 @@ export default function WorkChatScreen() {
       }
       for (const u of urls) {
         const filename = u.split("/").pop()?.split("?")[0] || `photo-${Date.now()}.jpg`;
-        const dl = await FileSystem.downloadAsync(FILE_ORIGIN + u, `${FileSystem.cacheDirectory}${filename}`);
+        const dl = await FileSystem.downloadAsync(fileUri(u), `${FileSystem.cacheDirectory}${filename}`);
         await MediaLibrary.saveToLibraryAsync(dl.uri);
         saved++;
       }
@@ -1204,7 +1204,7 @@ export default function WorkChatScreen() {
                         const rest = item.albumUrls!.length - shown;
                         return (
                           <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)} onLongPress={() => setReactionTarget(item.id)}>
-                            <Image source={{ uri: FILE_ORIGIN + u }} style={styles.albumCell} resizeMode="cover" />
+                            <Image source={{ uri: fileUri(u) }} style={styles.albumCell} resizeMode="cover" />
                             {i === shown - 1 && rest > 0 ? (
                               <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
                             ) : null}
@@ -1215,16 +1215,16 @@ export default function WorkChatScreen() {
                   ) : item.fileUrl ? (
                     item.fileType === "image" ? (
                       <BubbleImage
-                        uri={FILE_ORIGIN + item.fileUrl}
+                        uri={fileUri(item.fileUrl)}
                         onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}
                         onLongPress={() => setReactionTarget(item.id)}
                       />
                     ) : item.fileType === "video" ? (
-                      <VideoBubble uri={FILE_ORIGIN + item.fileUrl} />
+                      <VideoBubble uri={fileUri(item.fileUrl)} />
                     ) : item.fileType === "audio" ? (
-                      <VoiceBubble uri={FILE_ORIGIN + item.fileUrl} mine={item.mine} />
+                      <VoiceBubble uri={fileUri(item.fileUrl)} mine={item.mine} />
                     ) : (
-                      <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + item.fileUrl)} onLongPress={() => setReactionTarget(item.id)}>
+                      <TouchableOpacity onPress={() => Linking.openURL(fileUri(item.fileUrl))} onLongPress={() => setReactionTarget(item.id)}>
                         <Text style={[styles.msgText, item.mine && styles.msgTextMine]}>📎 {item.fileName || "첨부파일"}</Text>
                       </TouchableOpacity>
                     )
@@ -1361,8 +1361,8 @@ export default function WorkChatScreen() {
                 <Text style={styles.noticeText}>🖼️ 이미지 공지</Text>
               ) : null}
               {notice.imageUrl && !noticeCollapsed ? (
-                <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + notice.imageUrl)}>
-                  <Image source={{ uri: FILE_ORIGIN + notice.imageUrl }} style={styles.noticeImage} resizeMode="cover" />
+                <TouchableOpacity onPress={() => Linking.openURL(fileUri(notice.imageUrl))}>
+                  <Image source={{ uri: fileUri(notice.imageUrl) }} style={styles.noticeImage} resizeMode="cover" />
                 </TouchableOpacity>
               ) : null}
             </ScrollView>
@@ -2114,7 +2114,7 @@ export default function WorkChatScreen() {
               onScroll={(e) => setViewerIndex(Math.round(e.nativeEvent.contentOffset.x / winW))}
               scrollEventThrottle={16}
               scrollEnabled={!viewerZoomed}
-              renderItem={({ item: u, index: pi }) => <ViewerPage uri={FILE_ORIGIN + u} width={winW} height={winH} active={pi === viewerIndex} onZoomChange={setViewerZoomed} />}
+              renderItem={({ item: u, index: pi }) => <ViewerPage uri={fileUri(u)} width={winW} height={winH} active={pi === viewerIndex} onZoomChange={setViewerZoomed} />}
             />
             <View style={styles.viewerHead}>
               <Text style={styles.viewerCount}>{viewerIndex + 1} / {imageViewer.urls.length}</Text>

@@ -20,7 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
-import { uploadFile, FILE_ORIGIN } from "../../services/work";
+import { uploadFile, fileUri } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -340,7 +340,7 @@ export default function LeaveRequestScreen() {
                 </Text>
                 {r.reason ? <Text style={styles.histReason}>{r.reason}</Text> : null}
                 {r.attachmentUrl ? (
-                  <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + r.attachmentUrl)} style={styles.attachRow}>
+                  <TouchableOpacity onPress={() => Linking.openURL(fileUri(r.attachmentUrl))} style={styles.attachRow}>
                     <Ionicons name="document-attach-outline" size={16} color="#2563eb" />
                     <Text style={styles.attachName} numberOfLines={1}>{r.attachmentName || "첨부 보기"}</Text>
                   </TouchableOpacity>

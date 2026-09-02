@@ -284,6 +284,8 @@ model Contract {
   updatedAt        DateTime              @updatedAt
 
   @@index([bundleId])
+  // 업로드 파일 접근 판정이 파일명으로 계약을 찾는다 (lib/contract-access.findContracts)
+  @@index([signedUrl])
 }
 
 enum ContractType {
@@ -426,6 +428,7 @@ model ContractVersion {
 
   @@unique([contractId, version])
   @@index([contractId, version])
+  @@index([fileUrl])
 }
 
 // ─── 지점 ───────────────────────────────────────────────────

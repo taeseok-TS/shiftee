@@ -24,7 +24,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { Announcement } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { createAnnouncement, pinAnnouncement, deleteAnnouncement, uploadFile, FILE_ORIGIN } from "../../services/work";
+import { createAnnouncement, pinAnnouncement, deleteAnnouncement, uploadFile, fileUri } from "../../services/work";
 import { ImageViewerModal } from "../../components/ImageViewer";
 
 type Attachment = { url: string; name: string; type: string };
@@ -49,7 +49,7 @@ export function renderAnnouncementBody(
   onImagePress?: (urls: string[], index: number) => void
 ) {
   const urls: string[] = [];
-  for (const m of text.matchAll(MD_IMAGE_RE)) urls.push(m[2].startsWith("http") ? m[2] : FILE_ORIGIN + m[2]);
+  for (const m of text.matchAll(MD_IMAGE_RE)) urls.push(fileUri(m[2]));
 
   const out: React.ReactNode[] = [];
   let last = 0, i = 0, imgIdx = 0;
@@ -255,15 +255,15 @@ export default function WorkAnnouncementsScreen() {
                       onPress={() => {
                         const imgs = (item.attachments || []).filter((a) => a.type === "image");
                         setPhotoViewer({
-                          urls: imgs.map((a) => FILE_ORIGIN + a.url),
+                          urls: imgs.map((a) => fileUri(a.url)),
                           index: Math.max(0, imgs.findIndex((a) => a.url === att.url)),
                         });
                       }}
                     >
-                      <Image source={{ uri: FILE_ORIGIN + att.url }} style={styles.attImage} resizeMode="cover" />
+                      <Image source={{ uri: fileUri(att.url) }} style={styles.attImage} resizeMode="cover" />
                     </TouchableOpacity>
                   ) : (
-                    <TouchableOpacity key={i} style={styles.attFile} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                    <TouchableOpacity key={i} style={styles.attFile} onPress={() => Linking.openURL(fileUri(att.url))}>
                       <Ionicons name="attach" size={14} color="#4f46e5" />
                       <Text style={styles.attFileName} numberOfLines={1}>{att.name}</Text>
                     </TouchableOpacity>

@@ -19,7 +19,7 @@ import * as api from "../services/api";
 import * as storage from "../services/storage";
 import { renderAnnouncementBody } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
-import { FILE_ORIGIN } from "../services/work";
+import { fileUri } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
@@ -251,15 +251,15 @@ export default function HomeScreen() {
                             onPress={() => {
                               const imgs = (activeAnn.attachments || []).filter((a) => a.type === "image");
                               setPhotoViewer({
-                                urls: imgs.map((a) => FILE_ORIGIN + a.url),
+                                urls: imgs.map((a) => fileUri(a.url)),
                                 index: Math.max(0, imgs.findIndex((a) => a.url === att.url)),
                               });
                             }}
                           >
-                            <Image source={{ uri: FILE_ORIGIN + att.url }} style={styles.attImage} resizeMode="cover" />
+                            <Image source={{ uri: fileUri(att.url) }} style={styles.attImage} resizeMode="cover" />
                           </TouchableOpacity>
                         ) : (
-                          <TouchableOpacity key={i} style={styles.attFile} onPress={() => Linking.openURL(FILE_ORIGIN + att.url)}>
+                          <TouchableOpacity key={i} style={styles.attFile} onPress={() => Linking.openURL(fileUri(att.url))}>
                             <Ionicons name="attach" size={14} color="#2563eb" />
                             <Text style={styles.attFileName} numberOfLines={1}>{att.name}</Text>
                           </TouchableOpacity>

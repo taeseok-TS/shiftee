@@ -15,7 +15,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { FILE_ORIGIN } from "../../services/work";
+import { fileUri } from "../../services/work";
 import {
   getLeaveApprovals,
   getScheduleApprovals,
@@ -185,7 +185,7 @@ export default function ApprovalsScreen() {
                   <Text style={styles.line}>{fmtRange(r.startDate, r.endDate)} · {r.days}일</Text>
                   {!!r.reason && <Text style={styles.reason}>{r.reason}</Text>}
                   {!!r.attachmentUrl && (
-                    <TouchableOpacity onPress={() => Linking.openURL(FILE_ORIGIN + r.attachmentUrl)} style={styles.attachLink}>
+                    <TouchableOpacity onPress={() => Linking.openURL(fileUri(r.attachmentUrl))} style={styles.attachLink}>
                       <Ionicons name="document-attach-outline" size={15} color="#2563eb" />
                       <Text style={styles.attachLinkText} numberOfLines={1}>{r.attachmentName || "첨부 보기"}</Text>
                     </TouchableOpacity>

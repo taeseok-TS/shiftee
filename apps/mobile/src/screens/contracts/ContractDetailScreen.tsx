@@ -121,7 +121,10 @@ export default function ContractDetailScreen() {
   // 서명 완료 후 근로자 접근 (#129) — 템플릿 설정. 관리자는 무제한 현행
   const postSignAccess = contract.postSignAccess || "full";
   // 진행 중 계약 — 내 서명이 반영된 진행본 열람 (#110). 완료되면 완료본 버튼이 대신 뜬다
-  const inProgressViewable = !isAdmin && contract.status !== "SIGNED" && !!contract.employeeSignedAt && !signedFile;
+  // 서버가 none 문서의 파일 주소를 서명 이후 감추므로(2026-09-02), 화면 분기를 "파일이 있나"로 하면
+  // 안내가 통째로 사라져 빈 칸이 된다. 정책 자체로 판단한다.
+  const submittedNone = !isAdmin && postSignAccess === "none" && !!contract.employeeSignedAt;
+  const inProgressViewable = !isAdmin && !submittedNone && contract.status !== "SIGNED" && !!contract.employeeSignedAt && !signedFile;
 
   // 서명 진행본/완료본 열기 — 계약 1건짜리 단기 링크(PDF, 최신 서명 배치)
   const openSignedDoc = async () => {
@@ -186,7 +189,7 @@ export default function ContractDetailScreen() {
           </TouchableOpacity>
         ) : null}
         {/* 완료본 — 템플릿의 "서명 완료 후 근로자 접근"이 none 이면 버튼 대신 안내만 (#129). 관리자는 현행 */}
-        {signedFile && !isAdmin && postSignAccess === "none" ? (
+        {submittedNone ? (
           <View style={styles.fileBtn}>
             <Ionicons name="checkmark-circle-outline" size={20} color="#9ca3af" />
             <Text style={[styles.fileBtnText, { color: "#6b7280" }]}>제출 완료 (사본은 관리자에게 요청)</Text>
@@ -197,7 +200,11 @@ export default function ContractDetailScreen() {
             onPress={openSignedDoc /* 워드 파일 직링크 대신 재생성 PDF(수정 불가·최신 서명 배치) */}
           >
             <Ionicons name="checkmark-circle-outline" size={20} color="#10b981" />
-            <Text style={styles.fileBtnText}>서명 완료본 보기 (PDF)</Text>
+            {/* 열람만 허용된 문서(view)와 받을 수 있는 문서(full)를 구분해 알려준다
+                — 종전엔 둘 다 "보기"라 근로계약서를 받을 수 있는지 알 수 없었다 (2026-09-02) */}
+            <Text style={styles.fileBtnText}>
+              {postSignAccess === "view" ? "서명 완료본 열람 (PDF)" : "서명 완료본 받기 (PDF)"}
+            </Text>
             <Ionicons name="open-outline" size={18} color="#9ca3af" />
           </TouchableOpacity>
         ) : null}

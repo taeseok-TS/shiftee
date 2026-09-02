@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, FILE_ORIGIN } from "../services/work";
+import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, fileUri } from "../services/work";
 
 // 개선 제안함 — 작성자와 관리자만 보는 비공개 창구. 처리 상태는 봇 DM으로도 통지된다.
 
@@ -125,7 +125,7 @@ export default function SuggestionScreen() {
             <View style={styles.thumbRow}>
               {images.map((u, i) => (
                 <View key={`${u}-${i}`} style={styles.thumbWrap}>
-                  <Image source={{ uri: FILE_ORIGIN + u }} style={styles.thumb} />
+                  <Image source={{ uri: fileUri(u) }} style={styles.thumb} />
                   <TouchableOpacity style={styles.thumbRemove} onPress={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}
                     hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                     <Ionicons name="close" size={12} color="#fff" />
@@ -175,7 +175,7 @@ export default function SuggestionScreen() {
                       <View style={styles.thumbRow}>
                         {editImages.map((u, i) => (
                           <View key={`${u}-${i}`} style={styles.thumbWrap}>
-                            <Image source={{ uri: FILE_ORIGIN + u }} style={styles.thumb} />
+                            <Image source={{ uri: fileUri(u) }} style={styles.thumb} />
                             <TouchableOpacity style={styles.thumbRemove} onPress={() => setEditImages((prev) => prev.filter((_, idx) => idx !== i))}
                               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                               <Ionicons name="close" size={12} color="#fff" />
@@ -207,7 +207,7 @@ export default function SuggestionScreen() {
                 {editId !== s.id && (s.imageUrls?.length ?? 0) > 0 && (
                   <View style={styles.thumbRow}>
                     {s.imageUrls!.map((u, i) => (
-                      <Image key={i} source={{ uri: FILE_ORIGIN + u }} style={styles.thumb} />
+                      <Image key={i} source={{ uri: fileUri(u) }} style={styles.thumb} />
                     ))}
                   </View>
                 )}

@@ -72,9 +72,15 @@ async function findContracts(target: { fileName?: string; contractId?: string })
     LEFT JOIN "ContractApprovalLine" l ON l."contractId" = c.id
     LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
     WHERE (CASE WHEN left(btrim(c."fileUrl"), 1) = '[' THEN c."fileUrl"::jsonb ? ${url} ELSE c."fileUrl" = ${url} END)
-       OR c."signedUrl" = ${url}
-       -- 재발송·재생성 전 버전 파일도 그 계약 권한으로 본다 (안 보면 옛 링크가 영구 404)
-       OR EXISTS (SELECT 1 FROM "ContractVersion" v WHERE v."contractId" = c.id AND v."fileUrl" = ${url})
+       OR (CASE WHEN left(btrim(c."signedUrl"), 1) = '[' THEN c."signedUrl"::jsonb ? ${url} ELSE c."signedUrl" = ${url} END)
+       -- 재발송·재생성 전 버전 파일도 그 계약 권한으로 본다 (안 보면 옛 링크가 영구 404).
+       -- ContractVersion.fileUrl 은 Contract.fileUrl 을 그대로 복사하므로 JSON 배열이다 —
+       -- 여기에 CASE 를 빼면 '["/api/..."]' 와 '/api/...' 비교라 영원히 안 맞는다 (2026-09-02).
+       OR EXISTS (
+            SELECT 1 FROM "ContractVersion" v
+            WHERE v."contractId" = c.id
+              AND (CASE WHEN left(btrim(v."fileUrl"), 1) = '[' THEN v."fileUrl"::jsonb ? ${url} ELSE v."fileUrl" = ${url} END)
+          )
     GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
 }
 
@@ -85,7 +91,6 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
 
   // 문서 정책. 템플릿 연결이 끊긴 계약은 "정책 없음"이지 "제한 없음"이 아니다 —
   // 템플릿을 지우면 templateId 가 NULL 이 되는데, 그때 full 로 풀리면 과거 계약이 전부 열린다.
-  // 정해진 값이 아니면(오타·대소문자 등) 가장 엄격하게 본다 — 정책 필드는 fail-closed 여야 한다.
   // 정해진 값이 아니면(오타·대소문자 등) 가장 엄격하게 본다 — 정책 필드는 fail-closed 여야 한다.
   // 단 **템플릿 없이 파일만 올린 계약은 정상 운용**이므로 종전대로 제한 없음(full)이다.
   // ⚠ 이걸 view 로 잠갔더니 근로계약서 교부가 막혔다(업무 정지). 템플릿 삭제로 연결이 끊긴
