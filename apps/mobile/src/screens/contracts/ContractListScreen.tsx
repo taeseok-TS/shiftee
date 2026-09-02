@@ -430,6 +430,10 @@ export default function ContractListScreen() {
                       penColor="#0b1220"
                       minWidth={3}
                       maxWidth={7}
+                      // 그린 획만 남기고 빈 여백을 잘라낸다 — 웹 서명패드와 같은 처리.
+                      // 켜지 않으면 캔버스 전체가 이미지로 가서, 문서에 넣을 때 빈 공간까지
+                      // 크기에 포함돼 획이 작아지고 이름 줄보다 아래로 처진다 (2026-09-02 실측)
+                      trimWhitespace={true}
                       webStyle={`.m-signature-pad--footer { display: none; }
                         .m-signature-pad { box-shadow: none; border: none; }
                         body, html { width: 100%; height: 100%; }`}
