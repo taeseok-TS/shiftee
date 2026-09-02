@@ -199,10 +199,21 @@ export async function POST(
   if ("error" in acc) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const { content, fileUrl, fileName, fileType, parentId, replyToId, albumUrls, attachFirst } = await request.json();
+  // 첨부 주소는 클라이언트가 주는 값이라 그대로 믿으면 안 된다 —
+  // 계약서·서명·직인 경로를 넣어두고 첨부 다운로드로 빼내는 우회가 가능했다 (2026-09-02).
+  // 채팅 첨부는 work 군만 허용한다.
+  const okAttach = (u: unknown): u is string =>
+    typeof u === "string" &&
+    u.startsWith("/api/uploads/work/") &&
+    !u.includes("..") &&
+    !u.includes("\\") &&
+    u.split("?")[0].split("/").length === 5;
+  if (fileUrl && !okAttach(fileUrl))
+    return NextResponse.json({ error: "첨부 파일 경로가 올바르지 않습니다." }, { status: 400 });
   // 앨범(여러 장 묶음): 내부 업로드 경로의 이미지 URL 2~10장
   const album: string[] | null =
     Array.isArray(albumUrls) && albumUrls.length >= 2
-      ? (albumUrls as unknown[]).filter((u): u is string => typeof u === "string" && u.startsWith("/api/uploads/")).slice(0, 10)
+      ? (albumUrls as unknown[]).filter(okAttach).slice(0, 10)
       : null;
   if (!content?.trim() && !fileUrl && (!album || album.length < 2))
     return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });

@@ -34,19 +34,20 @@ export async function GET(
   if (!hasSignature)
     return NextResponse.json({ error: "아직 서명이 없습니다." }, { status: 400 });
 
-  // #129 서명 완료 후 문서별 근로자 접근 — 완료본(SIGNED)에만 적용, 진행 중 열람은 본인 확인용이라 허용
-  if (session.role !== "ADMIN" && !inProgress && contract.templateId) {
-    const tmpl = await prisma.contractTemplate.findUnique({
-      where: { id: contract.templateId },
-      select: { postSignAccess: true },
-    });
-    if ((tmpl?.postSignAccess || "full") === "none")
-      return NextResponse.json({ error: "이 문서는 제출 완료 상태로, 사본이 필요하면 관리자에게 요청해주세요." }, { status: 403 });
-  }
+  // 권한·정책은 lib/contract-access 한 곳에서 판정한다. 여기에 별도 판정을 두면
+  // 계약 상태·템플릿 삭제 같은 조건이 문마다 어긋난다(실제로 어긋나 있었다, 2026-09-02).
+  const { canAccessContractFile } = await import("@/lib/contract-access");
+  const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
+  if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
+  // 다운로드까지 허용된 문서(full)는 앱에서도 파일로 받을 수 있어야 한다 —
+  // 종전에는 무조건 inline 이라 근로계약서처럼 교부 의무가 있는 문서도 앱에서 저장이 안 됐다
+  // (2026-09-02 이예지대리 요청: 근로계약서·비밀유지서약서·개인정보동의서는 다운로드 가능).
   const st = issueSignedDocTicket(id);
+  const inlineParam = acc.viewOnly ? "&inline=1" : "";
   return NextResponse.json({
-    url: `${getAppUrl()}/api/contracts/${id}/signed-document?pdf=1&inline=1&st=${st}`,
+    url: `${getAppUrl()}/api/contracts/${id}/signed-document?pdf=1${inlineParam}&st=${st}`,
     inProgress,
+    viewOnly: acc.viewOnly,
   });
 }

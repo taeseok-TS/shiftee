@@ -82,9 +82,10 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
   if (!who.userId) return DENY_OTHER; // 주체를 모르는 접근(티켓 무주체 등)은 막는다
 
   // 문서 정책. 템플릿 연결이 끊긴 계약은 "정책 없음"이지 "제한 없음"이 아니다 —
-  // 템플릿을 지우면 templateId 가 NULL 이 되므로, 그때 full 로 풀리면 안 된다.
-  const access = row.hasTemplate ? row.access || "full" : "full";
-  const policyLocked = row.hasTemplate && (access === "none" || access === "view");
+  // 템플릿을 지우면 templateId 가 NULL 이 되는데, 그때 full 로 풀리면 과거 계약이 전부 열린다.
+  // 정해진 값이 아니면(오타·대소문자 등) 가장 엄격하게 본다 — 정책 필드는 fail-closed 여야 한다.
+  const raw = row.hasTemplate ? row.access : null;
+  const access = raw === "full" || raw === "view" || raw === "none" ? raw : row.hasTemplate ? "none" : "view";
 
   const isOwner = row.userId === who.userId;
   if (isOwner) {
@@ -104,7 +105,7 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
   // 열어주면 같은 문서가 문에 따라 달라진다.
   const isApprover = (row.approverIds || []).some((a) => a && a !== row.userId && a === who.userId);
   if (isApprover) {
-    if (policyLocked && access === "none" && row.employeeSignedAt) return DENY_NONE;
+    if (access === "none" && row.employeeSignedAt) return DENY_NONE;
     return OK(true);
   }
 
@@ -112,7 +113,7 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
   if (who.role === "MANAGER" && row.branch) {
     const { getManagerBranches } = await import("@/lib/manager-branches");
     if ((await getManagerBranches(who.userId)).includes(row.branch)) {
-      if (policyLocked && access === "none" && row.employeeSignedAt) return DENY_NONE;
+      if (access === "none" && row.employeeSignedAt) return DENY_NONE;
       return OK(true);
     }
   }
@@ -167,8 +168,22 @@ export async function resolvePrincipal(
   return { who: { userId: null, role: null }, guestContractId: null };
 }
 
-/** 게스트 티켓(c:계약id)이 이 파일에 대해 유효한가 */
+/**
+ * 게스트 티켓(c:계약id)이 이 파일에 대해 유효한가.
+ * 패키지(묶음) 서명은 한 링크에서 동반 문서(비밀유지·개인정보동의서 등)를 함께 넘기므로,
+ * 같은 bundleId 의 형제 계약 파일도 인정해야 한다 — 아니면 2번째 탭부터 열리지 않아
+ * 읽지도 못한 문서에 서명하게 된다.
+ */
 export async function guestTicketCovers(contractId: string, fileName: string): Promise<boolean> {
   const rows = await findContracts({ fileName });
-  return rows.some((r) => r.id === contractId);
+  if (rows.length === 0) return false;
+  if (rows.some((r) => r.id === contractId)) return true;
+  const me = await prisma.contract.findUnique({ where: { id: contractId }, select: { bundleId: true } });
+  if (!me?.bundleId) return false;
+  const sibs = await prisma.contract.findMany({
+    where: { bundleId: me.bundleId },
+    select: { id: true },
+  });
+  const ids = new Set(sibs.map((s) => s.id));
+  return rows.some((r) => ids.has(r.id));
 }

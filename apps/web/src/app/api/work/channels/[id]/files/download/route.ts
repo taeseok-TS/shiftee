@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { workFileDiskPath as diskPath } from "@/lib/work-file";
 import { prisma } from "@/lib/db";
 import PizZip from "pizzip";
 import fs from "fs/promises";
@@ -7,11 +8,7 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
-function diskPath(fileUrl: string): string | null {
-  if (!fileUrl.startsWith("/api/uploads/")) return null;
-  const rel = fileUrl.replace(/^\/api\/uploads\//, "");
-  return path.join(process.cwd(), "uploads", ...rel.split("/").map((s) => decodeURIComponent(s)));
-}
+
 
 // 채널 첨부파일 전체를 ZIP으로 묶어 다운로드 (참여자 누구나)
 export async function GET(
@@ -22,7 +19,11 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
 
-  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { name: true } });
+  // 그룹채널·DM 은 멤버만 — 종전에는 로그인만 확인해 남의 채널 첨부가 통째로 받아졌다
+  const { assertChannelAccess } = await import("@/lib/work-access");
+  const acc = await assertChannelAccess(id, session.userId);
+  if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+  const channel = { name: acc.name };
   const msgs = await prisma.workMessage.findMany({
     where: { channelId: id, fileUrl: { not: null } },
     select: { fileUrl: true, fileName: true, createdAt: true },

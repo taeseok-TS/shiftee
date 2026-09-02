@@ -28,22 +28,16 @@ export async function GET(
   const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
   if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
 
-  // #129 서명 완료 후 문서별 근로자 접근 — 템플릿 설정(postSignAccess)에 따라 당사자 접근 제한.
-  // 완료본(SIGNED)에만 적용 — 진행 중 열람(#110)은 본인 확인용이라 현행 허용.
-  // ⚠ 티켓(st)도 정책을 면제받지 않는다. 티켓은 "권한 검증을 통과한 요청"이라는 증명일 뿐이라,
-  //   면제하면 앱이 받은 링크에서 &inline=1 만 지워 열람 전용 문서를 받을 수 있다 (2026-09-02).
-  //   면제는 관리자 세션에만 준다.
-  if (session?.role !== "ADMIN" && contract.status === "SIGNED" && contract.templateId) {
-    const tmpl = await prisma.contractTemplate.findUnique({
-      where: { id: contract.templateId },
-      select: { postSignAccess: true },
-    });
-    const access = tmpl?.postSignAccess || "full";
-    if (access === "none")
-      return NextResponse.json({ error: "이 문서는 제출 완료 상태로, 사본이 필요하면 관리자에게 요청해주세요." }, { status: 403 });
-    if (access === "view" && new URL(_request.url).searchParams.get("inline") !== "1")
-      return NextResponse.json({ error: "이 문서는 화면 열람만 가능합니다." }, { status: 403 });
+  // 문서별 정책은 lib/contract-access 에서 판정한다(계약 단위 티켓 st 는 발급 때 이미 확인).
+  let viewOnly = false;
+  if (!ticketOk && session!.role !== "ADMIN") {
+    const { canAccessContractFile } = await import("@/lib/contract-access");
+    const acc = await canAccessContractFile({ contractId: id }, { userId: session!.userId, role: session!.role });
+    if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
+    viewOnly = acc.viewOnly;
   }
+  if (viewOnly && new URL(_request.url).searchParams.get("inline") !== "1")
+    return NextResponse.json({ error: "이 문서는 화면 열람만 가능합니다." }, { status: 403 });
 
   // 진행 중 계약도 지금까지 된 서명을 반영해 보여준다 (#110, 2026-08-27) — 서명이 하나도 없으면 안내
   const inProgress = contract.status !== "SIGNED";

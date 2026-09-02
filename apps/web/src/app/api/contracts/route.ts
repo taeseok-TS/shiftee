@@ -95,10 +95,16 @@ export async function GET(request: NextRequest) {
     });
 
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
-    const filteredContracts = contracts.map(({ template, ...contract }) => ({
+    const filteredContracts = contracts.map(({ template, ...contract }) => {
+      const access = template?.postSignAccess || "full";
+      // 열람 금지 문서는 파일 주소 자체를 내려주지 않는다 — 주소를 알면 다른 문(채팅 첨부 등)
+      // 으로 빼돌리는 시도가 가능하고, 애초에 화면에서 쓸 일도 없다 (2026-09-02)
+      const hideFiles = session.role !== "ADMIN" && access === "none" && contract.userId === session.userId;
+      return ({
       ...contract,
+      ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
-      postSignAccess: template?.postSignAccess || "full",
+      postSignAccess: access,
       user: {
         id: contract.user.id,
         name: contract.user.name,
@@ -112,6 +118,8 @@ export async function GET(request: NextRequest) {
           ...step,
           ...(session.role === "ADMIN" ? { signToken } : {}),
           // 외부(미가입) 서명 단계는 approver가 없음(null) — externalName으로 표시
+          // 서명 이미지 주소는 본인 것만 — 남의 서명 PNG 를 받아 재사용하는 것을 막는다
+          signatureUrl: session.role === "ADMIN" || step.approverId === session.userId ? step.signatureUrl : null,
           approver: step.approver ? {
             id: step.approver.id,
             name: step.approver.name,
@@ -119,7 +127,7 @@ export async function GET(request: NextRequest) {
           } : null,
         })),
       } : null,
-    }));
+    });});
 
     return NextResponse.json({ contracts: filteredContracts });
   } catch (error) {
