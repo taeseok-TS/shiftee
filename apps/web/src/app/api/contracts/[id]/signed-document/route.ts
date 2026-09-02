@@ -76,7 +76,10 @@ export async function GET(
   // ?pdf=1 — 워드 완료본을 PDF로 변환해 제공 (개선 제안 2026-08-24: 다운로드 후 수정 방지).
   // 변환기(gotenberg)가 죽어 있으면 워드로 폴백해 다운로드 자체는 항상 된다.
   const reqUrl = new URL(_request.url);
-  const wantPdf = reqUrl.searchParams.get("pdf") === "1";
+  // 열람만 허용된 문서는 pdf=1 이 없어도 PDF 로 강제한다 — 종전에는 inline=1 만 붙이고
+  // pdf=1 을 빼면 **서명.직인이 찍힌 워드 원본**이 그대로 나갔다(2026-09-02).
+  // 앱이 받는 링크가 `?pdf=1&inline=1&st=...` 라 세 글자만 지우면 되는 상태였다.
+  const wantPdf = viewOnly || reqUrl.searchParams.get("pdf") === "1";
   // inline=1 — 저장(다운로드) 대신 브라우저 탭에서 바로 열람 (미리보기 용도)
   const dispo = reqUrl.searchParams.get("inline") === "1" ? "inline" : "attachment";
 
@@ -105,6 +108,10 @@ export async function GET(
           console.error("PDF 변환 오류(gotenberg):", e);
         }
       }
+      // 열람만 허용된 문서는 워드로 폴백하지 않는다 — 브라우저가 못 그려 결국 저장되므로
+      // "열람만"이 무너진다. original-document 와 같은 규칙(변환 실패면 실패시킨다).
+      if (viewOnly)
+        return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
       return new NextResponse(buf, {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

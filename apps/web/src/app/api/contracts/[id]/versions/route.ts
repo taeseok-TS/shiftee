@@ -54,6 +54,19 @@ export async function GET(
       );
     }
 
+    // 열람 금지(none) 문서는 서명을 마친 뒤 구버전 주소도 감춘다 — 목록.상세와 같은 규칙.
+    // 바이트는 contract-access 가 막지만, 여기만 규칙이 달라 주소가 새면 그 방어에 의존하게 된다.
+    const tpl = (contract as { templateId?: string | null }).templateId
+      ? await prisma.contractTemplate.findUnique({
+          where: { id: (contract as { templateId: string }).templateId },
+          select: { postSignAccess: true },
+        })
+      : null;
+    const hideUrls =
+      !isAdmin &&
+      (tpl?.postSignAccess || "full") === "none" &&
+      !!(contract as { employeeSignedAt?: Date | null }).employeeSignedAt;
+
     // 버전 조회
     const versions = await prisma.contractVersion.findMany({
       where: { contractId: id },
@@ -78,7 +91,7 @@ export async function GET(
     return NextResponse.json({
       contractId: id,
       contractTitle: contract.title,
-      versions,
+      versions: hideUrls ? versions.map((v) => ({ ...v, fileUrl: null })) : versions,
       totalVersions: versions.length,
     });
   } catch (error) {

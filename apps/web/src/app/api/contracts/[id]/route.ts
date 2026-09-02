@@ -46,9 +46,22 @@ export async function GET(
     session.role !== "ADMIN" && access === "none" &&
     (rest as { userId?: string }).userId === session.userId &&
     !!(rest as { employeeSignedAt?: Date | null }).employeeSignedAt;
+  // 남의 결재 서명 이미지 주소는 주지 않는다 — 서명 PNG 는 완료본에 찍히는 도장이라
+  // 위조 재료가 된다. 목록 API 는 이미 가리고 있었는데 상세만 빠져 두 문이 어긋났다.
+  const line = (rest as { approvalLine?: { steps?: { approverId: string | null; signatureUrl: string | null }[] } }).approvalLine;
+  const safeLine = line?.steps
+    ? {
+        ...line,
+        steps: line.steps.map((st) => ({
+          ...st,
+          signatureUrl: session.role === "ADMIN" || st.approverId === session.userId ? st.signatureUrl : null,
+        })),
+      }
+    : line;
   return NextResponse.json({
     contract: {
       ...rest,
+      ...(safeLine ? { approvalLine: safeLine } : {}),
       ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),
       postSignAccess: access,
     },

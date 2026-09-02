@@ -66,13 +66,15 @@ export async function GET(
     // 종전에는 세션이 있을 때만 검사해서 티켓 하나로 정책이 통째로 우회됐다 (2026-09-02).
     const isContract = decoded[0] === "contracts" || pathParts[0] === "contracts";
     if (isContract) {
-      const { canAccessContractFile, resolvePrincipal, guestTicketCovers } = await import("@/lib/contract-access");
+      const { canAccessContractFile, resolvePrincipal, judgeGuestFile } = await import("@/lib/contract-access");
       const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
       const { who, guestContractId } = await resolvePrincipal(session, tk?.subject ?? null);
       if (guestContractId) {
-        // 외부(미가입) 계약자 — 자기 계약의 파일에만
-        if (!(await guestTicketCovers(guestContractId, fname)))
-          return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+        // 외부(미가입) 계약자 — 자기 계약의 파일에만, **그리고 문서 정책대로**.
+        // 종전에는 범위만 보고 정책을 건너뛰어 게스트에게는 view.none 이 무력했다.
+        const g = await judgeGuestFile(guestContractId, fname);
+        if (!g.allowed) return NextResponse.json({ error: g.error }, { status: g.status });
+        contractViewOnly = g.viewOnly;
       } else {
         const r = await canAccessContractFile({ fileName: fname }, who);
         if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });

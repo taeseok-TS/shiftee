@@ -112,7 +112,10 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
     // 정책 적용 시점은 계약 status 가 아니라 **본인이 서명을 마쳤는가**로 본다.
     // status 로 보면 뒤에 결재가 남은 동안 APPROVED 에 머물러 그 구간이 통째로 열리고,
     // 서명 회수(SENT 로 되돌림)로 다시 열린다.
-    if (!row.employeeSignedAt) return OK(); // 아직 서명 전 — 무엇에 서명하는지 봐야 한다
+    // 아직 서명 전 — 무엇에 서명하는지는 봐야 한다. 다만 "봐야 한다"는 열람이지 다운로드가
+    // 아니다. 종전에는 여기서 통째로 열어줘, 사직원(none)을 서명 직전에 받아 두면 영구
+    // 보관됐다. full 만 종전대로 두는 이유는 근로계약서 교부가 막히면 업무가 서기 때문이다.
+    if (!row.employeeSignedAt) return OK(access !== "full");
     if (access === "none") return DENY_NONE;
     return OK(access === "view");
   }
@@ -183,6 +186,35 @@ export async function resolvePrincipal(
     if (u?.isActive) return { who: { userId: u.id, role: u.role }, guestContractId: null };
   }
   return { who: { userId: null, role: null }, guestContractId: null };
+}
+
+/**
+ * 게스트(외부 미가입 계약자) 판정 — 범위와 **정책을 함께** 본다.
+ *
+ * 종전에는 guestTicketCovers 로 "이 계약의 파일인가"만 보고 정책을 통째로 건너뛰었다.
+ * 그래서 게스트 링크로는 view.none 문서도 워드 원본이 그대로 받아졌다(2026-09-02).
+ * 금품청산 지급기일연장 동의서(view)는 계정이 없는 퇴사자에게 나가는 문서라 실제 경로다.
+ *
+ * 게스트는 "서명하러 온 당사자"이므로 소유자와 같은 규칙을 쓴다 —
+ * 서명 전이면 열람은 되고(full 만 다운로드), 서명을 마친 뒤에는 정책대로.
+ */
+export async function judgeGuestFile(contractId: string, fileName: string): Promise<ContractAccess> {
+  if (!(await guestTicketCovers(contractId, fileName))) return DENY_OTHER;
+  const rows = await findContracts({ fileName });
+  // 이 파일이 걸린 계약 중 가장 제한적인 판정을 따른다(파일명이 여러 계약에 걸릴 수 있다)
+  let worst: ContractAccess | null = null;
+  for (const row of rows) {
+    const raw = row.hasTemplate ? row.access : "full";
+    const access = raw === "full" || raw === "view" || raw === "none" ? raw : "none";
+    const r: ContractAccess = !row.employeeSignedAt
+      ? OK(access !== "full")
+      : access === "none"
+        ? DENY_NONE
+        : OK(access === "view");
+    if (!r.allowed) return r;
+    if (!worst || (r.viewOnly && !worst.viewOnly)) worst = r;
+  }
+  return worst ?? DENY_OTHER;
 }
 
 /**
