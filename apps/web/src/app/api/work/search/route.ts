@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
     },
     select: { id: true, name: true, type: true, members: { include: { user: { select: { id: true, name: true } } } } },
   });
-  const channelMap = new Map(channels.map((c) => [c.id, c]));
+  // 타입을 명시하지 않으면 튜플이 배열로 넓어져 Map 값이 unknown 이 된다
+  type Ch = (typeof channels)[number];
+  const channelMap = new Map<string, Ch>(channels.map((c) => [c.id, c]));
 
   const messages = await prisma.workMessage.findMany({
     where: {

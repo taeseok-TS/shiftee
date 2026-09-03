@@ -32,6 +32,12 @@ type Contract = {
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
+  // 이 화면이 실제로 쓰는데 타입에서 빠져 있던 것들 (2026-09-03).
+  // 빌드가 타입 오류를 무시하도록 돼 있어 13건이 그대로 통과하고 있었다.
+  startDate?: string | null;
+  endDate?: string | null;
+  hideRevoked?: boolean;              // 회수된 결재 숨김
+  revocationLog?: { at?: string; by?: string; reason?: string }[] | null; // 회수 이력
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
     steps: Array<{
@@ -270,7 +276,8 @@ export default function ContractsPage() {
 
   // 결재 회수
   const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<{ contractId: string; step: any; type?: "approval" | "employee" } | null>(null);
+  // 직원 서명 회수는 결재 단계가 없다 — step 은 결재 회수일 때만 있다(호출부가 type 으로 분기).
+  const [revokeTarget, setRevokeTarget] = useState<{ contractId: string; step?: { id: string; order?: number } | null; type?: "approval" | "employee" } | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
 
   // 계약서 삭제
@@ -410,6 +417,11 @@ export default function ContractsPage() {
   const handleRevokeApproval = async () => {
     if (!revokeTarget || !revokeReason.trim()) {
       toast.error("회수 사유를 입력해주세요.");
+      return;
+    }
+    // 결재 회수 전용 — 직원 서명 회수는 별도 경로(revoke-employee-signature)로 간다
+    if (!revokeTarget.step) {
+      toast.error("결재 단계를 찾을 수 없습니다.");
       return;
     }
 

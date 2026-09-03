@@ -5,6 +5,10 @@ import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields"
 import fs from "fs/promises";
 import path from "path";
 
+// Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
+// 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
+const asBody = (b: Buffer) => new Uint8Array(b.buffer as ArrayBuffer, b.byteOffset, b.byteLength);
+
 // 발송 전 미리보기 (개선 제안 #76) — 입력값이 치환된 문서를 PDF로 렌더해 즉석 확인.
 // 계약을 만들지 않는다: 임시 렌더 파일은 응답 후 바로 삭제.
 export async function POST(request: NextRequest) {
@@ -70,7 +74,7 @@ export async function POST(request: NextRequest) {
       }
       pdf = Buffer.from(await mres.arrayBuffer());
     }
-    return new NextResponse(pdf, {
+    return new NextResponse(asBody(pdf), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent((title || firstName) + "_미리보기.pdf")}`,

@@ -6,6 +6,10 @@ import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields"
 import fs from "fs/promises";
 import path from "path";
 
+// Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
+// 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
+const asBody = (b: Buffer) => new Uint8Array(b.buffer as ArrayBuffer, b.byteOffset, b.byteLength);
+
 // 패키지(번들) 전 문서를 한 PDF 로 합쳐 미리보기 (#124·#125, 2026-08-27).
 // 번들이 아니면 해당 문서 1건만. 발송 전 확인용이라 현재 fileUrl(작성본) 기준.
 export async function GET(
@@ -175,7 +179,7 @@ export async function GET(
       if (!mres.ok) return NextResponse.json({ error: "PDF 병합에 실패했습니다." }, { status: 502 });
       out = Buffer.from(await mres.arrayBuffer());
     }
-    return new NextResponse(out, {
+    return new NextResponse(asBody(out), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(contract.title + (docs.length > 1 ? `_외${docs.length - 1}건` : "") + ".pdf")}`,

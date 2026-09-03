@@ -32,8 +32,8 @@ function shapeReactions(reactions: { emoji: string; userId: string; user: { name
 
 // 새 메시지에 대한 푸시 알림 발송
 async function notifyNewMessage(
-  channel: { id: string; name: string },
-  message: { content: string; fileUrl: string | null; user: { name: string } },
+  channel: { id: string; name: string; type: string },
+  message: { id: string; content: string; fileUrl: string | null; user: { name: string } },
   senderId: string
 ) {
   const members = await prisma.workChannelMember.findMany({

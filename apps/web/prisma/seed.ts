@@ -92,10 +92,13 @@ async function main() {
   console.log("📋 결재라인 설정 중...");
   for (const emp of employees) {
     await prisma.approvalLine.upsert({
-      where: { userId: emp.id },
+      // ApprovalLine 은 userId 단독이 아니라 [userId, purpose] 가 유니크다.
+      // 그래서 이 시드는 그대로 돌리면 실패한다 — 빌드가 타입 오류를 무시해 안 드러났다.
+      where: { userId_purpose: { userId: emp.id, purpose: "LEAVE_2PLUS" } },
       update: {},
       create: {
         userId: emp.id,
+        purpose: "LEAVE_2PLUS",
         steps: {
           create: [
             { order: 1, approverId: managerUser.id },

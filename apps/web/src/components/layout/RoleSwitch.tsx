@@ -91,13 +91,12 @@ export function RoleSwitch() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 transition-colors">
-          <span className="text-sm font-medium text-gray-700">
-            {getRoleLabel(session.role)}
-          </span>
-          <ChevronDown size={16} className="text-gray-500" />
-        </button>
+      {/* Base UI 는 asChild 가 아니라 render 를 쓴다 — asChild 는 무시돼 버튼 안에 버튼이 들어갔다 */}
+      <DropdownMenuTrigger className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 transition-colors">
+        <span className="text-sm font-medium text-gray-700">
+          {getRoleLabel(session.role)}
+        </span>
+        <ChevronDown size={16} className="text-gray-500" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         {canSwitchRoles && (

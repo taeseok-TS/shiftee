@@ -41,6 +41,11 @@ type Contract = {
       decidedAt?: string | null;
     }>;
   };
+  // 이 화면이 실제로 쓰는데 타입에서 빠져 있던 것들 (2026-09-03)
+  startDate?: string | null;
+  endDate?: string | null;
+  hideRevoked?: boolean;              // 회수된 결재 숨김
+  revocationLog?: { at?: string; by?: string; reason?: string }[] | null; // 회수 이력
 };
 
 type Employee = { id: string; name: string; department: string | null; branch?: string | null };
@@ -243,7 +248,7 @@ export default function ContractsPage() {
 
   // 결재 회수
   const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<{ contractId: string; step: any; type?: "approval" | "employee" } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<{ contractId: string; step?: { id: string; order?: number } | null; type?: "approval" | "employee" } | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
 
   // 계약서 삭제
@@ -816,12 +821,11 @@ export default function ContractsPage() {
               <Button className="gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} />계약서 작성</Button>
               {role !== "EMPLOYEE" && (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                      <FileSignature size={16} />
-                      템플릿
-                      <ChevronDown size={14} />
-                    </Button>
+                  {/* Base UI 는 render 로 요소를 바꾼다(asChild 는 무시된다) */}
+                  <DropdownMenuTrigger render={<Button variant="outline" className="gap-2" />}>
+                    <FileSignature size={16} />
+                    템플릿
+                    <ChevronDown size={14} />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={() => setUploadTemplateOpen(true)}>

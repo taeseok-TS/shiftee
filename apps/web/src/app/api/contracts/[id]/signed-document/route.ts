@@ -3,6 +3,10 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, type Signer } from "@/lib/signed-doc";
 
+// Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
+// 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
+const asBody = (b: Buffer) => new Uint8Array(b.buffer as ArrayBuffer, b.byteOffset, b.byteLength);
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -96,7 +100,7 @@ export async function GET(
           );
           if (gres.ok) {
             const pdf = Buffer.from(await gres.arrayBuffer());
-            return new NextResponse(pdf, {
+            return new NextResponse(asBody(pdf), {
               headers: {
                 "Content-Type": "application/pdf",
                 "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
@@ -112,7 +116,7 @@ export async function GET(
       // "열람만"이 무너진다. original-document 와 같은 규칙(변환 실패면 실패시킨다).
       if (viewOnly)
         return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
-      return new NextResponse(buf, {
+      return new NextResponse(asBody(buf), {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".docx")}`,
@@ -120,7 +124,7 @@ export async function GET(
       });
     } else {
       const buf = await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers);
-      return new NextResponse(buf, {
+      return new NextResponse(asBody(buf), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
