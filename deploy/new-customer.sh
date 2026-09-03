@@ -227,8 +227,8 @@ else
   cat > "$CADDY_DIR/${CODE}.caddy" <<CADDYEOF
 # $CODE — new-customer.sh 가 생성 ($(date '+%Y-%m-%d %H:%M'))
 $DOMAIN {
-    # 무중단 배포 - 컨테이너 교체 사이 약 2초의 연결 거부 구간에서 502 를 내지 않고
-    # 기다렸다 다시 붙는다. 연결조차 안 된 요청만 재시도하므로 중복 처리 위험이 없다.
+    # 무중단 배포 - 컨테이너 교체 사이 약 2초의 연결 거부 구간에서 502 를 내지 않고 기다렸다 붙는다.
+    # dial 실패는 메서드 불문, 그 밖의 전송 오류는 GET 만 재시도된다(2026-09-03 확인).
     reverse_proxy localhost:$PORT {
         lb_try_duration 20s
         lb_try_interval 250ms

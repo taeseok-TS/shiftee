@@ -224,7 +224,9 @@ export async function runHealthCheckAndAlert() {
   const g = globalThis as unknown as { __healthAlerted?: Map<string, number> };
   const alerted = g.__healthAlerted ?? (g.__healthAlerted = new Map());
   const fresh = issues.filter((i) => {
-    const key = i.slice(0, 20); // 유형 구분용 접두
+    // ⚠ 숫자를 지우고 유형을 본다. 종전에는 앞 20자를 그대로 써서 "디스크 사용률 91%" 처럼
+    //   건수가 바뀌면 매번 새 알림으로 보였고, 매시 정각 점검마다 DM 이 갔다(2026-09-03 지적).
+    const key = i.replace(/[0-9]+/g, "#").slice(0, 28);
     const last = alerted.get(key) || 0;
     if (Date.now() - last < 24 * 60 * 60 * 1000) return false;
     alerted.set(key, Date.now());

@@ -26,6 +26,7 @@ export default function SystemLogsPage() {
   // 프록시가 본 실패 응답 — 앱이 try/catch 로 처리한 오류는 위 로그에 안 남는다 (2026-09-03)
   const [failures, setFailures] = useState<{
     total: number; server: number; client: number; malformed: number; newestAt: string | null;
+    unavailable?: boolean; coveredHours: number; uploadsUnauthorized: number;
     rows: { status: number; method: string; path: string; count: number }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,11 +99,21 @@ export default function SystemLogsPage() {
         <Card>
           <CardContent className="pt-5 pb-4 space-y-3">
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <p className="text-sm font-medium">최근 24시간 실패 응답 <span className="text-xs font-normal text-gray-500">(프록시 기준 · 로그인 필요/권한 없음 제외)</span></p>
+              {/* 로그가 회전하면 파일에 24시간이 안 남는다. 그걸 "최근 24시간"이라 쓰면 거짓이다. */}
+              <p className="text-sm font-medium">
+                {failures.unavailable ? "실패 응답 감시" : failures.coveredHours >= 23 ? "최근 24시간 실패 응답" : `최근 ${failures.coveredHours}시간 실패 응답`}
+                <span className="text-xs font-normal text-gray-500"> (프록시 기준 · 로그인 필요/권한 없음 제외)</span>
+              </p>
               <p className="text-xs text-gray-400">
                 {failures.newestAt ? `로그 최신 ${new Date(failures.newestAt).toLocaleString("ko-KR")}` : "로그 없음"}
               </p>
             </div>
+            {failures.unavailable && (
+              <p className="text-sm text-red-600">🔴 접근 로그를 읽을 수 없습니다 — 감시가 꺼져 있습니다(로그 경로·마운트를 확인하세요).</p>
+            )}
+            {!failures.unavailable && failures.coveredHours < 23 && (
+              <p className="text-xs text-amber-600">로그 회전으로 파일에 {failures.coveredHours}시간치만 남아 있습니다. 그 이전 기록은 이 표에 없습니다.</p>
+            )}
             <div className="flex gap-6">
               <div>
                 <p className="text-xs text-gray-500">서버 오류 5xx</p>
@@ -114,6 +125,11 @@ export default function SystemLogsPage() {
               </div>
               {/* 주소 자체가 깨진 요청 — Next 라우팅이 디코드하다 던져 500 이 된다. 우리 잘못이 아니라
                   따로 센다(안 그러면 아무나 깨진 주소를 던져 알림을 흔들 수 있다) */}
+              {/* 업로드 401 급증 = 앱이 첨부를 못 여는 신호 (9/2 사고 형태) */}
+              <div>
+                <p className="text-xs text-gray-500">업로드 접근 거부</p>
+                <p className={`text-xl font-bold ${failures.uploadsUnauthorized >= 50 ? "text-amber-500" : "text-gray-400"}`}>{failures.uploadsUnauthorized}건</p>
+              </div>
               <div>
                 <p className="text-xs text-gray-500">깨진 주소 요청</p>
                 <p className="text-xl font-bold text-gray-400">{failures.malformed}건</p>

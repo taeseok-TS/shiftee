@@ -13,6 +13,12 @@ const MAX_READ = 40 * 1024 * 1024; // 로그가 커도 메모리를 넘기지 �
 
 export type FailureRow = { status: number; method: string; path: string; count: number };
 export type FailureStats = {
+  /** 설정은 됐는데 로그를 못 읽는 상태 — 감시가 꺼진 것이므로 반드시 알려야 한다 */
+  unavailable?: boolean;
+  /** 실제로 들여다본 시간 (로그 회전 때문에 요청한 24시간보다 짧을 수 있다) */
+  coveredHours: number;
+  /** 게이트가 걸린 업로드 경로의 401 — 앱이 티켓을 못 붙이면 여기가 치솟는다 (9/2 사고 형태) */
+  uploadsUnauthorized: number;
   total: number;
   server: number;   // 5xx
   client: number;   // 4xx (401.403 제외)
@@ -52,9 +58,23 @@ function isNoise(status: number, path: string): boolean {
   return false;
 }
 
+// 결과를 잠깐 재사용한다. 20MB 파싱은 동기라 그동안 **다른 요청이 전부 대기**한다
+// (실측 약 0.3초 멈춤 + 메모리 50MB). 관리자가 화면을 새로고침할 때마다 이러면 안 된다.
+let cache: { at: number; hours: number; value: FailureStats | null } | null = null;
+const CACHE_MS = 60_000;
+
 export async function collectFailures(hours = 24): Promise<FailureStats | null> {
+  if (cache && cache.hours === hours && Date.now() - cache.at < CACHE_MS) return cache.value;
+  const value = await collectFailuresUncached(hours);
+  cache = { at: Date.now(), hours, value };
+  return value;
+}
+
+async function collectFailuresUncached(hours: number): Promise<FailureStats | null> {
   const p = process.env.ACCESS_LOG_PATH;
   if (!p) return null; // 설정 안 된 인스턴스(고객사 등)에서는 조용히 끈다
+  const EMPTY = { unavailable: true, coveredHours: 0, uploadsUnauthorized: 0, total: 0, server: 0,
+                  client: 0, malformed: 0, rows: [], newestAt: null, lines: 0 } as FailureStats;
   let buf: string;
   try {
     const st = await fs.stat(p);
@@ -69,13 +89,15 @@ export async function collectFailures(hours = 24): Promise<FailureStats | null> 
       await fh.close();
     }
   } catch {
-    return null; // 파일이 없거나 못 읽으면 기능을 끈다(알림을 위해 앱이 죽으면 안 된다)
+    // ⚠ 여기서 null 을 돌려주면 **감시가 통째로 무음**이 된다(마운트 누락.권한.경로 오타).
+    //   설정을 해 놓고 못 읽는 것은 "문제 없음"이 아니라 "감시가 꺼짐"이다 — 그렇게 알린다.
+    return EMPTY;
   }
 
   const since = Date.now() - hours * 3600 * 1000;
   const agg = new Map<string, FailureRow>();
-  let total = 0, server = 0, client = 0, malformed = 0, lines = 0;
-  let newest = 0;
+  let total = 0, server = 0, client = 0, malformed = 0, lines = 0, uploadsUnauthorized = 0;
+  let newest = 0, oldest = 0;
 
   for (const line of buf.split("\n")) {
     if (!line || line[0] !== "{") continue; // 끝에서 잘라 읽어 첫 줄이 깨질 수 있다
@@ -84,12 +106,16 @@ export async function collectFailures(hours = 24): Promise<FailureStats | null> 
     lines++;
     const tsMs = (e.ts ?? 0) * 1000;
     if (tsMs > newest) newest = tsMs;
+    if (tsMs && (!oldest || tsMs < oldest)) oldest = tsMs;
     if (tsMs < since) continue;
     const status = e.status ?? 0;
     if (status < 400) continue;
     const rawUri = e.request?.uri ?? "";
     if (isMalformedUri(rawUri)) { malformed++; continue; }
     const path = normalizePath(rawUri);
+    // 업로드 경로의 401 은 따로 센다 — 9/2 에 앱이 티켓을 못 붙여 첨부가 전부 401 이 됐을 때
+    // 401 을 통째로 버리는 바람에 이 감시로는 못 잡았을 것이다.
+    if (status === 401 && path.startsWith("/api/uploads/")) uploadsUnauthorized++;
     if (isNoise(status, path)) continue;
     const method = e.request?.method ?? "?";
     total++;
@@ -101,22 +127,44 @@ export async function collectFailures(hours = 24): Promise<FailureStats | null> 
   }
 
   const rows = [...agg.values()].sort((a, b) => b.count - a.count || b.status - a.status);
-  return { total, server, client, malformed, rows, newestAt: newest ? new Date(newest) : null, lines };
+  // 로그가 회전하면 파일에 남은 것이 24시간보다 짧다. 그걸 "최근 24시간"이라고 말하면 거짓이다.
+  const coveredHours = oldest ? Math.min(hours, (Date.now() - Math.max(oldest, since)) / 3600000) : 0;
+  return { coveredHours: Math.round(coveredHours * 10) / 10, uploadsUnauthorized, total, server,
+           client, malformed, rows, newestAt: newest ? new Date(newest) : null, lines };
 }
 
-/** 하루 한 번 알릴 만한 내용을 문장으로 만든다. 알릴 게 없으면 null */
+/**
+ * 하루 한 번 알릴 만한 내용. 알릴 게 없으면 null.
+ *
+ * ⚠ 문장 **앞부분에 숫자를 넣지 않는다.** monitor 가 문장 앞 글자로 "같은 종류의 알림"을
+ *   판별해 하루 1회로 묶는데, 숫자가 섞이면 건수가 바뀔 때마다 다른 알림으로 보여
+ *   매시간 DM 이 간다(2026-09-03 검증에서 지적).
+ */
 export function describeFailures(f: FailureStats | null): string | null {
   if (!f) return null;
-  // 감시기 자체가 멈춘 것을 먼저 알린다 — 오늘 사고의 교훈: 조용한 것과 고장난 것을 구별해야 한다
-  const staleMs = f.newestAt ? Date.now() - f.newestAt.getTime() : Infinity;
-  if (staleMs > 3 * 3600 * 1000)
-    return `🟠 접근 로그가 ${f.newestAt ? `${Math.round(staleMs / 3600000)}시간째` : ""} 갱신되지 않습니다 — 실패 응답 감시가 멈춘 상태일 수 있습니다.`;
 
-  // 서버 오류(5xx)는 한 건도 정상이 아니다. 4xx 는 사용자의 잘못된 요청도 섞이므로 문턱을 둔다.
-  if (f.server === 0 && f.client < 30) return null;
+  // ① 감시 자체가 꺼진 경우를 가장 먼저 알린다. "조용한 것"과 "고장난 것"은 다르다.
+  if (f.unavailable)
+    return "🔴 접근 로그를 읽을 수 없습니다 — 실패 응답 감시가 꺼져 있습니다(로그 경로.마운트 확인).";
+
+  const staleMs = f.newestAt ? Date.now() - f.newestAt.getTime() : Infinity;
+  if (f.newestAt && staleMs > 3 * 3600 * 1000)
+    return `🟠 접근 로그 갱신 중단 — 마지막 기록이 ${Math.round(staleMs / 3600000)}시간 전입니다(감시가 멈췄을 수 있습니다).`;
+  // 파일은 있는데 창 안에 한 줄도 없는 경우(막 회전했거나 정말 요청이 없었다)는 알리지 않는다.
+  // 회전 직후마다 오탐이 나던 것을 막는다.
+  if (!f.newestAt) return null;
+
+  // ② 서버 오류는 한 건도 정상이 아니다. 4xx 는 사용자의 잘못된 요청도 섞이므로 문턱을 둔다.
+  const window = f.coveredHours >= 23 ? "최근 24시간" : `최근 ${f.coveredHours}시간(로그가 그만큼만 남아 있음)`;
+  const parts: string[] = [];
+  if (f.server > 0) parts.push(`🔴 서버 오류 발생 — ${window} 5xx ${f.server}건`);
+  else if (f.client >= 30) parts.push(`🟠 실패 응답 다수 — ${window} ${f.client}건`);
+  // 업로드 401 급증은 앱이 파일을 못 여는 신호다(9/2 사고 형태). 위와 별개로 본다.
+  if (f.uploadsUnauthorized >= 50)
+    parts.push(`🟠 업로드 접근 거부 급증 — ${window} ${f.uploadsUnauthorized}건(앱이 첨부를 못 열고 있을 수 있습니다)`);
+  if (!parts.length) return null;
+
   const top = f.rows.slice(0, 6).map((r) => `  · ${r.status} ${r.method} ${r.path} — ${r.count}회`).join("\n");
-  const head = f.server > 0
-    ? `🔴 최근 24시간 서버 오류(5xx) ${f.server}건`
-    : `🟠 최근 24시간 실패 응답 ${f.client}건`;
-  return `${head}${f.server > 0 && f.client > 0 ? ` · 그 밖의 실패 ${f.client}건` : ""}\n${top}`;
+  const tail = f.malformed >= 20 ? `\n  (그 밖에 주소가 깨진 요청 ${f.malformed}건 — 우리 잘못은 아닙니다)` : "";
+  return `${parts.join("\n")}\n${top}${tail}`;
 }

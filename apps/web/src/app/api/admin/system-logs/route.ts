@@ -19,7 +19,9 @@ export async function GET() {
   try {
     const { collectFailures } = await import("@/lib/access-log");
     const f = await collectFailures(24);
-    if (f) failures = { total: f.total, server: f.server, client: f.client, malformed: f.malformed, rows: f.rows.slice(0, 20), newestAt: f.newestAt };
+    if (f) failures = { total: f.total, server: f.server, client: f.client, malformed: f.malformed,
+      unavailable: f.unavailable, coveredHours: f.coveredHours, uploadsUnauthorized: f.uploadsUnauthorized,
+      rows: f.rows.slice(0, 20), newestAt: f.newestAt };
   } catch { /* 무시 */ }
   return NextResponse.json({ logs, count24h, count7d, failures });
 }

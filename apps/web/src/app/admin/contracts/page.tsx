@@ -218,6 +218,20 @@ export default function ContractsPage() {
   const [bigZoom, setBigZoom] = useState(1);
   // 문서를 그 자리에서 크게 연다. 주소를 받으므로 발송 미리보기.서명 문서.원본 PDF 모두 같은 창을 쓴다.
   const openBigDoc = (src: string, title: string) => { setBigZoom(1); setBigDoc({ src, title }); };
+  // ⚠ 큰 화면이 떠 있을 때 ESC 를 누르면 **뒤의 서명 모달**이 닫혔다 — 다이얼로그 라이브러리가
+  // document 에 keydown 을 걸어두는데 이 오버레이는 그 바깥이라 자기가 최상위인 줄 모른다.
+  // 서명하다 그러면 그리던 서명과 체크 상태가 통째로 날아간다. capture 단계에서 먼저 삼킨다.
+  useEffect(() => {
+    if (!bigDoc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      setBigDoc(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [bigDoc]);
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -2975,16 +2989,20 @@ ${url}`;
                     onClick={() => setSignZoom(z => Math.min(2, Math.round((z + 0.25) * 100) / 100))}>+</Button>
                 </div>
                 {/* scale 로 키우면 잘리므로 iframe 크기를 1/zoom 으로 역보정 */}
-                {/* 문서를 누르면 그 자리에서 크게 — iframe 은 클릭을 안쪽에서 먹으므로
-                    투명 레이어를 덮어 클릭을 받는다 (2026-09-02 이예지대리) */}
+                {/* 크게 보기 단추는 **모서리에만** 둔다.
+                    ⚠ 처음에는 iframe 전체를 투명 레이어로 덮어 클릭을 받았는데, 그러면 문서 위에서
+                    스크롤.텍스트 선택이 통째로 막힌다(2026-09-03 검증에서 실측). 서명하며 문서를
+                    내려 읽는 게 이 화면의 본래 일이므로, 클릭 편의보다 그쪽이 우선이다. */}
                 <div className="relative w-full overflow-auto border rounded" style={{ height: "36vh" }}>
                   <button
                     type="button"
-                    title="눌러서 크게 보기"
+                    title="문서 크게 보기"
                     aria-label="문서 크게 보기"
-                    className="absolute inset-0 z-10 cursor-zoom-in bg-transparent"
+                    className="absolute top-2 right-3 z-10 flex items-center gap-1 rounded-md border bg-white/95 px-2 py-1 text-xs shadow-sm hover:bg-white"
                     onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}
-                  />
+                  >
+                    <Eye size={12} />크게 보기
+                  </button>
                   <iframe
                     src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`}
                     title="문서 미리보기"
