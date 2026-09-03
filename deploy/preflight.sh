@@ -62,6 +62,19 @@ while IFS= read -r f; do
 done < /tmp/pf-files.txt
 rm -f /tmp/pf-files.txt
 
+# 프록시 설정 대조 — /etc/caddy/Caddyfile 은 /opt/qubetee 밖이라 위 루프가 못 본다.
+# 운영에만 있고 저장소에 없는 설정은 아무에게도 안 보인다(2026-09-02 compose 사고).
+if [[ -f deploy/Caddyfile ]]; then
+  # 저장소 사본은 맨 위에 설명 주석이 붙어 있으므로, 그 부분을 뺀 실제 설정만 비교한다
+  LOCAL_CADDY=$(sed '/^#/d;/^$/d' deploy/Caddyfile | tr -d '' | md5sum | cut -d' ' -f1)
+  REMOTE_CADDY=$($SSH "sed '/^#/d;/^\$/d' /etc/caddy/Caddyfile 2>/dev/null | tr -d '' | md5sum | cut -d' ' -f1")
+  if [[ "$LOCAL_CADDY" != "$REMOTE_CADDY" ]]; then
+    echo "  ≠ 다름: /etc/caddy/Caddyfile (저장소 사본 deploy/Caddyfile 과 어긋남)"
+    DIFF_COUNT=$((DIFF_COUNT+1))
+  fi
+fi
+
+
 echo
 if [[ $DIFF_COUNT -eq 0 ]]; then
   echo "✓ 운영과 로컬이 일치한다. 배포해도 된다."

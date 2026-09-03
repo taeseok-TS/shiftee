@@ -1,0 +1,40 @@
+# 큐브티 운영 리버스 프록시 (/etc/caddy/Caddyfile 의 사본)
+#
+# ⚠ 이 파일은 서버의 /etc/caddy/Caddyfile 과 같아야 한다. 저장소에 두는 이유는
+#   운영에만 있고 저장소에 없는 설정이 **아무에게도 안 보이기** 때문이다 —
+#   2026-09-02 에 docker-compose.yml 이 그렇게 어긋나 있다가 배포로 덮여
+#   gotenberg 한글 폰트 마운트가 사라질 뻔했다. preflight.sh 가 이 파일도 대조한다.
+#
+# 반영: sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+# ⚠ 접근 로그 파일이 없으면 reload 가 권한 오류로 거부된다. 먼저:
+#   touch /var/log/caddy/cubetee.log && chown caddy:caddy /var/log/caddy/cubetee.log
+
+# 고객사 인스턴스 — new-customer.sh 가 이 디렉터리에 <코드>.caddy 를 만든다
+import /etc/caddy/customers/*.caddy
+
+cubetee.co.kr, www.cubetee.co.kr {
+    # 접근 로그 (2026-09-03) - 실패 응답을 하루 한 번 집계해 관리자에게 알린다.
+    # 앱의 SystemErrorLog 는 "터진" 오류만 잡아서, try/catch 로 처리된 4xx.5xx 는 안 남는다.
+    # 9/2 하루에 업무 정지급 결함이 3건 났는데 로그는 0건이었다.
+    log {
+        output file /var/log/caddy/cubetee.log {
+            roll_size 20MiB
+            roll_keep 5
+            roll_keep_for 168h
+        }
+        format json
+    }
+    handle /downloads/* {
+        root * /opt
+        file_server
+    }
+    handle {
+        # 무중단 배포 (2026-09-03) - 컨테이너를 새로 띄우는 사이 약 2초 동안 연결이 거부돼
+        # 502 가 났다(직원 화면에 오류로 보인다). 그 구간에는 실패시키지 말고 기다렸다 다시 붙는다.
+        # 연결 자체가 안 된 요청만 재시도하므로(아직 아무것도 보내지 않았다) 중복 처리 위험이 없다.
+        reverse_proxy localhost:3000 {
+            lb_try_duration 20s
+            lb_try_interval 250ms
+        }
+    }
+}
