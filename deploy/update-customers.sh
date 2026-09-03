@@ -124,6 +124,30 @@ for CODE in "${TARGETS[@]}"; do
   cp "$HERE/init-tenant.js"              "$DIR/init-tenant.js"
   ok "compose · init-tenant 최신화 (.env 는 그대로)"
 
+  # 프록시 설정도 갱신한다. new-customer.sh 의 템플릿만 고치면 **이미 설치된 고객사는
+  # 영영 옛 설정**으로 남는다(2026-09-03 검증 지적). 무중단 재시도 설정이 대표적이다.
+  # 도메인 줄은 건드리지 않고 reverse_proxy 블록만 갈아끼운다.
+  CADDY_F="/etc/caddy/customers/${CODE}.caddy"
+  if [[ -f "$CADDY_F" ]] && ! grep -q "lb_try_duration" "$CADDY_F"; then
+    cp "$CADDY_F" "$CADDY_F.bak-$STAMP"
+    {
+      sed "/reverse_proxy/d" "$CADDY_F.bak-$STAMP" | sed "/^}$/d"
+      echo "    # 무중단 배포 - 컨테이너 교체 사이의 연결 거부 구간에서 502 를 내지 않고 기다렸다 붙는다."
+      echo "    # dial 실패는 메서드 불문, 그 밖의 전송 오류는 GET 만 재시도된다."
+      echo "    reverse_proxy localhost:${PORT} {"
+      echo "        lb_try_duration 20s"
+      echo "        lb_try_interval 250ms"
+      echo "    }"
+      echo "}"
+    } > "$CADDY_F"
+    if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+      systemctl reload caddy >/dev/null 2>&1 && ok "프록시 무중단 설정 반영"
+    else
+      mv "$CADDY_F.bak-$STAMP" "$CADDY_F"
+      echo "  ⚠ 프록시 설정이 유효하지 않아 되돌렸다 — 수동 확인 필요: $CADDY_F"
+    fi
+  fi
+
   # 새 compose 가 쓰는 값이 옛 .env 에 없으면 채워 넣는다(있는 값은 건드리지 않는다).
   # GOTENBERG_FONTS_DIR 이 없으면 compose 기본값이 인스턴스 폴더의 빈 폴더가 돼
   # 워드->PDF 변환이 명조로 폴백된다 (2026-08-27 #118).

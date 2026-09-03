@@ -494,6 +494,17 @@ export function startBotScheduler() {
       await runPollDeadlines();
     } catch (e) { console.error("[bot] 투표 마감 오류:", e); }
 
+    // 접근 로그 하트비트 (매시 30분) — 프록시를 **통해** 자기 자신을 한 번 부른다.
+    // 이렇게 안 하면 "로그가 안 갱신됨 = 감시 멈춤" 판정이 새벽처럼 접속 없는 시간대에
+    // 오탐을 낸다(운영 실측: 06~14시 채팅 0건). 반대로 앱이 죽어도 프록시가 502 를 남겨
+    // 로그는 신선해 보이므로, 판정 기준을 "사람의 요청"이 아니라 이 하트비트로 잡아야 한다.
+    if (k.getUTCMinutes() === 30 && process.env.ACCESS_LOG_PATH) {
+      try {
+        const { getAppUrl } = await import("@/lib/app-url");
+        await fetch(`${getAppUrl()}/api/health-beat`, { cache: "no-store" }).catch(() => {});
+      } catch { /* 하트비트 실패가 다른 일을 막으면 안 된다 */ }
+    }
+
     // 시스템 헬스체크 (매시 정각 — 이상 시 관리자 DM, 유형별 하루 1회)
     if (k.getUTCMinutes() === 0) {
       try {

@@ -62,6 +62,14 @@ services:
       # 발신자 표시. email.ts 가 From 헤더에 그대로 쓰므로 빠지면 안 된다.
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-큐브티}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-${SMTP_USER:-}}
+    # 프로세스가 살아 있어도 응답을 못 하는 상태(행)는 restart 정책이 못 잡는다.
+    # 헬스체크가 있어야 docker ps 에 unhealthy 로 드러난다.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get({host:'127.0.0.1',port:3000,path:'/api/health-beat'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     ports:
       - "${WEB_PORT:?WEB_PORT 가 .env 에 없습니다}:3000"
     volumes:

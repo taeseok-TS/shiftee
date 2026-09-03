@@ -43,14 +43,25 @@ export async function saveNotifyTargets(topic: NotifyTopic, userIds: string[]): 
  * 아무도 안 받는 상태를 허용하면 알림이 조용히 사라진다 — 9/2 에 로그가 조용해서
  * 사고를 못 알아챈 것과 같은 실패다. 지정한 사람이 전부 퇴사.비활성이어도 마찬가지다.
  */
+// 마지막으로 성공한 수신자 목록. **DB 장애 알림을 보내려면 DB 를 읽어야 하는** 모순을 푼다 —
+// 조회가 실패하면 예외가 밖으로 나가 헬스체크가 통째로 죽고, 정작 "DB 응답 실패" 알림이 못 나간다.
+const lastKnown = new Map<NotifyTopic, string[]>();
+
 export async function getNotifyRecipients(topic: NotifyTopic): Promise<string[]> {
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true },
-    select: { id: true },
-  });
-  const all = admins.map((a) => a.id);
-  const picked = await readNotifyTargets(topic);
-  if (!picked || picked.length === 0) return all;
-  const alive = picked.filter((id) => all.includes(id));
-  return alive.length ? alive : all;
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+    const all = admins.map((a) => a.id);
+    const picked = await readNotifyTargets(topic);
+    const result = !picked || picked.length === 0
+      ? all
+      : (picked.filter((id) => all.includes(id)).length ? picked.filter((id) => all.includes(id)) : all);
+    if (result.length) lastKnown.set(topic, result);
+    return result;
+  } catch {
+    // DB 를 못 읽는 상황 자체가 알려야 할 사고다. 마지막으로 알던 사람에게라도 보낸다.
+    return lastKnown.get(topic) ?? [];
+  }
 }

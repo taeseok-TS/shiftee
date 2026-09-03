@@ -46,8 +46,21 @@ export async function PATCH(request: NextRequest) {
       where: { id: { in: ids }, role: "ADMIN", isActive: true },
       select: { id: true },
     });
-    await saveNotifyTargets("system", valid.map((v) => v.id));
-    return NextResponse.json({ success: true, systemTargets: valid.map((v) => v.id) });
+    const ids2 = valid.map((v) => v.id);
+    await saveNotifyTargets("system", ids2);
+    // 다른 관리자 변경(지점.직원.공휴일 등)은 전부 이력을 남기는데 여기만 빠져 있었다.
+    // 관리자 누구나 시스템 알림을 자기만 받게 바꿀 수 있으므로 흔적이 남아야 한다.
+    const names = await prisma.user.findMany({ where: { id: { in: ids2 } }, select: { name: true } });
+    const { logAudit } = await import("@/lib/audit");
+    await logAudit({
+      actorId: session.userId,
+      actorName: session.name || session.email || session.userId,
+      action: "시스템 알림 수신자 변경",
+      targetType: "AppSetting",
+      targetId: "notifyTargets.system",
+      detail: ids2.length ? names.map((n) => n.name).join(", ") : "(비움 - 관리자 전원 수신)",
+    });
+    return NextResponse.json({ success: true, systemTargets: ids2 });
   }
 
   const { forceApprovalNotify } = body;

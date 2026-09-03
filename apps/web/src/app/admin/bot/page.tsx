@@ -60,6 +60,7 @@ export default function AdminBotPage() {
   // 시스템 알림 수신자 (2026-09-03) — 담당자가 바뀌면 여기서 체크만 바꾸면 된다
   const [admins, setAdmins] = useState<{ id: string; name: string; email: string }[]>([]);
   const [sysTargets, setSysTargets] = useState<string[] | null>(null); // null = 미지정(관리자 전원)
+  const [sysSaving, setSysSaving] = useState(false); // 저장 중 연타하면 옛 값으로 계산돼 토글이 유실된다
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("09:00");
   const [newFolder, setNewFolder] = useState("");
@@ -115,6 +116,9 @@ export default function AdminBotPage() {
   }
 
   async function toggleSysTarget(id: string, on: boolean) {
+    if (sysSaving) return;
+    setSysSaving(true);
+    try {
     const base = sysTargets ?? admins.map((a) => a.id); // 미지정 상태에서 첫 체크 해제면 전원에서 빼는 것
     const next = on ? [...new Set([...base, id])] : base.filter((x) => x !== id);
     const res = await fetch("/api/admin/notify-policy", {
@@ -124,6 +128,7 @@ export default function AdminBotPage() {
       setSysTargets((await res.json()).systemTargets ?? next);
       toast.success(next.length ? `${next.length}명이 시스템 알림을 받습니다.` : "아무도 고르지 않아 관리자 전원에게 갑니다.");
     } else toast.error("변경 실패");
+    } finally { setSysSaving(false); }
   }
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -249,7 +254,7 @@ export default function AdminBotPage() {
               const on = sysTargets === null ? true : sysTargets.includes(a.id);
               return (
                 <label key={a.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={on} onChange={(e) => toggleSysTarget(a.id, e.target.checked)} />
+                  <input type="checkbox" checked={on} disabled={sysSaving} onChange={(e) => toggleSysTarget(a.id, e.target.checked)} />
                   {a.name}
                 </label>
               );

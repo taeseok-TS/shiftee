@@ -11,7 +11,13 @@ import fs from "fs/promises";
 
 const MAX_READ = 40 * 1024 * 1024; // 로그가 커도 메모리를 넘기지 않게 끝에서부터만 읽는다
 
-export type FailureRow = { status: number; method: string; path: string; count: number };
+export type FailureRow = {
+  status: number; method: string; path: string; count: number;
+  /** 접기 전 실제 주소 1개 — :id 로 뭉개면 "어느 파일이 404 냐"를 알 수 없다 */
+  sample: string;
+  /** 서로 다른 주소 가짓수 — 1이면 한 건이 계속 깨지는 것, 많으면 그 경로 전체가 깨진 것 */
+  distinct: number;
+};
 export type FailureStats = {
   /** 설정은 됐는데 로그를 못 읽는 상태 — 감시가 꺼진 것이므로 반드시 알려야 한다 */
   unavailable?: boolean;
@@ -96,6 +102,7 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
 
   const since = Date.now() - hours * 3600 * 1000;
   const agg = new Map<string, FailureRow>();
+  const distinctUris = new Map<string, Set<string>>();
   let total = 0, server = 0, client = 0, malformed = 0, lines = 0, uploadsUnauthorized = 0;
   let newest = 0, oldest = 0;
 
@@ -122,10 +129,18 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
     if (status >= 500) server++; else client++;
     const key = `${status} ${method} ${path}`;
     const row = agg.get(key);
-    if (row) row.count++;
-    else agg.set(key, { status, method, path, count: 1 });
+    const uriOnly = rawUri.split("?")[0];
+    if (row) {
+      row.count++;
+      const set = distinctUris.get(key)!;
+      if (set.size < 200) set.add(uriOnly); // 가짓수만 알면 되므로 상한을 둔다
+    } else {
+      agg.set(key, { status, method, path, count: 1, sample: uriOnly, distinct: 1 });
+      distinctUris.set(key, new Set([uriOnly]));
+    }
   }
 
+  for (const [k, row] of agg) row.distinct = distinctUris.get(k)?.size ?? 1;
   const rows = [...agg.values()].sort((a, b) => b.count - a.count || b.status - a.status);
   // 로그가 회전하면 파일에 남은 것이 24시간보다 짧다. 그걸 "최근 24시간"이라고 말하면 거짓이다.
   const coveredHours = oldest ? Math.min(hours, (Date.now() - Math.max(oldest, since)) / 3600000) : 0;

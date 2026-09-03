@@ -216,6 +216,7 @@ export default function ContractsPage() {
   // "새창으로 옮기는거 불편합니다" — 서명하다 창을 옮기면 하던 일이 끊긴다.
   const [bigDoc, setBigDoc] = useState<{ src: string; title: string } | null>(null);
   const [bigZoom, setBigZoom] = useState(1);
+  const bigRef = useRef<HTMLDivElement>(null);
   // 문서를 그 자리에서 크게 연다. 주소를 받으므로 발송 미리보기.서명 문서.원본 PDF 모두 같은 창을 쓴다.
   const openBigDoc = (src: string, title: string) => { setBigZoom(1); setBigDoc({ src, title }); };
   // ⚠ 큰 화면이 떠 있을 때 ESC 를 누르면 **뒤의 서명 모달**이 닫혔다 — 다이얼로그 라이브러리가
@@ -230,7 +231,29 @@ export default function ContractsPage() {
       setBigDoc(null);
     };
     document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
+    // 큰 화면이 떠 있는 동안 Tab 이 **뒤의 서명 모달**로 새지 않게 한다. 화면에는 안 보이는
+    // "서명" 버튼으로 포커스가 가서 Enter 로 잘못 누르는 사고를 막는다.
+    // 다이얼로그 라이브러리가 앱 루트에 aria-hidden 을 걸어 이 오버레이가 스크린리더에
+    // 안 잡히던 것도 함께 푼다.
+    const el = bigRef.current;
+    const prevHidden = el?.closest("[aria-hidden='true']") as HTMLElement | null;
+    if (prevHidden) prevHidden.removeAttribute("aria-hidden");
+    el?.querySelector<HTMLElement>("button")?.focus();
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !el) return;
+      const items = [...el.querySelectorAll<HTMLElement>("button, a[href]")].filter((n) => n.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onTab, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("keydown", onTab, true);
+      if (prevHidden) prevHidden.setAttribute("aria-hidden", "true");
+    };
   }, [bigDoc]);
 
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -3500,15 +3523,16 @@ ${url}`;
           포커스 가둠이 겹쳐 바깥 모달의 입력이 막힌다. */}
       {bigDoc && (
         <div
+          ref={bigRef}
           className="fixed inset-0 z-[100] bg-black/70 flex flex-col"
           role="dialog"
           aria-modal="true"
           aria-label="문서 크게 보기"
           onClick={() => setBigDoc(null)}   /* 바깥을 누르면 닫힌다 */
         >
-          <div className="flex items-center justify-between gap-2 px-3 py-2 text-white shrink-0" onClick={e => e.stopPropagation()}>
-            <span className="text-sm truncate">{bigDoc.title}</span>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 text-white shrink-0 flex-wrap" onClick={e => e.stopPropagation()}>
+            <span className="text-sm truncate min-w-[6rem] flex-1">{bigDoc.title}</span>
+            <div className="flex items-center gap-1 shrink-0">
               <Button type="button" variant="secondary" size="sm" className="h-8 w-8 p-0" title="축소"
                 onClick={() => setBigZoom(z => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}>−</Button>
               <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" title="100%로 되돌리기"
