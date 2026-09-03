@@ -232,8 +232,11 @@ export async function runHealthCheckAndAlert() {
   });
   if (!fresh.length) return;
 
-  const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
+  // 관리자 전원이 아니라 **지정된 담당자**에게만 (2026-09-03 디렉터 지시).
+  // 관리자 화면 > 봇 설정에서 고른다. 아무도 안 고르면 전원으로 되돌아간다(조용해지면 안 된다).
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  const targets = await getNotifyRecipients("system");
   const { botSendDM } = await import("@/lib/bot");
   const text = `🩺 시스템 점검 알림\n${fresh.join("\n")}\n\n관리자 페이지 > 저장공간/시스템 로그에서 자세히 확인할 수 있습니다.`;
-  for (const a of admins) await botSendDM(a.id, text);
+  for (const id of targets) await botSendDM(id, text);
 }

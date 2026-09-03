@@ -57,6 +57,9 @@ export default function AdminBotPage() {
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  // 시스템 알림 수신자 (2026-09-03) — 담당자가 바뀌면 여기서 체크만 바꾸면 된다
+  const [admins, setAdmins] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [sysTargets, setSysTargets] = useState<string[] | null>(null); // null = 미지정(관리자 전원)
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("09:00");
   const [newFolder, setNewFolder] = useState("");
@@ -94,7 +97,12 @@ export default function AdminBotPage() {
       setBranches(d.branches || []);
     }
     const p = await fetch("/api/admin/notify-policy");
-    if (p.ok) setForceNotify((await p.json()).forceApprovalNotify || false);
+    if (p.ok) {
+      const d = await p.json();
+      setForceNotify(d.forceApprovalNotify || false);
+      setAdmins(d.admins || []);
+      setSysTargets(d.systemTargets ?? null);
+    }
     setLoading(false);
   }, []);
 
@@ -104,6 +112,18 @@ export default function AdminBotPage() {
     });
     if (res.ok) { setForceNotify(v); toast.success(v ? "결재 알림을 강제 발송합니다 (직원 설정 무시)." : "직원 개인 설정을 따릅니다."); }
     else toast.error("변경 실패");
+  }
+
+  async function toggleSysTarget(id: string, on: boolean) {
+    const base = sysTargets ?? admins.map((a) => a.id); // 미지정 상태에서 첫 체크 해제면 전원에서 빼는 것
+    const next = on ? [...new Set([...base, id])] : base.filter((x) => x !== id);
+    const res = await fetch("/api/admin/notify-policy", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemTargets: next }),
+    });
+    if (res.ok) {
+      setSysTargets((await res.json()).systemTargets ?? next);
+      toast.success(next.length ? `${next.length}명이 시스템 알림을 받습니다.` : "아무도 고르지 않아 관리자 전원에게 갑니다.");
+    } else toast.error("변경 실패");
   }
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -209,6 +229,36 @@ export default function AdminBotPage() {
             <input type="checkbox" checked={forceNotify} onChange={(e) => toggleForceNotify(e.target.checked)} />
             강제 발송
           </label>
+        </CardContent>
+      </Card>
+
+      {/* 시스템 알림 수신자 (2026-09-03) — 종전에는 관리자 전원 7명에게 뿌렸다.
+          담당자는 바뀌므로 코드가 아니라 여기서 고른다. */}
+      <Card>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold">🩺 시스템 점검·오류 알림을 받을 사람</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              서버 오류·디스크·실패 응답 알림을 봇 DM 으로 받습니다. 담당자가 바뀌면 여기서 바꾸세요.
+              {/* 아무도 안 받는 상태를 만들면 알림이 조용히 사라진다 — 그게 가장 위험하다 */}
+              <br />아무도 고르지 않으면 <b>관리자 전원</b>에게 갑니다. (개선 제안 접수 알림은 전원 그대로)
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {admins.map((a) => {
+              const on = sysTargets === null ? true : sysTargets.includes(a.id);
+              return (
+                <label key={a.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <input type="checkbox" checked={on} onChange={(e) => toggleSysTarget(a.id, e.target.checked)} />
+                  {a.name}
+                </label>
+              );
+            })}
+            {admins.length === 0 && <span className="text-xs text-gray-400">불러오는 중…</span>}
+          </div>
+          {sysTargets !== null && sysTargets.length === 0 && (
+            <p className="text-xs text-amber-600">아무도 고르지 않아 관리자 전원에게 갑니다.</p>
+          )}
         </CardContent>
       </Card>
 
