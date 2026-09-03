@@ -212,6 +212,12 @@ export default function ContractsPage() {
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [signZoom, setSignZoom] = useState(1); // 서명 모달 문서 확대·축소 0.75~2.0 (#160)
+  // 문서 크게 보기 — 새 창 대신 그 자리에서 전체화면으로 (2026-09-02 이예지대리 재확인요청).
+  // "새창으로 옮기는거 불편합니다" — 서명하다 창을 옮기면 하던 일이 끊긴다.
+  const [bigDoc, setBigDoc] = useState<{ src: string; title: string } | null>(null);
+  const [bigZoom, setBigZoom] = useState(1);
+  // 문서를 그 자리에서 크게 연다. 주소를 받으므로 발송 미리보기.서명 문서.원본 PDF 모두 같은 창을 쓴다.
+  const openBigDoc = (src: string, title: string) => { setBigZoom(1); setBigDoc({ src, title }); };
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);
@@ -2804,9 +2810,10 @@ ${url}`;
                                     {/* min-w-0 이 없으면 flex 항목이 글자 최소폭 밑으로 줄지 않아 모달 밖으로 밀려난다 (#178) */}
                                     <div className="flex gap-2">
                                       {/* 패키지면 포함 문서 전체를 한 PDF 로 (#124) */}
-                                      <a href={`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="flex-1 basis-0 min-w-0">
-                                        <Button type="button" variant="outline" size="sm" className="w-full gap-1 h-8 whitespace-normal leading-tight"><Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}</Button>
-                                      </a>
+                                      <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 min-w-0 w-full gap-1 h-8 whitespace-normal leading-tight"
+                                        onClick={() => openBigDoc(`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`, "발송 문서 미리보기")}>
+                                        <Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}
+                                      </Button>
                                       {!sendTarget.externalName && (
                                         <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 min-w-0 gap-1 h-8 whitespace-normal leading-tight"
                                           onClick={() => {
@@ -2938,7 +2945,10 @@ ${url}`;
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
-                <a href={`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(signTarget.fileUrl))}&title=${encodeURIComponent(signTarget.title)}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600">문서 보기 (PDF)</a>
+                <button type="button" className="text-xs text-blue-600 underline text-left"
+                  onClick={() => openBigDoc(`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(signTarget.fileUrl))}&title=${encodeURIComponent(signTarget.title)}`, signTarget.title)}>
+                  문서 보기 (PDF)
+                </button>
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
                 {signTarget.extraFields && Object.keys(signTarget.extraFields).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
@@ -2965,7 +2975,16 @@ ${url}`;
                     onClick={() => setSignZoom(z => Math.min(2, Math.round((z + 0.25) * 100) / 100))}>+</Button>
                 </div>
                 {/* scale 로 키우면 잘리므로 iframe 크기를 1/zoom 으로 역보정 */}
-                <div className="w-full overflow-auto border rounded" style={{ height: "36vh" }}>
+                {/* 문서를 누르면 그 자리에서 크게 — iframe 은 클릭을 안쪽에서 먹으므로
+                    투명 레이어를 덮어 클릭을 받는다 (2026-09-02 이예지대리) */}
+                <div className="relative w-full overflow-auto border rounded" style={{ height: "36vh" }}>
+                  <button
+                    type="button"
+                    title="눌러서 크게 보기"
+                    aria-label="문서 크게 보기"
+                    className="absolute inset-0 z-10 cursor-zoom-in bg-transparent"
+                    onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}
+                  />
                   <iframe
                     src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`}
                     title="문서 미리보기"
@@ -3001,10 +3020,12 @@ ${url}`;
                   </label>
                 </div>
               )}
-              {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125) */}
-              <a href={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`} target="_blank" rel="noreferrer" className="block">
-                <Button type="button" variant="outline" size="sm" className="w-full gap-1"><Eye size={13} />크게 보기 (새 창{signTarget.bundleId ? " · 패키지 전체" : ""})</Button>
-              </a>
+              {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125).
+                  새 창이 아니라 그 자리에서 크게 연다 (2026-09-02 이예지대리 재확인요청) */}
+              <Button type="button" variant="outline" size="sm" className="w-full gap-1"
+                onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}>
+                <Eye size={13} />크게 보기{signTarget.bundleId ? " (패키지 전체)" : ""}
+              </Button>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                 <Button disabled={signBusy} onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>
@@ -3453,6 +3474,51 @@ ${url}`;
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── 문서 크게 보기 ──────────────────────────────────────────────
+          "새창으로 옮기는거 불편합니다" (2026-09-02 이예지대리). 서명하다 창을 옮기면
+          하던 일이 끊기므로, 같은 화면 위에 덮어서 보여주고 닫으면 바로 원래 자리로 돌아온다.
+          Radix Dialog 를 중첩하지 않고 직접 덮는다 — 서명 모달 위에 또 Dialog 를 열면
+          포커스 가둠이 겹쳐 바깥 모달의 입력이 막힌다. */}
+      {bigDoc && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="문서 크게 보기"
+          onClick={() => setBigDoc(null)}   /* 바깥을 누르면 닫힌다 */
+        >
+          <div className="flex items-center justify-between gap-2 px-3 py-2 text-white shrink-0" onClick={e => e.stopPropagation()}>
+            <span className="text-sm truncate">{bigDoc.title}</span>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="secondary" size="sm" className="h-8 w-8 p-0" title="축소"
+                onClick={() => setBigZoom(z => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}>−</Button>
+              <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" title="100%로 되돌리기"
+                onClick={() => setBigZoom(1)}>{Math.round(bigZoom * 100)}%</Button>
+              <Button type="button" variant="secondary" size="sm" className="h-8 w-8 p-0" title="확대"
+                onClick={() => setBigZoom(z => Math.min(3, Math.round((z + 0.25) * 100) / 100))}>+</Button>
+              <a href={bigDoc.src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
+                <Button type="button" variant="secondary" size="sm" className="h-8 gap-1 text-xs" title="새 창으로 열기"><Eye size={13} />새 창</Button>
+              </a>
+              <Button type="button" variant="secondary" size="sm" className="h-8 px-3" onClick={() => setBigDoc(null)}>닫기</Button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 mx-2 mb-2 overflow-auto rounded bg-white" onClick={e => e.stopPropagation()}>
+            {/* scale 로 키우면 잘리므로 iframe 크기를 1/zoom 으로 역보정 (서명 모달과 같은 방식) */}
+            <iframe
+              src={bigDoc.src}
+              title={bigDoc.title}
+              style={{
+                width: `${100 / bigZoom}%`,
+                height: `${100 / bigZoom}%`,
+                border: 0,
+                transform: `scale(${bigZoom})`,
+                transformOrigin: "top left",
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
