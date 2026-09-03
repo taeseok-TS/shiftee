@@ -207,8 +207,8 @@ export async function runHealthCheck(): Promise<string[]> {
   // 감시기가 멈춘 경우도 여기서 함께 알린다("조용한 것"과 "고장난 것"을 구별해야 한다).
   try {
     const { collectFailures, describeFailures } = await import("@/lib/access-log");
-    const line = describeFailures(await collectFailures(24));
-    if (line) issues.push(line);
+    // 유형별로 받는다 — 한 문자열로 이으면 뒤에 붙은 문제가 중복 판정에 묻힌다
+    issues.push(...describeFailures(await collectFailures(24)));
   } catch { /* 감시 때문에 점검 자체가 죽으면 안 된다 */ }
 
   return issues;
@@ -227,10 +227,10 @@ export async function runHealthCheckAndAlert() {
     // ⚠ 숫자를 지우고 유형을 본다. 종전에는 앞 20자를 그대로 써서 "디스크 사용률 91%" 처럼
     //   건수가 바뀌면 매번 새 알림으로 보였고, 매시 정각 점검마다 DM 이 갔다(2026-09-03 지적).
     const key = i.replace(/[0-9]+/g, "#").slice(0, 28);
-    const last = alerted.get(key) || 0;
-    if (Date.now() - last < 24 * 60 * 60 * 1000) return false;
-    alerted.set(key, Date.now());
-    return true;
+    // ⚠ 여기서 곧바로 "보냈다"고 기록하면 안 된다. botSendDM 은 DB 에 메시지를 만드는 방식이라
+    //   DB 장애 중에는 조용히 실패하는데, 그러면 정작 "DB 응답 실패" 알림이 아무에게도 안 간 채
+    //   24시간 잠긴다(2026-09-03 지적). **발송에 성공한 뒤에** 기록한다.
+    return Date.now() - (alerted.get(key) || 0) >= 24 * 60 * 60 * 1000;
   });
   if (!fresh.length) return;
 
@@ -240,5 +240,10 @@ export async function runHealthCheckAndAlert() {
   const targets = await getNotifyRecipients("system");
   const { botSendDM } = await import("@/lib/bot");
   const text = `🩺 시스템 점검 알림\n${fresh.join("\n")}\n\n관리자 페이지 > 저장공간/시스템 로그에서 자세히 확인할 수 있습니다.`;
-  for (const id of targets) await botSendDM(id, text);
+  let sent = 0;
+  for (const id of targets) {
+    try { await botSendDM(id, text); sent++; } catch { /* 한 명 실패가 나머지를 막지 않게 */ }
+  }
+  // 한 명이라도 실제로 받았을 때만 "알렸다"로 친다. 아무도 못 받았으면 다음 점검에서 다시 시도한다.
+  if (sent > 0) for (const it of fresh) alerted.set(it.replace(/[0-9]+/g, "#").slice(0, 28), Date.now());
 }

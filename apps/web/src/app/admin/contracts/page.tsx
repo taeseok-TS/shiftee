@@ -2848,7 +2848,7 @@ ${url}`;
                                     <div className="flex gap-2">
                                       {/* 패키지면 포함 문서 전체를 한 PDF 로 (#124) */}
                                       <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 min-w-0 w-full gap-1 h-8 whitespace-normal leading-tight"
-                                        onClick={() => openBigDoc(`/api/contracts/${sendTarget.id}/bundle-preview?hl=1`, "발송 문서 미리보기")}>
+                                        onClick={() => openBigDoc(`/api/contracts/${sendTarget.id}/bundle-preview?hl=1&as=send`, "발송 문서 미리보기")}>
                                         <Eye size={13} />발송 문서 미리보기{sendTarget.bundleId ? " (패키지 전체)" : ""}
                                       </Button>
                                       {!sendTarget.externalName && (

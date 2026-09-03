@@ -91,6 +91,14 @@ services:
       # MS 라이선스 폰트라 저장소에 넣지 않는다 - 서버의 공용 폴더를 읽기전용으로 함께 쓴다.
       # 폴더가 없으면 도커가 빈 폴더를 만들 뿐 기동은 되고, 변환 결과의 서식만 어긋난다.
       - ${GOTENBERG_FONTS_DIR:-./gotenberg-fonts}:/usr/share/fonts/custom:ro
+    # 행(hang)이 실제로 나는 쪽은 LibreOffice, 즉 이쪽이다. web 에만 넣고 "양쪽에 넣었다"고
+    # 적었던 것을 바로잡는다 (2026-09-03). gotenberg 는 /health 를 제공한다.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     command:
       - gotenberg
       - --api-timeout=60s

@@ -27,8 +27,16 @@ export async function GET(
   const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
   if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
+  const q = new URL(request.url).searchParams;
   // ?hl=1 — 입력값 하이라이트 미리보기: 템플릿+저장된 입력값으로 재렌더 (#100)
-  const hl = new URL(request.url).searchParams.get("hl") === "1";
+  const hl = q.get("hl") === "1";
+  // ?as=send — 발송 전 확인용. 재발송은 결재선을 지우고 템플릿으로 다시 그리므로,
+  // 옛 서명이 남아 있는 상태에서 서명본을 보여주면 **실제로 보낼 문서와 다른 것**을 보게 된다.
+  const asSend = q.get("as") === "send";
+  // 서명이 찍힌 실물은 **당사자와 관리자에게만**. 완료본 라우트가 "원장 등 결재자는 서명본
+  // 보관 불가"로 막고 있는데 여기서 열어주면 같은 문서가 문에 따라 달라진다 —
+  // 9/2 에 바로 그 형태(문마다 판정이 달라 우회됨)로 데였다. 결재자.원장은 재렌더/원본만 본다.
+  const maySeeSigned = session.role === "ADMIN" || contract.userId === session.userId;
   // 결재선까지 함께 읽는다 — 서명이 찍힌 실물을 보여주려면 서명 이미지가 필요하다
   const sel = {
     title: true, fileUrl: true, templateId: true, userId: true, startDate: true, endDate: true,
@@ -91,7 +99,8 @@ export async function GET(
           role: isEmployeeStep ? null : st.approver?.role ?? null,
         });
       }
-      const hasSigned = signers.length > 0;
+      // 볼 자격이 없거나 발송 전 확인이면 서명을 얹지 않는다
+      const hasSigned = signers.length > 0 && maySeeSigned && !asSend;
 
       // 하이라이트 모드: 템플릿 문서는 저장 입력값으로 재렌더 (실패 시 원본 폴백).
       // **서명이 시작된 문서에는 쓰지 않는다** — 다시 그리면 서명한 실물이 아니게 된다.
@@ -122,7 +131,18 @@ export async function GET(
       if (hasSigned && orig.toLowerCase().endsWith(".docx")) {
         try {
           buf = await buildSignedDocx(diskPath(orig), (d as { title?: string }).title || contract.title, signers);
-        } catch (e) { console.error("서명본 렌더 실패(원본 폴백):", e); }
+        } catch (e) {
+          // ⚠ 조용히 원본으로 넘어가면 "아직 서명 안 됐구나"로 읽힌다 — 진본성을 고치려던
+          //   변경이 실패 경로에서 같은 오해를 만든다. 실패시키고 기록을 남긴다.
+          console.error("서명본 렌더 실패:", e);
+          const { logSystemError } = await import("@/lib/monitor");
+          await logSystemError({
+            path: `/api/contracts/${id}/bundle-preview`, method: "GET",
+            message: `서명본 렌더 실패: ${(e as Error)?.message || String(e)}`,
+            stack: (e as Error)?.stack || null,
+          }).catch(() => {});
+          return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+        }
       }
       if (orig.toLowerCase().endsWith(".pdf")) {
         pdfs.push(buf);

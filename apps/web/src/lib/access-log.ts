@@ -149,37 +149,41 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
 }
 
 /**
- * 하루 한 번 알릴 만한 내용. 알릴 게 없으면 null.
+ * 하루 한 번 알릴 만한 내용을 **유형별로** 돌려준다. 알릴 게 없으면 빈 배열.
  *
- * ⚠ 문장 **앞부분에 숫자를 넣지 않는다.** monitor 가 문장 앞 글자로 "같은 종류의 알림"을
- *   판별해 하루 1회로 묶는데, 숫자가 섞이면 건수가 바뀔 때마다 다른 알림으로 보여
- *   매시간 DM 이 간다(2026-09-03 검증에서 지적).
+ * ⚠ 종전에는 여러 문제를 한 문자열로 이어 붙여 돌려줬다. monitor 가 문장 앞부분으로
+ *   "같은 종류"를 판별해 하루 1회로 묶는데, 그러면 **첫 줄만 키가 되어** 뒤에 붙은
+ *   다른 문제(업로드 401 급증 등)가 24시간 통째로 묻힌다 — 그게 바로 9/2 사고의
+ *   감지 신호였다(2026-09-03 검증에서 지적). 유형마다 따로 돌려준다.
  */
-export function describeFailures(f: FailureStats | null): string | null {
-  if (!f) return null;
+export function describeFailures(f: FailureStats | null): string[] {
+  if (!f) return [];
 
-  // ① 감시 자체가 꺼진 경우를 가장 먼저 알린다. "조용한 것"과 "고장난 것"은 다르다.
+  // ① 감시 자체가 꺼진 경우를 가장 먼저. "조용한 것"과 "고장난 것"은 다르다.
   if (f.unavailable)
-    return "🔴 접근 로그를 읽을 수 없습니다 — 실패 응답 감시가 꺼져 있습니다(로그 경로.마운트 확인).";
+    return ["🔴 접근 로그를 읽을 수 없습니다 — 실패 응답 감시가 꺼져 있습니다(로그 경로.마운트 확인)."];
 
   const staleMs = f.newestAt ? Date.now() - f.newestAt.getTime() : Infinity;
   if (f.newestAt && staleMs > 3 * 3600 * 1000)
-    return `🟠 접근 로그 갱신 중단 — 마지막 기록이 ${Math.round(staleMs / 3600000)}시간 전입니다(감시가 멈췄을 수 있습니다).`;
+    return [`🟠 접근 로그 갱신 중단 — 마지막 기록이 ${Math.round(staleMs / 3600000)}시간 전입니다(감시가 멈췄을 수 있습니다).`];
   // 파일은 있는데 창 안에 한 줄도 없는 경우(막 회전했거나 정말 요청이 없었다)는 알리지 않는다.
-  // 회전 직후마다 오탐이 나던 것을 막는다.
-  if (!f.newestAt) return null;
+  if (!f.newestAt) return [];
 
-  // ② 서버 오류는 한 건도 정상이 아니다. 4xx 는 사용자의 잘못된 요청도 섞이므로 문턱을 둔다.
-  const window = f.coveredHours >= 23 ? "최근 24시간" : `최근 ${f.coveredHours}시간(로그가 그만큼만 남아 있음)`;
-  const parts: string[] = [];
-  if (f.server > 0) parts.push(`🔴 서버 오류 발생 — ${window} 5xx ${f.server}건`);
-  else if (f.client >= 30) parts.push(`🟠 실패 응답 다수 — ${window} ${f.client}건`);
-  // 업로드 401 급증은 앱이 파일을 못 여는 신호다(9/2 사고 형태). 위와 별개로 본다.
-  if (f.uploadsUnauthorized >= 50)
-    parts.push(`🟠 업로드 접근 거부 급증 — ${window} ${f.uploadsUnauthorized}건(앱이 첨부를 못 열고 있을 수 있습니다)`);
-  if (!parts.length) return null;
-
-  const top = f.rows.slice(0, 6).map((r) => `  · ${r.status} ${r.method} ${r.path} — ${r.count}회`).join("\n");
+  // 실제로 들여다본 시간. 회전 직후 0 이 나오면 "최근 0시간"이라는 말이 안 되므로 표기하지 않는다.
+  const window = f.coveredHours >= 23 ? "최근 24시간"
+    : f.coveredHours >= 0.5 ? `최근 ${f.coveredHours}시간(로그가 그만큼만 남아 있음)`
+    : "로그에 남은 구간";
+  const top = f.rows.slice(0, 6).map((r) =>
+    `  · ${r.status} ${r.method} ${r.path} — ${r.count}회` +
+    (r.distinct > 1 ? ` (서로 다른 주소 ${r.distinct}개)` : ` (${r.sample.slice(-46)})`)
+  ).join("\n");
   const tail = f.malformed >= 20 ? `\n  (그 밖에 주소가 깨진 요청 ${f.malformed}건 — 우리 잘못은 아닙니다)` : "";
-  return `${parts.join("\n")}\n${top}${tail}`;
+
+  const out: string[] = [];
+  if (f.server > 0) out.push(`🔴 서버 오류 발생 — ${window} 5xx ${f.server}건\n${top}${tail}`);
+  else if (f.client >= 30) out.push(`🟠 실패 응답 다수 — ${window} ${f.client}건\n${top}${tail}`);
+  // 업로드 401 급증은 앱이 파일을 못 여는 신호다(9/2 사고 형태). **별개 알림으로** 낸다.
+  if (f.uploadsUnauthorized >= 50)
+    out.push(`🟠 업로드 접근 거부 급증 — ${window} ${f.uploadsUnauthorized}건(앱이 첨부를 못 열고 있을 수 있습니다).`);
+  return out;
 }

@@ -130,42 +130,35 @@ for CODE in "${TARGETS[@]}"; do
   CADDY_F="/etc/caddy/customers/${CODE}.caddy"
   if [[ -f "$CADDY_F" ]] && ! grep -q "lb_try_duration" "$CADDY_F"; then
     cp "$CADDY_F" "$CADDY_F.bak-$STAMP"
-    {
-      sed "/reverse_proxy/d" "$CADDY_F.bak-$STAMP" | sed "/^}$/d"
-      echo "    # 무중단 배포 - 컨테이너 교체 사이의 연결 거부 구간에서 502 를 내지 않고 기다렸다 붙는다."
-      echo "    # dial 실패는 메서드 불문, 그 밖의 전송 오류는 GET 만 재시도된다."
-      echo "    reverse_proxy localhost:${PORT} {"
-      echo "        lb_try_duration 20s"
-      echo "        lb_try_interval 250ms"
-      echo "    }"
-      echo "}"
-    } > "$CADDY_F"
-    if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
-      systemctl reload caddy >/dev/null 2>&1 && ok "프록시 무중단 설정 반영"
+    # ⚠ sed 로 줄을 지워 다시 쌓는 방식은 **도메인 블록이 둘 이상이거나** reverse_proxy 가
+    #   블록 형태({ header_up ... })면 파일을 망가뜨린다(2026-09-03 검증에서 실측).
+    #   한 줄짜리 reverse_proxy 만, 그 줄 자리에서 그대로 바꾼다.
+    if [[ $(grep -c "reverse_proxy" "$CADDY_F") -eq 1 ]] && grep -qE "^[[:space:]]*reverse_proxy[[:space:]]+[^{]*$" "$CADDY_F"; then
+      awk -v port="$PORT" '
+        /^[[:space:]]*reverse_proxy[[:space:]]+[^{]*$/ {
+          print "    # 무중단 배포 - 컨테이너 교체 사이의 연결 거부 구간에서 502 를 내지 않고 기다렸다 붙는다."
+          print "    # dial 실패는 메서드 불문, 그 밖의 전송 오류는 GET 만 재시도된다."
+          print "    reverse_proxy localhost:" port " {"
+          print "        lb_try_duration 20s"
+          print "        lb_try_interval 250ms"
+          print "    }"
+          next
+        }
+        { print }
+      ' "$CADDY_F.bak-$STAMP" > "$CADDY_F"
+      if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        # reload 실패를 && 로 이으면 set -e 가 여기서 **조용히 스크립트를 끝낸다**. if 로 받는다.
+        if systemctl reload caddy >/dev/null 2>&1; then
+          ok "프록시 무중단 설정 반영"
+        else
+          echo "  ⚠ caddy reload 실패 — 설정은 바뀌었으나 적용되지 않았다. 수동 확인 필요."
+        fi
+      else
+        mv "$CADDY_F.bak-$STAMP" "$CADDY_F"
+        echo "  ⚠ 프록시 설정이 유효하지 않아 되돌렸다(다른 고객사 파일이 원인일 수도 있다): $CADDY_F"
+      fi
     else
-      mv "$CADDY_F.bak-$STAMP" "$CADDY_F"
-      echo "  ⚠ 프록시 설정이 유효하지 않아 되돌렸다 — 수동 확인 필요: $CADDY_F"
-    fi
-  fi
-
-  # 새 compose 가 쓰는 값이 옛 .env 에 없으면 채워 넣는다(있는 값은 건드리지 않는다).
-  # GOTENBERG_FONTS_DIR 이 없으면 compose 기본값이 인스턴스 폴더의 빈 폴더가 돼
-  # 워드->PDF 변환이 명조로 폴백된다 (2026-08-27 #118).
-  if ! grep -q "^GOTENBERG_FONTS_DIR=" "$DIR/.env"; then
-    FONTS_DIR=""
-    for cand in "${CUBETEE_FONTS_DIR:-}" /opt/cubetee/gotenberg-fonts /opt/qubetee/gotenberg-fonts; do
-      [[ -n "$cand" && -d "$cand" ]] || continue
-      if ls "$cand"/*.tt[cf] >/dev/null 2>&1; then FONTS_DIR="$cand"; break; fi
-    done
-    if [[ -n "$FONTS_DIR" ]]; then
-      printf '
-# 워드->PDF 변환기가 읽는 한글 폰트 폴더 (읽기전용 마운트)
-GOTENBERG_FONTS_DIR=%s
-' "$FONTS_DIR" >> "$DIR/.env"
-      ok "GOTENBERG_FONTS_DIR=$FONTS_DIR 추가"
-    else
-      mkdir -p "$DIR/gotenberg-fonts"
-      echo "  ⚠ 한글 폰트 폴더를 못 찾았다 — 계약서 PDF 서식이 어긋날 수 있다($DIR/gotenberg-fonts 에 넣을 것)"
+      echo "  ⚠ 프록시 설정이 예상과 달라 자동 변경하지 않았다 — 직접 확인할 것: $CADDY_F"
     fi
   fi
 
