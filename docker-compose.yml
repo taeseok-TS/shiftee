@@ -40,6 +40,10 @@ services:
       # 업로드 파일 접근 게이트 - 이 경로군은 세션 또는 접근 티켓(?t=)이 있어야 열린다.
       # work(채팅 첨부)를 넣기 전에 반드시 앱 확산 확인 + 채널 멤버십 판정을 먼저 할 것.
       # 2026-09-02 에 그냥 켰다가 앱 첨부가 전부 401 이 됐다. "off" 면 게이트 없음.
+      # 프록시(Caddy) 접근 로그 - 실패 응답을 하루 한 번 집계해 관리자에게 알린다.
+      # 앱의 오류 기록은 "터진" 오류만 잡아서 try/catch 로 처리된 4xx.5xx 가 안 남는다.
+      # 값이 없으면 기능이 조용히 꺼진다(고객사 인스턴스 등).
+      ACCESS_LOG_PATH: ${ACCESS_LOG_PATH:-/var/log/caddy/cubetee.log}
       UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
@@ -57,6 +61,8 @@ services:
     volumes:
       # 업로드 파일(계약서/서명/템플릿)은 컨테이너 재생성에도 보존
       - uploads:/app/apps/web/uploads
+      # 접근 로그 읽기 전용 - 실패 응답 집계용. 없으면 기능이 꺼질 뿐 기동에는 지장 없다.
+      - /var/log/caddy:/var/log/caddy:ro
 
   # 워드→PDF 변환기 (완료 계약서 PDF 다운로드용). 내부 네트워크 전용 — 포트 미노출.
   gotenberg:

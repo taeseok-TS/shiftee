@@ -14,7 +14,14 @@ export async function GET() {
     prisma.systemErrorLog.count({ where: { createdAt: { gte: new Date(now - 24 * 60 * 60 * 1000) } } }),
     prisma.systemErrorLog.count({ where: { createdAt: { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) } } }),
   ]);
-  return NextResponse.json({ logs, count24h, count7d });
+  // 프록시가 본 실패 응답 — 앱이 try/catch 로 처리한 오류는 위 logs 에 안 남으므로 함께 보여준다
+  let failures = null;
+  try {
+    const { collectFailures } = await import("@/lib/access-log");
+    const f = await collectFailures(24);
+    if (f) failures = { total: f.total, server: f.server, client: f.client, malformed: f.malformed, rows: f.rows.slice(0, 20), newestAt: f.newestAt };
+  } catch { /* 무시 */ }
+  return NextResponse.json({ logs, count24h, count7d, failures });
 }
 
 // 처리 완료 표시/해제 (관리자)

@@ -203,6 +203,14 @@ export async function runHealthCheck(): Promise<string[]> {
     if (count >= 20) issues.push(`🟠 최근 24시간 미처리 서버 오류 ${count}건 — 시스템 로그를 확인하세요.`);
   } catch { /* 무시 */ }
 
+  // 프록시가 본 실패 응답 (2026-09-03) — try/catch 로 처리된 오류는 systemErrorLog 에 안 남는다.
+  // 감시기가 멈춘 경우도 여기서 함께 알린다("조용한 것"과 "고장난 것"을 구별해야 한다).
+  try {
+    const { collectFailures, describeFailures } = await import("@/lib/access-log");
+    const line = describeFailures(await collectFailures(24));
+    if (line) issues.push(line);
+  } catch { /* 감시 때문에 점검 자체가 죽으면 안 된다 */ }
+
   return issues;
 }
 
