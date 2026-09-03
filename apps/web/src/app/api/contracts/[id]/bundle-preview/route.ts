@@ -39,8 +39,8 @@ export async function GET(
   const maySeeSigned = session.role === "ADMIN" || contract.userId === session.userId;
   // 결재선까지 함께 읽는다 — 서명이 찍힌 실물을 보여주려면 서명 이미지가 필요하다
   const sel = {
-    title: true, fileUrl: true, templateId: true, userId: true, startDate: true, endDate: true,
-    extraFields: true, externalName: true, externalPhone: true, employeeSignedAt: true,
+    title: true, fileUrl: true, signedUrl: true, templateId: true, userId: true, startDate: true,
+    endDate: true, extraFields: true, externalName: true, externalPhone: true, employeeSignedAt: true,
     approvalLine: {
       include: {
         steps: {
@@ -123,17 +123,18 @@ export async function GET(
           }
         } catch (e) { console.error("하이라이트 재렌더 실패(원본 폴백):", e); }
       }
-      const orig = srcUrl;
-      if (!orig) continue;
-      let buf: Buffer = await fs.readFile(diskPath(orig));
+      if (!srcUrl) continue;
+      let buf: Buffer = await fs.readFile(diskPath(srcUrl));
       // 서명이 있으면 원본에 서명을 얹은 실물로 바꾼다(완료본 라우트와 같은 방식).
-      // 실패하면 원본이라도 보여준다 — 미리보기 때문에 화면이 멈추면 안 된다.
-      if (hasSigned && orig.toLowerCase().endsWith(".docx")) {
+      // 실패하면 완료 시점에 저장해 둔 서명본으로 대신한다(아래 catch).
+      if (hasSigned && srcUrl.toLowerCase().endsWith(".docx")) {
         try {
-          buf = await buildSignedDocx(diskPath(orig), (d as { title?: string }).title || contract.title, signers);
+          buf = await buildSignedDocx(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers);
         } catch (e) {
-          // ⚠ 조용히 원본으로 넘어가면 "아직 서명 안 됐구나"로 읽힌다 — 진본성을 고치려던
-          //   변경이 실패 경로에서 같은 오해를 만든다. 실패시키고 기록을 남긴다.
+          // ⚠ 조용히 **서명 없는 원본**으로 넘어가면 "아직 서명 안 됐구나"로 읽힌다 —
+          //   진본성을 고치려던 변경이 실패 경로에서 같은 오해를 만든다.
+          //   그렇다고 통째로 실패시키면 서명 모달의 문서 창이 안 떠 **서명 자체가 막힌다**.
+          //   그래서 완료 시점에 만들어 둔 **저장된 서명본**을 쓴다 — 그것도 진짜 서명본이다.
           console.error("서명본 렌더 실패:", e);
           const { logSystemError } = await import("@/lib/monitor");
           await logSystemError({
@@ -141,10 +142,17 @@ export async function GET(
             message: `서명본 렌더 실패: ${(e as Error)?.message || String(e)}`,
             stack: (e as Error)?.stack || null,
           }).catch(() => {});
-          return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+          const stored = firstFile((d as { signedUrl?: string | null }).signedUrl || "");
+          let recovered = false;
+          if (stored) {
+            try { buf = await fs.readFile(diskPath(stored)); srcUrl = stored; recovered = true; } catch { /* 아래에서 실패 처리 */ }
+          }
+          // 저장본도 없으면 서명 없는 문서를 보여주느니 실패시킨다(완료본 라우트와 같은 규칙).
+          if (!recovered)
+            return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
         }
       }
-      if (orig.toLowerCase().endsWith(".pdf")) {
+      if (srcUrl.toLowerCase().endsWith(".pdf")) {
         pdfs.push(buf);
         continue;
       }
