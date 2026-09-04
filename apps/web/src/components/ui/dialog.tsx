@@ -53,7 +53,16 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // ⚠ 폭 규칙 (2026-09-03 수정)
+          //  종전 기본값에 `sm:max-w-sm` 이 박혀 있었다. 반응형 변형이 나중에 오므로
+          //  호출부가 `max-w-md`/`max-w-2xl` 을 줘도 640px 이상에서 **384px 로 눌렸다**
+          //  — 모달 44곳이 전부 그랬고, 서명 모달 미리보기가 좁던 것도 이 때문이다.
+          //  · 모바일 여백은 max-w 가 아니라 **w-** 로 잡는다. max-w 로 잡으면 호출부의
+          //    max-w 와 같은 그룹이라 tailwind-merge 가 지워 버려 여백이 사라진다.
+          //  · 기본 폭은 호출부가 폭을 **안 줬을 때만** 붙인다.
+          "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] sm:w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // className 은 함수로도 올 수 있다(Base UI). 문자열일 때만 폭 지정 여부를 본다.
+          !(typeof className === "string" && /(^|\s)(sm:|md:|lg:)?max-w-/.test(className)) && "sm:max-w-sm",
           className
         )}
         {...props}
