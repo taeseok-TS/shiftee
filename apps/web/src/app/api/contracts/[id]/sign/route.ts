@@ -175,7 +175,14 @@ export async function POST(
       try {
         const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
         await generateAndStoreSignedDoc(id);
-      } catch (e) { console.error("서명본 저장 오류:", e); }
+      } catch (e) {
+        // ⚠ 종전에는 console.error 로 끝났다. 컨테이너 로그는 아무도 안 보고, 계약은
+        //   "완료"인데 원본 저장본만 없는 상태로 조용히 남는다(2026-09-04 검증관 A F1).
+        //   시스템 로그에 남기면 관리자 화면에 뜨고, 매시 점검이 자가복구를 시도한다.
+        console.error("서명본 저장 오류:", e);
+        const { recordSignedDocFailure } = await import("@/lib/signed-doc-heal");
+        await recordSignedDocFailure(id, e);
+      }
     }
 
     // 이메일 알림 발송
@@ -266,7 +273,14 @@ export async function POST(
       try {
         const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
         await generateAndStoreSignedDoc(id);
-      } catch (e) { console.error("서명본 저장 오류:", e); }
+      } catch (e) {
+        // ⚠ 종전에는 console.error 로 끝났다. 컨테이너 로그는 아무도 안 보고, 계약은
+        //   "완료"인데 원본 저장본만 없는 상태로 조용히 남는다(2026-09-04 검증관 A F1).
+        //   시스템 로그에 남기면 관리자 화면에 뜨고, 매시 점검이 자가복구를 시도한다.
+        console.error("서명본 저장 오류:", e);
+        const { recordSignedDocFailure } = await import("@/lib/signed-doc-heal");
+        await recordSignedDocFailure(id, e);
+      }
     }
 
     // 이메일 알림 발송
