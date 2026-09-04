@@ -21,7 +21,11 @@ export function isSessionExpired(res: Response): boolean {
     // 이미 로그인 화면이면 되돌릴 필요가 없다(무한 이동 방지)
     if (window.location.pathname.startsWith("/login")) return true;
     toast.error("로그인이 만료되었습니다. 다시 로그인해주세요.");
-    setTimeout(() => { window.location.href = "/login"; }, 1500);
+    // 종전에는 그냥 /login 으로 보내 **원래 보던 화면으로 못 돌아왔다** (검증관 B).
+    const back = window.location.pathname + window.location.search;
+    setTimeout(() => {
+      window.location.href = "/login?next=" + encodeURIComponent(back);
+    }, 1500);
   } catch { /* 안내 실패가 다른 동작을 막으면 안 된다 */ }
   return true;
 }

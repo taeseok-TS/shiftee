@@ -447,12 +447,17 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
     const hhmm = `${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`;
     const today = `${k.getUTCFullYear()}-${k.getUTCMonth() + 1}-${k.getUTCDate()}`;
+    // ⚠ 아래 매시 작업들은 종전에 `분 === 30` / `분 === 0` 처럼 **정확한 분**을 요구했다.
+    //   틱은 60초 간격인데 안의 작업(영상압축.로그파싱)이 길어지면 그 분을 통째로 건너뛴다
+    //   (실측 여유 2초, 2026-09-04 검증관 C). 그러면 하트비트가 빠져 **없는 장애를 알린다.**
+    //   "정확히 그 분"이 아니라 "이번 시간에 아직 안 했으면"으로 바꾼다.
+    const hourKey = `${today} ${k.getUTCHours()}`;
 
     try {
       const due = await prisma.botBriefing.findMany({
@@ -498,7 +503,8 @@ export function startBotScheduler() {
     // 이렇게 안 하면 "로그가 안 갱신됨 = 감시 멈춤" 판정이 새벽처럼 접속 없는 시간대에
     // 오탐을 낸다(운영 실측: 06~14시 채팅 0건). 반대로 앱이 죽어도 프록시가 502 를 남겨
     // 로그는 신선해 보이므로, 판정 기준을 "사람의 요청"이 아니라 이 하트비트로 잡아야 한다.
-    if (k.getUTCMinutes() === 30 && process.env.ACCESS_LOG_PATH) {
+    if (k.getUTCMinutes() >= 30 && g.__botBeatHour !== hourKey && process.env.ACCESS_LOG_PATH) {
+      g.__botBeatHour = hourKey;
       try {
         const { getAppUrl } = await import("@/lib/app-url");
         await fetch(`${getAppUrl()}/api/health-beat`, { cache: "no-store" }).catch(() => {});
@@ -506,7 +512,8 @@ export function startBotScheduler() {
     }
 
     // 시스템 헬스체크 (매시 정각 — 이상 시 관리자 DM, 유형별 하루 1회)
-    if (k.getUTCMinutes() === 0) {
+    if (g.__botHealthHour !== hourKey) {
+      g.__botHealthHour = hourKey;
       try {
         const { runHealthCheckAndAlert } = await import("@/lib/monitor");
         await runHealthCheckAndAlert();

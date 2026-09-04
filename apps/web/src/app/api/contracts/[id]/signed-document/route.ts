@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import fs from "fs/promises";
 import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, type Signer } from "@/lib/signed-doc";
 
 // Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
@@ -86,6 +87,43 @@ export async function GET(
   const wantPdf = viewOnly || reqUrl.searchParams.get("pdf") === "1";
   // inline=1 — 저장(다운로드) 대신 브라우저 탭에서 바로 열람 (미리보기 용도)
   const dispo = reqUrl.searchParams.get("inline") === "1" ? "inline" : "attachment";
+
+  // ⚠ 완료(SIGNED) 계약은 **저장해 둔 완료본을 먼저 쓴다.**
+  //   종전에는 매번 fileUrl + 현재 서명자로 다시 합성해서, 서명 로직을 배포할 때마다
+  //   **이미 서명된 계약서의 실물이 바뀌었다**(9/2 서명 문단 수정으로 줄 구성이 달라진 것을
+  //   저장본과 대조해 확인). 서명된 문서는 불변이어야 한다 (2026-09-04 검증 지적).
+  const storedSigned = contract.status === "SIGNED" ? firstFile(contract.signedUrl || "") : null;
+  if (storedSigned) {
+    try {
+      const sbuf = await fs.readFile(diskPath(storedSigned));
+      if (storedSigned.toLowerCase().endsWith(".pdf") || !wantPdf) {
+        return new NextResponse(asBody(sbuf), {
+          headers: {
+            "Content-Type": storedSigned.toLowerCase().endsWith(".pdf")
+              ? "application/pdf"
+              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + (storedSigned.toLowerCase().endsWith(".pdf") ? ".pdf" : ".docx"))}`,
+          },
+        });
+      }
+      // PDF 로 달라는데 저장본이 워드면 그 저장본을 변환해 준다(재합성이 아니라 변환이다)
+      const fd0 = new FormData();
+      fd0.append("files", new Blob([new Uint8Array(sbuf)]), "document.docx");
+      const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0 });
+      if (g0.ok) {
+        const pdf0 = Buffer.from(await g0.arrayBuffer());
+        return new NextResponse(asBody(pdf0), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
+          },
+        });
+      }
+    } catch (e) {
+      // 저장본을 못 읽으면 아래에서 재합성으로 넘어간다 — 문서를 못 보여주는 것보다 낫다
+      console.error("저장된 완료본 사용 실패(재합성으로 진행):", e);
+    }
+  }
 
   try {
     if (isDocx) {

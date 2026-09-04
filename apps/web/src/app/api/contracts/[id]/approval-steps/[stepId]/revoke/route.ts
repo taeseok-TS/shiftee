@@ -80,6 +80,11 @@ export async function POST(
       data: { status: "PENDING", decidedAt: null, signatureUrl: null },
     });
 
+    // 직원 서명 단계가 회수 범위에 들어가는가 (order >= 회수 단계)
+    const employeeStepRevoked = (contract.approvalLine?.steps || []).some(
+      (st) => st.approverId === contract.userId && st.order >= revokeStep.order
+    );
+
     // 2. 해당 단계 이후의 모든 단계를 WAITING으로 초기화
     await tx.contractApprovalStep.updateMany({
       where: {
@@ -102,6 +107,12 @@ export async function POST(
         // (bundle-preview 는 signedUrl 이 있으면 그것부터 쓴다). 되돌린 서명이 찍힌 문서다.
         signedUrl: null,
         signedAt: null,
+        // ⚠ 회수 범위(order >= 회수 단계)에 **직원 서명 단계**가 들어가면 그 서명도 지워진다.
+        //   그런데 employeeSignedAt 을 남기면 계약은 "직원이 서명함"으로 남아
+        //   ① none 문서가 당사자에게 403 이 되고(다시 서명해야 하는 사람이 못 본다)
+        //   ② 직원 화면이 완료본 링크를 띄웠다가 "아직 서명이 없습니다" 400 을 낸다.
+        //   뒷 단계만 회수한 경우에는 직원 서명이 살아 있으므로 지우면 안 된다 — 범위를 본다.
+        ...(employeeStepRevoked ? { employeeSignedAt: null } : {}),
         revocationLog: updatedLogs,
       },
       include: {

@@ -6,6 +6,7 @@
 // 탭이 여러 개 열려 있으면 메시지별 Web Lock을 선점한 탭 1개만 알림을 생성한다.
 // (여러 탭이 같은 tag로 동시에 생성하면 크롬이 배너 없이 조용히 교체해 알림이 안 보이는 문제 방지)
 import { useEffect, useRef } from "react";
+import { openWorkStream } from "@/lib/work-stream";
 
 type Ch = { id: string; name: string; notify: string; lastMessage: { content: string } | null };
 type LockManager = {
@@ -19,7 +20,7 @@ export default function WorkDesktopNotifier() {
   const muteAllRef = useRef(false);
 
   useEffect(() => {
-    let es: EventSource | null = null;
+    let closeStream: (() => void) | null = null;
     let alive = true;
 
     const readEnabled = () => {
@@ -102,19 +103,18 @@ export default function WorkDesktopNotifier() {
         fetch("/api/me/notify").then((r) => (r.ok ? r.json() : null)).then((n) => {
           if (n) muteAllRef.current = !!n.workMuteAll;
         }).catch(() => {});
-        es = new EventSource("/api/work/stream");
-        es.onmessage = (ev) => {
+        closeStream = openWorkStream((ev) => {
           try {
             const e = JSON.parse(ev.data);
             if (e.type === "message") notify(e.channelId, e.senderId, e.msgId);
           } catch { /* noop */ }
-        };
+        });
       })
       .catch(() => {});
 
     return () => {
       alive = false;
-      es?.close();
+      closeStream?.();
       window.removeEventListener("workDesktopNotifyChanged", onChanged);
       window.removeEventListener("storage", onChanged);
     };

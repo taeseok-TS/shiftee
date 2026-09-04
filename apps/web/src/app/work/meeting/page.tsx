@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Video, Plus, X, Users, Circle, Square, Send, Download, Trash2, Film, UserPlus, Search, PanelLeft } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { openWorkStream } from "@/lib/work-stream";
 
 type Meeting = { id: string; room: string; title: string; channelId: string | null; createdBy: string; createdAt: string };
 type Recording = { id: string; meetingTitle: string; room: string; fileUrl: string; fileName: string; sizeBytes: number; createdAt: string; canDelete: boolean };
@@ -32,14 +33,12 @@ function MeetingChat({ channelId }: { channelId: string }) {
 
   useEffect(() => {
     fetchMessages();
-    const es = new EventSource("/api/work/stream");
-    es.onmessage = (ev) => {
+    return openWorkStream((ev) => {
       try {
         const e = JSON.parse(ev.data);
         if (e.type === "message" && e.channelId === channelId) fetchMessages();
       } catch { /* noop */ }
-    };
-    return () => es.close();
+    });
   }, [channelId, fetchMessages]);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [messages]);

@@ -64,23 +64,51 @@ export async function POST(
   }
 
   // 개인정보동의서 선택 항목(동의/미동의)·프로필 입력·직원 직접입력 필드 시 → 문서 재생성
-  if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId && !contract.externalName) {
+  //
+  // ⚠ 이 블록은 **계약 본문을 통째로 다시 만든다.** 그래서 세 가지를 반드시 먼저 본다
+  //   (2026-09-04 검증에서 전부 빠져 있는 것이 드러났다):
+  //   ① **지금 이 사람의 서명 차례인가** — 없으면 서명이 끝난 뒤에도 본문을 갈아치울 수 있었다.
+  //   ② **아직 완료되지 않았는가** — 완료된 계약은 어떤 이유로도 본문이 바뀌면 안 된다.
+  //   ③ **템플릿이 허용한 필드만인가** — fields 는 클라이언트가 준 임의 키였고, 서버가
+  //      employeeFields/profileFields 를 한 번도 보지 않아 급여.기간 등 아무 칸이나 덮어썼다.
+  const mySignStep = contract.approvalLine?.steps.find(
+    (st) => st.approverId === session.userId && st.status === "PENDING"
+  );
+  const mayRewrite =
+    !!mySignStep &&
+    mySignStep.approverId === contract.userId &&
+    contract.status !== "SIGNED" &&
+    !contract.externalName;
+  if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId && !contract.externalName && mayRewrite) {
     try {
       const tmpl = await prisma.contractTemplate.findUnique({
-        where: { id: contract.templateId }, select: { fileUrl: true },
+        where: { id: contract.templateId }, select: { fileUrl: true, employeeFields: true, profileFields: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
+        // 템플릿이 "직원이 직접 입력한다"고 선언한 칸만 받는다. 동의 항목은 개인정보동의서의
+        // 선택지라 별도로 허용하되, 역시 이미 있는 키(prevExtra)나 동의 접두로 제한한다.
+        const allowed = new Set<string>([
+          ...((Array.isArray(tmpl.employeeFields) ? tmpl.employeeFields : []) as string[]),
+          ...((Array.isArray(tmpl.profileFields) ? tmpl.profileFields : []) as string[]),
+        ]);
+        const pick = (o: unknown, extra?: (k: string) => boolean) =>
+          o && typeof o === "object"
+            ? Object.fromEntries(Object.entries(o as Record<string, string>)
+                .filter(([k]) => allowed.has(k) || (extra ? extra(k) : false)))
+            : {};
         const merged = {
           ...prevExtra,
-          ...(consent && typeof consent === "object" ? consent : {}),
-          ...(fields && typeof fields === "object" ? fields : {}), // 퇴사일자·퇴사사유 등 직원 직접입력
+          ...pick(consent, (k) => k.startsWith("동의") || k in prevExtra),
+          ...pick(fields), // 퇴사일자·퇴사사유 등 직원 직접입력 — 템플릿이 허용한 칸만
         };
         const mergeData = await buildContractMergeData(contract.userId, {
           title: contract.title,
           startDate: contract.startDate ? contract.startDate.toISOString() : null,
           endDate: contract.endDate ? contract.endDate.toISOString() : null,
-          salary: null,
+          // ⚠ null 로 두면 기본급.월급여합계.연봉총액 등이 빈칸으로 덮어써진다.
+          //   다른 재생성 경로(PATCH.regenerate.번들발송)는 전부 extraFields 에서 복원한다.
+          salary: ((prevExtra["연봉"] || "").replace(/[^0-9]/g, "")) || null,
           extraFields: merged,
         });
         const newUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);

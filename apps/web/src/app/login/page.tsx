@@ -30,7 +30,11 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(data.error || "로그인에 실패했습니다.");
       } else {
-        router.push("/dashboard");
+        // 세션 만료로 튕겨 온 경우 보던 화면으로 되돌린다 (검증관 B).
+        // 외부 주소로 끌려가지 않게 **우리 사이트 경로**만 받는다("//evil.com" 차단).
+        const raw = new URLSearchParams(window.location.search).get("next") || "";
+        const back = raw.startsWith("/") && !raw.startsWith("//") ? raw : "";
+        router.push(back || "/dashboard");
         router.refresh();
       }
     } catch {

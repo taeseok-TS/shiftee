@@ -222,6 +222,16 @@ export async function runHealthCheckAndAlert() {
   if (!issues.length) return;
 
   const g = globalThis as unknown as { __healthAlerted?: Map<string, number> };
+  // 같은 종류를 하루 1회로 묶는 키: 첫 구분자(—) 앞에서 숫자만 지운다.
+  // ⚠ 종전에는 28자로 잘랐다. 그러면 "🔴 서버 오류 [### /api/contracts/" 까지만 남아
+  //   **서로 다른 계약 사고가 같은 키로 24시간 묻힌다**(검증관 C 실측: 500 bundle-preview /
+  //   500 sign / 404 bundle-preview 세 건의 키가 전부 동일). 경로를 키에 담으라고 넣어 놓고
+  //   다시 잘라내면 의미가 없다 — 자르지 않는다.
+  //   숫자를 지우는 이유는 "디스크 91%" 와 "92%" 를 같은 사고로 보기 위함인데, 그러면
+  //   **상태코드까지 지워져 500 과 404 가 같은 키가 된다.** 대괄호 안(어느 경로가 터졌는가)은
+  //   그대로 두고 밖의 숫자만 지운다.
+  const keyOf = (s: string) =>
+    s.split("—")[0].replace(/\[[^\]]*\]|[0-9]+/g, (m) => (m[0] === "[" ? m : "#")).trim().slice(0, 120);
   const alerted = g.__healthAlerted ?? (g.__healthAlerted = new Map());
   const fresh = issues.filter((i) => {
     // ⚠ 숫자를 지우고 유형을 본다. 종전에는 앞 20자를 그대로 써서 "디스크 사용률 91%" 처럼
@@ -230,7 +240,7 @@ export async function runHealthCheckAndAlert() {
     //   "최근 5시간(로그가 그만큼…)" ↔ "최근 4.8시간…" ↔ "로그에 남은 구간" 처럼
     //   로그 회전 상태에 따라 같은 5xx 하나가 네 가지 키를 만들어 하루에 여러 번 갔다
     //   (2026-09-04 검증 지적). 유형만 남기려고 첫 구분자 앞까지만, 숫자는 지운다.
-    const key = i.split("—")[0].replace(/[0-9]+/g, "#").trim().slice(0, 28);
+    const key = keyOf(i);
     // ⚠ 여기서 곧바로 "보냈다"고 기록하면 안 된다. botSendDM 은 DB 에 메시지를 만드는 방식이라
     //   DB 장애 중에는 조용히 실패하는데, 그러면 정작 "DB 응답 실패" 알림이 아무에게도 안 간 채
     //   24시간 잠긴다(2026-09-03 지적). **발송에 성공한 뒤에** 기록한다.
@@ -249,5 +259,5 @@ export async function runHealthCheckAndAlert() {
     try { await botSendDM(id, text); sent++; } catch { /* 한 명 실패가 나머지를 막지 않게 */ }
   }
   // 한 명이라도 실제로 받았을 때만 "알렸다"로 친다. 아무도 못 받았으면 다음 점검에서 다시 시도한다.
-  if (sent > 0) for (const it of fresh) alerted.set(it.split("—")[0].replace(/[0-9]+/g, "#").trim().slice(0, 28), Date.now());
+  if (sent > 0) for (const it of fresh) alerted.set(keyOf(it), Date.now());
 }

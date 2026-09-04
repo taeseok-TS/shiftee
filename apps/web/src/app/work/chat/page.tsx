@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { openWorkStream } from "@/lib/work-stream";
 
 // 자주쓰는 6개만 기본 노출, "+"로 전체 그리드
 const EMOJIS = ["👍", "✅", "🙏", "😂", "❤️", "🫡"];
@@ -324,8 +325,7 @@ export default function WorkChatPage() {
 
   // SSE 실시간 수신
   useEffect(() => {
-    const es = new EventSource("/api/work/stream");
-    es.onmessage = (ev) => {
+    return openWorkStream((ev) => {
       let e: any;
       try { e = JSON.parse(ev.data); } catch { return; }
       const cur = activeIdRef.current;
@@ -344,8 +344,7 @@ export default function WorkChatPage() {
           typingTimer.current = setTimeout(() => setTypingUser(null), 3000);
         }
       }
-    };
-    return () => es.close();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

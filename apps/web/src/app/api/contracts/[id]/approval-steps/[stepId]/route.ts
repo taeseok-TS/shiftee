@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+/** 자기 자신을 결재자로 앉히려는가 — 원장이 스스로 전 단계를 처리하는 것을 막는다 */
+function approverIdIsSelf(me: string, target: unknown): boolean {
+  return typeof target === "string" && target === me;
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; stepId: string }> }
@@ -10,10 +15,28 @@ export async function PATCH(
   if (!session || session.role === "EMPLOYEE") {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
-
   const { id, stepId } = await params;
   const body = await request.json();
   const { approverId } = body;
+
+  // ⚠ 종전에는 "EMPLOYEE 가 아니면" 통과가 전부였다. 그러면 **원장이 뒤 단계 결재자를
+  //   자기로 바꾼 뒤 혼자 전 단계를 서명 완료**할 수 있다(2026-09-04 검증 지적).
+  //   원장에게도 결재선 조정은 필요하므로 기능을 없애지 않고, **자기 자신으로 앉히는 것**과
+  //   **담당 지점 밖 계약**만 막는다. 관리자는 종전대로.
+  if (session.role !== "ADMIN") {
+    if (approverIdIsSelf(session.userId, approverId)) {
+      return NextResponse.json({ error: "본인을 결재자로 지정할 수 없습니다." }, { status: 403 });
+    }
+    const target = await prisma.contract.findUnique({
+      where: { id }, select: { user: { select: { branch: true } } },
+    });
+    const branch = target?.user?.branch ?? null;
+    const { getManagerBranches } = await import("@/lib/manager-branches");
+    const mine = await getManagerBranches(session.userId);
+    if (!branch || !mine.includes(branch)) {
+      return NextResponse.json({ error: "담당 지점의 계약만 변경할 수 있습니다." }, { status: 403 });
+    }
+  }
 
   if (!approverId) {
     return NextResponse.json({ error: "새로운 승인자 ID가 필요합니다." }, { status: 400 });

@@ -25,7 +25,7 @@ export default function SystemLogsPage() {
   const [count7d, setCount7d] = useState(0);
   // 프록시가 본 실패 응답 — 앱이 try/catch 로 처리한 오류는 위 로그에 안 남는다 (2026-09-03)
   const [failures, setFailures] = useState<{
-    total: number; server: number; client: number; malformed: number; newestAt: string | null;
+    total: number; server: number; client: number; malformed: number; newestAt: string | null; lastBeatAt: string | null;
     unavailable?: boolean; coveredHours: number; uploadsUnauthorized: number;
     rows: { status: number; method: string; path: string; count: number }[];
   } | null>(null);
@@ -106,6 +106,13 @@ export default function SystemLogsPage() {
               </p>
               <p className="text-xs text-gray-400">
                 {failures.newestAt ? `로그 최신 ${new Date(failures.newestAt).toLocaleString("ko-KR")}` : "로그 없음"}
+              </p>
+              {/* 앱 하트비트 — 앱이 죽어도 프록시는 502 를 계속 기록해 "로그 최신"은 신선해 보인다.
+                  앱이 살아 있을 때만 남는 이 신호를 사람도 볼 수 있어야 한다 (검증관 C P-5). */}
+              <p className="text-xs text-gray-400">
+                {failures.lastBeatAt
+                  ? `앱 하트비트 ${new Date(failures.lastBeatAt).toLocaleString("ko-KR")}`
+                  : "앱 하트비트 없음 (구간이 짧으면 정상일 수 있습니다)"}
               </p>
             </div>
             {failures.unavailable && (

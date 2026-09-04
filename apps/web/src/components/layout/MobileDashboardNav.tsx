@@ -31,13 +31,15 @@ export function MobileDashboardNav({ role, children }: { role?: string; children
     mq.addEventListener("change", onBreakpoint);
     // ② ESC 로 닫는다. 오버레이가 div 라 닫기 버튼이 없어 키보드로는 빠져나갈 길이 없었다.
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
-    // ③ 뒤로가기로 닫는다. 종전에는 서랍이 아니라 **페이지가** 닫혔다.
-    const onPop = () => setOpen(false);
-    window.history.pushState({ qtDrawer: 1 }, "");
+    // ③ 뒤로가기로 닫기는 **일부러 뺐다** (2026-09-04 검증관 B).
+    //    pushState 로 가짜 항목을 넣는 방식은 링크로 이동할 때 그 항목을 못 걷어낸다 —
+    //    Next 라우터가 이동하며 history.state 를 새 객체로 갈아치워 qtDrawer 표식이
+    //    사라지기 때문(실측 확인). 그 결과 "눌러도 아무 일 없는 뒤로가기"가 이동할 때마다
+    //    한 개씩 쌓였다. 표식 대신 자체 플래그를 써도 이번엔 링크 이동 직후 history.back()
+    //    이 돌아 **전 화면으로 튕긴다**. 닫기는 배경 탭.ESC.링크 탭으로 충분하다.
 
     window.addEventListener("resize", onResize);
     document.addEventListener("keydown", onKey, true);
-    window.addEventListener("popstate", onPop);
     // ④ 뒤 배경이 같이 스크롤되던 것을 막는다
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -46,10 +48,7 @@ export function MobileDashboardNav({ role, children }: { role?: string; children
       window.removeEventListener("resize", onResize);
       mq.removeEventListener("change", onBreakpoint);
       document.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("popstate", onPop);
       document.body.style.overflow = prevOverflow;
-      // 우리가 넣은 히스토리 항목이 남아 있으면 걷어낸다(뒤로가기로 닫은 경우는 이미 빠졌다)
-      if (window.history.state?.qtDrawer) window.history.back();
     };
   }, [open]);
 
@@ -62,7 +61,11 @@ export function MobileDashboardNav({ role, children }: { role?: string; children
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           {/* 높이는 100dvh 기준 — 100vh 는 폰 주소창.하단바에 가려 마지막 항목(로그아웃)이 안 눌린다 */}
-          <div className="absolute inset-y-0 left-0 shadow-xl h-[100dvh] overflow-y-auto">
+          {/* 링크를 누르면 닫는다. pathname 이 바뀔 때만 닫으면 **지금 보고 있는 메뉴**를
+              눌렀을 때 서랍이 화면을 덮은 채 남는다 (2026-09-04 검증관 B). 사이드바 종류가
+              여럿이라 개별 Link 대신 위임으로 받는다. */}
+          <div className="absolute inset-y-0 left-0 shadow-xl h-[100dvh] overflow-y-auto"
+               onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setOpen(false); }}>
             {/* children 을 주면 그 사이드바를, 안 주면 직원용을 연다.
                 관리자.원장 화면도 같은 서랍을 쓰려고 열어 뒀다 (2026-09-04). */}
             {children ?? <SharedSidebar role={role ?? "EMPLOYEE"} />}

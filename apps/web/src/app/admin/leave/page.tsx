@@ -735,7 +735,7 @@ export default function LeavePage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-xs text-gray-500 bg-gray-50/60 text-left">

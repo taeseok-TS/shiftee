@@ -110,7 +110,7 @@ export function WorkSidebar() {
   return (
     // h-screen + sticky: 본문이 길어도 사이드바는 화면에 고정 (관리자 사이드바와 동일)
     // 모바일에서는 숨기고 WorkMobileNav(상단 바)로 대체
-    <aside className={cn("hidden md:flex h-screen sticky top-0 overflow-y-auto shrink-0 bg-indigo-950 text-white flex-col transition-all duration-200", collapsed ? "w-16" : "w-64")}>
+    <aside className={cn("hidden md:flex h-[100dvh] sticky top-0 overflow-y-auto shrink-0 bg-indigo-950 text-white flex-col transition-all duration-200", collapsed ? "w-16" : "w-64")}>
       <div className="px-3 py-5 border-b border-indigo-800">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
           <div className="w-9 h-9 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
