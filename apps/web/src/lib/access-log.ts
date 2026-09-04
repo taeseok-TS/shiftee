@@ -177,10 +177,15 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
 
   // ⚠ split 은 수십만 개 문자열을 **한꺼번에** 만들어 들고 있는다. 한 줄씩 잘라 쓰면
   //   같은 일을 하면서 순간 메모리가 훨씬 낮다(검증관 C 지적).
+  let scanned = 0;
   for (let pos = 0; pos < buf.length; ) {
     const nl = buf.indexOf("\n", pos);
     const line = buf.slice(pos, nl === -1 ? buf.length : nl);
     pos = (nl === -1 ? buf.length : nl) + 1;
+    // ⚠ 36MB 를 한 번에 훑으면 **약 1초 동안 다른 요청을 하나도 못 받는다**(운영 실측
+    //   1060ms). 감시가 감시 대상을 멈추는 셈이다(2026-09-04 검증관 C). 총 CPU 는 같아도
+    //   중간중간 양보하면 그 1초 동안 사용자 요청이 계속 처리된다.
+    if (++scanned % 2000 === 0) await new Promise((r) => setImmediate(r));
     if (!line || line[0] !== "{") continue; // 끝에서 잘라 읽어 첫 줄이 깨질 수 있다
     let e: { ts?: number; status?: number; request?: { uri?: string; method?: string } };
     try { e = JSON.parse(line); } catch { continue; }
