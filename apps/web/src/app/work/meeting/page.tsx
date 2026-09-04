@@ -1,5 +1,6 @@
 "use client";
 
+import { isSessionExpired } from "@/lib/session-expiry";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,8 +100,11 @@ export default function WorkMeetingPage() {
   const chunksRef = useRef<Blob[]>([]);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  // 5초마다 도는 폴러다. 세션이 끊기면 멈추지 않으면 낡은 화면으로 계속 찌른다 (2026-09-04)
+  const mtIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fetchMeetings = useCallback(async () => {
     const res = await fetch("/api/work/meetings");
+    if (isSessionExpired(res)) { if (mtIvRef.current) clearInterval(mtIvRef.current); return; }
     if (res.ok) setMeetings((await res.json()).meetings || []);
   }, []);
   const fetchRecordings = useCallback(async () => {
@@ -115,6 +119,7 @@ export default function WorkMeetingPage() {
     // 초대 후보: 전 직원 + 관리자·서브관리자 포함 (/api/employees는 ADMIN 제외라 사용 안 함)
     fetch("/api/work/members").then(r => r.ok ? r.json() : { members: [] }).then(d => setEmployees(d.members || [])).catch(() => {});
     const t = setInterval(fetchMeetings, 5000);
+    mtIvRef.current = t;
     return () => clearInterval(t);
   }, [fetchMeetings, fetchRecordings]);
 

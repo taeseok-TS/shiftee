@@ -86,7 +86,11 @@ export async function POST(
         approvalLineId: contract.approvalLine!.id,
         order: { gt: revokeStep.order },
       },
-      data: { status: "WAITING", decidedAt: null, comment: null },
+      // ⚠ signatureUrl 을 반드시 지운다. 빠뜨리면 **회수된 뒤 단계의 서명이 문서에 계속 찍힌다**
+      //   (완료본.미리보기 모두 st.signatureUrl 만 보고 서명자를 모은다). 다음 결재자가
+      //   이미 서명이 찍힌 문서를 보고 결재하게 된다 — 계약서에서 이건 진본성 문제다.
+      //   직원 서명 회수(revoke-employee-signature)에는 있는데 여기만 빠져 있었다 (2026-09-04).
+      data: { status: "WAITING", decidedAt: null, comment: null, signatureUrl: null },
     });
 
     // 3. 계약 상태를 APPROVED로 변경 (진행 중 상태를 유지) 및 회수 로그 저장
@@ -94,6 +98,10 @@ export async function POST(
       where: { id },
       data: {
         status: "APPROVED",
+        // 저장된 완료본도 지운다. 남겨 두면 미리보기 폴백이 **회수 전 완료본**을 되살린다
+        // (bundle-preview 는 signedUrl 이 있으면 그것부터 쓴다). 되돌린 서명이 찍힌 문서다.
+        signedUrl: null,
+        signedAt: null,
         revocationLog: updatedLogs,
       },
       include: {

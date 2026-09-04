@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { isSessionExpired } from "@/lib/session-expiry";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,12 +73,15 @@ export default function AdminDashboardPage() {
   const dateStr = format(today, "yyyy년 M월 d일 (EEEE)", { locale: ko });
 
   // 데이터 불러오기
+  const dashIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
       // 1. 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
       const statsRes = await fetch("/api/admin/dashboard-stats");
+      // 세션이 끊기면 멈춘다 — 종전에는 낡은 근무 현황을 현재로 계속 보여줬다 (2026-09-04)
+      if (isSessionExpired(statsRes)) { if (dashIvRef.current) clearInterval(dashIvRef.current); return; }
       let leaveScheduleItems: PendingApproval[] = [];
       if (statsRes.ok) {
         const data = await statsRes.json();
@@ -136,6 +140,7 @@ export default function AdminDashboardPage() {
     fetchDashboardData();
     // 5분마다 새로고침
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
+    dashIvRef.current = interval;
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 

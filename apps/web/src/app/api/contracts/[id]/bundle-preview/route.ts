@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { firstFile, diskPath, buildSignedDocx, type Signer } from "@/lib/signed-doc";
+import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, type Signer } from "@/lib/signed-doc";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
@@ -131,9 +131,14 @@ export async function GET(
       let buf: Buffer = await fs.readFile(diskPath(srcUrl));
       // 서명이 있으면 원본에 서명을 얹은 실물로 바꾼다(완료본 라우트와 같은 방식).
       // 실패하면 완료 시점에 저장해 둔 서명본으로 대신한다(아래 catch).
-      if (hasSigned && srcUrl.toLowerCase().endsWith(".docx")) {
+      // ⚠ 종전에는 .docx 일 때만 서명을 얹어, **PDF 로 올린 계약은 완료본인데도 서명 없이**
+      //   200 으로 나갔다(완료본 라우트는 buildSignedPdf 를 쓴다). 지금 운영 계약이 전부
+      //   docx 라 안 터졌을 뿐이다 (2026-09-04 지적).
+      if (hasSigned && (srcUrl.toLowerCase().endsWith(".docx") || srcUrl.toLowerCase().endsWith(".pdf"))) {
         try {
-          buf = await buildSignedDocx(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers);
+          buf = srcUrl.toLowerCase().endsWith(".pdf")
+            ? await buildSignedPdf(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers)
+            : await buildSignedDocx(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers);
         } catch (e) {
           // ⚠ 조용히 **서명 없는 원본**으로 넘어가면 "아직 서명 안 됐구나"로 읽힌다 —
           //   진본성을 고치려던 변경이 실패 경로에서 같은 오해를 만든다.
@@ -146,7 +151,11 @@ export async function GET(
             message: `서명본 렌더 실패: ${(e as Error)?.message || String(e)}`,
             stack: (e as Error)?.stack || null,
           }).catch(() => {});
-          const stored = firstFile((d as { signedUrl?: string | null }).signedUrl || "");
+          // ⚠ 저장본을 **status 검사보다 먼저** 쓰면 게이트가 통째로 우회된다(2026-09-04 지적).
+          //   완료 계약일 때만 저장본을 인정한다 — 회수.재발송으로 되돌아간 계약에서
+          //   옛 완료본이 되살아나는 것을 막는다(회수 라우트도 signedUrl 을 지우도록 고쳤다).
+          const done = (d as { status?: string }).status === "SIGNED";
+          const stored = done ? firstFile((d as { signedUrl?: string | null }).signedUrl || "") : null;
           let recovered = false;
           if (stored) {
             try { buf = await fs.readFile(diskPath(stored)); srcUrl = stored; recovered = true; } catch { /* 아래에서 처리 */ }
@@ -161,7 +170,6 @@ export async function GET(
           //   서명 자체가 막히는 쪽이 훨씬 나쁘다.
           //   완료된 계약은 종전대로 실패시킨다. 서명 없는 문서를 완료본으로 보여줄 수는 없다.
           if (!recovered) {
-            const done = (d as { status?: string }).status === "SIGNED";
             if (done)
               return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
             // 진행 중 — 원본 그대로 내보낸다(buf 는 이미 원본을 담고 있다)

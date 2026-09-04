@@ -307,6 +307,10 @@ export async function PATCH(
       ...(endDate ? { endDate: new Date(endDate) } : {}),
       ...(hideRevoked !== undefined ? { hideRevoked } : {}),
       ...(newFileUrl ? { fileUrl: newFileUrl } : sendRenderUrl ? { fileUrl: JSON.stringify([sendRenderUrl]) } : {}),
+      // 발송(재발송 포함)이면 결재선이 초기화되어 서명이 전부 사라진다. 그런데 저장된 완료본과
+      // 직원 서명 시각이 남아 있으면 ① 미리보기 폴백이 **옛 완료본**을 되살리고
+      // ② 직원 화면이 "서명했다"로 판단해 완료본 링크를 열었다가 400 오류를 본다 (2026-09-04).
+      ...(status === "SENT" ? { signedUrl: null, signedAt: null, employeeSignedAt: null } : {}),
       ...(fieldSummary ? { extraFields: fieldSummary } : {}),
     },
     include: {
