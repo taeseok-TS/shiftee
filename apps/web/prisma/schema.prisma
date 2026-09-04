@@ -304,6 +304,12 @@ enum ContractStatus {
   APPROVED // 승인 중
   SIGNED // 서명완료
   EXPIRED // 만료
+  // 반려 — 결재자 또는 당사자가 사유를 적어 거부했다. **최종 상태**다(디렉터 결정 2026-09-04).
+  // 다시 진행하려면 관리자가 계약을 새로 만들어 발송한다. 누가·언제·왜는 단계(comment,
+  // decidedAt)와 계약의 revocationLog 에 남는다 — 새 컬럼을 만들지 않은 이유는 운영 DB
+  // 드리프트 사고를 여러 번 냈기 때문이다(canViewPayroll·monthlySalary).
+  // ⚠ 운영 DB 에는 `ALTER TYPE "ContractStatus" ADD VALUE 'REJECTED'` 로 먼저 넣었다.
+  REJECTED // 반려
 }
 
 // ─── 계약 결재 라인 ──────────────────────────────────────────

@@ -44,6 +44,8 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
+  // 반려는 최종 상태다 — 다시 하려면 계약을 새로 만들어 발송한다 (2026-09-04)
+  REJECTED: { label: "반려", variant: "destructive" },
 };
 
 function getFileUrl(fileUrl: string): string {

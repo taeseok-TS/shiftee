@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { Textarea } from "@/components/ui/textarea";
 
 type Contract = {
   id: string;
@@ -86,11 +87,14 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
+  // 반려는 최종 상태다 — 다시 하려면 계약을 새로 만들어 발송한다 (2026-09-04)
+  REJECTED: { label: "반려", variant: "destructive" },
 };
 
 // 상태 필터 트리거에 코드값 대신 표시할 라벨 (#141)
 const FILTER_STATUS_LABEL: Record<string, string> = {
   DRAFT: "초안", SENT: "직원 서명 대기", APPROVED: "결재 중", SIGNED: "완료", EXPIRED: "만료",
+  REJECTED: "반려",
 };
 
 // 발송 승인자 3칸 고정 슬롯 (#158·#159) — 단계와 역할이 화면에 고정으로 보이게
@@ -1417,6 +1421,32 @@ ${url}`;
   }
 
   const [signBusy, setSignBusy] = useState(false); // 더블클릭 중복 요청 방지 (#102, 2026-08-27)
+  // 반려 — 결재자가 "거부"할 수단이 아예 없어서, 조건이 안 맞으면 그냥 안 누르고 버티는
+  // 수밖에 없었다(이유가 어디에도 안 남는다). 반려는 **최종 상태**다(디렉터 결정 2026-09-04).
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectBusy, setRejectBusy] = useState(false);
+  async function handleReject() {
+    if (!signTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) { toast.error("반려 사유를 입력해주세요"); return; }
+    setRejectBusy(true);
+    try {
+      const res = await fetch(`/api/contracts/${signTarget.id}/reject`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "반려에 실패했습니다"); return; }
+      toast.success("반려했습니다. 작성자와 당사자에게 알림이 갑니다.");
+      setRejectOpen(false); setRejectReason(""); setSignOpen(false); setSignTarget(null);
+      fetchContracts();
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setRejectBusy(false);
+    }
+  }
   async function handleSign(id: string, isApprover = false) {
     if (signBusy) return;
     const useSaved = !!mySignatureUrl && !drawNewSig;
@@ -3081,6 +3111,9 @@ ${url}`;
               </Button>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
+                {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
+                <Button variant="ghost" className="text-red-600 hover:bg-red-50"
+                        onClick={() => { setRejectReason(""); setRejectOpen(true); }}>반려</Button>
                 <Button disabled={signBusy} onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")}>
                   {signBusy ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "서명"}
                 </Button>
@@ -3573,6 +3606,34 @@ ${url}`;
           </div>
         </div>
       )}
+
+      {/* 반려 확인 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
+      <Dialog open={rejectOpen} onOpenChange={(o) => { setRejectOpen(o); if (!o) setRejectReason(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>계약 반려</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <div className="font-medium">{signTarget?.title}</div>
+              <p className="mt-2 text-red-600">
+                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+              </p>
+            </div>
+            <div>
+              <label className="text-sm mb-1 block font-medium">반려 사유 <span className="text-red-500">*</span></label>
+              <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
+                        placeholder="어디가 잘못됐는지 적어 주세요. 작성자와 당사자에게 그대로 전달됩니다."
+                        rows={4} maxLength={500} autoFocus />
+              <div className="text-xs text-gray-400 text-right mt-1">{rejectReason.length}/500</div>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>취소</Button>
+            <Button variant="destructive" disabled={!rejectReason.trim() || rejectBusy} onClick={handleReject}>
+              {rejectBusy ? "처리 중..." : "반려하기"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

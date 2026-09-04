@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  Check, AlertCircle, ChevronRight, Search, Loader2, FileText,
+  Check, X, AlertCircle, ChevronRight, Search, Loader2, FileText,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -112,6 +114,37 @@ export default function ContractApprovalsPage() {
       return nameMatch && dateMatch;
     });
   }, [contracts, searchName, searchDate]);
+
+  // 반려 — 사유 없이는 못 한다. 받는 쪽이 사유를 모르면 아무 것도 할 수 없다.
+  // ⚠ 반려는 **최종 상태**다(디렉터 결정 2026-09-04). 되돌릴 수 없으므로 확인 창을 둔다.
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; title: string; name: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const handleReject = async () => {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) { toast.error("반려 사유를 입력해주세요"); return; }
+    try {
+      setProcessingId(rejectTarget.id);
+      const res = await fetch(`/api/contracts/${rejectTarget.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success("반려했습니다. 작성자와 당사자에게 알림이 갑니다.");
+        setContracts((prev) => prev.filter((c) => c.id !== rejectTarget.id));
+        setRejectTarget(null);
+        setRejectReason("");
+      } else {
+        toast.error(data.error || "반려 처리 중 오류가 발생했습니다");
+      }
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setProcessingId(null);
+    }
+  };
 
   // 승인 처리
   const handleApprove = async (contractId: string) => {
@@ -311,6 +344,19 @@ export default function ContractApprovalsPage() {
                             )}
                             승인
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:bg-red-50"
+                            disabled={processingId === contract.id}
+                            onClick={() => {
+                              setRejectReason("");
+                              setRejectTarget({ id: contract.id, title: contract.title, name: contract.user.name });
+                            }}
+                          >
+                            <X size={16} />
+                            반려
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -322,6 +368,46 @@ export default function ContractApprovalsPage() {
         </Card>
       )}
 
+
+      {/* 반려 확인 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
+      <Dialog open={!!rejectTarget} onOpenChange={(o) => { if (!o) { setRejectTarget(null); setRejectReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>계약 반려</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <div className="font-medium">{rejectTarget?.name} — {rejectTarget?.title}</div>
+              <p className="mt-2 text-red-600">
+                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm mb-1 block">반려 사유 <span className="text-red-500">*</span></Label>
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="어디가 잘못됐는지 적어 주세요. 작성자와 당사자에게 그대로 전달됩니다."
+                rows={4}
+                maxLength={500}
+                autoFocus
+              />
+              <div className="text-xs text-gray-400 text-right mt-1">{rejectReason.length}/500</div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectTarget(null); setRejectReason(""); }}>취소</Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || processingId === rejectTarget?.id}
+              onClick={handleReject}
+            >
+              {processingId === rejectTarget?.id ? <Loader2 size={16} className="animate-spin" /> : null}
+              반려하기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
