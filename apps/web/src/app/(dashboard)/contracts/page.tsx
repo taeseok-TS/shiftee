@@ -378,6 +378,12 @@ export default function ContractsPage() {
       toast.error("회수 사유를 입력해주세요.");
       return;
     }
+    // 결재 회수 전용 — 직원 서명 회수는 별도 경로(revoke-employee-signature)로 간다.
+    // 관리자 화면에는 이 가드가 있는데 여기만 빠져 있었다 (2026-09-03 검증 지적).
+    if (!revokeTarget.step) {
+      toast.error("결재 단계를 찾을 수 없습니다.");
+      return;
+    }
 
     try {
       const res = await fetch(

@@ -30,8 +30,12 @@ export function RoleSwitch() {
       try {
         const res = await fetch("/api/auth/me");
         if (res.ok) {
+          // ⚠ /api/auth/me 는 `{ user }` 를 준다. `data.session` 을 읽고 있어서 항상
+          //   undefined 였고, 아래 `!session` 에 걸려 **이 컴포넌트가 계속 아무것도
+          //   안 그렸다**(레이아웃 3곳에서 역할 전환.로그아웃이 통째로 안 보였다).
+          //   2026-09-03 검증에서 드러났다.
           const data = await res.json();
-          setSession(data.session);
+          setSession(data.user ? { ...data.user, userId: data.user.id } : null);
         }
       } catch (error) {
         console.error("Failed to fetch session:", error);
