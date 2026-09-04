@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { SharedSidebar } from "@/components/layout/SharedSidebar";
 import { MobileDashboardNav } from "@/components/layout/MobileDashboardNav";
-import { RoleSwitch } from "@/components/layout/RoleSwitch";
 import { Toaster } from "@/components/ui/sonner";
 
 export default async function SharedLayout({
@@ -27,7 +26,13 @@ export default async function SharedLayout({
             <MobileDashboardNav role={session.role} />
             <h1 className="text-xl font-semibold text-gray-800 truncate">내 대시보드</h1>
           </div>
-          <RoleSwitch />
+          {/* RoleSwitch 는 걷어냈다 (2026-09-04).
+              이 컴포넌트는 `/api/auth/me` 응답을 잘못 읽어 **오랫동안 아무것도 안 그리고 있었고**,
+              9/3 에 그 버그를 고치자 헤더에 역할 전환.로그아웃이 새로 나타났다. 그런데
+              같은 기능이 이미 사이드바에 있다(AdminSidebar/ManagerSidebar/SharedSidebar).
+              직원 70여 명 화면에 중복 UI 와 "(테스트용)" 라벨이 갑자기 보이는 것은
+              의도한 변경이 아니므로 원래 보이던 모습으로 되돌린다.
+              컴포넌트 자체의 버그 수정은 남겨 둔다 — 다시 쓸 때 바로 동작한다. */}
         </div>
         <div className="p-4 md:p-8">{children}</div>
       </main>

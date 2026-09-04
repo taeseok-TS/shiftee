@@ -65,9 +65,10 @@ function DialogContent({
           //  · 기본 폭은 호출부가 폭을 **안 줬을 때만** 붙인다.
           "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // className 은 함수로도 올 수 있다(Base UI). 문자열일 때만 폭 지정 여부를 본다.
-          // 어떤 변형(sm:/xl:/data-[..]:)이든, ! 접두든 폭 지정으로 인정한다.
-          // 종전 정규식은 sm|md|lg 만 봐서 `!max-w-[96vw]`.`sm:!max-w-[880px]` 를 놓쳤다.
-          !(typeof className === "string" && /(?:^|\s)(?:[a-z0-9.\[\]_-]+:)*!?max-w-/.test(className)) && "sm:max-w-sm",
+          // 공백 없이 max-w- 로 끝나는 조각이면 폭 지정으로 본다 — 어떤 변형이든
+          // (`sm:` `xl:` `data-[state=open]:` `@lg:`), `!` 접두든 인정한다.
+          // 종전에는 sm|md|lg 만, 그 다음엔 `=`.`@` 가 빠져 data-[..]: 를 놓쳤다(2026-09-04).
+          !(typeof className === "string" && /(?:^|\s)[^\s]*!?max-w-/.test(className)) && "sm:max-w-sm",
           className
         )}
         {...props}
