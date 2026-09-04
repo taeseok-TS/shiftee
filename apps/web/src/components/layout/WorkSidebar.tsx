@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { isSessionExpired } from "@/lib/session-expiry";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ function useWorkBadges(pathname: string) {
   const [chatUnread, setChatUnread] = useState(0);
   const [noticeNew, setNoticeNew] = useState(0);
 
+  const ivRef = useRef<number>(0);
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -30,6 +32,9 @@ function useWorkBadges(pathname: string) {
           fetch("/api/work/announcements?times=1"),
         ]);
         if (!alive) return;
+        // 세션이 끊기면 폴링을 멈추고 로그인으로 보낸다 — 종전에는 조용히 삼켜
+        // 낡은 화면을 그대로 두고 영원히 찔렀다 (2026-09-04)
+        if (isSessionExpired(chRes) || isSessionExpired(anRes)) { window.clearInterval(ivRef.current); return; }
         if (chRes.ok) {
           const d = await chRes.json();
           const sum = (d.channels || []).reduce((a: number, c: { unread?: number }) => a + (c.unread || 0), 0);
@@ -46,6 +51,7 @@ function useWorkBadges(pathname: string) {
     }
     load();
     const iv = window.setInterval(load, 60_000); // 1분 주기
+    ivRef.current = iv;
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => { alive = false; window.clearInterval(iv); window.removeEventListener("focus", onFocus); };
