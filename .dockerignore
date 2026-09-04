@@ -11,9 +11,15 @@ apps/web/uploads
 
 .git
 .gitignore
+# ⚠ `.env` 는 **루트만** 막는다. apps/web/.env 가 그대로 이미지에 구워져 있었다
+#   (2026-09-04 확인 — 옛 개발용 값이었지만 JWT_SECRET.DB 접속문자열이 들어 있었다).
+#   재빌드 때 운영 값이 담긴 .env 가 놓여 있으면 그대로 이미지에 박힌다.
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
 
 # 문서/임시 파일
 *.md

@@ -81,6 +81,18 @@ export async function GET(
         contractViewOnly = r.viewOnly;
       }
     }
+
+    // 서명 이미지도 계약서와 같은 기준으로 본다. 종전에는 이 경로군이 **로그인 여부만**
+    // 확인해, URL 을 아는 아무 직원이나 남의 서명 PNG 를 받을 수 있었다(2026-09-04 검증관 B).
+    const isSignature = decoded[0] === "signatures" || pathParts[0] === "signatures";
+    if (isSignature) {
+      const { resolvePrincipal } = await import("@/lib/contract-access");
+      const { canAccessSignatureFile } = await import("@/lib/signature-access");
+      const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
+      const { who, guestContractId } = await resolvePrincipal(session, tk?.subject ?? null);
+      const r = await canAccessSignatureFile(fname, who, guestContractId);
+      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+    }
   }
 
   // 파일 전체를 메모리에 올리지 않고 stat만 확인 후 스트리밍 (500MB 영상 대응)

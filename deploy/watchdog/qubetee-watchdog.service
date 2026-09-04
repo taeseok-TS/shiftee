@@ -7,6 +7,8 @@ Type=oneshot
 # ⚠ RemainAfterExit=yes 를 쓰면 안 된다. 유닛이 active 로 남아 타이머의 start 가
 #   무시되고, 자가복구가 조용히 멈춘다(2026-09-04 방화벽 유닛에서 실제로 겪었다).
 ExecStart=/usr/bin/python3 /usr/local/sbin/qubetee-watchdog.py
-# 앱이 죽은 것은 이 유닛의 실패가 아니다 — 알림을 보냈으면 제 할 일을 한 것이다.
-SuccessExitStatus=0 1
+# ⚠ 종전에는 SuccessExitStatus=0 1 이었다. 그러면 파이썬 미처리 예외(exit 1)까지
+#   성공으로 보여 `systemctl --failed` 라는 표준 감지 수단이 무력화된다
+#   (2026-09-04 검증관 A W-8). 스크립트가 '앱이 죽었다'를 정상 처리한 경우는
+#   exit 0 으로 돌려주므로, 여기서는 0 만 성공으로 본다.
 TimeoutStartSec=180

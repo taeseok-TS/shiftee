@@ -45,6 +45,10 @@ RECIP     = os.path.join(STATE_DIR, "recipients.json")
 BEAT      = os.path.join(STATE_DIR, "beat") if _sd else "/var/log/caddy/.watchdog-beat"  # 앱이 읽는다(ro 마운트)
 FAIL_N    = 3        # 연속 3회(=3분) 실패해야 알린다 — 배포 중 재시작을 장애로 오인하지 않게
 REPEAT_N  = 30       # 계속 죽어 있으면 30분마다 다시 알린다
+MAIL_GAP  = 600      # ⚠ 어떤 메일이든 최소 이 간격을 둔다. 종전에는 복구 메일에 쿨다운이
+                     #   없어, 4분 주기로 흔들리는 서비스가 시간당 약 30통을 보냈다
+                     #   (경고 15 + 복구 15, 2026-09-04 검증관 A W-4). 폭주하는 알림은
+                     #   안 오는 알림만큼 나쁘다 — 사람이 곧바로 무시하게 된다.
 RESTART_COOLDOWN = 1800  # 자동 재시작은 30분에 한 번까지
 
 
@@ -171,6 +175,24 @@ def send_mail(e, to, subject, body):
         return False
 
 
+# 호스트에서 살아 있어야 하는 것들. 죽어도 앱은 멀쩡히 응답하므로 **아무도 모른다**
+# — 방화벽이 내려가면 포트 3000 이 외부에 열리고, fail2ban 이 내려가면 무제한으로 두드려진다
+# (2026-09-04 검증관 C B-4). 감시가 이미 여기 있으니 함께 본다.
+GUARD_UNITS = ["fail2ban.service", "qubetee-firewall.timer", "docker.service"]
+
+
+def dead_units():
+    out = []
+    for u in GUARD_UNITS:
+        try:
+            r = subprocess.run(["systemctl", "is-active", u], capture_output=True, text=True, timeout=10)
+            if r.stdout.strip() != "active":
+                out.append("%s(%s)" % (u, r.stdout.strip() or "unknown"))
+        except Exception as ex:
+            out.append("%s(확인실패: %s)" % (u, ex))
+    return out
+
+
 def main():
     e = env()
     st = load(STATE, {"fails": 0, "alerted": False, "restartedAt": 0, "lastOk": 0})
@@ -186,10 +208,23 @@ def main():
         print("beat 쓰기 실패:", ex, file=sys.stderr)
 
     if ok:
-        if st.get("alerted"):
+        # 복구를 알리되, 직전 메일과 너무 붙으면 참는다(플래핑 폭주 방지).
+        if st.get("alerted") and now - int(st.get("lastMailAt", 0)) >= MAIL_GAP:
+            st["lastMailAt"] = now
             down = now - int(st.get("lastOk") or now)
             send_mail(e, recipients(e), "[큐브티] 서비스 복구됨",
                       f"앱이 다시 정상 응답합니다.\n\n중단 추정 시간: 약 {down // 60}분\n확인 주소: {URL}\n시각: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        # 앱이 정상일 때만 본다 — 앱 장애 알림과 뒤섞으면 정작 급한 것이 묻힌다.
+        dead = dead_units()
+        if dead and now - int(st.get("guardMailAt", 0)) >= 6 * 3600:
+            st["guardMailAt"] = now
+            send_mail(e, recipients(e), "[큐브티] 🟠 서버 보호 장치가 멈췄습니다", chr(10).join([
+                "다음이 동작하지 않습니다: " + ", ".join(dead), "",
+                "fail2ban 이 멈추면 SSH 가 무제한으로 두드려지고,",
+                "방화벽 타이머가 멈추면 앱 포트(3000)가 외부에 열릴 수 있습니다.",
+                "systemctl status <유닛> 으로 확인해 주십시오.", ""]))
+        elif not dead:
+            st.pop("guardMailAt", None)
         st.update({"fails": 0, "alerted": False, "lastOk": now})
         if not DRY:
             recipients(e)   # 정상일 때 명단을 갱신해 둔다(장애 중에는 DB 를 못 볼 수 있다)
@@ -227,7 +262,8 @@ def main():
         except Exception as ex:
             print("재시작 실패:", ex, file=sys.stderr)
 
-    if n >= FAIL_N and (not st.get("alerted") or n % REPEAT_N == 0):
+    if n >= FAIL_N and (not st.get("alerted") or n % REPEAT_N == 0)             and now - int(st.get("lastMailAt", 0)) >= MAIL_GAP:
+        st["lastMailAt"] = now
         body = (f"큐브티 앱이 응답하지 않습니다.\n\n증상: {why}\n연속 실패: {n}회(1분 간격)\n"
                 f"확인 주소: {URL}\n시각: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 f"자동 재시작: {'시도함' if st.get('restartedAt') else '안 함'}\n"
@@ -240,7 +276,11 @@ def main():
         send_mail(e, recipients(e), "[큐브티] 🔴 서비스 응답 없음 (상태 기록 불가)", chr(10).join([
             "앱이 응답하지 않는데 워치독이 상태 파일도 쓰지 못합니다.",
             "연속 실패를 셀 수 없어 이 메일이 반복될 수 있습니다.", "", "증상: " + why, ""]))
-    return 1
+    # ⚠ 0 을 돌려준다. 앱이 죽은 것은 **이 유닛의 실패가 아니다** — 감지하고 알렸으면 제 할
+    #   일을 한 것이다. 유닛은 이제 0 만 성공으로 보므로(W-8), 여기서 1 을 주면 정상 동작이
+    #   `systemctl --failed` 에 쌓여 진짜 고장과 구분이 안 된다. 스크립트 자체가 터지면
+    #   파이썬이 exit 1 을 내고 그건 실패로 잡힌다.
+    return 0
 
 
 if __name__ == "__main__":
