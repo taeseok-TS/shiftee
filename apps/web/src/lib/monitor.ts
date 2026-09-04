@@ -226,7 +226,11 @@ export async function runHealthCheckAndAlert() {
   const fresh = issues.filter((i) => {
     // ⚠ 숫자를 지우고 유형을 본다. 종전에는 앞 20자를 그대로 써서 "디스크 사용률 91%" 처럼
     //   건수가 바뀌면 매번 새 알림으로 보였고, 매시 정각 점검마다 DM 이 갔다(2026-09-03 지적).
-    const key = i.replace(/[0-9]+/g, "#").slice(0, 28);
+    // ⚠ 문장 전체를 키로 쓰면 **문제와 무관한 문구**까지 키에 들어간다.
+    //   "최근 5시간(로그가 그만큼…)" ↔ "최근 4.8시간…" ↔ "로그에 남은 구간" 처럼
+    //   로그 회전 상태에 따라 같은 5xx 하나가 네 가지 키를 만들어 하루에 여러 번 갔다
+    //   (2026-09-04 검증 지적). 유형만 남기려고 첫 구분자 앞까지만, 숫자는 지운다.
+    const key = i.split("—")[0].replace(/[0-9]+/g, "#").trim().slice(0, 28);
     // ⚠ 여기서 곧바로 "보냈다"고 기록하면 안 된다. botSendDM 은 DB 에 메시지를 만드는 방식이라
     //   DB 장애 중에는 조용히 실패하는데, 그러면 정작 "DB 응답 실패" 알림이 아무에게도 안 간 채
     //   24시간 잠긴다(2026-09-03 지적). **발송에 성공한 뒤에** 기록한다.
@@ -245,5 +249,5 @@ export async function runHealthCheckAndAlert() {
     try { await botSendDM(id, text); sent++; } catch { /* 한 명 실패가 나머지를 막지 않게 */ }
   }
   // 한 명이라도 실제로 받았을 때만 "알렸다"로 친다. 아무도 못 받았으면 다음 점검에서 다시 시도한다.
-  if (sent > 0) for (const it of fresh) alerted.set(it.replace(/[0-9]+/g, "#").slice(0, 28), Date.now());
+  if (sent > 0) for (const it of fresh) alerted.set(it.split("—")[0].replace(/[0-9]+/g, "#").trim().slice(0, 28), Date.now());
 }

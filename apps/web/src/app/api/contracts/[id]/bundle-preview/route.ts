@@ -43,7 +43,7 @@ export async function GET(
   const maySeeSigned = session.role === "ADMIN" || contract.userId === session.userId;
   // 결재선까지 함께 읽는다 — 서명이 찍힌 실물을 보여주려면 서명 이미지가 필요하다
   const sel = {
-    title: true, fileUrl: true, signedUrl: true, templateId: true, userId: true, startDate: true,
+    title: true, fileUrl: true, signedUrl: true, status: true, templateId: true, userId: true, startDate: true,
     endDate: true, extraFields: true, externalName: true, externalPhone: true, employeeSignedAt: true,
     approvalLine: {
       include: {
@@ -149,11 +149,23 @@ export async function GET(
           const stored = firstFile((d as { signedUrl?: string | null }).signedUrl || "");
           let recovered = false;
           if (stored) {
-            try { buf = await fs.readFile(diskPath(stored)); srcUrl = stored; recovered = true; } catch { /* 아래에서 실패 처리 */ }
+            try { buf = await fs.readFile(diskPath(stored)); srcUrl = stored; recovered = true; } catch { /* 아래에서 처리 */ }
           }
-          // 저장본도 없으면 서명 없는 문서를 보여주느니 실패시킨다(완료본 라우트와 같은 규칙).
-          if (!recovered)
-            return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+          // ⚠ 저장본(signedUrl)은 **계약이 완료(SIGNED)될 때만** 만들어진다
+          //   (signed-doc.generateAndStoreSignedDoc 의 status 검사). 그런데 이 폴백이 정작
+          //   필요한 순간은 **서명 진행 중**이고, 그때 저장본은 항상 없다 — 즉 앞 커밋의
+          //   폴백은 필요한 구간을 못 덮었다(2026-09-04 검증 지적).
+          //
+          //   진행 중 계약은 원본으로라도 보여준다. 서명하려면 문서를 봐야 하고, 아직
+          //   완료본이 아니므로 "완료본인 척"하는 문제도 없다 — 서명 모달이 백지가 되어
+          //   서명 자체가 막히는 쪽이 훨씬 나쁘다.
+          //   완료된 계약은 종전대로 실패시킨다. 서명 없는 문서를 완료본으로 보여줄 수는 없다.
+          if (!recovered) {
+            const done = (d as { status?: string }).status === "SIGNED";
+            if (done)
+              return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+            // 진행 중 — 원본 그대로 내보낸다(buf 는 이미 원본을 담고 있다)
+          }
         }
       }
       if (srcUrl.toLowerCase().endsWith(".pdf")) {

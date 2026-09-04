@@ -65,10 +65,13 @@ function DialogContent({
           //  · 기본 폭은 호출부가 폭을 **안 줬을 때만** 붙인다.
           "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // className 은 함수로도 올 수 있다(Base UI). 문자열일 때만 폭 지정 여부를 본다.
-          // 공백 없이 max-w- 로 끝나는 조각이면 폭 지정으로 본다 — 어떤 변형이든
-          // (`sm:` `xl:` `data-[state=open]:` `@lg:`), `!` 접두든 인정한다.
-          // 종전에는 sm|md|lg 만, 그 다음엔 `=`.`@` 가 빠져 data-[..]: 를 놓쳤다(2026-09-04).
-          !(typeof className === "string" && /(?:^|\s)[^\s]*!?max-w-/.test(className)) && "sm:max-w-sm",
+          // 호출부가 **팝업 자신의 폭**을 지정했는지 본다. 조각(class) 단위로 보고,
+          // 변형 접두(`sm:` `xl:` `data-[state=open]:`)와 `!` 는 건너뛴 뒤 max-w- 로
+          // 시작하는지 확인한다. 변형에 `&` 가 들어간 것(`[&>*]:max-w-full`)은 **자식**의
+          // 폭이므로 제외한다 — 그런 걸 폭 지정으로 오인하면 기본 폭이 안 붙어 모달이
+          // 화면 전체로 퍼진다(2026-09-04 검증에서 오탐 8종 실증).
+          !(typeof className === "string" &&
+            className.split(/\s+/).some((t) => /^(?:[^\s:&]+:)*!?max-w-/.test(t))) && "sm:max-w-sm",
           className
         )}
         {...props}
