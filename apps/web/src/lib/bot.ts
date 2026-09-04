@@ -370,7 +370,13 @@ export async function runScheduledMessages() {
     },
   });
   for (const s of due) {
-    await prisma.workScheduledMessage.update({ where: { id: s.id }, data: { sentAt: new Date() } });
+    // ⚠ 틱은 겹친다. setInterval 은 async 콜백을 기다리지 않고, 틱 안의 영상 압축이 최대
+    //   1시간을 잡는다(2026-09-04 검증관 C C-9). 조건 없는 update 면 겹친 두 틱이 같은
+    //   예약을 각각 보내 **중복 발송**된다. "아직 안 보낸 것만" 원자적으로 찜한다.
+    const claim = await prisma.workScheduledMessage.updateMany({
+      where: { id: s.id, sentAt: null }, data: { sentAt: new Date() },
+    });
+    if (claim.count === 0) continue; // 다른 틱이 이미 가져갔다
     if (s.channel.deletedAt) continue; // 채널이 삭제됐으면 조용히 소멸
     await prisma.workMessage.create({ data: { channelId: s.channelId, userId: s.userId, content: s.content } });
     emitWork({ type: "message", channelId: s.channelId });
@@ -412,7 +418,11 @@ export async function runReminders() {
     },
   });
   for (const r of due) {
-    await prisma.workReminder.update({ where: { id: r.id }, data: { sentAt: new Date() } });
+    // 예약 메시지와 같은 이유로 원자적으로 찜한다 (검증관 C C-9)
+    const claim = await prisma.workReminder.updateMany({
+      where: { id: r.id, sentAt: null }, data: { sentAt: new Date() },
+    });
+    if (claim.count === 0) continue; // 다른 틱이 이미 가져갔다
     if (r.message.deletedAt || r.message.channel.deletedAt) continue;
     const chName = r.message.channel.type === "DM" ? "1:1 대화" : r.message.channel.name;
     const preview = r.message.content
@@ -518,8 +528,11 @@ export function startBotScheduler() {
       } catch { /* 하트비트 실패가 다른 일을 막으면 안 된다 */ }
     }
 
-    // 시스템 헬스체크 (매시 정각 — 이상 시 관리자 DM, 유형별 하루 1회)
-    if (g.__botHealthHour !== hourKey) {
+    // 시스템 헬스체크 (매시 정각 부근 — 이상 시 관리자 DM, 유형별 하루 1회)
+    // ⚠ 분 조건을 통째로 지웠더니 컨테이너가 뜰 때마다 첫 틱(+60초)에 점검이 돌았다
+    //   (2026-09-04 검증관 C C-6). 틱 드리프트는 5분 창으로 흡수하고, 그 밖의 시각에는
+    //   돌지 않게 한다. 중복 알림은 DB 에 남는 중복방지 기록이 따로 막는다.
+    if (k.getUTCMinutes() < 5 && g.__botHealthHour !== hourKey) {
       g.__botHealthHour = hourKey;
       try {
         const { runHealthCheckAndAlert } = await import("@/lib/monitor");

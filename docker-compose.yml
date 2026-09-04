@@ -44,6 +44,9 @@ services:
       # 앱의 오류 기록은 "터진" 오류만 잡아서 try/catch 로 처리된 4xx.5xx 가 안 남는다.
       # 값이 없으면 기능이 조용히 꺼진다(고객사 인스턴스 등).
       ACCESS_LOG_PATH: ${ACCESS_LOG_PATH:-/var/log/caddy/cubetee.log}
+      # 앱 밖 감시(워치독)가 남기는 신호. **값이 있을 때만** 되감시한다 —
+      # 워치독을 안 깐 인스턴스(고객사 등)에서 매일 오탐이 나던 것을 막는다(2026-09-04).
+      WATCHDOG_BEAT_PATH: ${WATCHDOG_BEAT_PATH:-}
       UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
