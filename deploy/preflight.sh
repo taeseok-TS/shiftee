@@ -62,7 +62,8 @@ deploy/firewall/qubetee-firewall.sh:/usr/local/sbin/qubetee-firewall.sh
 deploy/firewall/after.init:/etc/ufw/after.init
 deploy/firewall/qubetee-firewall.service:/etc/systemd/system/qubetee-firewall.service
 deploy/firewall/qubetee-firewall.timer:/etc/systemd/system/qubetee-firewall.timer
-deploy/firewall/qubetee-firewall-alert.service:/etc/systemd/system/qubetee-firewall-alert.service"
+deploy/firewall/qubetee-firewall-alert.service:/etc/systemd/system/qubetee-firewall-alert.service
+deploy/firewall/fail2ban-qubetee.conf:/etc/fail2ban/jail.d/qubetee.conf"
 
 DIFF_COUNT=0
 if [[ $DIRTY -gt 0 ]]; then

@@ -584,3 +584,38 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   await prisma.contract.update({ where: { id: contractId }, data: { signedUrl: url } });
   return url;
 }
+
+/**
+ * "이 문서는 지금 표시할 수 없습니다" 안내 한 장짜리 PDF.
+ *
+ * 묶음 미리보기에서 한 문서가 실패하면 종전에는 **전체가 502** 였다 — 5종 중 1건이
+ * 안 되면 나머지 4건도 못 본다(2026-09-04 검증관 A F2). 그렇다고 조용히 빼면 사용자는
+ * 묶음이 원래 4건인 줄 안다. 자리를 지키되 이유를 적는다.
+ */
+export async function buildPlaceholderPdf(title: string, reason: string): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  // ⚠ Helvetica 로 폴백하면 **한글을 못 그려 여기서 예외가 난다** — 묶음을 살리려고 만든
+  //   안내 페이지가 도리어 묶음을 죽인다. 한글 폰트를 못 읽으면 영문 문구로 낮춘다.
+  let font, korean = true;
+  try { font = await doc.embedFont(await fs.readFile(MALGUN), { subset: true }); }
+  catch { font = await doc.embedFont("Helvetica"); korean = false; }
+  const page = doc.addPage([595, 842]); // A4
+  const draw = (t: string, y: number, size: number, color = rgb(0.2, 0.2, 0.2)) => {
+    // 폰트가 못 그리는 글자가 하나라도 있으면 pdf-lib 이 던진다 — 한 줄 실패가 전체를
+    // 무너뜨리지 않게 줄 단위로 감싼다.
+    try { page.drawText(t, { x: 60, y, size, font, color }); } catch { /* 이 줄만 건너뛴다 */ }
+  };
+  if (!korean) {
+    draw("This document cannot be shown right now.", 740, 14, rgb(0, 0, 0));
+    draw("Other documents in this bundle are fine. Please try again later.", 700, 11);
+    return Buffer.from(await doc.save());
+  }
+  draw(title, 740, 16, rgb(0, 0, 0));
+  page.drawLine({ start: { x: 60, y: 725 }, end: { x: 535, y: 725 }, thickness: 1, color: rgb(0.8, 0.8, 0.8) });
+  draw("이 문서는 지금 표시할 수 없습니다.", 680, 13, rgb(0.7, 0.1, 0.1));
+  draw(reason, 655, 11);
+  draw("묶음의 다른 문서는 정상입니다. 잠시 후 다시 열어 보시고,", 620, 11);
+  draw("계속되면 관리자에게 알려 주십시오(시스템 로그에 기록됐습니다).", 602, 11);
+  return Buffer.from(await doc.save());
+}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, type Signer } from "@/lib/signed-doc";
+import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, buildPlaceholderPdf, type Signer } from "@/lib/signed-doc";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
@@ -136,7 +136,20 @@ export async function GET(
       // ⚠ 종전에는 .docx 일 때만 서명을 얹어, **PDF 로 올린 계약은 완료본인데도 서명 없이**
       //   200 으로 나갔다(완료본 라우트는 buildSignedPdf 를 쓴다). 지금 운영 계약이 전부
       //   docx 라 안 터졌을 뿐이다 (2026-09-04 지적).
-      if (hasSigned && (srcUrl.toLowerCase().endsWith(".docx") || srcUrl.toLowerCase().endsWith(".pdf"))) {
+      // ⚠ 완료된 계약은 **완료 시점에 얼린 저장본**을 먼저 쓴다. 종전에는 정상 경로에서
+      //   매번 다시 그려서, 같은 계약을 미리보기(재합성)와 다운로드(저장본)로 열면 서로
+      //   다른 실물이 나올 수 있었다 — buildSignedDocx 를 한 번만 손대도 갈라진다.
+      //   9/2 에 "서명 문단을 고쳤더니 이미 서명된 계약서 실물이 바뀐" 사고와 같은 부류다
+      //   (2026-09-04 검증관 B F6). 문마다 결과가 다르면 그중 무엇이 진본인지 말할 수 없다.
+      let usedStored = false;
+      if (hasSigned && (d as { status?: string }).status === "SIGNED") {
+        const stored = firstFile((d as { signedUrl?: string | null }).signedUrl || "");
+        if (stored) {
+          try { buf = await fs.readFile(diskPath(stored)); srcUrl = stored; usedStored = true; }
+          catch { /* 저장본을 못 읽으면 아래에서 다시 그린다(그 자체가 폴백) */ }
+        }
+      }
+      if (!usedStored && hasSigned && (srcUrl.toLowerCase().endsWith(".docx") || srcUrl.toLowerCase().endsWith(".pdf"))) {
         try {
           buf = srcUrl.toLowerCase().endsWith(".pdf")
             ? await buildSignedPdf(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers)
@@ -172,8 +185,16 @@ export async function GET(
           //   서명 자체가 막히는 쪽이 훨씬 나쁘다.
           //   완료된 계약은 종전대로 실패시킨다. 서명 없는 문서를 완료본으로 보여줄 수는 없다.
           if (!recovered) {
-            if (done)
-              return NextResponse.json({ error: "서명이 반영된 문서를 만들지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+            if (done) {
+              // ⚠ 종전에는 여기서 통째로 502 였다. 묶음(퇴사 5종 등)에서 1건이 안 되면
+              //   **나머지 4건도 못 본다**(2026-09-04 검증관 A F2). 그렇다고 조용히 빼면
+              //   사용자는 묶음이 원래 4건인 줄 안다. 자리를 지키고 이유를 적는다.
+              //   서명 없는 원본을 완료본으로 보여주는 일은 여전히 하지 않는다.
+              pdfs.push(await buildPlaceholderPdf(
+                (d as { title?: string }).title || contract.title,
+                "서명이 반영된 문서를 만들지 못했습니다."));
+              continue;
+            }
             // 진행 중 — 원본 그대로 내보낸다(buf 는 이미 원본을 담고 있다)
           }
         }
@@ -186,8 +207,19 @@ export async function GET(
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
       fd.append("metadata", JSON.stringify({ Title: (d as { title?: string }).title || contract.title }));
-      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd });
-      if (!gres.ok) return NextResponse.json({ error: "PDF 변환기가 응답하지 않습니다." }, { status: 502 });
+      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd }).catch(() => null);
+      if (!gres || !gres.ok) {
+        // 변환기 장애도 묶음 전체를 막지 않는다(F2). 대신 기록은 남긴다 — 조용히 넘어가면
+        // "원래 안 보이는 문서"로 학습된다.
+        const { logSystemError } = await import("@/lib/monitor");
+        await logSystemError({
+          path: `/api/contracts/${id}/bundle-preview`, method: "GET",
+          message: `PDF 변환 실패(${gres ? gres.status : "연결 실패"}): ${(d as { title?: string }).title || contract.title}`,
+        }).catch(() => {});
+        pdfs.push(await buildPlaceholderPdf(
+          (d as { title?: string }).title || contract.title, "PDF 변환기가 응답하지 않습니다."));
+        continue;
+      }
       pdfs.push(Buffer.from(await gres.arrayBuffer()));
     }
     if (pdfs.length === 0) return NextResponse.json({ error: "문서 파일이 없습니다." }, { status: 404 });

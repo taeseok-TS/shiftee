@@ -137,6 +137,50 @@ export async function POST(
     return { revokedStep, contract: updatedContract };
   });
 
+  // 회수는 **남의 서명을 지우는** 동작인데 종전에는 아무에게도 알리지 않았다
+  // (2026-09-04 검증관 A H1). 당사자는 자기 서명이 사라진 것을 화면을 다시 열어야 알고,
+  // 되돌려진 결재자는 다시 결재해야 하는 것을 모른다. 알림 실패가 회수를 되돌리면 안 되므로
+  // 응답 뒤에 조용히 보내되, 실패는 기록한다.
+  void (async () => {
+    try {
+      const { botSendDM } = await import("@/lib/bot");
+      const steps = result.contract.approvalLine?.steps || [];
+      const revokedFrom = revokeStep.order;
+      const who = result.contract.user?.name || "직원";
+      const title = result.contract.title;
+      const because = reason ? `
+사유: ${reason}` : "";
+      // 되돌려진 단계의 결재자 + 계약 당사자에게. 회수를 실행한 본인에게는 보내지 않는다.
+      const targets = new Set<string>();
+      for (const st of steps) {
+        if (st.order >= revokedFrom && st.approverId) targets.add(st.approverId);
+      }
+      if (result.contract.userId) targets.add(result.contract.userId);
+      targets.delete(session.userId);
+      for (const uid of targets) {
+        const mine = uid === result.contract.userId;
+        const text = mine
+          ? `📄 계약 서명이 회수되었습니다
+
+「${title}」의 ${revokedFrom}단계 이후 결재가 회수되어 서명을 다시 받아야 합니다.${because}
+
+전자계약 화면에서 다시 서명해 주세요.`
+          : `📄 계약 결재가 회수되었습니다
+
+${who} 님의 「${title}」에서 ${revokedFrom}단계 이후 결재가 회수되었습니다.${because}
+
+결재함에서 다시 진행해 주세요.`;
+        await botSendDM(uid, text).catch(() => {});
+      }
+    } catch (e) {
+      const { logSystemError } = await import("@/lib/monitor");
+      await logSystemError({
+        path: `/api/contracts/${id}/approval-steps/${stepId}/revoke`, method: "POST",
+        message: `회수 알림 발송 실패: ${(e as Error)?.message || String(e)}`,
+      }).catch(() => {});
+    }
+  })();
+
   return NextResponse.json({
     success: true,
     message: `${revokeStep.order}단계 이후의 모든 결재가 회수되었습니다. 다시 승인을 진행해주세요.`,
