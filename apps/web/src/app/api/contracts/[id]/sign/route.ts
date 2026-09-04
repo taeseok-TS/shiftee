@@ -81,16 +81,20 @@ export async function POST(
     !contract.externalName;
   if ((consent || profile || fields) && contract.templateId && contract.userId === session.userId && !contract.externalName && mayRewrite) {
     try {
+      // ⚠ employeeFields / profileFields 는 **Contract** 의 컬럼이다. 템플릿에서 select 하면
+      //   Prisma 가 던지고 아래 catch 가 삼켜, 재생성이 **100% 조용히 죽는다**
+      //   (2026-09-04 검증관 B 실측 — 주소.퇴사사유가 빈 채로 서명 완료되던 상태).
+      //   `prisma: any` 라 타입 검사가 이 오타를 못 잡았다(F2, lib/db.ts).
       const tmpl = await prisma.contractTemplate.findUnique({
-        where: { id: contract.templateId }, select: { fileUrl: true, employeeFields: true, profileFields: true },
+        where: { id: contract.templateId }, select: { fileUrl: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
         // 템플릿이 "직원이 직접 입력한다"고 선언한 칸만 받는다. 동의 항목은 개인정보동의서의
         // 선택지라 별도로 허용하되, 역시 이미 있는 키(prevExtra)나 동의 접두로 제한한다.
         const allowed = new Set<string>([
-          ...((Array.isArray(tmpl.employeeFields) ? tmpl.employeeFields : []) as string[]),
-          ...((Array.isArray(tmpl.profileFields) ? tmpl.profileFields : []) as string[]),
+          ...((Array.isArray(contract.employeeFields) ? contract.employeeFields : []) as string[]),
+          ...((Array.isArray(contract.profileFields) ? contract.profileFields : []) as string[]),
         ]);
         const pick = (o: unknown, extra?: (k: string) => boolean) =>
           o && typeof o === "object"
@@ -99,7 +103,11 @@ export async function POST(
             : {};
         const merged = {
           ...prevExtra,
-          ...pick(consent, (k) => k.startsWith("동의") || k in prevExtra),
+          // ⚠ 종전에는 `|| k in prevExtra` 탈출구가 있었다. 그러면 **계약에 이미 들어 있는
+          //   모든 칸**(시급.근무시간.담당업무.계약구분…)을 직원이 서명하면서 덮어쓸 수 있다
+          //   — 막겠다고 적어 둔 바로 그 부류다(2026-09-04 검증관 B 실측 변조 성공).
+          //   개인정보동의서의 선택지만 통과시킨다.
+          ...pick(consent, (k) => k.startsWith("동의")),
           ...pick(fields), // 퇴사일자·퇴사사유 등 직원 직접입력 — 템플릿이 허용한 칸만
         };
         const mergeData = await buildContractMergeData(contract.userId, {

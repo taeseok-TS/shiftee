@@ -30,10 +30,17 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(data.error || "로그인에 실패했습니다.");
       } else {
-        // 세션 만료로 튕겨 온 경우 보던 화면으로 되돌린다 (검증관 B).
-        // 외부 주소로 끌려가지 않게 **우리 사이트 경로**만 받는다("//evil.com" 차단).
+        // 세션 만료로 튕겨 온 경우 보던 화면으로 되돌린다.
+        // ⚠ 문자열 검사(`/` 로 시작하고 `//` 아님)로는 못 막는다. 브라우저는 `\` 를 `/` 와
+        //   같게 읽어 `/\evil.com` 이 **https://evil.com 으로 나갔다**(2026-09-04 검증관 B·C
+        //   실측). 진짜 도메인에서 정상 로그인시킨 뒤 튕기는 피싱이 된다.
+        //   문자 패턴이 아니라 **브라우저와 같은 방식으로 해석해** 출처를 대조한다.
         const raw = new URLSearchParams(window.location.search).get("next") || "";
-        const back = raw.startsWith("/") && !raw.startsWith("//") ? raw : "";
+        let back = "";
+        try {
+          const u = new URL(raw, window.location.origin);
+          if (u.origin === window.location.origin) back = u.pathname + u.search + u.hash;
+        } catch { /* 해석이 안 되는 값이면 기본 화면으로 */ }
         router.push(back || "/dashboard");
         router.refresh();
       }

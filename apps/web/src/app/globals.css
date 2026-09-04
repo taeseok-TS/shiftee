@@ -128,3 +128,12 @@
     @apply font-sans;
   }
 }
+/* 화면 높이 — 폰 주소창.하단바를 감안한 dvh 를 쓰되 **폴백을 남긴다**.
+   Tailwind 의 `h-[100dvh]` 는 폴백 없이 dvh 하나만 내보내므로, dvh 를 모르는 브라우저
+   (Chrome <108 / Safari <15.4)에서는 선언이 통째로 무시돼 height:auto 가 된다 →
+   sticky 사이드바가 콘텐츠 높이로 주저앉고 overflow-y-auto 도 무력화된다
+   (2026-09-04 검증관 B L2). 데스크톱은 주소창이 없어 dvh 이득이 0이므로 순수 리스크였다. */
+.h-screen-safe {
+  height: 100vh;
+  height: 100dvh;
+}

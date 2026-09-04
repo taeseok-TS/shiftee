@@ -44,8 +44,22 @@ echo "▸ 운영 파일 ↔ 로컬 대조 ($WATCH)"
 # 줄바꿈(CRLF/LF)은 제거하고 비교한다 — 윈도우 체크아웃과 서버 파일이 줄바꿈만 달라도 전부 다르게 잡힌다.
 # core.quotepath=false: 한글 파일명을 ì... 로 이스케이프하지 않게 한다
 # (이스케이프되면 이름이 안 맞아 "로컬에만 있음"으로 잘못 잡히고 cat 도 실패한다)
-git -c core.quotepath=false ls-files --cached --others --exclude-standard $WATCH > /tmp/pf-files.txt
+# ⚠ 배포(rsync)로 /opt/qubetee 에 가지 **않는** 것은 대조에서 뺀다. 호스트에 직접 설치되는
+#   자산(워치독.방화벽 유닛)까지 비교하면 매번 "로컬에만 있음"이 떠서, --strict 면 배포가
+#   영구히 막히고 안 쓰면 사람이 "원래 뜨는 것"으로 학습해 진짜 불일치를 놓친다
+#   (2026-09-04 검증관 C C-2 — 게이트 무력화). 대신 아래에서 설치 위치로 직접 대조한다.
+HOST_ONLY='^deploy/(watchdog|firewall)/'
+git -c core.quotepath=false ls-files --cached --others --exclude-standard $WATCH   | grep -Ev "$HOST_ONLY" > /tmp/pf-files.txt
 REMOTE_MD5S=$($SSH "cd '$REMOTE_DIR' && while IFS= read -r p; do [ -f \"\$p\" ] && printf '%s	%s\n' \"\$(tr -d '\r' < \"\$p\" | md5sum | cut -d' ' -f1)\" \"\$p\"; done" < /tmp/pf-files.txt)
+
+HOST_PAIRS="deploy/watchdog/qubetee-watchdog.py:/usr/local/sbin/qubetee-watchdog.py
+deploy/watchdog/qubetee-watchdog.service:/etc/systemd/system/qubetee-watchdog.service
+deploy/watchdog/qubetee-watchdog.timer:/etc/systemd/system/qubetee-watchdog.timer
+deploy/firewall/qubetee-firewall.sh:/usr/local/sbin/qubetee-firewall.sh
+deploy/firewall/after.init:/etc/ufw/after.init
+deploy/firewall/qubetee-firewall.service:/etc/systemd/system/qubetee-firewall.service
+deploy/firewall/qubetee-firewall.timer:/etc/systemd/system/qubetee-firewall.timer
+deploy/firewall/qubetee-firewall-alert.service:/etc/systemd/system/qubetee-firewall-alert.service"
 
 DIFF_COUNT=0
 while IFS= read -r f; do
@@ -60,6 +74,24 @@ while IFS= read -r f; do
     echo "  ≠ 다름: $f"; DIFF_COUNT=$((DIFF_COUNT+1))
   fi
 done < /tmp/pf-files.txt
+
+# 호스트에 직접 설치되는 자산은 설치 위치로 대조한다. 이게 없으면 서버에만 있고 저장소에는
+# 없는 스크립트가 생기고(9/4 방화벽 6종이 그랬다), 서버를 재설치하면 통째로 소실된다.
+echo
+echo "▸ 호스트 설치 자산 대조 (도커 밖 — 워치독.방화벽)"
+while IFS=: read -r LOCAL REMOTE; do
+  [[ -z "$LOCAL" ]] && continue
+  if [[ ! -f "$LOCAL" ]]; then
+    echo "  ? 저장소에 없음: $LOCAL"; DIFF_COUNT=$((DIFF_COUNT+1)); continue
+  fi
+  LM=$(tr -d '' < "$LOCAL" | md5sum | cut -d' ' -f1)
+  RM=$($SSH "[ -f '$REMOTE' ] && tr -d '' < '$REMOTE' | md5sum | cut -d' ' -f1" 2>/dev/null)
+  if [[ -z "$RM" ]]; then
+    echo "  + 서버에 설치 안 됨: $REMOTE"; DIFF_COUNT=$((DIFF_COUNT+1))
+  elif [[ "$RM" != "$LM" ]]; then
+    echo "  ≠ 다름: $LOCAL ↔ $REMOTE"; DIFF_COUNT=$((DIFF_COUNT+1))
+  fi
+done <<< "$HOST_PAIRS"
 rm -f /tmp/pf-files.txt
 
 # 프록시 설정 대조 — /etc/caddy/Caddyfile 은 /opt/qubetee 밖이라 위 루프가 못 본다.

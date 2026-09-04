@@ -126,7 +126,6 @@ export async function POST() {
             days: 1,
             reason: "개인 사유",
             status: "APPROVED",
-            approvedAt: subDays(today, 21),
           },
           {
             userId: employees[0].id,
@@ -136,7 +135,6 @@ export async function POST() {
             days: 0.5,
             reason: "병원 방문",
             status: "APPROVED",
-            approvedAt: subDays(today, 11),
           },
           {
             userId: employees.length > 1 ? employees[1].id : employees[0].id,

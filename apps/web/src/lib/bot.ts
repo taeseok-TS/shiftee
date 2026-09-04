@@ -460,8 +460,15 @@ export function startBotScheduler() {
     const hourKey = `${today} ${k.getUTCHours()}`;
 
     try {
+      // ⚠ 종전에는 `time: hhmm` 정확 일치였다. 틱이 60초 간격인데 안의 작업이 길어지면
+      //   그 분을 통째로 건너뛰어 **그날 브리핑이 아예 안 나간다**(다음날까지 복구 없음).
+      //   공지 재알림.계약 리마인더는 이미 2분 창을 쓰는데 브리핑만 창이 없었다
+      //   (2026-09-04 검증관 C C-8). 직전 1분도 함께 받는다 — 중복은 runBriefing 의
+      //   lastSentAt 멱등 검사가 막는다.
+      const prevMin = new Date(k.getTime() - 60 * 1000);
+      const hhmmPrev = `${String(prevMin.getUTCHours()).padStart(2, "0")}:${String(prevMin.getUTCMinutes()).padStart(2, "0")}`;
       const due = await prisma.botBriefing.findMany({
-        where: { enabled: true, time: hhmm },
+        where: { enabled: true, time: { in: [hhmm, hhmmPrev] } },
         select: { id: true, repeat: true, repeatValue: true },
       });
       for (const b of due) {

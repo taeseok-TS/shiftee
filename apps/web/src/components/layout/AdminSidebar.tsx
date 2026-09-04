@@ -52,8 +52,8 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
   }
 
   return (
-    // h-[100dvh] sticky: 본문이 길어도 사이드바는 화면에 고정 — 하단(전환·로그아웃)이 페이지 밑으로 밀리지 않게 (다른 사이드바와 동일 구조)
-    <aside className="w-64 h-[100dvh] sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
+    // h-screen-safe sticky: 본문이 길어도 사이드바는 화면에 고정 — 하단(전환·로그아웃)이 페이지 밑으로 밀리지 않게 (다른 사이드바와 동일 구조)
+    <aside className="w-64 h-screen-safe sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
       {/* 로고 */}
       <div className="px-6 py-4 border-b border-slate-700">
         <div className="flex items-center gap-3">

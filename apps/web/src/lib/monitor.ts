@@ -177,63 +177,81 @@ export async function cleanupChannelAttachments(channelId: string, olderThanDays
 }
 
 // 헬스체크 — 이상 항목 목록 반환 (없으면 빈 배열)
-export async function runHealthCheck(): Promise<string[]> {
-  const issues: string[] = [];
+import type { Alert } from "@/lib/access-log";
+
+/**
+ * 점검 결과. `heal` 을 켜면 계약 서명본 자가복구까지 한다.
+ *
+ * ⚠ 기본값은 **끔**이다. runHealthCheck 는 `GET /api/admin/storage` 에서도 불리는데,
+ *   거기서 자가복구가 돌면 **GET 이 상태를 바꾼다**. Caddy 는 배포 중 GET 을 재시도하므로
+ *   (무중단 전환) 문서 재생성이 조용히 두 번 실행된다 — Caddyfile 이 바로 그걸 경고하고
+ *   있다(2026-09-04 검증관 B F5). 자가복구는 봇 점검에서만 켠다.
+ */
+export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]> {
+  const issues: Alert[] = [];
 
   // 디스크
   try {
     const disk = getDiskUsage();
-    if (disk.percent >= 90) issues.push(`🔴 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 즉시 정리가 필요합니다.`);
-    else if (disk.percent >= 80) issues.push(`🟠 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 저장공간 정리를 권장합니다.`);
-  } catch { issues.push("⚠️ 디스크 상태를 확인하지 못했습니다."); }
+    if (disk.percent >= 90) issues.push({ text: `🔴 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 즉시 정리가 필요합니다.`, keys: ["disk"] });
+    else if (disk.percent >= 80) issues.push({ text: `🟠 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 저장공간 정리를 권장합니다.`, keys: ["disk"] });
+  } catch { issues.push({ text: "⚠️ 디스크 상태를 확인하지 못했습니다.", keys: ["diskUnknown"] }); }
 
   // DB 응답
   try {
     const t = Date.now();
     await prisma.$queryRaw`SELECT 1`;
     const ms = Date.now() - t;
-    if (ms > 2000) issues.push(`🟠 DB 응답 지연 (${ms}ms)`);
-  } catch { issues.push("🔴 DB 응답 실패 — 데이터베이스 상태를 확인하세요."); }
+    if (ms > 2000) issues.push({ text: `🟠 DB 응답 지연 (${ms}ms)`, keys: ["dbSlow"] });
+  } catch { issues.push({ text: "🔴 DB 응답 실패 — 데이터베이스 상태를 확인하세요.", keys: ["dbDown"] }); }
 
   // 최근 24시간 미처리 오류 수 (처리완료·자동처리된 건은 알림 대상에서 제외)
   try {
     const count = await prisma.systemErrorLog.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, resolved: false },
     });
-    if (count >= 20) issues.push(`🟠 최근 24시간 미처리 서버 오류 ${count}건 — 시스템 로그를 확인하세요.`);
+    if (count >= 20) issues.push({ text: `🟠 최근 24시간 미처리 서버 오류 ${count}건 — 시스템 로그를 확인하세요.`, keys: ["unresolved"] });
   } catch (e) {
     // ⚠ 종전에는 `catch { /* 무시 */ }` 였다. 이 조회가 깨지면 **오류가 몇 건이든 영영 안 알린다**
     //   — 감시가 꺼진 것을 감시가 숨기는 꼴이다(2026-09-04 검증관 C M-8).
-    issues.push(`⚠️ 미처리 오류 건수를 확인하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`);
+    issues.push({ text: `⚠️ 미처리 오류 건수를 확인하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["unresolvedUnknown"] });
   }
 
   // 앱 밖 감시(호스트 워치독)가 살아 있는지 되감시한다 (2026-09-04).
   // 워치독은 앱이 죽었을 때 메일로 알리는 **마지막 방어선**이다. 그게 조용히 멈추면
   // 앱이 죽어도 아무도 모른다 — 서로 감시해야 한 쪽이 죽어도 말이 나온다.
   // 워치독은 1분마다 이 파일에 신호를 남기고, 그 디렉터리는 컨테이너에 읽기전용으로 붙어 있다.
-  try {
-    const beat = process.env.WATCHDOG_BEAT_PATH || "/var/log/caddy/.watchdog-beat";
+  // ⚠ **켠 곳에서만** 본다. 종전에는 경로가 없으면 하드코딩 폴백으로 무조건 검사해,
+  //   워치독을 안 깐 판매용 인스턴스가 매일 오탐을 냈다(2026-09-04 검증관 A M-3).
+  //   접근 로그 감시가 ACCESS_LOG_PATH 미설정이면 조용히 꺼지는 것과 같은 규칙이다.
+  if (process.env.WATCHDOG_BEAT_PATH) try {
+    const beat = process.env.WATCHDOG_BEAT_PATH;
     const st = await fsp.stat(beat).catch(() => null);
-    if (!st) issues.push("🟠 앱 밖 감시(워치독) 신호가 없습니다 — 서버 장애 시 메일 알림이 안 갈 수 있습니다.");
+    if (!st) issues.push({ text: "🟠 앱 밖 감시(워치독) 신호가 없습니다 — 서버 장애 시 메일 알림이 안 갈 수 있습니다.", keys: ["watchdogMissing"] });
     else {
       const ageMin = Math.round((Date.now() - st.mtimeMs) / 60000);
-      if (ageMin > 15) issues.push(`🟠 앱 밖 감시(워치독)가 ${ageMin}분째 멈춰 있습니다 — 서버 장애 시 메일 알림이 안 갑니다.`);
+      if (ageMin > 15) issues.push({ text: `🟠 앱 밖 감시(워치독)가 ${ageMin}분째 멈춰 있습니다 — 서버 장애 시 메일 알림이 안 갑니다.`, keys: ["watchdogStale"] });
     }
   } catch (e) {
-    issues.push(`⚠️ 앱 밖 감시 상태를 확인하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`);
+    issues.push({ text: `⚠️ 앱 밖 감시 상태를 확인하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["watchdogUnknown"] });
   }
 
-  // 완료됐는데 서명본(진본 원본)이 없는 계약을 스스로 고친다.
+  // 완료됐는데 서명본(진본 원본)이 없는 계약을 스스로 고친다. **봇 점검에서만** 돈다(F5).
   // ⚠ status 만으로 "완료"를 판단하면 이 구멍이 안 보인다(검증관 A G1) — 저장본 유무로 본다.
-  try {
+  if (opts?.heal) try {
     const { healMissingSignedDocs } = await import("@/lib/signed-doc-heal");
     const r = await healMissingSignedDocs();
     if (r.failed > 0)
-      issues.push(`🔴 계약 서명본 저장 실패 ${r.failed}건 — 완료 처리됐는데 진본 원본이 없습니다(재시도도 실패). 계약 id: ${r.failedIds.join(", ")}`);
+      issues.push({
+        text: `🔴 계약 서명본 없음 ${r.backlog}건 — 완료 처리됐는데 진본 원본이 없습니다`
+          + `(이번에 ${r.checked}건 재시도, ${r.healed}건 복구, ${r.failed}건 실패).`
+          + ` 계약 id: ${r.failedIds.slice(0, 5).join(", ")}${r.failedIds.length > 5 ? " 외" : ""}`,
+        keys: ["signedDocFail"],
+      });
     else if (r.healed > 0)
       console.log(`[monitor] 서명본 자동 복구 ${r.healed}건`);
   } catch (e) {
-    issues.push(`⚠️ 계약 서명본 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`);
+    issues.push({ text: `⚠️ 계약 서명본 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["signedDocUnknown"] });
   }
 
   // 프록시가 본 실패 응답 (2026-09-03) — try/catch 로 처리된 오류는 systemErrorLog 에 안 남는다.
@@ -245,44 +263,58 @@ export async function runHealthCheck(): Promise<string[]> {
   } catch (e) {
     // ⚠ 점검 자체가 죽으면 안 되지만, **조용히** 죽어도 안 된다. 여기가 무음이면
     //   접근 로그 감시가 통째로 고장나도 아무도 모른다(검증관 C M-8).
-    issues.push(`⚠️ 접근 로그 감시가 실패했습니다 (${e instanceof Error ? e.message : String(e)}).`);
+    issues.push({ text: `⚠️ 접근 로그 감시가 실패했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["accessLogFail"] });
   }
 
   return issues;
 }
 
-// 헬스체크 실행 + 이상 시 관리자들에게 봇 DM (이슈 유형별 하루 1회만)
+// 헬스체크 실행 + 이상 시 관리자들에게 봇 DM (유형별 하루 1회만)
+//
+// ⚠ 중복 방지 기록을 종전에는 `globalThis` Map 에 뒀다. 그러면 **배포할 때마다 초기화**되어
+//   같은 알림이 하루에도 여러 번 갔다(2026-09-04 검증관 A M-2 / C C-7). 프로세스 밖(DB)에 남긴다.
+// ⚠ 판정 기준도 문장이 아니라 **키 집합**이다. 문장에는 상위 경로가 섞여 있어 창이 미끄러지면
+//   같은 사고가 새 알림이 됐고, 반대로 외부 스캐너가 상위를 점거하면 진짜 사고가 묻혔다.
+//   "24시간 안에 처음 보는 키가 하나라도 있으면 알린다"로 바꾼다.
+const ALERT_STATE_KEY = "healthAlertedKeys";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function loadAlerted(): Promise<Record<string, number>> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: ALERT_STATE_KEY } });
+    const v = row?.value ? JSON.parse(row.value) : null;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, number>) : {};
+  } catch {
+    return {}; // 읽기 실패는 "처음 본다"로 친다 — 조용해지느니 한 번 더 알리는 쪽이 낫다
+  }
+}
+
+async function saveAlerted(map: Record<string, number>): Promise<void> {
+  // 오래된 항목은 버린다(무한 증가 방지 — 키를 외부에서 만들 수 있으므로 상한이 필요하다)
+  const cut = Date.now() - 2 * DAY_MS;
+  const pruned = Object.fromEntries(Object.entries(map).filter(([, t]) => t > cut).slice(-500));
+  const value = JSON.stringify(pruned);
+  try {
+    await prisma.appSetting.upsert({
+      where: { key: ALERT_STATE_KEY },
+      create: { key: ALERT_STATE_KEY, value },
+      update: { value },
+    });
+  } catch (e) {
+    console.error("[monitor] 알림 중복방지 기록 저장 실패:", e);
+  }
+}
+
 export async function runHealthCheckAndAlert() {
-  const issues = await runHealthCheck();
+  const issues = await runHealthCheck({ heal: true });
   // 14일 지난 에러 로그 자동 정리
-  prisma.systemErrorLog.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } }).catch(() => {});
+  prisma.systemErrorLog.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 14 * DAY_MS) } } }).catch(() => {});
   if (!issues.length) return;
 
-  const g = globalThis as unknown as { __healthAlerted?: Map<string, number> };
-  // 같은 종류를 하루 1회로 묶는 키: 첫 구분자(—) 앞에서 숫자만 지운다.
-  // ⚠ 종전에는 28자로 잘랐다. 그러면 "🔴 서버 오류 [### /api/contracts/" 까지만 남아
-  //   **서로 다른 계약 사고가 같은 키로 24시간 묻힌다**(검증관 C 실측: 500 bundle-preview /
-  //   500 sign / 404 bundle-preview 세 건의 키가 전부 동일). 경로를 키에 담으라고 넣어 놓고
-  //   다시 잘라내면 의미가 없다 — 자르지 않는다.
-  //   숫자를 지우는 이유는 "디스크 91%" 와 "92%" 를 같은 사고로 보기 위함인데, 그러면
-  //   **상태코드까지 지워져 500 과 404 가 같은 키가 된다.** 대괄호 안(어느 경로가 터졌는가)은
-  //   그대로 두고 밖의 숫자만 지운다.
-  const keyOf = (s: string) =>
-    s.split("—")[0].replace(/\[[^\]]*\]|[0-9]+/g, (m) => (m[0] === "[" ? m : "#")).trim().slice(0, 120);
-  const alerted = g.__healthAlerted ?? (g.__healthAlerted = new Map());
-  const fresh = issues.filter((i) => {
-    // ⚠ 숫자를 지우고 유형을 본다. 종전에는 앞 20자를 그대로 써서 "디스크 사용률 91%" 처럼
-    //   건수가 바뀌면 매번 새 알림으로 보였고, 매시 정각 점검마다 DM 이 갔다(2026-09-03 지적).
-    // ⚠ 문장 전체를 키로 쓰면 **문제와 무관한 문구**까지 키에 들어간다.
-    //   "최근 5시간(로그가 그만큼…)" ↔ "최근 4.8시간…" ↔ "로그에 남은 구간" 처럼
-    //   로그 회전 상태에 따라 같은 5xx 하나가 네 가지 키를 만들어 하루에 여러 번 갔다
-    //   (2026-09-04 검증 지적). 유형만 남기려고 첫 구분자 앞까지만, 숫자는 지운다.
-    const key = keyOf(i);
-    // ⚠ 여기서 곧바로 "보냈다"고 기록하면 안 된다. botSendDM 은 DB 에 메시지를 만드는 방식이라
-    //   DB 장애 중에는 조용히 실패하는데, 그러면 정작 "DB 응답 실패" 알림이 아무에게도 안 간 채
-    //   24시간 잠긴다(2026-09-03 지적). **발송에 성공한 뒤에** 기록한다.
-    return Date.now() - (alerted.get(key) || 0) >= 24 * 60 * 60 * 1000;
-  });
+  const alerted = await loadAlerted();
+  const now = Date.now();
+  // 키가 하나라도 "24시간 안에 본 적 없는 것"이면 새 사고로 본다.
+  const fresh = issues.filter((it) => it.keys.some((k) => now - (alerted[k] || 0) >= DAY_MS));
   if (!fresh.length) return;
 
   // 관리자 전원이 아니라 **지정된 담당자**에게만 (2026-09-03 디렉터 지시).
@@ -290,24 +322,31 @@ export async function runHealthCheckAndAlert() {
   const { getNotifyRecipients } = await import("@/lib/notify-targets");
   const targets = await getNotifyRecipients("system");
   const { botSendDM } = await import("@/lib/bot");
-  const text = `🩺 시스템 점검 알림\n${fresh.join("\n")}\n\n관리자 페이지 > 저장공간/시스템 로그에서 자세히 확인할 수 있습니다.`;
+  const text = "🩺 시스템 점검 알림\n" + fresh.map((f) => f.text).join("\n")
+    + "\n\n관리자 페이지 > 저장공간/시스템 로그에서 자세히 확인할 수 있습니다.";
   let sent = 0;
   const sendErrors: string[] = [];
   for (const id of targets) {
     try { await botSendDM(id, text); sent++; }
     catch (e) { sendErrors.push(e instanceof Error ? e.message : String(e)); } // 한 명 실패가 나머지를 막지 않게
   }
+  // ⚠ 여기서 곧바로 "보냈다"고 기록하면 안 된다. botSendDM 은 DB 에 메시지를 만드는 방식이라
+  //   DB 장애 중에는 조용히 실패하는데, 그러면 정작 "DB 응답 실패" 알림이 아무에게도 안 간 채
+  //   24시간 잠긴다(2026-09-03 지적). **한 명이라도 실제로 받았을 때만** 기록한다.
+  if (sent > 0) {
+    for (const it of fresh) for (const k of it.keys) alerted[k] = now;
+    await saveAlerted(alerted);
+    return;
+  }
   // ⚠ 아무에게도 못 보냈으면 그 사실이 어딘가에는 남아야 한다. 종전에는 통째로 무음이라
   //   "알림이 안 온다 = 문제가 없다" 로 보이는 최악의 상태였다(검증관 C M-8).
-  if (sent === 0 && targets.length > 0) {
+  if (targets.length > 0) {
     console.error(`[monitor] 점검 알림을 아무에게도 보내지 못했습니다 (대상 ${targets.length}명): ${sendErrors.join(" | ")}`);
     try {
       await prisma.systemErrorLog.create({
         data: { path: "/monitor (점검 알림 발송)", method: "BOT",
                 message: `점검 알림 발송 실패 — 대상 ${targets.length}명 전원 실패: ${sendErrors.slice(0, 3).join(" | ")}` },
       });
-    } catch { /* DB 가 죽어 있으면 여기까지다 — 앱 밖 감시(호스트 워치독)가 받는다 */ }
+    } catch { /* DB 가 죽어 있으면 여기까지다 — 앱 밖 감시(워치독 메일)가 받는다 */ }
   }
-  // 한 명이라도 실제로 받았을 때만 "알렸다"로 친다. 아무도 못 받았으면 다음 점검에서 다시 시도한다.
-  if (sent > 0) for (const it of fresh) alerted.set(keyOf(it), Date.now());
 }

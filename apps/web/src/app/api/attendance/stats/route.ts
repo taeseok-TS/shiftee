@@ -101,7 +101,9 @@ export async function GET(request: NextRequest) {
   ]);
 
   // 누적 통계 계산
-  const calcStats = (recs: typeof records) => {
+  // 이 함수는 status/clockIn/clockOut 만 본다. `typeof records`(user 포함)를 요구하면
+  // user 없이 조회한 prevRecords 를 못 넘긴다 — 실제로 쓰는 것만 받는다.
+  const calcStats = (recs: { status: string; clockIn: Date | null; clockOut: Date | null }[]) => {
     const totalMinutes = recs.reduce((acc: number, r: any) => {
       if (r.clockIn && r.clockOut) {
         return acc + Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000);

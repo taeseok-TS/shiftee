@@ -64,7 +64,7 @@ export function MobileDashboardNav({ role, children }: { role?: string; children
           {/* 링크를 누르면 닫는다. pathname 이 바뀔 때만 닫으면 **지금 보고 있는 메뉴**를
               눌렀을 때 서랍이 화면을 덮은 채 남는다 (2026-09-04 검증관 B). 사이드바 종류가
               여럿이라 개별 Link 대신 위임으로 받는다. */}
-          <div className="absolute inset-y-0 left-0 shadow-xl h-[100dvh] overflow-y-auto"
+          <div className="absolute inset-y-0 left-0 shadow-xl h-screen-safe overflow-y-auto"
                onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setOpen(false); }}>
             {/* children 을 주면 그 사이드바를, 안 주면 직원용을 연다.
                 관리자.원장 화면도 같은 서랍을 쓰려고 열어 뒀다 (2026-09-04). */}

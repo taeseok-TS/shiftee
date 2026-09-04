@@ -1,0 +1,19 @@
+[Unit]
+Description=큐브티 앱 포트 외부 차단
+After=docker.service
+# ⚠ Requires= 도 뺐다 — 타이머가 5분마다 이 유닛을 start 하는데 Requires 가 있으면
+#   `systemctl stop docker` 를 해도 5분 뒤 도커가 저절로 되살아난다. 필요한 것은 순서(After)뿐이다.
+# ⚠ PartOf= 를 쓰면 안 된다(2026-09-04 검증 지적). PartOf 의 재시작 전파는 try-restart 인데
+#   이 유닛은 RemainAfterExit=no 인 oneshot 이라 늘 inactive 이고, inactive 유닛에 try-restart 는
+#   아무 일도 하지 않는다. 즉 "도커가 재시작되면 따라 돈다"가 거짓이었다.
+#   대신 아래 [Install] 의 WantedBy=docker.service 로 **도커가 뜰 때마다 함께 시작**되게 한다.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/qubetee-firewall.sh
+# RemainAfterExit 를 켜면 유닛이 계속 active 로 남아 타이머의 start 가 아무 일도 안 한다
+# (자가복구가 죽는다). 끈 채로 둔다.
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=docker.service

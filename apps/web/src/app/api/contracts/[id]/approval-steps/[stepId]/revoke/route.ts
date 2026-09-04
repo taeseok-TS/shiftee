@@ -82,7 +82,13 @@ export async function POST(
 
     // 직원 서명 단계가 회수 범위에 들어가는가 (order >= 회수 단계)
     const employeeStepRevoked = (contract.approvalLine?.steps || []).some(
-      (st) => st.approverId === contract.userId && st.order >= revokeStep.order
+      (st) =>
+      // ⚠ 외부 계약은 **소유자(contract.userId)가 작성 관리자**다. 그래서 이 조건이
+      //   외부 서명자 단계가 아니라 관리자 결재 단계를 가리켜, 게스트 서명이 문서에
+      //   그대로 살아 있는데 계약만 "직원 미서명"이 됐다(2026-09-04 검증관 B F7).
+      //   외부 계약의 직원 서명 단계는 approverId 가 없고 externalName 이 있다.
+      (contract.externalName ? !st.approverId : st.approverId === contract.userId) &&
+      st.order >= revokeStep.order
     );
 
     // 2. 해당 단계 이후의 모든 단계를 WAITING으로 초기화

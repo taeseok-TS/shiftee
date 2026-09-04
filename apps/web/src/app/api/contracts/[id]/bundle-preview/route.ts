@@ -60,7 +60,9 @@ export async function GET(
         orderBy: { createdAt: "asc" },
         select: { ...sel, id: true },
       })
-    : [await prisma.contract.findUnique({ where: { id }, select: { ...sel, id: true } }) as NonNullable<Awaited<ReturnType<typeof prisma.contract.findUnique>>> & { templateId: string | null; id: string }];
+    // ⚠ 종전에는 findUnique 결과를 findMany 결과 타입으로 억지 캐스팅했다. select 가 같으므로
+    //   findMany 로 맞추면 캐스팅이 필요 없다 — 캐스팅은 타입 검사를 끄는 것과 같다.
+    : await prisma.contract.findMany({ where: { id }, select: { ...sel, id: true } });
 
   // 묶음 안 문서를 **하나씩** 판정한다 — 요청한 1건만 보고 전체를 병합하면,
   // full 문서 id 로 요청해 같은 묶음의 열람 금지(none) 문서까지 받을 수 있다 (2026-09-02).

@@ -56,7 +56,10 @@ export async function GET(
   const expired = step.tokenExpiresAt ? step.tokenExpiresAt < new Date() : false;
   const state = step.status === "APPROVED"
     ? "done"
-    : step.status === "REJECTED" || contract.status === "REJECTED"
+    // ⚠ ContractStatus 에는 REJECTED 가 없다(DRAFT/SENT/APPROVED/SIGNED/EXPIRED).
+    //   `contract.status === "REJECTED"` 는 **항상 거짓**인 죽은 비교였다 — 반려 상태는
+    //   단계(step)에만 있다. 반려 기능 자체가 아직 없다(검증관 A I1).
+    : step.status === "REJECTED"
     ? "rejected"
     : expired
     ? "expired"

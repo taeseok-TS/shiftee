@@ -1,0 +1,6 @@
+[Unit]
+Description=앱 포트 차단 규칙 적용 실패 알림
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "logger -p daemon.err -t qubetee \"⚠ 앱 포트(3000) 차단 규칙 적용 실패 — 포트가 열려 있을 수 있다\""

@@ -1,0 +1,10 @@
+[Unit]
+Description=앱 포트 차단 규칙 주기 확인 (도커 재시작.수동 조작으로 사라져도 스스로 되돌린다)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

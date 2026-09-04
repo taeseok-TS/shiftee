@@ -4,6 +4,15 @@ import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 
+// 폼에서 온 문자열을 계약 종류로 확정한다. 종전에는 검증 없이 넣었고,
+// `prisma: any` 때문에 타입 검사도 못 잡았다(2026-09-04 검증관 B F2).
+const CONTRACT_TYPES = ["EMPLOYMENT", "PART_TIME", "CONFIDENTIAL", "OTHER"] as const;
+function asContractType(v: unknown): (typeof CONTRACT_TYPES)[number] {
+  return CONTRACT_TYPES.includes(v as (typeof CONTRACT_TYPES)[number])
+    ? (v as (typeof CONTRACT_TYPES)[number])
+    : "OTHER";
+}
+
 // 템플릿 목록 조회
 export async function GET(request: NextRequest) {
   try {
@@ -118,7 +127,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         description: description || null,
-        type,
+        type: asContractType(type),
         fileUrl,
         version: 1,
         isActive: true,

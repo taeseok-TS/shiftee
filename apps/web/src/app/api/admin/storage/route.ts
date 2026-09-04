@@ -11,7 +11,9 @@ export async function GET() {
 
   const [stats, issues, compressJobs] = await Promise.all([
     collectStorageStats(),
-    runHealthCheck(),
+    // ⚠ heal 을 켜지 않는다 — 이 GET 이 상태를 바꾸면 Caddy 의 배포 중 GET 재시도로
+    //   문서 재생성이 조용히 두 번 돈다(2026-09-04 검증관 B F5). 자가복구는 봇 점검에서만.
+    runHealthCheck().then((a) => a.map((x) => x.text)),
     prisma.videoCompressJob.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
   return NextResponse.json({ ...stats, issues, compressJobs });

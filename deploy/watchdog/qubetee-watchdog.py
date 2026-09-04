@@ -22,6 +22,17 @@ _sd = None
 for _i, _a in enumerate(sys.argv):
     if _a == "--state-dir" and _i + 1 < len(sys.argv):
         _sd = sys.argv[_i + 1]
+# 상태.수신자 캐시 예비 위치. fails 카운터가 state.json 에만 살면, 디스크가 차거나
+# 파일시스템이 읽기전용이 되는 순간 매 실행이 n=1 에서 시작해 n >= 3 이 영영 안 되고
+# **알림이 0통**이 된다. 그런데 디스크 풀.RO 야말로 이 워치독이 잡아야 할 대표적 장애다
+# — 원인이 생긴 바로 그 순간 감시가 조용해진다(2026-09-04 검증관 A W-1, 치명).
+FALLBACK_STATE = "/run/qubetee-watchdog-state.json"
+# ⚠ --dry-run 만 주고 --state-dir 을 잊으면, 발송.재시작은 건너뛰면서도 **운영 상태 파일은
+#   그대로 고쳤다** — dry-run 3회면 재시작 쿨다운이 30분 잠겨 진짜 장애 때 자동복구가 안 나간다
+#   (검증관 A W-2). 안전이 "두 번째 플래그를 기억하는 것"에 걸려 있으면 안 된다.
+if DRY and not _sd:
+    import tempfile
+    _sd = tempfile.mkdtemp(prefix="qubetee-wd-dry-")
 
 URL       = "https://cubetee.co.kr/api/health-deep"
 for _i, _a in enumerate(sys.argv):
@@ -52,22 +63,32 @@ def env():
 
 
 def load(path, default):
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except Exception:
-        return default
+    for target in (path, FALLBACK_STATE if path == STATE else None):
+        if not target:
+            continue
+        try:
+            with open(target) as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return default
 
 
 def save(path, obj):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(obj, f)
-        os.replace(tmp, path)   # 쓰다 죽어도 반쪽 파일이 남지 않게
-    except Exception as e:
-        print("state 저장 실패:", e, file=sys.stderr)
+    """상태를 남긴다. 실패하면 False — 호출부는 그걸 **장애로 취급**해야 한다(W-1)."""
+    for target in (path, FALLBACK_STATE if path == STATE else None):
+        if not target:
+            continue
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            tmp = target + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(obj, f)
+            os.replace(tmp, target)   # 쓰다 죽어도 반쪽 파일이 남지 않게
+            return True
+        except Exception as e:
+            print("state 저장 실패(%s): %s" % (target, e), file=sys.stderr)
+    return False
 
 
 def brief(text):
@@ -119,16 +140,21 @@ def recipients(e):
     return load(RECIP, [])   # DB 가 안 되면 마지막으로 성공했을 때의 명단
 
 
+# 최후 폴백 수신자. DB 도 캐시도 못 읽는 상황이 바로 알려야 할 상황인데, 종전에는
+# 그때 수신자가 [] 가 되어 **알림이 통째로 사라졌다**(검증관 A W-5).
+FALLBACK_TO = ["admin@cubetee.co.kr"]
+
+
 def send_mail(e, to, subject, body):
+    if not to:
+        to = FALLBACK_TO
+        print("수신자를 알 수 없어 기본 주소로 보냅니다:", to, file=sys.stderr)
     if DRY:
         print("[dry-run] 메일 발송 안 함 →", to)
         print("  제목:", subject)
         for _ln in body.splitlines():
             print("  " + _ln)
         return True
-    if not to:
-        print("수신자를 알 수 없어 메일을 못 보냅니다", file=sys.stderr)
-        return False
     msg = EmailMessage()
     msg["From"] = f"{e.get('SMTP_FROM_NAME','큐브티')} <{e.get('SMTP_FROM_EMAIL','no-reply@cubetee.co.kr')}>"
     msg["To"] = ", ".join(to)
@@ -165,8 +191,14 @@ def main():
             send_mail(e, recipients(e), "[큐브티] 서비스 복구됨",
                       f"앱이 다시 정상 응답합니다.\n\n중단 추정 시간: 약 {down // 60}분\n확인 주소: {URL}\n시각: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         st.update({"fails": 0, "alerted": False, "lastOk": now})
-        recipients(e)   # 정상일 때 명단을 갱신해 둔다(장애 중에는 DB 를 못 볼 수 있다)
-        save(STATE, st)
+        if not DRY:
+            recipients(e)   # 정상일 때 명단을 갱신해 둔다(장애 중에는 DB 를 못 볼 수 있다)
+        if not save(STATE, st) and not st.get("stateAlerted"):
+            st["stateAlerted"] = True
+            send_mail(e, recipients(e), "[큐브티] 🟠 감시 상태 저장 실패", chr(10).join([
+                "워치독이 상태 파일을 쓰지 못하고 있습니다(디스크 가득 참 또는 읽기전용 가능성).",
+                "이 상태에서는 장애가 나도 연속 실패를 셀 수 없어 알림이 안 나갑니다.",
+                "서버 디스크와 /var/lib/qubetee-watchdog 권한을 확인해 주십시오.", ""]))
         return 0
 
     st["fails"] = int(st.get("fails", 0)) + 1
@@ -174,15 +206,24 @@ def main():
     print(f"실패 {n}회: {why}", file=sys.stderr)
 
     # 연속 실패가 기준을 넘으면 한 번 되살려 본다(쿨다운 30분)
-    if n == FAIL_N and now - int(st.get("restartedAt", 0)) > RESTART_COOLDOWN:
+    # ⚠ 종전에는 `n == FAIL_N`(등호)이라 **장애당 정확히 1회**만 시도했다. 그 한 번이 실패해도
+    #   두 번 다시 안 했고, 쿨다운은 "다음 장애의 유일한 재시작을 막는" 역방향으로만 작동했다
+    #   (검증관 A W-3). `>=` 로 바꿔 쿨다운이 제 일을 하게 한다.
+    if n >= FAIL_N and now - int(st.get("restartedAt", 0)) > RESTART_COOLDOWN:
         try:
             if DRY:
                 print("[dry-run] 재시작 안 함 (docker compose restart web 을 불렀을 자리)")
+                st["restartedAt"] = now
             else:
-                subprocess.run(["docker", "compose", "restart", "web"], cwd="/opt/qubetee",
-                               capture_output=True, timeout=120)
-                print("web 컨테이너를 재시작했습니다", file=sys.stderr)
-            st["restartedAt"] = now
+                r = subprocess.run(["docker", "compose", "restart", "web"], cwd="/opt/qubetee",
+                                   capture_output=True, timeout=120)
+                # ⚠ 반환코드를 안 보면 **실패한 재시작도 성공으로 기록**되고 메일에는
+                #   "자동 재시작: 시도함" 이 찍힌다.
+                if r.returncode == 0:
+                    st["restartedAt"] = now
+                    print("web 컨테이너를 재시작했습니다", file=sys.stderr)
+                else:
+                    print("재시작 실패 rc=%s" % r.returncode, file=sys.stderr)
         except Exception as ex:
             print("재시작 실패:", ex, file=sys.stderr)
 
@@ -193,7 +234,12 @@ def main():
                 "이 메일은 서버(도커 밖)에서 직접 보냅니다 — 앱이 죽어도 발송됩니다.\n")
         if send_mail(e, recipients(e), "[큐브티] 🔴 서비스 응답 없음", body):
             st["alerted"] = True
-    save(STATE, st)
+    if not save(STATE, st):
+        # 상태를 못 남기면 다음 실행이 n=1 로 되돌아간다 → 이번 판을 놓치면 영영 못 알린다.
+        # 세지 못하는 대신 **지금 바로** 알린다(중복은 감수한다 — 무음보다 낫다).
+        send_mail(e, recipients(e), "[큐브티] 🔴 서비스 응답 없음 (상태 기록 불가)", chr(10).join([
+            "앱이 응답하지 않는데 워치독이 상태 파일도 쓰지 못합니다.",
+            "연속 실패를 셀 수 없어 이 메일이 반복될 수 있습니다.", "", "증상: " + why, ""]))
     return 1
 
 

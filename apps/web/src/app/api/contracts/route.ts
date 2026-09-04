@@ -8,6 +8,15 @@ import path from "path";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 
+// 폼에서 온 문자열을 계약 종류로 확정한다. 종전에는 검증 없이 넣었고,
+// `prisma: any` 때문에 타입 검사도 못 잡았다(2026-09-04 검증관 B F2).
+const CONTRACT_TYPES = ["EMPLOYMENT", "PART_TIME", "CONFIDENTIAL", "OTHER"] as const;
+function asContractType(v: unknown): (typeof CONTRACT_TYPES)[number] {
+  return CONTRACT_TYPES.includes(v as (typeof CONTRACT_TYPES)[number])
+    ? (v as (typeof CONTRACT_TYPES)[number])
+    : "OTHER";
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
@@ -262,7 +271,7 @@ export async function POST(request: NextRequest) {
         externalName: externalName || undefined,
         externalPhone: externalPhone || undefined,
         title,
-        type,
+        type: asContractType(type),
         fileUrl,
         templateId: templateId || undefined, // 수정 시 문서 재생성에 필요
         startDate: startDate ? new Date(startDate) : null,

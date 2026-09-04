@@ -82,6 +82,10 @@ function normalizePath(uri: string): string {
 /** 집계에서 뺄 것 — 인증 흐름의 정상 응답과 브라우저가 알아서 찔러보는 것들 */
 function isNoise(status: number, path: string): boolean {
   if (status === 401 || status === 403) return true; // 로그인 안 됨/권한 없음은 정상 동작
+  // ⚠ 감시가 자기 자신을 장애로 집계하면 안 된다. 워치독이 1분마다 health-deep 을 찌르므로
+  //   DB 장애 1시간이면 503 이 60건 쌓여 **건수 1위**가 되고, 정작 터진 경로가 알림 서명에서
+  //   밀려난다(2026-09-04 검증관 A H-2). 앱 정지 판정은 워치독 메일이 따로 한다.
+  if (path === "/api/health-deep" || path === "/api/health-beat") return true;
   if (status === 404 && (path.startsWith("/_next/") || path.startsWith("/.well-known/") ||
       path === "/favicon.ico" || path.startsWith("/icons/"))) return true;
   return false;
@@ -152,9 +156,17 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
           const st2 = await fs.stat(full).catch(() => null);
           if (!st2 || !st2.isFile() || st2.size > MAX_READ) continue; // 비정상적으로 큰 파일은 건너뛴다
           const raw = await fs.readFile(full);
-          let text = f.endsWith(".gz")
-            ? (await gunzip(raw)).toString("utf8")
-            : raw.toString("utf8");
+          // ⚠ 위 `st2.size` 는 **압축된** 크기다. 운영 실측 압축비가 23배라, 40MB 짜리 .gz 는
+          //   저 검사를 통과한 뒤 ~920MB 문자열이 된다 — 트림은 그다음이라 이미 늦다
+          //   (2026-09-04 검증관 A·C 공통 지적). 감압 자체에 상한을 건다.
+          let text: string;
+          try {
+            text = f.endsWith(".gz")
+              ? (await gunzip(raw, { maxOutputLength: room + 1024 * 1024 })).toString("utf8")
+              : raw.toString("utf8");
+          } catch {
+            continue; // 상한을 넘는 회전본은 건너뛴다(현재 파일만으로도 판단은 된다)
+          }
           if (text.length > room) text = text.slice(text.length - room);
           buf = text + String.fromCharCode(10) + buf;
           // 창(24시간)을 이미 덮었으면 더 거슬러 올라가지 않는다 — 종전에는 바이트 상한만
@@ -239,12 +251,16 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
  *   다른 문제(업로드 401 급증 등)가 24시간 통째로 묻힌다 — 그게 바로 9/2 사고의
  *   감지 신호였다(2026-09-03 검증에서 지적). 유형마다 따로 돌려준다.
  */
-export function describeFailures(f: FailureStats | null): string[] {
+/** 알림 한 건 — 문장과, 중복 판정에 쓸 **안정적인 키 목록**. */
+export type Alert = { text: string; keys: string[] };
+
+export function describeFailures(f: FailureStats | null): Alert[] {
   if (!f) return [];
 
   // ① 감시 자체가 꺼진 경우를 가장 먼저. "조용한 것"과 "고장난 것"은 다르다.
   if (f.unavailable)
-    return ["🔴 접근 로그를 읽을 수 없습니다 — 실패 응답 감시가 꺼져 있습니다(로그 경로.마운트 확인)."];
+    return [{ text: "🔴 접근 로그를 읽을 수 없습니다 — 실패 응답 감시가 꺼져 있습니다(로그 경로.마운트 확인).",
+              keys: ["logUnavailable"] }];
 
   // ⚠ "아무 줄이나 최신인가" 로 보면 안 된다 — 앱이 죽어도 프록시가 502 를 계속 기록해
   //   로그는 신선해 보인다. 앱이 살아 있을 때만 남는 하트비트로 판정한다 (2026-09-04).
@@ -255,9 +271,11 @@ export function describeFailures(f: FailureStats | null): string[] {
   if (!f.newestAt) return []; // 창 안에 한 줄도 없다 — 막 회전했거나 정말 요청이 없었다
   const beatMs = f.lastBeatAt ? Date.now() - f.lastBeatAt.getTime() : Infinity;
   if (f.lastBeatAt && beatMs > 3 * 3600 * 1000)
-    return [`🟠 앱 하트비트 중단 — 마지막 신호가 ${Math.round(beatMs / 3600000)}시간 전입니다(앱 또는 감시가 멈췄을 수 있습니다).`];
+    return [{ text: `🟠 앱 하트비트 중단 — 마지막 신호가 ${Math.round(beatMs / 3600000)}시간 전입니다(앱 또는 감시가 멈췄을 수 있습니다).`,
+              keys: ["beatStale"] }];
   if (!f.lastBeatAt && f.coveredHours >= 3)
-    return [`🟠 앱 하트비트 없음 — 최근 ${f.coveredHours}시간 로그에 앱 신호가 한 건도 없습니다(앱 또는 감시가 멈췄을 수 있습니다).`];
+    return [{ text: `🟠 앱 하트비트 없음 — 최근 ${f.coveredHours}시간 로그에 앱 신호가 한 건도 없습니다(앱 또는 감시가 멈췄을 수 있습니다).`,
+              keys: ["beatMissing"] }];
 
   // 실제로 들여다본 시간. 회전 직후 0 이 나오면 "최근 0시간"이라는 말이 안 되므로 표기하지 않는다.
   const window = f.coveredHours >= 23 ? "최근 24시간"
@@ -276,13 +294,32 @@ export function describeFailures(f: FailureStats | null): string[] {
   // ⚠ rows 는 **건수 내림차순(4xx 포함)** 이다. 상위 3개를 그대로 서명에 쓰면 소음 404 가
   //   자리를 차지해, 정작 알림 사유인 5xx 가 서명에 한 글자도 안 들어간다 → 서로 다른
   //   사고가 같은 키로 묶인다(검증관 C 지적). 사유가 된 줄에서 뽑는다.
+  // ⚠ 중복 방지를 **문장**으로 하면 안 된다. 상위 3개 경로를 문장에 넣었더니
+  //   ① 창이 미끄러져 순서.구성만 바뀌어도 새 알림이 갔고(같은 사고가 여러 통),
+  //   ② 반대로 외부 스캐너가 상위를 점거하면 나중에 터진 진짜 사고가 같은 키에 묶여
+  //      24시간 묻혔다(2026-09-04 검증관 A M-1 / C C-12 — 같은 로직 세 번째 재작성).
+  //   문장 대신 **경로 집합**을 함께 넘긴다. 호출부는 "24시간 안에 처음 보는 경로가
+  //   있는가"로 판정하므로 순서.건수에 안 흔들리고, 새 경로가 터지면 반드시 알린다.
+  const pathsOf = (ok: (s: number) => boolean) =>
+    f.rows.filter((r) => ok(r.status)).map((r) => `${r.status} ${r.path}`);
   const sigOf = (ok: (s: number) => boolean) =>
-    f.rows.filter((r) => ok(r.status)).slice(0, 3).map((r) => `${r.status} ${r.path}`).join(", ") || "경로없음";
-  const out: string[] = [];
-  if (f.server > 0) out.push(`🔴 서버 오류 [${sigOf((s) => s >= 500)}] — ${window} 5xx ${f.server}건\n${top}${tail}`);
-  else if (f.client >= 30) out.push(`🟠 실패 응답 다수 [${sigOf((s) => s >= 400 && s < 500)}] — ${window} ${f.client}건\n${top}${tail}`);
+    [...pathsOf(ok)].sort().slice(0, 3).join(", ") || "경로없음";
+  const out: Alert[] = [];
+  if (f.server > 0)
+    out.push({
+      text: `🔴 서버 오류 [${sigOf((s) => s >= 500)}] — ${window} 5xx ${f.server}건\n${top}${tail}`,
+      keys: pathsOf((s) => s >= 500).map((x) => `5xx ${x}`),
+    });
+  else if (f.client >= 30)
+    out.push({
+      text: `🟠 실패 응답 다수 [${sigOf((s) => s >= 400 && s < 500)}] — ${window} ${f.client}건\n${top}${tail}`,
+      keys: pathsOf((s) => s >= 400 && s < 500).map((x) => `4xx ${x}`),
+    });
   // 업로드 401 급증은 앱이 파일을 못 여는 신호다(9/2 사고 형태). **별개 알림으로** 낸다.
   if (f.uploadsUnauthorized >= 50)
-    out.push(`🟠 업로드 접근 거부 급증 — ${window} ${f.uploadsUnauthorized}건(앱이 첨부를 못 열고 있을 수 있습니다).`);
+    out.push({
+      text: `🟠 업로드 접근 거부 급증 — ${window} ${f.uploadsUnauthorized}건(앱이 첨부를 못 열고 있을 수 있습니다).`,
+      keys: ["uploads401"],
+    });
   return out;
 }

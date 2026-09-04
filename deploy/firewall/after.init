@@ -1,0 +1,12 @@
+#!/bin/sh
+# ufw 가 규칙을 다시 쓴 뒤 우리 차단 규칙을 되돌린다 (2026-09-04).
+#
+# ⚠ ufw 가 이 훅에 넘기는 인자는 **start | stop | flush-all | status** 넷뿐이다
+#   (/lib/ufw/ufw-init). 처음에 reload|force-reload 를 잡았는데 그건 **호출되지 않는
+#   죽은 분기**였고, 정작 위험한 flush-all 을 안 잡고 있었다.
+#   `ufw-init flush-all` 은 filter 테이블을 -F/-X 하고 정책을 ACCEPT 로 바꾼다 →
+#   v4 DOCKER-USER DROP 과 v6 INPUT DROP 이 **동시에** 사라진다. 타이머까지 최대 5분 노출.
+case "$1" in
+  start|flush-all) /usr/local/sbin/qubetee-firewall.sh || true ;;
+esac
+exit 0
