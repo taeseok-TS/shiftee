@@ -1,0 +1,11 @@
+[Unit]
+Description=qubetee app watchdog 타이머 (1분마다)
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=10
+Unit=qubetee-watchdog.service
+
+[Install]
+WantedBy=timers.target

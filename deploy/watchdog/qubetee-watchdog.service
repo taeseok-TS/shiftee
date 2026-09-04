@@ -1,0 +1,12 @@
+[Unit]
+Description=qubetee app watchdog (도커 밖에서 앱을 감시하고 메일로 알린다)
+After=docker.service
+
+[Service]
+Type=oneshot
+# ⚠ RemainAfterExit=yes 를 쓰면 안 된다. 유닛이 active 로 남아 타이머의 start 가
+#   무시되고, 자가복구가 조용히 멈춘다(2026-09-04 방화벽 유닛에서 실제로 겪었다).
+ExecStart=/usr/bin/python3 /usr/local/sbin/qubetee-watchdog.py
+# 앱이 죽은 것은 이 유닛의 실패가 아니다 — 알림을 보냈으면 제 할 일을 한 것이다.
+SuccessExitStatus=0 1
+TimeoutStartSec=180
