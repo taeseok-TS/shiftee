@@ -22,6 +22,13 @@ import * as api from "../../services/api";
 import { API_URL } from "../../config";
 import { fileUri } from "../../services/work";
 
+// 상태 배지가 영문 그대로 나왔다. 다른 상태는 예전부터 그랬지만, 하필 **한국어 설명이 가장
+// 필요한 "반려"** 가 REJECTED 로 뜬다(2026-09-04 검증관 F5).
+const STATUS_LABEL: Record<string, string> = {
+  DRAFT: "작성중", SENT: "서명 대기", APPROVED: "승인 완료", SIGNED: "서명 완료",
+  EXPIRED: "만료", REJECTED: "반려",
+};
+
 // 브라우저 열람용 URL (워드 등 오피스 문서는 MS 온라인 뷰어)
 function viewerUrl(raw?: string | null): string | null {
   if (!raw) return null;
@@ -49,6 +56,27 @@ export default function ContractListScreen() {
   // 결재 승인 서명
   const [signTarget, setSignTarget] = useState<any | null>(null);
   const [signing, setSigning] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+
+  async function submitReject() {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) { Alert.alert("사유 필요", "반려 사유를 입력해주세요."); return; }
+    setRejecting(true);
+    try {
+      await api.rejectContract(rejectTarget.id, reason);
+      setRejectTarget(null);
+      setRejectReason("");
+      Alert.alert("반려 완료", "작성자와 당사자에게 사유가 전달됩니다.");
+      await loadContracts();
+    } catch (error: any) {
+      Alert.alert("오류", error.response?.data?.error || "반려에 실패했습니다.");
+    } finally {
+      setRejecting(false);
+    }
+  }
   const [consentChoices, setConsentChoices] = useState<Record<string, string>>({});
   const [signStep, setSignStep] = useState(1); // 개인정보동의서: 1=동의 확인, 2=서명
   const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null); // (미사용) 구 인앱 뷰어 — PDF 전환 후 외부 브라우저 사용
@@ -195,7 +223,7 @@ export default function ContractListScreen() {
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.title}</Text>
           <View style={[styles.badge, { backgroundColor: statusColor }]}>
-            <Text style={styles.badgeText}>{item.status}</Text>
+            <Text style={styles.badgeText}>{STATUS_LABEL[item.status] || item.status}</Text>
           </View>
         </View>
         <Text style={styles.cardSubtitle}>{item.user.name}</Text>
@@ -249,6 +277,15 @@ export default function ContractListScreen() {
                     </>
                   )}
                 </TouchableOpacity>
+                {/* 결재자도 거부할 수단이 필요하다 — 없으면 승인을 안 누르고 버티는 수밖에 없다 */}
+                <TouchableOpacity
+                  style={styles.rejectBtn}
+                  onPress={() => { setRejectReason(""); setRejectTarget(c); }}
+                  disabled={signing || rejecting}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
+                  <Text style={styles.rejectBtnText}>반려</Text>
+                </TouchableOpacity>
               </View>
             </View>
           );
@@ -273,6 +310,42 @@ export default function ContractListScreen() {
       )}
 
       {/* 결재 승인 서명 패드 */}
+      {/* 반려 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
+      <Modal visible={!!rejectTarget} animationType="slide" onRequestClose={() => setRejectTarget(null)}>
+        <View style={{ flex: 1, backgroundColor: "#fff" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" }}>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: "#111827" }}>계약 반려</Text>
+            <TouchableOpacity onPress={() => setRejectTarget(null)}>
+              <Ionicons name="close" size={26} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 16 }}>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: "#111827", marginBottom: 8 }}>{rejectTarget?.title}</Text>
+            <Text style={styles.rejectWarn}>
+              반려하면 이 계약은 종료됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+            </Text>
+            <TextInput
+              style={styles.rejectInput}
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              placeholder="어디가 잘못됐는지 적어 주세요. 작성자와 당사자에게 그대로 전달됩니다."
+              placeholderTextColor="#9ca3af"
+              multiline
+              maxLength={500}
+              autoFocus
+            />
+            <Text style={styles.rejectCount}>{rejectReason.length}/500</Text>
+            <TouchableOpacity
+              style={[styles.rejectSubmit, (!rejectReason.trim() || rejecting) && { opacity: 0.6 }]}
+              onPress={submitReject}
+              disabled={!rejectReason.trim() || rejecting}
+            >
+              {rejecting ? <ActivityIndicator color="#fff" /> : <Text style={styles.rejectSubmitText}>반려하기</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!signTarget} animationType="slide" onRequestClose={() => setSignTarget(null)}>
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
@@ -579,6 +652,23 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#2563eb",
   },
+  rejectBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 10, marginTop: 8, borderRadius: 8,
+    borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fef2f2",
+  },
+  rejectBtnText: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
+  rejectWarn: { color: "#dc2626", fontSize: 13, lineHeight: 19, marginBottom: 12 },
+  rejectInput: {
+    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12,
+    minHeight: 110, textAlignVertical: "top", fontSize: 15, color: "#111827",
+  },
+  rejectCount: { fontSize: 11, color: "#9ca3af", textAlign: "right", marginTop: 4 },
+  rejectSubmit: {
+    backgroundColor: "#dc2626", paddingVertical: 14, borderRadius: 8,
+    alignItems: "center", marginTop: 16,
+  },
+  rejectSubmitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   approveBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
   padActions: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   padClear: { flex: 1, paddingVertical: 14, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", alignItems: "center" },

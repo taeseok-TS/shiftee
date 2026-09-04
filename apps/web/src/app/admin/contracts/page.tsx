@@ -2628,6 +2628,7 @@ ${url}`;
                   <SelectItem value="APPROVED">결재 중</SelectItem>
                   <SelectItem value="SIGNED">완료</SelectItem>
                   <SelectItem value="EXPIRED">만료</SelectItem>
+                  <SelectItem value="REJECTED">반려</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -3423,6 +3424,8 @@ ${url}`;
                         <Badge className="bg-green-100 text-green-700">승인됨</Badge>
                       ) : step.status === "PENDING" ? (
                         <Badge variant="outline" className="text-orange-600">대기</Badge>
+                      ) : step.status === "REJECTED" ? (
+                        <Badge variant="destructive">반려</Badge>
                       ) : (
                         <Badge variant="outline">미정</Badge>
                       )}
@@ -3463,6 +3466,14 @@ ${url}`;
                       {format(new Date(step.decidedAt), "yyyy-MM-dd HH:mm")}
                     </p>
                   )}
+                  {/* ⚠ 반려 사유가 화면 어디에도 안 보였다 — DB(step.comment)에는 남는데
+                      사람에게 닿는 길이 봇 DM 하나뿐이었고, 그 DM 이 실패하면 사유가 제품
+                      안에서 영영 도달 불가였다(2026-09-04 검증관 F2). 여기서 보여준다. */}
+                  {step.status === "REJECTED" && (step as { comment?: string | null }).comment && (
+                    <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 whitespace-pre-wrap">
+                      <strong>반려 사유:</strong> {(step as { comment?: string | null }).comment}
+                    </p>
+                  )}
                   {(step as any).signatureUrl && (
                     <div className="mt-1">
                       <p className="text-[11px] text-gray-400 mb-0.5">서명</p>
@@ -3493,25 +3504,34 @@ ${url}`;
                 </div>
               )}
 
-              {/* 회수 이력 */}
+              {/* 회수·반려 이력 */}
               {approvalDetailsTarget.revocationLog && Array.isArray(approvalDetailsTarget.revocationLog) && approvalDetailsTarget.revocationLog.length > 0 && (
                 <div className="space-y-3 pt-2 border-t">
-                  <p className="text-sm font-medium text-red-600">회수 이력</p>
+                  <p className="text-sm font-medium text-red-600">회수·반려 이력</p>
                   {approvalDetailsTarget.revocationLog.map((log: any, idx: number) => {
-                    const revokedByUser = employees.find(e => e.id === log.revokedBy);
+                    // ⚠ 반려는 rejectedBy/rejectedAt, 회수는 revokedBy/revokedAt 으로 남는다.
+                    //   종전에는 회수 키만 읽어, 반려 건에서 `format(Invalid Date)` 가 **예외를
+                    //   던져 페이지가 통째로 죽었다**(date-fns v4, 2026-09-04 검증관 F1).
+                    //   항목 모양이 또 늘 수 있으니 날짜는 유효성까지 확인하고 그린다.
+                    const isReject = log.type === "reject";
+                    const actorId = log.rejectedBy ?? log.revokedBy;
+                    const actor = employees.find(e => e.id === actorId);
+                    const at = new Date(log.rejectedAt ?? log.revokedAt ?? NaN);
+                    const when = isNaN(at.getTime()) ? "시각 미상" : format(at, "yyyy-MM-dd HH:mm");
+                    const what = isReject
+                      ? `${log.stepOrder}단계 반려 — 계약 종료`
+                      : log.type === "employee" ? "직원 서명 회수" : `${log.stepOrder}단계 결재 회수`;
                     return (
                       <div key={idx} className="bg-red-50 border border-red-200 rounded p-2 space-y-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
-                            <p className="text-xs font-medium text-red-700">
-                              {log.type === "employee" ? "직원 서명 회수" : `${log.stepOrder}단계 결재 회수`}
-                            </p>
+                            <p className="text-xs font-medium text-red-700">{what}</p>
                             <p className="text-xs text-red-600">
-                              {revokedByUser?.name || "알 수 없는 사용자"} · {format(new Date(log.revokedAt), "yyyy-MM-dd HH:mm")}
+                              {actor?.name || "알 수 없는 사용자"} · {when}
                             </p>
                           </div>
                         </div>
-                        <p className="text-xs text-red-700 bg-white rounded p-2 border border-red-100">
+                        <p className="text-xs text-red-700 bg-white rounded p-2 border border-red-100 whitespace-pre-wrap">
                           <strong>사유:</strong> {log.reason || "사유 없음"}
                         </p>
                       </div>

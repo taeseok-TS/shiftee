@@ -12,6 +12,7 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad
 import { FileSignature, PenLine, ArrowRight, CheckCircle2, Clock, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { Textarea } from "@/components/ui/textarea";
 
 type Step = {
   id: string;
@@ -100,6 +101,12 @@ export default function ManagerContractsPage() {
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const [signing, setSigning] = useState(false);
+  // ⚠ 원장은 표준 결재선의 1단계 결재자인데 **반려할 수단이 아예 없었다** — 관리자 결재함
+  //   (/admin/contract-approvals)은 ADMIN 전용이라 들어갈 수도 없다(2026-09-04 검증관 F4).
+  //   조건이 안 맞으면 그냥 승인을 안 누르고 버티는 수밖에 없었고, 이유가 안 남았다.
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectBusy, setRejectBusy] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
   // 저장된 결재 서명 — 있으면 원클릭 승인
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
@@ -167,6 +174,26 @@ export default function ManagerContractsPage() {
     }
   }
 
+  async function handleReject() {
+    if (!signTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) { toast.error("반려 사유를 입력해주세요."); return; }
+    setRejectBusy(true);
+    try {
+      const res = await fetch(`/api/contracts/${signTarget.id}/reject`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || "반려에 실패했습니다."); return; }
+      toast.success("반려했습니다. 작성자와 당사자에게 알림이 갑니다.");
+      setRejectOpen(false); setRejectReason(""); setSignOpen(false); setSignTarget(null);
+      fetchData();
+    } finally {
+      setRejectBusy(false);
+    }
+  }
+
   const filteredContracts = useMemo(() => contracts, [contracts]);
 
   return (
@@ -222,6 +249,7 @@ export default function ManagerContractsPage() {
                   <SelectItem value="APPROVED">결재 중</SelectItem>
                   <SelectItem value="SIGNED">완료</SelectItem>
                   <SelectItem value="EXPIRED">만료</SelectItem>
+                  <SelectItem value="REJECTED">반려</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -331,8 +359,39 @@ export default function ManagerContractsPage() {
             )}
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setSignOpen(false)} disabled={signing}>취소</Button>
+              {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
+              <Button variant="ghost" className="text-red-600 hover:bg-red-50" disabled={signing}
+                      onClick={() => { setRejectReason(""); setRejectOpen(true); }}>반려</Button>
               <Button onClick={handleApprove} disabled={signing}>{signing ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "승인"}</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 반려 확인 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
+      <Dialog open={rejectOpen} onOpenChange={(o) => { setRejectOpen(o); if (!o) setRejectReason(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>계약 반려</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <div className="font-medium">{signTarget?.title}</div>
+              <p className="mt-2 text-red-600">
+                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+              </p>
+            </div>
+            <div>
+              <label className="text-sm mb-1 block font-medium">반려 사유 <span className="text-red-500">*</span></label>
+              <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
+                        placeholder="어디가 잘못됐는지 적어 주세요. 작성자와 당사자에게 그대로 전달됩니다."
+                        rows={4} maxLength={500} autoFocus />
+              <div className="text-xs text-gray-400 text-right mt-1">{rejectReason.length}/500</div>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>취소</Button>
+            <Button variant="destructive" disabled={!rejectReason.trim() || rejectBusy} onClick={handleReject}>
+              {rejectBusy ? "처리 중..." : "반려하기"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

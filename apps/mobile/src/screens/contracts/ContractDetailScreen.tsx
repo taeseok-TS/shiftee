@@ -9,6 +9,7 @@ import {
   Linking,
   Alert,
   Modal,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, RouteProp } from "@react-navigation/native";
@@ -53,6 +54,29 @@ export default function ContractDetailScreen() {
   }, []);
   const [showSign, setShowSign] = useState(false);
   const [signing, setSigning] = useState(false);
+  // ⚠ 앱에는 거부 수단이 아예 없었다. 폰으로 일하는 직원은 조건이 달라도 **그냥 서명 안 하고
+  //   버티는** 수밖에 없어 이유가 안 남았다 — 이 기능이 없애려던 바로 그 상태다
+  //   (2026-09-04 검증관 F5). 웹과 같은 규칙: 사유 필수, 반려는 최종 상태.
+  const [showReject, setShowReject] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+
+  async function submitReject() {
+    const reason = rejectReason.trim();
+    if (!reason) { Alert.alert("사유 필요", "반려 사유를 입력해주세요."); return; }
+    setRejecting(true);
+    try {
+      await api.rejectContract(id, reason);
+      setShowReject(false);
+      setRejectReason("");
+      Alert.alert("반려 완료", "관리자에게 사유가 전달됩니다.");
+      load();
+    } catch (error: any) {
+      Alert.alert("오류", error.response?.data?.error || "반려에 실패했습니다.");
+    } finally {
+      setRejecting(false);
+    }
+  }
   const sigRef = useRef<SignatureViewRef>(null);
 
   const load = useCallback(async () => {
@@ -228,8 +252,52 @@ export default function ContractDetailScreen() {
               </>
             )}
           </TouchableOpacity>
+          {/* 조건이 다르면 버티는 대신 사유를 남긴다 (2026-09-04) */}
+          <TouchableOpacity
+            style={styles.rejectBtn}
+            onPress={() => { setRejectReason(""); setShowReject(true); }}
+            disabled={signing || rejecting}
+          >
+            <Ionicons name="close-circle-outline" size={18} color="#dc2626" />
+            <Text style={styles.rejectBtnText}>서명 거부</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* 서명 거부 모달 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
+      <Modal visible={showReject} animationType="slide" onRequestClose={() => setShowReject(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>서명 거부</Text>
+            <TouchableOpacity onPress={() => setShowReject(false)}>
+              <Ionicons name="close" size={26} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 16 }}>
+            <Text style={styles.rejectWarn}>
+              거부하면 이 계약은 종료됩니다. 다시 진행하려면 관리자가 계약을 새로 만들어 보내야 합니다.
+            </Text>
+            <TextInput
+              style={styles.rejectInput}
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              placeholder="어디가 다른지 적어 주세요. 관리자에게 그대로 전달됩니다."
+              placeholderTextColor="#9ca3af"
+              multiline
+              maxLength={500}
+              autoFocus
+            />
+            <Text style={styles.rejectCount}>{rejectReason.length}/500</Text>
+            <TouchableOpacity
+              style={[styles.rejectSubmit, (!rejectReason.trim() || rejecting) && styles.btnDisabled]}
+              onPress={submitReject}
+              disabled={!rejectReason.trim() || rejecting}
+            >
+              {rejecting ? <ActivityIndicator color="#fff" /> : <Text style={styles.rejectSubmitText}>거부하기</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* 서명 패드 모달 */}
       <Modal visible={showSign} animationType="slide" onRequestClose={() => setShowSign(false)}>
@@ -316,6 +384,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   signBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  rejectBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 12, marginTop: 8, borderRadius: 8,
+    borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fef2f2",
+  },
+  rejectBtnText: { color: "#dc2626", fontSize: 15, fontWeight: "600" },
+  rejectWarn: { color: "#dc2626", fontSize: 13, lineHeight: 19, marginBottom: 12 },
+  rejectInput: {
+    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12,
+    minHeight: 110, textAlignVertical: "top", fontSize: 15, color: "#111827",
+  },
+  rejectCount: { fontSize: 11, color: "#9ca3af", textAlign: "right", marginTop: 4 },
+  rejectSubmit: {
+    backgroundColor: "#dc2626", paddingVertical: 14, borderRadius: 8,
+    alignItems: "center", marginTop: 16,
+  },
+  rejectSubmitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   btnDisabled: { opacity: 0.6 },
   padActions: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   padClear: { flex: 1, paddingVertical: 14, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", alignItems: "center" },

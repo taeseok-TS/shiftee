@@ -159,6 +159,18 @@ export async function PATCH(
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
+  // ⚠ status 를 검증 없이 받으면 `PATCH {status:"SENT"}` 한 번으로 반려가 풀린다. 같은 파일이
+  //   type 은 asContractType 으로 검증하면서 status 는 안 했다(2026-09-04 검증관 F3).
+  //   반려는 **최종 상태**다(디렉터 결정) — 다시 하려면 계약을 새로 만들어야 한다.
+  //   두 방향을 다 막는다: 반려로 바꾸는 것도(그건 /reject 의 일이다), 반려를 푸는 것도.
+  if (status && !["DRAFT", "SENT", "APPROVED", "SIGNED", "EXPIRED"].includes(status))
+    return NextResponse.json({ error: "알 수 없는 계약 상태입니다." }, { status: 400 });
+  if (contract.status === "REJECTED")
+    return NextResponse.json(
+      { error: "반려된 계약은 수정할 수 없습니다. 계약을 새로 만들어 발송해주세요." },
+      { status: 400 }
+    );
+
   // 연봉·템플릿 동적 필드 수정: 요약 갱신 + (템플릿 기반 계약이면) 문서를 새 값으로 재생성
   let parsedExtra: Record<string, string> | null = null;
   if (extraFieldsRaw) {

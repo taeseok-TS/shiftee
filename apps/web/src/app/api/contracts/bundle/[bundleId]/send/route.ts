@@ -48,7 +48,10 @@ export async function POST(
   let externalSignToken: string | null = null;
   for (const c of contracts) {
     // 서명 완료 문서만 보존 — 그 외에는 재발송 허용(결재라인·게스트 토큰 재생성, 만료 링크 복구 경로)
-    if (c.status === "SIGNED") continue;
+    // ⚠ 반려도 건너뛴다. 종전에는 SIGNED 만 보호해서, 형제 문서를 재발송하면 **반려된
+    //   문서가 아무 경고 없이 SENT 로 되살아나고** 결재선이 삭제되며 반려 사유까지
+    //   사라졌다 — "반려는 최종 상태"라는 규칙이 무너진다(2026-09-04 검증관 F3).
+    if (c.status === "SIGNED" || c.status === "REJECTED") continue;
 
     // employeeOnly 문서: 사내=직원 본인 1단계 / 외부=외부인 서명 1단계(자체 토큰)
     // 일반 문서: 설정한 결재라인 전체("EXTERNAL"은 게스트 링크 단계)

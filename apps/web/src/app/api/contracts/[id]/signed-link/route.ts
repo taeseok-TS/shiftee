@@ -28,6 +28,13 @@ export async function GET(
   if (!allowed)
     return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 볼 수 있습니다." }, { status: 403 });
 
+  // 반려된 계약은 내주지 않는다 — 죽은 계약의 부분 서명본이 "진행 중"으로 읽힌다
+  // (2026-09-04 검증관 F7, signed-document 와 같은 규칙).
+  if (contract.status === "REJECTED")
+    return NextResponse.json(
+      { error: "반려된 계약입니다. 계약 상세에서 반려 사유를 확인해주세요." },
+      { status: 400 }
+    );
   // #110 진행 중 계약도 서명이 1개 이상이면 지금까지의 서명 반영본을 열람할 수 있게 완화
   const inProgress = contract.status !== "SIGNED";
   const hasSignature = (contract.approvalLine?.steps || []).some((s) => !!s.signatureUrl);

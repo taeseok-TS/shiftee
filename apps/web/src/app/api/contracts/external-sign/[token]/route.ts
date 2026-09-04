@@ -56,10 +56,10 @@ export async function GET(
   const expired = step.tokenExpiresAt ? step.tokenExpiresAt < new Date() : false;
   const state = step.status === "APPROVED"
     ? "done"
-    // ⚠ ContractStatus 에는 REJECTED 가 없다(DRAFT/SENT/APPROVED/SIGNED/EXPIRED).
-    //   `contract.status === "REJECTED"` 는 **항상 거짓**인 죽은 비교였다 — 반려 상태는
-    //   단계(step)에만 있다. 반려 기능 자체가 아직 없다(검증관 A I1).
-    : step.status === "REJECTED"
+    // 반려 기능이 생겼다(2026-09-04). 반려하면 계약과 남은 단계가 함께 REJECTED 가 되므로
+    // 게스트 링크도 자동으로 이 화면이 된다. 계약 상태까지 함께 본다 — 단계만 보면
+    // 나중에 계약만 반려되는 경로가 생겼을 때 게스트에게 서명 화면이 그대로 뜬다.
+    : step.status === "REJECTED" || contract.status === "REJECTED"
     ? "rejected"
     : expired
     ? "expired"

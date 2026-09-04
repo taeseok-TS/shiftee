@@ -156,6 +156,13 @@ export async function signContractAndSave(id: string, signatureData: string) {
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 }
 
+// 계약 반려 — 결재자.직원 모두 자기 차례일 때만. 반려는 **최종 상태**다(2026-09-04).
+export async function rejectContract(id: string, reason: string) {
+  const token = await getToken();
+  return axios.post(`${API_URL}/contracts/${id}/reject`, { reason },
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+}
+
 export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,

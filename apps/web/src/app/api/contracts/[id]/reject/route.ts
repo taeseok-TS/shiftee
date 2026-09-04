@@ -49,17 +49,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "지금 반려할 수 있는 단계가 없습니다." }, { status: 403 });
 
   const now = new Date();
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.contractApprovalStep.update({
-      where: { id: myStep.id },
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+    // ⚠ 트랜잭션 밖에서 읽은 스냅샷을 믿고 id 로만 update 하면 /sign 과 경쟁한다.
+    //   같은 사람이 두 탭에서 서명과 반려를 거의 동시에 누르면, 둘 다 PENDING 스냅샷을
+    //   읽고 → 반려가 커밋된 뒤 서명이 옛 스냅샷으로 덮어써 **계약이 되살아나 완료까지
+    //   흘러간다**(화면에는 "반려했습니다"가 떠 있는 채로). 조건부로 찜한다
+    //   (2026-09-04 검증관 F6). Postgres 기본 격리(READ COMMITTED)는 이걸 안 막는다.
+    const claim = await tx.contractApprovalStep.updateMany({
+      where: { id: myStep.id, status: "PENDING" },
       data: { status: "REJECTED", comment: reason, decidedAt: now },
     });
+    if (claim.count === 0) throw new Error("STEP_ALREADY_DECIDED");
     // 남은 단계도 함께 닫는다. 안 닫으면 뒷사람 결재함에 그대로 남아 "반려됐는데 결재하라"가 된다.
     await tx.contractApprovalStep.updateMany({
       where: { approvalLineId: contract.approvalLine!.id, status: { in: ["WAITING", "PENDING"] } },
       data: { status: "REJECTED", decidedAt: now },
     });
-    const logs = Array.isArray(contract.revocationLog) ? (contract.revocationLog as unknown[]) : [];
+    // ⚠ 로그도 트랜잭션 **안에서** 다시 읽는다. 밖에서 읽은 것을 덮어쓰면 동시에 일어난
+    //   회수 기록이 통째로 사라진다(lost update).
+    const fresh = await tx.contract.findUnique({ where: { id }, select: { revocationLog: true } });
+    const logs = Array.isArray(fresh?.revocationLog) ? (fresh!.revocationLog as unknown[]) : [];
     return tx.contract.update({
       where: { id },
       data: {
@@ -77,9 +88,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         approvalLine: { include: { steps: { orderBy: { order: "asc" } } } },
       },
     });
-  });
+    });
+  } catch (e) {
+    if ((e as Error)?.message === "STEP_ALREADY_DECIDED")
+      return NextResponse.json({ error: "이미 처리된 단계입니다. 화면을 새로고침해 주세요." }, { status: 409 });
+    throw e;
+  }
 
-  // 알림 — 작성자.당사자.이미 결재한 사람들에게. 반려한 본인은 뺀다.
+  // 알림 — 작성자.당사자.**결재선에 걸린 사람 전부**. 반려한 본인은 뺀다.
+  // ⚠ 종전에는 "이미 APPROVED 한 사람"만 받았다. 그러면 방금 강제로 닫힌 뒷 단계 결재자는
+  //   결재함에서 항목이 조용히 사라질 뿐 통보를 못 받는다(2026-09-04 검증관 F9).
   // 알림 실패가 반려를 되돌리면 안 되므로 응답 뒤에 보내되, 실패는 기록한다.
   void (async () => {
     try {
@@ -89,7 +107,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (contract.createdBy) targets.add(contract.createdBy);
       if (contract.userId) targets.add(contract.userId);
       for (const st of contract.approvalLine!.steps) {
-        if (st.status === "APPROVED" && st.approverId) targets.add(st.approverId);
+        if (st.approverId) targets.add(st.approverId);
       }
       targets.delete(session.userId);
       const who = me?.name || "결재자";

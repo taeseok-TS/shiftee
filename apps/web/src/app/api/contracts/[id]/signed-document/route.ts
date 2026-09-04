@@ -51,6 +51,13 @@ export async function GET(
     return NextResponse.json({ error: "이 문서는 화면 열람만 가능합니다." }, { status: 403 });
 
   // 진행 중 계약도 지금까지 된 서명을 반영해 보여준다 (#110, 2026-08-27) — 서명이 하나도 없으면 안내
+  // ⚠ 반려된 계약도 서명이 한 건이라도 모였으면 부분 서명 PDF 가 "서명진행본"이라는
+  //   이름으로 내려갔다 — 죽은 계약이 "진행 중"으로 읽힌다(2026-09-04 검증관 F7).
+  if (contract.status === "REJECTED")
+    return NextResponse.json(
+      { error: "반려된 계약입니다. 계약 상세에서 반려 사유를 확인해주세요." },
+      { status: 400 }
+    );
   const inProgress = contract.status !== "SIGNED";
 
   // 서명자 목록 구성
