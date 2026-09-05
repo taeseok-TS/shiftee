@@ -312,10 +312,12 @@ export default function ContractListScreen() {
       {/* 결재 승인 서명 패드 */}
       {/* 반려 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
       <Modal visible={!!rejectTarget} animationType="slide" onRequestClose={() => setRejectTarget(null)}>
-        <View style={{ flex: 1, backgroundColor: "#fff" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#e5e7eb" }}>
-            <Text style={{ fontSize: 17, fontWeight: "700", color: "#111827" }}>계약 반려</Text>
-            <TouchableOpacity onPress={() => setRejectTarget(null)}>
+        <View style={styles.modalRoot}>
+          {/* ⚠ 서명 모달과 같은 헤더 스타일을 써야 한다. 인라인 padding 16 으로 만들었더니 상태바
+              여백이 없어 제목이 시계와 겹치고 **X 가 상태바 밑에 깔려 안 눌렸다**(2026-09-05 실기기). */}
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>계약 반려</Text>
+            <TouchableOpacity onPress={() => setRejectTarget(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Ionicons name="close" size={26} color="#374151" />
             </TouchableOpacity>
           </View>

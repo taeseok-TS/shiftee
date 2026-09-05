@@ -269,7 +269,7 @@ export default function ContractDetailScreen() {
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>서명 거부</Text>
-            <TouchableOpacity onPress={() => setShowReject(false)}>
+            <TouchableOpacity onPress={() => setShowReject(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Ionicons name="close" size={26} color="#374151" />
             </TouchableOpacity>
           </View>
