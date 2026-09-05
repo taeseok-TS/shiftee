@@ -277,16 +277,19 @@ export default function ContractListScreen() {
                     </>
                   )}
                 </TouchableOpacity>
-                {/* 결재자도 거부할 수단이 필요하다 — 없으면 승인을 안 누르고 버티는 수밖에 없다 */}
-                <TouchableOpacity
-                  style={styles.rejectBtn}
-                  onPress={() => { setRejectReason(""); setRejectTarget(c); }}
-                  disabled={signing || rejecting}
-                >
-                  <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
-                  <Text style={styles.rejectBtnText}>반려</Text>
-                </TouchableOpacity>
               </View>
+              {/* 결재자도 거부할 수단이 필요하다 — 없으면 승인을 안 누르고 버티는 수밖에 없다.
+                  ⚠ 승인 줄(계약서 보기·승인)에 같이 넣었더니 세 버튼이 한 줄에 끼어 좁았다
+                  (2026-09-05 실기기). 아래 한 줄 전체로 뺀다 — 되돌릴 수 없는 동작이라
+                  승인 옆에 바짝 붙어 있는 것도 오터치 위험이었다. */}
+              <TouchableOpacity
+                style={styles.rejectBtn}
+                onPress={() => { setRejectReason(""); setRejectTarget(c); }}
+                disabled={signing || rejecting}
+              >
+                <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
+                <Text style={styles.rejectBtnText}>반려</Text>
+              </TouchableOpacity>
             </View>
           );
         })}
