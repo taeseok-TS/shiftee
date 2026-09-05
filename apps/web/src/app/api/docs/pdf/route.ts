@@ -52,7 +52,19 @@ export async function GET(request: NextRequest) {
   const ticket = url.searchParams.get("t");
 
   // /api/uploads/<군>/<파일명> 형태만 허용 (경로 이탈·외부 URL 차단)
-  const m = /^\/api\/uploads\/([^/?#]+)\/([^/?#]+)$/.exec(src.split("?")[0]);
+  // ⚠ 우리 자신의 절대 URL 은 상대경로로 낮춰서 받는다. 앱이 절대 URL 을 넘겨 400 이 나던
+  //   것을 뷰어 페이지에서도 막았지만, 다른 호출부가 또 생길 수 있어 여기서도 받아준다
+  //   (2026-09-05). 남의 오리진은 그대로 정규식에 걸려 거부된다.
+  let srcPath = src.split("?")[0];
+  try {
+    const own = new URL(request.url).origin;
+    const hdrHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    for (const o of [own, hdrHost ? `${proto}://${hdrHost}` : ""]) {
+      if (o && srcPath.startsWith(o + "/")) { srcPath = srcPath.slice(o.length); break; }
+    }
+  } catch { /* 해석 실패면 원문 그대로 검사한다 */ }
+  const m = /^\/api\/uploads\/([^/?#]+)\/([^/?#]+)$/.exec(srcPath);
   if (!m) return NextResponse.json({ error: "잘못된 문서 경로입니다." }, { status: 400 });
   const group = decodeURIComponent(m[1]);
   const filename = decodeURIComponent(m[2]);

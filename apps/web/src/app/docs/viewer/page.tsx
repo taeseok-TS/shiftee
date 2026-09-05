@@ -19,8 +19,15 @@ function DocViewer() {
   useEffect(() => {
     if (!src) { setError("문서 주소가 없습니다."); return; }
     // src 에 이미 티켓(?t=)이 붙어 있으면 분리해서 변환 라우트로 넘긴다 (게스트·앱 경로)
-    const [rawPath, query] = src.split("?");
+    const [rawSrc, query] = src.split("?");
     const t = new URLSearchParams(query || "").get("t");
+    // ⚠ 앱은 fileUri() 로 **절대 URL**(https://cubetee.co.kr/api/uploads/…)을 넘긴다. 그걸 그대로
+    //   /api/docs/pdf?src= 에 주면 그 라우트의 "/api/uploads/… 상대경로만" 검사에 걸려 400 이
+    //   나고, 앱의 "계약서 보기"가 통째로 "잘못된 문서 경로입니다" 로 죽어 있었다
+    //   (2026-09-05 실기기에서 발견 — 유효 티켓으로 상대경로 200 / 절대경로 400 실측).
+    //   우리 오리진이면 오리진을 떼고 상대경로로 낮춘다. 남의 오리진은 손대지 않는다(라우트가 거른다).
+    const own = typeof window !== "undefined" ? window.location.origin : "";
+    const rawPath = own && rawSrc.startsWith(own + "/") ? rawSrc.slice(own.length) : rawSrc;
     if (/\.pdf$/i.test(rawPath)) {
       // 이미 PDF 면 그대로 (변환 불필요)
       setPdfUrl(src);
