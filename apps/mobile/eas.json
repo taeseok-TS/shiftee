@@ -28,10 +28,24 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "testflight": {
+      "extends": "production",
+      "channel": "preview",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://cubetee.co.kr/api",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
     "production": {
+      "ios": {
+        "ascAppId": "6784569122"
+      }
+    },
+    "testflight": {
       "ios": {
         "ascAppId": "6784569122"
       }
