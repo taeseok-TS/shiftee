@@ -88,6 +88,17 @@ function isNoise(status: number, path: string): boolean {
   if (path === "/api/health-deep" || path === "/api/health-beat") return true;
   if (status === 404 && (path.startsWith("/_next/") || path.startsWith("/.well-known/") ||
       path === "/favicon.ico" || path.startsWith("/icons/"))) return true;
+
+  // ⚠ 4xx 는 **우리 API 경로만** 센다. 없는 주소를 훑는 봇이 알림을 통째로 뒤덮고 있었다
+  //   (2026-09-06 실측: 24시간 4xx 90건 중 89건이 스캐너, 우리 앱이 실제로 실패한 건 1건).
+  //   그 결과 06:00·09:00·13:00 세 번 알림이 갔는데 내용이 전부 `/wp-login.php` `/.git/config`
+  //   `/.env` 같은 것이었다. **매일 오는 알림이 전부 무의미하면 진짜가 왔을 때 안 본다** —
+  //   검증관 A 가 "공격자가 알림 서명을 점거하면 진짜 사고가 묻힌다"고 지적한 그 상황이다.
+  //
+  //   판별을 Referer 로 하려다 접었다: 봇이 위조한다(같은 날 `POST /login` 17건이 우리
+  //   도메인을 Referer 로 달고 왔다). 경로는 위조할 수 없다 — 우리 API 가 아니면 우리 실패도 아니다.
+  //   5xx 는 경로와 무관하게 전부 잡는다(서버가 터진 것은 어디서든 우리 문제다).
+  if (status < 500 && !path.startsWith("/api/")) return true;
   return false;
 }
 
