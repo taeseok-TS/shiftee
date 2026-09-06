@@ -457,7 +457,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -504,6 +504,19 @@ export function startBotScheduler() {
         const { runContractReminders } = await import("@/lib/contract-notify");
         await runContractReminders();
       } catch (e) { console.error("[bot] 전자계약 리마인더 오류:", e); }
+    }
+
+    // 일일 상태 보고 — 매일 KST 08:30경 1회. **이상이 없어도 보낸다**(2026-09-06 디렉터 지시).
+    // 알림을 좁히고 나니 조용한 게 정상이 됐는데, 그러면 감시가 죽어서 조용한 것인지 구별할
+    // 방법이 없다. 하루 한 번 오는 이 보고 자체가 "감시가 살아 있다"는 증거다 — 안 오면 그게 신호다.
+    // ⚠ 출근(09:00) 전에 보낸다. 브리핑(09:00)·공지 재알림(09:00)과 겹치면 셋이 한꺼번에 와서
+    //   묻힌다. 30분 창을 쓰는 이유는 틱이 밀려도 그날을 통째로 건너뛰지 않게 하기 위함이다.
+    if (k.getUTCHours() === 8 && k.getUTCMinutes() >= 30 && g.__botDailyReport !== today) {
+      g.__botDailyReport = today;
+      try {
+        const { runDailyHealthReport } = await import("@/lib/monitor");
+        await runDailyHealthReport();
+      } catch (e) { console.error("[bot] 일일 상태 보고 오류:", e); }
     }
 
     // 예약 전송 + 메시지 리마인더 (매분)

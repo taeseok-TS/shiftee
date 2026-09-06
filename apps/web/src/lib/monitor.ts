@@ -187,12 +187,32 @@ import type { Alert } from "@/lib/access-log";
  *   (무중단 전환) 문서 재생성이 조용히 두 번 실행된다 — Caddyfile 이 바로 그걸 경고하고
  *   있다(2026-09-04 검증관 B F5). 자가복구는 봇 점검에서만 켠다.
  */
-export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]> {
+/**
+ * 점검이 **실제로 확인한 값**. 일일 보고에서 "무엇을 봤는지"를 보여주는 데 쓴다.
+ * 문제만 돌려주면 "이상 없음"이 무엇을 근거로 한 말인지 알 수 없다.
+ * null = 확인하지 못했거나 이 인스턴스에서 끈 항목.
+ */
+export type HealthFacts = {
+  diskPercent: number | null; diskUsedGb: number | null; diskTotalGb: number | null;
+  dbMs: number | null;
+  unresolvedErrors: number | null;
+  watchdogAgeMin: number | null;   // null = WATCHDOG_BEAT_PATH 미설정(안 깐 인스턴스)
+  beatAgeMin: number | null;       // 앱 하트비트
+  server24h: number | null; client24h: number | null; coveredHours: number | null;
+};
+
+export async function runHealthCheck(opts?: { heal?: boolean }): Promise<{ issues: Alert[]; facts: HealthFacts }> {
   const issues: Alert[] = [];
+  const facts: HealthFacts = {
+    diskPercent: null, diskUsedGb: null, diskTotalGb: null, dbMs: null,
+    unresolvedErrors: null, watchdogAgeMin: null, beatAgeMin: null,
+    server24h: null, client24h: null, coveredHours: null,
+  };
 
   // 디스크
   try {
     const disk = getDiskUsage();
+    facts.diskPercent = disk.percent; facts.diskUsedGb = disk.usedGb; facts.diskTotalGb = disk.totalGb;
     if (disk.percent >= 90) issues.push({ text: `🔴 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 즉시 정리가 필요합니다.`, keys: ["disk"] });
     else if (disk.percent >= 80) issues.push({ text: `🟠 디스크 사용률 ${disk.percent}% (${disk.usedGb}/${disk.totalGb}GB) — 저장공간 정리를 권장합니다.`, keys: ["disk"] });
   } catch { issues.push({ text: "⚠️ 디스크 상태를 확인하지 못했습니다.", keys: ["diskUnknown"] }); }
@@ -202,6 +222,7 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]
     const t = Date.now();
     await prisma.$queryRaw`SELECT 1`;
     const ms = Date.now() - t;
+    facts.dbMs = ms;
     if (ms > 2000) issues.push({ text: `🟠 DB 응답 지연 (${ms}ms)`, keys: ["dbSlow"] });
   } catch { issues.push({ text: "🔴 DB 응답 실패 — 데이터베이스 상태를 확인하세요.", keys: ["dbDown"] }); }
 
@@ -210,6 +231,7 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]
     const count = await prisma.systemErrorLog.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, resolved: false },
     });
+    facts.unresolvedErrors = count;
     if (count >= 20) issues.push({ text: `🟠 최근 24시간 미처리 서버 오류 ${count}건 — 시스템 로그를 확인하세요.`, keys: ["unresolved"] });
   } catch (e) {
     // ⚠ 종전에는 `catch { /* 무시 */ }` 였다. 이 조회가 깨지면 **오류가 몇 건이든 영영 안 알린다**
@@ -230,6 +252,7 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]
     if (!st) issues.push({ text: "🟠 앱 밖 감시(워치독) 신호가 없습니다 — 서버 장애 시 메일 알림이 안 갈 수 있습니다.", keys: ["watchdogMissing"] });
     else {
       const ageMin = Math.round((Date.now() - st.mtimeMs) / 60000);
+      facts.watchdogAgeMin = ageMin;
       if (ageMin > 15) issues.push({ text: `🟠 앱 밖 감시(워치독)가 ${ageMin}분째 멈춰 있습니다 — 서버 장애 시 메일 알림이 안 갑니다.`, keys: ["watchdogStale"] });
     }
   } catch (e) {
@@ -258,15 +281,20 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<Alert[]
   // 감시기가 멈춘 경우도 여기서 함께 알린다("조용한 것"과 "고장난 것"을 구별해야 한다).
   try {
     const { collectFailures, describeFailures } = await import("@/lib/access-log");
+    const f = await collectFailures(24);
+    if (f && !f.unavailable) {
+      facts.server24h = f.server; facts.client24h = f.client; facts.coveredHours = f.coveredHours;
+      facts.beatAgeMin = f.lastBeatAt ? Math.round((Date.now() - f.lastBeatAt.getTime()) / 60000) : null;
+    }
     // 유형별로 받는다 — 한 문자열로 이으면 뒤에 붙은 문제가 중복 판정에 묻힌다
-    issues.push(...describeFailures(await collectFailures(24)));
+    issues.push(...describeFailures(f));
   } catch (e) {
     // ⚠ 점검 자체가 죽으면 안 되지만, **조용히** 죽어도 안 된다. 여기가 무음이면
     //   접근 로그 감시가 통째로 고장나도 아무도 모른다(검증관 C M-8).
     issues.push({ text: `⚠️ 접근 로그 감시가 실패했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["accessLogFail"] });
   }
 
-  return issues;
+  return { issues, facts };
 }
 
 // 헬스체크 실행 + 이상 시 관리자들에게 봇 DM (유형별 하루 1회만)
@@ -305,8 +333,67 @@ async function saveAlerted(map: Record<string, number>): Promise<void> {
   }
 }
 
+/**
+ * 일일 상태 보고 — **이상이 없어도** 하루 한 번 보낸다 (2026-09-06 디렉터 지시).
+ *
+ * 왜 필요한가: 알림을 좁히고 나니 조용한 게 정상이 됐는데, 그러면 **감시가 죽어서 조용한
+ * 것인지 구별할 방법이 없다**. 하루 한 번 오는 이 보고 자체가 "감시가 살아 있다"는 증거다.
+ * 안 오면 그게 신호다.
+ *
+ * 매시 알림(runHealthCheckAndAlert)과 역할이 다르다:
+ *   · 매시 알림 = 문제가 생겼을 때, 유형별 하루 1회 (중복 방지 있음)
+ *   · 일일 보고 = 매일 같은 시각, 있든 없든 (중복 방지 **없음** — 그게 요점이다)
+ * 그래서 문제가 계속되면 매일 보고에 계속 실린다. 그건 소음이 아니라 현황이다.
+ *
+ * 자가복구(heal)는 여기서 돌리지 않는다 — 매시 점검이 이미 한다.
+ */
+export async function runDailyHealthReport() {
+  const { issues, facts } = await runHealthCheck({ heal: false });
+
+  const ok = (v: unknown) => v !== null && v !== undefined;
+  const lines: string[] = [];
+  lines.push(ok(facts.dbMs) ? `· 서버·DB 정상 (DB 응답 ${facts.dbMs}ms)` : "· DB 응답을 확인하지 못했습니다");
+  if (ok(facts.diskPercent))
+    lines.push(`· 디스크 ${facts.diskPercent}% 사용 (${facts.diskUsedGb}/${facts.diskTotalGb}GB)`);
+  if (ok(facts.server24h))
+    lines.push(`· 최근 ${facts.coveredHours}시간 서버 오류 ${facts.server24h}건 / 우리 API 실패 ${facts.client24h}건`);
+  if (ok(facts.unresolvedErrors))
+    lines.push(`· 미처리 오류 로그 ${facts.unresolvedErrors}건`);
+  if (ok(facts.beatAgeMin)) lines.push(`· 앱 하트비트 ${facts.beatAgeMin}분 전`);
+  if (ok(facts.watchdogAgeMin)) lines.push(`· 앱 밖 감시(워치독) ${facts.watchdogAgeMin}분 전`);
+
+  // 한국시간 기준 날짜. 컨테이너 TZ 가 UTC 라 그냥 getMonth() 를 쓰면 자정 부근에 하루가 어긋난다.
+  const k = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const day = `${k.getUTCMonth() + 1}/${k.getUTCDate()}`;
+  const head = issues.length === 0
+    ? `✅ 큐브티 이상 없음 (${day})`
+    : `🩺 큐브티 일일 점검 (${day}) — 확인 필요 ${issues.length}건`;
+  const body = issues.length === 0 ? "" : "\n" + "\n" + issues.map((i) => i.text).join("\n");
+  const text = head + "\n" + "\n" + lines.join("\n") + body
+    + "\n" + "\n" + "문제가 생기면 이 시각과 무관하게 바로 알려드립니다.";
+
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  const targets = await getNotifyRecipients("system");
+  const { botSendDM } = await import("@/lib/bot");
+  let sent = 0;
+  for (const id of targets) {
+    try { await botSendDM(id, text); sent++; } catch { /* 한 명 실패가 나머지를 막지 않게 */ }
+  }
+  // ⚠ 이 보고가 안 가면 "감시가 살아 있다"는 증거가 사라진다. 실패를 조용히 넘기지 않는다.
+  if (sent === 0 && targets.length > 0) {
+    console.error(`[monitor] 일일 상태 보고를 아무에게도 보내지 못했습니다 (대상 ${targets.length}명)`);
+    try {
+      await prisma.systemErrorLog.create({
+        data: { path: "/monitor (일일 상태 보고)", method: "BOT",
+                message: `일일 상태 보고 발송 실패 — 대상 ${targets.length}명 전원 실패` },
+      });
+    } catch { /* DB 가 죽어 있으면 여기까지다 — 워치독 메일이 받는다 */ }
+  }
+  return { sent, issues: issues.length };
+}
+
 export async function runHealthCheckAndAlert() {
-  const issues = await runHealthCheck({ heal: true });
+  const { issues } = await runHealthCheck({ heal: true });
   // 14일 지난 에러 로그 자동 정리
   prisma.systemErrorLog.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 14 * DAY_MS) } } }).catch(() => {});
   if (!issues.length) return;
