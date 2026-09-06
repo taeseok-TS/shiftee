@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
 import { branchHasManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
+import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -11,12 +12,12 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status");
+  const status = pick(SCHEDULE_REQUEST_STATUSES, searchParams.get("status"));
 
   const requests = await prisma.scheduleRequest.findMany({
     where: {
       userId: session.userId,
-      ...(status && { status: status as any }),
+      ...(status && { status }),
     },
     include: {
       approvalSteps: {

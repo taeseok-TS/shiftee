@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 /**
  * 계약 반려 (2026-09-04, 디렉터 지시)
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           reason,
           rejectedBy: session.userId,
           rejectedAt: now.toISOString(),
-        }] as never,
+        }] as Prisma.InputJsonValue,
       },
       include: {
         user: { select: { id: true, name: true } },

@@ -3,6 +3,11 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
 
+// 폼.JSON 에서 온 문자열을 계약 종류로 확정한다. 단건 작성(app/api/contracts/route.ts)에는
+// 있는 검증이 여기만 빠져 `type: item.type as never` 로 그대로 DB 에 갔다 — 잘못된 값 하나에
+// **500** 이 났다(2026-09-06 실측). `as never` 는 타입검사를 끄는 것이지 값을 만들어주지 않는다.
+import { CONTRACT_TYPES, pickOr } from "@/lib/enums";
+
 // 신규입사 패키지 생성 — 여러 템플릿(근로계약서+비밀유지+개인정보동의서)을 하나의 묶음으로 함께 생성.
 // 각 계약서는 공유 bundleId를 가지며, employeeOnly 문서는 직원 서명만/직원·관리자에게만 표시된다.
 export async function POST(request: NextRequest) {
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest) {
           userId,
           createdBy: session.userId, // 작성자 — 단계·완료 알림 대상 (#136)
           title: item.title,
-          type: item.type as never,
+          type: pickOr(CONTRACT_TYPES, item.type, "OTHER"),
           fileUrl,
           templateId: item.templateId,
           startDate: item.startDate ? new Date(item.startDate) : null,

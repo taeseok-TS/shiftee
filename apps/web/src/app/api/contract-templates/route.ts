@@ -3,15 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
-
-// 폼에서 온 문자열을 계약 종류로 확정한다. 종전에는 검증 없이 넣었고,
-// `prisma: any` 때문에 타입 검사도 못 잡았다(2026-09-04 검증관 B F2).
-const CONTRACT_TYPES = ["EMPLOYMENT", "PART_TIME", "CONFIDENTIAL", "OTHER"] as const;
-function asContractType(v: unknown): (typeof CONTRACT_TYPES)[number] {
-  return CONTRACT_TYPES.includes(v as (typeof CONTRACT_TYPES)[number])
-    ? (v as (typeof CONTRACT_TYPES)[number])
-    : "OTHER";
-}
+import { CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
 
 // 템플릿 목록 조회
 export async function GET(request: NextRequest) {
@@ -27,7 +19,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get("type");
+    // 모르는 값은 필터를 안 건 것으로 본다 — 종전에는 그대로 넘겨 500 이 났다(2026-09-06)
+    const type = pick(CONTRACT_TYPES, searchParams.get("type"));
 
     let where: any = { isActive: true };
     if (type) {
@@ -127,7 +120,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         description: description || null,
-        type: asContractType(type),
+        type: pickOr(CONTRACT_TYPES, type, "OTHER"),
         fileUrl,
         version: 1,
         isActive: true,

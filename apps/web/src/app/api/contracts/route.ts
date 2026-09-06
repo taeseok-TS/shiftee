@@ -7,15 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
-
-// 폼에서 온 문자열을 계약 종류로 확정한다. 종전에는 검증 없이 넣었고,
-// `prisma: any` 때문에 타입 검사도 못 잡았다(2026-09-04 검증관 B F2).
-const CONTRACT_TYPES = ["EMPLOYMENT", "PART_TIME", "CONFIDENTIAL", "OTHER"] as const;
-function asContractType(v: unknown): (typeof CONTRACT_TYPES)[number] {
-  return CONTRACT_TYPES.includes(v as (typeof CONTRACT_TYPES)[number])
-    ? (v as (typeof CONTRACT_TYPES)[number])
-    : "OTHER";
-}
+import { CONTRACT_STATUSES, CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,7 +17,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const year = searchParams.get("year");
     const month = searchParams.get("month");
-    const status = searchParams.get("status");
+    const status = pick(CONTRACT_STATUSES, searchParams.get("status"));
     const userId = searchParams.get("userId");
     const branch = searchParams.get("branch");
     const searchText = searchParams.get("searchText");
@@ -271,7 +263,7 @@ export async function POST(request: NextRequest) {
         externalName: externalName || undefined,
         externalPhone: externalPhone || undefined,
         title,
-        type: asContractType(type),
+        type: pickOr(CONTRACT_TYPES, type, "OTHER"),
         fileUrl,
         templateId: templateId || undefined, // 수정 시 문서 재생성에 필요
         startDate: startDate ? new Date(startDate) : null,

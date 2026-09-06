@@ -6,6 +6,7 @@ import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
 import bcrypt from "bcryptjs";
+import { ROLES, pick } from "@/lib/enums";
 
 // 변경 내역 요약(감사 로그용)
 function diffSummary(
@@ -70,6 +71,12 @@ export async function PATCH(
 
   // 관리자(ADMIN) 계정 수정·권한 변경은 메인 관리자 전용
   // (대상이 ADMIN이거나, 누군가를 ADMIN으로 승격하려는 경우)
+  // ⚠ 권한 값을 검증 없이 넘기면 Prisma 가 enum 에서 던져 **500** 이 난다(2026-09-06 실측:
+  //   `{role:"SUPERUSER"}` → 500). 잘못된 값이 저장되지는 않았지만, 권한 필드에서 나는 500 은
+  //   "막힌 것"인지 "터진 것"인지 구별이 안 돼 가장 나쁜 형태의 실패다. 명시적으로 거절한다.
+  if (role !== undefined && !pick(ROLES, role))
+    return NextResponse.json({ error: "알 수 없는 권한입니다." }, { status: 400 });
+
   const targetUser = await prisma.user.findUnique({ where: { id }, select: { role: true } });
   if ((targetUser?.role === "ADMIN" || role === "ADMIN") && !(await isSuperAdmin(session.userId))) {
     return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });

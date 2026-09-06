@@ -8,13 +8,17 @@ import { currentLeaveYear } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { getManagerBranches, branchHasManager } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
+import { LEAVE_STATUSES, pick } from "@/lib/enums";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") || undefined;
+  // ⚠ 쿼리스트링 값을 그대로 넘기면 Prisma 가 enum 검증에서 던져 **500** 이 난다
+  //   (2026-09-06 실측: `?status=BOGUS` → 500). 주소창에 오타 한 번이면 서버 오류다.
+  //   아는 값만 받고, 모르는 값은 필터를 안 건 것으로 본다(빈 목록보다 전체가 안전하다).
+  const status = pick(LEAVE_STATUSES, searchParams.get("status"));
   const year   = searchParams.get("year")   ? parseInt(searchParams.get("year")!) : undefined;
   const month  = searchParams.get("month")  ? parseInt(searchParams.get("month")!) : undefined; // 1~12
 
@@ -37,8 +41,8 @@ export async function GET(request: NextRequest) {
 
   const where =
     selfOnly
-      ? { userId: session.userId, ...(status ? { status: status as never } : {}), ...dateFilter }
-      : { ...branchFilter, ...(status ? { status: status as never } : {}), ...dateFilter };
+      ? { userId: session.userId, ...(status ? { status } : {}), ...dateFilter }
+      : { ...branchFilter, ...(status ? { status } : {}), ...dateFilter };
 
   const requests = await prisma.leaveRequest.findMany({
     where,
