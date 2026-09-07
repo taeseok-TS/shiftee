@@ -87,11 +87,18 @@ export async function POST(request: NextRequest) {
         // 이걸 막으면 멀쩡한 본인 폰인데 전부 로그인이 안 된다.
         // 기기 이름은 재설치해도 그대로이므로, 이름과 플랫폼이 정확히 같으면 동일 기기로 본다.
         // (이름이 없거나 다르면 종전대로 차단 — 다른 사람 폰은 계속 막힌다)
+        // ⚠ **안드로이드에만** 적용한다 (2026-09-07 디렉터 지시).
+        //   이 구제책은 "앱을 재설치하면 기기 식별자가 새로 발급된다"는 안드로이드 사정 때문에
+        //   넣은 것이다. iOS 는 키체인이라 재설치해도 식별자가 유지되므로 구제할 이유가 없다.
+        //   그런데 판별 기준인 기기 이름이 iOS 에서는 권한 없이 기종명만 나와, 등록된 104대 중
+        //   **47대가 전부 "iPhone"** 이다 — 사실상 무조건 통과라 기기 잠금이 무의미했다.
+        //   iOS 는 관리자 기기 초기화를 거쳐야 한다.
         const sameDevice =
+          platform === "android" &&
+          registered.platform === "android" &&
           !!deviceName &&
           !!registered.deviceName &&
-          registered.deviceName === deviceName &&
-          registered.platform === platform;
+          registered.deviceName === deviceName;
 
         if (!sameDevice) {
           await logLoginFail({ email, userId: user.id, userName: user.name, reason: "DEVICE_BLOCKED", deviceName, platform });
@@ -124,6 +131,7 @@ export async function POST(request: NextRequest) {
       role: user.role,
       name: user.name,
       branch: user.branch ?? null,
+      tv: user.tokenVersion,   // 무효화 판정용 — DB 값과 다르면 그 토큰은 죽는다
     });
 
     return NextResponse.json({

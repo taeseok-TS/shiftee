@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { logAudit } from "@/lib/audit";
@@ -35,6 +35,9 @@ export async function DELETE(
   }
 
   const removed = await prisma.userDevice.deleteMany({ where: { userId: id } });
+  // 기기를 초기화했으면 그 기기에 남아 있던 토큰도 함께 끊는다 —
+  // 안 끊으면 초기화 전 토큰으로 계속 출퇴근이 찍힌다.
+  await bumpTokenVersion(id).catch(() => {});
   if (removed.count === 0)
     return NextResponse.json({ error: "등록된 기기가 없습니다." }, { status: 404 });
 

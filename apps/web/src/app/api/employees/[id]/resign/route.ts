@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -82,6 +82,11 @@ export async function PATCH(
         branch: true,
       },
     });
+
+    // 이미 발급된 토큰을 **즉시** 무효화한다 (2026-09-07 디렉터 지시).
+    // 종전에는 토큰이 7일짜리라, 퇴사 처리를 해도 그 사람 폰에 살아 있는 토큰으로
+    // 남은 기간 동안 출퇴근을 계속 찍을 수 있었다.
+    await bumpTokenVersion(id).catch(() => {});
 
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESIGN",

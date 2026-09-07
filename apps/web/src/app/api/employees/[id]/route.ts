@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { logAudit } from "@/lib/audit";
@@ -156,6 +156,13 @@ export async function PATCH(
     }
   }
 
+  // 권한이 내려가거나 퇴사일이 붙으면 **이미 나가 있는 토큰**을 끊는다 (2026-09-07 디렉터 지시).
+  // 토큰에는 role 이 박혀 있어서, 안 끊으면 강등된 사람이 남은 유효기간 동안
+  // 예전 권한 그대로 움직인다.
+  if ((role !== undefined && before && role !== before.role) || resignVal !== undefined) {
+    await bumpTokenVersion(id).catch(() => {});
+  }
+
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
     targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
@@ -180,6 +187,8 @@ export async function DELETE(
     return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
   }
   await prisma.user.update({ where: { id }, data: { isActive: false } });
+  // 비활성 처리했으면 그 사람 폰에 살아 있는 토큰도 함께 끊는다.
+  await bumpTokenVersion(id).catch(() => {});
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_DELETE",
     targetType: "USER", targetId: id, targetName: target?.name ?? null, detail: "직원 비활성화",

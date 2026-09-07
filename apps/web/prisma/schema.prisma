@@ -29,6 +29,11 @@ model User {
   passwordResetTokens PasswordResetToken[]
   birthDate            DateTime? @db.Date // 생일 (봇 브리핑 생일 축하용)
   address              String? // 주소 (전자계약 자동 채움 — 서명 시 비어 있으면 직원이 입력→저장)
+  // 세션 무효화용 (2026-09-07 디렉터 지시) — 퇴사.비활성.권한변경.기기초기화 때 1 올린다.
+  // 토큰에 이 값이 박혀 있어, 올리는 순간 그 사람의 **기존 토큰이 전부 무효**가 된다.
+  // 종전에는 토큰이 7일짜리라 퇴사 처리를 해도 이미 발급된 것은 끊을 수단이 없었다.
+  // ⚠ 운영 DB 에는 `ALTER TABLE "User" ADD COLUMN "tokenVersion" INTEGER NOT NULL DEFAULT 0` 를 먼저 넣었다.
+  tokenVersion         Int       @default(0)
   notifyApproval       Boolean   @default(true) // 결재 결과 알림(봇 DM+푸시) 수신 여부 — 본인 설정 (관리자 강제발송 시 무시)
   workMuteAll          Boolean   @default(false) // 큐브티워크 채팅 알림 전체 끄기 — 메시지·투표·공지 푸시만 차단(결재 DM·중요공지 재알림은 유지)
   passwordResetAt      DateTime? // 관리자가 임시 비번(1234)으로 초기화한 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
