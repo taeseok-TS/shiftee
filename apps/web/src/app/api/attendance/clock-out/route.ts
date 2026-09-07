@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { haversineDistance } from "@/lib/geofence";
 import { verifyAttendanceDevice } from "@/lib/device";
 import { kstHour, kstMinute, kstTodayDateUTC } from "@/lib/kst";
-import { readClockOutLimit, parseHhmm } from "@/lib/attendance-policy";
+import { readClockOutLimit, parseHhmm, WEEKDAY_CAP_MS, WEEKDAY_CAP_HOURS } from "@/lib/attendance-policy";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { Attendance } from "@shiftee/api";
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const kstDay = kstIn.getUTCDay(); // 0=일, 6=토
     // 공휴일 근무도 주말과 같은 규칙 — 평일 10.5h 캡을 씌우면 승인받은 연휴 근무가 막힌다
     const isHolidayIn = await isHoliday(kstIn.toISOString().slice(0, 10));
-    let capMs = 10.5 * 60 * 60 * 1000;
+    let capMs = WEEKDAY_CAP_MS;
     if (kstDay === 0 || kstDay === 6 || isHolidayIn) {
       const schedDate = new Date(Date.UTC(kstIn.getUTCFullYear(), kstIn.getUTCMonth(), kstIn.getUTCDate()));
       const sched = await prisma.schedule.findFirst({
@@ -78,7 +78,17 @@ export async function POST(request: NextRequest) {
       }
     }
     if (elapsedMs > capMs) {
-      return NextResponse.json({ error: "관리자에게 문의해주세요." }, { status: 403 });
+      // ⚠ 종전 메시지는 "관리자에게 문의해주세요." 아홉 글자가 전부였다 — 직원은 왜 막혔는지,
+      //   얼마나 넘겼는지, 그래서 어떻게 되는지 알 수 없었다. 다음 날 관리자가 마감한다는 것까지 말한다.
+      return NextResponse.json(
+        {
+          error: `근무 시간이 ${WEEKDAY_CAP_HOURS}시간을 넘어 앱에서는 퇴근을 찍을 수 없습니다.`
+            + `\n다음 날 관리자가 확인해 마감해 드립니다. 관리자에게 알려주세요.`,
+          overCap: true,
+          capHours: WEEKDAY_CAP_HOURS,
+        },
+        { status: 403 }
+      );
     }
   }
 

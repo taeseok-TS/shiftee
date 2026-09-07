@@ -12,6 +12,16 @@ import { prisma } from "@/lib/db";
 
 export const CLOCKOUT_LIMIT_KEY = "attendance.clockOutLimit";
 
+/**
+ * 평일 근무 상한 — 이 시간을 넘기면 직원이 앱에서 퇴근을 못 찍는다(주 52시간 방어).
+ * 넘긴 근무는 다음 날 관리자가 확인을 눌러 **출근 + 이 시간**으로 마감한다.
+ *
+ * ⚠ 차단 기준과 자동 마감 값은 **반드시 같은 상수**여야 한다. 다르면 마감한 기록이
+ *   여전히 상한을 넘어 있거나(또 막힘), 마감이 상한보다 짧아 근무가 깎인다.
+ */
+export const WEEKDAY_CAP_HOURS = 10.5;
+export const WEEKDAY_CAP_MS = WEEKDAY_CAP_HOURS * 60 * 60 * 1000;
+
 export type ClockOutLimit = {
   /** 켜져 있을 때만 시각 제한이 걸린다 */
   enabled: boolean;

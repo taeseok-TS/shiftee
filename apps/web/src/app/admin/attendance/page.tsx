@@ -132,6 +132,41 @@ export default function AttendancePage() {
   const [selectedBranch, setSelectedBranch] = useState(""); // "" = 지점별 조회 안 함
   const [myRole, setMyRole]           = useState("EMPLOYEE");
 
+  // 전일 미마감 근태 (2026-09-07 디렉터 지시)
+  // 근무가 상한(10.5시간)을 넘으면 직원은 앱에서 퇴근을 못 찍는다. 종전에는 그걸로 끝이라
+  // 기록이 영원히 열린 채 남았다(실제로 14건이 최장 80일). 관리자가 여기서 마감한다.
+  type Unclosed = { id: string; date: string; name: string; branch: string | null; clockIn: string; willClockOut: string };
+  const [unclosed, setUnclosed] = useState<Unclosed[]>([]);
+  const [capHours, setCapHours] = useState(10.5);
+  const [closing, setClosing] = useState(false);
+  const [unclosedOpen, setUnclosedOpen] = useState(false);
+  const loadUnclosed = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/attendance/unclosed");
+      if (!res.ok) return;               // 관리자가 아니면 403 — 조용히 넘어간다
+      const d = await res.json();
+      setUnclosed(d.records || []);
+      if (d.capHours) setCapHours(d.capHours);
+    } catch { /* 목록을 못 불러와도 화면이 죽으면 안 된다 */ }
+  }, []);
+  useEffect(() => { if (myRole === "ADMIN") loadUnclosed(); }, [myRole, loadUnclosed]);
+  const closeUnclosed = async (ids?: string[]) => {
+    setClosing(true);
+    try {
+      const res = await fetch("/api/admin/attendance/unclosed", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ids ? { ids } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "마감하지 못했습니다."); return; }
+      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 출근 +${d.capHours}시간으로 기록됩니다.`);
+      await loadUnclosed();
+      fetchTodayList();
+    } catch {
+      toast.error("서버에 연결하지 못했습니다.");
+    } finally { setClosing(false); }
+  };
+
   /* 오늘 출퇴근한 직원 목록 (관리자/원장) */
   const [todayList, setTodayList] = useState<TodayAttendee[]>([]);
 
@@ -394,6 +429,69 @@ export default function AttendancePage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">출퇴근 관리</h1>
+
+      {/* 전일 미마감 — 상한을 넘겨 직원이 퇴근을 못 찍은 기록. 관리자가 확인해 마감한다. */}
+      {myRole === "ADMIN" && unclosed.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-amber-900">
+                  전일 미마감 {unclosed.length}건
+                </p>
+                <p className="text-sm text-amber-800 mt-0.5">
+                  근무가 {capHours}시간을 넘겨 직원이 퇴근을 찍지 못한 기록입니다.
+                  확인을 누르면 <b>출근 시각 + {capHours}시간</b>으로 퇴근이 기록됩니다.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button variant="outline" size="sm" onClick={() => setUnclosedOpen(v => !v)}>
+                  {unclosedOpen ? "접기" : "자세히"}
+                </Button>
+                <Button size="sm" disabled={closing} onClick={() => closeUnclosed()}>
+                  {closing ? "마감 중..." : `${unclosed.length}건 확인`}
+                </Button>
+              </div>
+            </div>
+
+            {unclosedOpen && (
+              <div className="mt-4 overflow-x-auto rounded-lg border border-amber-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="border-b text-left text-gray-500 bg-gray-50/60">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">날짜</th>
+                      <th className="px-3 py-2 font-medium">직원</th>
+                      <th className="px-3 py-2 font-medium">출근</th>
+                      <th className="px-3 py-2 font-medium">마감될 퇴근</th>
+                      <th className="px-3 py-2 font-medium text-right">처리</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unclosed.map(r => (
+                      <tr key={r.id} className="border-b last:border-b-0">
+                        <td className="px-3 py-2 whitespace-nowrap">{r.date}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {r.name}{r.branch ? <span className="text-gray-400 text-xs"> · {r.branch}</span> : null}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+                          {format(new Date(r.clockIn), "HH:mm")}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap tabular-nums text-amber-800">
+                          {format(new Date(r.willClockOut), "MM/dd HH:mm")}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button variant="ghost" size="sm" disabled={closing}
+                                  onClick={() => closeUnclosed([r.id])}>확인</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="today">
         <TabsList>
