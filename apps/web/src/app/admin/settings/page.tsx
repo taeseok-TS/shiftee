@@ -35,6 +35,12 @@ const ACTION_LABEL: Record<string, string> = {
   HOLIDAY_DELETE: "공휴일 삭제",
 };
 
+/** 9 → "9시간", 9.5 → "9시간 30분" */
+function fmtHours(h: number): string {
+  const full = Math.floor(h);
+  return h % 1 === 0 ? `${full}시간` : `${full}시간 30분`;
+}
+
 export default function AdminSettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -44,15 +50,37 @@ export default function AdminSettingsPage() {
   const [clockOutTime, setClockOutTime] = useState("23:59");
   const [clockOutSaving, setClockOutSaving] = useState(false);
   const [clockOutLoaded, setClockOutLoaded] = useState(false);
+  // 출퇴근 누락 보정 시간 — 30분 단위 (2026-09-07 디렉터 지시). 종전엔 9시간이 코드에 박혀 있었다.
+  const [autoFillHours, setAutoFillHours] = useState(9);
+  const [autoFillOptions, setAutoFillOptions] = useState<number[]>([]);
   useEffect(() => {
     fetch("/api/admin/attendance-policy")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.clockOutLimit) { setClockOutOn(d.clockOutLimit.enabled); setClockOutTime(d.clockOutLimit.time); }
+        if (typeof d?.autoFillHours === "number") setAutoFillHours(d.autoFillHours);
+        if (Array.isArray(d?.autoFillOptions)) setAutoFillOptions(d.autoFillOptions);
       })
       .catch(() => toast.error("퇴근 시간 설정을 불러오지 못했습니다."))
       .finally(() => setClockOutLoaded(true));
   }, []);
+  const saveAutoFill = async (hours: number) => {
+    const before = autoFillHours;
+    setAutoFillHours(hours);
+    setClockOutSaving(true);
+    try {
+      const res = await fetch("/api/admin/attendance-policy", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoFillHours: hours }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setAutoFillHours(before); toast.error(d.error || "저장하지 못했습니다."); return; }
+      toast.success(`누락 보정 시간을 ${fmtHours(hours)}으로 정했습니다.`);
+    } catch {
+      setAutoFillHours(before); toast.error("서버에 연결하지 못했습니다.");
+    } finally { setClockOutSaving(false); }
+  };
+
   const saveClockOut = async (enabled: boolean, time: string) => {
     setClockOutSaving(true);
     try {
@@ -488,6 +516,29 @@ export default function AdminSettingsPage() {
             />
           </div>
 
+          <div className="flex items-center justify-between gap-4 p-4 border rounded-lg">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900">누락 보정 시간</p>
+              <p className="text-sm text-gray-600">
+                출근이나 퇴근 한쪽이 빠진 기록을 관리자가 보정할 때 채워 넣을 근무 시간입니다.
+              </p>
+            </div>
+            <select
+              value={autoFillHours}
+              disabled={!clockOutLoaded || clockOutSaving}
+              onChange={(e) => saveAutoFill(Number(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm shrink-0 bg-white disabled:bg-gray-100"
+            >
+              {(autoFillOptions.length ? autoFillOptions : [autoFillHours]).map((h) => (
+                <option key={h} value={h}>{fmtHours(h)}</option>
+              ))}
+            </select>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            상한(10.5시간)을 넘겨 직원이 퇴근을 못 찍은 기록은 <b>출퇴근 관리</b> 화면의
+            &ldquo;전일 미마감&rdquo;에서 확인합니다. 그쪽은 상한 시간으로 마감합니다.
+          </p>
           <p className="text-xs text-gray-400">
             지각·조퇴는 <b>본인이 승인받은 근무일정 시각</b>을 기준으로 판정합니다.
             근무일정이 없는 날은 09:00 출근 / 18:00 퇴근 기준입니다.

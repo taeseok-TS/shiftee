@@ -78,17 +78,10 @@ export async function POST(request: NextRequest) {
       }
     }
     if (elapsedMs > capMs) {
-      // ⚠ 종전 메시지는 "관리자에게 문의해주세요." 아홉 글자가 전부였다 — 직원은 왜 막혔는지,
-      //   얼마나 넘겼는지, 그래서 어떻게 되는지 알 수 없었다. 다음 날 관리자가 마감한다는 것까지 말한다.
-      return NextResponse.json(
-        {
-          error: `근무 시간이 ${WEEKDAY_CAP_HOURS}시간을 넘어 앱에서는 퇴근을 찍을 수 없습니다.`
-            + `\n다음 날 관리자가 확인해 마감해 드립니다. 관리자에게 알려주세요.`,
-          overCap: true,
-          capHours: WEEKDAY_CAP_HOURS,
-        },
-        { status: 403 }
-      );
+      // ⚠ 메시지를 바꾸지 말 것 (2026-09-07 디렉터 지시). 근무 시간이나 초과분을 화면에
+      //   적으면 그 문구가 **노무 분쟁의 기록**이 될 수 있다. 직원에게는 막혔다는 사실만
+      //   알리고, 실제 처리는 관리자 화면의 "전일 미마감" 에서 한다.
+      return NextResponse.json({ error: "관리자에게 문의해주세요." }, { status: 403 });
     }
   }
 

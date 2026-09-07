@@ -132,6 +132,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
   }
 
+  // 원장은 본인 일정을 직접 못 만들고(관리자 승인 필요), 담당 지점 직원만 다룬다.
+  const { guardScheduleChange } = await import("@/lib/schedule-guard");
+  const denied = await guardScheduleChange(session, userId);
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 });
+
   // 같은 날짜+직원 일정이 있으면 upsert
   const existing = await prisma.schedule.findFirst({
     where: { userId, date: new Date(date) },

@@ -22,6 +22,41 @@ export const CLOCKOUT_LIMIT_KEY = "attendance.clockOutLimit";
 export const WEEKDAY_CAP_HOURS = 10.5;
 export const WEEKDAY_CAP_MS = WEEKDAY_CAP_HOURS * 60 * 60 * 1000;
 
+/**
+ * 출퇴근 누락 보정 시간 (2026-09-07 디렉터 지시) — 관리자가 **30분 단위**로 정한다.
+ * 출근만 있으면 `출근 + 이 시간` 을 퇴근으로, 퇴근만 있으면 `퇴근 - 이 시간` 을 출근으로 채운다.
+ * 종전에는 9시간이 코드에 박혀 있어 바꾸려면 배포가 필요했다.
+ *
+ * ⚠ "전일 미마감"(상한 초과) 마감과는 **다른 값**이다. 그쪽은 상한(10.5시간)으로 마감한다 —
+ *   상한을 넘겨 막힌 근무를 그보다 짧게 적으면 근무가 깎인다.
+ */
+export const AUTOFILL_HOURS_KEY = "attendance.autoFillHours";
+export const DEFAULT_AUTOFILL_HOURS = 9;
+/** 30분 단위, 4~12시간 */
+export const AUTOFILL_HOUR_OPTIONS = [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12] as const;
+
+export function isValidAutoFillHours(v: unknown): v is number {
+  return typeof v === "number" && (AUTOFILL_HOUR_OPTIONS as readonly number[]).includes(v);
+}
+
+export async function readAutoFillHours(): Promise<number> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: AUTOFILL_HOURS_KEY } });
+    const n = row?.value != null ? Number(row.value) : NaN;
+    return isValidAutoFillHours(n) ? n : DEFAULT_AUTOFILL_HOURS;
+  } catch {
+    return DEFAULT_AUTOFILL_HOURS;
+  }
+}
+
+export async function saveAutoFillHours(hours: number): Promise<void> {
+  await prisma.appSetting.upsert({
+    where: { key: AUTOFILL_HOURS_KEY },
+    create: { key: AUTOFILL_HOURS_KEY, value: String(hours) },
+    update: { value: String(hours) },
+  });
+}
+
 export type ClockOutLimit = {
   /** 켜져 있을 때만 시각 제한이 걸린다 */
   enabled: boolean;
