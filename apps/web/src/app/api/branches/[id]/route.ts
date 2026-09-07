@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, bumpTokenVersionMany } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -47,11 +47,18 @@ export async function PATCH(
     if (!before) return NextResponse.json({ error: "지점을 찾을 수 없습니다." }, { status: 404 });
 
     if (before.name !== name) {
+      // 토큰에 branch 가 박혀 있으므로, 이름을 바꾸기 **전에** 대상자를 잡아둔다.
+      const affected = await prisma.user.findMany({ where: { branch: before.name }, select: { id: true } });
+
       // 지점명 변경: 소속 직원(퇴직자 포함)의 User.branch를 같은 트랜잭션으로 동기화
       const [branch, synced] = await prisma.$transaction([
         prisma.branch.update({ where: { id }, data }),
         prisma.user.updateMany({ where: { branch: before.name }, data: { branch: name } }),
       ]);
+      // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지
+      // 없어진 지점명으로 조회돼 근태.직원 목록이 빈 채로 보인다.
+      await bumpTokenVersionMany(affected.map((u) => u.id)).catch(() => {});
+
       await logAudit({
         actorId: session.userId,
         actorName: session.name,

@@ -181,9 +181,20 @@ export async function resolvePrincipal(
   if (session) return { who: { userId: session.userId, role: session.role }, guestContractId: null };
   if (ticketSubject?.startsWith("c:")) return { who: { userId: null, role: null }, guestContractId: ticketSubject.slice(2) };
   if (ticketSubject?.startsWith("u:")) {
-    const uid = ticketSubject.slice(2);
-    const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, role: true, isActive: true } });
-    if (u?.isActive) return { who: { userId: u.id, role: u.role }, guestContractId: null };
+    // `u:<userId>~<발급 당시 tokenVersion>` — ~ 뒤가 없으면 2026-09-07 이전에 발급된 티켓이다.
+    // 옛 티켓은 발급 시점을 알 수 없으므로 **아직 한 번도 무효화된 적 없는 사람**(0)만 통과시킨다.
+    // 최대 12시간이면 전부 만료되어 사라진다.
+    const raw = ticketSubject.slice(2);
+    const cut = raw.lastIndexOf("~");
+    const uid = cut >= 0 ? raw.slice(0, cut) : raw;
+    const ticketTv = cut >= 0 ? Number(raw.slice(cut + 1)) : 0;
+    if (!uid || !Number.isInteger(ticketTv)) return { who: { userId: null, role: null }, guestContractId: null };
+    const u = await prisma.user.findUnique({
+      where: { id: uid },
+      select: { id: true, role: true, isActive: true, tokenVersion: true },
+    });
+    if (u?.isActive && u.tokenVersion === ticketTv)
+      return { who: { userId: u.id, role: u.role }, guestContractId: null };
   }
   return { who: { userId: null, role: null }, guestContractId: null };
 }

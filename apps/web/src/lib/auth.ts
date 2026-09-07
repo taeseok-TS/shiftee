@@ -38,8 +38,12 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
 // getSession 은 **모든 요청**에서 불린다. 매번 DB 를 보면 비용이 붙으므로 짧게 캐시하되,
 // 무효화(bumpTokenVersion)가 일어나면 그 사람 항목을 바로 지운다 — 그래서 "즉시" 가 된다.
 // 캐시는 이 프로세스 안에만 있고 컨테이너는 하나다.
-const g = globalThis as unknown as { __tvCache?: Map<string, { v: number; at: number }> };
+const g = globalThis as unknown as { __tvCache?: Map<string, { v: number; at: number }>; __tvEpoch?: number };
 const tvCache = g.__tvCache ?? (g.__tvCache = new Map());
+// 무효화가 일어난 횟수. 진행 중이던 DB 읽기가 **낡은 값으로 캐시를 되채우는** 것을 막는다 —
+// 읽기 시작 시점의 값을 들고 있다가, 캐시에 쓰기 직전 달라졌으면 그 결과를 버린다.
+// (이게 없으면 "퇴사 처리 완료" 화면을 본 뒤에도 옛 토큰이 최대 30초 통과했다 — 2026-09-07 검증)
+const ep = () => (g.__tvEpoch ??= 0);
 const TV_TTL_MS = 30_000;
 
 /**
@@ -56,10 +60,12 @@ export const NO_USER = Symbol("no-user");
 async function currentTokenVersion(userId: string): Promise<number | null | typeof NO_USER> {
   const hit = tvCache.get(userId);
   if (hit && Date.now() - hit.at < TV_TTL_MS) return hit.v;
+  const epoch = ep(); // DB 를 읽기 **전에** 찍어둔다
   try {
     const u = await prisma.user.findUnique({ where: { id: userId }, select: { tokenVersion: true } });
     if (!u) return NO_USER;
-    tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
+    // 읽는 사이에 무효화가 일어났으면 이 값은 이미 낡았다 — 캐시에 넣지 않는다.
+    if (epoch === ep()) tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
     return u.tokenVersion;
   } catch {
     return null;
@@ -72,7 +78,14 @@ async function currentTokenVersion(userId: string): Promise<number | null | type
  */
 export async function bumpTokenVersion(userId: string): Promise<void> {
   try {
-    await prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+    const u = await prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+      select: { tokenVersion: true },
+    });
+    // 지우지 않고 **새 값으로 덮어쓴다**. 지우기만 하면 진행 중이던 읽기가
+    // 옛 값으로 다시 채울 수 있다(위 epoch 검사와 한 쌍).
+    tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
   } catch (e) {
     // 조용히 삼키면 안 된다 — 여기가 실패하면 퇴사자 토큰이 그대로 살아남는데
     // 화면에도 감사기록에도 아무 흔적이 없다. 오류 감시에 걸리도록 남긴다.
@@ -83,10 +96,42 @@ export async function bumpTokenVersion(userId: string): Promise<void> {
         message: `세션 무효화 실패 — userId=${userId}. 이 사람의 기존 토큰이 아직 살아 있습니다.`,
       },
     }).catch(() => {});
+    tvCache.delete(userId); // 실패했으면 캐시를 비워 다음 요청이 DB 를 다시 읽게 한다
     throw e;
   } finally {
-    tvCache.delete(userId);
+    g.__tvEpoch = ep() + 1;
   }
+}
+
+/**
+ * 여러 명의 토큰을 한 번에 무효화한다. 지점명 변경처럼 한 번에 수십 명의
+ * `User.branch` 가 바뀌는 경우에 쓴다 — 토큰에 branch 가 박혀 있어서, 안 끊으면
+ * 원장의 근태.직원 조회가 옛 지점명으로 조회돼 **조용히 빈 결과**가 된다
+ * (2026-09-07 검증에서 적발).
+ */
+export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
+  if (userIds.length === 0) return 0;
+  try {
+    const r = await prisma.user.updateMany({
+      where: { id: { in: userIds } },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    return r.count;
+  } finally {
+    for (const id of userIds) tvCache.delete(id);
+    g.__tvEpoch = ep() + 1;
+  }
+}
+
+/**
+ * 이 세션이 아직 살아 있는가. 한 번 인증하고 **오래 유지되는 연결**(SSE 등)이
+ * 주기적으로 스스로 확인할 때 쓴다 — 접속할 때 한 번만 보면, 무효화한 뒤에도
+ * 이미 열린 연결로 이벤트가 계속 흘러간다(2026-09-07 검증에서 적발).
+ * DB 조회 실패는 살아 있는 것으로 본다(getSession 과 같은 기준).
+ */
+export async function isSessionStillValid(payload: { userId: string; tv?: number }): Promise<boolean> {
+  const cur = await currentTokenVersion(payload.userId);
+  return cur === null || cur === (payload.tv ?? 0);
 }
 
 export async function getSession(): Promise<JWTPayload | null> {
