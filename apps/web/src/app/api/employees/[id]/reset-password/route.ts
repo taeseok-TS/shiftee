@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
@@ -48,6 +48,11 @@ export async function PATCH(
       where: { id },
       data: { password: hashedPassword, passwordResetAt: new Date() },
     });
+
+    // 비밀번호가 바뀌었으면 그 사람의 **기존 세션을 전부 끊는다**.
+    // "폰을 잃어버려서 비번을 바꿨다"가 정작 탈취된 세션을 못 끊으면 의미가 없다
+    // (2026-09-07 검증에서 적발). 새 비번으로 다시 로그인하면 된다.
+    await bumpTokenVersion(id).catch(() => {});
 
     await logAudit({
       actorId: session.userId,

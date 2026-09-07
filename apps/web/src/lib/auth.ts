@@ -42,13 +42,23 @@ const g = globalThis as unknown as { __tvCache?: Map<string, { v: number; at: nu
 const tvCache = g.__tvCache ?? (g.__tvCache = new Map());
 const TV_TTL_MS = 30_000;
 
-/** 그 사람의 현재 tokenVersion. 조회 실패면 null(= 판정을 건너뛴다 — 감시가 앱을 멈추면 안 된다). */
-async function currentTokenVersion(userId: string): Promise<number | null> {
+/**
+ * 그 사람의 현재 tokenVersion.
+ *
+ * 반환값 세 가지를 **구분해서** 쓴다 — 셋을 같은 값으로 뭉개면 사고가 난다.
+ *   숫자  : 정상. 토큰의 tv 와 대조한다.
+ *   null  : DB 조회가 실패했다 → 판정을 건너뛴다(fail-open). DB 가 한 번 흔들렸다고
+ *           전원 로그아웃되면 안 되기 때문이다.
+ *   NO_USER: 그런 사용자가 없다 → **무조건 막는다**(fail-closed). 하드 삭제된 계정의
+ *           토큰이 남은 유효기간 동안 살아 있으면 안 된다(2026-09-07 검증에서 적발).
+ */
+export const NO_USER = Symbol("no-user");
+async function currentTokenVersion(userId: string): Promise<number | null | typeof NO_USER> {
   const hit = tvCache.get(userId);
   if (hit && Date.now() - hit.at < TV_TTL_MS) return hit.v;
   try {
     const u = await prisma.user.findUnique({ where: { id: userId }, select: { tokenVersion: true } });
-    if (!u) return null;
+    if (!u) return NO_USER;
     tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
     return u.tokenVersion;
   } catch {
@@ -63,6 +73,17 @@ async function currentTokenVersion(userId: string): Promise<number | null> {
 export async function bumpTokenVersion(userId: string): Promise<void> {
   try {
     await prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+  } catch (e) {
+    // 조용히 삼키면 안 된다 — 여기가 실패하면 퇴사자 토큰이 그대로 살아남는데
+    // 화면에도 감사기록에도 아무 흔적이 없다. 오류 감시에 걸리도록 남긴다.
+    console.error("[auth] 세션 무효화 실패:", userId, e);
+    await prisma.systemErrorLog.create({
+      data: {
+        path: "/lib/auth (세션 무효화)", method: "INTERNAL",
+        message: `세션 무효화 실패 — userId=${userId}. 이 사람의 기존 토큰이 아직 살아 있습니다.`,
+      },
+    }).catch(() => {});
+    throw e;
   } finally {
     tvCache.delete(userId);
   }
@@ -86,6 +107,7 @@ export async function getSession(): Promise<JWTPayload | null> {
   // ⚠ 서명이 맞아도 **무효화된 토큰이면 거부**한다. 종전에는 퇴사 처리를 해도 이미 발급된
   //   7일짜리 토큰을 끊을 수단이 없어, 퇴사자가 앱을 켜둔 채면 계속 출퇴근을 찍을 수 있었다.
   //   tv 가 없는 옛 토큰은 0 으로 본다 — 무효화가 한 번이라도 있었으면 자연히 걸린다.
+  // null(DB 장애)만 통과시킨다. NO_USER(계정 없음)는 숫자와도 다르므로 여기서 막힌다.
   const cur = await currentTokenVersion(payload.userId);
   if (cur !== null && cur !== (payload.tv ?? 0)) return null;
   return payload;

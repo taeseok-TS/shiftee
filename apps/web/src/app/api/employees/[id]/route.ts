@@ -45,7 +45,7 @@ export async function PATCH(
   const todayMidnight = kstTodayMidnight();
 
   // 변경 전 값(감사 로그용)
-  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true } });
+  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true } });
 
   // MANAGER는 담당 지점(대표+겸직) 구성원만 수정 가능
   if (session.role === "MANAGER") {
@@ -156,10 +156,19 @@ export async function PATCH(
     }
   }
 
-  // 권한이 내려가거나 퇴사일이 붙으면 **이미 나가 있는 토큰**을 끊는다 (2026-09-07 디렉터 지시).
-  // 토큰에는 role 이 박혀 있어서, 안 끊으면 강등된 사람이 남은 유효기간 동안
-  // 예전 권한 그대로 움직인다.
-  if ((role !== undefined && before && role !== before.role) || resignVal !== undefined) {
+  // 권한·지점이 바뀌거나 퇴사일이 붙으면 **이미 나가 있는 토큰**을 끊는다 (2026-09-07 디렉터 지시).
+  // 토큰에 role 과 branch 가 박혀 있어서, 안 끊으면 강등되거나 지점을 옮긴 사람이
+  // 남은 유효기간 동안 예전 권한·예전 지점 그대로 움직인다.
+  //
+  // ⚠ **실제로 바뀌었을 때만** 끊는다. 관리자 수정 모달은 재직자에게도 resignDate:null 을
+  //    항상 보내므로, "값이 넘어왔는가"로 판정하면 전화번호 오타 하나 고쳐도 그 직원이
+  //    로그아웃된다(2026-09-07 검증에서 적발).
+  const ms = (d: Date | null | undefined) => (d ? d.getTime() : 0);
+  const roleChanged = role !== undefined && !!before && role !== before.role;
+  const branchChanged = finalBranch !== undefined && !!before && (finalBranch ?? null) !== (before.branch ?? null);
+  const resignChanged = resignVal !== undefined && !!before && ms(resignVal) !== ms(before.resignDate);
+  // 관리자가 새 비번을 지정한 경우도 마찬가지 — 옛 비번으로 열어둔 세션이 남으면 안 된다.
+  if (roleChanged || branchChanged || resignChanged || hashedPassword !== undefined) {
     await bumpTokenVersion(id).catch(() => {});
   }
 

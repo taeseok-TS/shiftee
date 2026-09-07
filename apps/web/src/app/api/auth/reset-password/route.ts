@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { bumpTokenVersion } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { botSendDM } from "@/lib/bot";
@@ -48,6 +49,11 @@ export async function POST(request: NextRequest) {
     prisma.user.update({ where: { id: row.userId }, data: { password: hashed } }),
     prisma.passwordResetToken.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
   ]);
+
+  // 비밀번호가 바뀌었으면 그 사람의 **기존 세션을 전부 끊는다**.
+  // "폰을 잃어버려서 비번을 바꿨다"가 정작 탈취된 세션을 못 끊으면 의미가 없다
+  // (2026-09-07 검증에서 적발). 새 비번으로 다시 로그인하면 된다.
+  await bumpTokenVersion(row.userId).catch(() => {});
 
   // 본인에게 보안 알림 + 감사 흔적 (실패해도 응답은 성공)
   botSendDM(row.userId, "🔐 비밀번호가 방금 변경되었습니다.\n본인이 아니라면 즉시 관리자에게 알려주세요.").catch(() => {});

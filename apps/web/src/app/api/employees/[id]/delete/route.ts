@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function DELETE(
@@ -74,6 +74,11 @@ export async function DELETE(
         isActive: false,
       },
     });
+
+    // 삭제했으면 그 사람 폰에 살아 있는 토큰도 함께 끊는다. getSession 은 deletedAt 을
+    // 보지 않으므로, 안 끊으면 삭제된 계정이 남은 유효기간 동안 그대로 움직인다
+    // (메인 관리자는 퇴사 처리 없이 바로 삭제할 수 있다 — 2026-09-07 검증에서 적발).
+    await bumpTokenVersion(id).catch(() => {});
 
     return NextResponse.json({
       success: true,

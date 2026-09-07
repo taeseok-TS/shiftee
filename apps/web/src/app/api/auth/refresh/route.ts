@@ -12,7 +12,7 @@ export async function POST() {
   // 최신 상태로 재발급 (퇴사 처리된 계정 차단 + 이름/지점 변경 반영)
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, email: true, role: true, name: true, branch: true, isActive: true, resignDate: true },
+    select: { id: true, email: true, role: true, name: true, branch: true, isActive: true, resignDate: true, tokenVersion: true },
   });
   if (!user || !user.isActive)
     return NextResponse.json({ error: "사용할 수 없는 계정입니다." }, { status: 401 });
@@ -26,6 +26,9 @@ export async function POST() {
     role: user.role,
     name: user.name,
     branch: user.branch,
+    // ⚠ 이걸 빼면 갱신 토큰에 tv 가 없어져, 한 번이라도 무효화된 사람은
+    //   앱을 껐다 켤 때마다 강제 로그아웃된다(2026-09-07 검증에서 적발).
+    tv: user.tokenVersion,
   });
   return NextResponse.json({ success: true, token });
 }

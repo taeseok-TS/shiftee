@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import bcryptjs from "bcryptjs";
 import { currentLeaveYear } from "@/lib/leave-calc";
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
 
         const existing = await prisma.user.findUnique({
           where: { email },
-          select: { id: true, empNo: true, branch: true },
+          select: { id: true, empNo: true, branch: true, role: true },
         });
 
         // 원장은 **담당 지점 직원만** 건드릴 수 있다. 개별 수정에는 있던 검사가 여기만 없어서,
@@ -190,6 +190,12 @@ export async function POST(request: NextRequest) {
             continue;
           }
           await prisma.user.update({ where: { id: existing.id }, data: patch });
+          // 권한·지점이 실제로 바뀌었으면 그 사람의 기존 토큰을 끊는다.
+          // 토큰에 role 과 branch 가 박혀 있어서, 안 끊으면 엑셀로 강등한 사람이
+          // 남은 유효기간 동안 예전 권한 그대로 움직인다(2026-09-07 검증에서 적발).
+          const roleChanged = patch.role !== undefined && patch.role !== existing.role;
+          const branchChanged = patch.branch !== undefined && patch.branch !== existing.branch;
+          if (roleChanged || branchChanged) await bumpTokenVersion(existing.id).catch(() => {});
           updated++;
           continue;
         }

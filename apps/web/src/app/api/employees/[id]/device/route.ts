@@ -35,11 +35,14 @@ export async function DELETE(
   }
 
   const removed = await prisma.userDevice.deleteMany({ where: { userId: id } });
-  // 기기를 초기화했으면 그 기기에 남아 있던 토큰도 함께 끊는다 —
-  // 안 끊으면 초기화 전 토큰으로 계속 출퇴근이 찍힌다.
-  await bumpTokenVersion(id).catch(() => {});
   if (removed.count === 0)
     return NextResponse.json({ error: "등록된 기기가 없습니다." }, { status: 404 });
+
+  // 기기를 초기화했으면 그 기기에 남아 있던 토큰도 함께 끊는다 —
+  // 안 끊으면 초기화 전 토큰으로 계속 출퇴근이 찍힌다.
+  // (404 로 아무것도 안 지운 경우까지 끊으면, 관리자는 실패 메시지를 보는데
+  //  직원만 조용히 로그아웃된다 — 2026-09-07 검증에서 적발)
+  await bumpTokenVersion(id).catch(() => {});
 
   const target = await prisma.user.findUnique({ where: { id }, select: { name: true } });
   await logAudit({
