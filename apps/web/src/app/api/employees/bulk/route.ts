@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import bcryptjs from "bcryptjs";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
+import { getManagerBranches } from "@/lib/manager-branches";
 
 // 엑셀 셀 값은 숫자/날짜 등 아무 타입이나 올 수 있음 (예: 비밀번호 12345678 → number)
 interface BulkEmployee {
@@ -54,6 +55,11 @@ export async function POST(request: NextRequest) {
   if (session.role === "EMPLOYEE") {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
+
+  // ⚠ 종전에는 여기서 끝이었다. 원장은 **담당 지점 검사 없이** 이메일만 알면 전사 아무 직원이나
+  //   고칠 수 있었고, 지점을 좌표 없는 곳으로 옮기면 그 직원의 출퇴근 위치 검사가 꺼졌다
+  //   (2026-09-07 점검). 개별 수정(employees/[id])에는 있던 범위 검사가 이 경로에만 없었다.
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
 
   try {
     // updateExisting: 기존 직원(이메일 기준)이면 오류 대신 적힌 컬럼만 갱신 (일괄 정보 수정 모드)
@@ -113,6 +119,13 @@ export async function POST(request: NextRequest) {
           failed++;
           continue;
         }
+        // 원장은 지점을 바꿀 수 없다 (디렉터 지시). 담당 지점 안이라도 마찬가지 —
+        // 지점 변경은 출퇴근 위치 검사와 권한 범위를 동시에 움직이는 일이라 관리자만 한다.
+        if (session.role === "MANAGER" && branch) {
+          errors.push(`${rowNum}번 행: 지점 변경은 관리자만 할 수 있습니다.`);
+          failed++;
+          continue;
+        }
 
         // 사원번호 파싱 (지정된 경우만)
         let empNoProvided: number | undefined;
@@ -129,8 +142,19 @@ export async function POST(request: NextRequest) {
 
         const existing = await prisma.user.findUnique({
           where: { email },
-          select: { id: true, empNo: true },
+          select: { id: true, empNo: true, branch: true },
         });
+
+        // 원장은 **담당 지점 직원만** 건드릴 수 있다. 개별 수정에는 있던 검사가 여기만 없어서,
+        // 이메일만 알면 전사 아무 직원이나 고칠 수 있었다 (2026-09-07 점검).
+        if (session.role === "MANAGER") {
+          const targetBranch = existing?.branch ?? branch;   // 신규 생성이면 엑셀에 적힌 지점
+          if (!targetBranch || !myBranches.includes(targetBranch)) {
+            errors.push(`${rowNum}번 행: 담당 지점 직원만 등록·수정할 수 있습니다. (${email})`);
+            failed++;
+            continue;
+          }
+        }
 
         // ── 기존 직원: 업데이트 모드면 적힌 컬럼만 갱신, 아니면 중복 오류 ──
         if (existing) {

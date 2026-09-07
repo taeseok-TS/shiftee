@@ -8,16 +8,9 @@ import { endOfMonth, endOfYear } from "date-fns";
 export async function GET(request: NextRequest) {
   try {
     // 요청 헤더 로깅
-    const cookieHeader = request.headers.get("cookie");
-    console.log("[STATS ACTIVE] Request cookie header:", cookieHeader ? "YES" : "NO");
-    if (cookieHeader) {
-      console.log("[STATS ACTIVE] Cookie value (first 50):", cookieHeader.substring(0, 50));
-    }
 
     const session = await getSession();
-    console.log("[STATS ACTIVE] Session:", session?.userId || "NO SESSION");
     if (!session) {
-      console.log("[STATS ACTIVE] No session found, returning 401");
       return NextResponse.json(
         { error: "인증이 필요합니다." },
         { status: 401 }
@@ -65,7 +58,6 @@ export async function GET(request: NextRequest) {
       session.role === "MANAGER" ? { in: myBranches } : undefined;
 
     // 대상 일자 기준 재직자 조회
-    console.log("[STATS ACTIVE] Query params:", { period, dateParam, targetEndDate });
 
     let employees;
     try {
@@ -109,7 +101,6 @@ export async function GET(request: NextRequest) {
           branch: true,
         },
       });
-      console.log("[STATS ACTIVE] Query succeeded, count:", employees.length);
     } catch (queryError) {
       console.error("[STATS ACTIVE] Query error:", queryError);
       throw queryError;
@@ -142,7 +133,6 @@ export async function GET(request: NextRequest) {
 
     const total = employees.length;
 
-    console.log("[STATS ACTIVE] Success - Total employees:", total);
     return NextResponse.json({
       total,
       byPosition,

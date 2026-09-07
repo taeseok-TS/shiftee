@@ -63,5 +63,13 @@ export async function POST(request: NextRequest) {
       radius: radius ? Number(radius) : 100,
     },
   });
+  // 담당자(관리자·본부장)에게 알린다. 좌표가 없으면 그 지점은 **위치 검사가 통째로 꺼지므로**
+  // 알림 본문이 그 사실을 명시한다 (2026-09-07 디렉터 지시).
+  // 응답 뒤에 보낸다 — 알림 실패가 지점 등록을 되돌리면 안 된다.
+  void (async () => {
+    const { notifyBranchChange } = await import("@/lib/branch-notify");
+    await notifyBranchChange("created", branch, session.name);
+  })();
+
   return NextResponse.json({ success: true, branch });
 }

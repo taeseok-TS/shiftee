@@ -56,11 +56,19 @@ export async function PATCH(
     if (!target || !targetBranch || !myBranches.includes(targetBranch)) {
       return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     }
-    // MANAGER는 role만 변경 불가, branch는 변경 가능
+    // ⚠ 원장은 **지점을 바꿀 수 없다**(2026-09-07 디렉터 지시).
+    //   종전에는 바꿀 수 있었고, 그러면 두 가지가 한꺼번에 무너졌다:
+    //   ① 자기 지점을 존재하지 않는 값(예: "zzz")으로 바꾸면 그 이름의 Branch 가 없어
+    //      출퇴근 위치 검사가 통째로 건너뛰어진다 — 어디서든 출근이 찍힌다.
+    //   ② 자기 지점을 남의 지점으로 바꾸면 담당 범위가 그리로 옮겨가(getManagerBranches 는
+    //      세션이 아니라 DB 의 User.branch 를 읽는다) 그 지점 직원의 근태 조회·기기 초기화까지 된다.
+    //   원장이 자기 자신도 수정 대상에 들어간다는 점이 이걸 가능하게 했다.
+    if (branch !== undefined && (branch || null) !== targetBranch)
+      return NextResponse.json({ error: "지점 변경은 관리자만 할 수 있습니다." }, { status: 403 });
     const updated = await prisma.user.update({
       where: { id },
       // 미전송(undefined) 필드는 건드리지 않음 — 부분 수정 시 기존 값 보존
-      data: { name, department, jobGroup: jobGroup === undefined ? undefined : jobGroup || null, position, branch: branch === undefined ? undefined : branch || null, phone, hireDate: hireDate ? new Date(hireDate) : undefined, birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null },
+      data: { name, department, jobGroup: jobGroup === undefined ? undefined : jobGroup || null, position, phone, hireDate: hireDate ? new Date(hireDate) : undefined, birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null },
     });
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",

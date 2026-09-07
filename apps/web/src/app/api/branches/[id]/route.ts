@@ -40,8 +40,10 @@ export async function PATCH(
       countInStats: countInStats === undefined ? undefined : !!countInStats, // 통계 포함 여부 (미전송 시 유지)
     };
 
-    // 변경 이전 이름 확보 — User.branch가 지점명 문자열로 매핑돼 있어 이름 변경 시 동기화 필요
-    const before = await prisma.branch.findUnique({ where: { id }, select: { name: true } });
+    // 변경 이전 값 확보 — 이름은 User.branch 동기화용, 좌표.반경은 위치 검사 변화 판정용
+    const before = await prisma.branch.findUnique({
+      where: { id }, select: { name: true, latitude: true, longitude: true, radius: true },
+    });
     if (!before) return NextResponse.json({ error: "지점을 찾을 수 없습니다." }, { status: 404 });
 
     if (before.name !== name) {
@@ -59,15 +61,41 @@ export async function PATCH(
         targetName: name,
         detail: `${before.name}→${name}, 직원 ${synced.count}명 동기화`,
       });
+      notifyIfGeofenceChanged(branch, before, session.name, `이름 변경 ${before.name}→${name}, 직원 ${synced.count}명 동기화`);
       return NextResponse.json({ success: true, branch, syncedUsers: synced.count });
     }
 
     const branch = await prisma.branch.update({ where: { id }, data });
+    notifyIfGeofenceChanged(branch, before, session.name);
     return NextResponse.json({ success: true, branch });
   } catch (error) {
     console.error("지점 수정 실패:", error);
     return NextResponse.json({ error: "지점을 수정할 수 없습니다." }, { status: 500 });
   }
+}
+
+/**
+ * 위치 검사에 영향을 주는 변경일 때만 알린다 (2026-09-07).
+ * 좌표가 생기거나 사라지거나 옮겨지거나 반경이 바뀌면 **출퇴근이 허용되는 범위가 달라진다.**
+ * 통계 포함 여부 같은 변경까지 알리면 소음이 되어 정작 중요한 것이 묻힌다.
+ */
+function notifyIfGeofenceChanged(
+  after: { name: string; address: string | null; latitude: number | null; longitude: number | null; radius: number },
+  before: { latitude: number | null; longitude: number | null; radius: number },
+  actorName: string,
+  extra?: string
+) {
+  const moved =
+    (before.latitude == null) !== (after.latitude == null) ||
+    (before.longitude == null) !== (after.longitude == null) ||
+    before.latitude !== after.latitude ||
+    before.longitude !== after.longitude ||
+    before.radius !== after.radius;
+  if (!moved && !extra) return;
+  void (async () => {
+    const { notifyBranchChange } = await import("@/lib/branch-notify");
+    await notifyBranchChange("updated", after, actorName, extra);
+  })();
 }
 
 export async function DELETE(
@@ -82,7 +110,13 @@ export async function DELETE(
 
   try {
     const { id } = await params;
-    await prisma.branch.update({ where: { id }, data: { isActive: false } });
+    const branch = await prisma.branch.update({ where: { id }, data: { isActive: false } });
+    // ⚠ 비활성 지점은 clock-in 의 `isActive: true` 조회에서 빠져 **위치 검사가 꺼진다.**
+    //   등록만큼 중요한 사건이라 함께 알린다.
+    void (async () => {
+      const { notifyBranchChange } = await import("@/lib/branch-notify");
+      await notifyBranchChange("deactivated", branch, session.name);
+    })();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("지점 삭제 실패:", error);

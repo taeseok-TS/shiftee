@@ -45,8 +45,19 @@ export async function GET(request: NextRequest) {
     orderBy: [{ branch: "asc" }, { name: "asc" }],
   });
 
-  // 데이터 필터링 적용: MANAGER는 자신의 지점만 조회하므로 모두 상세정보 노출, ADMIN도 모두 노출
-  // (권한 검증은 위의 WHERE 절에서 이미 수행됨)
+  // ⚠ 일반 직원에게는 **이름과 지점만** 준다 (2026-09-07 디렉터 지시).
+  //   종전에는 역할 검사가 아예 없어, 직원 아무나 전 직원의 전화번호.생년월일.이메일.입사일.
+  //   퇴사사유.연차잔여.등록기기명까지 받아갔다 — 라이브에서 124명분이 나가는 것을 확인했다.
+  //   `filterUserDataArray` 를 import 해 놓고 한 번도 부르지 않은 상태였다(넣다 만 흔적).
+  //   채팅에서 사람을 찾는 것은 이 API 가 아니라 /api/work/members 가 담당하고,
+  //   거기는 이미 개인정보 없이 이름.지점.부서만 준다.
+  if (session.role === "EMPLOYEE") {
+    return NextResponse.json({
+      employees: employees.map(emp => ({ id: emp.id, name: emp.name, branch: emp.branch })),
+    });
+  }
+
+  // 관리자.원장용 상세 (원장은 위 WHERE 절에서 담당 지점으로 이미 좁혀져 있다)
   const filteredEmployees = employees.map(emp => ({
     id: emp.id,
     name: emp.name,
