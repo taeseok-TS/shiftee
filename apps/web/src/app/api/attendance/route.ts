@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (existing)
     return NextResponse.json({ error: "해당 날짜에 이미 출퇴근 기록이 있습니다. 수정 기능을 사용해주세요." }, { status: 409 });
 
-  const status = await calcStatus(inAt, outAt, date);
+  const status = await calcStatus(inAt, outAt, date, userId);
   const attendance = await prisma.attendance.create({
     data: { userId, date: dateUtc, clockIn: inAt, clockOut: outAt, status },
   });

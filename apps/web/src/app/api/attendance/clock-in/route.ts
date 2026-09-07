@@ -95,9 +95,13 @@ export async function POST(request: NextRequest) {
   }
 
   const now = new Date();
-  // 지각 판정은 한국시간 기준 (서버 TZ는 UTC). 공휴일에는 지각 판정 안 함
+  // 지각 판정은 **본인이 승인받은 근무일정 시작 시각** 기준 (2026-09-07 디렉터 지시).
+  // 종전에는 09:00 하드코딩이라 오후 1시 출근이 정상인 근무자가 매일 지각으로 찍혔다.
+  // 근무일정이 없는 날은 09:00 으로 되돌아간다. 공휴일에는 판정하지 않는다.
   const holiday = await isHoliday(kstTodayYmd());
-  const isLate = !holiday && (kstHour(now) > 9 || (kstHour(now) === 9 && kstMinute(now) > 0));
+  const { workWindowFor } = await import("@/lib/attendance-status");
+  const { startMin } = await workWindowFor(session.userId, kstTodayYmd());
+  const isLate = !holiday && kstHour(now) * 60 + kstMinute(now) > startMin;
 
   const attendance = await prisma.attendance.upsert({
     where: { userId_date: { userId: session.userId, date: today } },

@@ -3,7 +3,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { haversineDistance } from "@/lib/geofence";
 import { verifyAttendanceDevice } from "@/lib/device";
-import { kstHour, kstTodayDateUTC } from "@/lib/kst";
+import { kstHour, kstMinute, kstTodayDateUTC } from "@/lib/kst";
+import { readClockOutLimit, parseHhmm } from "@/lib/attendance-policy";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { Attendance } from "@shiftee/api";
@@ -18,6 +19,28 @@ export async function POST(request: NextRequest) {
 
   // 오늘(KST) 날짜를 @db.Date 용 UTC 자정으로 (clock-in 과 동일 규칙, kst.ts 참고)
   const today = kstTodayDateUTC();
+
+  // 퇴근 가능 시각 — 관리자가 환경설정에서 정한다(기본 23:59 = 자정 넘기면 못 찍는다).
+  // ⚠ 이 검사를 **출근 기록 조회보다 먼저** 한다. 자정을 넘기면 아래 조회가 어제 기록을
+  //   못 찾아 "출근 기록이 없습니다" 라는 **사실과 다른 메시지**가 나갔다 — 직원은 무엇을
+  //   해야 할지 알 수 없었다(2026-09-07 점검). 이유를 정확히 말해야 관리자에게 문의라도 한다.
+  if (session.role !== "ADMIN") {
+    const limit = await readClockOutLimit();
+    const limitMin = parseHhmm(limit.time);
+    if (limit.enabled && limitMin != null) {
+      const nowMin = kstHour(new Date()) * 60 + kstMinute(new Date());
+      if (nowMin > limitMin) {
+        return NextResponse.json(
+          {
+            error: `퇴근 가능 시간(${limit.time})이 지났습니다.\n오늘 근무는 관리자가 마감해 드립니다. 관리자에게 알려주세요.`,
+            pastClockOutLimit: true,
+            limit: limit.time,
+          },
+          { status: 403 }
+        );
+      }
+    }
+  }
 
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },
@@ -106,11 +129,18 @@ export async function POST(request: NextRequest) {
   // 조퇴 판정은 한국시간 기준 (UTC getHours를 쓰면 KST 새벽 3시까지 조퇴로 찍히던 버그).
   // 휴일에는 조퇴 판정 안 함 — 기준은 "퇴근일"이 아니라 **출근일**이다.
   // (공휴일 20시 출근 → 익일 01시 퇴근이면 퇴근일 기준으로는 평일이라 조퇴로 오기록됐다)
-  const holiday = await isHoliday(new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10));
-  const isEarlyLeave = !holiday && kstHour(now) < 18;
-  const status = existing.status === "LATE"
-    ? (isEarlyLeave ? "EARLY_LEAVE" : "LATE")
-    : (isEarlyLeave ? "EARLY_LEAVE" : "NORMAL");
+  const workDayYmd = new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const holiday = await isHoliday(workDayYmd);
+  // 조퇴 판정도 **본인이 승인받은 근무일정 종료 시각** 기준 (2026-09-07 디렉터 지시).
+  // 종전에는 18:00 하드코딩이라 오후 10시 퇴근이 정상인 근무자도 판정이 어긋났다.
+  const { workWindowFor } = await import("@/lib/attendance-status");
+  const { endMin } = await workWindowFor(session.userId, workDayYmd);
+  const isEarlyLeave = !holiday && kstHour(now) * 60 + kstMinute(now) < endMin;
+  // ⚠ 지각이 조퇴로 **덮여 사라지던** 것을 고친다. 종전에는 지각으로 출근한 사람이 일찍
+  //   퇴근하면 EARLY_LEAVE 가 되어 지각 기록이 지워졌는데, 관리자가 그 기록을 한 번만 열어
+  //   저장하면 calcStatus(지각 우선)를 타고 LATE 로 뒤집혔다 — 두 경로가 서로 달랐다.
+  //   lib/attendance-status.ts 와 같은 규칙(지각 우선)으로 맞춘다.
+  const status = existing.status === "LATE" ? "LATE" : (isEarlyLeave ? "EARLY_LEAVE" : "NORMAL");
 
   const attendance = await prisma.attendance.update({
     where: { id: existing.id },

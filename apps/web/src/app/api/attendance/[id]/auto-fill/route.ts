@@ -45,7 +45,7 @@ export async function PATCH(
   }
 
   // 상태 재계산 — 공용 판정 함수 (지각/조퇴, 공휴일 제외, 한국시간 기준)
-  const status = await calcStatus(clockIn, clockOut, record.date.toISOString().slice(0, 10));
+  const status = await calcStatus(clockIn, clockOut, record.date.toISOString().slice(0, 10), record.userId);
 
   const updated = await prisma.attendance.update({
     where: { id },

@@ -46,7 +46,7 @@ export async function PATCH(
     return NextResponse.json({ error: "퇴근 시각이 출근 시각보다 빠릅니다." }, { status: 400 });
 
   const dateYmd = record.date.toISOString().slice(0, 10);
-  const status = await calcStatus(newIn, newOut, dateYmd);
+  const status = await calcStatus(newIn, newOut, dateYmd, record.userId);
 
   const attendance = await prisma.attendance.update({
     where: { id },

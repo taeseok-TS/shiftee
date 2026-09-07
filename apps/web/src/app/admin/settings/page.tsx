@@ -37,6 +37,37 @@ const ACTION_LABEL: Record<string, string> = {
 
 export default function AdminSettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
+
+  // 퇴근 가능 시간 (2026-09-07 디렉터 지시) — 이 시각을 넘기면 직원이 앱에서 퇴근을 못 찍는다.
+  // 기본 23:59 = 자정을 넘기면 못 찍는다. 자정을 넘긴 근무는 관리자가 마감한다.
+  const [clockOutOn, setClockOutOn] = useState(true);
+  const [clockOutTime, setClockOutTime] = useState("23:59");
+  const [clockOutSaving, setClockOutSaving] = useState(false);
+  const [clockOutLoaded, setClockOutLoaded] = useState(false);
+  useEffect(() => {
+    fetch("/api/admin/attendance-policy")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.clockOutLimit) { setClockOutOn(d.clockOutLimit.enabled); setClockOutTime(d.clockOutLimit.time); }
+      })
+      .catch(() => toast.error("퇴근 시간 설정을 불러오지 못했습니다."))
+      .finally(() => setClockOutLoaded(true));
+  }, []);
+  const saveClockOut = async (enabled: boolean, time: string) => {
+    setClockOutSaving(true);
+    try {
+      const res = await fetch("/api/admin/attendance-policy", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, time }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return false; }
+      toast.success(enabled ? `퇴근 가능 시간을 ${time}로 정했습니다.` : "퇴근 시간 제한을 껐습니다.");
+      return true;
+    } catch {
+      toast.error("서버에 연결하지 못했습니다."); return false;
+    } finally { setClockOutSaving(false); }
+  };
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loginFails, setLoginFails] = useState<LoginFailRow[]>([]);
@@ -405,6 +436,62 @@ export default function AdminSettingsPage() {
             <p className="text-sm text-gray-600">마지막 백업: 2일 전</p>
             <Button variant="outline" className="mt-4">자동 백업 설정</Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>출퇴근 설정</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4 p-4 border rounded-lg">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900">퇴근 가능 시간 제한</p>
+              <p className="text-sm text-gray-600">
+                정한 시각이 지나면 직원이 앱에서 퇴근을 찍을 수 없습니다. 그 근무는 관리자가 마감합니다.
+              </p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={clockOutOn}
+                disabled={!clockOutLoaded || clockOutSaving}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setClockOutOn(next);
+                  if (!(await saveClockOut(next, clockOutTime))) setClockOutOn(!next);
+                }}
+              />
+              <div className="w-10 h-6 bg-gray-200 peer-checked:bg-blue-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-60" />
+            </label>
+          </div>
+
+          <div className={`flex items-center justify-between gap-4 p-4 border rounded-lg ${clockOutOn ? "" : "opacity-50"}`}>
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900">마감 시각</p>
+              <p className="text-sm text-gray-600">
+                기본 23:59 — <b>자정을 넘기면 퇴근을 찍을 수 없습니다.</b>
+              </p>
+            </div>
+            <input
+              type="time"
+              value={clockOutTime}
+              disabled={!clockOutOn || !clockOutLoaded || clockOutSaving}
+              onChange={(e) => setClockOutTime(e.target.value)}
+              onBlur={async (e) => {
+                const v = e.target.value;
+                if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(v)) { toast.error("시각 형식이 올바르지 않습니다."); return; }
+                await saveClockOut(clockOutOn, v);
+              }}
+              className="border rounded-lg px-3 py-2 text-sm shrink-0 disabled:bg-gray-100"
+            />
+          </div>
+
+          <p className="text-xs text-gray-400">
+            지각·조퇴는 <b>본인이 승인받은 근무일정 시각</b>을 기준으로 판정합니다.
+            근무일정이 없는 날은 09:00 출근 / 18:00 퇴근 기준입니다.
+          </p>
         </CardContent>
       </Card>
 
