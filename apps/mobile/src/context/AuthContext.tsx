@@ -47,7 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const ok = await auth.isAuthenticated();
       if (!ok) return;
       const token = await auth.refreshToken();
-      if (!token) setIsLoggedIn(false);
+      if (!token) { setIsLoggedIn(false); return; }
+      // 푸시 등록을 다시 심는다. 서버가 세션을 무효화하면(퇴사.기기초기화.비밀번호 변경)
+      // 그 사람의 푸시 등록도 함께 지워지므로, 계속 쓰는 기기는 여기서 되살아나야 한다.
+      // 같은 토큰을 다시 올리는 것이라 중복은 서버가 걸러낸다.
+      registerPushToken();
     });
     return () => sub.remove();
   }, []);

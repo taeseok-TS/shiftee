@@ -312,9 +312,12 @@ export default function ManagerContractsPage() {
 
       {/* 승인 다이얼로그 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>계약서 결재 승인</DialogTitle></DialogHeader>
-          <div className="space-y-4">
+        <DialogContent className="max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+          {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
+              (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
+              버튼 줄은 아래에 고정해 어떤 화면 크기에서도 항상 손이 닿게 한다. */}
+          <DialogHeader className="shrink-0"><DialogTitle>계약서 결재 승인</DialogTitle></DialogHeader>
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
             {signTarget && (
               <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                 <p className="font-medium">{signTarget.title}</p>
@@ -357,7 +360,8 @@ export default function ManagerContractsPage() {
                 <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
               </div>
             )}
-            <div className="flex gap-2 justify-end">
+            {/* 스크롤해도 항상 보이도록 하단에 붙인다 */}
+            <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
               <Button variant="outline" onClick={() => setSignOpen(false)} disabled={signing}>취소</Button>
               {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
               <Button variant="ghost" className="text-red-600 hover:bg-red-50" disabled={signing}

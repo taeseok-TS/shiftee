@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { isResigned } from "./resign";
 import { getWorkUnreadTotal } from "./work-unread";
 
 // Expo Push API 로 푸시 알림을 보낸다.
@@ -29,15 +30,26 @@ export async function sendPushToUsers(
 ): Promise<void> {
   if (userIds.length === 0) return;
 
-  let targetIds = userIds;
+  // 퇴사.비활성 계정에는 보내지 않는다. 세션은 끊겨도 옛 푸시 등록이 남아 있으면
+  // 채팅 **본문 미리보기**가 계속 간다(2026-09-08 9차 검증에서 운영 실측 — 비활성
+  // 계정 단말 2대가 4개 채널의 새 메시지를 계속 받고 있었다).
+  // 무효화 시점에 등록을 지우는 것이 1차 방어이고, 이건 이미 남아 있는 것에 대한 2차 방어다.
+  const alive = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, isActive: true, resignDate: true },
+  });
+  const aliveSet = new Set(alive.filter((u) => u.isActive && !isResigned(u.resignDate)).map((u) => u.id));
+  let targetIds = userIds.filter((id) => aliveSet.has(id));
+  if (targetIds.length === 0) return;
+
   if (opts?.respectWorkMute) {
     const muted = await prisma.user.findMany({
-      where: { id: { in: userIds }, workMuteAll: true },
+      where: { id: { in: targetIds }, workMuteAll: true },
       select: { id: true },
     });
     if (muted.length > 0) {
       const mutedSet = new Set(muted.map((m) => m.id));
-      targetIds = userIds.filter((id) => !mutedSet.has(id));
+      targetIds = targetIds.filter((id) => !mutedSet.has(id));
     }
     if (targetIds.length === 0) return;
   }

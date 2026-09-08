@@ -111,6 +111,11 @@ export async function bumpTokenVersion(userId: string): Promise<number> {
     // 지우기만 하면 진행 중이던 읽기가 옛 값으로 다시 채울 수 있다(위 epoch 검사와 한 쌍).
     // 재직 여부는 여기서 알 수 없으므로 캐시를 비워 다음 조회가 DB 를 다시 읽게 한다.
     tvCache.delete(userId);
+    // 푸시 등록도 함께 끊는다. 안 끊으면 세션이 죽은 기기로 **채팅 본문 미리보기**가
+    // 계속 간다 — 앱은 로그아웃할 때 스스로 해제하는데, 강제 무효화 경로에서는 그 시점
+    // 토큰이 이미 죽어 해제 요청이 401 로 튕긴다(2026-09-08 9차 검증에서 운영 실측).
+    // 계속 쓰는 기기는 앱이 포그라운드로 돌아올 때 다시 등록한다.
+    await prisma.pushToken.deleteMany({ where: { userId } }).catch(() => {});
     return u.tokenVersion;
   } catch (e) {
     // 조용히 삼키면 안 된다 — 여기가 실패하면 퇴사자 토큰이 그대로 살아남는데
@@ -152,6 +157,8 @@ export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
       where: { id: { in: userIds } },
       data: { tokenVersion: { increment: 1 } },
     });
+    // 단건 무효화와 같은 이유로 푸시 등록도 함께 끊는다(위 주석 참고).
+    await prisma.pushToken.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
     return r.count;
   } catch (e) {
     // 단건 무효화와 같은 기준으로 흔적을 남긴다. 여기가 조용히 실패하면 지점명을 바꿔도

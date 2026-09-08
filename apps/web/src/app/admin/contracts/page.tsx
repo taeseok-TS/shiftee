@@ -3018,10 +3018,13 @@ ${url}`;
 
       {/* 서명 모달 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>서명</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+          {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
+              (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
+              버튼 줄은 아래에 고정해 어떤 화면 크기에서도 항상 손이 닿게 한다. */}
+          <DialogHeader className="shrink-0"><DialogTitle>서명</DialogTitle></DialogHeader>
           {signTarget && (
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
@@ -3110,7 +3113,8 @@ ${url}`;
                 onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}>
                 <Eye size={13} />크게 보기{signTarget.bundleId ? " (패키지 전체)" : ""}
               </Button>
-              <div className="flex gap-2 justify-end">
+              {/* 스크롤해도 항상 보이도록 하단에 붙인다 */}
+              <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
                 <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                 {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
                 <Button variant="ghost" className="text-red-600 hover:bg-red-50"
