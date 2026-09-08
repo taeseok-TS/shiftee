@@ -53,11 +53,11 @@ export async function POST(
         deletedAt: null,
         permanentlyDeletedAt: null,
         isActive: true,
-        // 과거 퇴사일이 남아 있으면 되살려도 로그인이 계속 막힌다
-        // ("복구했는데 로그인이 안 된다" — 2026-09-08 적발)
-        resignDate: null,
-        resignReason: null,
-        employmentStatus: "ACTIVE",
+        // ⚠ resignDate.resignReason.employmentStatus 는 **건드리지 않는다**.
+        //   퇴직자 현황이 resignDate 로만 월/연을 집계하므로, 여기서 지우면 그 사람이
+        //   과거 통계에서 영구히 사라진다(2026-09-08 6차 검증에서 적발 — 내가 넣었다가 되돌림).
+        //   휴지통은 "퇴사자만" 들어오는 곳이라 지우는 게 특히 나쁘다.
+        //   퇴사 상태를 풀 필요가 있으면 직원 수정에서 퇴사일을 비우면 된다.
       },
       select: {
         id: true,

@@ -39,7 +39,8 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
 // getSession 은 **모든 요청**에서 불린다. 매번 DB 를 보면 비용이 붙으므로 짧게 캐시하되,
 // 무효화(bumpTokenVersion)가 일어나면 그 사람 항목을 바로 지운다 — 그래서 "즉시" 가 된다.
 // 캐시는 이 프로세스 안에만 있고 컨테이너는 하나다.
-const g = globalThis as unknown as { __tvCache?: Map<string, { v: number; at: number }>; __tvEpoch?: number };
+type TvEntry = { v: number; at: number; blocked: boolean };
+const g = globalThis as unknown as { __tvCache?: Map<string, TvEntry>; __tvEpoch?: number };
 const tvCache = g.__tvCache ?? (g.__tvCache = new Map());
 // 무효화가 일어난 횟수. 진행 중이던 DB 읽기가 **낡은 값으로 캐시를 되채우는** 것을 막는다 —
 // 읽기 시작 시점의 값을 들고 있다가, 캐시에 쓰기 직전 달라졌으면 그 결과를 버린다.
@@ -58,16 +59,26 @@ const TV_TTL_MS = 30_000;
  *           토큰이 남은 유효기간 동안 살아 있으면 안 된다(2026-09-07 검증에서 적발).
  */
 export const NO_USER = Symbol("no-user");
-async function currentTokenVersion(userId: string): Promise<number | null | typeof NO_USER> {
+async function currentUserState(userId: string): Promise<TvEntry | null | typeof NO_USER> {
   const hit = tvCache.get(userId);
-  if (hit && Date.now() - hit.at < TV_TTL_MS) return hit.v;
+  if (hit && Date.now() - hit.at < TV_TTL_MS) return hit;
   const epoch = ep(); // DB 를 읽기 **전에** 찍어둔다
   try {
-    const u = await prisma.user.findUnique({ where: { id: userId }, select: { tokenVersion: true } });
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { tokenVersion: true, isActive: true, resignDate: true },
+    });
     if (!u) return NO_USER;
+    // 퇴사.비활성이면 토큰이 뭐든 통과시키지 않는다. 무효화(bump)를 거치지 않는 경로가
+    // 있기 때문이다 — 미래 퇴사일이 지나는 순간은 아무도 bump 하지 않는다(배치 없음).
+    const entry: TvEntry = {
+      v: u.tokenVersion,
+      at: Date.now(),
+      blocked: !u.isActive || isResigned(u.resignDate),
+    };
     // 읽는 사이에 무효화가 일어났으면 이 값은 이미 낡았다 — 캐시에 넣지 않는다.
-    if (epoch === ep()) tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
-    return u.tokenVersion;
+    if (epoch === ep()) tvCache.set(userId, entry);
+    return entry;
   } catch {
     return null;
   }
@@ -84,9 +95,9 @@ export async function bumpTokenVersion(userId: string): Promise<number> {
       data: { tokenVersion: { increment: 1 } },
       select: { tokenVersion: true },
     });
-    // 지우지 않고 **새 값으로 덮어쓴다**. 지우기만 하면 진행 중이던 읽기가
-    // 옛 값으로 다시 채울 수 있다(위 epoch 검사와 한 쌍).
-    tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
+    // 지우기만 하면 진행 중이던 읽기가 옛 값으로 다시 채울 수 있다(위 epoch 검사와 한 쌍).
+    // 재직 여부는 여기서 알 수 없으므로 캐시를 비워 다음 조회가 DB 를 다시 읽게 한다.
+    tvCache.delete(userId);
     return u.tokenVersion;
   } catch (e) {
     // 조용히 삼키면 안 된다 — 여기가 실패하면 퇴사자 토큰이 그대로 살아남는데
@@ -132,8 +143,10 @@ export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
  * DB 조회 실패는 살아 있는 것으로 본다(getSession 과 같은 기준).
  */
 export async function isSessionStillValid(payload: { userId: string; tv?: number }): Promise<boolean> {
-  const cur = await currentTokenVersion(payload.userId);
-  return cur === null || cur === (payload.tv ?? 0);
+  const cur = await currentUserState(payload.userId);
+  if (cur === null) return true;      // DB 장애는 살아 있는 것으로 본다
+  if (cur === NO_USER) return false;
+  return !cur.blocked && cur.v === (payload.tv ?? 0);
 }
 
 /**
@@ -146,8 +159,10 @@ export async function isSessionStillValid(payload: { userId: string; tv?: number
  *
  * 반환 null = 발급 불가(계정 없음.비활성.퇴사). 부르는 쪽은 세션을 끝내야 한다.
  *
- * `setCookie` 는 헤더(Bearer)로 인증한 요청이면 false 로 넘긴다 — 앱에까지 쿠키를 심으면
- * getSession 이 쿠키를 Bearer 보다 먼저 보기 때문에, 뒤에 남은 쿠키가 헷갈릴 수 있다.
+ * 쿠키를 갱신할지는 **이미 쿠키를 들고 다니는가**로 정한다. 헤더 유무로 정하면 안 된다 —
+ * 로그인은 앱에도 Set-Cookie 를 내려보내고 getSession 은 쿠키를 Bearer 보다 먼저 보므로,
+ * 앱이라고 쿠키를 안 갱신하면 **낡은 쿠키가 새 토큰을 이겨** 그 자리에서 401 이 된다
+ * (2026-09-08 6차 검증에서 실측). 쿠키가 없던 클라이언트에만 새로 심지 않는다.
  *
  * ⚠ 로그인(`/api/auth/login`)만 예외다 — 거기는 비밀번호.기기 잠금까지 따로 본다.
  */
@@ -155,6 +170,16 @@ export async function issueSessionFor(
   userId: string,
   opts: { setCookie?: boolean } = {}
 ): Promise<string | null> {
+  // 부르는 쪽이 정하지 않으면: 쿠키가 이미 있으면 갱신, 없으면 심지 않는다.
+  let setCookie = opts.setCookie;
+  if (setCookie === undefined) {
+    const c = await cookies();
+    setCookie = !!c.get("token");
+    if (!setCookie) {
+      const authz = (await headers()).get("authorization");
+      setCookie = !authz?.startsWith("Bearer "); // 헤더로만 다니는 게 아니면 쿠키를 쓴다
+    }
+  }
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, role: true, name: true, branch: true,
@@ -166,7 +191,7 @@ export async function issueSessionFor(
     userId: u.id, email: u.email, role: u.role, name: u.name,
     branch: u.branch ?? null, tv: u.tokenVersion,
   };
-  return opts.setCookie === false ? signToken(payload) : setSession(payload);
+  return setCookie ? setSession(payload) : signToken(payload);
 }
 
 export async function getSession(): Promise<JWTPayload | null> {
@@ -187,9 +212,13 @@ export async function getSession(): Promise<JWTPayload | null> {
   // ⚠ 서명이 맞아도 **무효화된 토큰이면 거부**한다. 종전에는 퇴사 처리를 해도 이미 발급된
   //   7일짜리 토큰을 끊을 수단이 없어, 퇴사자가 앱을 켜둔 채면 계속 출퇴근을 찍을 수 있었다.
   //   tv 가 없는 옛 토큰은 0 으로 본다 — 무효화가 한 번이라도 있었으면 자연히 걸린다.
-  // null(DB 장애)만 통과시킨다. NO_USER(계정 없음)는 숫자와도 다르므로 여기서 막힌다.
-  const cur = await currentTokenVersion(payload.userId);
-  if (cur !== null && cur !== (payload.tv ?? 0)) return null;
+  // null(DB 장애)만 통과시킨다 — DB 가 한 번 흔들렸다고 전원 로그아웃되면 안 된다.
+  // NO_USER(계정 없음)와 blocked(퇴사.비활성)는 막는다.
+  const cur = await currentUserState(payload.userId);
+  if (cur === null) return payload;
+  if (cur === NO_USER) return null;
+  if (cur.blocked) return null;
+  if (cur.v !== (payload.tv ?? 0)) return null;
   return payload;
 }
 

@@ -9,9 +9,8 @@ export async function POST(request: NextRequest) {
 
   // 최신 상태로 재발급 — 재직 검사(비활성.퇴사)와 DB 재조회는 issueSessionFor 안에 있다.
   // 검사를 여기 따로 베껴 쓰지 말 것. 그렇게 갈라지다 발급처마다 검사가 빠졌다.
-  // 앱은 Bearer 로만 다닌다 — 거기에 쿠키까지 심지 않는다.
-  const setCookie = !request.headers.get("authorization");
-  const token = await issueSessionFor(session.userId, { setCookie });
+  // 쿠키를 갱신할지는 issueSessionFor 가 판단한다(쿠키로 다니면 갱신, 아니면 안 심음).
+  const token = await issueSessionFor(session.userId);
   if (!token) return NextResponse.json({ error: "사용할 수 없는 계정입니다." }, { status: 401 });
 
   return NextResponse.json({ success: true, token });

@@ -115,7 +115,7 @@ export async function PATCH(request: NextRequest) {
       bumped = true;
 
       // 재직 중일 때만 이 기기를 살린다. 재직 검사.DB 재조회는 발급 함수 안에 있다.
-      token = await issueSessionFor(session.userId, { setCookie: !isBearer });
+      token = await issueSessionFor(session.userId);
       if (!token) sessionEnded = true;
     } catch (e) {
       // 비밀번호는 이미 바뀌었다. 여기서 500 을 내면 사용자는 "실패했다"고 믿고

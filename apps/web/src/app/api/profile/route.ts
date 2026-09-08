@@ -130,9 +130,7 @@ export async function PATCH(request: NextRequest) {
     //   **재직 검사 없는 네 번째 토큰 발급소**가 됐다 — 퇴사자가 7일마다 이름만 고치며
     //   세션을 무기한 연장할 수 있었다(2026-09-08 적발). 그 문에는 검사가 들어 있다.
     if (updateData.name && updatedUser.name !== session.name) {
-      // 앱은 Bearer 로 다니므로 쿠키를 심지 않는다(앱은 포그라운드 갱신으로 스스로 따라온다).
-      const setCookie = !request.headers.get("authorization");
-      await issueSessionFor(session.userId, { setCookie }).catch(() => {
+      await issueSessionFor(session.userId).catch(() => {
         /* 이름 반영이 늦어질 뿐, 프로필 저장을 되돌릴 이유는 없다 */
       });
     }
