@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, clearSessionCache } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -47,6 +47,7 @@ export async function POST(
     }
 
     // 복구 처리: deletedAt, permanentlyDeletedAt 제거 + 재활성화
+    // 되살렸는데 "비활성" 캐시가 30초 남아 있으면 그 동안 로그인이 안 된다
     const restoredUser = await prisma.user.update({
       where: { id },
       data: {
@@ -77,6 +78,9 @@ export async function POST(
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESTORE",
       targetType: "USER", targetId: id, targetName: restoredUser.name, detail: "직원 복구",
     });
+
+    // 되살렸는데 "비활성" 캐시가 30초 남아 있으면 그 동안 로그인이 안 된다
+    clearSessionCache(id);
 
     return NextResponse.json({
       success: true,

@@ -28,7 +28,16 @@ export async function signToken(payload: JWTPayload): Promise<string> {
 export async function verifyToken(token: string): Promise<JWTPayload | null> {
   try {
     const { payload } = await jwtVerify(token, secret);
-    return payload as unknown as JWTPayload;
+    // ⚠ 서명이 맞다고 **모양까지 맞는 건 아니다.** 종전에는 검사 없이 캐스팅해서,
+    //   userId 가 없는 토큰이 그대로 세션이 됐다. 그런 세션으로 조회하면 Prisma 가
+    //   필터를 통째로 버려 **전 직원 명부와 남의 DM 목록이 통째로 나왔다**
+    //   (2026-09-08 7차 검증에서 실증). 여기서 모양을 먼저 본다.
+    const p = payload as unknown as JWTPayload;
+    if (typeof p.userId !== "string" || p.userId === "") return null;
+    if (p.role !== "ADMIN" && p.role !== "MANAGER" && p.role !== "EMPLOYEE") return null;
+    if (typeof p.email !== "string" || typeof p.name !== "string") return null;
+    if (p.tv !== undefined && typeof p.tv !== "number") return null;
+    return p;
   } catch {
     return null;
   }
@@ -122,6 +131,16 @@ export async function bumpTokenVersion(userId: string): Promise<number> {
  * 원장의 근태.직원 조회가 옛 지점명으로 조회돼 **조용히 빈 결과**가 된다
  * (2026-09-07 검증에서 적발).
  */
+/**
+ * 그 사람의 세션 캐시만 비운다(DB 쓰기 없음).
+ * 하드 삭제처럼 **행 자체가 사라지는** 경우에 쓴다 — bump 는 update 라 쓸 수 없는데,
+ * 캐시가 남아 있으면 삭제된 사람의 토큰이 최대 30초 더 통과한다(2026-09-08 적발).
+ */
+export function clearSessionCache(userId: string): void {
+  tvCache.delete(userId);
+  g.__tvEpoch = ep() + 1;
+}
+
 export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
   if (userIds.length === 0) return 0;
   try {
@@ -130,6 +149,17 @@ export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
       data: { tokenVersion: { increment: 1 } },
     });
     return r.count;
+  } catch (e) {
+    // 단건 무효화와 같은 기준으로 흔적을 남긴다. 여기가 조용히 실패하면 지점명을 바꿔도
+    // 수십 명의 옛 지점 토큰이 살아남는데 화면.감사.오류감시 어디에도 안 남는다.
+    console.error("[auth] 세션 일괄 무효화 실패:", userIds.length, e);
+    await prisma.systemErrorLog.create({
+      data: {
+        path: "/lib/auth (세션 일괄 무효화)", method: "INTERNAL",
+        message: `세션 일괄 무효화 실패 — 대상 ${userIds.length}명. 이들의 기존 토큰이 아직 살아 있습니다.`,
+      },
+    }).catch(() => {});
+    throw e;
   } finally {
     for (const id of userIds) tvCache.delete(id);
     g.__tvEpoch = ep() + 1;
@@ -174,11 +204,10 @@ export async function issueSessionFor(
   let setCookie = opts.setCookie;
   if (setCookie === undefined) {
     const c = await cookies();
+    // 쿠키로 다니고 있으면 반드시 갱신한다(안 하면 낡은 쿠키가 새 토큰을 이긴다).
+    // 쿠키가 없으면 심지 않는다 — 헤더로만 다니는 클라이언트에 자격증명을 하나 더
+    // 만들어 주면, 그게 나중에 낡아서 사고를 낸다.
     setCookie = !!c.get("token");
-    if (!setCookie) {
-      const authz = (await headers()).get("authorization");
-      setCookie = !authz?.startsWith("Bearer "); // 헤더로만 다니는 게 아니면 쿠키를 쓴다
-    }
   }
   const u = await prisma.user.findUnique({
     where: { id: userId },
@@ -213,17 +242,28 @@ export async function getSession(): Promise<JWTPayload | null> {
   }
   if (candidates.length === 0) return null;
 
+  // 1차: **DB 로 확인까지 끝난** 후보를 먼저 찾는다.
+  // 2차: 아무도 확인되지 않았을 때만 "DB 장애로 판정을 못 한" 후보를 받아들인다.
+  //      이 순서가 없으면, DB 가 흔들리는 동안 첫 후보(낡은 쿠키)가 통과로 처리돼
+  //      멀쩡한 두 번째 후보를 아예 보지 않는다(2026-09-08 7차 검증에서 적발).
+  let degraded: JWTPayload | null = null;
   for (const token of candidates) {
-    const ok = await verifySessionToken(token);
-    if (ok) return ok;
+    const r = await verifySessionToken(token);
+    if (r.ok) return r.payload;
+    if (r.degraded && !degraded) degraded = r.payload;
   }
-  return null;
+  return degraded;
 }
 
-/** 토큰 하나를 끝까지 검사한다 — 서명.무효화.재직. 통과하면 payload, 아니면 null. */
-async function verifySessionToken(token: string): Promise<JWTPayload | null> {
+type SessionCheck =
+  | { ok: true; payload: JWTPayload; degraded?: false }
+  | { ok: false; degraded: true; payload: JWTPayload }
+  | { ok: false; degraded: false; payload: null };
+
+/** 토큰 하나를 끝까지 검사한다 — 모양.서명.무효화.재직. */
+async function verifySessionToken(token: string): Promise<SessionCheck> {
   const payload = await verifyToken(token);
-  if (!payload) return null;
+  if (!payload) return { ok: false, degraded: false, payload: null };
 
   // ⚠ 서명이 맞아도 **무효화된 토큰이면 거부**한다. 종전에는 퇴사 처리를 해도 이미 발급된
   //   7일짜리 토큰을 끊을 수단이 없어, 퇴사자가 앱을 켜둔 채면 계속 출퇴근을 찍을 수 있었다.
@@ -231,11 +271,11 @@ async function verifySessionToken(token: string): Promise<JWTPayload | null> {
   // null(DB 장애)만 통과시킨다 — DB 가 한 번 흔들렸다고 전원 로그아웃되면 안 된다.
   // NO_USER(계정 없음)와 blocked(퇴사.비활성)는 막는다.
   const cur = await currentUserState(payload.userId);
-  if (cur === null) return payload;
-  if (cur === NO_USER) return null;
-  if (cur.blocked) return null;
-  if (cur.v !== (payload.tv ?? 0)) return null;
-  return payload;
+  if (cur === null) return { ok: false, degraded: true, payload }; // DB 장애 — 판정 보류
+  if (cur === NO_USER) return { ok: false, degraded: false, payload: null };
+  if (cur.blocked) return { ok: false, degraded: false, payload: null };
+  if (cur.v !== (payload.tv ?? 0)) return { ok: false, degraded: false, payload: null };
+  return { ok: true, payload };
 }
 
 export async function setSession(payload: JWTPayload): Promise<string> {

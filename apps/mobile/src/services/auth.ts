@@ -63,6 +63,16 @@ export async function logout(): Promise<void> {
   try {
     // 이 기기로 더 이상 알림이 오지 않도록 서버에서 토큰 해제(저장소 비우기 전)
     await unregisterPushToken();
+    // 서버 쿠키도 지운다. 앱은 Bearer 로 다니지만 서버가 함께 내려보낸 7일 쿠키가
+    // OS 쿠키 저장소에 남는다 — 안 지우면 로그아웃한 기기에 **살아 있는 자격증명**이
+    // 그대로 남는다(2026-09-08 7차 검증에서 적발). 실패해도 로그아웃은 진행한다.
+    try {
+      const t = await storage.getToken();
+      await axios.post(`${AUTH_API_URL}/auth/logout`, {}, {
+        headers: t ? { Authorization: `Bearer ${t}` } : {},
+        timeout: 4000,
+      });
+    } catch { /* 서버에 못 닿아도 로컬은 반드시 정리한다 */ }
     // 로컬 저장소 정리
     await storage.clearAuth();
     console.log("✅ Logout successful");

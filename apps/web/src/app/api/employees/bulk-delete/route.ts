@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, clearSessionCache } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
         prisma.approvalLine.deleteMany({ where: { userId: id } }),
         prisma.user.delete({ where: { id } }),
       ]);
+      // 행이 사라져도 세션 캐시에는 30초간 남는다 — 지운 사람의 토큰이 그 사이 통과한다.
+      // 하드 삭제는 update 가 아니므로 bumpTokenVersion 을 쓸 수 없다(2026-09-08 적발).
+      clearSessionCache(id);
       deleted++;
       deletedNames.push(user.name);
     } catch {
