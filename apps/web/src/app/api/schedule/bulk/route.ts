@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay, format, differenceInDays } from "date-fns";
+import { guardScheduleChange } from "@/lib/schedule-guard";
+import { isRealDate, toMin } from "@/lib/schedule-payload";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -13,6 +15,42 @@ export async function POST(request: NextRequest) {
 
   if (!userIds?.length || !startDate || !endDate || !weekdays?.length || !startTime || !endTime) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
+  }
+
+  // ⚠ **대상 직원마다 권한을 확인한다.** 종전에는 "직원이 아니면 통과"만 보고
+  //   대상 검사가 하나도 없어서, 원장이 임의 userIds 로 **본인.타지점 직원.다른 원장**의
+  //   일정을 3개월치 덮어쓸 수 있었다(기존 일정을 먼저 지운다).
+  //   개별 등록.수정.삭제에는 붙어 있던 가드가 여기만 빠져 있었다(2026-09-08 적발).
+  const ids = [...new Set((userIds as unknown[]).filter((v): v is string => typeof v === "string" && v !== ""))];
+  if (ids.length === 0) return NextResponse.json({ error: "직원을 선택해주세요." }, { status: 400 });
+  if (ids.length > 200) return NextResponse.json({ error: "한 번에 200명까지 등록할 수 있습니다." }, { status: 400 });
+  for (const uid of ids) {
+    const denied = await guardScheduleChange(session, uid);
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 });
+  }
+
+  // 날짜.시간 형식을 먼저 본다 — Invalid Date 가 그대로 쿼리에 들어가면 500 이 된다.
+  if (!isRealDate(startDate) || !isRealDate(endDate)) {
+    return NextResponse.json({ error: "기간이 올바르지 않습니다." }, { status: 400 });
+  }
+  // ⚠ 뒤집힌 기간을 막는다. 종전에는 시작.종료를 바꿔 보내면 differenceInDays 가 음수라
+  //   93일 상한을 그대로 통과했고, eachDayOfInterval 은 예외 없이 역순 배열을 돌려줬다
+  //   — 10년치도 만들 수 있었다(2026-09-08 적발).
+  if (startDate > endDate) {
+    return NextResponse.json({ error: "시작일이 종료일보다 늦습니다." }, { status: 400 });
+  }
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!TIME_RE.test(String(startTime)) || !TIME_RE.test(String(endTime))) {
+    return NextResponse.json({ error: "근무 시간 형식이 올바르지 않습니다. 예: 09:00" }, { status: 400 });
+  }
+  if (toMin(String(endTime)) <= toMin(String(startTime))) {
+    return NextResponse.json({ error: "종료 시간이 시작 시간보다 빠릅니다." }, { status: 400 });
+  }
+  if (toMin(String(endTime)) - toMin(String(startTime)) > 12 * 60) {
+    return NextResponse.json({ error: "하루 근무는 12시간을 넘을 수 없습니다." }, { status: 400 });
+  }
+  if (!(weekdays as unknown[]).every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6)) {
+    return NextResponse.json({ error: "요일 선택이 올바르지 않습니다." }, { status: 400 });
   }
 
   const start = new Date(startDate);
@@ -38,14 +76,14 @@ export async function POST(request: NextRequest) {
     // 기존 일정 삭제 (중복 방지)
     await tx.schedule.deleteMany({
       where: {
-        userId: { in: userIds as string[] },
+        userId: { in: ids },
         date: { in: dateList },
       },
     });
 
     // 새 일정 일괄 생성
     await tx.schedule.createMany({
-      data: (userIds as string[]).flatMap(userId =>
+      data: ids.flatMap(userId =>
         dateList.map(date => ({
           userId,
           date,
@@ -60,7 +98,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    count: (userIds as string[]).length * dateList.length,
+    count: ids.length * dateList.length,
     days: dateList.length,
   });
 }

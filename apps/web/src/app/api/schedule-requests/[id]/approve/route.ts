@@ -48,17 +48,34 @@ export async function POST(
       return s.approverId === session.userId;
     });
 
+    // ⚠ **원장은 자기 신청을 스스로 결재할 수 없다** (2026-09-08 디렉터 지시).
+    //   원장 신청의 결재선은 [관리자] 한 단계인데, 종전에는 아래 우회 경로로 빠져
+    //   **본인이 본인 것을 최종 승인**할 수 있었다. 원장끼리 품앗이도 가능했다
+    //   (한 지점에 원장이 2명인 곳이 실재한다).
+    if (session.role === "MANAGER" && scheduleRequest.userId === session.userId) {
+      return NextResponse.json(
+        { error: "본인 근무일정 신청은 직접 결재할 수 없습니다. 관리자 승인이 필요합니다." },
+        { status: 403 }
+      );
+    }
+
     // 관리자가 아니고 결재 차례도 아닌 경우
     if (!myStep && session.role === "EMPLOYEE") {
       return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
     }
 
-    // 결재라인을 우회하는 경우 (지정된 결재 차례가 아님)
-    if (!myStep && session.role !== "EMPLOYEE") {
-      // MANAGER는 담당 지점(대표+겸직) 신청만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
-      if (session.role === "MANAGER" && (!scheduleRequest.user.branch || !myBranches.includes(scheduleRequest.user.branch))) {
-        return NextResponse.json({ error: "다른 지점 직원의 신청은 승인할 수 없습니다." }, { status: 403 });
-      }
+    // 결재 차례가 아닌데 처리하려는 경우 = 결재라인 우회.
+    // ⚠ **관리자에게만 허용한다.** 종전에는 원장도 여기로 빠질 수 있어서,
+    //   주말 신청 [원장 → 관리자] 에서 원장이 1단계를 승인한 뒤 한 번 더 부르면
+    //   **관리자 단계를 건너뛰고 최종 승인**됐다(2026-09-08 검증에서 적발).
+    //   원장은 자기 차례(myStep)일 때만 결재한다.
+    if (!myStep && session.role === "MANAGER") {
+      return NextResponse.json(
+        { error: "결재 차례가 아닙니다. 관리자 결재가 남아 있습니다." },
+        { status: 403 }
+      );
+    }
+    if (!myStep && session.role === "ADMIN") {
       return await adminOverride(id, action, reason, session.userId);
     }
 
@@ -141,8 +158,8 @@ export async function POST(
     return NextResponse.json({ success: true });
   }
 
-  // 결재라선 없음: 기존 방식 (관리자만)
-  if (session.role === "EMPLOYEE") {
+  // 결재라인 없음: 관리자만 처리한다(주석대로 "관리자만" — 종전에는 원장도 통과했다).
+  if (session.role !== "ADMIN") {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
 
@@ -165,17 +182,38 @@ async function adminOverride(
     return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  await prisma.scheduleRequest.update({
-    where: { id },
-    data: {
-      status: action === "approve" ? "APPROVED" : "REJECTED",
-    },
-  });
-
-  // 승인된 일정을 근무일정 캘린더에 반영
-  if (action === "approve") {
-    await materializeSchedules(prisma, scheduleRequest);
+  // ⚠ 이미 끝난 신청은 뒤집지 않는다. 종전에는 최종 상태 검사가 없어
+  //   **반려된 신청을 승인으로 되살릴 수 있었고**, 반대로 승인을 반려로 바꿔도
+  //   이미 만들어진 근무일정은 그대로 남아 "반려됐는데 주말 출근은 가능"한 상태가
+  //   됐다(2026-09-08 검증에서 적발).
+  if (scheduleRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${scheduleRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
   }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.scheduleRequest.update({
+      where: { id },
+      data: { status: action === "approve" ? "APPROVED" : "REJECTED" },
+    });
+    // 결재 단계도 함께 닫는다. 종전에는 신청만 바꿔서 **신청=승인인데 단계=대기**로
+    // 남았고, 그 단계가 결재함에 영원히 떠 있다가 나중에 처리되면 일정이 두 번 생겼다.
+    await tx.scheduleApprovalStep.updateMany({
+      where: { scheduleRequestId: id, status: { in: ["PENDING", "WAITING"] } },
+      data: {
+        status: action === "approve" ? "APPROVED" : "REJECTED",
+        approverId,
+        comment: reason ?? "관리자 직접처리",
+        decidedAt: new Date(),
+      },
+    });
+    // 승인된 일정을 근무일정 캘린더에 반영
+    if (action === "approve") {
+      await materializeSchedules(tx, scheduleRequest);
+    }
+  });
 
   const actor = await prisma.user.findUnique({ where: { id: approverId }, select: { name: true } });
   await logAudit({

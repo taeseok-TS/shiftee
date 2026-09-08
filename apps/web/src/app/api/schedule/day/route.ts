@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { isRealDate } from "@/lib/schedule-payload";
 import { prisma } from "@/lib/db";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
@@ -12,6 +13,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
   if (!dateStr) return NextResponse.json({ error: "날짜가 필요합니다." }, { status: 400 });
+  // Invalid Date 가 그대로 prisma 쿼리에 들어가면 미처리 500 이 된다(2026-09-08 적발).
+  if (!isRealDate(dateStr)) return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
 
   const date    = new Date(dateStr);
   const dayStart = startOfDay(date);

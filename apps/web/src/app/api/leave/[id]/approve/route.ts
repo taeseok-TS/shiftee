@@ -49,17 +49,32 @@ export async function POST(
       return s.approverId === session.userId;
     });
 
+    // ⚠ **원장은 자기 휴가를 스스로 결재할 수 없다** (2026-09-08 디렉터 지시 — 근무일정과 같은 규칙).
+    //   원장 신청의 결재선은 [관리자]인데, 종전에는 아래 우회 경로로 빠져 본인이
+    //   본인 것을 최종 승인할 수 있었다. 원장끼리 품앗이도 가능했다.
+    if (session.role === "MANAGER" && leaveRequest.userId === session.userId) {
+      return NextResponse.json(
+        { error: "본인 휴가 신청은 직접 결재할 수 없습니다. 관리자 승인이 필요합니다." },
+        { status: 403 }
+      );
+    }
+
     // 관리자가 아니고 결재 차례도 아닌 경우
     if (!myStep && session.role === "EMPLOYEE") {
       return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
     }
 
-    // 결재라인을 우회하는 경우 (지정된 결재 차례가 아님)
-    if (!myStep && session.role !== "EMPLOYEE") {
-      // MANAGER는 담당 지점(대표+겸직) 휴가만 우회 처리 가능 (지정 결재자인 경우는 지점 무관)
-      if (session.role === "MANAGER" && (!leaveRequest.user.branch || !myBranches.includes(leaveRequest.user.branch))) {
-        return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
-      }
+    // 결재 차례가 아닌데 처리하려는 경우 = 결재라인 우회.
+    // ⚠ **관리자에게만 허용한다.** 종전에는 원장도 여기로 빠져, 2일 이상 휴가의
+    //   [원장 → 관리자] 에서 원장이 1단계를 승인한 뒤 다시 부르면 관리자 단계를
+    //   건너뛰고 최종 승인됐다(2026-09-08 검증에서 적발).
+    if (!myStep && session.role === "MANAGER") {
+      return NextResponse.json(
+        { error: "결재 차례가 아닙니다. 관리자 결재가 남아 있습니다." },
+        { status: 403 }
+      );
+    }
+    if (!myStep && session.role === "ADMIN") {
       return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);
     }
 
@@ -210,8 +225,8 @@ export async function POST(
     return NextResponse.json({ success: true });
   }
 
-  // ── 결재라선 없음: 기존 방식 (관리자만) ────────────────────
-  if (session.role === "EMPLOYEE")
+  // ── 결재라인 없음: 관리자만 처리한다(주석대로 "관리자만" — 종전에는 원장도 통과했다) ──
+  if (session.role !== "ADMIN")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);

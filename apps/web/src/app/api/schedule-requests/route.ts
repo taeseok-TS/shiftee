@@ -5,6 +5,7 @@ import { materializeSchedules } from "@/lib/schedule-materialize";
 import { branchHasManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
+import { parseScheduleData } from "@/lib/schedule-payload";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -41,9 +42,17 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { templateId, templateName, startDate, endDate, scheduleData, totalHours, approvalLineId } = body;
 
-  if (!templateId || !startDate || !endDate || !scheduleData || totalHours === undefined) {
+  if (!templateId || !startDate || !endDate || !scheduleData) {
     return NextResponse.json({ error: "필수 정보가 부족합니다." }, { status: 400 });
   }
+
+  // payload 를 **엄격하게** 검증하고 정규화한다. 결재 정책과 실제 반영이 같은 값을
+  // 보게 하려는 것 — 형식이 어긋난 날짜 하나로 주말.공휴일 결재선이 통째로
+  // 사라지던 구멍을 여기서 막는다(2026-09-08 검증에서 적발).
+  const parsed = parseScheduleData(scheduleData, startDate, endDate);
+  if (parsed.ok !== true) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const entries = parsed.entries;
+  const computedHours = parsed.totalHours; // 신청자가 보낸 totalHours 는 믿지 않는다
 
   // ── 역할/지점 기반 자동 결재 정책 (근무일정) ──
   //  주말 근무 포함: 연차 2일+ 와 동일 → 직원: 지점원장→관리자, 원장: 관리자
@@ -58,21 +67,15 @@ export async function POST(request: NextRequest) {
   // 공휴일(추석·설 등) 근무도 주말과 같이 사전 승인 대상이므로 함께 본다
   // 조회 범위는 startDate~endDate 가 아니라 실제 제출된 날짜의 최소~최대로 잡는다.
   // (신청 화면에서 기간을 좁혀도 이미 선택된 날짜는 payload 에 남을 수 있어, 범위 밖 공휴일을 놓친다)
-  const submittedDates = (Array.isArray(scheduleData) ? scheduleData : [])
-    .map((e: any) => (typeof e?.date === "string" ? e.date : ""))
-    // 형식만 맞고 실재하지 않는 날짜("2026-99-99")는 여기서 걸러낸다 —
-    // Invalid Date 가 prisma 쿼리로 들어가면 try 블록 밖이라 미처리 500 이 된다
-    .filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(new Date(d).getTime()))
-    .sort();
+  // 검증을 통과한 목록이므로 전부 실재하는 "YYYY-MM-DD" 이고 정렬돼 있다.
+  const submittedDates = entries.map((e) => e.date);
   const holidaySet = submittedDates.length
     ? await getHolidaySet(new Date(submittedDates[0]), new Date(submittedDates[submittedDates.length - 1]))
     : new Set<string>();
-  const hasWeekend = Array.isArray(scheduleData) && scheduleData.some((e: any) => {
-    if (!e?.date || typeof e.date !== "string") return false;
+  const hasWeekend = entries.some((e) => {
     if (holidaySet.has(e.date)) return true;
     const [y, m, d] = e.date.split("-").map(Number);
-    if (!y || !m || !d) return false;
-    const dow = new Date(y, m - 1, d).getDay();
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
     return dow === 0 || dow === 6;
   });
 
@@ -104,8 +107,8 @@ export async function POST(request: NextRequest) {
           templateName,
           startDate: new Date(startDate),
           endDate: new Date(endDate),
-          scheduleData,
-          totalHours,
+          scheduleData: entries,   // 정규화된 목록만 저장한다
+          totalHours: computedHours,
           status: policySteps.length > 0 ? "PENDING" : "APPROVED",
         },
       });

@@ -4,23 +4,41 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { isRealDate } from "@/lib/schedule-payload";
+import { kstTodayMidnight } from "@/lib/resign";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
-  const year  = parseInt(searchParams.get("year")  || String(new Date().getFullYear()));
-  const month = parseInt(searchParams.get("month") || String(new Date().getMonth() + 1));
+  // 기본값은 **KST 기준 이번 달**이다. 서버가 UTC 라 그냥 new Date() 를 쓰면
+  // KST 오전 9시 이전에 파라미터 없이 부를 때 전날(= 지난달일 수 있음) 기준이 된다.
+  const kstNow = kstTodayMidnight();
+  const yearRaw  = parseInt(searchParams.get("year")  || String(kstNow.getUTCFullYear()));
+  const monthRaw = parseInt(searchParams.get("month") || String(kstNow.getUTCMonth() + 1));
+  const year  = Number.isInteger(yearRaw)  && yearRaw  >= 2000 && yearRaw  <= 2100 ? yearRaw  : kstNow.getUTCFullYear();
+  const month = Number.isInteger(monthRaw) && monthRaw >= 1    && monthRaw <= 12   ? monthRaw : kstNow.getUTCMonth() + 1;
 
   // start/end(yyyy-MM-dd) 지정 시 해당 기간, 없으면 해당 월
+  // ⚠ 형식이 어긋나면 Invalid Date 가 그대로 prisma 쿼리에 들어가 미처리 500 이 된다.
   const startParam = searchParams.get("start");
   const endParam   = searchParams.get("end");
+  if ((startParam && !isRealDate(startParam)) || (endParam && !isRealDate(endParam))) {
+    return NextResponse.json({ error: "기간 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
+  }
 
   const startDate = startParam ? startOfDay(new Date(startParam)) : new Date(year, month - 1, 1);
   const endDate   = endParam
     ? new Date(new Date(endParam).setHours(23, 59, 59, 999))
     : new Date(year, month, 0, 23, 59, 59, 999);
+  // 기간 상한 — 한 번에 2년치를 넘겨 조회하면 응답이 수천 일로 부풀어 오른다.
+  if (endDate < startDate) {
+    return NextResponse.json({ error: "시작일이 종료일보다 늦습니다." }, { status: 400 });
+  }
+  if ((endDate.getTime() - startDate.getTime()) / 86400000 > 750) {
+    return NextResponse.json({ error: "조회 기간은 2년까지 가능합니다." }, { status: 400 });
+  }
 
   // 본인 일정만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
