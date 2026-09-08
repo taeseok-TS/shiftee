@@ -96,11 +96,14 @@ export async function isAuthenticated(): Promise<boolean> {
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const token = await storage.getToken();
   try {
-    await axios.patch(
+    const res = await axios.patch(
       `${AUTH_API_URL}/profile/password`,
       { currentPassword, newPassword, confirmPassword: newPassword },
       { headers: token ? { Authorization: `Bearer ${token}` } : {} }
     );
+    // 서버가 다른 기기 세션을 전부 끊으면서 **이 기기용 새 토큰**을 함께 준다.
+    // 저장하지 않으면 비밀번호를 바꾸자마자 본인이 튕긴다.
+    if (res.data?.token) await storage.saveToken(res.data.token);
   } catch (error: any) {
     // 서버 메시지(현재 비번 불일치·강도 미달)를 그대로 화면에 노출
     throw new Error(error.response?.data?.error || "비밀번호 변경에 실패했습니다.");

@@ -76,7 +76,7 @@ async function currentTokenVersion(userId: string): Promise<number | null | type
  * 그 사람의 기존 토큰을 **전부 무효화**한다. 퇴사.비활성.권한변경.기기초기화 때 부른다.
  * 캐시를 함께 비워 다음 요청부터 곧바로 막힌다.
  */
-export async function bumpTokenVersion(userId: string): Promise<void> {
+export async function bumpTokenVersion(userId: string): Promise<number> {
   try {
     const u = await prisma.user.update({
       where: { id: userId },
@@ -86,6 +86,7 @@ export async function bumpTokenVersion(userId: string): Promise<void> {
     // 지우지 않고 **새 값으로 덮어쓴다**. 지우기만 하면 진행 중이던 읽기가
     // 옛 값으로 다시 채울 수 있다(위 epoch 검사와 한 쌍).
     tvCache.set(userId, { v: u.tokenVersion, at: Date.now() });
+    return u.tokenVersion;
   } catch (e) {
     // 조용히 삼키면 안 된다 — 여기가 실패하면 퇴사자 토큰이 그대로 살아남는데
     // 화면에도 감사기록에도 아무 흔적이 없다. 오류 감시에 걸리도록 남긴다.

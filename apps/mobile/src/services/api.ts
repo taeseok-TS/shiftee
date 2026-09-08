@@ -11,6 +11,26 @@ import { API_URL } from "../config";
 
 let apiClient: ShifteeApiClient | null = null;
 
+// 401 이 여러 요청에서 동시에 터져도 확인은 한 번만 한다
+let checking = false;
+async function handleUnauthorized(): Promise<void> {
+  if (checking) return;
+  checking = true;
+  try {
+    const auth = await import("./auth");
+    // refreshToken 은 401 을 받으면 스스로 로그아웃하고 null 을 돌려준다.
+    const token = await auth.refreshToken();
+    if (!token) {
+      const { emitSessionExpired } = await import("./session-events");
+      emitSessionExpired(); // → AuthContext 가 즉시 로그인 화면으로 전환
+    }
+  } catch {
+    // 네트워크 오류 등은 세션이 죽은 게 아니다 — 그대로 둔다
+  } finally {
+    checking = false;
+  }
+}
+
 /**
  * API 클라이언트 초기화
  */
@@ -21,8 +41,11 @@ export async function initializeApiClient(): Promise<ShifteeApiClient> {
       API_URL,
       getToken,
       () => {
-        // 401 시 처리 (RootNavigator에서 인증 상태 확인)
-        console.warn("🔐 Unauthorized - token expired");
+        // 401 을 받았다고 곧바로 로그아웃시키면 안 된다 — 401 은 "세션이 죽었다" 말고도
+        // "현재 비밀번호가 틀렸다" 같은 화면 단위 오류로도 온다. 그걸로 튕기면
+        // 비밀번호를 한 번 잘못 친 사람이 로그아웃된다.
+        // 그래서 **갱신을 한 번 시도해 진짜로 죽었는지 확인**하고, 죽었을 때만 보낸다.
+        handleUnauthorized();
       }
     );
   }

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { AppState, AppStateStatus } from "react-native";
 import * as auth from "../services/auth";
 import { registerPushToken } from "../services/push";
+import { onSessionExpired } from "../services/session-events";
 
 type AuthContextValue = {
   isLoggedIn: boolean;
@@ -50,6 +51,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return () => sub.remove();
   }, []);
+
+  // 서버가 세션을 끊으면(퇴사.기기초기화.비밀번호 변경) 앱을 껐다 켤 때까지 기다리지 않고
+  // 그 자리에서 로그인 화면으로 보낸다 (2026-09-08 디렉터 지시).
+  useEffect(() => onSessionExpired(() => setIsLoggedIn(false)), []);
 
   const signIn = useCallback(() => setIsLoggedIn(true), []);
 
