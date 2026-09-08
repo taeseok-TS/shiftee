@@ -100,27 +100,42 @@ export async function PATCH(request: NextRequest) {
     //     tokenVersion 만 보고 resignDate.isActive 를 보지 않는다.
     //     (미래 퇴사일은 그날이 지나도 tokenVersion 이 저절로 오르지 않는다 — 배치가 없다)
     //     그래서 DB 를 다시 읽어 갱신 라우트와 **같은 기준**으로 판정한다.
+    // 토큰은 **헤더로 인증한 요청(앱)** 에만 돌려준다. 웹은 httpOnly 쿠키로만 다루는데
+    // 여기서 body 에 실으면 그 응답만 스크립트가 읽을 수 있게 된다.
+    const isBearer = !!request.headers.get("authorization");
+
     let token: string | null = null;
     let sessionEnded = false;
+    let bumped = false; // 무효화가 이미 됐는지 — catch 에서 두 경우를 구분해야 한다
     try {
       // 무효화를 **먼저** 한다. 앞에 다른 DB 조회를 두면 그게 실패했을 때
       // 무효화가 통째로 건너뛰어지는데 응답은 "성공"이 된다(2026-09-08 적발).
       // bumpTokenVersion 은 실패하면 SystemErrorLog 를 남기고 다시 던진다.
       await bumpTokenVersion(session.userId);
+      bumped = true;
 
       // 재직 중일 때만 이 기기를 살린다. 재직 검사.DB 재조회는 발급 함수 안에 있다.
-      token = await issueSessionFor(session.userId);
+      token = await issueSessionFor(session.userId, { setCookie: !isBearer });
       if (!token) sessionEnded = true;
     } catch (e) {
       // 비밀번호는 이미 바뀌었다. 여기서 500 을 내면 사용자는 "실패했다"고 믿고
       // 옛 비번을 계속 쓴다 — 그게 더 위험하다.
-      // 무효화가 던졌다면 세션은 안 끊긴 것이므로 이 기기도 그대로 둔다.
       console.error("[password] 세션 처리 실패(비밀번호는 변경됨):", session.userId, e);
-    }
 
-    // 토큰은 **헤더로 인증한 요청(앱)** 에만 돌려준다. 웹은 httpOnly 쿠키로만 다루는데
-    // 여기서 body 에 실으면 그 응답만 스크립트가 읽을 수 있게 된다.
-    const isBearer = !!request.headers.get("authorization");
+      // ⚠ 두 경우를 구분해야 한다.
+      //   무효화 **전** 실패 → 세션은 안 끊겼다. 이 기기도 그대로 쓰면 된다.
+      //   무효화 **후** 재발급 실패 → 이 기기 세션은 **이미 죽었다.** 그걸 숨기고
+      //   "완료"라고만 하면 사용자는 다음 화면부터 영문 모를 오류를 본다.
+      if (bumped) {
+        sessionEnded = true;
+        await prisma.systemErrorLog.create({
+          data: {
+            path: "/api/profile/password (세션 재발급)", method: "PATCH",
+            message: `비밀번호 변경 후 세션 재발급 실패 — userId=${session.userId}. 사용자는 다시 로그인해야 합니다.`,
+          },
+        }).catch(() => {});
+      }
+    }
 
     return NextResponse.json({
       success: true,

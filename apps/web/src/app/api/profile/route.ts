@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, issueSessionFor } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 /**
@@ -120,10 +120,22 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
-    // ⚠ 여기서 세션을 다시 발급하지 않는다. 종전에 "감사 로그에 옛 이름이 남는다"는
-    //   이유로 setSession 을 넣었다가, **재직 검사 없는 네 번째 토큰 발급소**가 됐다 —
-    //   퇴사자가 7일마다 이름만 고치며 세션을 무기한 연장할 수 있었다(2026-09-08 적발).
-    //   이름 문제는 logAudit 이 DB 이름을 읽는 것으로 해결했다(lib/audit.ts).
+    // 이름이 바뀌었으면 이 기기 세션에도 반영한다.
+    //
+    // 세션의 name 은 표시용이 아니라 **조회 키**다 — 멘션 모아보기와 MENTION 채널
+    // 미확인 배지가 `@` + session.name 으로 메시지를 찾는다. 웹은 토큰 갱신을 부르지
+    // 않으므로, 여기서 갱신하지 않으면 개명 후 최대 7일간 @새이름 멘션이 안 잡힌다.
+    //
+    // ⚠ 반드시 issueSessionFor 를 지난다. 종전에 setSession 을 직접 불렀다가
+    //   **재직 검사 없는 네 번째 토큰 발급소**가 됐다 — 퇴사자가 7일마다 이름만 고치며
+    //   세션을 무기한 연장할 수 있었다(2026-09-08 적발). 그 문에는 검사가 들어 있다.
+    if (updateData.name && updatedUser.name !== session.name) {
+      // 앱은 Bearer 로 다니므로 쿠키를 심지 않는다(앱은 포그라운드 갱신으로 스스로 따라온다).
+      const setCookie = !request.headers.get("authorization");
+      await issueSessionFor(session.userId, { setCookie }).catch(() => {
+        /* 이름 반영이 늦어질 뿐, 프로필 저장을 되돌릴 이유는 없다 */
+      });
+    }
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {

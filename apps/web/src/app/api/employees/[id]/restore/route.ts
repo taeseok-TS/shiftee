@@ -53,6 +53,11 @@ export async function POST(
         deletedAt: null,
         permanentlyDeletedAt: null,
         isActive: true,
+        // 과거 퇴사일이 남아 있으면 되살려도 로그인이 계속 막힌다
+        // ("복구했는데 로그인이 안 된다" — 2026-09-08 적발)
+        resignDate: null,
+        resignReason: null,
+        employmentStatus: "ACTIVE",
       },
       select: {
         id: true,

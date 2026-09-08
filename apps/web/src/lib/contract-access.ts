@@ -11,6 +11,7 @@
 //   full : 열람·다운로드
 // 서명이 끝난 문서(SIGNED)에만 적용한다. 진행 중에는 본인이 무엇에 서명하는지 봐야 하므로 연다.
 import { prisma } from "@/lib/db";
+import { isResigned } from "@/lib/resign";
 
 export type AccessPrincipal = {
   userId: string | null;
@@ -193,9 +194,11 @@ export async function resolvePrincipal(
     if (!uid || !Number.isInteger(ticketTv)) return { who: { userId: null, role: null }, guestContractId: null };
     const u = await prisma.user.findUnique({
       where: { id: uid },
-      select: { id: true, role: true, isActive: true, tokenVersion: true },
+      select: { id: true, role: true, isActive: true, tokenVersion: true, resignDate: true },
     });
-    if (u?.isActive && u.tokenVersion === ticketTv)
+    // 퇴사일이 지났으면 막는다. isActive 만 보면, 퇴사일만 넣고 비활성 처리를 안 한
+    // 계정이 세션이 살아 있는 동안 계약서.서명 파일을 계속 열 수 있다(2026-09-08 적발).
+    if (u?.isActive && !isResigned(u.resignDate) && u.tokenVersion === ticketTv)
       return { who: { userId: u.id, role: u.role }, guestContractId: null };
   }
   return { who: { userId: null, role: null }, guestContractId: null };

@@ -146,9 +146,15 @@ export async function isSessionStillValid(payload: { userId: string; tv?: number
  *
  * 반환 null = 발급 불가(계정 없음.비활성.퇴사). 부르는 쪽은 세션을 끝내야 한다.
  *
+ * `setCookie` 는 헤더(Bearer)로 인증한 요청이면 false 로 넘긴다 — 앱에까지 쿠키를 심으면
+ * getSession 이 쿠키를 Bearer 보다 먼저 보기 때문에, 뒤에 남은 쿠키가 헷갈릴 수 있다.
+ *
  * ⚠ 로그인(`/api/auth/login`)만 예외다 — 거기는 비밀번호.기기 잠금까지 따로 본다.
  */
-export async function issueSessionFor(userId: string): Promise<string | null> {
+export async function issueSessionFor(
+  userId: string,
+  opts: { setCookie?: boolean } = {}
+): Promise<string | null> {
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, role: true, name: true, branch: true,
@@ -156,10 +162,11 @@ export async function issueSessionFor(userId: string): Promise<string | null> {
   });
   if (!u || !u.isActive || isResigned(u.resignDate)) return null;
   // 옛 토큰의 값을 복사하지 않는다 — 그 사이 바뀐 이름.지점.권한이 낡은 채로 7일 더 연장된다.
-  return setSession({
+  const payload = {
     userId: u.id, email: u.email, role: u.role, name: u.name,
     branch: u.branch ?? null, tv: u.tokenVersion,
-  });
+  };
+  return opts.setCookie === false ? signToken(payload) : setSession(payload);
 }
 
 export async function getSession(): Promise<JWTPayload | null> {
