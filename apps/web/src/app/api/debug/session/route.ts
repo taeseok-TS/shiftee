@@ -15,6 +15,9 @@ export async function GET(request: NextRequest) {
     console.log("[DEBUG SESSION] Token cookie exists:", !!token);
 
     const session = await getSession();
+    // 운영에 열려 있는 진단용 창구다. 최소한 관리자만 보게 막는다.
+    if (!session || session.role !== "ADMIN")
+      return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     console.log("[DEBUG SESSION] Session result:", {
       hasSession: !!session,
       userId: session?.userId,

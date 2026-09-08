@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
 import { prisma } from "./db";
+import { isResigned } from "./resign";
 
 const secret = new TextEncoder().encode(
   process.env.JWT_SECRET || "fallback-secret-change-in-production"
@@ -133,6 +134,32 @@ export async function bumpTokenVersionMany(userIds: string[]): Promise<number> {
 export async function isSessionStillValid(payload: { userId: string; tv?: number }): Promise<boolean> {
   const cur = await currentTokenVersion(payload.userId);
   return cur === null || cur === (payload.tv ?? 0);
+}
+
+/**
+ * 이 사람에게 **새 세션을 발급한다** — 로그인 이후의 모든 재발급은 반드시 이 문을 지난다.
+ *
+ * 왜 함수로 묶었나: 발급처가 늘 때마다 재직 검사를 베껴 쓰다 보니 같은 실수를 네 번 했다.
+ * 마지막 것이 특히 나빴다 — 프로필에서 이름만 바꿔도 **재직 검사 없이 새 7일 세션**이
+ * 나가서, 퇴사자가 7일마다 이름을 고치며 무기한 버틸 수 있었다(2026-09-08 검증에서 적발).
+ * 이제 검사는 여기 한 곳에만 있고, 여기를 지나지 않으면 토큰이 나갈 수 없다.
+ *
+ * 반환 null = 발급 불가(계정 없음.비활성.퇴사). 부르는 쪽은 세션을 끝내야 한다.
+ *
+ * ⚠ 로그인(`/api/auth/login`)만 예외다 — 거기는 비밀번호.기기 잠금까지 따로 본다.
+ */
+export async function issueSessionFor(userId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, role: true, name: true, branch: true,
+              isActive: true, resignDate: true, tokenVersion: true },
+  });
+  if (!u || !u.isActive || isResigned(u.resignDate)) return null;
+  // 옛 토큰의 값을 복사하지 않는다 — 그 사이 바뀐 이름.지점.권한이 낡은 채로 7일 더 연장된다.
+  return setSession({
+    userId: u.id, email: u.email, role: u.role, name: u.name,
+    branch: u.branch ?? null, tv: u.tokenVersion,
+  });
 }
 
 export async function getSession(): Promise<JWTPayload | null> {

@@ -66,9 +66,17 @@ export default function SettingsScreen({ navigation }: any) {
     if (pwNew !== pwConfirm) { Alert.alert("입력 확인", "새 비밀번호가 일치하지 않습니다."); return; }
     setPwSaving(true);
     try {
-      await auth.changePassword(pwCurrent, pwNew);
+      const r = await auth.changePassword(pwCurrent, pwNew);
       setPwOpen(false); setPwCurrent(""); setPwNew(""); setPwConfirm("");
-      Alert.alert("완료", "비밀번호가 변경되었습니다.");
+      if (r.sessionEnded) {
+        // 서버가 이 기기 세션을 살리지 못한 경우(퇴사 처리된 계정 등).
+        // 이유를 먼저 알리고, 확인을 누르면 로그인 화면으로 보낸다 —
+        // 아무 설명 없이 튕기면 사용자는 비밀번호 변경이 실패한 줄 안다.
+        const { emitSessionExpired } = await import("../services/session-events");
+        Alert.alert("완료", r.message, [{ text: "확인", onPress: () => emitSessionExpired() }]);
+        return;
+      }
+      Alert.alert("완료", r.message);
     } catch (e: any) {
       Alert.alert("변경 실패", e?.message || "비밀번호 변경에 실패했습니다.");
     } finally {

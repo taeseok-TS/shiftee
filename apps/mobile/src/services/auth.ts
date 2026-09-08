@@ -93,7 +93,10 @@ export async function isAuthenticated(): Promise<boolean> {
  * 비밀번호 변경 (본인) — 서버 정책: 8자 이상 + 대문자 + 숫자 + 특수문자
  * 관리자가 임시 비번(1234)으로 초기화한 경우, 변경하면 봇의 변경 요청 알림이 멈춘다.
  */
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ sessionEnded: boolean; message: string }> {
   const token = await storage.getToken();
   try {
     const res = await axios.patch(
@@ -107,12 +110,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
     // 파일 열람 티켓에도 세션 번호가 새겨져 있어 옛 티켓이 함께 죽는다.
     // 새로 받아오지 않으면 계약서.서명 이미지가 12시간 동안 안 보인다.
     import("./work").then((w) => w.fetchUploadsTicket()).catch(() => {});
-    // 서버가 재직 여부를 다시 보고 세션을 끝냈다면(퇴사 처리된 계정 등) 로그인 화면으로.
-    if (res.data?.sessionEnded) {
-      await logout();
-      const { emitSessionExpired } = await import("./session-events");
-      emitSessionExpired();
-    }
+    // 서버가 재직 여부를 다시 보고 세션을 끝냈다면(퇴사 처리된 계정 등) 로그아웃한다.
+    // 다만 **로그인 화면으로 보내는 건 화면이 이유를 알린 뒤**다 — 여기서 바로 보내면
+    // 사용자는 아무 설명 없이 로그인 화면으로 떨어진다.
+    const sessionEnded = !!res.data?.sessionEnded;
+    if (sessionEnded) await logout();
+    return {
+      sessionEnded,
+      message: res.data?.message || "비밀번호가 변경되었습니다.",
+    };
   } catch (error: any) {
     // 서버 메시지(현재 비번 불일치·강도 미달)를 그대로 화면에 노출
     throw new Error(error.response?.data?.error || "비밀번호 변경에 실패했습니다.");

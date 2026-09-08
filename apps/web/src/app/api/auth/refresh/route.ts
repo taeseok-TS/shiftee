@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession, signToken } from "@/lib/auth";
-import { isResigned } from "@/lib/resign";
-import { prisma } from "@/lib/db";
+import { getSession, issueSessionFor } from "@/lib/auth";
 
 // 토큰 갱신 — 아직 유효한 토큰이면 새 7일 토큰 발급 (슬라이딩 세션).
 // 앱이 실행/포그라운드 복귀할 때마다 호출하므로, 일주일에 한 번만 열어도 로그인이 유지된다.
@@ -9,26 +7,10 @@ export async function POST() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  // 최신 상태로 재발급 (퇴사 처리된 계정 차단 + 이름/지점 변경 반영)
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { id: true, email: true, role: true, name: true, branch: true, isActive: true, resignDate: true, tokenVersion: true },
-  });
-  if (!user || !user.isActive)
-    return NextResponse.json({ error: "사용할 수 없는 계정입니다." }, { status: 401 });
-  // 퇴사일이 지나면 갱신을 끊는다 — 이미 발급된 토큰은 남은 기간만 쓰이고 자연히 만료된다
-  if (isResigned(user.resignDate))
-    return NextResponse.json({ error: "퇴사 처리된 계정입니다." }, { status: 401 });
+  // 최신 상태로 재발급 — 재직 검사(비활성.퇴사)와 DB 재조회는 issueSessionFor 안에 있다.
+  // 검사를 여기 따로 베껴 쓰지 말 것. 그렇게 갈라지다 발급처마다 검사가 빠졌다.
+  const token = await issueSessionFor(session.userId);
+  if (!token) return NextResponse.json({ error: "사용할 수 없는 계정입니다." }, { status: 401 });
 
-  const token = await signToken({
-    userId: user.id,
-    email: user.email,
-    role: user.role,
-    name: user.name,
-    branch: user.branch,
-    // ⚠ 이걸 빼면 갱신 토큰에 tv 가 없어져, 한 번이라도 무효화된 사람은
-    //   앱을 껐다 켤 때마다 강제 로그아웃된다(2026-09-07 검증에서 적발).
-    tv: user.tokenVersion,
-  });
   return NextResponse.json({ success: true, token });
 }

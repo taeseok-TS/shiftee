@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, bumpTokenVersion, setSession } from "@/lib/auth";
-import { isResigned } from "@/lib/resign";
+import { getSession, bumpTokenVersion, issueSessionFor } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
@@ -103,34 +102,20 @@ export async function PATCH(request: NextRequest) {
     //     그래서 DB 를 다시 읽어 갱신 라우트와 **같은 기준**으로 판정한다.
     let token: string | null = null;
     let sessionEnded = false;
-    let bumped = false;
     try {
-      const fresh = await prisma.user.findUnique({
-        where: { id: session.userId },
-        select: { id: true, email: true, role: true, name: true, branch: true, isActive: true, resignDate: true },
-      });
+      // 무효화를 **먼저** 한다. 앞에 다른 DB 조회를 두면 그게 실패했을 때
+      // 무효화가 통째로 건너뛰어지는데 응답은 "성공"이 된다(2026-09-08 적발).
+      // bumpTokenVersion 은 실패하면 SystemErrorLog 를 남기고 다시 던진다.
+      await bumpTokenVersion(session.userId);
 
-      const tv = await bumpTokenVersion(session.userId);
-      bumped = true;
-
-      // 재직 중일 때만 이 기기를 살린다. 아니면 비번만 바꾸고 세션은 끝낸다.
-      // 옛 payload 를 그대로 복사하지 않고 **DB 값**으로 다시 심는다 — 이름.지점.권한이
-      // 그 사이 바뀌었을 수 있고, 복사하면 낡은 값이 7일 더 연장된다.
-      if (fresh && fresh.isActive && !isResigned(fresh.resignDate)) {
-        token = await setSession({
-          userId: fresh.id, email: fresh.email, role: fresh.role,
-          name: fresh.name, branch: fresh.branch ?? null, tv,
-        });
-      } else {
-        sessionEnded = true;
-      }
+      // 재직 중일 때만 이 기기를 살린다. 재직 검사.DB 재조회는 발급 함수 안에 있다.
+      token = await issueSessionFor(session.userId);
+      if (!token) sessionEnded = true;
     } catch (e) {
       // 비밀번호는 이미 바뀌었다. 여기서 500 을 내면 사용자는 "실패했다"고 믿고
       // 옛 비번을 계속 쓴다 — 그게 더 위험하다.
-      console.error("[password] 세션 재발급 실패(비밀번호는 변경됨):", session.userId, e);
-      // 무효화까지는 됐는데 재발급이 실패했다면 이 기기의 세션은 이미 죽었다.
-      // 그걸 숨기면 사용자는 화면마다 오류만 보게 된다 — 솔직히 알려 다시 로그인시킨다.
-      if (bumped) sessionEnded = true;
+      // 무효화가 던졌다면 세션은 안 끊긴 것이므로 이 기기도 그대로 둔다.
+      console.error("[password] 세션 처리 실패(비밀번호는 변경됨):", session.userId, e);
     }
 
     // 토큰은 **헤더로 인증한 요청(앱)** 에만 돌려준다. 웹은 httpOnly 쿠키로만 다루는데

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, setSession } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 /**
@@ -120,15 +120,10 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
-    // 이름이 바뀌었으면 이 기기 세션에도 반영한다. 감사 로그(AuditLog.actorName)가
-    // 토큰의 이름을 그대로 쓰기 때문에, 안 하면 최대 7일간 옛 이름으로 기록된다.
-    // 무효화(bump)는 하지 않는다 — 이름 한 번 고쳤다고 전 기기를 로그아웃시킬 일은 아니다.
-    if (updateData.name && updatedUser.name !== session.name) {
-      await setSession({
-        userId: session.userId, email: session.email, role: session.role,
-        name: updatedUser.name, branch: session.branch ?? null, tv: session.tv,
-      }).catch(() => { /* 이름 표시가 늦어질 뿐, 프로필 저장을 되돌릴 이유는 없다 */ });
-    }
+    // ⚠ 여기서 세션을 다시 발급하지 않는다. 종전에 "감사 로그에 옛 이름이 남는다"는
+    //   이유로 setSession 을 넣었다가, **재직 검사 없는 네 번째 토큰 발급소**가 됐다 —
+    //   퇴사자가 7일마다 이름만 고치며 세션을 무기한 연장할 수 있었다(2026-09-08 적발).
+    //   이름 문제는 logAudit 이 DB 이름을 읽는 것으로 해결했다(lib/audit.ts).
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {
