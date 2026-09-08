@@ -196,16 +196,32 @@ export async function issueSessionFor(
 
 export async function getSession(): Promise<JWTPayload | null> {
   const cookieStore = await cookies();
-  let token = cookieStore.get("token")?.value;
 
-  // 웹은 httpOnly 쿠키 사용. 모바일 등 쿠키를 못 쓰는 클라이언트는
-  // Authorization: Bearer <token> 헤더로 동일한 JWT를 전달한다.
-  if (!token) {
-    const authz = (await headers()).get("authorization");
-    if (authz?.startsWith("Bearer ")) token = authz.slice(7);
+  // 웹은 httpOnly 쿠키, 모바일은 Authorization: Bearer 로 같은 JWT 를 보낸다.
+  //
+  // ⚠ 둘 다 온 경우 **쿠키만 보고 끝내면 안 된다.** 로그인은 앱에도 쿠키를 내려보내므로
+  //   앱에는 쿠키가 남아 있고, 그 쿠키가 어떤 이유로든 낡으면 **멀쩡한 Bearer 를 들고도
+  //   401** 이 난다(2026-09-08 6차 검증에서 실측). 그래서 온 것을 순서대로 다 본다.
+  //   후보마다 서명.무효화.재직을 똑같이 검사하므로 이것이 통과 기준을 낮추지는 않는다.
+  const candidates: string[] = [];
+  const cookieToken = cookieStore.get("token")?.value;
+  if (cookieToken) candidates.push(cookieToken);
+  const authz = (await headers()).get("authorization");
+  if (authz?.startsWith("Bearer ")) {
+    const bearer = authz.slice(7);
+    if (bearer && bearer !== cookieToken) candidates.push(bearer);
   }
+  if (candidates.length === 0) return null;
 
-  if (!token) return null;
+  for (const token of candidates) {
+    const ok = await verifySessionToken(token);
+    if (ok) return ok;
+  }
+  return null;
+}
+
+/** 토큰 하나를 끝까지 검사한다 — 서명.무효화.재직. 통과하면 payload, 아니면 null. */
+async function verifySessionToken(token: string): Promise<JWTPayload | null> {
   const payload = await verifyToken(token);
   if (!payload) return null;
 
