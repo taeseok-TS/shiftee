@@ -187,7 +187,9 @@ export async function resolvePrincipal(
     const raw = ticketSubject.slice(2);
     const cut = raw.lastIndexOf("~");
     const uid = cut >= 0 ? raw.slice(0, cut) : raw;
-    const ticketTv = cut >= 0 ? Number(raw.slice(cut + 1)) : 0;
+    const tvRaw = cut >= 0 ? raw.slice(cut + 1) : "0";
+    // Number("") 는 0 이다 — 빈 값을 "번호 0" 으로 통과시키지 않도록 형식을 먼저 본다
+    const ticketTv = /^\d+$/.test(tvRaw) ? Number(tvRaw) : NaN;
     if (!uid || !Number.isInteger(ticketTv)) return { who: { userId: null, role: null }, guestContractId: null };
     const u = await prisma.user.findUnique({
       where: { id: uid },

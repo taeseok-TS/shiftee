@@ -104,6 +104,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
     // 서버가 다른 기기 세션을 전부 끊으면서 **이 기기용 새 토큰**을 함께 준다.
     // 저장하지 않으면 비밀번호를 바꾸자마자 본인이 튕긴다.
     if (res.data?.token) await storage.saveToken(res.data.token);
+    // 파일 열람 티켓에도 세션 번호가 새겨져 있어 옛 티켓이 함께 죽는다.
+    // 새로 받아오지 않으면 계약서.서명 이미지가 12시간 동안 안 보인다.
+    import("./work").then((w) => w.fetchUploadsTicket()).catch(() => {});
+    // 서버가 재직 여부를 다시 보고 세션을 끝냈다면(퇴사 처리된 계정 등) 로그인 화면으로.
+    if (res.data?.sessionEnded) {
+      await logout();
+      const { emitSessionExpired } = await import("./session-events");
+      emitSessionExpired();
+    }
   } catch (error: any) {
     // 서버 메시지(현재 비번 불일치·강도 미달)를 그대로 화면에 노출
     throw new Error(error.response?.data?.error || "비밀번호 변경에 실패했습니다.");

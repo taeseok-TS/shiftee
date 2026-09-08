@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, setSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 /**
@@ -119,6 +119,16 @@ export async function PATCH(request: NextRequest) {
         avatarUrl: true,
       },
     });
+
+    // 이름이 바뀌었으면 이 기기 세션에도 반영한다. 감사 로그(AuditLog.actorName)가
+    // 토큰의 이름을 그대로 쓰기 때문에, 안 하면 최대 7일간 옛 이름으로 기록된다.
+    // 무효화(bump)는 하지 않는다 — 이름 한 번 고쳤다고 전 기기를 로그아웃시킬 일은 아니다.
+    if (updateData.name && updatedUser.name !== session.name) {
+      await setSession({
+        userId: session.userId, email: session.email, role: session.role,
+        name: updatedUser.name, branch: session.branch ?? null, tv: session.tv,
+      }).catch(() => { /* 이름 표시가 늦어질 뿐, 프로필 저장을 되돌릴 이유는 없다 */ });
+    }
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {

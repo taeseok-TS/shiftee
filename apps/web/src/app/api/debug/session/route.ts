@@ -7,14 +7,12 @@ export async function GET(request: NextRequest) {
     // 모든 쿠키 로깅
     const cookieStore = await cookies();
     const allCookies = cookieStore.getAll();
-    console.log("[DEBUG SESSION] All cookies:", allCookies.map(c => ({ name: c.name, value: c.value.substring(0, 30) })));
+    // ⚠ 쿠키.토큰 값을 로그에 남기지 않는다 — 서버 로그를 보는 사람이 남의 세션을 그대로 쓸 수 있다.
+    console.log("[DEBUG SESSION] 쿠키 이름:", allCookies.map((c) => c.name));
 
     const token = cookieStore.get("token")?.value;
 
     console.log("[DEBUG SESSION] Token cookie exists:", !!token);
-    if (token) {
-      console.log("[DEBUG SESSION] Token value (first 50 chars):", token.substring(0, 50));
-    }
 
     const session = await getSession();
     console.log("[DEBUG SESSION] Session result:", {

@@ -213,15 +213,23 @@ export default function ProfilePage() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "비밀번호 변경 실패");
+        throw new Error(data.error || "비밀번호 변경 실패");
       }
 
       // 폼 초기화
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+
+      // 서버가 이 기기 세션을 살리지 못한 경우(퇴사 처리된 계정 등) 로그인 화면으로.
+      // 그냥 두면 비밀번호는 바뀌었는데 화면마다 오류만 뜬다.
+      if (data.sessionEnded) {
+        toast.success(data.message || "비밀번호가 변경되었습니다. 다시 로그인해주세요.");
+        setTimeout(() => { window.location.href = "/login"; }, 1200);
+        return;
+      }
 
       toast.success("비밀번호가 변경되었습니다.");
     } catch (error) {

@@ -99,9 +99,12 @@ export async function unregisterPushToken(): Promise<void> {
     if (!projectId) return;
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     if (!token) return;
+    // 타임아웃이 없으면 느린 망에서 로그아웃이 여기 매달려, 세션이 끊겼을 때
+    // 로그인 화면으로 넘어가는 것이 그만큼 늦어진다. 해제 실패는 무해하다.
     await axios.delete(`${API_URL}/push/register`, {
       headers: await authHeaders(),
       data: { token },
+      timeout: 4000,
     });
   } catch {
     // 무시
