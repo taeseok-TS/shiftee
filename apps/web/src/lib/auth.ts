@@ -36,6 +36,10 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
     if (typeof p.userId !== "string" || p.userId === "") return null;
     if (p.role !== "ADMIN" && p.role !== "MANAGER" && p.role !== "EMPLOYEE") return null;
     if (typeof p.email !== "string" || typeof p.name !== "string") return null;
+    // branch 도 반드시 본다. 여기만 비워두면 위조 토큰이 branch 에 객체를 넣어
+    // 지점 필터를 통째로 무력화할 수 있다 — `where:{branch:{}}` 는 전 지점을 반환한다
+    // (2026-09-08 8차 검증에서 운영 DB 로 실측). 좌표 없는 본부 소속은 null 이다.
+    if (p.branch !== null && typeof p.branch !== "string") return null;
     if (p.tv !== undefined && typeof p.tv !== "number") return null;
     return p;
   } catch {
@@ -247,18 +251,26 @@ export async function getSession(): Promise<JWTPayload | null> {
   //      이 순서가 없으면, DB 가 흔들리는 동안 첫 후보(낡은 쿠키)가 통과로 처리돼
   //      멀쩡한 두 번째 후보를 아예 보지 않는다(2026-09-08 7차 검증에서 적발).
   let degraded: JWTPayload | null = null;
+  const rejected = new Set<string>(); // 확정으로 거부된 사람
   for (const token of candidates) {
     const r = await verifySessionToken(token);
     if (r.ok) return r.payload;
-    if (r.degraded && !degraded) degraded = r.payload;
+    if (r.degraded) { if (!degraded) degraded = r.payload; }
+    else if (r.payload) rejected.add(r.payload.userId);
   }
+  // 같은 사람에 대해 **확정 거부**가 한 번이라도 나왔으면, 다른 후보가 DB 장애로
+  // 판정을 못 했다는 이유로 통과시키지 않는다. 안 그러면 차단된 사람이 DB 가
+  // 순간 흔들리는 틈에 옛 자격증명으로 들어온다(2026-09-08 8차 검증에서 적발).
+  if (degraded && rejected.has(degraded.userId)) return null;
   return degraded;
 }
 
 type SessionCheck =
   | { ok: true; payload: JWTPayload; degraded?: false }
   | { ok: false; degraded: true; payload: JWTPayload }
-  | { ok: false; degraded: false; payload: null };
+  // 확정 거부 — payload 는 "누가 거부됐는지"를 알리기 위해 들고 나온다(형태가
+  // 깨져 누구인지조차 모르면 null).
+  | { ok: false; degraded: false; payload: JWTPayload | null };
 
 /** 토큰 하나를 끝까지 검사한다 — 모양.서명.무효화.재직. */
 async function verifySessionToken(token: string): Promise<SessionCheck> {
@@ -272,9 +284,9 @@ async function verifySessionToken(token: string): Promise<SessionCheck> {
   // NO_USER(계정 없음)와 blocked(퇴사.비활성)는 막는다.
   const cur = await currentUserState(payload.userId);
   if (cur === null) return { ok: false, degraded: true, payload }; // DB 장애 — 판정 보류
-  if (cur === NO_USER) return { ok: false, degraded: false, payload: null };
-  if (cur.blocked) return { ok: false, degraded: false, payload: null };
-  if (cur.v !== (payload.tv ?? 0)) return { ok: false, degraded: false, payload: null };
+  if (cur === NO_USER) return { ok: false, degraded: false, payload };
+  if (cur.blocked) return { ok: false, degraded: false, payload };
+  if (cur.v !== (payload.tv ?? 0)) return { ok: false, degraded: false, payload };
   return { ok: true, payload };
 }
 
