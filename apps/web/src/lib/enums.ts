@@ -29,3 +29,15 @@ export function pick<T extends readonly string[]>(list: T, v: unknown): T[number
 export function pickOr<T extends readonly string[]>(list: T, v: unknown, fallback: T[number]): T[number] {
   return pick(list, v) ?? fallback;
 }
+
+/**
+ * 휴가 유형 — `prisma/schema.prisma` 의 `enum LeaveType` 과 **반드시 같아야 한다.**
+ * 스키마에 유형을 추가하면 여기도 함께 늘릴 것(안 늘리면 새 유형이 400 으로 막힌다).
+ */
+export const LEAVE_TYPES = [
+  "ANNUAL", "HALF_AM", "HALF_PM", "QUARTER_AM", "QUARTER_PM",
+  "COMPENSATORY", "COMPENSATORY_HALF", "SICK", "SPECIAL",
+  "CIVIL_DEFENSE", "RESERVE_FORCES",
+  "FAMILY_EVENT", "FAMILY_MARRIAGE", "FAMILY_BIRTH", "FAMILY_BEREAVEMENT",
+] as const;
+export type LeaveTypeValue = (typeof LEAVE_TYPES)[number];

@@ -303,43 +303,58 @@ async function adminOverride(
     );
   }
 
-  // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
-  // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
-  await prisma.leaveApprovalStep.updateMany({
-    where: { leaveRequestId: id, status: { in: ["PENDING", "WAITING"] } },
-    data: {
-      status: action === "approve" ? "APPROVED" : "REJECTED",
-      approverId,
-      comment: reason ?? "관리자 직접처리",
-      decidedAt: new Date(),
-    },
-  }).catch(() => { /* 단계 마감 실패가 결재 자체를 막지는 않는다 */ });
-
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status:         action === "approve" ? "APPROVED" : "REJECTED",
-      approverId,
-      rejectedReason: action === "reject" ? reason : null,
-    },
-  });
-
-  // 잔여 휴가 차감 (연차 차감 유형만)
-  if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
-    await prisma.leaveBalance.upsert({
-      where:  { userId_year: { userId, year: currentLeaveYear() } },
-      create: {
-        userId,
-        year:      currentLeaveYear(),
-        total:     15,
-        used:      days,
-        remaining: 15 - days,
-      },
-      update: {
-        used:      { increment: days },
-        remaining: { decrement: days },
+  // ⚠ 세 가지(단계 마감 · 신청 상태 · 연차 차감)를 **한 트랜잭션 + CAS** 로 묶는다.
+  //   종전에는 셋이 따로 실행돼서, 관리자 둘이 동시에(또는 한 명이 더블클릭) 승인하면
+  //   둘 다 위 상태 검사를 통과해 **연차가 두 번 깎였다**. 근무일정 쪽은 반영이
+  //   upsert 라 멱등인데 휴가의 `used += days` 는 멱등이 아니다
+  //   (2026-09-09 검증에서 적발 — 단계별 경로에서 막은 사고가 이 경로에 남아 있었다).
+  //   트랜잭션이 없으면 차감만 실패했을 때 "승인됐는데 안 깎임"도 남는다.
+  let claimed = false;
+  await prisma.$transaction(async (tx) => {
+    const won = await tx.leaveRequest.updateMany({
+      where: { id, status: "PENDING" },   // 먼저 잡는 쪽만 처리한다
+      data: {
+        status:         action === "approve" ? "APPROVED" : "REJECTED",
+        approverId,
+        rejectedReason: action === "reject" ? reason : null,
       },
     });
+    if (won.count === 0) return;
+    claimed = true;
+
+    // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
+    // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
+    await tx.leaveApprovalStep.updateMany({
+      where: { leaveRequestId: id, status: { in: ["PENDING", "WAITING"] } },
+      data: {
+        status: action === "approve" ? "APPROVED" : "REJECTED",
+        approverId,
+        comment: reason ?? "관리자 직접처리",
+        decidedAt: new Date(),
+      },
+    });
+
+    // 잔여 휴가 차감 (연차 차감 유형만)
+    if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
+      await tx.leaveBalance.upsert({
+        where:  { userId_year: { userId, year: currentLeaveYear() } },
+        create: {
+          userId,
+          year:      currentLeaveYear(),
+          total:     15,
+          used:      days,
+          remaining: 15 - days,
+        },
+        update: {
+          used:      { increment: days },
+          remaining: { decrement: days },
+        },
+      });
+    }
+  });
+
+  if (!claimed) {
+    return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
   }
 
   // 이메일 발송

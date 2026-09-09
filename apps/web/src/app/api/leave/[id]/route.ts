@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
 
-// 휴가 신청 취소 (직원 본인 · PENDING만)
+// 휴가 신청 취소 — 본인은 대기 중인 건만, 원장.관리자는 담당 직원의 건을 처리할 수 있다.
+// 취소하면 승인된 건의 연차가 복원되므로, 남의 건을 취소하면 감사로그와 당사자 DM 을 남긴다.
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { id } = await params;
-  const leave = await prisma.leaveRequest.findUnique({ where: { id } });
+  const leave = await prisma.leaveRequest.findUnique({
+    where: { id },
+    include: { user: { select: { name: true } } },   // 감사로그에 남길 이름
+  });
 
   if (!leave) return NextResponse.json({ error: "신청 내역이 없습니다." }, { status: 404 });
 
@@ -37,8 +42,15 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
   if (leave.status === "CANCELLED") {
     return NextResponse.json({ error: "이미 취소된 신청입니다." }, { status: 400 });
   }
-  if (session.role === "EMPLOYEE" && leave.status !== "PENDING") {
-    return NextResponse.json({ error: "대기 중인 신청만 취소할 수 있습니다." }, { status: 400 });
+  // ⚠ **본인 신청은 누구든 대기 중일 때만** 취소할 수 있다. 종전에는 EMPLOYEE 만
+  //   이 제한을 받아서, 원장.관리자가 자기 승인된 휴가를 스스로 취소해 **연차를
+  //   되돌릴 수** 있었다(기록도 안 남았다 — 2026-09-09 검증에서 적발).
+  //   승인된 건을 되돌리는 것은 **남의 것을 처리하는 관리 행위**로만 남긴다.
+  if (leave.userId === session.userId && leave.status !== "PENDING") {
+    return NextResponse.json(
+      { error: "이미 승인된 본인 휴가는 직접 취소할 수 없습니다. 관리자에게 요청해주세요." },
+      { status: 403 }
+    );
   }
 
   let done = false;
@@ -73,6 +85,26 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
 
   if (!done) {
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
+  }
+
+  // 남의 휴가를 취소하면 **기록을 남긴다.** 종전에는 원장.관리자가 승인된 휴가를
+  // 취소해 연차를 되돌려도 감사로그가 한 줄도 안 남았다(근무일정 취소에는 있다).
+  if (leave.userId !== session.userId) {
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "LEAVE_CANCEL",
+      targetType: "LEAVE", targetId: id, targetName: leave.user?.name ?? null,
+      detail: `휴가 취소 (${ymd(leave.startDate)} ~ ${ymd(leave.endDate)}, ${leave.days}일, 이전 상태 ${leave.status})`,
+    });
+    // 당사자에게도 알린다 — 모르는 사이에 휴가가 사라지면 안 된다
+    const { botSendDM } = await import("@/lib/bot");
+    botSendDM(
+      leave.userId,
+      `휴가 신청이 취소되었습니다.
+
+기간: ${ymd(leave.startDate)} ~ ${ymd(leave.endDate)}
+처리: ${session.name}`
+    ).catch(() => {});
   }
 
   return NextResponse.json({ success: true });

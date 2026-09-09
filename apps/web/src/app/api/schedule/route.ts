@@ -180,6 +180,8 @@ export async function POST(request: NextRequest) {
   }
   const kind = asScheduleType(type);
   if (!kind) return NextResponse.json({ error: "근무 유형이 올바르지 않습니다." }, { status: 400 });
+  // note 도 문자열만 받는다(일괄 등록은 이미 그렇게 하는데 여기만 빠져 있었다)
+  const memo = typeof note === "string" ? note : null;
 
   const [yy, mm, dd] = date.split("-").map(Number);
   const dateUtc = new Date(Date.UTC(yy, mm - 1, dd));   // @db.Date 는 UTC 자정 저장
@@ -189,8 +191,8 @@ export async function POST(request: NextRequest) {
   // "없음"을 보고 각자 생성해 중복이 생길 수 있었다(2026-09-08 검증에서 적발).
   const schedule = await prisma.schedule.upsert({
     where: { userId_date: { userId, date: dateUtc } },
-    create: { userId, date: dateUtc, startTime: st, endTime: et, type: kind, note },
-    update: { startTime: st, endTime: et, type: kind, note },
+    create: { userId, date: dateUtc, startTime: st, endTime: et, type: kind, note: memo },
+    update: { startTime: st, endTime: et, type: kind, note: memo },
   });
 
   return NextResponse.json({ success: true, schedule });

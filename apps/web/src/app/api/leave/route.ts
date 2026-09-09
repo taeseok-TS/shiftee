@@ -9,7 +9,7 @@ import { currentLeaveYear } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { getManagerBranches, branchHasManager } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
-import { LEAVE_STATUSES, pick } from "@/lib/enums";
+import { LEAVE_STATUSES, pick, LEAVE_TYPES, type LeaveTypeValue } from "@/lib/enums";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -20,8 +20,20 @@ export async function GET(request: NextRequest) {
   //   (2026-09-06 실측: `?status=BOGUS` → 500). 주소창에 오타 한 번이면 서버 오류다.
   //   아는 값만 받고, 모르는 값은 필터를 안 건 것으로 본다(빈 목록보다 전체가 안전하다).
   const status = pick(LEAVE_STATUSES, searchParams.get("status"));
-  const year   = searchParams.get("year")   ? parseInt(searchParams.get("year")!) : undefined;
-  const month  = searchParams.get("month")  ? parseInt(searchParams.get("month")!) : undefined; // 1~12
+  // parseInt 는 "9abc" 를 9 로 읽는다 — 조용히 엉뚱한 해.달의 목록을 준다.
+  // 근무일정 조회와 **같은 기준**으로 숫자만 받는다(2026-09-09 검증에서 적발).
+  const numParam = (k: string): number | undefined | null => {
+    const v = searchParams.get(k);
+    if (v === null) return undefined;
+    return /^\d+$/.test(v.trim()) ? Number(v.trim()) : null;   // null = 형식 오류
+  };
+  const year  = numParam("year");
+  const month = numParam("month");
+  if (year === null || month === null ||
+      (year !== undefined && (year < 2000 || year > 2100)) ||
+      (month !== undefined && (month < 1 || month > 12))) {
+    return NextResponse.json({ error: "연월이 올바르지 않습니다." }, { status: 400 });
+  }
 
   let dateFilter = {};
   if (year && month) {
@@ -83,8 +95,24 @@ export async function POST(request: NextRequest) {
   if (!type || !startDate || !endDate) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
   }
+  // ⚠ 근무일정과 **같은 기준**으로 모양을 먼저 본다. 종전에는 검증이 없어
+  //   `reason` 에 객체가 오면 String(...) 이 던져 500 이 됐고, 없는 휴가 유형이나
+  //   깨진 날짜도 그대로 Prisma 까지 갔다(2026-09-09 검증에서 실증).
+  const { isRealDate } = await import("@/lib/schedule-payload");
+  if (!isRealDate(startDate) || !isRealDate(endDate)) {
+    return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
+  }
+  if (typeof type !== "string" || !(LEAVE_TYPES as readonly string[]).includes(type)) {
+    return NextResponse.json({ error: "휴가 유형이 올바르지 않습니다." }, { status: 400 });
+  }
+  const leaveType = type as LeaveTypeValue;
+  for (const [label, v] of [["첨부 경로", attachmentUrl], ["첨부 파일명", attachmentName]] as const) {
+    if (v !== undefined && v !== null && typeof v !== "string") {
+      return NextResponse.json({ error: `${label} 형식이 올바르지 않습니다.` }, { status: 400 });
+    }
+  }
   // 신청 사유 필수(모든 유형)
-  if (!reason || !String(reason).trim()) {
+  if (typeof reason !== "string" || !reason.trim()) {
     return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
   }
   // 대체휴무는 동의서 첨부 필수
@@ -134,20 +162,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const leaveRequest = await prisma.leaveRequest.create({
-    data: {
-      userId: session.userId,
-      type,
-      startDate: start,
-      endDate:   end,
-      days,
-      reason,
-      attachmentUrl: attachmentUrl ?? null,
-      attachmentName: attachmentName ?? null,
-      status: "PENDING",
-    },
-  });
-
   // ── 역할/지점 기반 자동 결재 정책 ──
   //  2일 이상: 직원 → [소속 지점 원장 → 관리자],  원장 → [관리자]
   //  1일 이하: 직원 → [소속 지점 원장],          원장 → [관리자]
@@ -173,27 +187,47 @@ export async function POST(request: NextRequest) {
     else policySteps = hasBranchManager ? [managerStep] : [adminStep];
   }
 
-  if (policySteps.length > 0) {
-    await prisma.leaveApprovalStep.createMany({
-      data: policySteps.map((s, i) => ({
-        leaveRequestId: leaveRequest.id,
-        order: i + 1,
-        approverRole: s.approverRole,
-        branch: s.branch,
-        status: i === 0 ? "PENDING" : "WAITING",
-      })),
+  // ⚠ 신청과 결재 단계를 **한 트랜잭션으로** 만든다(근무일정과 같은 방식).
+  //   종전에는 신청을 먼저 만들고 단계를 나중에 만들어서, 단계 생성이 실패하면
+  //   **결재선 없는 대기 신청**이 남아 관리자의 "결재라인 없음" 목록으로 흘러가
+  //   원장 단계를 건너뛰었다(2026-09-09 검증에서 적발).
+  const leaveRequest = await prisma.$transaction(async (tx) => {
+    const created = await tx.leaveRequest.create({
+      data: {
+        userId: session.userId,
+        type: leaveType,   // 위에서 enum 값임을 확인한 것만 넣는다
+        startDate: start,
+        endDate:   end,
+        days,
+        reason,
+        attachmentUrl: attachmentUrl ?? null,
+        attachmentName: attachmentName ?? null,
+        status: policySteps.length > 0 ? "PENDING" : "APPROVED",
+        ...(policySteps.length > 0 ? {} : { approverId: session.userId }),
+      },
     });
-  } else {
-    // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인
-    await prisma.leaveRequest.update({ where: { id: leaveRequest.id }, data: { status: "APPROVED", approverId: session.userId } });
-    if (isLeaveDeductible(type)) {
-      await prisma.leaveBalance.upsert({
+
+    if (policySteps.length > 0) {
+      await tx.leaveApprovalStep.createMany({
+        data: policySteps.map((st, idx) => ({
+          leaveRequestId: created.id,
+          order: idx + 1,
+          approverRole: st.approverRole,
+          branch: st.branch,
+          status: idx === 0 ? "PENDING" : "WAITING",
+        })),
+      });
+    } else if (isLeaveDeductible(leaveType)) {
+      // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
+      await tx.leaveBalance.upsert({
         where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
         create: { userId: session.userId, year: currentLeaveYear(), total: 15, used: days, remaining: 15 - days },
         update: { used: { increment: days }, remaining: { decrement: days } },
       });
     }
-  }
+
+    return created;
+  });
 
   // 1단계 결재자에게 알린다 — 근무일정과 같은 기준(지정 결재자 + 전체 관리자).
   // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.

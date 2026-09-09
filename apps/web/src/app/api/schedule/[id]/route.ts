@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { asHhmm, asScheduleType, toMin } from "@/lib/schedule-payload";
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -35,9 +36,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const denied = await guardScheduleChange(session, target.userId);
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
+  // ⚠ 등록(POST)과 **같은 기준**으로 검사한다. 종전에는 여기만 검증이 없어서,
+  //   00:00~23:59 로 고치면 지각.조퇴 판정과 퇴근 상한이 동시에 무력화됐다
+  //   (schedule-guard 주석이 경고한 그 경로 — 2026-09-09 검증에서 적발).
+  const st = asHhmm(startTime), et = asHhmm(endTime);
+  if (!st || !et) {
+    return NextResponse.json({ error: "근무 시간 형식이 올바르지 않습니다. 예: 09:00" }, { status: 400 });
+  }
+  if (toMin(et) <= toMin(st)) {
+    return NextResponse.json({ error: "종료 시간이 시작 시간보다 빠릅니다." }, { status: 400 });
+  }
+  if (toMin(et) - toMin(st) > 12 * 60) {
+    return NextResponse.json({ error: "하루 근무는 12시간을 넘을 수 없습니다." }, { status: 400 });
+  }
+  const kind = asScheduleType(type);
+  if (!kind) return NextResponse.json({ error: "근무 유형이 올바르지 않습니다." }, { status: 400 });
+
   const schedule = await prisma.schedule.update({
     where: { id },
-    data: { startTime, endTime, type, note },
+    data: { startTime: st, endTime: et, type: kind, note: typeof note === "string" ? note : null },
     include: { user: { select: { name: true, department: true } } },
   });
 
