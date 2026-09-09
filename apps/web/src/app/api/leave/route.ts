@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
@@ -192,6 +193,18 @@ export async function POST(request: NextRequest) {
         update: { used: { increment: days }, remaining: { decrement: days } },
       });
     }
+  }
+
+  // 1단계 결재자에게 알린다 — 근무일정과 같은 기준(지정 결재자 + 전체 관리자).
+  // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.
+  if (policySteps.length > 0) {
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    botNotifyApprovalRequest(policySteps[0], {
+      kind: "휴가",
+      requesterName: session.name,
+      period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
+      requesterId: session.userId,
+    }).catch(() => {});
   }
 
   return NextResponse.json({ success: true, leaveRequest, days });

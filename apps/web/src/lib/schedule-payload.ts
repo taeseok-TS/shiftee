@@ -33,6 +33,19 @@ export function breakHours(spanHours: number): number {
   return 0;
 }
 
+/** 값이 "HH:MM" 문자열인지 본다. 문자열이 아니면 애초에 거절한다 —
+ *  String(v) 로 억지로 바꾸면 `{toString:1}` 같은 값에서 **메시지를 만들다 던져** 500 이 되고,
+ *  통과시켜도 검증한 값이 아니라 원본이 DB 로 들어간다(2026-09-09 검증에서 실증). */
+export function asHhmm(v: unknown): string | null {
+  return typeof v === "string" && TIME_RE.test(v) ? v : null;
+}
+
+/** 근무 유형 — enum 밖의 값이 그대로 들어가면 Prisma 가 던져 500 이 된다. */
+export function asScheduleType(v: unknown): "WORK" | "OFF" | "HOLIDAY" | null {
+  if (v === undefined || v === null || v === "") return "WORK";
+  return v === "WORK" || v === "OFF" || v === "HOLIDAY" ? v : null;
+}
+
 export function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay, format, differenceInDays } from "date-fns";
 import { guardScheduleChange } from "@/lib/schedule-guard";
 import { getManagerBranches } from "@/lib/manager-branches";
-import { isRealDate, toMin } from "@/lib/schedule-payload";
+import { isRealDate, toMin, asHhmm, asScheduleType } from "@/lib/schedule-payload";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -42,15 +42,20 @@ export async function POST(request: NextRequest) {
   if (startDate > endDate) {
     return NextResponse.json({ error: "시작일이 종료일보다 늦습니다." }, { status: 400 });
   }
-  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (!TIME_RE.test(String(startTime)) || !TIME_RE.test(String(endTime))) {
+  const st = asHhmm(startTime), et = asHhmm(endTime);
+  if (!st || !et) {
     return NextResponse.json({ error: "근무 시간 형식이 올바르지 않습니다. 예: 09:00" }, { status: 400 });
   }
-  if (toMin(String(endTime)) <= toMin(String(startTime))) {
+  if (toMin(et) <= toMin(st)) {
     return NextResponse.json({ error: "종료 시간이 시작 시간보다 빠릅니다." }, { status: 400 });
   }
-  if (toMin(String(endTime)) - toMin(String(startTime)) > 12 * 60) {
+  if (toMin(et) - toMin(st) > 12 * 60) {
     return NextResponse.json({ error: "하루 근무는 12시간을 넘을 수 없습니다." }, { status: 400 });
+  }
+  const kind = asScheduleType(type);
+  if (!kind) return NextResponse.json({ error: "근무 유형이 올바르지 않습니다." }, { status: 400 });
+  if (!Array.isArray(weekdays)) {
+    return NextResponse.json({ error: "요일 선택이 올바르지 않습니다." }, { status: 400 });
   }
   if (!(weekdays as unknown[]).every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6)) {
     return NextResponse.json({ error: "요일 선택이 올바르지 않습니다." }, { status: 400 });
@@ -91,10 +96,10 @@ export async function POST(request: NextRequest) {
         dateList.map(date => ({
           userId,
           date,
-          startTime,
-          endTime,
-          type: type || "WORK",
-          note: note || null,
+          startTime: st,
+          endTime: et,
+          type: kind,
+          note: typeof note === "string" ? note : null,
         }))
       ),
       // (userId, date) 유니크 제약이 있다. 두 요청이 겹치면 충돌로 트랜잭션이

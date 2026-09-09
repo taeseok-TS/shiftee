@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl } from "@/lib/app-url";
@@ -36,6 +37,16 @@ export async function POST(
   });
   if (!leaveRequest)
     return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+
+  // ⚠ 이미 끝난 신청은 어느 경로로도 다시 처리하지 않는다. 종전에는 우회 경로에만
+  //   검사가 있어서, **취소된 휴가가 결재함에 남아 있다가 승인되면 되살아나고
+  //   연차까지 깎였다**(2026-09-09 검증에서 적발). 근무일정에는 넣고 휴가만 빠뜨렸다.
+  if (leaveRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${leaveRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
+  }
 
   const steps = leaveRequest.approvalSteps;
 
@@ -81,10 +92,16 @@ export async function POST(
     // 단계별 처리
     let emailAction: "approve" | "reject" | "next_approver" | null = null;
     let nextApprover: any = null;
+    let alreadyDone = false;
+    let notifyNext: { approverRole: string | null; branch: string | null; approverId: string | null } | null = null;
 
     await prisma.$transaction(async (tx) => {
-      await tx.leaveApprovalStep.update({
-        where: { id: myStep!.id },
+      // ⚠ **조건부로** 쓴다. 종전에는 무조건 update 라, 결재자가 두 번 누르거나 두 사람이
+      //   동시에 처리하면 같은 단계가 두 번 처리되고 마지막 단계면 **연차가 두 번 깎였다**
+      //   (2026-09-09 검증에서 적발). 근무일정에는 넣고 휴가만 빠뜨렸다.
+      //   이 updateMany 가 트랜잭션의 첫 문장이므로, 못 잡았으면 아무것도 쓰지 않은 상태다.
+      const claimed = await tx.leaveApprovalStep.updateMany({
+        where: { id: myStep!.id, status: "PENDING" },
         data: {
           status:     action === "approve" ? "APPROVED" : "REJECTED",
           approverId: session.userId, // 실제 결재자 기록
@@ -92,6 +109,7 @@ export async function POST(
           decidedAt:  new Date(),
         },
       });
+      if (claimed.count === 0) { alreadyDone = true; return; }
 
       if (action === "reject") {
         // 반려: 전체 요청 반려
@@ -121,6 +139,8 @@ export async function POST(
           });
           emailAction = "next_approver";
           nextApprover = nextStep.approver;
+          // 알림은 **트랜잭션이 커밋된 뒤** 보낸다(롤백돼도 DM 은 이미 나가 있으면 안 된다)
+          notifyNext = nextStep;
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
           // 모든 단계 승인 완료 → 전체 승인
@@ -149,6 +169,21 @@ export async function POST(
         }
       }
     });
+
+    if (alreadyDone) {
+      return NextResponse.json({ error: "이미 처리된 결재입니다." }, { status: 409 });
+    }
+
+    // 다음 결재자에게 차례가 왔음을 알린다
+    if (notifyNext) {
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      botNotifyApprovalRequest(notifyNext, {
+        kind: "휴가",
+        requesterName: leaveRequest.user.name,
+        period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
+        requesterId: leaveRequest.userId,
+      }).catch(() => {});
+    }
 
     // 이메일 발송 (트랜잭션 후)
     const appUrl = getAppUrl();

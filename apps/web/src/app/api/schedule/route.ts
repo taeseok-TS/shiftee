@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
-import { isRealDate, toMin } from "@/lib/schedule-payload";
+import { isRealDate, toMin, asHhmm, asScheduleType } from "@/lib/schedule-payload";
 import { kstTodayMidnight } from "@/lib/resign";
 
 export async function GET(request: NextRequest) {
@@ -168,16 +168,18 @@ export async function POST(request: NextRequest) {
   if (!isRealDate(date)) {
     return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
   }
-  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (!TIME_RE.test(String(startTime)) || !TIME_RE.test(String(endTime))) {
+  const st = asHhmm(startTime), et = asHhmm(endTime);
+  if (!st || !et) {
     return NextResponse.json({ error: "근무 시간 형식이 올바르지 않습니다. 예: 09:00" }, { status: 400 });
   }
-  if (toMin(String(endTime)) <= toMin(String(startTime))) {
+  if (toMin(et) <= toMin(st)) {
     return NextResponse.json({ error: "종료 시간이 시작 시간보다 빠릅니다." }, { status: 400 });
   }
-  if (toMin(String(endTime)) - toMin(String(startTime)) > 12 * 60) {
+  if (toMin(et) - toMin(st) > 12 * 60) {
     return NextResponse.json({ error: "하루 근무는 12시간을 넘을 수 없습니다." }, { status: 400 });
   }
+  const kind = asScheduleType(type);
+  if (!kind) return NextResponse.json({ error: "근무 유형이 올바르지 않습니다." }, { status: 400 });
 
   const [yy, mm, dd] = date.split("-").map(Number);
   const dateUtc = new Date(Date.UTC(yy, mm - 1, dd));   // @db.Date 는 UTC 자정 저장
@@ -187,8 +189,8 @@ export async function POST(request: NextRequest) {
   // "없음"을 보고 각자 생성해 중복이 생길 수 있었다(2026-09-08 검증에서 적발).
   const schedule = await prisma.schedule.upsert({
     where: { userId_date: { userId, date: dateUtc } },
-    create: { userId, date: dateUtc, startTime, endTime, type: type || "WORK", note },
-    update: { startTime, endTime, type: type || "WORK", note },
+    create: { userId, date: dateUtc, startTime: st, endTime: et, type: kind, note },
+    update: { startTime: st, endTime: et, type: kind, note },
   });
 
   return NextResponse.json({ success: true, schedule });

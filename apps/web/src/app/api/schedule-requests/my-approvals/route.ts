@@ -14,7 +14,11 @@ export async function GET() {
       status: "PENDING",
       OR: [
         { approverId: session.userId }, // 레거시 고정 결재자
-        ...(session.role === "ADMIN" ? [{ approverRole: "ADMIN" }] : []),
+        // 관리자는 **대기 중인 모든 단계**를 본다. 결재 요청 DM 이 전체 관리자에게
+        // 가는데(디렉터 지시) 결재함에는 ADMIN 단계만 보이면, 받아놓고 열었을 때
+        // 빈 화면이 된다(2026-09-09 검증에서 적발). 관리자는 어차피 어떤 건이든
+        // 대신 처리할 수 있다.
+        ...(session.role === "ADMIN" ? [{ id: { not: "" } }] : []),
         ...(session.role === "MANAGER" ? [{ approverRole: "MANAGER", branch: { in: myBranches } }] : []),
       ],
     },
