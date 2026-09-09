@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { kstTodayMidnight } from "@/lib/resign";
 import { getManagerBranches } from "@/lib/manager-branches";
 
 // 내가 결재해야 하는 근무일정 신청 목록
@@ -58,7 +59,14 @@ export async function GET() {
   if (session.role === "ADMIN") {
     // 활성 원장이 담당하는 지점 목록 — 여기 없는 지점의 MANAGER 단계는 고아 상태다.
     const activeManagers = await prisma.user.findMany({
-      where: { role: "MANAGER", isActive: true },
+      // manager-branches 의 다른 조회와 **같은 기준**이어야 한다 — 여기만 느슨하면
+      // "담당 원장이 있다"는 판정이 함수마다 갈린다(2026-09-09 검증에서 적발).
+      where: {
+        role: "MANAGER",
+        isActive: true,
+        deletedAt: null,
+        AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }],
+      },
       select: { branch: true, managerBranches: { select: { branchName: true } } },
     });
     const covered = new Set<string>();

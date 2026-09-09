@@ -66,7 +66,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 취소된 신청이 결재함에 계속 뜬다.
     await tx.scheduleApprovalStep.updateMany({
       where: { scheduleRequestId: id, status: { in: ["PENDING", "WAITING"] } },
-      data: { status: "REJECTED", comment: "신청자 취소", decidedAt: new Date() },
+      data: { status: "REJECTED", comment: "신청 취소", decidedAt: new Date() },
     });
   });
 

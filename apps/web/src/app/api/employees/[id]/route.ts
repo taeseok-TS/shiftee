@@ -142,11 +142,23 @@ export async function PATCH(
           ? "RESIGNED"
           : "ACTIVE",
       // 퇴사일이 지났으면 **비활성도 함께 내린다**(2026-09-09 디렉터 지시).
-      // 종전에는 이 경로가 resignDate 만 써서 isActive 는 true 로 남았고, 그러면
-      // 로그인은 막히는데 결재선.집계는 재직자로 보는 어긋난 상태가 됐다.
-      // ⚠ 되살리지는 않는다 — 일부러 비활성한 사람을 퇴사일 해제로 되살리면 안 된다.
+      // 종전에는 resignDate 만 써서 isActive 는 true 로 남았고, 그러면 로그인은 막히는데
+      // 결재선.집계는 재직자로 보는 어긋난 상태가 됐다.
+      //
+      // ⚠ **되돌릴 수도 있어야 한다.** 처음에는 "되살리지 않는다"로 만들었다가,
+      //   퇴사일을 잘못 넣으면 그 직원이 목록.퇴직자현황.휴지통 **어디에도 안 뜨고**
+      //   화면으로는 복구할 수단이 없는 편도문이 됐다(2026-09-09 검증에서 적발).
+      //   그래서 **지난 퇴사일을 지우는 경우에만** 함께 되살린다.
+      //   ⚠ "일부러 비활성한 사람"은 안 건드린다 — 관리자 수정 모달은 재직자에게도
+      //     resignDate:null 을 항상 보내므로, `before` 에 지난 퇴사일이 있었을 때만 푼다.
       isActive:
-        resignVal !== undefined && resignVal && resignVal < todayMidnight ? false : undefined,
+        resignVal === undefined
+          ? undefined
+          : resignVal && resignVal < todayMidnight
+          ? false
+          : before?.resignDate && before.resignDate < todayMidnight
+          ? true
+          : undefined,
     },
   });
 
@@ -207,6 +219,9 @@ export async function DELETE(
   await prisma.user.update({ where: { id }, data: { isActive: false } });
   // 비활성 처리했으면 그 사람 폰에 살아 있는 토큰도 함께 끊는다.
   await bumpTokenVersion(id).catch(() => {});
+  // 메인 원장 지정도 정리한다 — 비활성인데 지정이 남으면 화면에 계속 뜨고,
+  // 나중에 되살릴 때 조용히 다시 메인 원장이 된다(2026-09-09 검증에서 적발).
+  await syncMainManagerFor(id);
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_DELETE",
     targetType: "USER", targetId: id, targetName: target?.name ?? null, detail: "직원 비활성화",
