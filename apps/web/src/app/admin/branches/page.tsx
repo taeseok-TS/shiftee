@@ -27,7 +27,11 @@ type Branch = {
   _count?: { users: number };
 };
 
-type BranchManager = { id: string; name: string; branch: string | null; managerBranches?: { branchName: string }[] };
+// ⚠ `/api/employees` 는 겸직 지점을 **문자열 배열**로 준다(`managerBranches: string[]`).
+//   객체 배열로 잘못 선언했다가 겸직이 한 번도 매칭되지 않았다 — 타입이 거짓이라
+//   tsc 가 못 잡았고, 분당서현.분당야탑에는 메인 원장 선택이 아예 안 떴다
+//   (2026-09-09 검증에서 API 실응답으로 적발).
+type BranchManager = { id: string; name: string; branch: string | null; managerBranches?: string[] };
 
 const EMPTY_FORM = { name: "", address: "", latitude: "", longitude: "", radius: "100" };
 
@@ -68,7 +72,7 @@ export default function BranchesPage() {
   /** 그 지점을 담당하는 활성 원장들 (대표 지점 + 겸직) */
   const managersOf = useCallback((branchName: string) =>
     managers.filter((m) =>
-      m.branch === branchName || (m.managerBranches ?? []).some((b) => b.branchName === branchName)
+      m.branch === branchName || (m.managerBranches ?? []).includes(branchName)
     ), [managers]);
 
   const setMainManager = async (b: Branch, userId: string) => {

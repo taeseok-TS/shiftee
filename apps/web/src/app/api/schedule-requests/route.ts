@@ -40,7 +40,12 @@ export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  const body = await request.json();
+  // try 밖이라 여기서 던지면 미처리 500 이 된다 — 본문 없이 부르면 누구나 오류 로그를
+  // 하나씩 만들 수 있었다(결재 라우트만 고치고 신청 라우트를 빠뜨렸었다).
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "요청 본문이 올바르지 않습니다." }, { status: 400 });
+  }
   const { templateId, templateName, startDate, endDate, scheduleData, totalHours, approvalLineId } = body;
 
   if (!templateId || !startDate || !endDate || !scheduleData) {
@@ -184,6 +189,7 @@ export async function POST(request: NextRequest) {
             order: i + 1,
             approverRole: s.approverRole,
             branch: s.branch,
+            approverId: s.approverId ?? null,   // 메인 원장처럼 **사람을 못박은** 단계
             status: i === 0 ? "PENDING" : "WAITING",
           })),
         });

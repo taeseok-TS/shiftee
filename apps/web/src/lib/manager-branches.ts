@@ -21,6 +21,7 @@ export async function branchManagers(branch: string): Promise<{ id: string; name
     where: {
       role: "MANAGER",
       isActive: true,
+      deletedAt: null,
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
     select: { id: true, name: true },
@@ -35,10 +36,18 @@ export async function branchManagers(branch: string): Promise<{ id: string; name
 export async function branchMainManager(branch: string): Promise<{ id: string; name: string } | null> {
   const b = await prisma.branch.findFirst({
     where: { name: branch, isActive: true },
-    select: { mainManager: { select: { id: true, name: true, isActive: true, role: true } } },
+    select: {
+      mainManager: {
+        select: { id: true, name: true, isActive: true, role: true, deletedAt: true, resignDate: true },
+      },
+    },
   });
   const m = b?.mainManager;
-  if (!m || !m.isActive || m.role !== "MANAGER") return null;
+  // ⚠ 로그인할 수 없는 사람에게 결재를 못박으면 그 건이 멈춘다. getSession 과 **같은 기준**
+  //   으로 본다 — 비활성.삭제.퇴사일 경과(2026-09-09 검증에서 적발: isActive 만 봤다).
+  if (!m || !m.isActive || m.deletedAt || m.role !== "MANAGER") return null;
+  const { isResigned } = await import("@/lib/resign");
+  if (isResigned(m.resignDate)) return null;
   return { id: m.id, name: m.name };
 }
 
@@ -56,6 +65,7 @@ export async function branchHasOtherManager(branch: string, exceptUserId: string
     where: {
       role: "MANAGER",
       isActive: true,
+      deletedAt: null,
       id: { not: exceptUserId },
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
@@ -69,6 +79,7 @@ export async function branchHasManager(branch: string): Promise<boolean> {
     where: {
       role: "MANAGER",
       isActive: true,
+      deletedAt: null,
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
   });
