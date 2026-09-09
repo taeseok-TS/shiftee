@@ -112,18 +112,21 @@ export async function botNotifyApprovalRequest(step: {
     const { prisma } = await import("@/lib/db");
     const targets: string[] = [];
 
+    // ① 이 단계의 **결재자로 지정된 사람** (2026-09-09 디렉터 지시)
     if (step.approverId) {
       targets.push(step.approverId);
-    } else if (step.approverRole === "ADMIN") {
-      const admins = await prisma.user.findMany({
-        where: { role: "ADMIN", isActive: true },
-        select: { id: true },
-      });
-      targets.push(...admins.map((a) => a.id));
     } else if (step.approverRole === "MANAGER" && step.branch) {
       const { branchManagers } = await import("@/lib/manager-branches");
       targets.push(...(await branchManagers(step.branch)).map((m) => m.id));
     }
+
+    // ② **전체 관리자**. 원장 단계에서 멈춘 건을 관리자가 모르고 지나치면 안 되고,
+    //    그 지점 원장이 자리를 비웠을 때 대신 처리할 사람이 필요하다.
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+    targets.push(...admins.map((a) => a.id));
 
     // 본인에게는 보내지 않는다 (자기 신청이 자기 결재함에 뜨는 경우)
     const list = [...new Set(targets)].filter((id) => id !== opts.requesterId);
