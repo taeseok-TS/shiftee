@@ -14,6 +14,8 @@ export async function GET() {
     const branches = await prisma.branch.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
+      // 메인 원장 — 한 지점에 원장이 2명일 때 누가 상급인지(결재 방향을 정한다)
+      include: { mainManager: { select: { id: true, name: true } } },
     });
 
     // Application 레벨에서 각 지점의 직원 수 계산

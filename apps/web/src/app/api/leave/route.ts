@@ -7,7 +7,7 @@ import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
-import { getManagerBranches, branchHasManager, branchHasOtherManager } from "@/lib/manager-branches";
+import { getManagerBranches, branchHasManager, branchHasOtherManager, branchMainManager } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 import { LEAVE_STATUSES, pick, LEAVE_TYPES, type LeaveTypeValue } from "@/lib/enums";
 
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
     ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
     : false;
 
-  let policySteps: { approverRole: string; branch: string | null }[] = [];
+  let policySteps: { approverRole: string; branch: string | null; approverId?: string }[] = [];
   if (submitter?.role === "MANAGER") {
     // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
     //
@@ -195,10 +195,25 @@ export async function POST(request: NextRequest) {
     //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
     const myBranches = await getManagerBranches(session.userId);
     const isMultiBranch = myBranches.length > 1;
-    const peer = !isMultiBranch && submitter.branch
-      ? await branchHasOtherManager(submitter.branch, session.userId)
-      : false;
-    policySteps = peer ? [managerStep, adminStep] : [adminStep];
+
+    // 메인 원장이 지정돼 있으면 **방향이 정해진다** — 메인이 두 번째를 결재한다.
+    // 메인 원장 본인이 신청하면 겸직 원장과 같이 관리자에게 바로 간다.
+    const main = !isMultiBranch && submitter.branch
+      ? await branchMainManager(submitter.branch)
+      : null;
+
+    if (main && main.id !== session.userId) {
+      // 두 번째 원장의 신청 → [메인 원장 → 관리자]. 지정 결재자로 못박는다.
+      policySteps = [{ approverRole: "MANAGER", branch: submitter.branch ?? null, approverId: main.id }, adminStep];
+    } else if (main) {
+      policySteps = [adminStep];               // 메인 원장 본인 → 관리자 바로
+    } else {
+      // 메인 지정이 없으면 종전대로 — 같은 지점에 다른 원장이 있으면 그 원장이 먼저.
+      const peer = !isMultiBranch && submitter.branch
+        ? await branchHasOtherManager(submitter.branch, session.userId)
+        : false;
+      policySteps = peer ? [managerStep, adminStep] : [adminStep];
+    }
   } else if (submitter?.role === "ADMIN") {
     const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
     policySteps = otherAdmins > 0 ? [adminStep] : [];
@@ -234,6 +249,7 @@ export async function POST(request: NextRequest) {
           order: idx + 1,
           approverRole: st.approverRole,
           branch: st.branch,
+          approverId: st.approverId ?? null,   // 메인 원장처럼 **사람을 못박은** 단계
           status: idx === 0 ? "PENDING" : "WAITING",
         })),
       });

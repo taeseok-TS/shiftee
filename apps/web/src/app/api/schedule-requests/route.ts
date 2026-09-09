@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
-import { branchHasManager, branchHasOtherManager, getManagerBranches } from "@/lib/manager-branches";
+import { branchHasManager, branchHasOtherManager, getManagerBranches, branchMainManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
     : false;
 
-  let policySteps: { approverRole: string; branch: string | null }[] = [];
+  let policySteps: { approverRole: string; branch: string | null; approverId?: string }[] = [];
   if (submitter?.role === "MANAGER") {
     // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
     //
@@ -133,10 +133,25 @@ export async function POST(request: NextRequest) {
     //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
     const myBranches = await getManagerBranches(session.userId);
     const isMultiBranch = myBranches.length > 1;
-    const peer = !isMultiBranch && submitter.branch
-      ? await branchHasOtherManager(submitter.branch, session.userId)
-      : false;
-    policySteps = peer ? [managerStep, adminStep] : [adminStep];
+
+    // 메인 원장이 지정돼 있으면 **방향이 정해진다** — 메인이 두 번째를 결재한다.
+    // 메인 원장 본인이 신청하면 겸직 원장과 같이 관리자에게 바로 간다.
+    const main = !isMultiBranch && submitter.branch
+      ? await branchMainManager(submitter.branch)
+      : null;
+
+    if (main && main.id !== session.userId) {
+      // 두 번째 원장의 신청 → [메인 원장 → 관리자]. 지정 결재자로 못박는다.
+      policySteps = [{ approverRole: "MANAGER", branch: submitter.branch ?? null, approverId: main.id }, adminStep];
+    } else if (main) {
+      policySteps = [adminStep];               // 메인 원장 본인 → 관리자 바로
+    } else {
+      // 메인 지정이 없으면 종전대로 — 같은 지점에 다른 원장이 있으면 그 원장이 먼저.
+      const peer = !isMultiBranch && submitter.branch
+        ? await branchHasOtherManager(submitter.branch, session.userId)
+        : false;
+      policySteps = peer ? [managerStep, adminStep] : [adminStep];
+    }
   } else if (submitter?.role === "ADMIN") {
     const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
     policySteps = otherAdmins > 0 ? [adminStep] : [];

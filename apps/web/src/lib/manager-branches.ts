@@ -28,6 +28,21 @@ export async function branchManagers(branch: string): Promise<{ id: string; name
 }
 
 /**
+ * 그 지점의 **메인 원장**(있으면). 한 지점에 원장이 2명일 때 누가 상급인지를 말한다
+ * — 지점 관리 화면에서 지정한다(2026-09-09 디렉터 지시).
+ * 지정된 사람이 퇴사.비활성이면 없는 것으로 본다(결재가 멈추면 안 된다).
+ */
+export async function branchMainManager(branch: string): Promise<{ id: string; name: string } | null> {
+  const b = await prisma.branch.findFirst({
+    where: { name: branch, isActive: true },
+    select: { mainManager: { select: { id: true, name: true, isActive: true, role: true } } },
+  });
+  const m = b?.mainManager;
+  if (!m || !m.isActive || m.role !== "MANAGER") return null;
+  return { id: m.id, name: m.name };
+}
+
+/**
  * 그 지점을 담당하는 **다른** 원장이 있는지 (본인 제외).
  *
  * 원장 신청의 결재선을 만들 때 쓴다 — 원장도 자기 지점을 함께 보는 다른 원장에게

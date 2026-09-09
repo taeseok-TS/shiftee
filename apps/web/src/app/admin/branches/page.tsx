@@ -20,13 +20,21 @@ type Branch = {
   longitude: number | null;
   radius: number;
   countInStats?: boolean; // 대시보드 통계 포함 여부
+  // 메인 원장 — 한 지점에 원장이 2명일 때 누가 상급인지. 결재 방향을 정한다:
+  // 두 번째 원장의 신청은 메인 원장이 먼저 결재하고, 메인 원장 신청은 관리자에게 바로 간다.
+  mainManagerId?: string | null;
+  mainManager?: { id: string; name: string } | null;
   _count?: { users: number };
 };
+
+type BranchManager = { id: string; name: string; branch: string | null; managerBranches?: { branchName: string }[] };
 
 const EMPTY_FORM = { name: "", address: "", latitude: "", longitude: "", radius: "100" };
 
 export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
+  // 메인 원장 후보 — 활성 원장 전원(대표.겸직 지점 정보 포함)
+  const [managers, setManagers] = useState<BranchManager[]>([]);
   const [myRole, setMyRole]     = useState<string | null>(null);  // null = 로딩 중
 
   const [addOpen, setAddOpen]   = useState(false);
@@ -46,6 +54,42 @@ export default function BranchesPage() {
     const data = await fetch("/api/branches", { credentials: "include" }).then(r => r.json());
     setBranches(data.branches || []);
   }, []);
+
+  // 메인 원장 후보 — 활성 원장만. 관리자만 이 목록이 필요하다.
+  const fetchManagers = useCallback(async () => {
+    if (myRole !== "ADMIN") return;
+    try {
+      const d = await fetch("/api/employees", { credentials: "include" }).then(r => r.json());
+      setManagers((d.employees || []).filter((e: { role?: string }) => e.role === "MANAGER"));
+    } catch { /* 목록을 못 읽어도 지점 관리 자체는 되게 둔다 */ }
+  }, [myRole]);
+  useEffect(() => { fetchManagers(); }, [fetchManagers]);
+
+  /** 그 지점을 담당하는 활성 원장들 (대표 지점 + 겸직) */
+  const managersOf = useCallback((branchName: string) =>
+    managers.filter((m) =>
+      m.branch === branchName || (m.managerBranches ?? []).some((b) => b.branchName === branchName)
+    ), [managers]);
+
+  const setMainManager = async (b: Branch, userId: string) => {
+    const res = await fetch(`/api/branches/${b.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: b.name, address: b.address, radius: b.radius,
+        latitude: b.latitude, longitude: b.longitude,
+        mainManagerId: userId || null,
+      }),
+    });
+    if (res.ok) {
+      toast.success(userId
+        ? `${b.name} — 메인 원장을 지정했습니다.`
+        : `${b.name} — 메인 원장 지정을 해제했습니다.`);
+      fetchBranches();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d.error || "변경 실패");
+    }
+  };
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" }).then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE"));
@@ -268,6 +312,25 @@ export default function BranchesPage() {
 
                   {isAdmin && (
                     <div className="flex gap-1 items-center">
+                      {/* 메인 원장 — 한 지점에 원장이 2명 이상일 때만 의미가 있다.
+                          두 번째 원장의 근무일정·휴가 신청을 메인 원장이 먼저 결재하고,
+                          메인 원장 본인 신청은 관리자에게 바로 간다. */}
+                      {managersOf(b.name).length > 1 && (
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 mr-2 shrink-0"
+                               title="두 번째 원장의 신청을 먼저 결재합니다. 메인 원장 본인 신청은 관리자에게 바로 갑니다.">
+                          메인 원장
+                          <select
+                            className="border rounded px-1.5 py-1 text-xs bg-white"
+                            value={b.mainManager?.id ?? ""}
+                            onChange={(e) => setMainManager(b, e.target.value)}
+                          >
+                            <option value="">지정 안 함</option>
+                            {managersOf(b.name).map((m) => (
+                              <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       {/* 통계 포함 토글 — 끄면 대시보드 직원·원장·지점 수에서 제외 (테스트지점·본부 등) */}
                       <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2 shrink-0" title="대시보드 통계(직원·원장·지점 수)에 포함할지 여부">
                         <input type="checkbox" checked={b.countInStats !== false}

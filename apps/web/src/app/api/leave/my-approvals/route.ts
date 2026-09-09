@@ -26,8 +26,11 @@ export async function GET() {
         : {
             OR: [
               { approverId: session.userId }, // 레거시 고정 결재자
+              // 사람을 못박지 않은 지점 단계만 — 메인 원장에게 못박힌 건은 그 사람
+              // 결재함에만 뜬다(위 approverId 절이 잡는다). 안 그러면 같은 지점
+              // 두 번째 원장에게도 보이는데 누르면 403 이다.
               ...(session.role === "MANAGER"
-                ? [{ approverRole: "MANAGER", branch: { in: myBranches } }]
+                ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
                 : []),
             ],
           }),

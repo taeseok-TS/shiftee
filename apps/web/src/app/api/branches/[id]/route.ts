@@ -15,7 +15,7 @@ export async function PATCH(
 
   try {
     const { id } = await params;
-    const { name, address, radius, latitude, longitude, countInStats } = await request.json();
+    const { name, address, radius, latitude, longitude, countInStats, mainManagerId } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
@@ -38,7 +38,27 @@ export async function PATCH(
       latitude: latitude !== undefined ? Number(latitude) : undefined,
       longitude: longitude !== undefined ? Number(longitude) : undefined,
       countInStats: countInStats === undefined ? undefined : !!countInStats, // 통계 포함 여부 (미전송 시 유지)
+      // 메인 원장 — 빈 값이면 해제. 미전송이면 그대로 둔다.
+      mainManagerId: mainManagerId === undefined ? undefined : (mainManagerId || null),
     };
+
+    // 지정하려는 사람이 **그 지점을 담당하는 활성 원장**인지 확인한다.
+    // 아무나 못박으면 결재가 그 사람에게 걸린 채 멈춘다.
+    if (mainManagerId) {
+      const cand = await prisma.user.findUnique({
+        where: { id: String(mainManagerId) },
+        select: { role: true, isActive: true, branch: true, managerBranches: { select: { branchName: true } } },
+      });
+      const covers = cand
+        ? [cand.branch, ...cand.managerBranches.map((b) => b.branchName)].filter(Boolean).includes(name)
+        : false;
+      if (!cand || cand.role !== "MANAGER" || !cand.isActive || !covers) {
+        return NextResponse.json(
+          { error: "메인 원장은 그 지점을 담당하는 활성 원장이어야 합니다." },
+          { status: 400 }
+        );
+      }
+    }
 
     // 변경 이전 값 확보 — 이름은 User.branch 동기화용, 좌표.반경은 위치 검사 변화 판정용
     const before = await prisma.branch.findUnique({

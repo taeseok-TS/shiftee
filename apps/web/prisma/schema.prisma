@@ -71,6 +71,8 @@ model User {
   workBookmarks         WorkBookmark[]
   scheduledMessages     WorkScheduledMessage[]
   reminders             WorkReminder[]
+  mainOfBranches       Branch[]  @relation("BranchMainManager")
+
 }
 
 // 직원 1인 1기기 등록 — 미등록 기기에서 앱 로그인/출퇴근 차단(대리 출퇴근 방지). 관리자(ADMIN)는 예외.
@@ -462,6 +464,16 @@ model Branch {
   countInStats Boolean @default(true) // 대시보드 통계(직원·원장·지점 수)에 포함 여부 (테스트지점·본부 등 제외용)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // 메인 원장 — 한 지점에 원장이 2명일 때 **누가 상급인지**(2026-09-09 디렉터 지시).
+  // 두 번째 원장의 근무일정.휴가 신청은 메인 원장이 먼저 결재하고, 메인 원장 본인 신청은
+  // 관리자에게 바로 간다. 지정이 없으면 종전대로 같은 지점 원장끼리 서로 결재한다.
+  // ⚠ 운영 DB 에 `ALTER TABLE "Branch" ADD COLUMN "mainManagerId" TEXT` + FK(SET NULL) 를 먼저 넣었다.
+  mainManagerId String?
+  mainManager   User?   @relation("BranchMainManager", fields: [mainManagerId], references: [id], onDelete: SetNull)
+
+  @@index([mainManagerId])
+
 }
 
 // ─── 감사 로그 (관리자 변경 이력) ─────────────────────────────

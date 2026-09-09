@@ -67,6 +67,10 @@ export async function POST(
     // 내가 결재해야 할 PENDING 스텝 찾기 (역할/지점 기반)
     const myStep = steps.find((s) => {
       if (s.status !== "PENDING") return false;
+      // ⚠ 사람을 못박은 단계(메인 원장 지정 등)는 **그 사람만** 결재한다.
+      //   이 검사가 아래 역할.지점 검사보다 먼저 와야 한다 — 안 그러면 같은 지점
+      //   원장이면 아무나 통과해 못박은 의미가 사라진다.
+      if (s.approverId) return s.approverId === session.userId;
       if (s.approverRole === "ADMIN") return session.role === "ADMIN";
       if (s.approverRole === "MANAGER") return session.role === "MANAGER" && !!s.branch && myBranches.includes(s.branch);
       return s.approverId === session.userId;
