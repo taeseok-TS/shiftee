@@ -200,6 +200,17 @@ export default function ScheduleRequestPage() {
     setSelectedDates(dates);
   };
 
+  // 기간을 좁히면 범위 밖 선택이 남는다. 달력은 기간 안만 그리므로 **화면에서 지울 수도
+  // 없고**, 제출하면 서버가 400 을 준다 — 새로고침 말고는 빠져나올 방법이 없었다
+  // (2026-09-09 검증에서 적발). 기간이 바뀌면 범위 밖 선택을 자동으로 걷어낸다.
+  useEffect(() => {
+    if (!startDate || !endDate) return;
+    setSelectedDates((prev) => {
+      const kept = new Set([...prev].filter((d) => d >= startDate && d <= endDate));
+      return kept.size === prev.size ? prev : kept;
+    });
+  }, [startDate, endDate]);
+
   // 총 근무 시간 계산 (휴게시간 + 승인된 휴가 차감)
   const spanHours = selectedTemplate?.hours || 0;          // 출퇴근 시간 간격
   const dailyBreak = breakHours(spanHours);                // 일일 휴게시간

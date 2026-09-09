@@ -26,6 +26,13 @@ export function isRealDate(v: unknown): v is string {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
+/** 하루 휴게시간 — 신청 화면과 **같은 규칙**이어야 한다(다르면 화면과 기록이 어긋난다). */
+export function breakHours(spanHours: number): number {
+  if (spanHours >= 9) return 1;
+  if (spanHours >= 4.5) return 0.5;
+  return 0;
+}
+
 export function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
@@ -60,7 +67,11 @@ export function parseScheduleData(
   for (const e of raw) {
     const date = (e as { date?: unknown })?.date;
     if (!isRealDate(date)) {
-      return { ok: false, error: `날짜 형식이 올바르지 않습니다: ${String(date)}` };
+      // ⚠ String(date) 를 쓰면 안 된다. `{toString: 1}` 같은 값이 오면 **메시지를 만들다**
+      //   TypeError 를 던지고, 이 함수 호출은 try 밖이라 미처리 500 이 된다
+      //   (2026-09-09 검증에서 실증 — 500 하나 막고 하나 새로 만들었다).
+      const shown = typeof date === "string" ? date.slice(0, 40) : `(${typeof date})`;
+      return { ok: false, error: `날짜 형식이 올바르지 않습니다: ${shown}` };
     }
     // ⚠ 신청 기간 **안**이어야 한다. 결재자는 기간만 보므로, 범위 밖 날짜를 받으면
     //   승인한 것과 반영되는 것이 달라진다.
@@ -86,12 +97,17 @@ export function parseScheduleData(
     if (en - s > 12 * 60) {
       return { ok: false, error: `하루 근무는 12시간을 넘을 수 없습니다 (${date}).` };
     }
-    totalMin += en - s;
+    // 총 근무시간은 **실근무시간**(구속시간 − 휴게)으로 센다. 화면이 그렇게 보여주고
+    // 기존 기록 15건도 전부 그 기준이다 — 여기만 구속시간으로 세면 결재자가 예전 건과
+    // 비교할 수 없다(2026-09-09 검증에서 적발).
+    const span = (en - s) / 60;
+    totalMin += Math.max(span - breakHours(span), 0) * 60;
     entries.push({ date, startTime: st, endTime: et });
   }
 
   entries.sort((a, b) => (a.date < b.date ? -1 : 1));
   // 총 근무시간은 **서버가 계산한다.** 신청자가 보낸 값을 그대로 믿으면
   // 결재자가 보는 유일한 정량 정보가 신청자 자유입력이 된다.
-  return { ok: true, entries, totalHours: Math.round((totalMin / 60) * 100) / 100 };
+  // (승인된 휴가 차감은 DB 조회가 필요해 호출부에서 뺀다 — deductLeaveHours)
+  return { ok: true, entries, totalHours: Math.round((totalMin / 60) * 10) / 10 };
 }

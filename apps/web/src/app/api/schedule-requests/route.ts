@@ -5,7 +5,7 @@ import { materializeSchedules } from "@/lib/schedule-materialize";
 import { branchHasManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
-import { parseScheduleData } from "@/lib/schedule-payload";
+import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 
 // 근무일정 신청 조회 (자신의 신청)
@@ -53,7 +53,41 @@ export async function POST(request: NextRequest) {
   const parsed = parseScheduleData(scheduleData, startDate, endDate);
   if (parsed.ok !== true) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const entries = parsed.entries;
-  const computedHours = parsed.totalHours; // 신청자가 보낸 totalHours 는 믿지 않는다
+
+  // 승인된 휴가가 걸친 날은 그만큼 뺀다 — 신청 화면과 **같은 규칙**이어야 결재자가
+  // 보는 숫자가 화면과 일치한다(반차 0.5, 반반차 0.25 는 그 비율만큼).
+  // 신청자가 보낸 totalHours 는 믿지 않는다. 이 값이 결재자가 보는 유일한 정량 정보다.
+  let computedHours = parsed.totalHours;
+  try {
+    const leaves = await prisma.leaveRequest.findMany({
+      where: {
+        userId: session.userId,
+        status: "APPROVED",
+        startDate: { lte: new Date(entries[entries.length - 1].date) },
+        endDate: { gte: new Date(entries[0].date) },
+      },
+      select: { startDate: true, endDate: true, days: true },
+    });
+    const frac: Record<string, number> = {};
+    for (const lv of leaves) {
+      const f = lv.days && lv.days < 1 ? lv.days : 1;
+      for (let d = new Date(lv.startDate); d <= lv.endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        const key = d.toISOString().slice(0, 10);
+        frac[key] = Math.max(frac[key] ?? 0, f);
+      }
+    }
+    let deduct = 0;
+    for (const e of entries) {
+      const f = frac[e.date];
+      if (!f) continue;
+      const span = (toMin(e.endTime) - toMin(e.startTime)) / 60;
+      deduct += f * Math.max(span - breakHours(span), 0);
+    }
+    computedHours = Math.max(Math.round((computedHours - deduct) * 10) / 10, 0);
+  } catch (e) {
+    // 휴가 조회 실패는 신청을 막지 않는다 — 차감 없이 간다(과소가 아니라 과대로 남는다)
+    console.error("[schedule-requests] 휴가 차감 계산 실패:", e);
+  }
 
   // ── 역할/지점 기반 자동 결재 정책 (근무일정) ──
   //  주말 근무 포함: 연차 2일+ 와 동일 → 직원: 지점원장→관리자, 원장: 관리자

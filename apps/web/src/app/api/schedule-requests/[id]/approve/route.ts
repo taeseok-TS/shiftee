@@ -37,6 +37,16 @@ export async function POST(
     return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
   }
 
+  // ⚠ 이미 끝난 신청은 어느 경로로도 다시 처리하지 않는다. 종전에는 우회 경로에만
+  //   검사가 있어서, 단계별 경로로 들어오면 취소.반려된 신청도 되살아났다
+  //   (2026-09-09 검증에서 적발).
+  if (scheduleRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${scheduleRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
+  }
+
   const steps = scheduleRequest.approvalSteps;
 
   if (steps.length > 0) {
@@ -82,10 +92,15 @@ export async function POST(
     // 단계별 처리
     let emailAction: "approve" | "reject" | "next_approver" | null = null;
     let nextApprover: any = null;
+    let notifyNext: { approverRole: string | null; branch: string | null; approverId: string | null } | null = null;
 
+    let alreadyDone = false;
     await prisma.$transaction(async (tx) => {
-      await tx.scheduleApprovalStep.update({
-        where: { id: myStep!.id },
+      // **조건부로** 쓴다. 결재자가 두 번 누르거나 두 사람이 동시에 처리하면
+      // 종전에는 같은 단계가 두 번 처리돼 감사로그.DM 이 겹치고, 마지막 단계면
+      // 근무일정 반영이 두 번 돌았다(2026-09-09 검증에서 적발).
+      const claimed = await tx.scheduleApprovalStep.updateMany({
+        where: { id: myStep!.id, status: "PENDING" },
         data: {
           status: action === "approve" ? "APPROVED" : "REJECTED",
           approverId: session.userId, // 실제 결재자 기록
@@ -93,6 +108,7 @@ export async function POST(
           decidedAt: new Date(),
         },
       });
+      if (claimed.count === 0) { alreadyDone = true; return; }
 
       if (action === "reject") {
         // 반려: 전체 요청 반려
@@ -120,13 +136,10 @@ export async function POST(
           });
           emailAction = "next_approver";
           nextApprover = nextStep.approver;
-          // 다음 결재자에게도 차례가 왔음을 알린다
-          botNotifyApprovalRequest(nextStep, {
-            kind: "근무일정",
-            requesterName: scheduleRequest.user.name,
-            period: fmtRange(scheduleRequest.startDate, scheduleRequest.endDate),
-            requesterId: scheduleRequest.userId,
-          }).catch(() => {});
+          // ⚠ 알림은 **트랜잭션이 끝난 뒤** 보낸다(아래). 여기서 보내면 트랜잭션이
+          //   롤백돼도 "결재 요청이 도착했습니다" DM 은 이미 나가 있다
+          //   (2026-09-09 검증에서 적발).
+          notifyNext = nextStep;
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
           // 모든 단계 승인 완료 → 전체 승인
@@ -140,6 +153,20 @@ export async function POST(
         }
       }
     });
+
+    if (alreadyDone) {
+      return NextResponse.json({ error: "이미 처리된 결재입니다." }, { status: 409 });
+    }
+
+    // 트랜잭션이 실제로 커밋된 뒤에 알린다
+    if (notifyNext) {
+      botNotifyApprovalRequest(notifyNext, {
+        kind: "근무일정",
+        requesterName: scheduleRequest.user.name,
+        period: fmtRange(scheduleRequest.startDate, scheduleRequest.endDate),
+        requesterId: scheduleRequest.userId,
+      }).catch(() => {});
+    }
 
     // 이메일 발송 (실제로는 여기서 이메일을 보내면 됨)
     // 현재는 로그만 기록

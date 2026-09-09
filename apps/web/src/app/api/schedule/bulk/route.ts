@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay, format, differenceInDays } from "date-fns";
 import { guardScheduleChange } from "@/lib/schedule-guard";
+import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate, toMin } from "@/lib/schedule-payload";
 
 export async function POST(request: NextRequest) {
@@ -24,8 +25,10 @@ export async function POST(request: NextRequest) {
   const ids = [...new Set((userIds as unknown[]).filter((v): v is string => typeof v === "string" && v !== ""))];
   if (ids.length === 0) return NextResponse.json({ error: "직원을 선택해주세요." }, { status: 400 });
   if (ids.length > 200) return NextResponse.json({ error: "한 번에 200명까지 등록할 수 있습니다." }, { status: 400 });
+  // 담당 지점은 **한 번만** 읽어 넘긴다(대상마다 다시 읽으면 쿼리가 대상 수만큼 늘어난다)
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : undefined;
   for (const uid of ids) {
-    const denied = await guardScheduleChange(session, uid);
+    const denied = await guardScheduleChange(session, uid, myBranches);
     if (denied) return NextResponse.json({ error: denied }, { status: 403 });
   }
 
@@ -72,6 +75,7 @@ export async function POST(request: NextRequest) {
 
   const dateList = days.map(d => new Date(format(d, "yyyy-MM-dd")));
 
+  let created = 0;
   await prisma.$transaction(async (tx) => {
     // 기존 일정 삭제 (중복 방지)
     await tx.schedule.deleteMany({
@@ -82,7 +86,7 @@ export async function POST(request: NextRequest) {
     });
 
     // 새 일정 일괄 생성
-    await tx.schedule.createMany({
+    const made = await tx.schedule.createMany({
       data: ids.flatMap(userId =>
         dateList.map(date => ({
           userId,
@@ -97,11 +101,12 @@ export async function POST(request: NextRequest) {
       // 통째로 죽는 대신 건너뛴다 — 어차피 같은 날짜는 하나만 남으면 된다.
       skipDuplicates: true,
     });
+    created = made.count; // skipDuplicates 로 건너뛴 것이 있으면 예상치보다 적다
   });
 
   return NextResponse.json({
     success: true,
-    count: ids.length * dateList.length,
+    count: created,
     days: dateList.length,
   });
 }

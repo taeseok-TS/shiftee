@@ -39,17 +39,15 @@ export async function materializeSchedules(
     const [y, m, d] = date.split("-").map(Number);
     const dateUtc = new Date(Date.UTC(y, m - 1, d));   // @db.Date 는 UTC 자정 저장
 
-    // 같은 날짜의 기존 일정은 승인된 일정으로 대체
-    await tx.schedule.deleteMany({ where: { userId: req.userId, date: dateUtc } });
-    await tx.schedule.create({
-      data: {
-        userId: req.userId,
-        date: dateUtc,
-        startTime: st,
-        endTime: et,
-        type: "WORK",
-        note: req.templateName ? `근무일정 승인 (${req.templateName})` : "근무일정 승인",
-      },
+    // 같은 날짜의 기존 일정은 승인된 일정으로 대체한다.
+    // ⚠ delete→create 가 아니라 **upsert** 다. 같은 날짜에 대해 두 트랜잭션이 겹치면
+    //   뒤늦은 delete 가 앞 트랜잭션이 넣은 행을 스냅샷상 못 보고 지나친 뒤 자기
+    //   insert 에서 유니크 위반으로 죽는다(2026-09-09 검증에서 적발).
+    const note = req.templateName ? `근무일정 승인 (${req.templateName})` : "근무일정 승인";
+    await tx.schedule.upsert({
+      where: { userId_date: { userId: req.userId, date: dateUtc } },
+      create: { userId: req.userId, date: dateUtc, startTime: st, endTime: et, type: "WORK", note },
+      update: { startTime: st, endTime: et, type: "WORK", note },
     });
   }
 }

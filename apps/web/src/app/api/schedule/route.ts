@@ -15,8 +15,12 @@ export async function GET(request: NextRequest) {
   // 기본값은 **KST 기준 이번 달**이다. 서버가 UTC 라 그냥 new Date() 를 쓰면
   // KST 오전 9시 이전에 파라미터 없이 부를 때 전날(= 지난달일 수 있음) 기준이 된다.
   const kstNow = kstTodayMidnight();
-  const yearRaw  = parseInt(searchParams.get("year")  || String(kstNow.getUTCFullYear()));
-  const monthRaw = parseInt(searchParams.get("month") || String(kstNow.getUTCMonth() + 1));
+  // parseInt 는 "9abc" 를 9 로, "9.5" 를 9 로 읽는다 — 조용히 9월이 된다.
+  // 숫자만으로 이뤄졌는지 먼저 보고 넘긴다(2026-09-09 검증에서 적발).
+  const numOnly = (v: string | null, fallback: number) =>
+    v === null ? fallback : (/^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN);
+  const yearRaw  = numOnly(searchParams.get("year"),  kstNow.getUTCFullYear());
+  const monthRaw = numOnly(searchParams.get("month"), kstNow.getUTCMonth() + 1);
   // 잘못된 값을 조용히 이번 달로 바꿔치기하지 않는다 — 부르는 쪽이 틀린 줄 모르고
   // 엉뚱한 달을 받아 간다. 500 은 안 나야 하지만, 틀렸으면 틀렸다고 알려준다.
   if (!Number.isInteger(yearRaw) || yearRaw < 2000 || yearRaw > 2100 ||

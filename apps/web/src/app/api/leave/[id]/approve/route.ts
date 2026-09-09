@@ -257,6 +257,29 @@ async function adminOverride(
     return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
   }
 
+  // ⚠ 이미 끝난 신청은 다시 처리하지 않는다. 종전에는 검사가 없어서 승인된 휴가에
+  //   승인을 다시 부르면 **부를 때마다 연차가 또 깎였다**(used += days). 반려를
+  //   승인으로 되살리는 것도 됐다. 근무일정 쪽에는 넣고 여기만 빠뜨렸다
+  //   (2026-09-09 검증에서 적발).
+  if (leaveRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${leaveRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
+  }
+
+  // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
+  // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
+  await prisma.leaveApprovalStep.updateMany({
+    where: { leaveRequestId: id, status: { in: ["PENDING", "WAITING"] } },
+    data: {
+      status: action === "approve" ? "APPROVED" : "REJECTED",
+      approverId,
+      comment: reason ?? "관리자 직접처리",
+      decidedAt: new Date(),
+    },
+  }).catch(() => { /* 단계 마감 실패가 결재 자체를 막지는 않는다 */ });
+
   await prisma.leaveRequest.update({
     where: { id },
     data: {

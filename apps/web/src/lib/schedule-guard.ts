@@ -18,7 +18,8 @@ type Session = { userId: string; role: string };
 /** 허용이면 null, 막아야 하면 에러 메시지. */
 export async function guardScheduleChange(
   session: Session,
-  targetUserId: string
+  targetUserId: string,
+  myBranches?: string[]
 ): Promise<string | null> {
   if (session.role === "ADMIN") return null;
   if (session.role !== "MANAGER") return "권한이 없습니다.";
@@ -34,7 +35,9 @@ export async function guardScheduleChange(
   // 다른 원장의 일정도 건드리지 않는다 — 서로의 근무를 임의로 바꿀 수 있으면 안 된다.
   if (target.role !== "EMPLOYEE") return "담당 지점 직원의 일정만 변경할 수 있습니다.";
 
-  const mine = await getManagerBranches(session.userId);
+  // 담당 지점은 부르는 쪽이 미리 읽어 넘길 수 있다 — 일괄 등록처럼 대상이 많을 때
+  // 매번 다시 읽으면 대상 수만큼 쿼리가 늘어난다(200명 = 600쿼리, 2026-09-09 적발).
+  const mine = myBranches ?? (await getManagerBranches(session.userId));
   if (!target.branch || !mine.includes(target.branch))
     return "담당 지점 직원의 일정만 변경할 수 있습니다.";
   return null;
