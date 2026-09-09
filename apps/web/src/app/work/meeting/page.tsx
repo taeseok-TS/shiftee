@@ -298,7 +298,7 @@ export default function WorkMeetingPage() {
                 <Input className="pl-9" placeholder="직원 검색" value={inviteSearch} onChange={(e) => setInviteSearch(e.target.value)} />
               </div>
               <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
-                {employees.filter((e) => e.id !== me?.id && (!inviteSearch || e.name.includes(inviteSearch))).map((e) => (
+                {employees.filter((e) => e.id !== me?.id && (!inviteSearch || e.name.includes(inviteSearch) || (e.branch ?? "").includes(inviteSearch))).map((e) => (
                   <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={inviteIds.includes(e.id)}
                       onChange={(ev) => setInviteIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />

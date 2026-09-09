@@ -528,7 +528,9 @@ export default function WorkChatScreen() {
 
   const addCandidates = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
-    return members.filter((m) => !existingIds.has(m.id) && (!q || m.name.toLowerCase().includes(q)));
+    // 이름과 **지점명** 둘 다로 찾는다 (디렉터 지시 — 종전에는 이름만 맞춰봤다)
+    return members.filter((m) => !existingIds.has(m.id) &&
+      (!q || m.name.toLowerCase().includes(q) || (m.branch ?? "").toLowerCase().includes(q)));
   }, [members, existingIds, memberSearch]);
 
   // #4 알림 켜기/끄기 (ALL ↔ MUTE)
@@ -1695,7 +1697,7 @@ export default function WorkChatScreen() {
             <Text style={styles.addTitle}>멤버 추가</Text>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={16} color="#9ca3af" />
-              <TextInput style={styles.searchInput} placeholder="이름 검색" value={memberSearch} onChangeText={setMemberSearch} />
+              <TextInput style={styles.searchInput} placeholder="이름·지점 검색" value={memberSearch} onChangeText={setMemberSearch} />
             </View>
             <FlatList
               style={{ maxHeight: 320 }}

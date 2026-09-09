@@ -136,9 +136,9 @@ export default function WorkNewChannelScreen() {
                   <Text style={styles.rowName}>
                     {item.branch ? `[${item.branch}] ` : ""}{item.name}
                   </Text>
-                  {!!(item.department || item.position) && (
-                    <Text style={styles.rowSub}>{[item.department, item.position].filter(Boolean).join(" · ")}</Text>
-                  )}
+                  {/* 부서.직책은 띄우지 않는다 — 채팅에서 사람을 찾는 데 필요한 건
+                      **이름과 지점**뿐이다(디렉터 지시). 종전에는 이 줄이 전 직원의
+                      부서.직책을 모든 직원에게 보여줬다(2026-09-09 적발). */}
                 </View>
               </TouchableOpacity>
             );
