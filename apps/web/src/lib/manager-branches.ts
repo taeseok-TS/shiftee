@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { kstTodayMidnight } from "@/lib/resign";
 
 // 원장(MANAGER)의 담당 지점 목록 = 대표 지점(User.branch) + 겸직 지점(ManagerBranch).
 // 대표 지점은 세션(토큰 박제)이 아닌 DB에서 읽는다 — 지점명 변경 직후에도 정확.
@@ -22,6 +23,12 @@ export async function branchManagers(branch: string): Promise<{ id: string; name
       role: "MANAGER",
       isActive: true,
       deletedAt: null,
+      // 퇴사일이 지난 사람은 로그인이 안 된다(getSession 이 막는다). 결재선에 넣으면
+      // 그 건이 멈추므로 여기서도 뺀다 — 함수마다 기준이 다르면 라우팅이 갈린다
+      // (2026-09-09 검증에서 적발: branchMainManager 에만 있었다).
+      // ⚠ 지점 조건에도 OR 을 쓰므로 **AND 로 감싼다.** 같은 객체에 OR 을 두 번 쓰면
+      //   뒤엣것이 앞엣것을 덮어써서 퇴사자 필터가 통째로 사라진다.
+      AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }],
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
     select: { id: true, name: true },
@@ -66,6 +73,12 @@ export async function branchHasOtherManager(branch: string, exceptUserId: string
       role: "MANAGER",
       isActive: true,
       deletedAt: null,
+      // 퇴사일이 지난 사람은 로그인이 안 된다(getSession 이 막는다). 결재선에 넣으면
+      // 그 건이 멈추므로 여기서도 뺀다 — 함수마다 기준이 다르면 라우팅이 갈린다
+      // (2026-09-09 검증에서 적발: branchMainManager 에만 있었다).
+      // ⚠ 지점 조건에도 OR 을 쓰므로 **AND 로 감싼다.** 같은 객체에 OR 을 두 번 쓰면
+      //   뒤엣것이 앞엣것을 덮어써서 퇴사자 필터가 통째로 사라진다.
+      AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }],
       id: { not: exceptUserId },
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
@@ -80,6 +93,12 @@ export async function branchHasManager(branch: string): Promise<boolean> {
       role: "MANAGER",
       isActive: true,
       deletedAt: null,
+      // 퇴사일이 지난 사람은 로그인이 안 된다(getSession 이 막는다). 결재선에 넣으면
+      // 그 건이 멈추므로 여기서도 뺀다 — 함수마다 기준이 다르면 라우팅이 갈린다
+      // (2026-09-09 검증에서 적발: branchMainManager 에만 있었다).
+      // ⚠ 지점 조건에도 OR 을 쓰므로 **AND 로 감싼다.** 같은 객체에 OR 을 두 번 쓰면
+      //   뒤엣것이 앞엣것을 덮어써서 퇴사자 필터가 통째로 사라진다.
+      AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }],
       OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
     },
   });

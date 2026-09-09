@@ -33,6 +33,12 @@ const ACTION_LABEL: Record<string, string> = {
   DEVICE_RESET: "기기 초기화",
   HOLIDAY_ADD: "공휴일 등록",
   HOLIDAY_DELETE: "공휴일 삭제",
+  // ⚠ 새 action 을 만들면 여기도 함께 늘릴 것 — 빠지면 화면에 영문 코드로 뜬다.
+  BRANCH_RENAME: "지점명 변경",
+  BRANCH_MAIN_MANAGER: "메인 원장 변경",
+  LEAVE_CANCEL: "휴가 취소",
+  SCHEDULE_CANCEL: "근무일정 신청 취소",
+  ATTENDANCE_AUTO_CLOSE: "전일 미마감 자동 마감",
 };
 
 /** 9 → "9시간", 9.5 → "9시간 30분" */

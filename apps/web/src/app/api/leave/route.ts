@@ -227,60 +227,68 @@ export async function POST(request: NextRequest) {
     else policySteps = hasBranchManager ? [managerStep] : [adminStep];
   }
 
-  // ⚠ 신청과 결재 단계를 **한 트랜잭션으로** 만든다(근무일정과 같은 방식).
-  //   종전에는 신청을 먼저 만들고 단계를 나중에 만들어서, 단계 생성이 실패하면
-  //   **결재선 없는 대기 신청**이 남아 관리자의 "결재라인 없음" 목록으로 흘러가
-  //   원장 단계를 건너뛰었다(2026-09-09 검증에서 적발).
-  const leaveRequest = await prisma.$transaction(async (tx) => {
-    const created = await tx.leaveRequest.create({
-      data: {
-        userId: session.userId,
-        type: leaveType,   // 위에서 enum 값임을 확인한 것만 넣는다
-        startDate: start,
-        endDate:   end,
-        days,
-        reason,
-        attachmentUrl: attachmentUrl ?? null,
-        attachmentName: attachmentName ?? null,
-        status: policySteps.length > 0 ? "PENDING" : "APPROVED",
-        ...(policySteps.length > 0 ? {} : { approverId: session.userId }),
-      },
+  // ⚠ 트랜잭션이 던지면 미처리 500 이 된다 — 근무일정에는 try/catch 가 있는데
+  //   휴가만 빠져 있었다(2026-09-09 검증에서 적발).
+  try {
+    // ⚠ 신청과 결재 단계를 **한 트랜잭션으로** 만든다(근무일정과 같은 방식).
+    //   종전에는 신청을 먼저 만들고 단계를 나중에 만들어서, 단계 생성이 실패하면
+    //   **결재선 없는 대기 신청**이 남아 관리자의 "결재라인 없음" 목록으로 흘러가
+    //   원장 단계를 건너뛰었다(2026-09-09 검증에서 적발).
+    const leaveRequest = await prisma.$transaction(async (tx) => {
+      const created = await tx.leaveRequest.create({
+        data: {
+          userId: session.userId,
+          type: leaveType,   // 위에서 enum 값임을 확인한 것만 넣는다
+          startDate: start,
+          endDate:   end,
+          days,
+          reason,
+          attachmentUrl: attachmentUrl ?? null,
+          attachmentName: attachmentName ?? null,
+          status: policySteps.length > 0 ? "PENDING" : "APPROVED",
+          ...(policySteps.length > 0 ? {} : { approverId: session.userId }),
+        },
+      });
+
+      if (policySteps.length > 0) {
+        await tx.leaveApprovalStep.createMany({
+          data: policySteps.map((st, idx) => ({
+            leaveRequestId: created.id,
+            order: idx + 1,
+            approverRole: st.approverRole,
+            branch: st.branch,
+            approverId: st.approverId ?? null,   // 메인 원장처럼 **사람을 못박은** 단계
+            status: idx === 0 ? "PENDING" : "WAITING",
+          })),
+        });
+      } else if (isLeaveDeductible(leaveType)) {
+        // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
+        await tx.leaveBalance.upsert({
+          where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
+          create: { userId: session.userId, year: currentLeaveYear(), total: 15, used: days, remaining: 15 - days },
+          update: { used: { increment: days }, remaining: { decrement: days } },
+        });
+      }
+
+      return created;
     });
 
+    // 1단계 결재자에게 알린다 — 근무일정과 같은 기준(지정 결재자 + 전체 관리자).
+    // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.
     if (policySteps.length > 0) {
-      await tx.leaveApprovalStep.createMany({
-        data: policySteps.map((st, idx) => ({
-          leaveRequestId: created.id,
-          order: idx + 1,
-          approverRole: st.approverRole,
-          branch: st.branch,
-          approverId: st.approverId ?? null,   // 메인 원장처럼 **사람을 못박은** 단계
-          status: idx === 0 ? "PENDING" : "WAITING",
-        })),
-      });
-    } else if (isLeaveDeductible(leaveType)) {
-      // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
-      await tx.leaveBalance.upsert({
-        where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
-        create: { userId: session.userId, year: currentLeaveYear(), total: 15, used: days, remaining: 15 - days },
-        update: { used: { increment: days }, remaining: { decrement: days } },
-      });
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      botNotifyApprovalRequest(policySteps[0], {
+        kind: "휴가",
+        requesterName: session.name,
+        period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
+        requesterId: session.userId,
+      }).catch(() => {});
     }
 
-    return created;
-  });
-
-  // 1단계 결재자에게 알린다 — 근무일정과 같은 기준(지정 결재자 + 전체 관리자).
-  // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.
-  if (policySteps.length > 0) {
-    const ymd = (d: Date) => d.toISOString().slice(0, 10);
-    botNotifyApprovalRequest(policySteps[0], {
-      kind: "휴가",
-      requesterName: session.name,
-      period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
-      requesterId: session.userId,
-    }).catch(() => {});
+    return NextResponse.json({ success: true, leaveRequest, days });
+  } catch (error) {
+    console.error("휴가 신청 생성 오류:", error);
+    return NextResponse.json({ error: "휴가 신청 중 오류가 발생했습니다." }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true, leaveRequest, days });
 }
+

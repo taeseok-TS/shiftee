@@ -21,16 +21,6 @@ export async function PATCH(
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
     }
 
-    // 다른 지점과의 중복 체크
-    if (name) {
-      const existing = await prisma.branch.findFirst({
-        where: { name, id: { not: id }, isActive: true }
-      });
-      if (existing) {
-        return NextResponse.json({ error: "이미 존재하는 지점명입니다." }, { status: 409 });
-      }
-    }
-
     const data = {
       name,
       address: address || null,
@@ -51,6 +41,38 @@ export async function PATCH(
       },
     });
     if (!before) return NextResponse.json({ error: "지점을 찾을 수 없습니다." }, { status: 404 });
+
+    // 다른 지점과의 중복 체크
+    if (name) {
+      const existing = await prisma.branch.findFirst({
+        where: { name, id: { not: id }, isActive: true }
+      });
+      if (existing) {
+        return NextResponse.json({ error: "이미 존재하는 지점명입니다." }, { status: 409 });
+      }
+    }
+
+
+    /**
+     * 메인 원장이 바뀌었으면 기록을 남긴다. "누가 누구의 결재자인가"를 바꾸는 조작이다.
+     * ⚠ 이름 변경 경로가 조기 return 하므로 **두 경로 모두에서** 불러야 한다
+     *   (2026-09-09 검증에서 한쪽만 불리는 것이 적발됐다).
+     */
+    const auditMainManager = async (branchName: string) => {
+      if (mainManagerId === undefined || (mainManagerId || null) === before.mainManagerId) return;
+      try {
+        const nameOf = async (uid: string | null) =>
+          uid ? (await prisma.user.findUnique({ where: { id: uid }, select: { name: true } }))?.name ?? uid : "(없음)";
+        await logAudit({
+          actorId: session.userId, actorName: session.name, action: "BRANCH_MAIN_MANAGER",
+          targetType: "Branch", targetId: id, targetName: branchName,
+          detail: `메인 원장 변경: ${await nameOf(before.mainManagerId)} → ${await nameOf(mainManagerId || null)}`,
+        });
+      } catch (e) {
+        // 이름 조회가 실패해도 지점 저장은 이미 끝났다 — 여기서 500 을 내면 안 된다
+        console.error("[branch] 메인 원장 감사 로그 실패:", e);
+      }
+    };
 
     // 지정하려는 사람이 **그 지점을 담당하는 활성 원장**인지 확인한다.
     // 아무나 못박으면 결재가 그 사람에게 걸린 채 멈춘다.
@@ -97,23 +119,12 @@ export async function PATCH(
         detail: `${before.name}→${name}, 직원 ${synced.count}명 동기화`,
       });
       notifyIfGeofenceChanged(branch, before, session.name, `이름 변경 ${before.name}→${name}, 직원 ${synced.count}명 동기화`);
+      await auditMainManager(branch.name);
       return NextResponse.json({ success: true, branch, syncedUsers: synced.count });
     }
 
     const branch = await prisma.branch.update({ where: { id }, data });
-
-    // 메인 원장이 바뀌면 **기록을 남긴다.** 이건 "누가 누구의 결재자인가"를 바꾸는
-    // 조작인데 종전에는 감사 로그가 한 줄도 안 남았다(2026-09-09 검증에서 적발).
-    if (mainManagerId !== undefined && (mainManagerId || null) !== before.mainManagerId) {
-      const nameOf = async (uid: string | null) =>
-        uid ? (await prisma.user.findUnique({ where: { id: uid }, select: { name: true } }))?.name ?? uid : "(없음)";
-      await logAudit({
-        actorId: session.userId, actorName: session.name, action: "BRANCH_MAIN_MANAGER",
-        targetType: "Branch", targetId: id, targetName: branch.name,
-        detail: `메인 원장 변경: ${await nameOf(before.mainManagerId)} → ${await nameOf(mainManagerId || null)}`,
-      });
-    }
-
+    await auditMainManager(branch.name);
     notifyIfGeofenceChanged(branch, before, session.name);
     return NextResponse.json({ success: true, branch });
   } catch (error) {
