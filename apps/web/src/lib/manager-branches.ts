@@ -27,6 +27,27 @@ export async function branchManagers(branch: string): Promise<{ id: string; name
   });
 }
 
+/**
+ * 그 지점을 담당하는 **다른** 원장이 있는지 (본인 제외).
+ *
+ * 원장 신청의 결재선을 만들 때 쓴다 — 원장도 자기 지점을 함께 보는 다른 원장에게
+ * 먼저 결재를 받는다(2026-09-09 디렉터 지시):
+ *  · 한 지점에 원장이 2명이면 서로가 상대의 결재자가 된다(메인 원장이 두 번째 원장을 결재)
+ *  · 겸직 원장은 자기가 관리하는 다른 지점의 원장도 결재할 수 있다
+ * 그 뒤에 **관리자 승인이 반드시 따라붙는다.**
+ */
+export async function branchHasOtherManager(branch: string, exceptUserId: string): Promise<boolean> {
+  const count = await prisma.user.count({
+    where: {
+      role: "MANAGER",
+      isActive: true,
+      id: { not: exceptUserId },
+      OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
+    },
+  });
+  return count > 0;
+}
+
 // 특정 지점을 담당하는 활성 원장이 있는지 (결재 라우팅용 — 대표/겸직 모두 인정)
 export async function branchHasManager(branch: string): Promise<boolean> {
   const count = await prisma.user.count({

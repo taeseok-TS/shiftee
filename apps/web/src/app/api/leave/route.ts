@@ -7,7 +7,7 @@ import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
-import { getManagerBranches, branchHasManager } from "@/lib/manager-branches";
+import { getManagerBranches, branchHasManager, branchHasOtherManager } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 import { LEAVE_STATUSES, pick, LEAVE_TYPES, type LeaveTypeValue } from "@/lib/enums";
 
@@ -178,7 +178,14 @@ export async function POST(request: NextRequest) {
 
   let policySteps: { approverRole: string; branch: string | null }[] = [];
   if (submitter?.role === "MANAGER") {
-    policySteps = [adminStep];
+    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시). 다만 같은 지점을 함께 보는
+    //   다른 원장이 있으면 그 원장이 먼저 결재한다 — 한 지점에 원장이 2명이면 서로가
+    //   상대의 결재자가 되고, 겸직 원장은 자기가 관리하는 다른 지점의 원장도 결재한다.
+    //   (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
+    const peer = submitter.branch
+      ? await branchHasOtherManager(submitter.branch, session.userId)
+      : false;
+    policySteps = peer ? [managerStep, adminStep] : [adminStep];
   } else if (submitter?.role === "ADMIN") {
     const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
     policySteps = otherAdmins > 0 ? [adminStep] : [];
