@@ -136,9 +136,10 @@ export default function WorkNewChannelScreen() {
                   <Text style={styles.rowName}>
                     {item.branch ? `[${item.branch}] ` : ""}{item.name}
                   </Text>
-                  {/* 부서.직책은 띄우지 않는다 — 채팅에서 사람을 찾는 데 필요한 건
-                      **이름과 지점**뿐이다(디렉터 지시). 종전에는 이 줄이 전 직원의
-                      부서.직책을 모든 직원에게 보여줬다(2026-09-09 적발). */}
+                  {/* 직책만 띄운다 — 한 지점에 동명이인이 있을 때 구분용(디렉터 지시).
+                      부서는 뺐다: 사람을 고르는 데 쓰이지 않는데 전 직원의 부서가
+                      모든 직원에게 보였다(2026-09-09 적발). */}
+                  {!!item.position && <Text style={styles.rowSub}>{item.position}</Text>}
                 </View>
               </TouchableOpacity>
             );

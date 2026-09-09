@@ -13,12 +13,13 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// 서버는 **화면에 그리는 것만** 내려준다 — 이름.지점, 관리자 숨김용 role.
-// 부서.직책은 2026-09-09 에 뺐다(어느 화면도 쓰지 않는데 응답에 실려 나갔다).
+// 서버는 **화면에 그리는 것만** 내려준다 — 이름.지점.직책, 관리자 숨김용 role.
+// 직책은 한 지점에 동명이인이 있을 때 구분용이다. 부서는 2026-09-09 에 뺐다.
 export type Member = {
   id: string;
   name: string;
   branch?: string | null;
+  position?: string | null;
   role?: string | null;
 };
 

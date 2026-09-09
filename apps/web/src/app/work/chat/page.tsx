@@ -115,7 +115,7 @@ type ChannelMember = { userId: string; name: string; branch?: string | null; pos
 type ChannelFile = { messageId: string; fileUrl: string; fileName: string | null; fileType: string | null; userName: string; createdAt: string };
 type Reaction = { emoji: string; count: number; mine: boolean; names?: string[] };
 type Message = { id: string; userId: string; userName: string; userAvatar?: string | null; userBranch?: string | null; system?: boolean; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null; attachFirst?: boolean; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number; editedAt?: string | null; deleted?: boolean; replyTo?: { id: string; userName: string; content: string; deleted: boolean } | null; unreadBy?: number; bookmarked?: boolean; poll?: { id: string; question: string; options: string[]; multiple: boolean; closed: boolean; closesAt?: string | null; counts: number[]; myVotes: number[]; totalVoters: number; creatorId: string; creatorName: string } | null };
-type Employee = { id: string; name: string; branch?: string | null; role?: string | null };
+type Employee = { id: string; name: string; branch?: string | null; position?: string | null; role?: string | null };
 
 export default function WorkChatPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -1705,7 +1705,7 @@ export default function WorkChatPage() {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={selectedMembers.includes(e.id)}
                       onChange={(ev) => setSelectedMembers((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
-                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}{e.position && <span className="text-xs text-gray-400">· {e.position}</span>}
                   </label>
                   <Button size="sm" variant="outline" className="text-xs h-7 border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 shrink-0" onClick={() => startDM(e.id)}>1:1 대화</Button>
                 </div>
@@ -1805,7 +1805,7 @@ export default function WorkChatPage() {
                   <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={addIds.includes(e.id)}
                       onChange={(ev) => setAddIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
-                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}{e.position && <span className="text-xs text-gray-400">· {e.position}</span>}
                   </label>
                 ))}
               </div>
@@ -1943,6 +1943,7 @@ export default function WorkChatPage() {
                         <Avatar name={e.name} size={22} />
                         <span className="truncate">{e.name}</span>
                         {e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                        {e.position && <span className="text-xs text-gray-400">· {e.position}</span>}
                         <span className="ml-auto text-[10px] text-indigo-400">1:1 전달</span>
                       </button>
                     ))}
@@ -2131,7 +2132,7 @@ export default function WorkChatPage() {
                 <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={addIds.includes(e.id)}
                     onChange={(ev) => setAddIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
-                  {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                  {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}{e.position && <span className="text-xs text-gray-400">· {e.position}</span>}
                 </label>
               ))}
             </div>

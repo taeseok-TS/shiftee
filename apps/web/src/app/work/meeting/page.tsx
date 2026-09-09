@@ -90,7 +90,7 @@ export default function WorkMeetingPage() {
   const [showChat, setShowChat] = useState(true);
   const [isSecure, setIsSecure] = useState(true); // HTTPS(보안 컨텍스트) 여부 — 화상회의/녹화 필요
   // 직원 초대
-  const [employees, setEmployees] = useState<{ id: string; name: string; branch?: string | null }[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; branch?: string | null; position?: string | null }[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteIds, setInviteIds] = useState<string[]>([]);
   const [inviteSearch, setInviteSearch] = useState("");
@@ -302,7 +302,7 @@ export default function WorkMeetingPage() {
                   <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={inviteIds.includes(e.id)}
                       onChange={(ev) => setInviteIds((prev) => ev.target.checked ? [...prev, e.id] : prev.filter((x) => x !== e.id))} />
-                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}
+                    {e.name}{e.branch && <span className="text-xs text-gray-400">· {e.branch}</span>}{e.position && <span className="text-xs text-gray-400">· {e.position}</span>}
                   </label>
                 ))}
               </div>
