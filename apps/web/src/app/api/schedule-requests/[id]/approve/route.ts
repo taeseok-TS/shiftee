@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
 import { logAudit } from "@/lib/audit";
-import { botNotifyDecision } from "@/lib/bot";
+import { botNotifyDecision, botNotifyApprovalRequest } from "@/lib/bot";
 import { getManagerBranches } from "@/lib/manager-branches";
 
 function fmtRange(s: Date, e: Date) {
@@ -120,6 +120,13 @@ export async function POST(
           });
           emailAction = "next_approver";
           nextApprover = nextStep.approver;
+          // 다음 결재자에게도 차례가 왔음을 알린다
+          botNotifyApprovalRequest(nextStep, {
+            kind: "근무일정",
+            requesterName: scheduleRequest.user.name,
+            period: fmtRange(scheduleRequest.startDate, scheduleRequest.endDate),
+            requesterId: scheduleRequest.userId,
+          }).catch(() => {});
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
           // 모든 단계 승인 완료 → 전체 승인

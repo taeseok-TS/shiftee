@@ -137,6 +137,11 @@ model Schedule {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
+  // 같은 사람.같은 날 일정은 하나뿐이다. 종전에는 제약이 없어 동시 등록 시 중복이
+  // 생길 수 있었고, 그러면 화면(Map — 마지막 것)과 지각 판정(findFirst)이 **서로 다른
+  // 행**을 볼 수 있었다(2026-09-08 검증에서 적발).
+  // ⚠ 운영 DB 에는 `CREATE UNIQUE INDEX CONCURRENTLY "Schedule_userId_date_key"` 를 먼저 넣었다.
+  @@unique([userId, date])
   @@index([userId, date])
 }
 

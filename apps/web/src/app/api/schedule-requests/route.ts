@@ -6,6 +6,7 @@ import { branchHasManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData } from "@/lib/schedule-payload";
+import { botNotifyApprovalRequest } from "@/lib/bot";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -130,6 +131,18 @@ export async function POST(request: NextRequest) {
 
       return scheduleRequest;
     });
+
+    // 1단계 결재자에게 알린다. 종전에는 결재 "결과" 알림만 있어서, 결재자가 화면에
+    // 직접 들어가야만 온 줄 알았다(미결이 7주 방치된 건이 실재했다).
+    if (policySteps.length > 0) {
+      const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true } });
+      botNotifyApprovalRequest(policySteps[0], {
+        kind: "근무일정",
+        requesterName: me?.name ?? "직원",
+        period: `${entries[0].date} ~ ${entries[entries.length - 1].date}`,
+        requesterId: session.userId,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

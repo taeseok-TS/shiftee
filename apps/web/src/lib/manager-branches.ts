@@ -15,6 +15,18 @@ export async function getManagerBranches(userId: string): Promise<string[]> {
   return [...set];
 }
 
+// 특정 지점을 담당하는 활성 원장들 (결재 알림 대상 — 대표/겸직 모두 인정)
+export async function branchManagers(branch: string): Promise<{ id: string; name: string }[]> {
+  return prisma.user.findMany({
+    where: {
+      role: "MANAGER",
+      isActive: true,
+      OR: [{ branch }, { managerBranches: { some: { branchName: branch } } }],
+    },
+    select: { id: true, name: true },
+  });
+}
+
 // 특정 지점을 담당하는 활성 원장이 있는지 (결재 라우팅용 — 대표/겸직 모두 인정)
 export async function branchHasManager(branch: string): Promise<boolean> {
   const count = await prisma.user.count({

@@ -94,6 +94,58 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
 // 결재 결과 DM (휴가/근무일정 공용)
 // 발송 조건: 관리자 강제발송(forceApprovalNotify)이 켜져 있으면 항상,
 // 꺼져 있으면 직원 본인의 수신 설정(notifyApproval)을 따른다.
+/**
+ * **결재 차례가 된 사람에게 알린다.**
+ *
+ * 종전에는 결재 "결과" 알림만 있고 "요청" 알림이 없었다. 결재자는 화면에 직접
+ * 들어가야만 알 수 있어서, 미결 신청이 7주째 방치된 건이 실재했다
+ * (2026-09-08 검증에서 적발). 신청자는 기다리는데 결재자는 온 줄을 모른다.
+ *
+ * 알림 실패가 신청.결재를 되돌리면 안 되므로 호출부는 await 하지 않는다.
+ */
+export async function botNotifyApprovalRequest(step: {
+  approverRole?: string | null;
+  branch?: string | null;
+  approverId?: string | null;
+}, opts: { kind: "근무일정" | "휴가"; requesterName: string; period: string; requesterId: string }) {
+  try {
+    const { prisma } = await import("@/lib/db");
+    const targets: string[] = [];
+
+    if (step.approverId) {
+      targets.push(step.approverId);
+    } else if (step.approverRole === "ADMIN") {
+      const admins = await prisma.user.findMany({
+        where: { role: "ADMIN", isActive: true },
+        select: { id: true },
+      });
+      targets.push(...admins.map((a) => a.id));
+    } else if (step.approverRole === "MANAGER" && step.branch) {
+      const { branchManagers } = await import("@/lib/manager-branches");
+      targets.push(...(await branchManagers(step.branch)).map((m) => m.id));
+    }
+
+    // 본인에게는 보내지 않는다 (자기 신청이 자기 결재함에 뜨는 경우)
+    const list = [...new Set(targets)].filter((id) => id !== opts.requesterId);
+    if (list.length === 0) {
+      console.error(`[bot] ${opts.kind} 결재 대상이 없습니다 — ${opts.requesterName} (${opts.period})`);
+      return;
+    }
+
+    const text = `📋 결재 요청이 도착했습니다
+
+${opts.kind}: ${opts.requesterName}
+기간: ${opts.period}
+
+결재함에서 확인해주세요.`;
+    for (const id of list) {
+      await botSendDM(id, text).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
+    }
+  } catch (e) {
+    console.error("[bot] 결재 요청 알림 오류:", e);
+  }
+}
+
 export async function botNotifyDecision(
   requesterId: string,
   kind: string, // 예: "연차 (2026-07-10 ~ 2026-07-10)"

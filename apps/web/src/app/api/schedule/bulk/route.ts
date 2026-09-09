@@ -93,6 +93,9 @@ export async function POST(request: NextRequest) {
           note: note || null,
         }))
       ),
+      // (userId, date) 유니크 제약이 있다. 두 요청이 겹치면 충돌로 트랜잭션이
+      // 통째로 죽는 대신 건너뛴다 — 어차피 같은 날짜는 하나만 남으면 된다.
+      skipDuplicates: true,
     });
   });
 

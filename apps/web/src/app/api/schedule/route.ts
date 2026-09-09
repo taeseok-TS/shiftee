@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
-import { isRealDate } from "@/lib/schedule-payload";
+import { isRealDate, toMin } from "@/lib/schedule-payload";
 import { kstTodayMidnight } from "@/lib/resign";
 
 export async function GET(request: NextRequest) {
@@ -17,8 +17,14 @@ export async function GET(request: NextRequest) {
   const kstNow = kstTodayMidnight();
   const yearRaw  = parseInt(searchParams.get("year")  || String(kstNow.getUTCFullYear()));
   const monthRaw = parseInt(searchParams.get("month") || String(kstNow.getUTCMonth() + 1));
-  const year  = Number.isInteger(yearRaw)  && yearRaw  >= 2000 && yearRaw  <= 2100 ? yearRaw  : kstNow.getUTCFullYear();
-  const month = Number.isInteger(monthRaw) && monthRaw >= 1    && monthRaw <= 12   ? monthRaw : kstNow.getUTCMonth() + 1;
+  // 잘못된 값을 조용히 이번 달로 바꿔치기하지 않는다 — 부르는 쪽이 틀린 줄 모르고
+  // 엉뚱한 달을 받아 간다. 500 은 안 나야 하지만, 틀렸으면 틀렸다고 알려준다.
+  if (!Number.isInteger(yearRaw) || yearRaw < 2000 || yearRaw > 2100 ||
+      !Number.isInteger(monthRaw) || monthRaw < 1 || monthRaw > 12) {
+    return NextResponse.json({ error: "연월이 올바르지 않습니다." }, { status: 400 });
+  }
+  const year = yearRaw;
+  const month = monthRaw;
 
   // start/end(yyyy-MM-dd) 지정 시 해당 기간, 없으면 해당 월
   // ⚠ 형식이 어긋나면 Invalid Date 가 그대로 prisma 쿼리에 들어가 미처리 500 이 된다.
@@ -155,15 +161,29 @@ export async function POST(request: NextRequest) {
   const denied = await guardScheduleChange(session, userId);
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
-  // 같은 날짜+직원 일정이 있으면 upsert
-  const existing = await prisma.schedule.findFirst({
-    where: { userId, date: new Date(date) },
-    select: { id: true },
-  });
+  if (!isRealDate(date)) {
+    return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
+  }
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!TIME_RE.test(String(startTime)) || !TIME_RE.test(String(endTime))) {
+    return NextResponse.json({ error: "근무 시간 형식이 올바르지 않습니다. 예: 09:00" }, { status: 400 });
+  }
+  if (toMin(String(endTime)) <= toMin(String(startTime))) {
+    return NextResponse.json({ error: "종료 시간이 시작 시간보다 빠릅니다." }, { status: 400 });
+  }
+  if (toMin(String(endTime)) - toMin(String(startTime)) > 12 * 60) {
+    return NextResponse.json({ error: "하루 근무는 12시간을 넘을 수 없습니다." }, { status: 400 });
+  }
 
+  const [yy, mm, dd] = date.split("-").map(Number);
+  const dateUtc = new Date(Date.UTC(yy, mm - 1, dd));   // @db.Date 는 UTC 자정 저장
+
+  // 같은 사람.같은 날은 하나뿐이므로 **복합 유니크로 upsert** 한다.
+  // 종전에는 findFirst 로 찾아 id 로 upsert 했는데, 두 요청이 동시에 오면 둘 다
+  // "없음"을 보고 각자 생성해 중복이 생길 수 있었다(2026-09-08 검증에서 적발).
   const schedule = await prisma.schedule.upsert({
-    where: { id: existing?.id ?? "new" },
-    create: { userId, date: new Date(date), startTime, endTime, type: type || "WORK", note },
+    where: { userId_date: { userId, date: dateUtc } },
+    create: { userId, date: dateUtc, startTime, endTime, type: type || "WORK", note },
     update: { startTime, endTime, type: type || "WORK", note },
   });
 
