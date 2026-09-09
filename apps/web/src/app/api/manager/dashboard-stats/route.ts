@@ -17,22 +17,34 @@ export async function GET() {
   // "통계 포함" 꺼진 지점(본부·테스트지점)은 팀 인원에서 뺀다
   // 결재함(my-approvals)과 **같은 조건**을 쓴다 — 숫자와 목록이 어긋나면 안 된다.
   // 지정 결재자로 못박힌 건 + 내 담당 지점의 (못박히지 않은) 원장 단계.
-  // ⚠ 본인 신청은 뺀다 — 결재함이 그렇게 하기 때문이다. 안 빼면 "1건 있다"고 떠서
-  //   눌러 보면 빈 결재함이다(2026-09-09 검증에서 적발: 분당서현.분당야탑처럼 메인 원장
-  //   지정이 없는 지점에서 원장이 신청하면 자기 단계가 자기 조건에 걸린다).
-  const approvalStepWhere = {
+  // ⚠ 결재함(my-approvals)과 **같은 조건**이어야 한다 — 숫자와 목록이 어긋나면
+  //   "1건 있다"고 떠서 눌러 보면 빈 화면이 된다(2026-09-09 검증에서 양방향으로 적발).
+  //   · 본인 신청은 뺀다(결재함이 그렇게 한다)
+  //   · 관리자는 대기 중인 **모든** 단계를 본다(결재함과 동일)
+  //   · 원장은 못박힌 건 + 담당 지점의 못박히지 않은 단계
+  //
+  // ⚠ 관계명이 달라 **두 개를 따로 만든다.** 하나를 만들어 `scheduleRequest: undefined`
+  //   로 덮어쓰는 방식은 tsc 가 잡지 못하고, Prisma 가 undefined 처리를 바꾸는 순간
+  //   대시보드 전체가 500 이 된다(2026-09-09 검증에서 지적).
+  const stepOr =
+    session.role === "ADMIN"
+      ? undefined
+      : [
+          { approverId: session.userId },
+          ...(session.role === "MANAGER"
+            ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
+            : []),
+        ];
+  const scheduleStepWhere = {
     status: "PENDING" as const,
     scheduleRequest: { userId: { not: session.userId } },
-    OR: [
-      { approverId: session.userId },
-      ...(session.role === "MANAGER"
-        ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
-        : []),
-    ],
+    ...(stepOr ? { OR: stepOr } : {}),
   };
-  // 휴가는 관계 이름이 다르다(같은 조건, 관계명만 교체)
-  const leaveStepWhere = { ...approvalStepWhere, scheduleRequest: undefined,
-    leaveRequest: { userId: { not: session.userId } } };
+  const leaveStepWhere = {
+    status: "PENDING" as const,
+    leaveRequest: { userId: { not: session.userId } },
+    ...(stepOr ? { OR: stepOr } : {}),
+  };
 
   const memberWhere = await countableEmployeeWhere(
     session.role === "MANAGER" ? { branches: myBranches } : {}
@@ -74,7 +86,7 @@ export async function GET() {
       //   역할.지점 기반 단계가 빠졌고, 실제로 대기 중인데 화면에는 **0건**으로 떴다
       //   (2026-09-09 검증에서 라이브 실측 — 주예나 2건, 김원장 1건이 안 보였다).
       prisma.leaveApprovalStep.count({ where: leaveStepWhere }),
-      prisma.scheduleApprovalStep.count({ where: approvalStepWhere }),
+      prisma.scheduleApprovalStep.count({ where: scheduleStepWhere }),
 
       // 금월 결근자 (지점 직원, 중복 제거)
       prisma.attendance.findMany({

@@ -167,6 +167,28 @@ export default function ApprovalsPage() {
 
   // 승인/거절 처리
 
+
+  // 휴가 신청 취소 — 근무일정과 **같은 기준**이다(원장은 담당 지점 직원의 건, 서버가 재확인).
+  // 근무일정에만 붙이고 휴가를 빠뜨렸던 것을 맞춘다(2026-09-09 검증에서 적발).
+  const handleCancelLeave = async (requestId: string, who: string) => {
+    if (!confirm(`${who}님의 휴가 신청을 취소할까요?\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
+    try {
+      setProcessingId(requestId);
+      const res = await fetch(`/api/leave/${requestId}`, { method: "PATCH" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success("신청을 취소했습니다");
+        setLeaveSteps(leaveSteps.filter(s => s.leaveRequest.id !== requestId));
+      } else {
+        toast.error(data.error || "취소하지 못했습니다");
+      }
+    } catch {
+      toast.error("오류가 발생했습니다");
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   // 신청 취소 — 원장은 담당 지점 직원의 **대기 중** 신청만 취소할 수 있다(서버가 재확인).
   // 반려와 다르다: 반려는 "안 된다"는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다.
   const handleCancelSchedule = async (requestId: string, who: string) => {
@@ -417,6 +439,16 @@ export default function ApprovalsPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-gray-500 hover:bg-gray-100"
+                                disabled={processingId === req.id}
+                                title="신청 자체를 거둡니다 (반려와 달리 결재 기록에 남지 않습니다)"
+                                onClick={() => handleCancelLeave(req.id, req.user.name)}
+                              >
+                                취소
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
