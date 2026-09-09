@@ -92,6 +92,46 @@ export default function ScheduleRequestPage() {
   // 조회에 실패했는데 그냥 빈 맵으로 두면 추석이 근무일로 잡히는 옛 버그가 조용히 되살아난다.
   const [holidayState, setHolidayState] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
+  // ── 내 신청 내역 ──
+  // 종전에는 신청만 하고 **어떻게 됐는지 볼 화면이 없었다.** 결과 알림(봇 DM)이 오기
+  // 전까지 상태를 알 수 없었고, 잘못 낸 신청은 결재자가 반려해줘야만 없어졌다
+  // (그러면 기록에 "반려"로 남아 나중에 사유를 오해한다 — 2026-09-09 디렉터 지시로 추가).
+  type MyRequest = {
+    id: string; templateName: string | null; startDate: string; endDate: string;
+    totalHours: number; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    approvalSteps?: { id: string; order: number; status: string; approverRole?: string | null;
+                      branch?: string | null; approver?: { name: string } | null; comment?: string | null }[];
+  };
+  const [myRequests, setMyRequests] = useState<MyRequest[]>([]);
+  const [cancelingId, setCancelingId] = useState("");
+
+  const fetchMyRequests = useCallback(async () => {
+    try {
+      const d = await fetch("/api/schedule-requests").then(r => r.ok ? r.json() : { requests: [] });
+      setMyRequests(d.requests || []);
+    } catch { /* 목록을 못 읽어도 신청 자체는 되게 둔다 */ }
+  }, []);
+  useEffect(() => { fetchMyRequests(); }, [fetchMyRequests]);
+
+  const cancelMyRequest = async (id: string) => {
+    if (!confirm("이 신청을 취소할까요?\n\n취소하면 결재가 중단되고 기록에는 '취소'로 남습니다.")) return;
+    setCancelingId(id);
+    try {
+      const res = await fetch(`/api/schedule-requests/${id}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) { toast.success("신청을 취소했습니다"); fetchMyRequests(); }
+      else toast.error(d.error || "취소하지 못했습니다");
+    } catch { toast.error("오류가 발생했습니다"); }
+    finally { setCancelingId(""); }
+  };
+
+  const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
+    PENDING:   { text: "결재 대기", cls: "bg-amber-100 text-amber-700" },
+    APPROVED:  { text: "승인",     cls: "bg-green-100 text-green-700" },
+    REJECTED:  { text: "반려",     cls: "bg-red-100 text-red-700" },
+    CANCELLED: { text: "취소",     cls: "bg-gray-100 text-gray-600" },
+  };
+
   // 본인 ID/역할 조회
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
@@ -322,6 +362,51 @@ export default function ScheduleRequestPage() {
           3
         </div>
       </div>
+
+      {/* 내 신청 내역 — 신청하러 들어온 화면에서 바로 상태를 볼 수 있게 한다 */}
+      {myRequests.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">내 신청 내역</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {myRequests.slice(0, 10).map((r) => {
+              const badge = STATUS_LABEL[r.status] ?? { text: r.status, cls: "bg-gray-100 text-gray-600" };
+              const ymd = (v: string) => format(new Date(v), "MM.dd", { locale: ko });
+              return (
+                <div key={r.id} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${badge.cls}`}>{badge.text}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-gray-900 truncate">
+                      {ymd(r.startDate)} ~ {ymd(r.endDate)}
+                      {r.templateName && <span className="text-gray-400 font-normal"> · {r.templateName}</span>}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {r.totalHours}시간
+                      {/* 어디서 멈춰 있는지 보여준다 — "결재 대기"만으로는 누구를 기다리는지 모른다 */}
+                      {r.status === "PENDING" && r.approvalSteps?.some((s) => s.status === "PENDING") && (
+                        <> · {r.approvalSteps.find((s) => s.status === "PENDING")?.approver?.name
+                              ?? (r.approvalSteps.find((s) => s.status === "PENDING")?.approverRole === "ADMIN" ? "관리자" : "지점 원장")} 결재 대기</>
+                      )}
+                      {r.status === "REJECTED" && r.approvalSteps?.find((s) => s.status === "REJECTED")?.comment && (
+                        <> · 사유: {r.approvalSteps.find((s) => s.status === "REJECTED")?.comment}</>
+                      )}
+                    </div>
+                  </div>
+                  {/* 대기 중인 것만 취소할 수 있다 — 승인된 건은 이미 근무일정에 반영돼 있다 */}
+                  {r.status === "PENDING" && (
+                    <Button variant="outline" size="sm" className="shrink-0"
+                            disabled={cancelingId === r.id}
+                            onClick={() => cancelMyRequest(r.id)}>
+                      {cancelingId === r.id ? <Loader2 size={14} className="animate-spin" /> : "취소"}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Step 1: 템플릿 선택 */}
       {step === 1 && (
