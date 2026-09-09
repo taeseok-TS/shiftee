@@ -104,3 +104,44 @@ export async function branchHasManager(branch: string): Promise<boolean> {
   });
   return count > 0;
 }
+
+/**
+ * **메인 원장 지정을 정리한다.** 그 사람이 더 이상 그 지점의 활성 원장이 아니면 해제한다
+ * (2026-09-09 디렉터 지시).
+ *
+ * 지정만 남고 사람이 떠나면 그 지점 두 번째 원장의 신청이 **로그인도 못 하는 사람에게
+ * 못박힌 채** 멈춘다. 지점.권한.재직 상태를 바꾸는 곳에서 이 함수를 부른다.
+ *
+ * 실패해도 본 작업을 막지 않는다 — 다만 조용히 넘기지는 않는다.
+ */
+export async function syncMainManagerFor(userId: string): Promise<void> {
+  try {
+    const pinned = await prisma.branch.findMany({
+      where: { mainManagerId: userId },
+      select: { id: true, name: true },
+    });
+    if (pinned.length === 0) return;
+
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: true, isActive: true, deletedAt: true, resignDate: true, branch: true,
+        managerBranches: { select: { branchName: true } },
+      },
+    });
+    const stillManager =
+      !!u && u.role === "MANAGER" && u.isActive && !u.deletedAt &&
+      (!u.resignDate || u.resignDate >= kstTodayMidnight());
+    const covers = stillManager
+      ? new Set([u!.branch, ...u!.managerBranches.map((b) => b.branchName)].filter(Boolean) as string[])
+      : new Set<string>();
+
+    const drop = pinned.filter((b) => !covers.has(b.name)).map((b) => b.id);
+    if (drop.length === 0) return;
+
+    await prisma.branch.updateMany({ where: { id: { in: drop } }, data: { mainManagerId: null } });
+    console.log(`[branch] 메인 원장 지정 해제 — ${drop.length}개 지점 (userId=${userId})`);
+  } catch (e) {
+    console.error("[branch] 메인 원장 지정 정리 실패:", userId, e);
+  }
+}

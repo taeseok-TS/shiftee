@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { syncMainManagerFor } from "@/lib/manager-branches";
 import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -87,6 +88,9 @@ export async function PATCH(
     // 종전에는 토큰이 7일짜리라, 퇴사 처리를 해도 그 사람 폰에 살아 있는 토큰으로
     // 남은 기간 동안 출퇴근을 계속 찍을 수 있었다.
     await bumpTokenVersion(id).catch(() => {});
+
+    // 메인 원장 지정을 정리한다 — 떠난 사람이 못박힌 채 남으면 그 지점 결재가 멈춘다
+    await syncMainManagerFor(id);
 
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESIGN",

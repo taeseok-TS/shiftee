@@ -3,7 +3,7 @@ import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeBranchName } from "@/lib/branches";
 import { logAudit } from "@/lib/audit";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { getManagerBranches, syncMainManagerFor } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
 import bcrypt from "bcryptjs";
 import { ROLES, pick } from "@/lib/enums";
@@ -141,6 +141,12 @@ export async function PATCH(
           : resignVal && resignVal < todayMidnight
           ? "RESIGNED"
           : "ACTIVE",
+      // 퇴사일이 지났으면 **비활성도 함께 내린다**(2026-09-09 디렉터 지시).
+      // 종전에는 이 경로가 resignDate 만 써서 isActive 는 true 로 남았고, 그러면
+      // 로그인은 막히는데 결재선.집계는 재직자로 보는 어긋난 상태가 됐다.
+      // ⚠ 되살리지는 않는다 — 일부러 비활성한 사람을 퇴사일 해제로 되살리면 안 된다.
+      isActive:
+        resignVal !== undefined && resignVal && resignVal < todayMidnight ? false : undefined,
     },
   });
 
@@ -171,6 +177,9 @@ export async function PATCH(
   if (roleChanged || branchChanged || resignChanged || hashedPassword !== undefined) {
     await bumpTokenVersion(id).catch(() => {});
   }
+
+  // 지점.권한.재직이 바뀌면 메인 원장 지정을 정리한다(떠난 사람이 못박힌 채 남지 않게)
+  await syncMainManagerFor(id);
 
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",

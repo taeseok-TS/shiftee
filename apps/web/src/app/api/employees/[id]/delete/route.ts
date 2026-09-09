@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { syncMainManagerFor } from "@/lib/manager-branches";
 import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -79,6 +80,9 @@ export async function DELETE(
     // 보지 않으므로, 안 끊으면 삭제된 계정이 남은 유효기간 동안 그대로 움직인다
     // (메인 관리자는 퇴사 처리 없이 바로 삭제할 수 있다 — 2026-09-07 검증에서 적발).
     await bumpTokenVersion(id).catch(() => {});
+
+    // 메인 원장 지정을 정리한다 — 떠난 사람이 못박힌 채 남으면 그 지점 결재가 멈춘다
+    await syncMainManagerFor(id);
 
     return NextResponse.json({
       success: true,

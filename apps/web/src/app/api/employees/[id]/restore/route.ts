@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { syncMainManagerFor } from "@/lib/manager-branches";
 import { getSession, clearSessionCache } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -73,6 +74,9 @@ export async function POST(
         employmentStatus: true,
       },
     });
+
+    // 메인 원장 지정을 정리한다 — 떠난 사람이 못박힌 채 남으면 그 지점 결재가 멈춘다
+    await syncMainManagerFor(id);
 
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESTORE",

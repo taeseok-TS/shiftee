@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import bcryptjs from "bcryptjs";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { getManagerBranches, syncMainManagerFor } from "@/lib/manager-branches";
 
 // 엑셀 셀 값은 숫자/날짜 등 아무 타입이나 올 수 있음 (예: 비밀번호 12345678 → number)
 interface BulkEmployee {
@@ -195,7 +195,10 @@ export async function POST(request: NextRequest) {
           // 남은 유효기간 동안 예전 권한 그대로 움직인다(2026-09-07 검증에서 적발).
           const roleChanged = patch.role !== undefined && patch.role !== existing.role;
           const branchChanged = patch.branch !== undefined && patch.branch !== existing.branch;
-          if (roleChanged || branchChanged) await bumpTokenVersion(existing.id).catch(() => {});
+          if (roleChanged || branchChanged) {
+            await bumpTokenVersion(existing.id).catch(() => {});
+            await syncMainManagerFor(existing.id);   // 떠난 사람이 메인 원장으로 남지 않게
+          }
           updated++;
           continue;
         }
