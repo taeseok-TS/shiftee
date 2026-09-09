@@ -87,16 +87,19 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
   }
 
-  // 남의 휴가를 취소하면 **기록을 남긴다.** 종전에는 원장.관리자가 승인된 휴가를
-  // 취소해 연차를 되돌려도 감사로그가 한 줄도 안 남았다(근무일정 취소에는 있다).
-  if (leave.userId !== session.userId) {
-    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  // 취소는 **항상** 기록한다. 종전에는 남의 것일 때만 남겨서, 본인이 취소한 건은
+  // 흔적이 없었다 — 근무일정 취소는 항상 남긴다(2026-09-09 검증에서 비대칭 적발).
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  {
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_CANCEL",
       targetType: "LEAVE", targetId: id, targetName: leave.user?.name ?? null,
       detail: `휴가 취소 (${ymd(leave.startDate)} ~ ${ymd(leave.endDate)}, ${leave.days}일, 이전 상태 ${leave.status})`,
     });
-    // 당사자에게도 알린다 — 모르는 사이에 휴가가 사라지면 안 된다
+  }
+
+  // 남의 것을 취소했으면 당사자에게 알린다 — 모르는 사이에 휴가가 사라지면 안 된다
+  if (leave.userId !== session.userId) {
     const { botSendDM } = await import("@/lib/bot");
     botSendDM(
       leave.userId,

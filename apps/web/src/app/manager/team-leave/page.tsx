@@ -112,7 +112,8 @@ export default function ManagerApprovalsPage() {
     if (!highlightId) return;
     const el = document.getElementById("leave-" + highlightId);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
+    // 의존성 배열이 없으면 **매 렌더마다** 스크롤한다 — 짝인 admin/leave-approvals 와 같게 둔다
+  }, [highlightId, leaveSteps]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("leave");
 

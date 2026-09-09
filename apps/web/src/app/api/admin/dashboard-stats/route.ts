@@ -18,6 +18,8 @@ export async function GET() {
   const excludedBranches = (
     await prisma.branch.findMany({ where: { countInStats: false }, select: { name: true } })
   ).map((b) => b.name);
+  const pendingForMe = { status: "PENDING" as const, userId: { not: session.userId } };
+
   const employeeWhere = {
     role: { not: "ADMIN" as const },
     isActive: true,
@@ -29,6 +31,8 @@ export async function GET() {
   };
 
   const [totalEmployees, todayRecords, onLeave, pendingLeave, pendingSchedule, pendingLeaveItems, pendingScheduleItems, missingRecords] =
+    // 관리자 결재함(my-approvals)은 **본인 신청을 뺀다.** 대시보드 숫자도 같아야
+    // 카드를 눌렀을 때 빈 화면이 되지 않는다.
     await Promise.all([
       prisma.user.count({ where: employeeWhere }),
 
@@ -47,19 +51,22 @@ export async function GET() {
         },
       }),
 
-      // 대기 중인 휴가/근무일정 결재
-      prisma.leaveRequest.count({ where: { status: "PENDING" } }),
-      prisma.scheduleRequest.count({ where: { status: "PENDING" } }),
+      // 대기 중인 휴가/근무일정 결재 — **결재함과 같은 기준**이어야 한다.
+      // ⚠ 종전에는 대기 신청 전체를 셌다(본인 것 포함). 결재함은 본인 신청을 빼므로,
+      //   관리자가 자기 신청을 내는 순간 "승인 대기 1건"이 뜨는데 결재함은 비어 있었다
+      //   (2026-09-09 검증에서 적발 — 원장 대시보드에서 고친 그 버그의 세 번째 자리).
+      prisma.leaveRequest.count({ where: pendingForMe }),
+      prisma.scheduleRequest.count({ where: pendingForMe }),
 
-      // 승인 대기 항목 목록 (최근순 5건씩)
+      // 승인 대기 항목 목록 (최근순 5건씩) — 눌러 들어가면 결재함에 있어야 한다
       prisma.leaveRequest.findMany({
-        where: { status: "PENDING" },
+        where: pendingForMe,
         include: { user: { select: { name: true } } },
         orderBy: { createdAt: "desc" },
         take: 5,
       }),
       prisma.scheduleRequest.findMany({
-        where: { status: "PENDING" },
+        where: pendingForMe,
         include: { user: { select: { name: true } } },
         orderBy: { createdAt: "desc" },
         take: 5,

@@ -57,6 +57,7 @@ export async function GET() {
       where: {
         status: "PENDING",
         approvalSteps: { none: {} },
+        userId: { not: session.userId },   // 본인 신청은 결재함에 띄우지 않는다
       },
       include: {
         user: { select: { id: true, name: true, department: true, position: true, branch: true } },
