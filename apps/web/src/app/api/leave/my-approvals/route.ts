@@ -12,6 +12,10 @@ export async function GET() {
   const steps = await prisma.leaveApprovalStep.findMany({
     where: {
       status: "PENDING",
+      // 본인 신청은 본인 결재함에 뜨지 않는다. 원장 신청에 원장 단계가 생기면서
+      // 자기 것이 자기 결재함에 뜨는데, 누르면 403 이다 — 누를 수 없는 버튼을
+      // 보여주지 않는다(2026-09-09 검증에서 적발).
+      leaveRequest: { userId: { not: session.userId } },
       // 관리자는 **대기 중인 모든 단계**를 본다. 결재 요청 DM 이 전체 관리자에게
       // 가는데(디렉터 지시) 결재함에는 ADMIN 단계만 보이면, 받아놓고 열었을 때
       // 빈 화면이 된다. 관리자는 어차피 어떤 건이든 대신 처리할 수 있고,

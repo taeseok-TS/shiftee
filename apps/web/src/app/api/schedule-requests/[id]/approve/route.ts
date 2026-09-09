@@ -20,7 +20,21 @@ export async function POST(
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const { id } = await params;
-  const { action, reason } = await request.json(); // action: 'approve' | 'reject'
+  // ⚠ try 밖이라 여기서 던지면 미처리 500 이 된다 — 본문 없이 부르면 누구나 오류 로그를
+  //   하나씩 만들 수 있었다(2026-09-09 검증에서 실측).
+  const body = await request.json().catch(() => null);
+  const rawAction = (body as { action?: unknown } | null)?.action;
+  const rawReason = (body as { reason?: unknown } | null)?.reason;
+  // ⚠ action 을 검증한다. 종전에는 `action === "approve" ? 승인 : 반려` 라서
+  //   오타.누락.대소문자가 다르면 **조용히 반려**되고 신청자에게 반려 알림이 나갔다.
+  if (rawAction !== "approve" && rawAction !== "reject") {
+    return NextResponse.json({ error: "요청이 올바르지 않습니다. (approve 또는 reject)" }, { status: 400 });
+  }
+  if (rawReason !== undefined && rawReason !== null && typeof rawReason !== "string") {
+    return NextResponse.json({ error: "사유 형식이 올바르지 않습니다." }, { status: 400 });
+  }
+  const action: "approve" | "reject" = rawAction;
+  const reason: string | undefined = typeof rawReason === "string" ? rawReason : undefined; // action: 'approve' | 'reject'
 
   const scheduleRequest = await prisma.scheduleRequest.findUnique({
     where: { id },
@@ -227,11 +241,17 @@ async function adminOverride(
     );
   }
 
+  // ⚠ **먼저 잡는 쪽만 처리한다.** 무조건 update 하면 관리자 둘이 동시에(또는 한 명이
+  //   더블클릭) 처리할 때 감사로그.봇DM 이 두 번 나가고, 승인.반려가 엇갈리면 마지막
+  //   쓰기가 이긴다. 휴가에는 넣고 근무일정만 빠뜨렸었다(2026-09-09 검증에서 적발).
+  let claimed = false;
   await prisma.$transaction(async (tx) => {
-    await tx.scheduleRequest.update({
-      where: { id },
+    const won = await tx.scheduleRequest.updateMany({
+      where: { id, status: "PENDING" },
       data: { status: action === "approve" ? "APPROVED" : "REJECTED" },
     });
+    if (won.count === 0) return;
+    claimed = true;
     // 결재 단계도 함께 닫는다. 종전에는 신청만 바꿔서 **신청=승인인데 단계=대기**로
     // 남았고, 그 단계가 결재함에 영원히 떠 있다가 나중에 처리되면 일정이 두 번 생겼다.
     await tx.scheduleApprovalStep.updateMany({
@@ -248,6 +268,10 @@ async function adminOverride(
       await materializeSchedules(tx, scheduleRequest);
     }
   });
+
+  if (!claimed) {
+    return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
+  }
 
   const actor = await prisma.user.findUnique({ where: { id: approverId }, select: { name: true } });
   await logAudit({

@@ -35,14 +35,25 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     );
   }
 
+  let done = false;
   await prisma.$transaction(async (tx) => {
-    await tx.scheduleRequest.update({ where: { id }, data: { status: "CANCELLED" } });
+    // 먼저 잡는 쪽만 처리한다(휴가 취소와 같은 방식)
+    const claimed = await tx.scheduleRequest.updateMany({
+      where: { id, status: "PENDING" },
+      data: { status: "CANCELLED" },
+    });
+    if (claimed.count === 0) return;
+    done = true;
     // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 취소된 신청이 결재함에 계속 뜬다.
     await tx.scheduleApprovalStep.updateMany({
       where: { scheduleRequestId: id, status: { in: ["PENDING", "WAITING"] } },
       data: { status: "REJECTED", comment: "신청자 취소", decidedAt: new Date() },
     });
   });
+
+  if (!done) {
+    return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
+  }
 
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
   await logAudit({

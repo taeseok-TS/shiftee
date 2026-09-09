@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
-import { branchHasManager, branchHasOtherManager } from "@/lib/manager-branches";
+import { branchHasManager, branchHasOtherManager, getManagerBranches } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
@@ -122,11 +122,18 @@ export async function POST(request: NextRequest) {
 
   let policySteps: { approverRole: string; branch: string | null }[] = [];
   if (submitter?.role === "MANAGER") {
-    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시). 다만 같은 지점을 함께 보는
-    //   다른 원장이 있으면 그 원장이 먼저 결재한다 — 한 지점에 원장이 2명이면 서로가
-    //   상대의 결재자가 되고, 겸직 원장은 자기가 관리하는 다른 지점의 원장도 결재한다.
-    //   (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
-    const peer = submitter.branch
+    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
+    //
+    //  · **겸직(멀티) 원장이 신청자면 바로 관리자 결재로 간다** (2026-09-09 디렉터 지시).
+    //    여러 지점을 총괄하는 사람이라 같은 급의 원장에게 먼저 받을 이유가 없다.
+    //  · 단일 지점 원장은, 그 지점을 함께 보는 다른 원장이 있으면 그 원장이 먼저 결재한다
+    //    — 한 지점에 원장이 2명이면 서로가 상대의 결재자가 되고, 겸직 원장은 자기가
+    //    관리하는 다른 지점의 원장을 결재한다.
+    //  · 그런 원장이 없으면 관리자 단독.
+    //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
+    const myBranches = await getManagerBranches(session.userId);
+    const isMultiBranch = myBranches.length > 1;
+    const peer = !isMultiBranch && submitter.branch
       ? await branchHasOtherManager(submitter.branch, session.userId)
       : false;
     policySteps = peer ? [managerStep, adminStep] : [adminStep];

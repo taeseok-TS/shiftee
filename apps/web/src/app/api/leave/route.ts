@@ -126,6 +126,12 @@ export async function POST(request: NextRequest) {
   if (start > end) {
     return NextResponse.json({ error: "종료일이 시작일보다 빠릅니다." }, { status: 400 });
   }
+  // 기간 상한 — 근무일정 신청과 같은 366일. 종전에는 상한이 없어서, 연차를 차감하지 않는
+  // 유형(특별휴가.경조사 등)은 잔여 검사도 안 받으므로 수십 년짜리 신청이 통과했다.
+  // 그런 행이 하나 생기면 달력.집계.일자 루프에 영구히 얹힌다(2026-09-09 검증에서 적발).
+  if ((end.getTime() - start.getTime()) / 86400000 > 366) {
+    return NextResponse.json({ error: "휴가 신청 기간은 최대 1년까지 가능합니다." }, { status: 400 });
+  }
 
   // 근무일(평일)만 계산 — 주말과 공휴일(Holiday 테이블) 제외
   let days: number;
@@ -178,11 +184,18 @@ export async function POST(request: NextRequest) {
 
   let policySteps: { approverRole: string; branch: string | null }[] = [];
   if (submitter?.role === "MANAGER") {
-    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시). 다만 같은 지점을 함께 보는
-    //   다른 원장이 있으면 그 원장이 먼저 결재한다 — 한 지점에 원장이 2명이면 서로가
-    //   상대의 결재자가 되고, 겸직 원장은 자기가 관리하는 다른 지점의 원장도 결재한다.
-    //   (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
-    const peer = submitter.branch
+    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
+    //
+    //  · **겸직(멀티) 원장이 신청자면 바로 관리자 결재로 간다** (2026-09-09 디렉터 지시).
+    //    여러 지점을 총괄하는 사람이라 같은 급의 원장에게 먼저 받을 이유가 없다.
+    //  · 단일 지점 원장은, 그 지점을 함께 보는 다른 원장이 있으면 그 원장이 먼저 결재한다
+    //    — 한 지점에 원장이 2명이면 서로가 상대의 결재자가 되고, 겸직 원장은 자기가
+    //    관리하는 다른 지점의 원장을 결재한다.
+    //  · 그런 원장이 없으면 관리자 단독.
+    //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
+    const myBranches = await getManagerBranches(session.userId);
+    const isMultiBranch = myBranches.length > 1;
+    const peer = !isMultiBranch && submitter.branch
       ? await branchHasOtherManager(submitter.branch, session.userId)
       : false;
     policySteps = peer ? [managerStep, adminStep] : [adminStep];

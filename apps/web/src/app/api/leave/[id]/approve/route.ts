@@ -23,7 +23,21 @@ export async function POST(
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   const { id } = await params;
-  const { action, reason } = await request.json(); // action: 'approve' | 'reject'
+  // ⚠ try 밖이라 여기서 던지면 미처리 500 이 된다 — 본문 없이 부르면 누구나 오류 로그를
+  //   하나씩 만들 수 있었다(2026-09-09 검증에서 실측).
+  const body = await request.json().catch(() => null);
+  const rawAction = (body as { action?: unknown } | null)?.action;
+  const rawReason = (body as { reason?: unknown } | null)?.reason;
+  // ⚠ action 을 검증한다. 종전에는 `action === "approve" ? 승인 : 반려` 라서
+  //   오타.누락.대소문자가 다르면 **조용히 반려**되고 신청자에게 반려 알림이 나갔다.
+  if (rawAction !== "approve" && rawAction !== "reject") {
+    return NextResponse.json({ error: "요청이 올바르지 않습니다. (approve 또는 reject)" }, { status: 400 });
+  }
+  if (rawReason !== undefined && rawReason !== null && typeof rawReason !== "string") {
+    return NextResponse.json({ error: "사유 형식이 올바르지 않습니다." }, { status: 400 });
+  }
+  const action: "approve" | "reject" = rawAction;
+  const reason: string | undefined = typeof rawReason === "string" ? rawReason : undefined; // action: 'approve' | 'reject'
 
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
