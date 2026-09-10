@@ -33,7 +33,16 @@ export function annualLeaveDays(hire: Date, asOf: Date): number {
 
 /** 연차 기준 연도 (KST — 서버 TZ가 UTC라 연말 자정 경계에서 연도가 하루 밀리는 문제 방지) */
 export function currentLeaveYear(): number {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
+  return leaveYearOf(new Date());
+}
+
+/**
+ * 그 시각이 속한 연차 연도(KST 달력 연도). 차감은 **승인 시점의** 연도 행에 들어가므로
+ * 취소 복원도 같은 연도 행에 넣어야 한다 — "지금" 연도에 넣으면 12월에 승인한 휴가를
+ * 1월에 취소할 때 새해 잔여가 늘고 작년 사용일은 그대로 남는다(2026-09-10 검증에서 적발).
+ */
+export function leaveYearOf(d: Date): number {
+  return new Date(d.getTime() + 9 * 60 * 60 * 1000).getUTCFullYear();
 }
 
 /** 1일 통상임금 = (연봉/12)/209시간 × 8시간 */

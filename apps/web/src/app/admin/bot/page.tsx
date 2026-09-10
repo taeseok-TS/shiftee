@@ -226,8 +226,8 @@ export default function AdminBotPage() {
           <div>
             <p className="text-sm font-semibold">✅ 결재 결과 알림 강제 발송</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              켜면 직원 개인 설정과 무관하게 휴가·근무일정 결재 결과를 항상 알립니다.
-              끄면 각 직원이 앱/웹 설정에서 수신 여부를 선택합니다. (기본: 직원 선택)
+              켜면 직원 개인 설정과 무관하게 휴가·근무일정 결재 결과를 항상 푸시로 알립니다.
+              끄면 푸시 수신 여부를 각 직원이 앱/웹 설정에서 선택합니다. 결과 메시지는 어느 쪽이든 봇 대화방에 남습니다. (기본: 직원 선택)
             </p>
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer shrink-0">

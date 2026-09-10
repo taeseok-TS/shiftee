@@ -496,8 +496,10 @@ export default function LeavePage() {
                                 </>
                               )}
                               {/* 취소 가능 여부는 서버가 판정해 내려준다(lib/leave-cancel.ts) — 화면이 조건을
-                                  따로 들고 있으면 누르면 403 인 버튼이 생긴다(관리자 본인 승인건이 그랬다) */}
-                              {r.canCancel && (
+                                  따로 들고 있으면 누르면 403 인 버튼이 생긴다(관리자 본인 승인건이 그랬다).
+                                  관리자의 대기 건은 여기서 승인·반려만 — 확인창 없는 취소를 그 옆에 두면
+                                  잘못 누르기 쉽다. 취소는 결재함(확인창 있음)에서 한다 */}
+                              {r.canCancel && !(isAdmin && r.status === "PENDING") && (
                                 <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
                                   onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
                               )}

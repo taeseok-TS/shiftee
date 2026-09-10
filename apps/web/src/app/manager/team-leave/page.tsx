@@ -62,7 +62,7 @@ type HistoryLeave = {
   days: number;
   status: string;
   canCancel?: boolean;
-  user: { name: string; branch: string | null };
+  user: { id: string; name: string; branch: string | null };
   approvalSteps?: ApprovalStep[];
 };
 
@@ -130,6 +130,8 @@ export default function ManagerApprovalsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("leave");
   const [history, setHistory] = useState<HistoryLeave[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [myId, setMyId] = useState("");
 
   // 세션에서 지점 정보 가져오기
   useEffect(() => {
@@ -138,7 +140,9 @@ export default function ManagerApprovalsPage() {
         const res = await fetch("/api/auth/me");
         if (res.ok) {
           const data = await res.json();
-          setBranch(data.branch || "");
+          // 응답은 { user: {...} } 다 — 종전 data.branch 는 늘 undefined 라 머리글 지점명이 비어 있었다
+          setBranch(data.user?.branch || "");
+          setMyId(data.user?.id || "");
         }
       } catch (error) {
         console.error("세션 조회 오류:", error);
@@ -153,13 +157,16 @@ export default function ManagerApprovalsPage() {
   const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch("/api/leave");
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(((data.requests || []) as HistoryLeave[])
-          .filter((r) => r.status === "PENDING" || r.status === "APPROVED"));
-      }
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      setHistory(((data.requests || []) as HistoryLeave[])
+        .filter((r) => r.status === "PENDING" || r.status === "APPROVED"));
     } catch (error) {
+      // 실패를 빈 목록으로 보이면 "취소할 휴가가 없다"로 오해한다
       console.error("휴가 내역 조회 오류:", error);
+      toast.error("휴가 내역을 불러오지 못했습니다");
+    } finally {
+      setHistoryLoading(false);
     }
   }, []);
 
@@ -226,9 +233,12 @@ export default function ManagerApprovalsPage() {
 
   // 휴가 신청 취소 — 근무일정과 **같은 기준**이다(원장은 담당 지점 직원의 건, 서버가 재확인).
   // 근무일정에만 붙이고 휴가를 빠뜨렸던 것을 맞춘다(2026-09-09 검증에서 적발).
-  const handleCancelLeave = async (requestId: string, who: string, approved = false) => {
+  const handleCancelLeave = async (requestId: string, who: string, approved = false, mine = false) => {
     const note = approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : "";
-    if (!confirm(`${who}님의 휴가 신청을 취소할까요?${note}\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
+    const ask = mine
+      ? "내 휴가 신청을 취소할까요?"   // 본인 건은 알림이 가지 않는다
+      : `${who}님의 휴가 신청을 취소할까요?${note}\n\n취소하면 신청자에게 알림이 갑니다.`;
+    if (!confirm(ask)) return;
     try {
       setProcessingId(requestId);
       const res = await fetch(`/api/leave/${requestId}`, { method: "PATCH" });
@@ -666,7 +676,7 @@ export default function ManagerApprovalsPage() {
         {/* 휴가 내역 탭 — 진행 중·승인된 담당 지점 휴가. 결재함에서 빠진 건(내가 승인해 넘긴 건,
             원장 선에서 최종 승인된 1일 휴가)을 여기서 취소한다. 버튼은 서버 판정(canCancel)으로만 */}
         <TabsContent value="history" className="space-y-6 mt-6">
-          {loading ? (
+          {historyLoading ? (
             <Card>
               <CardContent className="pt-6 text-center text-gray-500">
                 <Loader2 className="inline-block animate-spin mb-2" />
@@ -742,7 +752,7 @@ export default function ManagerApprovalsPage() {
                                 className="text-gray-500 hover:bg-gray-100"
                                 disabled={processingId === req.id}
                                 title={approved ? "취소하면 차감된 연차가 되돌아갑니다" : "신청 자체를 거둡니다"}
-                                onClick={() => handleCancelLeave(req.id, req.user.name, approved)}
+                                onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id === myId)}
                               >
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
                                 취소

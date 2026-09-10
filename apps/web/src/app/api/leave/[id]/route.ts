@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { currentLeaveYear } from "@/lib/leave-calc";
+import { leaveYearOf } from "@/lib/leave-calc";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { leaveCancelDenial } from "@/lib/leave-cancel";
 
@@ -50,10 +50,12 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
       data: { status: "REJECTED", comment: "신청 취소", decidedAt: new Date() },
     });
 
-    // 승인된 건을 관리자가 취소하면 잔여 복원 (연차 차감 유형만, 현재 연도 행 — 차감과 동일 기준)
+    // 승인된 건을 취소하면 잔여 복원 (연차 차감 유형만). **차감된 연도 행**에 되돌린다 —
+    // 승인된 휴가의 updatedAt 은 최종 승인 시각이다(휴가 행을 고치는 경로는 승인·취소뿐.
+    // 휴가 수정 경로를 새로 만들면 이 전제가 깨지니 승인 시각을 따로 남길 것).
     if (leave.status === "APPROVED" && isLeaveDeductible(leave.type)) {
       await tx.leaveBalance.updateMany({
-        where: { userId: leave.userId, year: currentLeaveYear() },
+        where: { userId: leave.userId, year: leaveYearOf(leave.updatedAt) },
         data: {
           used:      { decrement: leave.days },
           remaining: { increment: leave.days },
