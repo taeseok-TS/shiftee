@@ -21,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
+import * as storage from "../../services/storage";
 import { uploadFile, fileUri } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
@@ -90,6 +91,8 @@ export default function LeaveRequestScreen() {
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [cancelingId, setCancelingId] = useState("");
+  // 서버가 scope=self 로 잘라 주지만, 목록 범위 하나에만 기대지 않는다.
+  const [myId, setMyId] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -174,6 +177,10 @@ export default function LeaveRequestScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    storage.getUser().then((u) => setMyId(u?.id || "")).catch(() => {});
+  }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -379,7 +386,7 @@ export default function LeaveRequestScreen() {
                 ) : null}
                 {/* 대기 중인 것만 거둔다. 반려와 다르다 — 반려는 결재 결과로 기록에 남고,
                     취소는 신청 자체를 거둔다(근무일정 신청과 같은 규칙). */}
-                {r.status === "PENDING" && (
+                {r.status === "PENDING" && (!myId || r.userId === myId) && (
                   <TouchableOpacity
                     style={styles.histCancelBtn}
                     disabled={cancelingId === r.id}

@@ -82,7 +82,12 @@ class ShifteeApiClient {
      * ============== 계약서 ==============
      */
     async getContracts() {
-        const response = await this.axiosInstance.get("/contracts");
+        // 본인 계약만. 붙이지 않으면 서버가 원장에겐 담당 지점, 관리자에겐 전사 계약을
+        // 내려준다 (apps/web/src/app/api/contracts/route.ts). 앱 계약 목록은 개인 화면이고,
+        // 결재 차례인 건은 같은 화면의 "내 결재 대기"(/contracts/my-approvals)로 따로 온다.
+        const response = await this.axiosInstance.get("/contracts", {
+            params: { scope: "self" },
+        });
         return response.data.contracts || [];
     }
     async getContract(id) {
