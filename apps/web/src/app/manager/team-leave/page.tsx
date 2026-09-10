@@ -53,6 +53,19 @@ type LeaveApprovalStep = {
   leaveRequest: LeaveRequest;
 };
 
+// 휴가 내역 탭 — GET /api/leave (원장이면 담당 지점). canCancel 은 서버가 판정해 내려준다
+type HistoryLeave = {
+  id: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: string;
+  canCancel?: boolean;
+  user: { name: string; branch: string | null };
+  approvalSteps?: ApprovalStep[];
+};
+
 type ScheduleRequest = {
   id: string;
   userId: string;
@@ -116,6 +129,7 @@ export default function ManagerApprovalsPage() {
   }, [highlightId, leaveSteps]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("leave");
+  const [history, setHistory] = useState<HistoryLeave[]>([]);
 
   // 세션에서 지점 정보 가져오기
   useEffect(() => {
@@ -131,6 +145,22 @@ export default function ManagerApprovalsPage() {
       }
     };
     fetchSession();
+  }, []);
+
+  // 휴가 내역 — 결재함은 **내 차례인 대기 건**만 보여서, 내가 승인해 관리자에게 넘긴 건이나
+  // 원장 선에서 최종 승인된 1일 휴가를 취소할 자리가 없었다(2026-09-10 디렉터 지시).
+  // 취소 가능 여부(canCancel)는 서버가 취소 라우트와 같은 함수로 판정한다.
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leave");
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(((data.requests || []) as HistoryLeave[])
+          .filter((r) => r.status === "PENDING" || r.status === "APPROVED"));
+      }
+    } catch (error) {
+      console.error("휴가 내역 조회 오류:", error);
+    }
   }, []);
 
   // 결재 대기 요청 조회
@@ -161,7 +191,8 @@ export default function ManagerApprovalsPage() {
 
   useEffect(() => {
     fetchApprovals();
-  }, [fetchApprovals]);
+    fetchHistory();
+  }, [fetchApprovals, fetchHistory]);
 
   // 검색 필터링
   const filteredLeaveSteps = useMemo(() => {
@@ -182,20 +213,30 @@ export default function ManagerApprovalsPage() {
     });
   }, [scheduleSteps, searchName, searchDate]);
 
+  const filteredHistory = useMemo(() => {
+    return history.filter(req => {
+      const nameMatch = req.user.name.toLowerCase().includes(searchName.toLowerCase());
+      const dateMatch = !searchDate || req.startDate.includes(searchDate) || req.endDate.includes(searchDate);
+      return nameMatch && dateMatch;
+    });
+  }, [history, searchName, searchDate]);
+
   // 승인/거절 처리
 
 
   // 휴가 신청 취소 — 근무일정과 **같은 기준**이다(원장은 담당 지점 직원의 건, 서버가 재확인).
   // 근무일정에만 붙이고 휴가를 빠뜨렸던 것을 맞춘다(2026-09-09 검증에서 적발).
-  const handleCancelLeave = async (requestId: string, who: string) => {
-    if (!confirm(`${who}님의 휴가 신청을 취소할까요?\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
+  const handleCancelLeave = async (requestId: string, who: string, approved = false) => {
+    const note = approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : "";
+    if (!confirm(`${who}님의 휴가 신청을 취소할까요?${note}\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
     try {
       setProcessingId(requestId);
       const res = await fetch(`/api/leave/${requestId}`, { method: "PATCH" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         toast.success("신청을 취소했습니다");
-        setLeaveSteps(leaveSteps.filter(s => s.leaveRequest.id !== requestId));
+        setLeaveSteps(prev => prev.filter(s => s.leaveRequest.id !== requestId));
+        setHistory(prev => prev.filter(h => h.id !== requestId));
       } else {
         toast.error(data.error || "취소하지 못했습니다");
       }
@@ -244,6 +285,7 @@ export default function ManagerApprovalsPage() {
         toast.success("승인되었습니다");
         if (type === "leave") {
           setLeaveSteps(leaveSteps.filter(s => s.leaveRequest.id !== requestId));
+          fetchHistory();
         } else {
           setScheduleSteps(scheduleSteps.filter(s => s.scheduleRequest.id !== requestId));
         }
@@ -277,6 +319,7 @@ export default function ManagerApprovalsPage() {
         toast.success("거절되었습니다");
         if (type === "leave") {
           setLeaveSteps(leaveSteps.filter(s => s.leaveRequest.id !== rejectingId));
+          fetchHistory();
         } else {
           setScheduleSteps(scheduleSteps.filter(s => s.scheduleRequest.id !== rejectingId));
         }
@@ -352,7 +395,7 @@ export default function ManagerApprovalsPage() {
 
       {/* 탭 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 ({filteredLeaveSteps.length})
@@ -360,6 +403,10 @@ export default function ManagerApprovalsPage() {
           <TabsTrigger value="schedule" className="flex items-center gap-2">
             <Calendar size={16} />
             근무일정 ({filteredScheduleSteps.length})
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center gap-2">
+            <UmbrellaOff size={16} />
+            휴가 내역 ({filteredHistory.length})
           </TabsTrigger>
         </TabsList>
 
@@ -606,6 +653,105 @@ export default function ManagerApprovalsPage() {
                                 거절
                               </Button>
                             </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </TabsContent>
+        {/* 휴가 내역 탭 — 진행 중·승인된 담당 지점 휴가. 결재함에서 빠진 건(내가 승인해 넘긴 건,
+            원장 선에서 최종 승인된 1일 휴가)을 여기서 취소한다. 버튼은 서버 판정(canCancel)으로만 */}
+        <TabsContent value="history" className="space-y-6 mt-6">
+          {loading ? (
+            <Card>
+              <CardContent className="pt-6 text-center text-gray-500">
+                <Loader2 className="inline-block animate-spin mb-2" />
+                <p>로드 중...</p>
+              </CardContent>
+            </Card>
+          ) : filteredHistory.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-center text-gray-500">
+                <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
+                <p>진행 중이거나 승인된 휴가가 없습니다</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">직원</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">유형</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">기간</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">상태</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">결재</th>
+                      <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">처리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {filteredHistory.map((req) => {
+                      const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
+                      const dateRange = `${format(new Date(req.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(req.endDate), "MM월 dd일", { locale: ko })}`;
+                      const approved = req.status === "APPROVED";
+                      return (
+                        <tr key={req.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            <div className="font-medium text-gray-900">{req.user.name}</div>
+                            <div className="text-xs text-gray-500">{req.user.branch || "-"}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-700">
+                            <div>{dateRange}</div>
+                            <div className="text-xs text-gray-500">{req.days}일</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge variant="outline" className={approved ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}>
+                              {approved ? "승인" : "진행 중"}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1 text-xs flex-wrap">
+                              {req.approvalSteps?.map((s, idx) => (
+                                <span key={s.id} className="flex items-center gap-1">
+                                  {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                    s.status === "APPROVED" ? "bg-green-100 text-green-700" :
+                                    s.status === "REJECTED" ? "bg-red-100 text-red-700" :
+                                    s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
+                                    "bg-gray-100 text-gray-600"
+                                  }`}>
+                                    {stepLabel(s)}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {req.canCancel ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-gray-500 hover:bg-gray-100"
+                                disabled={processingId === req.id}
+                                title={approved ? "취소하면 차감된 연차가 되돌아갑니다" : "신청 자체를 거둡니다"}
+                                onClick={() => handleCancelLeave(req.id, req.user.name, approved)}
+                              >
+                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
+                                취소
+                              </Button>
+                            ) : approved ? (
+                              <span className="text-xs text-gray-400">관리자만 취소 가능</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
                           </td>
                         </tr>
                       );

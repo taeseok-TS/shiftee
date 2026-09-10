@@ -34,7 +34,7 @@ model User {
   // 종전에는 토큰이 7일짜리라 퇴사 처리를 해도 이미 발급된 것은 끊을 수단이 없었다.
   // ⚠ 운영 DB 에는 `ALTER TABLE "User" ADD COLUMN "tokenVersion" INTEGER NOT NULL DEFAULT 0` 를 먼저 넣었다.
   tokenVersion         Int       @default(0)
-  notifyApproval       Boolean   @default(true) // 결재 결과 알림(봇 DM+푸시) 수신 여부 — 본인 설정 (관리자 강제발송 시 무시)
+  notifyApproval       Boolean   @default(true) // 결재 결과 푸시 수신 여부(꺼도 봇 DM 은 남는다) — 본인 설정 (관리자 강제발송 시 무시)
   workMuteAll          Boolean   @default(false) // 큐브티워크 채팅 알림 전체 끄기 — 메시지·투표·공지 푸시만 차단(결재 DM·중요공지 재알림은 유지)
   passwordResetAt      DateTime? // 관리자가 임시 비번(1234)으로 초기화한 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
   hireDate             DateTime?

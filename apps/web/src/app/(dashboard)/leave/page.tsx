@@ -35,6 +35,7 @@ type LeaveRequest = {
   user: { name: string; department: string | null };
   approver: { name: string } | null;
   approvalSteps?: ApprovalStepInfo[];
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts)
 };
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
@@ -494,11 +495,9 @@ export default function LeavePage() {
                                     onClick={() => openReject(r.id)}><X size={11} />반려</Button>
                                 </>
                               )}
-                              {isAdmin && r.status === "APPROVED" && (
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
-                                  onClick={() => handleCancel(r.id)}>취소</Button>
-                              )}
-                              {!isAdmin && r.status === "PENDING" && (
+                              {/* 취소 가능 여부는 서버가 판정해 내려준다(lib/leave-cancel.ts) — 화면이 조건을
+                                  따로 들고 있으면 누르면 403 인 버튼이 생긴다(관리자 본인 승인건이 그랬다) */}
+                              {r.canCancel && (
                                 <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
                                   onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
                               )}

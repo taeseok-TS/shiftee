@@ -211,7 +211,7 @@ export default function SettingsPage() {
             title="결재 결과 알림"
             desc={approvalForced
               ? "관리자 정책으로 항상 발송됩니다."
-              : "휴가·근무일정이 승인 또는 반려되면 알려드립니다."}
+              : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다."}
           >
             <Toggle
               checked={approvalForced ? true : notifyApproval}
@@ -219,7 +219,7 @@ export default function SettingsPage() {
               onChange={(on) => {
                 setNotifyApproval(on);
                 save({ notifyApproval: on }, () => setNotifyApproval(!on),
-                  on ? "결재 결과 알림을 받습니다." : "결재 결과 알림을 껐습니다.");
+                  on ? "결재 결과 푸시를 받습니다." : "결재 결과 푸시를 껐습니다. 봇 대화방에는 계속 남습니다.");
               }}
             />
           </Row>

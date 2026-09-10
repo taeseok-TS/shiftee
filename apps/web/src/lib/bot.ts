@@ -44,17 +44,24 @@ export async function ensureHrBot(): Promise<string> {
   return HR_BOT_ID;
 }
 
+type DMOpts = {
+  respectWorkMute?: boolean;
+  // 봇 방에는 남기되 푸시만 보내지 않는다 — 결재 결과 알림을 본인이 끈 경우.
+  // (2026-09-10 디렉터: "본인이 끈 사람은 어쩔 수 없지, 다만 봇에는 남아 있으면 본인이 들어가서 보지 않을까")
+  noPush?: boolean;
+};
+
 // 인사봇 → 사용자 1:1 DM (전자계약 안내 전용)
-export async function hrBotSendDM(userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
+export async function hrBotSendDM(userId: string, content: string, opts?: DMOpts) {
   return sendDMAs(await ensureHrBot(), "큐브티 인사봇", userId, content, opts);
 }
 
 // 봇 → 사용자 1:1 DM (+ 푸시)
-export async function botSendDM(userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
+export async function botSendDM(userId: string, content: string, opts?: DMOpts) {
   return sendDMAs(await ensureBot(), "큐브티 봇", userId, content, opts);
 }
 
-async function sendDMAs(botId: string, botName: string, userId: string, content: string, opts?: { respectWorkMute?: boolean }) {
+async function sendDMAs(botId: string, botName: string, userId: string, content: string, opts?: DMOpts) {
   try {
     let dm = await prisma.workChannel.findFirst({
       where: {
@@ -81,7 +88,7 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
     }
     await prisma.workMessage.create({ data: { channelId: dm.id, userId: botId, content } });
     emitWork({ type: "message", channelId: dm.id });
-    await sendPushToUsers([userId], {
+    if (!opts?.noPush) await sendPushToUsers([userId], {
       title: botName,
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
@@ -91,9 +98,6 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
   }
 }
 
-// 결재 결과 DM (휴가/근무일정 공용)
-// 발송 조건: 관리자 강제발송(forceApprovalNotify)이 켜져 있으면 항상,
-// 꺼져 있으면 직원 본인의 수신 설정(notifyApproval)을 따른다.
 /**
  * **결재 차례가 된 사람에게 알린다.**
  *
@@ -149,6 +153,11 @@ ${opts.kind}: ${opts.requesterName}
   }
 }
 
+// 결재 결과 DM (휴가/근무일정 공용)
+// **봇 방에는 항상 남긴다.** 설정은 푸시만 좌우한다 — 관리자 강제발송(forceApprovalNotify)이
+// 켜져 있으면 항상 푸시, 꺼져 있으면 직원 본인의 수신 설정(notifyApproval)을 따른다.
+// 종전에는 설정이 꺼져 있으면 DM 자체를 안 남겨서, 결과를 알 길이 화면을 뒤지는 것뿐이었다
+// (2026-09-10 디렉터 지시로 변경).
 export async function botNotifyDecision(
   requesterId: string,
   kind: string, // 예: "연차 (2026-07-10 ~ 2026-07-10)"
@@ -156,19 +165,20 @@ export async function botNotifyDecision(
   approverName: string,
   reason?: string | null
 ) {
+  let silent = false;
   try {
     const force = await prisma.appSetting.findUnique({ where: { key: "forceApprovalNotify" } });
     if (force?.value !== "true") {
       const user = await prisma.user.findUnique({ where: { id: requesterId }, select: { notifyApproval: true } });
-      if (user && !user.notifyApproval) return; // 본인이 꺼둠 → 발송 안 함
+      if (user && !user.notifyApproval) silent = true; // 본인이 꺼둠 → 봇 방에만 남기고 푸시는 안 함
     }
   } catch (e) {
-    console.error("[bot] 결재알림 설정 조회 오류(발송 계속):", e);
+    console.error("[bot] 결재알림 설정 조회 오류(푸시 포함 발송):", e);
   }
   const text = approved
     ? `✅ ${kind} 결재가 승인되었습니다. (결재: ${approverName})`
     : `❌ ${kind} 결재가 반려되었습니다. (결재: ${approverName})${reason ? `\n사유: ${reason}` : ""}`;
-  await botSendDM(requesterId, text);
+  await botSendDM(requesterId, text, silent ? { noPush: true } : undefined);
 }
 
 function kstNow(): Date {

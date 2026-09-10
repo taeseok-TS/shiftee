@@ -132,7 +132,7 @@ export default function ProfilePage() {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notifyApproval: on }),
     });
     if (!res.ok) { setNotifyApproval(!on); toast.error("설정 저장 실패"); }
-    else toast.success(on ? "결재 결과 알림을 받습니다." : "결재 결과 알림을 껐습니다.");
+    else toast.success(on ? "결재 결과 푸시를 받습니다." : "결재 결과 푸시를 껐습니다. 봇 대화방에는 계속 남습니다.");
   };
   const toggleWorkMute = async (mute: boolean) => {
     setWorkMuteAllState(mute);
@@ -416,7 +416,7 @@ export default function ProfilePage() {
                   <p className="text-xs text-gray-400 mt-0.5">
                     {notifyForced
                       ? "관리자 정책으로 항상 발송됩니다"
-                      : "휴가·근무일정 결재 승인/반려 시 큐브티 봇 알림을 받습니다"}
+                      : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다"}
                   </p>
                 </div>
                 <label className="inline-flex items-center cursor-pointer">

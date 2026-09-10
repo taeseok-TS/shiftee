@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
+import { getManagerBranches } from "@/lib/manager-branches";
+import { leaveCancelDenial } from "@/lib/leave-cancel";
 
 // 휴가 신청 취소 — 본인은 대기 중인 건만, 원장.관리자는 담당 직원의 건을 처리할 수 있다.
 // 취소하면 승인된 건의 연차가 복원되므로, 남의 건을 취소하면 감사로그와 당사자 DM 을 남긴다.
@@ -14,51 +16,21 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const leave = await prisma.leaveRequest.findUnique({
     where: { id },
-    include: { user: { select: { name: true } } },   // 감사로그에 남길 이름
+    include: {
+      user:          { select: { name: true, role: true, branch: true } },   // 감사로그 이름 + 범위 판정
+      approver:      { select: { role: true } },                             // 최종 승인자 — 관리자 승인 건인가
+      approvalSteps: { select: { approverRole: true, status: true } },
+    },
   });
 
   if (!leave) return NextResponse.json({ error: "신청 내역이 없습니다." }, { status: 404 });
 
-  // 본인 확인. ⚠ 종전에는 EMPLOYEE 만 본인 확인을 해서, **원장이 id 만 알면 타지점
-  //   직원의 승인된 휴가를 취소하고 연차를 복원**할 수 있었다(2026-09-09 검증에서 적발).
-  if (leave.userId !== session.userId) {
-    if (session.role === "EMPLOYEE") {
-      return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
-    }
-    if (session.role === "MANAGER") {
-      const { getManagerBranches } = await import("@/lib/manager-branches");
-      const mine = await getManagerBranches(session.userId);
-      const target = await prisma.user.findUnique({
-        where: { id: leave.userId },
-        select: { branch: true, role: true },
-      });
-      // 담당 지점에 속한 사람이면 **원장이라도** 취소할 수 있다(2026-09-10 디렉터 지시).
-      // 결재함에는 원장 신청도 뜨는데 취소만 막혀 있어 누르면 403 이었다.
-      // 관리자(ADMIN)는 지점 개념이 없으므로 대상에서 뺀다 — 원장이 관리자 건을
-      // 거두면 안 된다.
-      if (!target || target.role === "ADMIN" || !target.branch || !mine.includes(target.branch)) {
-        return NextResponse.json({ error: "담당 지점 소속의 신청만 취소할 수 있습니다." }, { status: 403 });
-      }
-    }
-  }
-
-  // 이미 처리된 건은 취소 불가.
-  // ⚠ 승인된 건은 **원장(담당 지점)과 관리자**가 취소할 수 있다 — 취소하면 연차가
-  //   복원된다(2026-09-10 디렉터 확인). 종전 주석에 "관리자만"이라고 적혀 있었는데
-  //   코드와 달랐다. 본인은 승인된 자기 건을 스스로 되돌릴 수 없다(아래).
-  if (leave.status === "CANCELLED") {
-    return NextResponse.json({ error: "이미 취소된 신청입니다." }, { status: 400 });
-  }
-  // ⚠ **본인 신청은 누구든 대기 중일 때만** 취소할 수 있다. 종전에는 EMPLOYEE 만
-  //   이 제한을 받아서, 원장.관리자가 자기 승인된 휴가를 스스로 취소해 **연차를
-  //   되돌릴 수** 있었다(기록도 안 남았다 — 2026-09-09 검증에서 적발).
-  //   승인된 건을 되돌리는 것은 **남의 것을 처리하는 관리 행위**로만 남긴다.
-  if (leave.userId === session.userId && leave.status !== "PENDING") {
-    return NextResponse.json(
-      { error: "이미 승인된 본인 휴가는 직접 취소할 수 없습니다. 관리자에게 요청해주세요." },
-      { status: 403 }
-    );
-  }
+  // 누가 무엇을 취소할 수 있는지는 lib/leave-cancel.ts **한 곳에서만** 정한다.
+  // 목록 API 가 같은 함수로 canCancel 을 내려주고 화면은 그 값으로만 버튼을 그린다.
+  // (범위 검사 · 반려건 덮어쓰기 금지 · 본인 승인건 금지 · 관리자 승인건은 관리자만)
+  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const denial = leaveCancelDenial({ userId: session.userId, role: session.role, myBranches }, leave);
+  if (denial) return NextResponse.json({ error: denial.error }, { status: denial.status });
 
   let done = false;
   await prisma.$transaction(async (tx) => {
