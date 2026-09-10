@@ -2,12 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getAppUrl } from "@/lib/app-url";
-import {
-  sendLeaveApprovalRequest,
-  sendLeaveApprovalCompletion,
-  sendLeaveRejectionNotification,
-} from "@/lib/email";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
@@ -203,10 +197,9 @@ export async function POST(
       }).catch(() => {});
     }
 
-    // 이메일 발송 (트랜잭션 후)
-    const appUrl = getAppUrl();
+    // 결과 알림은 **봇 DM 으로 통일**한다(2026-09-10 디렉터 지시). 메일은 걷어냈다 —
+    // 같은 내용이 두 경로로 나가면 한쪽만 실패했을 때 무엇이 갔는지 알 수 없다.
     const requesterName = leaveRequest.user.name;
-    const requesterEmail = leaveRequest.user.email;
     const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
     const leaveTypeLabel: Record<string, string> = {
       ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
@@ -221,43 +214,6 @@ export async function POST(
     const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
     const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
 
-    if (emailAction === "reject") {
-      await sendLeaveRejectionNotification(
-        requesterEmail,
-        requesterName,
-        leaveTypeStr,
-        startDateStr,
-        endDateStr,
-        approverName,
-        reason || null,
-        appUrl,
-        id,
-      );
-    } else if (emailAction === "approve") {
-      await sendLeaveApprovalCompletion(
-        requesterEmail,
-        requesterName,
-        leaveTypeStr,
-        startDateStr,
-        endDateStr,
-        approverName,
-        appUrl,
-        id,
-      );
-    } else if (emailAction === "next_approver" && nextApprover) {
-      await sendLeaveApprovalRequest(
-        nextApprover.email,
-        nextApprover.name,
-        requesterName,
-        leaveTypeStr,
-        startDateStr,
-        endDateStr,
-        leaveRequest.reason || "",
-        appUrl,
-        id,
-      );
-    }
-
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_DECISION",
       targetType: "LEAVE", targetId: id, targetName: requesterName,
@@ -265,6 +221,7 @@ export async function POST(
     });
 
     // 최종 결정(전체 승인/반려) 시 신청자에게 봇 DM (중간 단계 승인은 발송 안 함)
+    // (다음 결재자 알림은 위 notifyNext 에서 이미 봇으로 나간다 — 메일이 하던 일을 대신한다)
     if (emailAction === "approve" || emailAction === "reject") {
       botNotifyDecision(
         leaveRequest.userId,
@@ -375,12 +332,10 @@ async function adminOverride(
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
   }
 
-  // 이메일 발송
-  const appUrl = getAppUrl();
+  // 결과 알림 — 봇 DM 으로 통일(2026-09-10 디렉터 지시)
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   const approverName = approver?.name || "관리자";
   const requesterName = leaveRequest.user.name;
-  const requesterEmail = leaveRequest.user.email;
   const leaveTypeLabel: Record<string, string> = {
     ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
     QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
@@ -395,28 +350,7 @@ async function adminOverride(
   const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
 
   if (action === "approve") {
-    await sendLeaveApprovalCompletion(
-      requesterEmail,
-      requesterName,
-      leaveTypeStr,
-      startDateStr,
-      endDateStr,
-      approverName,
-      appUrl,
-      id,
-    );
   } else {
-    await sendLeaveRejectionNotification(
-      requesterEmail,
-      requesterName,
-      leaveTypeStr,
-      startDateStr,
-      endDateStr,
-      approverName,
-      reason || null,
-      appUrl,
-      id,
-    );
   }
 
   await logAudit({

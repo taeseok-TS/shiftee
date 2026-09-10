@@ -32,13 +32,20 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
         where: { id: leave.userId },
         select: { branch: true, role: true },
       });
-      if (!target || target.role !== "EMPLOYEE" || !target.branch || !mine.includes(target.branch)) {
-        return NextResponse.json({ error: "담당 지점 직원의 휴가만 취소할 수 있습니다." }, { status: 403 });
+      // 담당 지점에 속한 사람이면 **원장이라도** 취소할 수 있다(2026-09-10 디렉터 지시).
+      // 결재함에는 원장 신청도 뜨는데 취소만 막혀 있어 누르면 403 이었다.
+      // 관리자(ADMIN)는 지점 개념이 없으므로 대상에서 뺀다 — 원장이 관리자 건을
+      // 거두면 안 된다.
+      if (!target || target.role === "ADMIN" || !target.branch || !mine.includes(target.branch)) {
+        return NextResponse.json({ error: "담당 지점 소속의 신청만 취소할 수 있습니다." }, { status: 403 });
       }
     }
   }
 
-  // 이미 처리된 건은 취소 불가 (승인된 건은 관리자만 취소 가능)
+  // 이미 처리된 건은 취소 불가.
+  // ⚠ 승인된 건은 **원장(담당 지점)과 관리자**가 취소할 수 있다 — 취소하면 연차가
+  //   복원된다(2026-09-10 디렉터 확인). 종전 주석에 "관리자만"이라고 적혀 있었는데
+  //   코드와 달랐다. 본인은 승인된 자기 건을 스스로 되돌릴 수 없다(아래).
   if (leave.status === "CANCELLED") {
     return NextResponse.json({ error: "이미 취소된 신청입니다." }, { status: 400 });
   }
