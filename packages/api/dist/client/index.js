@@ -125,7 +125,10 @@ class ShifteeApiClient {
      * ============== 휴가 ==============
      */
     async getLeaveRequests(year, month) {
-        const params = {};
+        // 본인 신청만. 붙이지 않으면 서버가 원장에겐 담당 지점 전체, 관리자에겐
+        // 회사 전체 휴가를 내려준다 (apps/web/src/app/api/leave/route.ts).
+        // 화면은 "내 휴가 내역"으로 표시하고 취소 버튼까지 달리므로 필수.
+        const params = { scope: "self" };
         if (year)
             params.year = year;
         if (month)
