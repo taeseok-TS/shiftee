@@ -21,6 +21,8 @@ import {
   getScheduleApprovals,
   decideLeave,
   decideSchedule,
+  cancelLeave,
+  cancelSchedule,
   stepLabel,
   LeaveInboxStep,
   ScheduleInboxStep,
@@ -99,6 +101,34 @@ export default function ApprovalsScreen() {
     }
   };
 
+  // 취소 — 반려와 다르다. 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다.
+  // 잘못 낸 신청을 반려로 처리하면 기록에 "반려당함"으로 남아 나중에 오해를 산다.
+  const cancel = (kind: "leave" | "schedule", id: string, who: string) => {
+    Alert.alert(
+      "신청 취소",
+      `${who}님의 신청을 취소할까요?\n\n반려와 달리 결재 기록에 남지 않고, 신청자에게 알림이 갑니다.`,
+      [
+        { text: "닫기", style: "cancel" },
+        {
+          text: "취소하기",
+          style: "destructive",
+          onPress: async () => {
+            setProcessingId(id);
+            try {
+              if (kind === "leave") await cancelLeave(id);
+              else await cancelSchedule(id);
+              await load();
+            } catch (error: any) {
+              Alert.alert("취소 실패", error?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+            } finally {
+              setProcessingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const confirmReject = async () => {
     if (!rejectTarget) return;
     const { kind, id } = rejectTarget;
@@ -127,7 +157,7 @@ export default function ApprovalsScreen() {
 
   const total = leave.length + schedule.length;
 
-  const Actions = ({ kind, id }: { kind: "leave" | "schedule"; id: string }) => (
+  const Actions = ({ kind, id, who }: { kind: "leave" | "schedule"; id: string; who: string }) => (
     <View style={styles.actions}>
       <TouchableOpacity
         style={[styles.btn, styles.approveBtn]}
@@ -150,6 +180,14 @@ export default function ApprovalsScreen() {
       >
         <Ionicons name="close" size={16} color="#dc2626" />
         <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.btn, styles.cancelBtn]}
+        disabled={processingId === id}
+        onPress={() => cancel(kind, id, who)}
+      >
+        <Ionicons name="trash-outline" size={15} color="#6b7280" />
+        <Text style={[styles.btnText, { color: "#6b7280" }]}>취소</Text>
       </TouchableOpacity>
     </View>
   );
@@ -195,7 +233,7 @@ export default function ApprovalsScreen() {
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
                     </Text>
                   )}
-                  <Actions kind="leave" id={r.id} />
+                  <Actions kind="leave" id={r.id} who={r.user?.name ?? "직원"} />
                 </View>
               );
             })}
@@ -224,7 +262,7 @@ export default function ApprovalsScreen() {
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
                     </Text>
                   )}
-                  <Actions kind="schedule" id={r.id} />
+                  <Actions kind="schedule" id={r.id} who={r.user?.name ?? "직원"} />
                 </View>
               );
             })}
@@ -279,6 +317,7 @@ const styles = StyleSheet.create({
   btn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, height: 40, borderRadius: 8 },
   approveBtn: { backgroundColor: "#16a34a" },
   rejectBtn: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#fca5a5" },
+  cancelBtn: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#d1d5db" },
   btnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
   modalCard: { backgroundColor: "#fff", borderRadius: 14, padding: 20 },

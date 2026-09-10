@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getWorkCalendar, createScheduleRequest, getHolidays, WorkCalendarEvent, Holiday } from "../../services/schedule";
+import { getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 
 /* 근무 시간 템플릿 (웹 신청 페이지와 동일) */
@@ -107,6 +107,7 @@ export default function ScheduleScreen() {
   const [reqEnd, setReqEnd] = useState("");
   const [reqDays, setReqDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5])); // 기본 월~금
   const [reqSubmitting, setReqSubmitting] = useState(false);
+  const [cancelingId, setCancelingId] = useState("");
   // 신청 기간의 공휴일 ("YYYY-MM-DD" → 이름). 위 holidays 는 달력 표시용으로 이번 달만 담겨 있어
   // 신청 기간 전체를 덮지 못한다 — 신청용으로 따로 조회한다(추석 연휴가 근무일로 잡히던 원인).
   const [reqHolidays, setReqHolidays] = useState<Record<string, string>>({});
@@ -242,6 +243,33 @@ export default function ScheduleScreen() {
     const dow = new Date(y, m - 1, dd).getDay();
     return dow === 0 || dow === 6;
   });
+  // 본인 신청 취소 — 잘못 낸 신청을 반려로 처리하면 기록에 "반려당함"으로 남아
+  // 나중에 오해를 산다. 권한.상태는 서버가 다시 확인한다.
+  const cancelMyRequest = (id: string) => {
+    Alert.alert(
+      "신청 취소",
+      `이 신청을 취소할까요?\n\n취소하면 결재가 중단되고 기록에는 '취소'로 남습니다.`,
+      [
+        { text: "닫기", style: "cancel" },
+        {
+          text: "취소하기",
+          style: "destructive",
+          onPress: async () => {
+            setCancelingId(id);
+            try {
+              await cancelMyScheduleRequest(id);
+              await load();   // 목록 전체를 다시 읽는다(별도 로더가 없다)
+            } catch (e: any) {
+              Alert.alert("취소 실패", e?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+            } finally {
+              setCancelingId("");
+            }
+          },
+        },
+      ]
+    );
+  };
+
 
   const submitRequest = async () => {
     if (!reqTemplate || !reqStart || !reqEnd || reqDates.length === 0) {
@@ -393,6 +421,19 @@ export default function ScheduleScreen() {
                     <Text style={styles.reqMeta}>
                       {r.startDate} ~ {r.endDate} · {r.totalHours}시간
                     </Text>
+                    {/* 대기 중인 것만 거둘 수 있다 — 승인된 건은 이미 근무일정에 반영돼 있다.
+                        반려와 다르다: 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다. */}
+                    {r.status === "PENDING" && (
+                      <TouchableOpacity
+                        style={styles.reqCancelBtn}
+                        disabled={cancelingId === r.id}
+                        onPress={() => cancelMyRequest(r.id)}
+                      >
+                        {cancelingId === r.id
+                          ? <ActivityIndicator size="small" color="#6b7280" />
+                          : <Text style={styles.reqCancelBtnText}>신청 취소</Text>}
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               })
@@ -629,6 +670,9 @@ const styles = StyleSheet.create({
   reqHolidayNote: { fontSize: 12, color: "#dc2626", marginTop: 4 },
   reqBtns: { flexDirection: "row", gap: 8, marginTop: 14 },
   reqCancel: { flex: 1, height: 48, borderRadius: 10, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
+  reqCancelBtn: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 12,
+                  borderRadius: 6, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#fff" },
+  reqCancelBtnText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
   reqCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },
   reqSubmit: { flex: 1, height: 48, borderRadius: 10, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
   reqSubmitText: { color: "#fff", fontSize: 15, fontWeight: "700" },

@@ -55,3 +55,12 @@ export async function createScheduleRequest(payload: {
 }) {
   await axios.post(`${API_URL}/schedule-requests`, payload, { headers: await authHeaders() });
 }
+
+/**
+ * 본인이 낸 근무일정 신청을 **취소**한다(대기 중인 건만 — 서버가 다시 확인).
+ * 반려와 다르다: 반려는 "안 된다"는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다.
+ * 웹과 같은 계약이다(DELETE).
+ */
+export async function cancelMyScheduleRequest(id: string): Promise<void> {
+  await axios.delete(`${API_URL}/schedule-requests/${id}`, { headers: await authHeaders() });
+}

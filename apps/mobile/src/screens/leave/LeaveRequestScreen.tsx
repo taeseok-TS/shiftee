@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { cancelLeave } from "../../services/approvals";
 import {
   View,
   Text,
@@ -88,6 +89,7 @@ export default function LeaveRequestScreen() {
 
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
+  const [cancelingId, setCancelingId] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -128,6 +130,33 @@ export default function LeaveRequestScreen() {
     setCategory(key);
     setLeaveType(cat.options[0].value); // 카테고리 바꾸면 첫 항목으로
   };
+  // 본인 휴가 신청 취소 — 대기 중인 것만(서버가 다시 확인).
+  // 잘못 낸 신청을 반려로 처리하면 기록에 "반려당함"으로 남아 나중에 오해를 산다.
+  const cancelMyLeave = (id: string) => {
+    Alert.alert(
+      "신청 취소",
+      `이 휴가 신청을 취소할까요?\n\n취소하면 결재가 중단되고 기록에는 '취소'로 남습니다.`,
+      [
+        { text: "닫기", style: "cancel" },
+        {
+          text: "취소하기",
+          style: "destructive",
+          onPress: async () => {
+            setCancelingId(id);
+            try {
+              await cancelLeave(id);
+              await load();
+            } catch (e: any) {
+              Alert.alert("취소 실패", e?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+            } finally {
+              setCancelingId("");
+            }
+          },
+        },
+      ]
+    );
+  };
+
 
   const load = useCallback(async () => {
     try {
@@ -348,6 +377,19 @@ export default function LeaveRequestScreen() {
                 {r.status === "REJECTED" && r.rejectedReason ? (
                   <Text style={styles.histRejected}>반려 사유: {r.rejectedReason}</Text>
                 ) : null}
+                {/* 대기 중인 것만 거둔다. 반려와 다르다 — 반려는 결재 결과로 기록에 남고,
+                    취소는 신청 자체를 거둔다(근무일정 신청과 같은 규칙). */}
+                {r.status === "PENDING" && (
+                  <TouchableOpacity
+                    style={styles.histCancelBtn}
+                    disabled={cancelingId === r.id}
+                    onPress={() => cancelMyLeave(r.id)}
+                  >
+                    {cancelingId === r.id
+                      ? <ActivityIndicator size="small" color="#6b7280" />
+                      : <Text style={styles.histCancelText}>신청 취소</Text>}
+                  </TouchableOpacity>
+                )}
               </View>
             );
           })
@@ -481,6 +523,9 @@ const styles = StyleSheet.create({
   histDate: { fontSize: 13, color: "#4b5563", marginTop: 6 },
   histReason: { fontSize: 13, color: "#6b7280", marginTop: 4 },
   histRejected: { fontSize: 13, color: "#ef4444", marginTop: 4 },
+  histCancelBtn: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 12,
+                   borderRadius: 6, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#fff" },
+  histCancelText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   // 드롭다운 모달

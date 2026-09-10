@@ -70,6 +70,22 @@ export async function decideSchedule(id: string, action: "approve" | "reject", r
   await axios.post(`${API_URL}/schedule-requests/${id}/approve`, { action, reason }, { headers: await authHeaders() });
 }
 
+/**
+ * 신청 **취소** — 반려와 다르다.
+ *  · 반려: "안 된다"는 결재 결과. 기록에 REJECTED 로 남고 사유가 신청자에게 간다.
+ *  · 취소: 신청 자체를 거둔다. CANCELLED 로 남는다 — 날짜를 잘못 넣은 신청을 반려로
+ *    처리하면 기록에 "반려당함"으로 남아 나중에 오해를 산다.
+ * 권한(담당 지점 소속인지, 대기 중인지)은 **서버가 다시 확인한다.**
+ * 메서드가 서로 다르다 — 휴가는 PATCH, 근무일정은 DELETE(웹과 같은 계약).
+ */
+export async function cancelLeave(id: string) {
+  await axios.patch(`${API_URL}/leave/${id}`, {}, { headers: await authHeaders() });
+}
+
+export async function cancelSchedule(id: string) {
+  await axios.delete(`${API_URL}/schedule-requests/${id}`, { headers: await authHeaders() });
+}
+
 // 단계 라벨: 역할기반 단계는 승인 전 approver가 null → 역할명 표시
 export function stepLabel(s: InboxStepInfo): string {
   if (s.approver) return s.approver.name;
