@@ -4,8 +4,8 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOf } from "@/lib/leave-calc";
-import { getManagerBranches } from "@/lib/manager-branches";
 import { leaveCancelDenial } from "@/lib/leave-cancel";
+import { cancelViewerFor } from "@/lib/cancel-viewer";
 
 // 휴가 신청 취소 — 본인은 대기 중인 건만, 원장.관리자는 담당 직원의 건을 처리할 수 있다.
 // 취소하면 승인된 건의 연차가 복원되므로, 남의 건을 취소하면 감사로그와 당사자 DM 을 남긴다.
@@ -27,9 +27,9 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
 
   // 누가 무엇을 취소할 수 있는지는 lib/leave-cancel.ts **한 곳에서만** 정한다.
   // 목록 API 가 같은 함수로 canCancel 을 내려주고 화면은 그 값으로만 버튼을 그린다.
-  // (범위 검사 · 반려건 덮어쓰기 금지 · 본인 승인건 금지 · 관리자 승인건은 관리자만)
-  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
-  const denial = leaveCancelDenial({ userId: session.userId, role: session.role, myBranches }, leave);
+  // (범위 · 원장끼리는 메인 원장만 · 반려건 덮어쓰기 금지 · 지난 휴가 금지 · 본인 승인건 금지 ·
+  //  관리자 승인건은 관리자만). 보는 사람 정보도 cancelViewerFor 한 곳에서 만든다.
+  const denial = leaveCancelDenial(await cancelViewerFor(session), leave);
   if (denial) return NextResponse.json({ error: denial.error }, { status: denial.status });
 
   let done = false;

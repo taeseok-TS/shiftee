@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { leaveCancelDenial } from "@/lib/leave-cancel";
+import { leaveCancelDenial, cancelFlags } from "@/lib/leave-cancel";
+import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
   // 휴가 조회는 이미 권한 검증이 되어 있음 (EMPLOYEE는 자신, MANAGER는 자신의 지점만)
   // canCancel — 화면은 취소 버튼을 이 값으로만 그린다. 취소 라우트와 **같은 함수**로 판정해서
   // "누르면 403" 버튼이나 "버튼은 없는데 id 로는 되는" 구멍이 생기지 않게 한다(2026-09-10).
-  const viewer = { userId: session.userId, role: session.role, myBranches };
+  const viewer = await cancelViewerFor(session);
   const filteredRequests = requests.map(req => ({
     ...req,
     user: {
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
       branch: req.user.branch,
     },
     approver: req.approver ? { name: req.approver.name, branch: req.approver.branch } : null,
-    canCancel: leaveCancelDenial(viewer, req) === null,
+    ...cancelFlags(leaveCancelDenial(viewer, req)),   // canCancel + cancelBlock(못 하는 이유)
   }));
 
   return NextResponse.json({ requests: filteredRequests });

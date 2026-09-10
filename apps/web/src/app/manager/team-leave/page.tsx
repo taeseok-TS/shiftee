@@ -43,6 +43,7 @@ type LeaveRequest = {
   reason: string | null;
   status: string;
   user: { name: string; department: string | null; position: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
   approvalSteps?: ApprovalStep[];
 };
 
@@ -62,6 +63,7 @@ type HistoryLeave = {
   days: number;
   status: string;
   canCancel?: boolean;
+  cancelBlock?: string | null;   // 못 하는 이유 코드(서버) — 화면이 조건을 다시 쓰지 않게
   user: { id: string; name: string; branch: string | null };
   approvalSteps?: ApprovalStep[];
 };
@@ -75,6 +77,7 @@ type ScheduleRequest = {
   totalHours: number;
   status: string;
   user: { id: string; name: string; department: string | null; position: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
   approvalSteps?: ApprovalStep[];
 };
 
@@ -102,6 +105,14 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
   FAMILY_MARRIAGE: "결혼",
   FAMILY_BIRTH: "출산",
   FAMILY_BEREAVEMENT: "사망(조사)",
+};
+
+// 취소 불가 사유(서버 cancelBlock) → 짧은 표시. 없는 코드는 "-"
+const CANCEL_BLOCK_LABEL: Record<string, string> = {
+  PAST: "지난 휴가",
+  ADMIN_ONLY: "관리자만 취소 가능",
+  SELF_APPROVED: "관리자에게 요청",
+  MAIN_ONLY: "메인 원장만 취소 가능",
 };
 
 /* ── 원장 결재 페이지 ── */
@@ -506,6 +517,7 @@ export default function ManagerApprovalsPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              {req.canCancel && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -516,6 +528,7 @@ export default function ManagerApprovalsPage() {
                               >
                                 취소
                               </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -628,6 +641,7 @@ export default function ManagerApprovalsPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              {req.canCancel && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -638,6 +652,7 @@ export default function ManagerApprovalsPage() {
                               >
                                 취소
                               </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -757,10 +772,8 @@ export default function ManagerApprovalsPage() {
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
                                 취소
                               </Button>
-                            ) : approved ? (
-                              <span className="text-xs text-gray-400">관리자만 취소 가능</span>
                             ) : (
-                              <span className="text-xs text-gray-400">-</span>
+                              <span className="text-xs text-gray-400">{CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "-"}</span>
                             )}
                           </td>
                         </tr>

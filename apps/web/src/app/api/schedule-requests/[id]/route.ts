@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleCancelDenial } from "@/lib/leave-cancel";
+import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -22,41 +24,17 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     where: { id },
     select: {
       id: true, userId: true, status: true, startDate: true, endDate: true,
-      user: { select: { name: true } },
+      user: { select: { name: true, role: true, branch: true } },   // 감사로그 이름 + 범위 판정
     },
   });
   if (!req) return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
 
-  // 본인 것이 아니면 — 원장은 **담당 지점 직원**의 신청을 취소할 수 있다(2026-09-09 디렉터 지시).
-  // 휴가 취소와 같은 기준이다. 관리자는 제한 없음.
-  if (req.userId !== session.userId) {
-    if (session.role === "EMPLOYEE") {
-      return NextResponse.json({ error: "본인이 낸 신청만 취소할 수 있습니다." }, { status: 403 });
-    }
-    if (session.role === "MANAGER") {
-      const { getManagerBranches } = await import("@/lib/manager-branches");
-      const mine = await getManagerBranches(session.userId);
-      const target = await prisma.user.findUnique({
-        where: { id: req.userId }, select: { branch: true, role: true },
-      });
-      // 담당 지점에 속한 사람이면 **원장이라도** 취소할 수 있다(2026-09-10 디렉터 지시).
-      // 결재함에는 원장 신청도 뜨는데 취소만 막혀 있어 누르면 403 이었다.
-      // 관리자(ADMIN)는 지점 개념이 없으므로 대상에서 뺀다 — 원장이 관리자 건을
-      // 거두면 안 된다.
-      if (!target || target.role === "ADMIN" || !target.branch || !mine.includes(target.branch)) {
-        return NextResponse.json({ error: "담당 지점 소속의 신청만 취소할 수 있습니다." }, { status: 403 });
-      }
-    }
-  }
-  // ⚠ **대기 중인 신청만** 취소한다. 승인된 신청은 이미 근무일정으로 반영돼 있어서,
-  //   되돌리려면 그 일정을 어떻게 할지 따로 정해야 한다(휴가는 연차만 복원하면 되지만
-  //   근무일정은 그렇지 않다). 승인된 건은 일정 화면에서 직접 고친다.
-  if (req.status !== "PENDING") {
-    return NextResponse.json(
-      { error: `이미 ${req.status === "APPROVED" ? "승인" : "처리"}된 신청은 취소할 수 없습니다.` },
-      { status: 409 }
-    );
-  }
+  // 누가 무엇을 취소할 수 있는지는 lib/leave-cancel.ts **한 곳에서만** 정한다(휴가와 같은 범위 규칙).
+  // 범위: 원장은 담당 지점 직원, 다른 원장의 건은 **그 지점 메인 원장이 일반 원장 건만**
+  // (2026-09-10 디렉터 확정). 상태: 대기 중만 — 승인된 신청은 이미 일정으로 반영돼 있다.
+  // 결재함 API 가 같은 함수로 canCancel 을 내려주고 화면은 그 값으로만 버튼을 그린다.
+  const denial = scheduleCancelDenial(await cancelViewerFor(session), req);
+  if (denial) return NextResponse.json({ error: denial.error }, { status: denial.status });
 
   let done = false;
   await prisma.$transaction(async (tx) => {

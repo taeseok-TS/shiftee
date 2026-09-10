@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { fileUri } from "../../services/work";
+import * as storage from "../../services/storage";
 import {
   getLeaveApprovals,
   getScheduleApprovals,
@@ -24,8 +25,10 @@ import {
   cancelLeave,
   cancelSchedule,
   stepLabel,
+  getTeamLeaves,
   LeaveInboxStep,
   ScheduleInboxStep,
+  TeamLeave,
 } from "../../services/approvals";
 
 const LEAVE_TYPE_LABEL: Record<string, string> = {
@@ -44,6 +47,9 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
   RESERVE_FORCES: "예비군훈련",
   FAMILY_EVENT: "경조사",
   BEREAVEMENT: "경조사",
+  FAMILY_MARRIAGE: "결혼",
+  FAMILY_BIRTH: "출산",
+  FAMILY_BEREAVEMENT: "사망(조사)",
 };
 
 function fmtRange(start: string, end: string): string {
@@ -53,6 +59,14 @@ function fmtRange(start: string, end: string): string {
   };
   return start.slice(0, 10) === end.slice(0, 10) ? f(start) : `${f(start)} ~ ${f(end)}`;
 }
+
+// 취소 불가 사유(서버 cancelBlock) → 짧은 표시 (웹 원장 화면과 같은 표)
+const CANCEL_BLOCK_LABEL: Record<string, string> = {
+  PAST: "지난 휴가 — 취소할 수 없습니다",
+  ADMIN_ONLY: "관리자가 승인한 휴가 — 관리자만 취소할 수 있습니다",
+  SELF_APPROVED: "승인된 본인 휴가 — 관리자에게 요청해주세요",
+  MAIN_ONLY: "다른 원장의 신청 — 메인 원장만 취소할 수 있습니다",
+};
 
 type RejectTarget = { kind: "leave" | "schedule"; id: string } | null;
 
@@ -64,12 +78,24 @@ export default function ApprovalsScreen() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<RejectTarget>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // 결재함 | 휴가 내역 — 휴가 내역은 결재함에서 빠진 건(내가 승인해 넘긴 건, 원장 선 최종승인건)을
+  // 취소하는 자리다(웹 원장 화면 "휴가 내역" 탭과 짝, 2026-09-10 디렉터 지시)
+  const [tab, setTab] = useState<"inbox" | "history">("inbox");
+  const [history, setHistory] = useState<TeamLeave[]>([]);
+  const [historyFailed, setHistoryFailed] = useState(false);
+  const [myId, setMyId] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [l, s] = await Promise.all([getLeaveApprovals(), getScheduleApprovals()]);
+      const [l, s, h] = await Promise.all([
+        getLeaveApprovals(),
+        getScheduleApprovals(),
+        getTeamLeaves().catch(() => null),   // 내역 실패가 결재함까지 막지 않게
+      ]);
       setLeave(l);
       setSchedule(s);
+      setHistoryFailed(h === null);
+      if (h) setHistory(h.filter((x) => x.status === "PENDING" || x.status === "APPROVED"));
     } catch (error) {
       console.error("❌ Failed to load approvals:", error);
       Alert.alert("오류", "결재 목록을 불러오지 못했습니다.");
@@ -82,6 +108,10 @@ export default function ApprovalsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    storage.getUser().then((u) => setMyId(u?.id || "")).catch(() => {});
+  }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -103,10 +133,17 @@ export default function ApprovalsScreen() {
 
   // 취소 — 반려와 다르다. 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다.
   // 잘못 낸 신청을 반려로 처리하면 기록에 "반려당함"으로 남아 나중에 오해를 산다.
-  const cancel = (kind: "leave" | "schedule", id: string, who: string) => {
+  const cancel = (
+    kind: "leave" | "schedule",
+    id: string,
+    who: string,
+    opts: { approved?: boolean; mine?: boolean } = {}
+  ) => {
     Alert.alert(
       "신청 취소",
-      `${who}님의 신청을 취소할까요?\n\n반려와 달리 결재 기록에 남지 않고, 신청자에게 알림이 갑니다.`,
+      opts.mine
+        ? "내 휴가 신청을 취소할까요?"   // 본인 건은 알림이 가지 않는다
+        : `${who}님의 신청을 취소할까요?${opts.approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : ""}\n\n반려와 달리 결재 기록에 남지 않고, 신청자에게 알림이 갑니다.`,
       [
         { text: "닫기", style: "cancel" },
         {
@@ -157,7 +194,7 @@ export default function ApprovalsScreen() {
 
   const total = leave.length + schedule.length;
 
-  const Actions = ({ kind, id, who }: { kind: "leave" | "schedule"; id: string; who: string }) => (
+  const Actions = ({ kind, id, who, canCancel }: { kind: "leave" | "schedule"; id: string; who: string; canCancel?: boolean }) => (
     <View style={styles.actions}>
       <TouchableOpacity
         style={[styles.btn, styles.approveBtn]}
@@ -181,31 +218,43 @@ export default function ApprovalsScreen() {
         <Ionicons name="close" size={16} color="#dc2626" />
         <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.btn, styles.cancelBtn]}
-        disabled={processingId === id}
-        onPress={() => cancel(kind, id, who)}
-      >
-        <Ionicons name="trash-outline" size={15} color="#6b7280" />
-        <Text style={[styles.btnText, { color: "#6b7280" }]}>취소</Text>
-      </TouchableOpacity>
+      {/* 취소는 서버 판정(canCancel)으로만 — 원장끼리는 메인 원장만, 지난 휴가는 불가 등 */}
+      {canCancel && (
+        <TouchableOpacity
+          style={[styles.btn, styles.cancelBtn]}
+          disabled={processingId === id}
+          onPress={() => cancel(kind, id, who)}
+        >
+          <Ionicons name="trash-outline" size={15} color="#6b7280" />
+          <Text style={[styles.btnText, { color: "#6b7280" }]}>취소</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
   return (
     <>
+      <View style={styles.tabs}>
+        {(["inbox", "history"] as const).map((t) => (
+          <TouchableOpacity key={t} style={[styles.tabBtn, tab === t && styles.tabBtnOn]} onPress={() => setTab(t)}>
+            <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>
+              {t === "inbox" ? `결재함 (${total})` : `휴가 내역 (${history.length})`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <ScrollView
         style={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {total === 0 && (
+        {tab === "inbox" && total === 0 && (
           <View style={styles.emptyWrap}>
             <Ionicons name="checkmark-done-circle-outline" size={48} color="#d1d5db" />
             <Text style={styles.empty}>결재할 항목이 없습니다.</Text>
           </View>
         )}
 
-        {leave.length > 0 && (
+        {tab === "inbox" && leave.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>휴가 ({leave.length})</Text>
             {leave.map((step) => {
@@ -233,14 +282,14 @@ export default function ApprovalsScreen() {
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
                     </Text>
                   )}
-                  <Actions kind="leave" id={r.id} who={r.user?.name ?? "직원"} />
+                  <Actions kind="leave" id={r.id} who={r.user?.name ?? "직원"} canCancel={r.canCancel} />
                 </View>
               );
             })}
           </View>
         )}
 
-        {schedule.length > 0 && (
+        {tab === "inbox" && schedule.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>근무일정 ({schedule.length})</Text>
             {schedule.map((step) => {
@@ -262,7 +311,65 @@ export default function ApprovalsScreen() {
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
                     </Text>
                   )}
-                  <Actions kind="schedule" id={r.id} who={r.user?.name ?? "직원"} />
+                  <Actions kind="schedule" id={r.id} who={r.user?.name ?? "직원"} canCancel={r.canCancel} />
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {tab === "history" && (
+          <View style={styles.section}>
+            {historyFailed && (
+              <Text style={styles.empty}>휴가 내역을 불러오지 못했습니다. 아래로 당겨 다시 시도해주세요.</Text>
+            )}
+            {!historyFailed && history.length === 0 && (
+              <View style={styles.emptyWrap}>
+                <Ionicons name="calendar-outline" size={48} color="#d1d5db" />
+                <Text style={styles.empty}>진행 중이거나 승인된 휴가가 없습니다.</Text>
+              </View>
+            )}
+            {history.map((r) => {
+              const approved = r.status === "APPROVED";
+              const note = r.cancelBlock ? CANCEL_BLOCK_LABEL[r.cancelBlock] : undefined;
+              return (
+                <View key={r.id} style={styles.card}>
+                  <View style={styles.cardHead}>
+                    <Text style={styles.who}>
+                      {r.user.branch ? `[${r.user.branch}] ` : ""}{r.user.name}
+                    </Text>
+                    <View style={[styles.badge, { backgroundColor: approved ? "#f0fdf4" : "#fffbeb" }]}>
+                      <Text style={[styles.badgeText, { color: approved ? "#15803d" : "#b45309" }]}>
+                        {approved ? "승인" : "진행 중"}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.line}>
+                    {LEAVE_TYPE_LABEL[r.type] || r.type} · {fmtRange(r.startDate, r.endDate)} · {r.days}일
+                  </Text>
+                  {!!r.approvalSteps?.length && (
+                    <Text style={styles.chain}>
+                      {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}${s.status === "APPROVED" ? " ✓" : ""}`).join("  →  ")}
+                    </Text>
+                  )}
+                  {r.canCancel ? (
+                    <TouchableOpacity
+                      style={[styles.btn, styles.cancelBtn, { marginTop: 14 }]}
+                      disabled={processingId === r.id}
+                      onPress={() => cancel("leave", r.id, r.user.name, { approved, mine: r.userId === myId })}
+                    >
+                      {processingId === r.id ? (
+                        <ActivityIndicator size="small" color="#6b7280" />
+                      ) : (
+                        <>
+                          <Ionicons name="trash-outline" size={15} color="#6b7280" />
+                          <Text style={[styles.btnText, { color: "#6b7280" }]}>취소</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  ) : note ? (
+                    <Text style={styles.blockNote}>{note}</Text>
+                  ) : null}
                 </View>
               );
             })}
@@ -298,6 +405,12 @@ export default function ApprovalsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
+  tabs: { flexDirection: "row", backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
+  tabBtn: { flex: 1, alignItems: "center", paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  tabBtnOn: { borderBottomColor: "#4f46e5" },
+  tabText: { fontSize: 14, color: "#6b7280", fontWeight: "600" },
+  tabTextOn: { color: "#4f46e5" },
+  blockNote: { fontSize: 12, color: "#9ca3af", marginTop: 12 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f3f4f6" },
   emptyWrap: { alignItems: "center", paddingTop: 80 },
   empty: { color: "#9ca3af", fontSize: 15, marginTop: 12 },

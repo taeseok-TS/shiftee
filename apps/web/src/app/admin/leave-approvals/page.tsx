@@ -45,6 +45,7 @@ type LeaveRequest = {
   attachmentName?: string | null;
   status: string;
   user: { name: string; department: string | null; position: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
   approvalSteps?: ApprovalStep[];
 };
 
@@ -64,6 +65,7 @@ type ScheduleRequest = {
   totalHours: number;
   status: string;
   user: { id: string; name: string; department: string | null; position: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
   approvalSteps?: ApprovalStep[];
 };
 
@@ -439,6 +441,7 @@ export default function ApprovalsPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              {req.canCancel && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -449,6 +452,7 @@ export default function ApprovalsPage() {
                               >
                                 취소
                               </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -561,6 +565,7 @@ export default function ApprovalsPage() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              {req.canCancel && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -571,6 +576,7 @@ export default function ApprovalsPage() {
                               >
                                 취소
                               </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"

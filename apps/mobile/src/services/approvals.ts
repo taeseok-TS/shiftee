@@ -34,6 +34,7 @@ export type LeaveInboxStep = InboxStepInfo & {
     reason: string | null;
     attachmentUrl?: string | null;
     attachmentName?: string | null;
+    canCancel?: boolean;   // 서버 판정(취소 라우트와 같은 함수) — 이 값으로만 취소 버튼을 그린다
     user: InboxUser;
     approvalSteps?: InboxStepInfo[];
   };
@@ -46,6 +47,7 @@ export type ScheduleInboxStep = InboxStepInfo & {
     startDate: string;
     endDate: string;
     totalHours: number;
+    canCancel?: boolean;   // 서버 판정 — 이 값으로만 취소 버튼을 그린다
     reason: string | null;
     user: InboxUser;
     approvalSteps?: InboxStepInfo[];
@@ -60,6 +62,32 @@ export async function getLeaveApprovals(): Promise<LeaveInboxStep[]> {
 export async function getScheduleApprovals(): Promise<ScheduleInboxStep[]> {
   const res = await axios.get(`${API_URL}/schedule-requests/my-approvals`, { headers: await authHeaders() });
   return (res.data?.steps as ScheduleInboxStep[]) || [];
+}
+
+/**
+ * 원장·관리자용 **휴가 내역** — 결재함은 내 차례인 대기 건만 보여서, 내가 승인해 관리자에게
+ * 넘긴 건이나 원장 선에서 최종 승인된 1일 휴가를 취소할 자리가 없었다(2026-09-10 디렉터 지시,
+ * 웹 원장 화면 "휴가 내역" 탭과 짝). scope 없이 부르면 서버가 원장에겐 담당 지점, 관리자에겐
+ * 전사를 준다 — 이 화면은 그걸 의도한다. 개인 "내 휴가 내역"은 scope=self 로 따로 부른다.
+ */
+export type TeamLeave = {
+  id: string;
+  userId: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: string;
+  reason: string | null;
+  canCancel?: boolean;
+  cancelBlock?: string | null;   // 못 하는 이유 코드(서버)
+  user: { id: string; name: string; branch?: string | null };
+  approvalSteps?: InboxStepInfo[];
+};
+
+export async function getTeamLeaves(): Promise<TeamLeave[]> {
+  const res = await axios.get(`${API_URL}/leave`, { headers: await authHeaders() });
+  return (res.data?.requests as TeamLeave[]) || [];
 }
 
 export async function decideLeave(id: string, action: "approve" | "reject", reason?: string) {

@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { scheduleCancelDenial, cancelFlags, type CancelViewer } from "@/lib/leave-cancel";
+import { cancelViewerFor } from "@/lib/cancel-viewer";
 
 // 내가 결재해야 하는 근무일정 신청 목록
 export async function GET() {
@@ -10,6 +12,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  const viewer = await cancelViewerFor(session);
   const steps = await prisma.scheduleApprovalStep.findMany({
     where: {
       status: "PENDING",
@@ -40,7 +43,7 @@ export async function GET() {
     include: {
       scheduleRequest: {
         include: {
-          user: { select: { id: true, name: true, department: true, position: true, branch: true } },
+          user: { select: { id: true, name: true, department: true, position: true, branch: true, role: true } },   // role 은 취소 판정용 — 응답에서 뺀다
           approvalSteps: {
             include: {
               approver: { select: { id: true, name: true, position: true, branch: true } },
@@ -68,7 +71,7 @@ export async function GET() {
         userId: { not: session.userId },   // 본인 신청은 결재함에 띄우지 않는다
       },
       include: {
-        user: { select: { id: true, name: true, department: true, position: true, branch: true } },
+        user: { select: { id: true, name: true, department: true, position: true, branch: true, role: true } },   // role 은 취소 판정용 — 응답에서 뺀다
         approvalSteps: {
           include: {
             approver: { select: { id: true, name: true, position: true, branch: true } },
@@ -86,8 +89,30 @@ export async function GET() {
       scheduleRequest: req,
     }));
 
-    return NextResponse.json({ steps: [...steps, ...directSteps] });
+    return NextResponse.json({ steps: [...steps, ...directSteps].map((st) => withCancel(viewer, st)) });
   }
 
-  return NextResponse.json({ steps });
+  return NextResponse.json({ steps: steps.map((st) => withCancel(viewer, st)) });
+}
+
+
+type InboxSchedule = {
+  userId: string;
+  status: string;
+  user: { id: string; name: string; department: string | null; position: string | null; branch: string | null; role: string };
+};
+
+// 취소 버튼 판정(canCancel · cancelBlock)을 실어 보낸다 — 취소 라우트와 **같은 함수**.
+// 판정에 쓴 role 은 응답에서 뺀다(휴가 결재함과 짝).
+function withCancel<S extends { scheduleRequest: InboxSchedule }>(viewer: CancelViewer, s: S) {
+  const r = s.scheduleRequest;
+  const u = r.user;
+  return {
+    ...s,
+    scheduleRequest: {
+      ...r,
+      user: { id: u.id, name: u.name, department: u.department, position: u.position, branch: u.branch },
+      ...cancelFlags(scheduleCancelDenial(viewer, r)),
+    },
+  };
 }
