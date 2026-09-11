@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,8 +67,11 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
     setReady(true);
   }, []);
 
+  // 연도를 빠르게 넘기면 늦게 온 앞 연도 응답이 뒤 연도를 덮어쓴다(9/11 검증 D-5) — 마지막 요청만 반영한다
+  const reqSeq = useRef(0);
   const load = useCallback(async () => {
     if (!ready) return;
+    const my = ++reqSeq.current;
     setLoading(true);
     setError("");
     try {
@@ -76,13 +79,15 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
       if (userId) q.set("userId", userId);
       const res = await fetch(`/api/leave/ledger?${q}`);
       const d = await res.json().catch(() => ({}));
+      if (my !== reqSeq.current) return;
       if (!res.ok) { setData(null); setError(d.error || "연차 대장을 불러오지 못했습니다"); return; }
       setData(d);
     } catch {
+      if (my !== reqSeq.current) return;
       setData(null);
       setError("연차 대장을 불러오지 못했습니다");
     } finally {
-      setLoading(false);
+      if (my === reqSeq.current) setLoading(false);
     }
   }, [ready, userId, year]);
   useEffect(() => { load(); }, [load]);

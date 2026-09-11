@@ -64,7 +64,11 @@ export async function renderLedgerPdf(ledger: Ledger, meta: { issuedBy: string; 
   const line = (text: string, opts: { size?: number; x?: number; color?: RGB; gap?: number } = {}) => {
     const size = opts.size ?? 9.5;
     const x = opts.x ?? M;
-    for (const t of wrap(text, size, W - M - x)) {
+    // 사유는 여러 줄 입력(웹 Textarea·앱 multiline)이라 줄바꿈 문자가 들어온다. drawText 에 그대로 넘기면
+    // pdf-lib 가 자체 행간(24pt)으로 아래로 이어 그려 다음 줄과 겹치고 쪽 넘김 계산에서도 빠진다(9/11 검증 D-1).
+    // 먼저 줄 단위로 나눈 뒤 각 줄을 폭에 맞춰 접는다.
+    const pieces = text.split(/\r\n|[\n\r\f\u000B\u2028\u2029]/).flatMap((ln) => wrap(ln, size, W - M - x));
+    for (const t of pieces) {
       if (y < BOTTOM) newPage();
       try { page.drawText(t, { x, y, size, font, color: opts.color ?? rgb(0.15, 0.15, 0.15) }); } catch { /* 이 줄만 */ }
       y -= size + (opts.gap ?? 4);

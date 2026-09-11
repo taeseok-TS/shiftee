@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger } from "../../services/approvals";
 import type { MyLedger } from "../../services/approvals";
 import {
@@ -98,18 +98,23 @@ export default function LeaveRequestScreen() {
   const [ledger, setLedger] = useState<MyLedger | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState("");
+  // 연도를 빠르게 넘기면 늦게 온 앞 연도 응답이 덮어쓴다(9/11 검증 D-5) — 마지막 요청만 반영
+  const ledgerSeq = useRef(0);
   const openLedger = async (year: number) => {
+    const my = ++ledgerSeq.current;
     setLedgerOpen(true);
     setLedgerYear(year);
     setLedgerLoading(true);
     setLedgerError("");
     try {
-      setLedger(await getMyLedger(year));
+      const d = await getMyLedger(year);
+      if (my === ledgerSeq.current) setLedger(d);
     } catch (e: any) {
+      if (my !== ledgerSeq.current) return;
       setLedger(null);
       setLedgerError(e?.response?.data?.error || "연차 대장을 불러오지 못했습니다.");
     } finally {
-      setLedgerLoading(false);
+      if (my === ledgerSeq.current) setLedgerLoading(false);
     }
   };
   const kstStr = (v: string | null) =>

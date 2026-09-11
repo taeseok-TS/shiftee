@@ -66,6 +66,9 @@ export async function POST(request: NextRequest) {
   }
 
   // 같은 이메일 중복 행은 마지막 값이 남는다 (upsert 순차 적용)
+  // 감사 기록의 "이전 총연차"도 앞 행이 바꾼 값을 따라간다 — prevTotal 은 루프 전 한 번만 읽은 값이라
+  // 중복 행이면 15→20, 15→18 처럼 틀리게 남았다(9/11 검증 D-2). 실제 순서는 15→20→18.
+  const appliedTotal = new Map<string, number>();
   for (const r of applicable) {
     const used = r.used ?? 0;
     await prisma.leaveBalance.upsert({
@@ -81,8 +84,9 @@ export async function POST(request: NextRequest) {
       targetType: "USER",
       targetId: r.userId!,
       targetName: r.systemName ?? null,
-      detail: `(일괄 업로드 ${year}년) 연차 총 ${r.prevTotal ?? "-"}→${r.total}일, 사용 ${used}일`,
+      detail: `(일괄 업로드 ${year}년) 연차 총 ${appliedTotal.get(r.userId!) ?? r.prevTotal ?? "-"}→${r.total}일, 사용 ${used}일`,
     });
+    appliedTotal.set(r.userId!, r.total!);
   }
 
   await logAudit({
