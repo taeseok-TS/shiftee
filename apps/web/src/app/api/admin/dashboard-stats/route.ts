@@ -99,10 +99,12 @@ export async function GET() {
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 
   // 휴가 취소 결재 — 결재함(/api/leave/cancel-requests/my-approvals)과 같은 기준(본인 요청 제외)
+  // 휴가 첫날부터는 승인할 수 없으니 숫자에서도 뺀다(결재함 cancelStepWhere 와 같은 기준)
+  const cancelPendingWhere = { ...pendingForMe, leaveRequest: { startDate: { gt: today } } };
   const [pendingLeaveCancel, pendingCancelItems] = await Promise.all([
-    prisma.leaveCancelRequest.count({ where: pendingForMe }),
+    prisma.leaveCancelRequest.count({ where: cancelPendingWhere }),
     prisma.leaveCancelRequest.findMany({
-      where: pendingForMe,
+      where: cancelPendingWhere,
       include: {
         user: { select: { name: true } },
         leaveRequest: { select: { type: true, startDate: true, endDate: true, days: true } },

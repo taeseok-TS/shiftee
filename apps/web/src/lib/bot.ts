@@ -522,7 +522,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -616,6 +616,16 @@ export function startBotScheduler() {
         const { runHealthCheckAndAlert } = await import("@/lib/monitor");
         await runHealthCheckAndAlert();
       } catch (e) { console.error("[bot] 헬스체크 오류:", e); }
+    }
+
+    // 휴가 취소 결재 기한 만료 — 휴가 첫날이 되도록 끝나지 않은 요청을 닫는다(9/11 디렉터, 매시 1회).
+    // 결재 라우트가 시작일부터 승인을 막으므로(최종 방어) 이건 결재함·신청자 화면 정리다.
+    if (g.__botCancelExpireHour !== hourKey) {
+      g.__botCancelExpireHour = hourKey;
+      try {
+        const { expireStaleCancelRequests } = await import("@/lib/leave-cancel-flow");
+        await expireStaleCancelRequests();
+      } catch (e) { console.error("[bot] 휴가 취소 기한 만료 오류:", e); }
     }
 
     // 대용량 영상 압축 큐 (한 번에 1건, 최저 우선순위 — 진행 중이면 다음 틱은 스킵)

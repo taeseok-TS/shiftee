@@ -96,6 +96,14 @@ export default function HomeScreen() {
           const key = `${m}월 ${TYPE_LABEL[r.type] || r.type} 신청`;
           counts.set(key, (counts.get(key) || 0) + 1);
         });
+      // 내가 올린 휴가 취소 결재(진행 중) — 휴가 목록에 실려 오는 pendingCancel 로 센다(9/11)
+      (leave as any[])
+        .filter((r) => r.pendingCancel)
+        .forEach((r) => {
+          const m = new Date(r.startDate).getMonth() + 1;
+          const key = `${m}월 휴가 취소 요청`;
+          counts.set(key, (counts.get(key) || 0) + 1);
+        });
       (sched as any[]).forEach((s) => {
         const m = new Date(s.startDate).getMonth() + 1;
         const key = `${m}월 근무일정 신청`;

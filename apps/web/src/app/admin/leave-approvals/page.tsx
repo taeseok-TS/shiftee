@@ -121,6 +121,11 @@ export default function ApprovalsPage() {
   const [activeTab, setActiveTab] = useState("leave");
   // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
   const [cancelCount, setCancelCount] = useState(0);
+  // 대시보드·알림에서 ?tab=cancel 처럼 들어오면 그 탭을 연다(관리자 대시보드 "휴가 취소 승인 대기" 줄)
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && ["leave", "schedule", "cancel"].includes(t)) setActiveTab(t);
+  }, []);
   useEffect(() => {
     fetch("/api/leave/cancel-requests/my-approvals")
       .then((r) => (r.ok ? r.json() : null))

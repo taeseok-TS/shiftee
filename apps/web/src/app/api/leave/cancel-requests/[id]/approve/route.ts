@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { kstTodayMidnight } from "@/lib/resign";
 import { botNotifyApprovalRequest, botNotifyDecision } from "@/lib/bot";
 import { applyLeaveCancel, CancelConflict, LEAVE_TYPE_LABEL, ymdOf } from "@/lib/leave-cancel-flow";
 
@@ -48,6 +49,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (cr.status !== "PENDING") {
     return NextResponse.json(
       { error: `이미 ${cr.status === "APPROVED" ? "승인" : "처리"}된 취소 결재입니다.` },
+      { status: 409 }
+    );
+  }
+  // 휴가 첫날부터는 취소 결재를 **승인하지 않는다**(9/11 디렉터 — 진행 중 휴가는 취소 대상이 아니다).
+  // 반려는 막지 않는다(휴가가 그대로 남으므로 해가 없다). 남은 요청은 봇이 매시 기한 만료로 닫는다.
+  if (action === "approve" && cr.leaveRequest.startDate.getTime() <= kstTodayMidnight().getTime()) {
+    return NextResponse.json(
+      { error: "휴가가 이미 시작돼 취소 결재를 승인할 수 없습니다. 이 요청은 기한 만료로 정리됩니다. 연차 정정은 관리자 '잔여 조정'으로 해주세요." },
       { status: 409 }
     );
   }

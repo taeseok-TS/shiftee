@@ -143,6 +143,11 @@ export default function ManagerApprovalsPage() {
   const [activeTab, setActiveTab] = useState("leave");
   // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
   const [cancelCount, setCancelCount] = useState(0);
+  // 대시보드·알림에서 ?tab=cancel 처럼 들어오면 그 탭을 연다(관리자 대시보드 "휴가 취소 승인 대기" 줄)
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && ["leave", "schedule", "history", "cancel"].includes(t)) setActiveTab(t);
+  }, []);
   useEffect(() => {
     fetch("/api/leave/cancel-requests/my-approvals")
       .then((r) => (r.ok ? r.json() : null))
@@ -171,8 +176,8 @@ export default function ManagerApprovalsPage() {
     fetchSession();
   }, []);
 
-  // 휴가 내역 — 결재함은 **내 차례인 대기 건**만 보여서, 내가 승인해 관리자에게 넘긴 건이나
-  // 원장 선에서 최종 승인된 1일 휴가를 취소할 자리가 없었다(2026-09-10 디렉터 지시).
+  // 휴가 내역 — 결재함은 **내 차례인 대기 건**만 보여서, 내가 승인해 관리자에게 넘긴 대기 건을
+  // 거둘 자리가 없었다(2026-09-10). 승인된 휴가는 본인의 취소 결재로만(9/11) — 여기선 표시만 한다.
   // 취소 가능 여부(canCancel)는 서버가 취소 라우트와 같은 함수로 판정한다.
   const fetchHistory = useCallback(async () => {
     try {
@@ -262,7 +267,8 @@ export default function ManagerApprovalsPage() {
       me = (await fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null))?.user?.id || "";
     }
     const mine = !!ownerId && ownerId === me;
-    const note = approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : "";
+    // 승인된 휴가는 여기로 오지 않는다(취소 결재로만 — 9/11). 대기 건만 거둔다.
+    const note = approved ? "" : "";
     const ask = mine
       ? "내 휴가 신청을 취소할까요?"   // 본인 건은 알림이 가지 않는다
       : `${who}님의 휴가 신청을 취소할까요?${note}\n\n취소하면 신청자에게 알림이 갑니다.`;
@@ -708,8 +714,8 @@ export default function ManagerApprovalsPage() {
             </Card>
           )}
         </TabsContent>
-        {/* 휴가 내역 탭 — 진행 중·승인된 담당 지점 휴가. 결재함에서 빠진 건(내가 승인해 넘긴 건,
-            원장 선에서 최종 승인된 1일 휴가)을 여기서 취소한다. 버튼은 서버 판정(canCancel)으로만 */}
+        {/* 휴가 내역 탭 — 진행 중·예정 휴가. 결재함에서 빠진 대기 건(내가 승인해 넘긴 건)을 여기서 거둔다.
+            승인된 휴가는 본인의 취소 결재로만(9/11). 버튼은 서버 판정(canCancel)으로만 */}
         <TabsContent value="history" className="space-y-6 mt-6">
           {historyLoading ? (
             <Card>
@@ -787,7 +793,7 @@ export default function ManagerApprovalsPage() {
                                 variant="ghost"
                                 className="text-gray-500 hover:bg-gray-100"
                                 disabled={processingId === req.id}
-                                title={approved ? "취소하면 차감된 연차가 되돌아갑니다" : "신청 자체를 거둡니다"}
+                                title="신청 자체를 거둡니다"
                                 onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id)}
                               >
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}

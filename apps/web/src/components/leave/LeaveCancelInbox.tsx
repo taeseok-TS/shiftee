@@ -90,7 +90,8 @@ export default function LeaveCancelInbox({
     const dateMatch = !searchDate || c.leaveRequest.startDate.includes(searchDate) || c.leaveRequest.endDate.includes(searchDate);
     return nameMatch && dateMatch;
   }), [rows, searchName, searchDate]);
-  useEffect(() => { onCount?.(filtered.length); }, [filtered.length, onCount]);
+  // 로딩 중에는 올리지 않는다 — 탭 숫자가 잠깐 0 으로 보였다(9/11 검증)
+  useEffect(() => { if (!loading) onCount?.(filtered.length); }, [loading, filtered.length, onCount]);
 
   const decide = async (cancelId: string, action: "approve" | "reject", reason?: string) => {
     try {
@@ -104,7 +105,11 @@ export default function LeaveCancelInbox({
       if (!res.ok) { toast.error(data.error || "처리하지 못했습니다"); return; }
       toast.success(action === "reject"
         ? "취소 요청을 반려했습니다 — 휴가는 그대로 유지됩니다"
-        : data.final ? "휴가를 취소하고 연차를 복구했습니다" : "승인했습니다 — 다음 결재자에게 넘어갑니다");
+        : data.final
+          ? (data.restoredDays > 0
+              ? `휴가를 취소하고 연차 ${data.restoredDays}일을 복구했습니다`
+              : "휴가를 취소했습니다 (복구할 연차 없음 — 연차 차감 유형이 아니거나 잔여 기록이 없습니다)")
+          : "승인했습니다 — 다음 결재자에게 넘어갑니다");
       setRejectId(null);
       setRejectReason("");
       await load();

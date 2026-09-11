@@ -37,6 +37,10 @@ const ACTION_LABEL: Record<string, string> = {
   BRANCH_RENAME: "지점명 변경",
   BRANCH_MAIN_MANAGER: "메인 원장 변경",
   LEAVE_CANCEL: "휴가 취소",
+  LEAVE_CANCEL_REQUEST: "휴가 취소 요청",
+  LEAVE_CANCEL_DECISION: "휴가 취소 결재",
+  LEAVE_CANCEL_WITHDRAW: "휴가 취소 요청 철회",
+  LEAVE_CANCEL_EXPIRE: "휴가 취소 요청 기한 만료",
   SCHEDULE_CANCEL: "근무일정 신청 취소",
   ATTENDANCE_AUTO_CLOSE: "전일 미마감 자동 마감",
 };

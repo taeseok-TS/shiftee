@@ -418,7 +418,9 @@ export default function AdminDashboardPage() {
                       className="border-b hover:bg-gray-50 cursor-pointer"
                       onClick={() =>
                         window.location.href =
-                          approval.type === "contract" ? "/admin/contract-approvals" : "/admin/leave-approvals"
+                          approval.type === "contract" ? "/admin/contract-approvals"
+                            : approval.type === "leaveCancel" ? "/admin/leave-approvals?tab=cancel"
+                            : "/admin/leave-approvals"
                       }
                     >
                       <td className="px-4 py-3 font-medium">{approval.title}</td>

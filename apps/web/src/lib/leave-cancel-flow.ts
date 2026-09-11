@@ -1,6 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOf } from "@/lib/leave-calc";
+import { prisma } from "@/lib/db";
+import { kstTodayMidnight } from "@/lib/resign";
+import { logAudit } from "@/lib/audit";
 
 /**
  * 승인된 휴가의 **취소 결재** — 최종 승인 처리와 결재함 조건을 한 곳에 둔다.
@@ -63,10 +66,20 @@ export async function applyLeaveCancel(
  * (9/9 대시보드 숫자가 결재함과 어긋났던 교훈). 휴가 결재함(my-approvals)과 같은 규칙:
  * 본인 요청 제외 · 관리자는 대기 중인 모든 단계 · 원장은 못박힌 단계 또는 담당 지점의 미지정 단계.
  */
-export function cancelStepWhere(session: { userId: string; role: string }, myBranches: string[]) {
+export function cancelStepWhere(
+  session: { userId: string; role: string },
+  myBranches: string[],
+  today: Date = kstTodayMidnight()
+) {
   return {
     status: "PENDING" as const,
-    cancelRequest: { userId: { not: session.userId }, status: "PENDING" as const },
+    // 휴가 첫날부터는 승인할 수 없으니 결재함·숫자에서도 뺀다(9/11 디렉터 "시작일부터 승인 막기").
+    // 남은 요청은 봇이 매시 기한 만료로 닫는다(expireStaleCancelRequests).
+    cancelRequest: {
+      userId: { not: session.userId },
+      status: "PENDING" as const,
+      leaveRequest: { startDate: { gt: today } },
+    },
     ...(session.role === "ADMIN"
       ? {}
       : {
@@ -91,3 +104,54 @@ export const LEAVE_TYPE_LABEL: Record<string, string> = {
 };
 
 export const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
+
+const EXPIRE_REASON = "기한 만료 — 휴가 시작 전까지 결재가 끝나지 않았습니다";
+
+/**
+ * 휴가 첫날이 되도록 끝나지 않은 취소 결재를 **기한 만료**로 닫는다(9/11 디렉터 "시작일부터 승인 막기").
+ * 봇이 매시 1회 부른다. 결재 라우트가 시작일부터 승인을 막으므로(최종 방어) 이건 결재함·신청자 화면 정리다.
+ * 휴가는 그대로 유지된다 — 정정이 필요하면 관리자 "잔여 조정".
+ * ⚠ 조회(GET)에서 부르지 말 것 — 무중단 배포의 프록시가 GET 을 재시도하므로 GET 은 순수해야 한다.
+ */
+export async function expireStaleCancelRequests(): Promise<number> {
+  const today = kstTodayMidnight();
+  const stale = await prisma.leaveCancelRequest.findMany({
+    where: { status: "PENDING", leaveRequest: { startDate: { lte: today } } },
+    include: {
+      user: { select: { name: true } },
+      leaveRequest: { select: { id: true, type: true, startDate: true, endDate: true } },
+    },
+    take: 200,
+  });
+  let closed = 0;
+  for (const cr of stale) {
+    let done = false;
+    await prisma.$transaction(async (tx) => {
+      // 결재자가 같은 순간 처리해도 한쪽만 성립한다(조건부)
+      const r = await tx.leaveCancelRequest.updateMany({
+        where: { id: cr.id, status: "PENDING" },
+        data: { status: "REJECTED", rejectedReason: EXPIRE_REASON },
+      });
+      if (r.count === 0) return;
+      done = true;
+      await tx.leaveCancelStep.updateMany({
+        where: { cancelRequestId: cr.id, status: { in: ["PENDING", "WAITING"] } },
+        data: { status: "REJECTED", comment: "기한 만료", decidedAt: new Date() },
+      });
+    });
+    if (!done) continue;
+    closed++;
+    const period = `${ymdOf(cr.leaveRequest.startDate)} ~ ${ymdOf(cr.leaveRequest.endDate)}`;
+    await logAudit({
+      actorId: "cubetee-bot", actorName: "큐브티 봇", action: "LEAVE_CANCEL_EXPIRE",
+      targetType: "LEAVE", targetId: cr.leaveRequest.id, targetName: cr.user?.name ?? null,
+      detail: `휴가 취소 요청 기한 만료 — 휴가 시작 전까지 결재가 끝나지 않음 (${period})`,
+    }).catch(() => {});
+    const { botSendDM } = await import("@/lib/bot");   // bot.ts 가 이 파일을 부르므로 순환을 피한다
+    botSendDM(
+      cr.userId,
+      `⏰ 휴가 취소 요청이 기한 만료로 닫혔습니다.\n\n${LEAVE_TYPE_LABEL[cr.leaveRequest.type] || cr.leaveRequest.type} ${period}\n휴가 시작 전까지 결재가 끝나지 않아 휴가는 그대로 유지됩니다. 연차 정정이 필요하면 관리자에게 요청해주세요.`
+    ).catch(() => {});
+  }
+  return closed;
+}

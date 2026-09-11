@@ -43,6 +43,9 @@ export async function GET() {
       }),
     ]);
 
+  // 내가 올린 휴가 취소 결재(대기)도 "내가 신청한 대기 결재"에 넣는다 — 결재자 쪽 숫자와 짝(9/11)
+  const pendingLeaveCancel = await prisma.leaveCancelRequest.count({ where: { userId: session.userId, status: "PENDING" } });
+
   const monthMinutes = monthAttendance.reduce((acc, r) => {
     if (!r.clockIn || !r.clockOut) return acc;
     return acc + Math.max(0, (new Date(r.clockOut).getTime() - new Date(r.clockIn).getTime()) / 60000);
@@ -51,7 +54,7 @@ export async function GET() {
   return NextResponse.json({
     leaveRemaining: balance?.remaining ?? 15,
     pendingContracts,
-    pendingApprovals: pendingLeave + pendingSchedule,
+    pendingApprovals: pendingLeave + pendingSchedule + pendingLeaveCancel,
     monthWorkHours: Math.round((monthMinutes / 60) * 10) / 10,
   });
 }
