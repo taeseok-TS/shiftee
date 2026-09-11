@@ -112,7 +112,7 @@ export default function ManagerContractsPage() {
   // 저장된 결재 서명 — 있으면 원클릭 승인
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
-  const [saveAsDefault, setSaveAsDefault] = useState(true);
+  const [saveAsDefault, setSaveAsDefault] = useState(false); // 기본 해제 — 체크한 사람만 저장(#205-2, 2026-09-11)
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {

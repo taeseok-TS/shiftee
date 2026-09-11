@@ -238,7 +238,7 @@ export default function ContractsPage() {
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
   const [mySigUrl, setMySigUrl] = useState(""); // 저장된 내 서명 (재사용, 개선 제안 #75)
-  const [saveSig, setSaveSig] = useState(true); // 서명 후 저장 여부
+  const [saveSig, setSaveSig] = useState(false); // 서명 후 저장 여부 — 기본 해제(#205-2, 2026-09-11)
   const [drawNewSig, setDrawNewSig] = useState(false); // 저장 서명 대신 새로 그리기 (#127 — 저장 서명이 기본)
   const [previewZoom, setPreviewZoom] = useState(false); // 미리보기 클릭 확대 (개선 제안 #73)
   const [previewLoading, setPreviewLoading] = useState(true); // 미리보기 로딩 표시 (#179)
@@ -781,11 +781,17 @@ export default function ContractsPage() {
   }
 
   const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
+  // 근로자 본인 서명 — 비밀번호 재확인 + 매번 직접 서명(#205-1·#205-2, 2026-09-11 디렉터). 결재자 서명은 지금처럼.
+  const [signPassword, setSignPassword] = useState("");
+  const isEmpSign = !!signTarget && signTarget.userId === myId;
+  useEffect(() => { if (!signOpen) setSignPassword(""); }, [signOpen]);
   async function handleSign(id: string, isApprover = false) {
     if (signSubmitting) return;
-    // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1)
-    const useSaved = !!mySigUrl && !drawNewSig;
+    // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1).
+    // 근로자 본인 서명은 저장 서명을 쓰지 않는다(#205-2 — 서버도 막는다)
+    const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
     if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
+    if (isEmpSign && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
     if (missingProfile.length) {
@@ -826,7 +832,7 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { password: signPassword } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -1876,7 +1882,7 @@ export default function ContractsPage() {
                     </>
                   )}
                   {/* 저장된 서명이 있으면 기본으로 표시, 새로 그리기는 선택 (#127) */}
-                  {mySigUrl && !drawNewSig ? (
+                  {!isEmpSign && mySigUrl && !drawNewSig ? (
                     <div className="space-y-2">
                       <Label>저장된 내 서명</Label>
                       <div className="border rounded-lg bg-white p-2 flex items-center justify-center h-24">
@@ -1897,6 +1903,15 @@ export default function ContractsPage() {
                       이 서명을 저장해두고 다음 서명 때 재사용
                     </label>
                   </div>
+                  )}
+                  {/* 본인 확인 — 근로자 본인 서명만(#205-1). 결재자 서명은 지금처럼 */}
+                  {isEmpSign && (
+                    <div className="space-y-1">
+                      <Label>본인 확인 — 비밀번호 *</Label>
+                      <Input type="password" autoComplete="current-password" value={signPassword}
+                        onChange={e => setSignPassword(e.target.value)} placeholder="로그인 비밀번호" />
+                      <p className="text-[11px] text-gray-400">본인이 직접 서명하는지 확인합니다. 비밀번호는 저장되지 않습니다.</p>
+                    </div>
                   )}
                   {/* 스크롤해도 항상 보이도록 하단에 붙인다 (#196) */}
                   <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">

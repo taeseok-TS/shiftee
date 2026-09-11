@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
+import { isValidMobile } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
 import type { Contract } from "@shiftee/api";
 import fs from "fs/promises";
@@ -219,6 +220,11 @@ export async function PATCH(
         : "이미 서명한 사람이 있어, 저장하면 서명이 모두 초기화되고 1단계부터 다시 받습니다(옛 서명 기록은 이력에 남습니다). 저장할까요?",
     }, { status: 409 });
 
+  // 외부 계약은 휴대폰 번호가 있어야 보낸다(디렉터 9/11) — 게스트 링크 본인 확인이 이 번호로 한다.
+  // 작성 때 필수로 받지만 옛 계약·직접 호출에 대비한 안전망(2026-09-11 기준 운영 외부 계약은 모두 번호 있음).
+  if ((status === "SENT" || needsReset) && contract.externalName && !isValidMobile(contract.externalPhone))
+    return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
+
   if (fieldSummary && contentChanged) {
     if (contract.templateId && !newFileUrl) {
       const tmpl = await prisma.contractTemplate.findUnique({
@@ -246,10 +252,9 @@ export async function PATCH(
 
   // 계약서 내용이 변경되면 버전 저장 (title, type, startDate, endDate, 입력 필드 중 하나라도 변경)
   // 실제로 바뀐 경우에만 — 종전에는 화면이 제목을 늘 보내서 저장할 때마다 빈 버전이 쌓였다(#206 조사)
-  if (contentChanged && contract.version) {
-    // 현재 상태를 버전으로 저장
-    await prisma.contractVersion.create({
-      data: {
+  // 버전 스냅숏·증가는 아래 트랜잭션 안(재판정 뒤)에서 한다(#206 검증 D4) — 충돌로 되돌아가도 빈 버전이 남지 않고,
+  // 버전과 바뀐 문서가 **함께** 커밋된다(버전만 먼저 오르면 "새 버전 + 옛 문서"를 받은 화면의 서명이 통과했다).
+  const versionSnapshot = contentChanged && contract.version ? {
         contractId: id,
         version: contract.version,
         fileUrl: contract.fileUrl,
@@ -259,15 +264,7 @@ export async function PATCH(
         startDate: contract.startDate,
         endDate: contract.endDate,
         createdBy: session.userId,
-      },
-    });
-
-    // 버전 증가
-    await prisma.contract.update({
-      where: { id },
-      data: { version: { increment: 1 } },
-    });
-  }
+  } : null;
 
   // 발송(SENT) 상태로 변경 시 또는 승인라인을 추가/업데이트할 때
   if ((status === "SENT" || approverIds) && approverIds && approverIds.length > 0) {
@@ -372,6 +369,8 @@ export async function PATCH(
         if (n > 0 || cur?.employeeSignedAt) { conflict = "SIGNED"; throw new Error("CONTRACT_CHANGED"); }
       }
     }
+    // 버전 스냅숏 — 재판정을 통과한 뒤, 내용 갱신과 같은 트랜잭션에서(#206 검증 D4)
+    if (versionSnapshot) await tx.contractVersion.create({ data: versionSnapshot });
     if (needsReset) {
       resetSigners = (await resetApprovalInPlace(tx, id, session.userId,
         contract.status === "REJECTED" ? "반려된 계약을 수정해 다시 발송" : "서명 후 내용 수정")).signers;
@@ -380,6 +379,7 @@ export async function PATCH(
     where: { id },
     data: {
       ...(status ? { status } : needsReset ? { status: "SENT" as const } : {}),
+      ...(versionSnapshot ? { version: { increment: 1 } } : {}),
       ...(title ? { title } : {}),
       ...(type ? { type } : {}),
       ...(startDate ? { startDate: new Date(startDate) } : {}),

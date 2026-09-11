@@ -60,6 +60,7 @@ export default function ContractDetailScreen() {
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
+  const [signPw, setSignPw] = useState(""); // 본인 확인 비밀번호 — 근로자 본인 서명(#205-1)
 
   async function submitReject() {
     const reason = rejectReason.trim();
@@ -93,10 +94,14 @@ export default function ContractDetailScreen() {
 
   // 서명 패드에서 확인 → base64(data:image/png) 전달됨
   const handleSignature = async (sig: string) => {
+    // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
+    if (!signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     setShowSign(false);
     setSigning(true);
     try {
-      await api.signContract(id, sig);
+      // 연 문서의 버전을 함께 보낸다 — 그 사이 관리자가 고쳤으면 서버가 거절한다(#206 검증 F2)
+      await api.signContractAsEmployee(id, sig, signPw, undefined, (contract as { version?: number } | null)?.version);
+      setSignPw("");
       Alert.alert("완료", "서명이 제출되었습니다.");
       await load();
     } catch (error: any) {
@@ -309,6 +314,20 @@ export default function ContractDetailScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.modalHint}>손가락으로 아래 영역에 서명한 뒤 '확인'을 누르세요.</Text>
+          {/* 본인 확인 — 근로자 본인 서명은 비밀번호를 다시 확인한다(#205-1, 2026-09-11) */}
+          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>본인 확인 — 로그인 비밀번호</Text>
+            <TextInput
+              value={signPw}
+              onChangeText={setSignPw}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="비밀번호"
+              placeholderTextColor="#9ca3af"
+              style={{ borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, backgroundColor: "#fff" }}
+            />
+          </View>
           <View style={styles.padWrap}>
             <SignatureScreen
               ref={sigRef}

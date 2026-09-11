@@ -88,7 +88,8 @@ export default function ContractListScreen() {
   // 저장된 결재 서명 — 있으면 원클릭 승인 (본인 계약 서명은 항상 직접 그림)
   const [mySigUrl, setMySigUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
-  const [saveSigDefault, setSaveSigDefault] = useState(true);
+  const [saveSigDefault, setSaveSigDefault] = useState(false); // 기본 해제 — 체크한 결재자만 저장(#205-2, 2026-09-11)
+  const [signPw, setSignPw] = useState(""); // 근로자 본인 서명 비밀번호 재확인(#205-1)
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
@@ -104,6 +105,8 @@ export default function ContractListScreen() {
   const empFieldType = (f: string): "check" | "confirm" | "date" | "text" =>
     f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : isEmpDateField(f) ? "date" : "text";
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
+  // 근로자 본인 서명(내 계약의 내 차례) — 비밀번호 재확인·직접 서명(#205-1·#205-2). 외부 계약은 소유자가 작성 관리자라 제외
+  const isOwnSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
 
   useEffect(() => {
     loadContracts();
@@ -133,6 +136,8 @@ export default function ContractListScreen() {
   const handleApproveSignature = async (sig: string) => {
     if (!signTarget) return;
     const id = signTarget.id;
+    // 연 문서의 버전 — 그 사이 관리자가 고쳤으면 서버가 거절한다(#206 검증 F2)
+    const ver: number | undefined = typeof signTarget.version === "number" ? signTarget.version : undefined;
     const hasConsent = consentKeys.length > 0;
     const choices = { ...consentChoices };
     // 프로필 미입력 검증
@@ -166,20 +171,29 @@ export default function ContractListScreen() {
         fields[f] = v;
       }
     }
+    // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
+    const own = isOwnSign;
+    if (own && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    const ownPw = signPw;
     setSignTarget(null);
     setSigning(true);
     try {
-      if (hasConsent || profile || fields) {
-        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields);
+      if (own) {
+        await api.signContractAsEmployee(id, sig, ownPw, { consent: hasConsent ? choices : undefined, profile, fields }, ver);
+        if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
+        setSignPw("");
+      } else if (hasConsent || profile || fields) {
+        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields, ver);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
       } else if (signTarget.userId !== myId && saveSigDefault) {
         // 결재자(원장·본부)가 그린 서명 — 기본 서명으로 저장해 다음부터 원클릭
-        await api.signContractAndSave(id, sig);
+        await api.signContractAndSave(id, sig, ver);
         api.getMyProfile().then(p => setMySigUrl(p.signatureUrl || null)).catch(() => {});
       } else {
-        await api.signContract(id, sig, true);
+        // 공유 클라이언트(signContract)는 헤더를 못 실어 같은 요청을 직접 보낸다 — 버전 헤더(#206 검증 F2)
+        await api.signContractWithConsent(id, sig, true, undefined, undefined, undefined, ver);
       }
-      Alert.alert("완료", "결재를 승인했습니다.");
+      Alert.alert("완료", own ? "서명을 제출했습니다." : "결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
       Alert.alert("오류", error?.response?.data?.error || "결재 처리에 실패했습니다.");
@@ -192,10 +206,11 @@ export default function ContractListScreen() {
   const handleApproveSaved = async () => {
     if (!signTarget) return;
     const id = signTarget.id;
+    const ver: number | undefined = typeof signTarget.version === "number" ? signTarget.version : undefined; // #206 검증 F2
     setSignTarget(null);
     setSigning(true);
     try {
-      await api.signContractSaved(id);
+      await api.signContractSaved(id, ver);
       Alert.alert("완료", "저장된 서명으로 결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
@@ -270,7 +285,7 @@ export default function ContractListScreen() {
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -475,6 +490,14 @@ export default function ContractListScreen() {
                       </View>
                     );
                   })}
+                </View>
+              )}
+              {/* 본인 확인 — 근로자 본인 서명만(#205-1). 결재자 서명은 지금처럼 */}
+              {isOwnSign && (
+                <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
+                  <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>
+                  <TextInput style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                    autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />
                 </View>
               )}
               {signTarget && signTarget.userId !== myId && mySigUrl && !drawNewSig ? (

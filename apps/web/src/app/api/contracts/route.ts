@@ -8,6 +8,7 @@ import path from "path";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 import { CONTRACT_STATUSES, CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
+import { isValidMobile } from "@/lib/external-verify";
 
 export async function GET(request: NextRequest) {
   try {
@@ -173,6 +174,9 @@ export async function POST(request: NextRequest) {
     const effectiveUserId = externalName ? session.userId : userId;
     if (externalName && session.role !== "ADMIN")
       return NextResponse.json({ error: "외부 계약은 관리자만 작성할 수 있습니다." }, { status: 403 });
+    // 외부 계약은 휴대폰 번호 필수(디렉터 9/11) — 게스트 서명 링크의 본인 확인(뒷자리 4자리)이 이 번호로 한다
+    if (externalName && !isValidMobile(externalPhone))
+      return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
 
     // 템플릿 없을 때는 파일 필수, 템플릿 있을 때는 파일 불필수
     if ((files.length === 0 && !templateId) || !effectiveUserId || !title || !type)

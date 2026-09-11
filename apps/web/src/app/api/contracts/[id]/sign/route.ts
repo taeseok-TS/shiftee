@@ -8,6 +8,71 @@ import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/cont
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
+import bcrypt from "bcryptjs";
+import type { Prisma } from "@prisma/client";
+import { lockSteps } from "@/lib/contract-reset";
+
+// 본인 서명 비밀번호 확인 — 틀린 횟수 제한(5번 → 15분 잠금). 로그인과 다른 경로라 여기서도 막는다.
+// globalThis 싱글턴(개발 핫리로드에도 한 벌). 서버 1대라 프로세스 메모리로 충분하다.
+const gpw = globalThis as unknown as { __signPwFails?: Map<string, { count: number; until: number }> };
+const pwFails = (gpw.__signPwFails ??= new Map<string, { count: number; until: number }>());
+const pwLockedUntil = (u: string) => { const f = pwFails.get(u); return f && f.until > Date.now() ? f.until : 0; };
+const pwFail = (u: string) => {
+  const f = pwFails.get(u) ?? { count: 0, until: 0 };
+  f.count += 1;
+  if (f.count >= 5) { f.until = Date.now() + 15 * 60 * 1000; f.count = 0; }
+  pwFails.set(u, f);
+};
+
+// 서명 확정 실패 사유 — 409 로 돌려준다
+type SignFail = "DOC_CHANGED" | "STEP_CHANGED";
+const SIGN_FAIL: Record<SignFail, string> = {
+  DOC_CHANGED: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요.",
+  STEP_CHANGED: "이미 처리됐거나 결재가 다시 시작된 문서입니다. 화면을 새로 고친 뒤 다시 확인해 주세요.",
+};
+
+/**
+ * 서명 확정 — 찜(조건부) + 다음 단계 + 계약 갱신을 **한 트랜잭션**으로(#206 검증 D1).
+ * 찜만 따로 커밋하면 그 틈에 관리자의 제자리 초기화가 끼어들어, 뒤따르는 "다음 단계 PENDING·계약 APPROVED/SIGNED"가
+ * 초기화된 결재 위에 덮였다(1·3단계 동시 대기, 서명 없는 완료). 단계 행을 먼저 잠그고(수정 저장·초기화·반려와 같은
+ * 순서: 단계 → 계약) 그 안에서 문서 버전을 다시 본다 — 버전 증가도 수정 저장 트랜잭션 안에서 일어나 둘은 겹치지 않는다.
+ */
+async function commitSign(
+  id: string, stepId: string, nextStepId: string | null, signatureUrl: string, seenVersion: number,
+  data: Prisma.ContractUpdateInput
+) {
+  let fail = null as SignFail | null;
+  const contract = await prisma.$transaction(async (tx) => {
+    await lockSteps(tx, id);
+    if (Number.isFinite(seenVersion)) {
+      const fresh = await tx.contract.findUnique({ where: { id }, select: { version: true } });
+      if (fresh && fresh.version !== seenVersion) { fail = "DOC_CHANGED"; throw new Error(fail); }
+    }
+    const claimed = await tx.contractApprovalStep.updateMany({
+      where: { id: stepId, status: "PENDING" },
+      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
+    });
+    if (claimed.count === 0) { fail = "STEP_CHANGED"; throw new Error(fail); }
+    if (nextStepId) {
+      // 다음 단계는 아직 대기(WAITING)일 때만 차례로 올린다 — 그 사이 결재선이 바뀌었으면 확정하지 않는다
+      const moved = await tx.contractApprovalStep.updateMany({
+        where: { id: nextStepId, status: { in: ["WAITING", "PENDING"] } },
+        data: { status: "PENDING" },
+      });
+      if (moved.count === 0) { fail = "STEP_CHANGED"; throw new Error(fail); }
+    }
+    return tx.contract.update({
+      where: { id },
+      data,
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        approvalLine: { include: { steps: { include: { approver: { select: { id: true, name: true, email: true, role: true } } } } } },
+      },
+    });
+  }).catch((e) => { if (fail) return null; throw e; });
+  if (!contract) return { ok: false as const, code: (fail ?? "STEP_CHANGED") as SignFail };
+  return { ok: true as const, contract };
+}
 
 // 손글씨 서명(dataURL PNG)을 파일로 저장하고 URL 반환
 async function saveSignature(dataUrl: string): Promise<string | null> {
@@ -30,8 +95,40 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault } = body;
-  // 저장된 본인 서명 사용 — 매번 그리지 않고 재사용 (직원 포함, 개선 제안 #75)
+  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault, password } = body;
+
+  const contract = await prisma.contract.findUnique({
+    where: { id },
+    include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: true } } } } },
+  });
+
+  if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+
+  // ── 근로자 본인 서명 단계 (#205-1·#205-2, 2026-09-11 디렉터 결정) ──
+  // 로그인만 돼 있으면 선 하나로 서명이 통과됐다(이예지대리 #205-1). 근로자 본인 서명은 **비밀번호를 다시 확인**하고
+  // **매번 직접 그린 서명**만 받는다 — 저장 서명이 자동으로 쓰이면 "문서를 보지 못했다"는 다툼이 생긴다(#205-2).
+  // 결재자(원장·본부) 서명은 지금처럼(저장 서명·원클릭 유지). 외부 계약자는 게스트 링크의 연락처 뒷자리 확인으로.
+  // ⚠ 서명 이미지 저장·기본 서명 갱신보다 **먼저** 본다 — 종전에는 권한 판정 전에 파일부터 썼다.
+  //   응답은 401 이 아니라 400/429 — 앱은 401 을 "로그인 만료"로 보고 로그아웃시킨다.
+  const pendingMine = contract.approvalLine?.steps.find((st) => st.approverId === session.userId && st.status === "PENDING");
+  const isEmployeeSignStep = !!pendingMine && pendingMine.approverId === contract.userId && !contract.externalName;
+  if (isEmployeeSignStep) {
+    if (useSaved)
+      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. 직접 서명해 주세요." }, { status: 400 });
+    const lock = pwLockedUntil(session.userId);
+    if (lock)
+      return NextResponse.json({ code: "PASSWORD_LOCKED", error: `비밀번호를 여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도해 주세요.` }, { status: 429 });
+    if (typeof password !== "string" || !password)
+      return NextResponse.json({ code: "PASSWORD_REQUIRED", error: "본인 확인을 위해 비밀번호를 입력해 주세요." }, { status: 400 });
+    const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { password: true } });
+    if (!me?.password || !(await bcrypt.compare(password, me.password))) {
+      pwFail(session.userId);
+      return NextResponse.json({ code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." }, { status: 400 });
+    }
+    pwFails.delete(session.userId);
+  }
+
+  // 저장된 본인 서명 사용 — **결재자만**(근로자 본인 서명은 위에서 막았다) (개선 제안 #75)
   let signatureUrl: string | null = null;
   if (useSaved) {
     const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { signatureUrl: true } });
@@ -43,13 +140,6 @@ export async function POST(
     try { await prisma.user.update({ where: { id: session.userId }, data: { signatureUrl } }); }
     catch (e) { console.error("기본 서명 저장 오류:", e); }
   }
-
-  const contract = await prisma.contract.findUnique({
-    where: { id },
-    include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: true } } } } },
-  });
-
-  if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
   // 문서 버전 묶기(#206 검증 F2) — 서명 창을 연 뒤 관리자가 내용을 고쳤으면(버전이 올라감) 옛 화면에서 누른 서명을
   // 받지 않는다. 화면이 x-doc-version 을 보낼 때만 본다(구버전 앱은 안 보낸다 — 그때는 종전 동작).
@@ -127,10 +217,14 @@ export async function POST(
           extraFields: merged,
         });
         const newUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
-        await prisma.contract.update({
-          where: { id },
+        // **버전이 그대로일 때만** 쓴다(#206 검증 D3) — 재생성(약 1초) 사이 관리자가 내용을 고쳤으면(버전 증가)
+        // 옛 입력으로 만든 문서가 새 문서를 덮게 두지 않는다.
+        const w = await prisma.contract.updateMany({
+          where: { id, version: contract.version },
           data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged) },
         });
+        if (w.count === 0)
+          return NextResponse.json({ code: "DOC_CHANGED", error: SIGN_FAIL.DOC_CHANGED }, { status: 409 });
       }
     } catch (e) {
       console.error("서명 시 문서 재생성 오류:", e);
@@ -151,48 +245,15 @@ export async function POST(
       return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
     }
 
-    // 현재 단계(직원 서명)를 APPROVED로 변경
-    // 조건부로 찜한다(#206 검증 F2) — 결재가 초기화·반려·재발송된 뒤 늦게 도착한 서명이 조용히 성공하지 않게.
-    // 버전도 한 번 더 본다 — 위 확인과 여기 사이에 수정이 끼었을 수 있다(서명 시 문서 재생성은 1초 가까이 걸린다).
-    if (Number.isFinite(seenVersion)) {
-      const fresh = await prisma.contract.findUnique({ where: { id }, select: { version: true } });
-      if (fresh && fresh.version !== seenVersion)
-        return NextResponse.json({ code: "DOC_CHANGED", error: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
-    }
-    const claimed = await prisma.contractApprovalStep.updateMany({
-      where: { id: myStep.id, status: "PENDING" },
-      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
-    });
-    if (claimed.count === 0)
-      return NextResponse.json({ code: "STEP_CHANGED", error: "이미 처리됐거나 결재가 다시 시작된 문서입니다. 화면을 새로 고친 뒤 다시 확인해 주세요." }, { status: 409 });
-
-    // 다음 단계가 있으면 PENDING으로 변경
+    // 서명 확정 — 찜·다음 단계·계약 갱신을 한 트랜잭션으로(#206 검증 D1, commitSign)
     const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
-    if (nextStep) {
-      await prisma.contractApprovalStep.update({
-        where: { id: nextStep.id },
-        data: { status: "PENDING" },
-      });
-    }
-
-    const updated = await prisma.contract.update({
-      where: { id },
-      data: {
-        employeeSignedAt: new Date(),
-        status: !nextStep ? "SIGNED" : "APPROVED",
-        signedAt: !nextStep ? new Date() : undefined,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        approvalLine: {
-          include: {
-            steps: {
-              include: { approver: { select: { id: true, name: true, email: true, role: true } } },
-            },
-          },
-        },
-      },
+    const r = await commitSign(id, myStep.id, nextStep?.id ?? null, signatureUrl, seenVersion, {
+      employeeSignedAt: new Date(),
+      status: !nextStep ? "SIGNED" : "APPROVED",
+      signedAt: !nextStep ? new Date() : undefined,
     });
+    if (!r.ok) return NextResponse.json({ code: r.code, error: SIGN_FAIL[r.code] }, { status: 409 });
+    const updated = r.contract;
 
     // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
     if (!nextStep) {
@@ -259,47 +320,14 @@ export async function POST(
     if (!signatureUrl) {
       return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
     }
-    // 현재 단계 승인으로 변경
-    // 조건부로 찜한다(#206 검증 F2) — 결재가 초기화·반려·재발송된 뒤 늦게 도착한 서명이 조용히 성공하지 않게.
-    // 버전도 한 번 더 본다 — 위 확인과 여기 사이에 수정이 끼었을 수 있다(서명 시 문서 재생성은 1초 가까이 걸린다).
-    if (Number.isFinite(seenVersion)) {
-      const fresh = await prisma.contract.findUnique({ where: { id }, select: { version: true } });
-      if (fresh && fresh.version !== seenVersion)
-        return NextResponse.json({ code: "DOC_CHANGED", error: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
-    }
-    const claimed = await prisma.contractApprovalStep.updateMany({
-      where: { id: myStep.id, status: "PENDING" },
-      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
-    });
-    if (claimed.count === 0)
-      return NextResponse.json({ code: "STEP_CHANGED", error: "이미 처리됐거나 결재가 다시 시작된 문서입니다. 화면을 새로 고친 뒤 다시 확인해 주세요." }, { status: 409 });
-
-    // 다음 단계가 있으면 PENDING으로, 없으면 계약 완료
+    // 서명 확정 — 찜·다음 단계·계약 갱신을 한 트랜잭션으로(#206 검증 D1, commitSign). 없으면 계약 완료
     const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
-    if (nextStep) {
-      await prisma.contractApprovalStep.update({
-        where: { id: nextStep.id },
-        data: { status: "PENDING" },
-      });
-    }
-
-    const finalContract = await prisma.contract.update({
-      where: { id },
-      data: {
-        status: !nextStep ? "SIGNED" : "APPROVED",
-        signedAt: !nextStep ? new Date() : undefined,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        approvalLine: {
-          include: {
-            steps: {
-              include: { approver: { select: { id: true, name: true, email: true, role: true } } },
-            },
-          },
-        },
-      },
+    const r = await commitSign(id, myStep.id, nextStep?.id ?? null, signatureUrl, seenVersion, {
+      status: !nextStep ? "SIGNED" : "APPROVED",
+      signedAt: !nextStep ? new Date() : undefined,
     });
+    if (!r.ok) return NextResponse.json({ code: r.code, error: SIGN_FAIL[r.code] }, { status: 409 });
+    const finalContract = r.contract;
 
     // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
     if (!nextStep) {

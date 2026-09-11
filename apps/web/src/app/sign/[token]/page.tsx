@@ -15,6 +15,8 @@ type Info = {
   state: "ready" | "waiting" | "done" | "expired" | "rejected";
   version?: number; // 문서 버전 — 제출 때 x-doc-version 으로 되돌려 보낸다(#206 검증 F2)
   fileTicket?: string | null; // 게스트 파일 접근 티켓 — 뷰어 URL 에 ?t= 로 부착
+  needVerify?: boolean;       // 본인 확인(연락처 뒷자리) 전 — 문서 대신 확인 화면(#205-1)
+  phoneHint?: string | null;  // 안내용(앞 3자리만)
 };
 
 export default function ExternalSignPage({ params }: { params: Promise<{ token: string }> }) {
@@ -29,16 +31,40 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [consentUnique, setConsentUnique] = useState<"" | "동의" | "미동의">("");
   const [consentRecruit, setConsentRecruit] = useState<"" | "동의" | "미동의">("");
   const sigRef = useRef<SignaturePadHandle>(null);
+  // 본인 확인(#205-1) — 연락처 뒷자리 4자리를 맞히면 서버가 2시간짜리 증표를 준다. 증표로 다시 불러와야 문서가 열린다.
+  const [last4, setLast4] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyToken, setVerifyToken] = useState("");
 
-  useEffect(() => {
-    fetch(`/api/contracts/external-sign/${token}`)
+  const load = (vt?: string) =>
+    fetch(`/api/contracts/external-sign/${token}`, vt ? { headers: { "x-sign-verify": vt } } : undefined)
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) { setError(d.error || "링크를 확인할 수 없습니다."); return; }
         setInfo(d);
       })
       .catch(() => setError("네트워크 오류가 발생했습니다."));
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  async function verify() {
+    if (!/^\d{4}$/.test(last4)) { alert("연락처 뒷자리 4자리를 입력해주세요."); return; }
+    setVerifying(true);
+    try {
+      const res = await fetch(`/api/contracts/external-sign/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", last4 }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(d.error || "확인에 실패했습니다."); return; }
+      setVerifyToken(d.verifyToken);
+      await load(d.verifyToken);
+    } finally { setVerifying(false); }
+  }
 
   async function submit() {
     if (info?.consentDoc) {
@@ -48,7 +74,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     if (!sigRef.current || sigRef.current.isEmpty()) { alert("서명을 입력해주세요."); return; }
     setSubmitting(true);
     try {
-      const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL() };
+      const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL(), verifyToken };
       if (info?.consentDoc) {
         body.consent = {
           동의필수: "동의",
@@ -129,6 +155,24 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
             ) : info.state === "waiting" ? (
               <div className="bg-white rounded-xl border p-6 text-center text-sm text-gray-500">
                 아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 이 링크에서 서명하실 수 있습니다.
+              </div>
+            ) : info.needVerify ? (
+              <div className="bg-white rounded-xl shadow-sm border p-5 space-y-3">
+                <p className="text-sm font-semibold">본인 확인</p>
+                <p className="text-xs text-gray-500">
+                  계약서를 보시기 전에, 담당자가 등록한 연락처{info.phoneHint ? ` (${info.phoneHint})` : ""}의 뒷자리 4자리를 입력해 주세요.
+                </p>
+                <div className="flex gap-2">
+                  <input inputMode="numeric" maxLength={4} value={last4} aria-label="연락처 뒷자리 4자리"
+                    onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === "Enter") verify(); }}
+                    className="w-32 border rounded-lg px-3 py-2 text-center tracking-widest" placeholder="0000" />
+                  <button type="button" onClick={verify} disabled={verifying || last4.length !== 4}
+                    className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-medium disabled:opacity-50">
+                    {verifying ? "확인 중..." : "확인"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">

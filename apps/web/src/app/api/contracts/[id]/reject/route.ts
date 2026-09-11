@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { lockSteps } from "@/lib/contract-reset";
 
 /**
  * 계약 반려 (2026-09-04, 디렉터 지시)
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let result;
   try {
     result = await prisma.$transaction(async (tx) => {
+    // 단계 행을 먼저 잠근다 — 수정 저장·서명 확정과 잠금 순서를 맞춰 교착을 막는다(#206 검증 D6)
+    await lockSteps(tx, id);
     // ⚠ 트랜잭션 밖에서 읽은 스냅샷을 믿고 id 로만 update 하면 /sign 과 경쟁한다.
     //   같은 사람이 두 탭에서 서명과 반려를 거의 동시에 누르면, 둘 다 PENDING 스냅샷을
     //   읽고 → 반려가 커밋된 뒤 서명이 옛 스냅샷으로 덮어써 **계약이 되살아나 완료까지

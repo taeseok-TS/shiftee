@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
+import { isValidMobile } from "@/lib/external-verify";
 
 // 폼.JSON 에서 온 문자열을 계약 종류로 확정한다. 단건 작성(app/api/contracts/route.ts)에는
 // 있는 검증이 여기만 빠져 `type: item.type as never` 로 그대로 DB 에 갔다 — 잘못된 값 하나에
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
   const userId = externalName ? session.userId : body.userId;
   if (!userId || !Array.isArray(items) || items.length === 0)
     return NextResponse.json({ error: "직원과 문서를 선택해주세요." }, { status: 400 });
+  // 외부 계약은 휴대폰 번호 필수(디렉터 9/11) — 게스트 서명 링크의 본인 확인이 이 번호로 한다
+  if (externalName && !isValidMobile(externalPhone))
+    return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
 
   const bundleId = `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   const created: string[] = [];

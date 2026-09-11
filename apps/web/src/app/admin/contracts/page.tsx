@@ -221,7 +221,7 @@ export default function ContractsPage() {
   // 저장된 결재 서명 — 있으면 원클릭 승인, 없으면 그린 서명을 저장해두고 다음부터 사용
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
-  const [saveAsDefault, setSaveAsDefault] = useState(true);
+  const [saveAsDefault, setSaveAsDefault] = useState(false); // 기본 해제 — 체크한 사람만 저장(#205-2, 2026-09-11)
   const [signZoom, setSignZoom] = useState(1); // 서명 모달 문서 확대·축소 0.75~2.0 (#160)
   // 문서 크게 보기 — 새 창 대신 그 자리에서 전체화면으로 (2026-09-02 이예지대리 재확인요청).
   // "새창으로 옮기는거 불편합니다" — 서명하다 창을 옮기면 하던 일이 끊긴다.
@@ -1567,8 +1567,9 @@ ${url}`;
                       <div className="space-y-1"><Label className="text-xs">이름 *</Label>
                         <Input placeholder="예: 홍길동" value={externalForm.name}
                           onChange={e => setExternalForm(p => ({ ...p, name: e.target.value }))} /></div>
-                      <div className="space-y-1"><Label className="text-xs">연락처 (링크 전달용)</Label>
-                        <Input placeholder="예: 010-1234-5678" value={externalForm.phone}
+                      {/* 필수(디렉터 9/11) — 서명 링크를 연 사람이 본인인지 이 번호의 뒷자리 4자리로 확인한다 */}
+                      <div className="space-y-1"><Label className="text-xs">휴대폰 번호 * <span className="text-gray-400 font-normal">(본인 확인·링크 전달용)</span></Label>
+                        <Input placeholder="예: 010-1234-5678" inputMode="tel" value={externalForm.phone}
                           onChange={e => setExternalForm(p => ({ ...p, phone: e.target.value }))} /></div>
                       <p className="text-[11px] text-violet-700">
                         발송하면 <b>서명 링크가 바로 표시</b>됩니다 — 복사하거나, 폰에서는 [문자로 보내기]로 전달하세요.

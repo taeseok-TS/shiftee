@@ -5,6 +5,7 @@ import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import { preserveDecidedSteps } from "@/lib/contract-reset";
+import { isValidMobile } from "@/lib/external-verify";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -32,6 +33,9 @@ export async function POST(
 
   // 외부 서명 단계는 외부 계약 패키지에서만 허용 (일반 패키지에 유입 시 User FK 500 방지)
   const isExternalBundle = contracts.some((c) => c.externalName);
+  // 외부 패키지는 휴대폰 번호가 있어야 보낸다(디렉터 9/11) — 게스트 링크 본인 확인이 이 번호로 한다(안전망)
+  if (contracts.some((c) => c.externalName && !isValidMobile(c.externalPhone)))
+    return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
   if (approverIds.includes("EXTERNAL") && !isExternalBundle)
     return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
   if (approverIds.filter((a) => a === "EXTERNAL").length > 1)

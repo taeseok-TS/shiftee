@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
+import { phoneHint, phoneLast4, issueExternalVerify, checkExternalVerify, lockedUntil, tryLast4 } from "@/lib/external-verify";
+import { lockSteps } from "@/lib/contract-reset";
 
 // 외부(미가입) 계약자 게스트 서명 — 로그인 없이 서명 링크 토큰으로 인증
 // 토큰은 발송 시 생성(64자 랜덤, 14일 유효), 해당 단계가 자기 차례(PENDING)일 때만 서명 가능
@@ -45,7 +47,7 @@ async function findBundleSiblings(bundleId: string | null, excludeId: string) {
 
 // 서명 페이지 초기 정보 — 계약 제목·문서·현재 상태 (+패키지 동반 문서)
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
@@ -69,8 +71,13 @@ export async function GET(
 
   // 문서는 서명 차례(ready)일 때만 노출 — 만료·완료 후 링크 유출로 계약서가 무기한 공개되는 것 방지
   const ready = state === "ready";
+  // 본인 확인(#205-1, 2026-09-11) — 연락처가 등록된 외부 계약은 **뒷자리 4자리를 맞혀야** 문서가 열린다.
+  // 링크가 전달 과정에서 다른 사람에게 가면 그 사람이 근로계약서를 열람·서명할 수 있었다(이예지대리 #206-3).
+  const needVerify = ready && !!phoneLast4(contract.externalPhone);
+  const verified = !needVerify || checkExternalVerify(step.id, request.headers.get("x-sign-verify"));
+  const open = ready && verified;
   const siblings = await findBundleSiblings(contract.bundleId, contract.id);
-  const documents = ready
+  const documents = open
     ? [
         { title: contract.title, fileUrl: firstFileUrl(contract.fileUrl) },
         ...siblings
@@ -88,13 +95,16 @@ export async function GET(
     version: contract.version,
     title: contract.title,
     externalName: step.externalName,
-    fileUrl: ready ? firstFileUrl(contract.fileUrl) : null,
+    fileUrl: open ? firstFileUrl(contract.fileUrl) : null,
     documents,
     // 게스트는 로그인이 없다 — 이 계약 파일에만 통하는 티켓을 준다 (2026-09-02)
-      fileTicket: ready ? issueUploadTicket(`c:${contract.id}`, 2 * 3600 * 1000) : null,
+      fileTicket: open ? issueUploadTicket(`c:${contract.id}`, 2 * 3600 * 1000) : null,
     // 개인정보동의서가 포함된 패키지면 게스트가 선택 항목 동의/미동의 선택 가능
-    consentDoc: ready && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
+    consentDoc: open && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
     state,
+    // 본인 확인 전이면 문서 대신 확인 화면 — 안내에는 앞 3자리만(뒷자리를 보여주면 확인이 무의미하다)
+    needVerify: needVerify && !verified,
+    phoneHint: needVerify && !verified ? phoneHint(contract.externalPhone) : null,
   });
 }
 
@@ -116,10 +126,27 @@ export async function POST(
   if (step.status !== "PENDING")
     return NextResponse.json({ error: "아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 서명할 수 있습니다." }, { status: 400 });
 
-  const { signatureData, consent } = (await request.json().catch(() => ({}))) as {
+  const { signatureData, consent, action, last4, verifyToken } = (await request.json().catch(() => ({}))) as {
     signatureData?: string;
     consent?: Record<string, string> | null; // 개인정보동의서 선택 항목 (동의고유식별/동의채용정보)
+    action?: string;      // "verify" — 본인 확인만 한다(#205-1)
+    last4?: string;       // 등록 연락처 뒷자리 4자리
+    verifyToken?: string; // 본인 확인 증표(2시간, 이 링크에만 유효)
   };
+
+  // ── 본인 확인 (#205-1) ── 서명 차례·만료 검사를 통과한 링크에서만. 틀린 시도는 5번에 30분 잠금.
+  const extPhone = step.approvalLine.contract.externalPhone;
+  if (action === "verify") {
+    if (!phoneLast4(extPhone)) return NextResponse.json({ verifyToken: issueExternalVerify(step.id) }); // 연락처 없는 옛 계약
+    const lock = lockedUntil(step.id);
+    if (lock)
+      return NextResponse.json({ code: "VERIFY_LOCKED", error: `여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도하거나 담당자에게 문의해 주세요.` }, { status: 429 });
+    if (!tryLast4(step.id, extPhone, String(last4 ?? "")))
+      return NextResponse.json({ code: "VERIFY_FAILED", error: "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
+    return NextResponse.json({ verifyToken: issueExternalVerify(step.id) });
+  }
+  if (phoneLast4(extPhone) && !checkExternalVerify(step.id, verifyToken))
+    return NextResponse.json({ code: "VERIFY_REQUIRED", error: "본인 확인이 필요합니다. 연락처 뒷자리를 먼저 입력해 주세요." }, { status: 403 });
   const m = /^data:image\/png;base64,(.+)$/.exec(signatureData || "");
   if (!m) return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
 
@@ -140,13 +167,43 @@ export async function POST(
   const seenRaw = request.headers.get("x-doc-version");
   if (seenRaw && Number(seenRaw) !== step.approvalLine.contract.version)
     return NextResponse.json({ code: "DOC_CHANGED", error: "서명 페이지를 연 뒤 문서가 수정됐습니다. 페이지를 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
-  const claimed = await prisma.contractApprovalStep.updateMany({
-    where: { id: step.id, status: "PENDING", approverId: null },
-    data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
-  });
-  if (claimed.count === 0)
-    return NextResponse.json({ code: "STEP_CHANGED", error: "이미 서명됐거나 결재가 다시 시작된 문서입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 409 });
   const nextStep = steps.find((s) => s.order === step.order + 1);
+  // 서명 확정 — 찜·다음 단계·계약 갱신을 한 트랜잭션으로(#206 검증 D1). 단계 행을 먼저 잠그고 그 안에서 버전을 다시 본다.
+  // 찜에는 **링크 토큰까지** 묶는다(D5) — 초기화는 단계 id 를 유지한 채 토큰만 새로 주므로, 옛 링크의 늦은 요청이
+  // 다시 대기가 된 단계에 들어가 바뀐 내용에 서명하지 못하게.
+  let signFail = null as "DOC_CHANGED" | "STEP_CHANGED" | null;
+  await prisma.$transaction(async (tx) => {
+    await lockSteps(tx, contractId);
+    if (seenRaw) {
+      const fresh = await tx.contract.findUnique({ where: { id: contractId }, select: { version: true } });
+      if (fresh && Number(seenRaw) !== fresh.version) { signFail = "DOC_CHANGED"; throw new Error(signFail); }
+    }
+    const claimed = await tx.contractApprovalStep.updateMany({
+      where: { id: step.id, status: "PENDING", approverId: null, signToken: token },
+      data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
+    });
+    if (claimed.count === 0) { signFail = "STEP_CHANGED"; throw new Error(signFail); }
+    if (nextStep) {
+      const moved = await tx.contractApprovalStep.updateMany({
+        where: { id: nextStep.id, status: { in: ["WAITING", "PENDING"] } },
+        data: { status: "PENDING" },
+      });
+      if (moved.count === 0) { signFail = "STEP_CHANGED"; throw new Error(signFail); }
+    }
+    await tx.contract.update({
+      where: { id: contractId },
+      data: {
+        employeeSignedAt: new Date(), // 외부 계약자 = 근로자 서명
+        status: !nextStep ? "SIGNED" : "APPROVED",
+        signedAt: !nextStep ? new Date() : undefined,
+      },
+    });
+  }).catch((e) => { if (!signFail) throw e; });
+  if (signFail === "DOC_CHANGED")
+    return NextResponse.json({ code: "DOC_CHANGED", error: "서명 페이지를 연 뒤 문서가 수정됐습니다. 페이지를 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
+  if (signFail === "STEP_CHANGED")
+    return NextResponse.json({ code: "STEP_CHANGED", error: "이미 서명됐거나 결재가 다시 시작된 문서입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 409 });
+  // 알림은 저장이 끝난 뒤에만
   // 발송 작성자(createdBy, 없으면 외부 계약 소유자=작성 관리자)에게 서명 진행 알림
   // (개선 제안 2026-08-25, 이예지대리). 마지막 단계면 아래 완료 알림이 대신한다 (#136)
   if (nextStep) {
@@ -160,7 +217,6 @@ export async function POST(
       creatorId,
       `✍️ 외부 계약자 서명 완료\n「${contract.title}」 — ${contract.externalName || "외부 계약자"} 님이 서명했습니다.\n확인: ${getAppUrl()}${contractPageLink(creatorRole)}`
     ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
-    await prisma.contractApprovalStep.update({ where: { id: nextStep.id }, data: { status: "PENDING" } });
     // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가
     // 자기 차례를 모르는 문제가 있었다 (QA 2026-08-25, 이예지대리)
     if (nextStep.approverId) {
@@ -175,15 +231,6 @@ export async function POST(
       ).catch((e) => console.error("[external-sign] 결재 DM 오류:", e));
     }
   }
-  await prisma.contract.update({
-    where: { id: contractId },
-    data: {
-      employeeSignedAt: new Date(), // 외부 계약자 = 근로자 서명
-      status: !nextStep ? "SIGNED" : "APPROVED",
-      signedAt: !nextStep ? new Date() : undefined,
-    },
-  });
-
   // 마지막 단계면 서명 완료본(서명+직인 포함) 생성 + 완료 알림 (#136)
   if (!nextStep) {
     try {

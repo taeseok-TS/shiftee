@@ -165,32 +165,57 @@ export async function markChannelRead(channelId: string) {
 
 // ─── 개인정보동의서 선택 항목 동의 포함 서명 (공유 클라이언트 미지원 → 직접 호출) ───
 import axios from "axios";
+// 문서 버전 묶기(#206 검증 F2, 2026-09-11) — 서명 창을 연 뒤 관리자가 내용을 고쳤으면(버전이 올라감) 서버가 409 로
+// 거절한다(보지 않은 내용에 서명 방지). 버전을 모르면 헤더를 싣지 않는다(서버는 그때 종전 동작).
+const signHeaders = (token: string | null, version?: number) => ({
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  ...(typeof version === "number" ? { "x-doc-version": String(version) } : {}),
+});
+
 // 저장된 결재 서명(관리자·원장)으로 원클릭 승인
-export async function signContractSaved(id: string) {
+export async function signContractSaved(id: string, version?: number) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`, { useSaved: true, isApprover: true },
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    { headers: signHeaders(token, version) });
 }
 
 // 그린 서명으로 승인 + 기본 서명으로 저장(다음 결재부터 원클릭)
-export async function signContractAndSave(id: string, signatureData: string) {
+export async function signContractAndSave(id: string, signatureData: string, version?: number) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`, { signatureData, isApprover: true, saveAsDefault: true },
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    { headers: signHeaders(token, version) });
 }
 
-// 계약 반려 — 결재자.직원 모두 자기 차례일 때만. 반려는 **최종 상태**다(2026-09-04).
+// 계약 반려 — 결재자.직원 모두 자기 차례일 때만. 2026-09-11 부터 반려는 최종이 아니다(관리자가 고쳐 다시 보낼 수 있다).
 export async function rejectContract(id: string, reason: string) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/reject`, { reason },
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 }
 
-export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>) {
+export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>, version?: number) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,
     { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) },
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    { headers: signHeaders(token, version) });
+}
+
+// 근로자 본인 서명 — 비밀번호 재확인 필수, 매번 직접 그린 서명(#205-1·#205-2, 2026-09-11 디렉터).
+// 서버가 근로자 본인 서명 단계에서 password 를 확인하고 저장 서명(useSaved)을 거절한다.
+export async function signContractAsEmployee(
+  id: string, signatureData: string, password: string,
+  extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string> },
+  version?: number
+) {
+  const token = await getToken();
+  return axios.post(`${API_URL}/contracts/${id}/sign`,
+    {
+      signatureData, password, isApprover: false,
+      ...(extra?.consent ? { consent: extra.consent } : {}),
+      ...(extra?.profile ? { profile: extra.profile } : {}),
+      ...(extra?.fields ? { fields: extra.fields } : {}),
+    },
+    { headers: signHeaders(token, version) });
 }
 
 // 내 프로필(주소·생년월일 포함) — 전자계약 서명 시 입력 유도 판단용

@@ -56,10 +56,14 @@ async function appendLog(tx: Tx, contractId: string, entry: Record<string, unkno
   });
 }
 
-/** 이 계약의 결재 단계 행을 트랜잭션 끝까지 잠근다(SELECT … FOR UPDATE) — 초기화·수정 판정이 서명과 겹치지 않게(#206 검증 F2). */
+/**
+ * 이 계약의 결재 단계 행을 트랜잭션 끝까지 잠근다(SELECT … FOR UPDATE) — 초기화·수정 판정이 서명과 겹치지 않게(#206 검증 F2).
+ * **단계 순서대로** 잡는다(D6) — 수정 저장·초기화·서명 확정·반려가 모두 이 함수로 먼저 잠그므로 잠금 순서가 같아 교착이 없다.
+ * 모든 쓰기 경로의 순서: 단계 → 계약.
+ */
 export async function lockSteps(tx: Tx, contractId: string): Promise<void> {
   const line = await tx.contractApprovalLine.findUnique({ where: { contractId }, select: { id: true } });
-  if (line) await tx.$queryRaw`SELECT id FROM "ContractApprovalStep" WHERE "approvalLineId" = ${line.id} FOR UPDATE`;
+  if (line) await tx.$queryRaw`SELECT id FROM "ContractApprovalStep" WHERE "approvalLineId" = ${line.id} ORDER BY "order" FOR UPDATE`;
 }
 
 /**
@@ -83,7 +87,8 @@ export async function preserveDecidedSteps(
  */
 export async function resetApprovalInPlace(tx: Tx, contractId: string, by: string, reason: string): Promise<{ signers: ResetSigner[] }> {
   // 단계 행을 **먼저 잠근다** — 스냅숏과 일괄 초기화 사이에 들어온 서명이 이력 없이 지워지지 않게(#206 검증 F2).
-  // 서명 라우트는 상태 조건부 갱신(PENDING 일 때만)이라, 잠금이 풀린 뒤 늦은 서명은 바뀐 상태를 보고 실패한다.
+  // 서명 확정도 같은 잠금을 잡고 그 안에서 문서 버전을 다시 본다(D1) — 초기화 뒤 같은 id 로 다시 대기가 된 1단계에
+  // 옛 화면의 서명이 들어오는 것은 버전(수정 저장 트랜잭션 안에서 올라감)으로 막는다.
   await lockSteps(tx, contractId);
   const { line, signers } = await decidedSnapshot(tx, contractId);
   if (!line || line.steps.length === 0) return { signers: [] };
