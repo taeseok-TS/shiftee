@@ -386,7 +386,7 @@ export default function LeaveRequestScreen() {
                 ) : null}
                 {/* 대기 중인 것만 거둔다. 반려와 다르다 — 반려는 결재 결과로 기록에 남고,
                     취소는 신청 자체를 거둔다(근무일정 신청과 같은 규칙). */}
-                {/* 서버 판정(canCancel) — 대기 중 + 시작일이 오늘 이후. 본인 확인은 목록 범위에만 기대지 않으려고 덧댄다 */}
+                {/* 서버 판정(canCancel) — 대기 중 + 종료일이 오늘 이후(지난 휴가 아님). 본인 확인은 목록 범위에만 기대지 않으려고 덧댄다 */}
                 {(r as { canCancel?: boolean }).canCancel && (!myId || r.userId === myId) && (
                   <TouchableOpacity
                     style={styles.histCancelBtn}

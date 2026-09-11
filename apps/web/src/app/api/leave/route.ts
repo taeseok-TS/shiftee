@@ -58,14 +58,21 @@ export async function GET(request: NextRequest) {
   // current=1 — **진행 중·앞으로의** 대기·승인 휴가만(종료일 ≥ KST 오늘). 원장·관리자 "휴가 내역"
   // 화면의 평상시 보기다(9/11 디렉터). 지난 기록은 지우지 않는다 — 연도 조회로 찾는다.
   // 화면이 전부 받아서 거르면 1년에 수천 건이 쌓여도 매번 다 내려간다(9/10 검증 지적).
-  const currentFilter = searchParams.get("current") === "1"
-    ? { endDate: { gte: kstTodayMidnight() }, status: { in: ["PENDING", "APPROVED"] as ("PENDING" | "APPROVED")[] } }
-    : {};
-
-  const where =
+  // ⚠ 다른 조건에 **덧붙인다(AND)**. 펼쳐 합치면 뒤에 오는 값이 status·연도(endDate) 필터를 덮어써서
+  //   `?current=1&status=REJECTED` 가 대기·승인을 돌려줬다(9/11 검증 D2).
+  const currentOnly = searchParams.get("current") === "1";
+  const baseWhere =
     selfOnly
-      ? { userId: session.userId, ...(status ? { status } : {}), ...dateFilter, ...currentFilter }
-      : { ...branchFilter, ...(status ? { status } : {}), ...dateFilter, ...currentFilter };
+      ? { userId: session.userId, ...(status ? { status } : {}), ...dateFilter }
+      : { ...branchFilter, ...(status ? { status } : {}), ...dateFilter };
+  const where = currentOnly
+    ? {
+        AND: [
+          baseWhere,
+          { endDate: { gte: kstTodayMidnight() }, status: { in: ["PENDING", "APPROVED"] as ("PENDING" | "APPROVED")[] } },
+        ],
+      }
+    : baseWhere;
 
   const requests = await prisma.leaveRequest.findMany({
     where,

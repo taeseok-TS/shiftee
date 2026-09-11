@@ -423,7 +423,8 @@ export default function ScheduleScreen() {
                     </Text>
                     {/* 대기 중인 것만 거둘 수 있다 — 승인된 건은 이미 근무일정에 반영돼 있다.
                         반려와 다르다: 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다. */}
-                    {r.status === "PENDING" && (
+                    {/* 서버 판정(canCancel) — 대기 중 + 지난 신청 아님(9/11 검증 D1) */}
+                    {(r as { canCancel?: boolean }).canCancel && (
                       <TouchableOpacity
                         style={styles.reqCancelBtn}
                         disabled={cancelingId === r.id}

@@ -7,6 +7,8 @@ import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
 import { botNotifyApprovalRequest } from "@/lib/bot";
+import { scheduleCancelDenial, cancelFlags } from "@/lib/leave-cancel";
+import { cancelViewerFor } from "@/lib/cancel-viewer";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -32,7 +34,13 @@ export async function GET(request: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ requests });
+  // 취소 버튼은 화면이 이 값으로만 그린다 — 취소 라우트와 **같은 함수**(대기 중 + 지난 신청 아님).
+  // 종전엔 화면이 status==="PENDING" 만 보고 그려서, 지난 대기 건에 누르면 409 인 버튼이 떴다
+  // (9/11 검증 D1). 본인 신청만 오므로 범위 판정은 늘 통과한다 — user 는 쓰이지 않는다.
+  const viewer = await cancelViewerFor(session);
+  return NextResponse.json({
+    requests: requests.map((r) => ({ ...r, ...cancelFlags(scheduleCancelDenial(viewer, { ...r, user: null })) })),
+  });
 }
 
 // 근무일정 신청 생성

@@ -99,6 +99,7 @@ export default function ScheduleRequestPage() {
   type MyRequest = {
     id: string; templateName: string | null; startDate: string; endDate: string;
     totalHours: number; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
     approvalSteps?: { id: string; order: number; status: string; approverRole?: string | null;
                       branch?: string | null; approver?: { name: string } | null; comment?: string | null }[];
   };
@@ -393,8 +394,8 @@ export default function ScheduleRequestPage() {
                       )}
                     </div>
                   </div>
-                  {/* 대기 중인 것만 취소할 수 있다 — 승인된 건은 이미 근무일정에 반영돼 있다 */}
-                  {r.status === "PENDING" && (
+                  {/* 서버 판정(canCancel) — 대기 중 + 지난 신청 아님. 승인된 건은 이미 근무일정에 반영돼 있다 */}
+                  {r.canCancel && (
                     <Button variant="outline" size="sm" className="shrink-0"
                             disabled={cancelingId === r.id}
                             onClick={() => cancelMyRequest(r.id)}>
