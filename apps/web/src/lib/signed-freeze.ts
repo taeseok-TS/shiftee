@@ -43,6 +43,19 @@ function deviceOf(ua: string | null, deviceId: string | null): string {
   return [app, os].filter(Boolean).join(" · ");
 }
 
+// 증명 쪽은 근로자·외부 계약자에게도 간다 — IP 는 앞 두 마디만 적는다(112.170.*.*). 전체 IP 는 관리자 감사 기록에만.
+// 9/12 디렉터 확정 (나). IPv6 는 앞 두 묶음만, 알 수 없는 형식은 통째로 가린다.
+export function maskIp(ip: string | null | undefined): string {
+  if (!ip) return "-";
+  const v4 = /^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/i.exec(ip.trim());
+  if (v4) return `${v4[1]}.${v4[2]}.*.*`;
+  if (ip.includes(":")) {
+    const parts = ip.trim().split(":").filter(Boolean);
+    return parts.length >= 2 ? `${parts[0]}:${parts[1]}:*` : "*";
+  }
+  return "*";
+}
+
 // 워드 완료본은 한 번만 PDF 로 변환한다(signed-document 라우트와 같은 변환기)
 async function sourcePdf(signedUrl: string): Promise<Buffer> {
   const f = firstFile(signedUrl);
@@ -145,7 +158,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     w.text(`${st.order}. ${role}  ${name}   서명 ${kst(st.decidedAt)}`, 10, dark);
     w.text(`본인 확인: ${method}`, 9, gray, 14);
     w.text(signed
-      ? `접속: IP ${signed.ip || "-"} · ${deviceOf(signed.userAgent, signed.deviceId) || "-"}`
+      ? `접속: IP ${maskIp(signed.ip)} · ${deviceOf(signed.userAgent, signed.deviceId) || "-"}`
       : "접속: 기록 없음(감사 기록 도입 전 서명)", 9, gray, 14);
     if (consent) {
       const read = (consent.meta as { readToEnd?: boolean } | null)?.readToEnd;
