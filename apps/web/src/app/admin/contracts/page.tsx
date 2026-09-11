@@ -2530,7 +2530,11 @@ ${url}`;
                       ) : (
                         <Input
                           // 날짜 칸은 값이 비었거나 날짜 하나일 때만 — "2026-09-02 ~ 12-31" 같은 문장은 날짜 칸이 담지 못해 비어 보인다(#206 검증 F4)
-                          type={isDateField(k) && (!v || /^\d{4}-\d{2}-\d{2}$/.test(v)) ? "date" : "text"}
+                          // 칸 종류는 수정 창을 열 때의 값으로 한 번만 정한다 — 입력 도중 날짜↔글자로 바뀌지 않게(c911ba0 검증 F3)
+                          type={(() => {
+                            const opened = koreanToIso(String((editingContract?.extraFields as Record<string, unknown> | null | undefined)?.[k] ?? ""));
+                            return isDateField(k) && (!opened || /^\d{4}-\d{2}-\d{2}$/.test(opened)) ? "date" : "text";
+                          })()}
                           value={v}
                           onChange={e => setEditExtraFields(prev => ({ ...prev, [k]: e.target.value }))}
                         />

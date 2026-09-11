@@ -38,7 +38,12 @@ export function koreanMoney(n: number): string {
 export const fmtKoreanDate = (d: string | null) => {
   if (!d) return "";
   const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d.trim());
-  if (ymd) return `${Number(ymd[1])}년 ${Number(ymd[2])}월 ${Number(ymd[3])}일`;
+  if (ymd) {
+    // 달력에 없는 날짜(2026-02-30·2026-13-01)는 적지 않는다 — 종전에도 13월은 빈칸이었다(c911ba0 검증 F2)
+    const [y, mo, da] = [Number(ymd[1]), Number(ymd[2]), Number(ymd[3])];
+    const t = new Date(Date.UTC(y, mo - 1, da));
+    return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === da ? `${y}년 ${mo}월 ${da}일` : "";
+  }
   const date = new Date(d);
   if (isNaN(date.getTime())) return "";
   const k = new Date(date.getTime() + 9 * 3600 * 1000);

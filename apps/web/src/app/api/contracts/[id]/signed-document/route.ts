@@ -131,9 +131,18 @@ export async function GET(
       // PDF 로 달라는데 저장본이 워드면 그 저장본을 변환해 준다(재합성이 아니라 변환이다)
       const fd0 = new FormData();
       fd0.append("files", new Blob([new Uint8Array(sbuf)]), "document.docx");
-      const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0 });
-      if (g0.ok) {
-        const pdf0 = Buffer.from(await g0.arrayBuffer());
+      // 변환기가 꺼져 있으면 fetch 가 **예외**를 던진다 — 오류 응답과 똑같이 "변환 실패"로 본다.
+      // 예외가 아래 catch("저장본을 못 읽으면")로 떨어지면 재합성본이 나갔다(c911ba0 검증 F1).
+      let pdf0: Buffer | null = null;
+      let convStatus: number | string = "연결 실패";
+      try {
+        const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0 });
+        convStatus = g0.status;
+        if (g0.ok) pdf0 = Buffer.from(await g0.arrayBuffer());
+      } catch (ce) {
+        convStatus = ce instanceof Error ? ce.message : String(ce);
+      }
+      if (pdf0) {
         return new NextResponse(asBody(pdf0), {
           headers: {
             "Content-Type": "application/pdf",
@@ -143,7 +152,7 @@ export async function GET(
       }
       // 변환기가 실패해도 **재합성하지 않는다** — 재합성본은 지금의 서명 로직·시각 표기로 새로 만들어져 저장된 완료본과
       // 다른 문서가 된다(59fc92f 검증 R1). 열람만 허용 문서는 워드를 줄 수 없으니 잠시 후 다시, 그 외는 저장된 워드 그대로.
-      console.error("저장된 완료본 PDF 변환 실패(워드 원본 제공):", g0.status);
+      console.error("저장된 완료본 PDF 변환 실패(워드 원본 제공):", convStatus);
       if (viewOnly)
         return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
       return new NextResponse(asBody(sbuf), {
