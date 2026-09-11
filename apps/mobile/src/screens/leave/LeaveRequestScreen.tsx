@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger } from "../../services/approvals";
+import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance } from "../../services/approvals";
 import type { MyLedger } from "../../services/approvals";
 import {
   View,
@@ -238,6 +238,20 @@ export default function LeaveRequestScreen() {
     ]);
   };
 
+  // 내년 날짜를 고르면 그 해 잔여를 따로 보여준다(9/11 디렉터) — 휴가는 쓰는 해(시작일) 연차에서 차감된다.
+  // 값은 서버 신청 검사와 같은 함수에서 온다. 날짜를 빨리 바꿔도 늦게 온 응답은 버린다.
+  const kstYear = new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
+  const reqYear = /^\d{4}-/.test(startDate) ? Number(startDate.slice(0, 4)) : 0;
+  const [yearBal, setYearBal] = useState<{ year: number; remaining: number | null } | null>(null);
+  useEffect(() => {
+    if (reqYear <= kstYear) { setYearBal(null); return; }
+    let alive = true;
+    getYearBalance(reqYear)
+      .then((b) => { if (alive) setYearBal({ year: reqYear, remaining: b ? b.remaining : null }); })
+      .catch(() => { if (alive) setYearBal(null); });
+    return () => { alive = false; };
+  }, [reqYear, kstYear]);
+
   const load = useCallback(async () => {
     try {
       const [b, r] = await Promise.all([api.getLeaveBalance(), api.getLeaveRequests()]);
@@ -458,6 +472,15 @@ export default function LeaveRequestScreen() {
           </>
         )}
 
+        {yearBal && (
+          <View style={styles.yearBalBox}>
+            <Text style={styles.yearBalText}>
+              {yearBal.year}년 잔여 연차 {yearBal.remaining === null ? "—" : `${yearBal.remaining}일`}
+            </Text>
+            <Text style={styles.yearBalSub}>{yearBal.year}년 휴가는 {yearBal.year}년 연차에서 차감됩니다</Text>
+          </View>
+        )}
+
         <Text style={styles.label}>신청 사유 *</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
@@ -650,6 +673,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 8 },
   label: { fontSize: 14, fontWeight: "600", color: "#1f2937", marginBottom: 8, marginTop: 16 },
+  yearBalBox: { marginTop: 12, backgroundColor: "#fffbeb", borderColor: "#fde68a", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  yearBalText: { fontSize: 14, fontWeight: "700", color: "#92400e" },
+  yearBalSub: { fontSize: 12, color: "#b45309", marginTop: 2 },
   typeButtons: { flexDirection: "row", gap: 8 },
   typeButton: {
     flex: 1,

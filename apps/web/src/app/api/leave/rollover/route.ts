@@ -28,6 +28,9 @@ export async function POST(request: NextRequest) {
   let created = 0;
   let skipped = 0;
   const noHireDate: string[] = []; // 입사일 미입력 → 기본 15일 부여 대상 (관리자 확인용)
+  // 사람별 기록용 — 전년도 잔여(소멸되는 일수). 연차 대장 "잔여 조정 이력"에 부여·소멸 근거가 남는다(9/11 디렉터)
+  const prevRows = await prisma.leaveBalance.findMany({ where: { year: year - 1 }, select: { userId: true, remaining: true } });
+  const prevRemaining = new Map(prevRows.map((r) => [r.userId, r.remaining]));
 
   for (const emp of employees) {
     const exists = await prisma.leaveBalance.findUnique({
@@ -40,6 +43,16 @@ export async function POST(request: NextRequest) {
     if (!emp.hireDate) noHireDate.push(emp.name);
     await prisma.leaveBalance.create({
       data: { userId: emp.id, year, total, used: 0, remaining: total },
+    });
+    await logAudit({
+      actorId: session.userId,
+      actorName: session.name,
+      action: "LEAVE_BALANCE_UPDATE",
+      targetType: "USER",
+      targetId: emp.id,
+      targetName: emp.name,
+      detail: `(연도 전환 ${year}년) 연차 총 ${total}일 부여${emp.hireDate ? "(근속 기준)" : "(입사일 없음 → 기본 15일)"}` +
+        ` · ${year - 1}년 잔여 ${prevRemaining.get(emp.id) ?? "-"}일 소멸(이월 없음)`,
     });
     created++;
   }

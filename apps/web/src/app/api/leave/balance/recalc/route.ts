@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { logAudit } from "@/lib/audit";
 
 // 근속기간 기반 연차 자동계산 → 총연차 일괄 반영 (관리자/원장)
 export async function POST() {
@@ -14,7 +15,7 @@ export async function POST() {
   const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
   const employees = await prisma.user.findMany({
     where: { isActive: true, hireDate: { not: null }, ...branchWhere },
-    select: { id: true, hireDate: true },
+    select: { id: true, name: true, hireDate: true },
   });
 
   const now = new Date();
@@ -25,7 +26,7 @@ export async function POST() {
     const total = annualLeaveDays(new Date(emp.hireDate!), now);
     const bal = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: emp.id, year } },
-      select: { used: true },
+      select: { used: true, total: true },
     });
     const used = bal?.used ?? 0;
     const remaining = Math.max(0, total - used);
@@ -34,6 +35,19 @@ export async function POST() {
       create: { userId: emp.id, year, total, used, remaining },
       update: { total, remaining },
     });
+    // 사람별 기록 — 연차 대장 "잔여 조정 이력"에 총연차가 바뀐 근거가 남는다(9/11 디렉터). 값이 그대로면 남기지 않는다
+    // (재계산을 여러 번 눌러도 대장이 "15→15" 로 채워지지 않게).
+    if (!bal || bal.total !== total) {
+      await logAudit({
+        actorId: session.userId,
+        actorName: session.name,
+        action: "LEAVE_BALANCE_UPDATE",
+        targetType: "USER",
+        targetId: emp.id,
+        targetName: emp.name,
+        detail: `(근속 재계산 ${year}년) 연차 총 ${bal?.total ?? "-"}→${total}일, 사용 ${used}일, 잔여 ${remaining}일`,
+      });
+    }
     updated++;
   }
 

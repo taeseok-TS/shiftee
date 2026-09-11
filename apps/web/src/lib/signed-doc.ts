@@ -1,13 +1,9 @@
 import { prisma } from "@/lib/db";
 import { PDFDocument, rgb } from "pdf-lib";
-import fontkit from "@pdf-lib/fontkit";
+import { embedKoreanFont } from "@/lib/pdf-korean-font";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
-
-// 한글 PDF 폰트 경로. 배포 환경(Linux 컨테이너)에서는 FONT_PATH 환경변수로 지정,
-// 로컬(Windows) 개발 시에는 기본값(맑은 고딕) 사용.
-const MALGUN = process.env.FONT_PATH || "C:/Windows/Fonts/malgun.ttf";
 
 export function firstFile(fileUrl: string): string | null {
   try {
@@ -501,10 +497,9 @@ export async function buildSignedPdf(origPath: string | null, title: string, sig
     : null;
   const doc = pdf || (await PDFDocument.create());
 
-  doc.registerFontkit(fontkit);
   let font;
   try {
-    font = await doc.embedFont(await fs.readFile(MALGUN), { subset: true });
+    font = await embedKoreanFont(doc);   // 통째로 — 부분 넣기는 운영 글꼴에서 글자가 빠진다(lib/pdf-korean-font.ts)
   } catch {
     font = await doc.embedFont("Helvetica");
   }
@@ -594,11 +589,10 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
  */
 export async function buildPlaceholderPdf(title: string, reason: string): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
   // ⚠ Helvetica 로 폴백하면 **한글을 못 그려 여기서 예외가 난다** — 묶음을 살리려고 만든
   //   안내 페이지가 도리어 묶음을 죽인다. 한글 폰트를 못 읽으면 영문 문구로 낮춘다.
   let font, korean = true;
-  try { font = await doc.embedFont(await fs.readFile(MALGUN), { subset: true }); }
+  try { font = await embedKoreanFont(doc); }
   catch { font = await doc.embedFont("Helvetica"); korean = false; }
   const page = doc.addPage([595, 842]); // A4
   const draw = (t: string, y: number, size: number, color = rgb(0.2, 0.2, 0.2)) => {

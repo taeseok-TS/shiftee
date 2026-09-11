@@ -1,10 +1,6 @@
 import { PDFDocument, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
-import fontkit from "@pdf-lib/fontkit";
-import fs from "fs/promises";
+import { embedKoreanFont } from "@/lib/pdf-korean-font";
 import type { Ledger } from "@/lib/leave-ledger";
-
-// 한글 PDF 글꼴 — 계약서(lib/signed-doc.ts)와 같은 경로 규칙. 운영 컨테이너는 FONT_PATH 로 지정한다.
-const FONT_PATH = process.env.FONT_PATH || "C:/Windows/Fonts/malgun.ttf";
 
 const TYPE_LABEL: Record<string, string> = {
   ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차", QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
@@ -28,8 +24,8 @@ const kst = (s: string | null) =>
  */
 export async function renderLedgerPdf(ledger: Ledger, meta: { issuedBy: string; issuedAt: Date }): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
-  const font: PDFFont = await doc.embedFont(await fs.readFile(FONT_PATH), { subset: true });
+  // 통째로 넣는다 — 부분 넣기는 운영 글꼴에서 글자가 빠졌다(9/11 디렉터 확인, lib/pdf-korean-font.ts)
+  const font: PDFFont = await embedKoreanFont(doc);
 
   const W = 595, H = 842, M = 44, BOTTOM = 48;
   let page: PDFPage = doc.addPage([W, H]);

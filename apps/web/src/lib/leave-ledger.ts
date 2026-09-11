@@ -102,7 +102,7 @@ export async function buildLedger(userId: string, year: number): Promise<Ledger 
         },
       },
     }),
-    // 잔여 조정 이력 — 개별 조정과 일괄 업로드(사람별로 남긴다) 모두 LEAVE_BALANCE_UPDATE + targetId=직원
+    // 잔여 조정 이력 — 개별 조정 · 일괄 업로드 · 근속 재계산 · 연도 전환(모두 사람별로 남긴다) = LEAVE_BALANCE_UPDATE + targetId=직원
     prisma.auditLog.findMany({
       where: { targetId: userId, action: "LEAVE_BALANCE_UPDATE", createdAt: { gte: kFrom, lt: kTo } },
       orderBy: { createdAt: "asc" },

@@ -85,6 +85,8 @@ const STEP_CFG: Record<string, { dot: string; label: string }> = {
 const CURRENT_YEAR = new Date().getFullYear();
 // 내년도 둔다 — 12월에 승인된 내년 휴가를 1월 전에도 볼 수 있게(휴가를 쓰는 해 기준, 9/11 검증 D3)
 const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
+// 연차 연도 — 서버 currentLeaveYear() 와 같은 KST 달력 연도
+const KST_YEAR     = new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
 
 function calcWorkdays(start: string, end: string, type: string) {
   if (!start) return 0;
@@ -157,6 +159,19 @@ export default function LeavePage() {
   const [addOpen, setAddOpen]   = useState(false);
   const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
   const previewDays = useMemo(() => calcWorkdays(form.startDate, form.endDate, form.type), [form]);
+  // 내년 날짜를 고르면 그 해 잔여를 따로 보여준다(9/11 디렉터) — 휴가는 쓰는 해(시작일) 연차에서 차감되고,
+  // 서버 신청 검사와 같은 함수(yearBalanceFor)의 값을 받아 온다. 연도를 빨리 바꿔도 늦게 온 응답은 버린다.
+  const reqYear = /^\d{4}-/.test(form.startDate) ? Number(form.startDate.slice(0, 4)) : 0;
+  const [yearBal, setYearBal] = useState<{ year: number; b: Balance | null } | null>(null);
+  useEffect(() => {
+    if (!addOpen || reqYear <= KST_YEAR) { setYearBal(null); return; }
+    let alive = true;
+    fetch(`/api/leave/balance?scope=self&forLeave=1&year=${reqYear}`)
+      .then(r => r.json())
+      .then(d => { if (alive) setYearBal({ year: reqYear, b: d.balance ?? null }); })
+      .catch(() => { if (alive) setYearBal(null); });
+    return () => { alive = false; };
+  }, [addOpen, reqYear]);
 
   /* 반려 다이얼로그 */
   const [rejectOpen, setRejectOpen]     = useState(false);
@@ -683,7 +698,7 @@ export default function LeavePage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isAdmin && balance && (
               <div className="flex items-center justify-between bg-blue-50 rounded-lg px-4 py-2.5">
-                <span className="text-sm text-blue-700">잔여 연차</span>
+                <span className="text-sm text-blue-700">{yearBal ? `${KST_YEAR}년 잔여 연차` : "잔여 연차"}</span>
                 <span className="font-bold text-blue-800">{balance.remaining}일</span>
               </div>
             )}
@@ -736,6 +751,15 @@ export default function LeavePage() {
                   <Input type="date" value={form.endDate} required min={form.startDate}
                     onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
                 </div>
+              </div>
+            )}
+            {yearBal && (
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                <span className="text-sm text-amber-800">
+                  {yearBal.year}년 잔여 연차
+                  <span className="block text-xs text-amber-600">{yearBal.year}년 휴가는 {yearBal.year}년 연차에서 차감됩니다</span>
+                </span>
+                <span className="font-bold text-amber-900">{yearBal.b ? `${yearBal.b.remaining}일` : "—"}</span>
               </div>
             )}
             {previewDays > 0 && (

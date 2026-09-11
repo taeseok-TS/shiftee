@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { tenureLabel, annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { yearBalanceFor } from "@/lib/leave-balance";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -17,6 +18,13 @@ export async function GET(request: NextRequest) {
 
   // 본인 잔여 휴가만: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   if (session.role === "EMPLOYEE" || searchParams.get("scope") === "self") {
+    // 신청 화면: 내년 날짜를 고르면 "N년 잔여"를 따로 보여준다(9/11 디렉터). 신청 검사와 **같은 함수**라 그 해 행이
+    // 없어도 서버가 검사할 값(근속 기준 총연차)이 나온다. 조회만 한다(행을 만들지 않는다 — GET 은 순수하게).
+    if (searchParams.get("forLeave") === "1") {
+      if (!Number.isInteger(year) || year < 2020 || year > 2100)
+        return NextResponse.json({ error: "연도가 올바르지 않습니다." }, { status: 400 });
+      return NextResponse.json({ year, balance: await yearBalanceFor(prisma, session.userId, year) });
+    }
     const balance = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: session.userId, year } },
     });

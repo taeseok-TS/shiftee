@@ -173,6 +173,18 @@ export async function getMyLedger(year?: number): Promise<MyLedger> {
   return res.data?.ledger as MyLedger;
 }
 
+/**
+ * 신청 화면 "N년 잔여" — 내년 날짜를 고르면 그 해 잔여를 따로 보여준다(2026-09-11 디렉터). 서버 신청 검사와 같은
+ * 함수의 값이라 그 해 행이 없어도 서버가 검사할 값이 온다. 서버: GET /api/leave/balance?scope=self&forLeave=1&year=
+ */
+export async function getYearBalance(year: number): Promise<{ total: number; used: number; remaining: number } | null> {
+  const res = await axios.get(`${API_URL}/leave/balance`, {
+    params: { scope: "self", forLeave: 1, year },
+    headers: await authHeaders(),
+  });
+  return res.data?.balance ?? null;
+}
+
 // 단계 라벨: 역할기반 단계는 승인 전 approver가 null → 역할명 표시
 export function stepLabel(s: InboxStepInfo): string {
   if (s.approver) return s.approver.name;

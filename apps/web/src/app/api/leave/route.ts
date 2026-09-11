@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deductLeaveBalance, defaultYearTotal } from "@/lib/leave-balance";
+import { deductLeaveBalance, yearBalanceFor } from "@/lib/leave-balance";
 import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } from "@/lib/leave-cancel";
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { currentLeaveYear, leaveYearOfLeave } from "@/lib/leave-calc";
+import { leaveYearOfLeave } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
@@ -203,14 +203,9 @@ export async function POST(request: NextRequest) {
   // 근속 기준 총연차로 본다. 지난 해 휴가는 종전처럼 행이 없으면 검사하지 않는다.
   if (isLeaveDeductible(type)) {
     const year = leaveYearOfLeave(start);
-    const balance = await prisma.leaveBalance.findUnique({
-      where: { userId_year: { userId: session.userId, year } },
-    });
-    const remaining = balance
-      ? balance.remaining
-      // 올해·내년 행이 아직 없으면(1월 연도 전환 전 포함) 근속 기준 총연차로 본다 — `>` 였을 땐 1월에 새해 휴가를
-      // 신청하면 검사가 빠졌다(9/11 검증 D2). 지난 해는 행이 없으면 종전처럼 검사하지 않는다.
-      : year >= currentLeaveYear() ? await defaultYearTotal(prisma, session.userId, year) : null;
+    // 신청 화면의 "N년 잔여"와 **같은 함수**(lib/leave-balance.ts yearBalanceFor). 행이 없으면 올해·내년은 근속 기준
+    // 총연차로 검사하고(9/11 검증 D2), 지난 해는 종전처럼 검사하지 않는다(null).
+    const remaining = (await yearBalanceFor(prisma, session.userId, year))?.remaining ?? null;
     if (remaining !== null && remaining < days) {
       return NextResponse.json({
         error: `잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,
