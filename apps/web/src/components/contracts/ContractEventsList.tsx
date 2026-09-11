@@ -30,6 +30,8 @@ function detail(e: Ev): string {
   if (e.type === "EDITED" && Array.isArray(m.fields)) return `바뀐 항목: ${(m.fields as string[]).join(", ")}`;
   if ((e.type === "REJECTED" || e.type === "REVOKED") && typeof m.reason === "string") return `사유: ${m.reason}`;
   if (e.type === "SIGNED" && typeof m.role === "string") return `${m.role}${m.savedSignature ? " · 저장 서명" : ""}`;
+  // 본인 확인은 확인할 때 + 서명 제출·동반 문서에서 한 번 더 남는다 — 어느 것인지 적어 두 번 입력한 것처럼 보이지 않게
+  if (e.type === "VERIFY_OK" && typeof m.via === "string") return m.via;
   if (e.type === "FROZEN" && typeof m.docNo === "string") return `문서번호 ${m.docNo}`;
   if (e.type === "RESET" && Array.isArray(m.signers)) return `초기화된 서명: ${(m.signers as string[]).join(", ") || "없음"}`;
   return "";

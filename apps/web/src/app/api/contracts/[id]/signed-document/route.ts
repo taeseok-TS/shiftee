@@ -141,6 +141,17 @@ export async function GET(
           },
         });
       }
+      // 변환기가 실패해도 **재합성하지 않는다** — 재합성본은 지금의 서명 로직·시각 표기로 새로 만들어져 저장된 완료본과
+      // 다른 문서가 된다(59fc92f 검증 R1). 열람만 허용 문서는 워드를 줄 수 없으니 잠시 후 다시, 그 외는 저장된 워드 그대로.
+      console.error("저장된 완료본 PDF 변환 실패(워드 원본 제공):", g0.status);
+      if (viewOnly)
+        return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
+      return new NextResponse(asBody(sbuf), {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".docx")}`,
+        },
+      });
     } catch (e) {
       // 저장본을 못 읽으면 아래에서 재합성으로 넘어간다 — 문서를 못 보여주는 것보다 낫다
       console.error("저장된 완료본 사용 실패(재합성으로 진행):", e);

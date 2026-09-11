@@ -52,7 +52,8 @@ export function maskIp(ip: string | null | undefined): string {
   if (v4) return `${v4[1]}.${v4[2]}.*.*`;
   // 순수 IPv6(16진수·콜론만)만 앞부분을 보인다 — 포트·괄호·점·%가 섞인 형식(1.2.3.4:5678 등)은 통째로 가린다.
   // 앞부분은 "::" 앞에서만 센다(2001::abcd 가 2001:abcd 로 적히지 않게). 33456f8 검증 F1·F2
-  if (t.includes(":") && /^[0-9a-f:]+$/i.test(t)) {
+  // 올바른 IPv6 모양(:: 축약이 있거나 8묶음)만 — "a:b" 같은 두 묶음짜리가 통째로 적히지 않게(359ea9c 검증 P1)
+  if (t.includes(":") && /^[0-9a-f:]+$/i.test(t) && (t.includes("::") || t.split(":").length === 8)) {
     const head = t.split("::")[0].split(":").filter(Boolean);
     return head.length >= 2 ? `${head[0]}:${head[1]}:*` : head.length === 1 ? `${head[0]}:*` : "*";
   }
@@ -145,6 +146,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   w.rule();
   w.text("서명 내역", 12, dark);
   w.gap(2);
+  let anyConsent = false; // 동의 문구 꼬리말은 동의 줄이 실제로 찍힌 서명자가 있을 때만(1분 여유로 옛 회차 동의가 끼지 않게)
   for (const st of c.approvalLine?.steps || []) {
     if (!st.signatureUrl) continue;
     const external = !st.approverId;
@@ -164,12 +166,13 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
       ? `접속: IP ${maskIp(signed.ip)} · ${deviceOf(signed.userAgent, signed.deviceId) || "-"}`
       : "접속: 기록 없음(감사 기록 도입 전 서명)", 9, gray, 14);
     if (consent) {
+      anyConsent = true;
       const read = (consent.meta as { readToEnd?: boolean } | null)?.readToEnd;
       w.text(`전자서명 동의: 예${read === true ? " · 문서 끝까지 스크롤(화면 기준)" : ""}`, 9, gray, 14);
     }
     w.gap(4);
   }
-  if (events.some((e) => e.type === "CONSENT")) {
+  if (anyConsent) {
     w.rule();
     w.text(`동의 문구: "${SIGN_CONSENT_TEXT}"`, 9, gray);
   }

@@ -46,7 +46,8 @@ export default async function SmsRelayPage({ params }: { params: Promise<{ token
 
   return (
     <SmsRelayClient
-      phone={contract.externalPhone || ""}
+      // 서명을 마쳤으면 문자를 보낼 일이 없다 — 번호 전체를 화면 데이터에 싣지 않는다(화면도 서명 완료면 번호를 안 쓴다)
+      phone={step.status === "APPROVED" ? "" : contract.externalPhone || ""}
       name={contract.externalName || "계약자"}
       title={contract.title}
       signUrl={`/sign/${step.signToken}`}

@@ -32,11 +32,17 @@ export function koreanMoney(n: number): string {
   return result + "원";
 }
 
+// 날짜만 있는 값("2026-09-12")은 그대로 적고, 시각이 있는 값(작성일 = 지금, ISO 문자열)은 **한국 날짜**로 적는다.
+// 서버는 UTC 라 getDate() 를 그대로 쓰면 새벽 0~9시에 만든 문서의 {작성일}이 전날로 찍혔다(9/12 디렉터 지시).
+// UTC 자정으로 저장된 날짜 값(@db.Date)은 +9시간 해도 같은 날이라 영향이 없다.
 export const fmtKoreanDate = (d: string | null) => {
   if (!d) return "";
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d.trim());
+  if (ymd) return `${Number(ymd[1])}년 ${Number(ymd[2])}월 ${Number(ymd[3])}일`;
   const date = new Date(d);
   if (isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+  const k = new Date(date.getTime() + 9 * 3600 * 1000);
+  return `${k.getUTCFullYear()}년 ${k.getUTCMonth() + 1}월 ${k.getUTCDate()}일`;
 };
 
 // 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성

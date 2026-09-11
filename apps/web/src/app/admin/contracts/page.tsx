@@ -298,8 +298,10 @@ export default function ContractsPage() {
   const [editForm, setEditForm] = useState({ title: "", type: "", startDate: "", endDate: "", salary: "" });
   const [editExtraFields, setEditExtraFields] = useState<Record<string, string>>({}); // 템플릿 동적 필드 수정값
   // "2026년 8월 1일" → "2026-08-01" (수정 폼 date input용)
+  // 값 **전체가** 한국어 날짜일 때만 바꾼다 — 종전엔 문장 속 날짜만 뽑아("2026년 9월 2일부터 3개월" → 2026-09-02) 나머지가 사라져,
+  // 아무것도 안 고쳐도 서버가 "내용 바뀜"으로 보고 서명 초기화 경고를 띄웠다(#206 검증 F4)
   const koreanToIso = (v: string) => {
-    const m = /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/.exec(v);
+    const m = /^\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*$/.exec(v);
     return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : v;
   };
   const [editFile, setEditFile] = useState<File | null>(null);
@@ -2527,7 +2529,8 @@ ${url}`;
                         </div>
                       ) : (
                         <Input
-                          type={isDateField(k) ? "date" : "text"}
+                          // 날짜 칸은 값이 비었거나 날짜 하나일 때만 — "2026-09-02 ~ 12-31" 같은 문장은 날짜 칸이 담지 못해 비어 보인다(#206 검증 F4)
+                          type={isDateField(k) && (!v || /^\d{4}-\d{2}-\d{2}$/.test(v)) ? "date" : "text"}
                           value={v}
                           onChange={e => setEditExtraFields(prev => ({ ...prev, [k]: e.target.value }))}
                         />
