@@ -5,6 +5,7 @@ import { tenureLabel, annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { yearBalanceFor } from "@/lib/leave-balance";
+import { isLeaveDeductible } from "@/lib/leave-types";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -23,7 +24,14 @@ export async function GET(request: NextRequest) {
     if (searchParams.get("forLeave") === "1") {
       if (!Number.isInteger(year) || year < 2020 || year > 2100)
         return NextResponse.json({ error: "연도가 올바르지 않습니다." }, { status: 400 });
-      return NextResponse.json({ year, balance: await yearBalanceFor(prisma, session.userId, year) });
+      // 유형을 주면 연차 차감 유형인지도 알려준다 — 경조사·대체휴무 등 미차감 유형엔 "연차에서 차감" 안내를 띄우지 않게
+      // (9/11 검증 E1). 판정은 서버 신청 검사와 같은 isLeaveDeductible — 화면에 유형 목록을 또 복사하지 않는다.
+      const type = searchParams.get("type");
+      return NextResponse.json({
+        year,
+        deductible: type ? isLeaveDeductible(type) : true,
+        balance: await yearBalanceFor(prisma, session.userId, year),
+      });
     }
     const balance = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: session.userId, year } },

@@ -246,11 +246,12 @@ export default function LeaveRequestScreen() {
   useEffect(() => {
     if (reqYear <= kstYear) { setYearBal(null); return; }
     let alive = true;
-    getYearBalance(reqYear)
-      .then((b) => { if (alive) setYearBal({ year: reqYear, remaining: b ? b.remaining : null }); })
+    getYearBalance(reqYear, leaveType)
+      // 연차 미차감 유형(경조사·대체휴무 등)은 띄우지 않는다 — 판정은 서버(9/11 검증 E1)
+      .then((r) => { if (alive) setYearBal(r.deductible ? { year: reqYear, remaining: r.balance ? r.balance.remaining : null } : null); })
       .catch(() => { if (alive) setYearBal(null); });
     return () => { alive = false; };
-  }, [reqYear, kstYear]);
+  }, [reqYear, kstYear, leaveType]);
 
   const load = useCallback(async () => {
     try {

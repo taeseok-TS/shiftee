@@ -52,7 +52,9 @@ export async function POST(request: NextRequest) {
       targetId: emp.id,
       targetName: emp.name,
       detail: `(연도 전환 ${year}년) 연차 총 ${total}일 부여${emp.hireDate ? "(근속 기준)" : "(입사일 없음 → 기본 15일)"}` +
-        ` · ${year - 1}년 잔여 ${prevRemaining.get(emp.id) ?? "-"}일 소멸(이월 없음)`,
+        (prevRemaining.has(emp.id)
+          ? ` · ${year - 1}년 잔여 ${prevRemaining.get(emp.id)}일 소멸(이월 없음)`
+          : ` · ${year - 1}년 연차 기록 없음`),
     });
     created++;
   }
