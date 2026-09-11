@@ -151,6 +151,28 @@ export async function withdrawLeaveCancel(cancelRequestId: string) {
   await axios.delete(`${API_URL}/leave/cancel-requests/${cancelRequestId}`, { headers: await authHeaders() });
 }
 
+/**
+ * 본인 **연차 대장**(2026-09-11 디렉터 — 직원은 본인 열람만). 그 해(휴가를 쓰는 해) 휴가 전부와 결재 기록,
+ * 취소 결재, 잔여 조정 이력. 서버: GET /api/leave/ledger (userId 를 안 주면 본인).
+ */
+type LedgerStep = { order: number; role: string | null; approverName: string | null; status: string; decidedAt: string | null; comment: string | null };
+export type MyLedger = {
+  year: number;
+  balance: { total: number; used: number; remaining: number } | null;
+  entries: {
+    id: string; type: string; startDate: string; endDate: string; days: number; status: string; deductible: boolean;
+    reason: string | null; rejectedReason: string | null; createdAt: string; steps: LedgerStep[];
+    cancelRequests: { id: string; status: string; reason: string | null; rejectedReason: string | null; createdAt: string; steps: LedgerStep[] }[];
+  }[];
+  adjustments: { at: string; actorName: string; detail: string | null }[];
+  summary: { approvedDeductibleDays: number; balanceUsed: number | null; match: boolean | null };
+};
+
+export async function getMyLedger(year?: number): Promise<MyLedger> {
+  const res = await axios.get(`${API_URL}/leave/ledger`, { params: year ? { year } : {}, headers: await authHeaders() });
+  return res.data?.ledger as MyLedger;
+}
+
 // 단계 라벨: 역할기반 단계는 승인 전 approver가 null → 역할명 표시
 export function stepLabel(s: InboxStepInfo): string {
   if (s.approver) return s.approver.name;

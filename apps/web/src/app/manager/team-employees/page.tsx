@@ -23,6 +23,7 @@ export default async function ManagerEmployeesPage() {
       position: true,
       jobGroup: true,
       branch: true,
+      role: true,   // 대장 링크는 직원에게만(원장은 담당 지점 **직원**의 대장만 본다)
       hireDate: true,
       createdAt: true,
     },
@@ -45,6 +46,7 @@ export default async function ManagerEmployeesPage() {
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">직책</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">직급</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">입사일</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">연차</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -56,6 +58,11 @@ export default async function ManagerEmployeesPage() {
                 <td className="px-6 py-4 text-sm text-gray-600">{employee.position || "-"}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">
                   {employee.hireDate ? new Date(employee.hireDate).toLocaleDateString("ko-KR") : "-"}
+                </td>
+                <td className="px-6 py-4 text-sm">
+                  {employee.role === "EMPLOYEE"
+                    ? <a href={`/manager/leave-ledger?userId=${employee.id}`} className="text-indigo-600 hover:underline">대장 보기</a>
+                    : <span className="text-gray-300">-</span>}
                 </td>
               </tr>
             ))}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel } from "../../services/approvals";
+import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger } from "../../services/approvals";
+import type { MyLedger } from "../../services/approvals";
 import {
   View,
   Text,
@@ -91,6 +92,29 @@ export default function LeaveRequestScreen() {
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [cancelingId, setCancelingId] = useState("");
+  // 연차 대장 — 본인 열람만(9/11 디렉터). 관리자 PDF·원장 열람은 웹에서 한다.
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [ledgerYear, setLedgerYear] = useState(() => new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear());
+  const [ledger, setLedger] = useState<MyLedger | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState("");
+  const openLedger = async (year: number) => {
+    setLedgerOpen(true);
+    setLedgerYear(year);
+    setLedgerLoading(true);
+    setLedgerError("");
+    try {
+      setLedger(await getMyLedger(year));
+    } catch (e: any) {
+      setLedger(null);
+      setLedgerError(e?.response?.data?.error || "연차 대장을 불러오지 못했습니다.");
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
+  const kstStr = (v: string | null) =>
+    v ? new Date(new Date(v).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") : "-";
+  const LEDGER_STATUS: Record<string, string> = { PENDING: "대기", APPROVED: "승인", REJECTED: "반려", CANCELLED: "취소", WAITING: "대기 전" };
   // 서버가 scope=self 로 잘라 주지만, 목록 범위 하나에만 기대지 않는다.
   const [myId, setMyId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -298,7 +322,86 @@ export default function LeaveRequestScreen() {
             총 {balance.total}일 중 {balance.used}일 사용
           </Text>
         )}
+        <TouchableOpacity style={styles.ledgerBtn} onPress={() => openLedger(ledgerYear)}>
+          <Text style={styles.ledgerBtnText}>연차 대장 보기 ›</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* 연차 대장 — iOS 는 시트로 띄운다(전체 화면이면 상태바에 닫기 버튼이 가린다 — 9/5 반려 창 사고) */}
+      <Modal visible={ledgerOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLedgerOpen(false)}>
+        <View style={styles.ledgerWrap}>
+          <View style={styles.ledgerHead}>
+            <TouchableOpacity style={styles.ledgerNav} onPress={() => openLedger(ledgerYear - 1)}>
+              <Ionicons name="chevron-back" size={20} color="#374151" />
+            </TouchableOpacity>
+            <Text style={styles.ledgerTitle}>{ledgerYear}년 연차 대장</Text>
+            <TouchableOpacity style={styles.ledgerNav} onPress={() => openLedger(ledgerYear + 1)}>
+              <Ionicons name="chevron-forward" size={20} color="#374151" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.ledgerClose} onPress={() => setLedgerOpen(false)}>
+              <Ionicons name="close" size={24} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          {ledgerLoading ? (
+            <ActivityIndicator style={{ marginTop: 40 }} color="#2563eb" />
+          ) : ledgerError ? (
+            <Text style={styles.ledgerEmpty}>{ledgerError}</Text>
+          ) : ledger ? (
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              <View style={styles.ledgerBox}>
+                <Text style={styles.ledgerBoxLabel}>연차 (휴가를 쓰는 해 기준)</Text>
+                <Text style={styles.ledgerBoxValue}>
+                  {ledger.balance
+                    ? `총 ${ledger.balance.total}일 · 사용 ${ledger.balance.used}일 · 잔여 ${ledger.balance.remaining}일`
+                    : "이 해의 연차 기록이 없습니다"}
+                </Text>
+                <Text style={[styles.ledgerBoxSub, ledger.summary.match === false && { color: "#dc2626" }]}>
+                  승인된 연차 휴가 합계 {ledger.summary.approvedDeductibleDays}일 / 기록된 사용 {ledger.summary.balanceUsed ?? "-"}일
+                  {ledger.summary.match === null ? "" : ledger.summary.match ? " · 일치" : " · 불일치(관리자에게 문의)"}
+                </Text>
+              </View>
+
+              <Text style={styles.ledgerSection}>휴가 {ledger.entries.length}건</Text>
+              {ledger.entries.length === 0 && <Text style={styles.ledgerEmpty}>이 해에 신청한 휴가가 없습니다.</Text>}
+              {ledger.entries.map((e) => {
+                const st = STATUS[e.status] || STATUS.PENDING;
+                return (
+                  <View key={e.id} style={styles.ledgerItem}>
+                    <View style={styles.histHeader}>
+                      <Text style={styles.histType}>{TYPE_LABEL[e.type] || e.type} · {e.days}일</Text>
+                      <View style={[styles.badge, { backgroundColor: st.color }]}>
+                        <Text style={styles.badgeText}>{st.label}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.histDate}>
+                      {e.startDate}{e.startDate !== e.endDate ? ` ~ ${e.endDate}` : ""}{e.deductible ? "" : " · 연차 미차감"}
+                    </Text>
+                    <Text style={styles.ledgerLine}>신청 {kstStr(e.createdAt)}{e.reason ? ` · ${e.reason}` : ""}</Text>
+                    {!!e.rejectedReason && <Text style={[styles.ledgerLine, { color: "#dc2626" }]}>반려 사유: {e.rejectedReason}</Text>}
+                    {e.steps.map((s2) => (
+                      <Text key={`s${s2.order}`} style={styles.ledgerLine}>
+                        결재 {s2.order}. {s2.approverName ?? (s2.role === "ADMIN" ? "관리자" : "원장")} — {LEDGER_STATUS[s2.status] ?? s2.status}
+                        {s2.decidedAt ? ` ${kstStr(s2.decidedAt)}` : ""}
+                      </Text>
+                    ))}
+                    {e.cancelRequests.map((c) => (
+                      <Text key={c.id} style={[styles.ledgerLine, { color: "#b45309" }]}>
+                        취소 요청 {kstStr(c.createdAt)} — {LEDGER_STATUS[c.status] ?? c.status}{c.rejectedReason ? ` · ${c.rejectedReason}` : ""}
+                      </Text>
+                    ))}
+                  </View>
+                );
+              })}
+
+              <Text style={styles.ledgerSection}>잔여 조정 이력 {ledger.adjustments.length}건</Text>
+              {ledger.adjustments.length === 0 && <Text style={styles.ledgerEmpty}>이 해에 잔여 조정 기록이 없습니다.</Text>}
+              {ledger.adjustments.map((a, i) => (
+                <Text key={i} style={styles.ledgerLine}>{kstStr(a.at)} · {a.actorName} · {a.detail ?? ""}</Text>
+              ))}
+            </ScrollView>
+          ) : null}
+        </View>
+      </Modal>
 
       {/* 휴가 신청 폼 */}
       <View style={styles.card}>
@@ -518,6 +621,21 @@ const styles = StyleSheet.create({
   balanceLabel: { color: "#dbeafe", fontSize: 14 },
   balanceValue: { color: "#fff", fontSize: 32, fontWeight: "bold", marginTop: 4 },
   balanceSub: { color: "#dbeafe", fontSize: 13, marginTop: 4 },
+  ledgerBtn: { marginTop: 10, alignSelf: "flex-start" },
+  ledgerBtnText: { color: "#fff", fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
+  ledgerWrap: { flex: 1, backgroundColor: "#f3f4f6" },
+  ledgerHead: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingTop: 16, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
+  ledgerNav: { padding: 6 },
+  ledgerTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "bold", color: "#111827" },
+  ledgerClose: { padding: 6, marginLeft: 4 },
+  ledgerBox: { backgroundColor: "#fff", borderRadius: 10, padding: 14 },
+  ledgerBoxLabel: { fontSize: 12, color: "#6b7280" },
+  ledgerBoxValue: { fontSize: 15, fontWeight: "600", color: "#111827", marginTop: 4 },
+  ledgerBoxSub: { fontSize: 12, color: "#6b7280", marginTop: 6 },
+  ledgerSection: { fontSize: 14, fontWeight: "bold", color: "#374151", marginTop: 18, marginBottom: 6 },
+  ledgerItem: { backgroundColor: "#fff", borderRadius: 10, padding: 12, marginTop: 8 },
+  ledgerLine: { fontSize: 12, color: "#4b5563", marginTop: 3 },
+  ledgerEmpty: { fontSize: 13, color: "#9ca3af", textAlign: "center", marginTop: 12 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 12,

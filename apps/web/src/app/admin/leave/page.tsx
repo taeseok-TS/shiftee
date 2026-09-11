@@ -99,7 +99,8 @@ const STEP_CFG: Record<string, { dot: string; label: string }> = {
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS        = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
+// 내년도 둔다 — 12월에 승인된 내년 휴가를 1월 전에도 볼 수 있게(휴가를 쓰는 해 기준, 9/11 검증 D3)
+const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 function calcWorkdays(start: string, end: string, type: string) {
   if (!start) return 0;
@@ -826,6 +827,11 @@ export default function LeavePage() {
                             <Button variant="ghost" size="sm" className="h-7 gap-1 text-indigo-500 hover:text-indigo-700"
                               onClick={() => { setAllowTarget(b); setAllowSalary(""); setAllowBaseDate(new Date().toISOString().slice(0,10)); }}>
                               <Calculator size={12} />계산
+                            </Button>
+                            {/* 연차 대장 — 그 해 휴가 전부·결재 기록·잔여 조정 이력 + PDF(관리자만, 디렉터 9/11) */}
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-500 hover:text-gray-800"
+                              onClick={() => { window.location.href = `/admin/leave-ledger?userId=${b.userId}&year=${CURRENT_YEAR}`; }}>
+                              대장
                             </Button>
                           </td>
                         </tr>

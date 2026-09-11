@@ -83,7 +83,8 @@ const STEP_CFG: Record<string, { dot: string; label: string }> = {
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS        = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
+// 내년도 둔다 — 12월에 승인된 내년 휴가를 1월 전에도 볼 수 있게(휴가를 쓰는 해 기준, 9/11 검증 D3)
+const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 function calcWorkdays(start: string, end: string, type: string) {
   if (!start) return 0;
@@ -394,6 +395,9 @@ export default function LeavePage() {
             <div className="w-full bg-blue-100 rounded-full h-2">
               <div className={`h-2 rounded-full transition-all ${progressColor(balance.used, balance.total)}`}
                 style={{ width: `${Math.min((balance.used / balance.total) * 100, 100)}%` }} />
+            </div>
+            <div className="mt-3 text-right">
+              <a href="/leave/ledger" className="text-xs text-blue-700 hover:underline">연차 대장 보기 →</a>
             </div>
           </CardContent>
         </Card>

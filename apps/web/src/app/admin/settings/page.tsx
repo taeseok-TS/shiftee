@@ -41,6 +41,7 @@ const ACTION_LABEL: Record<string, string> = {
   LEAVE_CANCEL_DECISION: "휴가 취소 결재",
   LEAVE_CANCEL_WITHDRAW: "휴가 취소 요청 철회",
   LEAVE_CANCEL_EXPIRE: "휴가 취소 요청 기한 만료",
+  LEAVE_LEDGER_PDF: "연차 대장 PDF 내려받기",
   SCHEDULE_CANCEL: "근무일정 신청 취소",
   ATTENDANCE_AUTO_CLOSE: "전일 미마감 자동 마감",
 };

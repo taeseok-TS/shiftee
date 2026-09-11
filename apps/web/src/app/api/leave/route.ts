@@ -47,7 +47,9 @@ export async function GET(request: NextRequest) {
     const end   = new Date(year, month, 0, 23, 59, 59); // month의 0일 = 전달 말일
     dateFilter = { startDate: { gte: start, lte: end } };
   } else if (year) {
-    dateFilter = { startDate: { gte: new Date(year, 0, 1) }, endDate: { lte: new Date(year, 11, 31, 23, 59, 59) } };
+    // **휴가를 쓰는 해(시작일)** 기준 — 차감·복구·대장과 같은 기준(9/11). 종전(시작 ≥ 1/1 AND 종료 ≤ 12/31)은
+    // 해를 걸친 휴가(12/30~1/2)가 어느 해 목록에도 나오지 않았다(9/11 검증 D3). @db.Date 는 UTC 자정.
+    dateFilter = { startDate: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } };
   }
 
   // 본인 휴가만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
@@ -206,7 +208,9 @@ export async function POST(request: NextRequest) {
     });
     const remaining = balance
       ? balance.remaining
-      : year > currentLeaveYear() ? await defaultYearTotal(prisma, session.userId, year) : null;
+      // 올해·내년 행이 아직 없으면(1월 연도 전환 전 포함) 근속 기준 총연차로 본다 — `>` 였을 땐 1월에 새해 휴가를
+      // 신청하면 검사가 빠졌다(9/11 검증 D2). 지난 해는 행이 없으면 종전처럼 검사하지 않는다.
+      : year >= currentLeaveYear() ? await defaultYearTotal(prisma, session.userId, year) : null;
     if (remaining !== null && remaining < days) {
       return NextResponse.json({
         error: `잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,

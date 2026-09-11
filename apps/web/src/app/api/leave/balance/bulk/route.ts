@@ -73,6 +73,16 @@ export async function POST(request: NextRequest) {
       create: { userId: r.userId!, year, total: r.total!, used, remaining: r.total! - used },
       update: { total: r.total!, remaining: r.total! - used },
     });
+    // 사람별로도 남긴다 — 종전엔 "N명 적용" 요약 1건뿐이라 누구 연차가 바뀌었는지 대장에서 추적되지 않았다(9/11)
+    await logAudit({
+      actorId: session.userId,
+      actorName: session.name,
+      action: "LEAVE_BALANCE_UPDATE",
+      targetType: "USER",
+      targetId: r.userId!,
+      targetName: r.systemName ?? null,
+      detail: `(일괄 업로드 ${year}년) 연차 총 ${r.prevTotal ?? "-"}→${r.total}일, 사용 ${used}일`,
+    });
   }
 
   await logAudit({
