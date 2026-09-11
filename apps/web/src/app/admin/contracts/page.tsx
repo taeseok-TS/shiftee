@@ -25,6 +25,7 @@ type Contract = {
   fileUrl: string;
   status: string;
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
+  summaryFields?: Record<string, string> | null; // 서명 창 요약 — 그 문서 템플릿 필드만(서버 계산, #206-2)
   signedUrl?: string | null; // 완료 시 저장되는 서명본(서명+직인) 파일
   bundleId?: string | null; // 신규입사 패키지 묶음
   employeeOnly?: boolean; // 직원 서명만·직원전용 문서
@@ -3033,10 +3034,11 @@ ${url}`;
                   문서 보기 (PDF)
                 </button>
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
-                {signTarget.extraFields && Object.keys(signTarget.extraFields).length > 0 && (
+                {/* 그 문서 템플릿의 필드만(#206-2) — 묶음 5종 공통값을 다 보여주면 무엇에 서명하는지 흐려진다 */}
+                {Object.keys(signTarget.summaryFields ?? signTarget.extraFields ?? {}).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                     {/* 내부 필드명(체크_·선택_) 그대로 노출 금지 — 사람 말로 (#125) */}
-                    {Object.entries(signTarget.extraFields)
+                    {Object.entries(signTarget.summaryFields ?? signTarget.extraFields ?? {})
                       .sort(([a], [b]) => (a.startsWith("체크_") || a.startsWith("선택_") ? 1 : 0) - (b.startsWith("체크_") || b.startsWith("선택_") ? 1 : 0))
                       .map(([k, v]) => {
                         const label = k.startsWith("체크_") ? `지급 금품 · ${k.slice(3)}`
@@ -3047,7 +3049,8 @@ ${url}`;
                   </div>
                 )}
               </div>
-              {/* 실제 서명할 문서 실물 — 패키지는 전 문서가 이어진 PDF (#125) + 확대·축소 (#160) */}
+              {/* 실제 서명할 문서 실물 — **이 문서 1건**(#206-2, 종전엔 패키지 전 문서가 이어진 PDF라 첫 쪽이 늘 사직원) + 확대·축소 (#160).
+                  패키지 전체는 아래 [패키지 전체 보기]로 따로 본다. */}
               <div className="space-y-1">
                 <div className="flex items-center justify-end gap-1">
                   <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" title="축소"
@@ -3068,12 +3071,12 @@ ${url}`;
                     title="문서 크게 보기"
                     aria-label="문서 크게 보기"
                     className="absolute top-2 right-3 z-10 flex items-center gap-1 rounded-md border bg-white/95 px-2 py-1 text-xs shadow-sm hover:bg-white"
-                    onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}
+                    onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1&only=1`, "서명할 문서")}
                   >
                     <Eye size={12} />크게 보기
                   </button>
                   <iframe
-                    src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1`}
+                    src={`/api/contracts/${signTarget.id}/bundle-preview?hl=1&only=1`}
                     title="문서 미리보기"
                     style={{
                       width: `${100 / signZoom}%`,
@@ -3109,9 +3112,12 @@ ${url}`;
               )}
               {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125).
                   새 창이 아니라 그 자리에서 크게 연다 (2026-09-02 이예지대리 재확인요청) */}
+              {/* 묶음이면 패키지 전체를 **따로** 본다 — 서명 대상 미리보기와 섞지 않는다(#206-2) */}
               <Button type="button" variant="outline" size="sm" className="w-full gap-1"
-                onClick={() => openBigDoc(`/api/contracts/${signTarget.id}/bundle-preview?hl=1`, "서명할 문서")}>
-                <Eye size={13} />크게 보기{signTarget.bundleId ? " (패키지 전체)" : ""}
+                onClick={() => openBigDoc(
+                  `/api/contracts/${signTarget.id}/bundle-preview?hl=1${signTarget.bundleId ? "" : "&only=1"}`,
+                  signTarget.bundleId ? "패키지 전체 문서" : "서명할 문서")}>
+                <Eye size={13} />{signTarget.bundleId ? "패키지 전체 보기" : "크게 보기"}
               </Button>
               {/* 스크롤해도 항상 보이도록 하단에 붙인다 */}
               <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">

@@ -37,6 +37,9 @@ export async function GET(
   // ?as=send — 발송 전 확인용. 재발송은 결재선을 지우고 템플릿으로 다시 그리므로,
   // 옛 서명이 남아 있는 상태에서 서명본을 보여주면 **실제로 보낼 문서와 다른 것**을 보게 된다.
   const asSend = q.get("as") === "send";
+  // ?only=1 — 묶음이어도 **요청한 문서 1건만**. 서명 창은 지금 서명하는 그 문서를 보여줘야 한다 — 묶음 전체를
+  //   합치면 첫 쪽이 늘 사직원이라, 연차수당에 서명하면서 사직원을 보게 됐다(#206-2, 2026-09-11 이예지대리).
+  const onlyThis = q.get("only") === "1";
   // 서명이 찍힌 실물은 **당사자와 관리자에게만**. 완료본 라우트가 "원장 등 결재자는 서명본
   // 보관 불가"로 막고 있는데 여기서 열어주면 같은 문서가 문에 따라 달라진다 —
   // 9/2 에 바로 그 형태(문마다 판정이 달라 우회됨)로 데였다. 결재자.원장은 재렌더/원본만 본다.
@@ -54,7 +57,7 @@ export async function GET(
       },
     },
   } as const;
-  const allDocs = contract.bundleId
+  const allDocs = contract.bundleId && !onlyThis
     ? await prisma.contract.findMany({
         where: { bundleId: contract.bundleId, userId: contract.userId },
         orderBy: { createdAt: "asc" },

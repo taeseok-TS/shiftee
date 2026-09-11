@@ -251,7 +251,8 @@ export default function ContractListScreen() {
         <Text style={styles.approvalTitle}>내 결재 대기 ({myApprovals.length})</Text>
         {myApprovals.map((c) => {
           const view = viewerUrl(c.fileUrl);
-          const extras: [string, string][] = Object.entries(c.extraFields || {}) as [string, string][];
+          // 요약은 그 문서 템플릿 필드만(서버 계산 summaryFields, #206-2) — 구 서버면 종전처럼 전체
+          const extras: [string, string][] = Object.entries(c.summaryFields || c.extraFields || {}) as [string, string][];
           return (
             <View key={c.id} style={styles.approvalCard}>
               <Text style={styles.cardTitle}>{c.title}</Text>

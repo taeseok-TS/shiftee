@@ -31,6 +31,7 @@ type Contract = {
   startDate: string | null;
   endDate: string | null;
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
+  summaryFields?: Record<string, string> | null; // 서명 창 요약 — 그 문서 템플릿 필드만(서버 계산, #206-2)
   createdAt: string;
   user: { id: string; name: string; department: string | null; branch: string | null };
   approvalLine?: { steps: Step[] } | null;
@@ -330,7 +331,8 @@ export default function ManagerContractsPage() {
                     <><span className="text-gray-400">계약기간</span>
                     <span>{signTarget.startDate ? format(new Date(signTarget.startDate), "yyyy-MM-dd") : "?"} ~ {signTarget.endDate ? format(new Date(signTarget.endDate), "yyyy-MM-dd") : "?"}</span></>
                   )}
-                  {signTarget.extraFields && Object.entries(signTarget.extraFields).map(([k, v]) => (
+                  {/* 그 문서 템플릿의 필드만(#206-2) */}
+                  {Object.entries(signTarget.summaryFields ?? signTarget.extraFields ?? {}).map(([k, v]) => (
                     <span key={k} className="contents"><span className="text-gray-400">{k}</span><span>{v}</span></span>
                   ))}
                 </div>

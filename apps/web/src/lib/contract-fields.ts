@@ -295,3 +295,41 @@ export function buildFieldSummary(
   }
   return summary;
 }
+
+// ── 서명 창 요약 칸 — 그 문서 템플릿의 필드만 (#206-2, 2026-09-11 이예지대리) ──
+// 묶음(퇴사 5종 등)은 작성 화면이 5종 입력값을 합쳐 **모든 문서에 똑같이** 저장한다. 문서를 다시 그릴 때
+// 그 값이 필요해 저장값은 건드리지 않고, **보여줄 때만** 그 문서 템플릿의 {필드}로 거른다 — 연차수당 서명 창에
+// 퇴사사유·금품 체크까지 떠서 무엇에 서명하는지 흐려졌다. 웹 관리자·원장·앱이 모두 서버의 이 값을 쓴다.
+const fieldNameCache = new Map<string, { mtimeMs: number; names: string[] }>();
+export async function templateFieldNames(templateFileUrl: string): Promise<string[] | null> {
+  if (!templateFileUrl.toLowerCase().endsWith(".docx")) return null;
+  try {
+    const file = path.join(process.cwd(), "uploads", templateFileUrl.replace(/^\/api\/uploads\//, ""));
+    const st = await fs.stat(file);
+    const hit = fieldNameCache.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs) return hit.names;
+    const xml = new PizZip(await fs.readFile(file)).file("word/document.xml")?.asText() || "";
+    const names: string[] = [];
+    // 필드 목록 라우트(contract-templates/[id]/fields)와 같은 방식 — 문단 단위로 이어 붙여 run 쪼개짐을 견딘다
+    for (const para of xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) || []) {
+      const text = (para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
+      for (const m of text.matchAll(/\{([^{}\n]{1,30})\}/g)) {
+        const name = m[1].trim();
+        if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 표시
+        if (!names.includes(name)) names.push(name);
+      }
+    }
+    fieldNameCache.set(file, { mtimeMs: st.mtimeMs, names });
+    return names;
+  } catch {
+    return null;
+  }
+}
+
+/** 요약(extraFields)을 그 템플릿 필드로 거른다. 템플릿을 모르면(직접 올린 계약·읽기 실패) 거르지 않는다 — 빈 요약보다 낫다. */
+export function summaryForTemplate(extra: unknown, names: string[] | null | undefined): Record<string, string> | null {
+  if (!extra || typeof extra !== "object") return null;
+  const e = extra as Record<string, string>;
+  if (!names || names.length === 0) return e;
+  return Object.fromEntries(Object.entries(e).filter(([k]) => names.includes(k)));
+}

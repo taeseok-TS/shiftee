@@ -5,7 +5,7 @@ import { filterContractData } from "@/lib/api-response";
 import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
 import path from "path";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 import { CONTRACT_STATUSES, CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
 
@@ -82,7 +82,8 @@ export async function GET(request: NextRequest) {
       where: whereBase,
       include: {
         user: { select: { id: true, name: true, email: true, department: true, branch: true } },
-        template: { select: { postSignAccess: true } }, // 서명 완료 후 근로자 접근 (#129) — 완료본 버튼 게이트용
+        // 서명 완료 후 근로자 접근 (#129) — 완료본 버튼 게이트용 + 요약 칸을 그 템플릿 필드로 거르는 데 쓴다(#206-2)
+        template: { select: { postSignAccess: true, fileUrl: true } },
         approvalLine: {
           include: {
             steps: {
@@ -94,6 +95,13 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2). 템플릿마다 한 번만 읽는다(파일 캐시는 lib 에 있다)
+    const namesByTemplate = new Map<string, string[] | null>();
+    for (const c of contracts) {
+      const u = c.template?.fileUrl;
+      if (u && !namesByTemplate.has(u)) namesByTemplate.set(u, await templateFieldNames(u));
+    }
 
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
     const filteredContracts = contracts.map(({ template, ...contract }) => {
@@ -111,6 +119,7 @@ export async function GET(request: NextRequest) {
       ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,
+      summaryFields: summaryForTemplate(contract.extraFields, template?.fileUrl ? namesByTemplate.get(template.fileUrl) : null),
       user: {
         id: contract.user.id,
         name: contract.user.name,
