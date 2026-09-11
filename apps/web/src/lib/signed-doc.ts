@@ -17,7 +17,15 @@ export function diskPath(url: string): string {
   const rel = url.replace(/^\/api\/uploads\//, "");
   return path.join(process.cwd(), "uploads", rel);
 }
-const fmt = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "");
+// 서명 도장·서명일·생성일 시각 — **한국 시각**으로 적는다. 서버는 UTC 라 getHours() 를 그대로 쓰면 9시간 이르게
+// 찍혔다(18:08 서명이 09:08, 새벽 서명은 날짜까지 전날). 9/12 디렉터 확정: 앞으로 완료되는 계약부터 KST.
+// 이미 고정된 완료본(#205-5)은 당시 저장본을 그대로 보존하므로 바뀌지 않는다.
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const fmt = (d: Date | null) => {
+  if (!d) return "";
+  const k = new Date(d.getTime() + 9 * 3600 * 1000);
+  return `${k.getUTCFullYear()}-${pad2(k.getUTCMonth() + 1)}-${pad2(k.getUTCDate())} ${pad2(k.getUTCHours())}:${pad2(k.getUTCMinutes())}`;
+};
 
 export type Signer = { label: string; name: string; date: Date | null; sigPath: string; role?: string | null };
 
