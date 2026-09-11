@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { deductLeaveBalance, defaultYearTotal } from "@/lib/leave-balance";
 import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } from "@/lib/leave-cancel";
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
@@ -9,7 +10,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { currentLeaveYear } from "@/lib/leave-calc";
+import { currentLeaveYear, leaveYearOfLeave } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
@@ -196,13 +197,19 @@ export async function POST(request: NextRequest) {
   }
 
   // 잔여 휴가 확인 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감이므로 검사 생략)
+  // **휴가를 쓰는 해**의 잔여로 본다(9/11 디렉터). 그 해 행이 아직 없는 내년 휴가는 연초 이월과 같은
+  // 근속 기준 총연차로 본다. 지난 해 휴가는 종전처럼 행이 없으면 검사하지 않는다.
   if (isLeaveDeductible(type)) {
+    const year = leaveYearOfLeave(start);
     const balance = await prisma.leaveBalance.findUnique({
-      where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
+      where: { userId_year: { userId: session.userId, year } },
     });
-    if (balance && balance.remaining < days) {
+    const remaining = balance
+      ? balance.remaining
+      : year > currentLeaveYear() ? await defaultYearTotal(prisma, session.userId, year) : null;
+    if (remaining !== null && remaining < days) {
       return NextResponse.json({
-        error: `잔여 휴가가 부족합니다. (잔여 ${balance.remaining}일, 신청 ${days}일)`,
+        error: `잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,
       }, { status: 400 });
     }
   }
@@ -246,11 +253,7 @@ export async function POST(request: NextRequest) {
         });
       } else if (isLeaveDeductible(leaveType)) {
         // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
-        await tx.leaveBalance.upsert({
-          where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
-          create: { userId: session.userId, year: currentLeaveYear(), total: 15, used: days, remaining: 15 - days },
-          update: { used: { increment: days }, remaining: { decrement: days } },
-        });
+        await deductLeaveBalance(tx, session.userId, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
       }
 
       return created;

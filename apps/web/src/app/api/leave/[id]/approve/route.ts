@@ -3,7 +3,8 @@ import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { currentLeaveYear } from "@/lib/leave-calc";
+import { leaveYearOfLeave } from "@/lib/leave-calc";
+import { deductLeaveBalance } from "@/lib/leave-balance";
 import { logAudit } from "@/lib/audit";
 import { botNotifyDecision } from "@/lib/bot";
 import { getManagerBranches } from "@/lib/manager-branches";
@@ -162,20 +163,8 @@ export async function POST(
           });
           // 잔여 휴가 차감 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감)
           if (isLeaveDeductible(leaveRequest.type)) {
-            await tx.leaveBalance.upsert({
-              where:  { userId_year: { userId: leaveRequest.userId, year: currentLeaveYear() } },
-              create: {
-                userId:    leaveRequest.userId,
-                year:      currentLeaveYear(),
-                total:     15,
-                used:      leaveRequest.days,
-                remaining: 15 - leaveRequest.days,
-              },
-              update: {
-                used:      { increment: leaveRequest.days },
-                remaining: { decrement: leaveRequest.days },
-              },
-            });
+            // **휴가를 쓰는 해** 행에서(9/11). 차감은 lib/leave-balance.ts 한 곳 — 행이 없으면 이월과 같은 계산
+            await deductLeaveBalance(tx, leaveRequest.userId, leaveYearOfLeave(leaveRequest.startDate), leaveRequest.days);
           }
           emailAction = "approve";
         }
@@ -311,20 +300,8 @@ async function adminOverride(
 
     // 잔여 휴가 차감 (연차 차감 유형만)
     if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
-      await tx.leaveBalance.upsert({
-        where:  { userId_year: { userId, year: currentLeaveYear() } },
-        create: {
-          userId,
-          year:      currentLeaveYear(),
-          total:     15,
-          used:      days,
-          remaining: 15 - days,
-        },
-        update: {
-          used:      { increment: days },
-          remaining: { decrement: days },
-        },
-      });
+      // **휴가를 쓰는 해** 행에서(9/11) — 단계 최종승인과 같은 함수
+      await deductLeaveBalance(tx, userId, leaveYearOfLeave(leaveRequest.startDate), days);
     }
   });
 

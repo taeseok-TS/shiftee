@@ -618,9 +618,12 @@ export function startBotScheduler() {
       } catch (e) { console.error("[bot] 헬스체크 오류:", e); }
     }
 
-    // 휴가 취소 결재 기한 만료 — 휴가 첫날이 되도록 끝나지 않은 요청을 닫는다(9/11 디렉터, 매시 1회).
-    // 결재 라우트가 시작일부터 승인을 막으므로(최종 방어) 이건 결재함·신청자 화면 정리다.
-    if (g.__botCancelExpireHour !== hourKey) {
+    // 휴가 취소 결재 기한 만료 — 휴가 첫날이 되도록 끝나지 않은 요청을 닫는다(9/11 디렉터).
+    // 결재 라우트가 **자정부터** 승인을 막고 결재함에서도 빠지므로(최종 방어), 이건 신청자 화면 정리 + 알림이다.
+    // ⚠ **KST 08시 이후**에만 돈다. 만료 조건(시작일 ≤ 오늘)은 자정에만 바뀌어서, 매시 가드만 두면
+    //   모든 만료 알림이 00:00~00:01 에 신청자 폰으로 푸시됐다(9/11 검증에서 적발). 08시 이후 첫 틱에
+    //   몰아서 처리하고, 이후 매시는 실패분을 다시 줍는다.
+    if (k.getUTCHours() >= 8 && g.__botCancelExpireHour !== hourKey) {
       g.__botCancelExpireHour = hourKey;
       try {
         const { expireStaleCancelRequests } = await import("@/lib/leave-cancel-flow");

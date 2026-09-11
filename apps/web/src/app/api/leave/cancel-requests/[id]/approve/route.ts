@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     include: {
       user: { select: { id: true, name: true } },
       leaveRequest: {
-        select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true, updatedAt: true },
+        select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true },
       },
       approvalSteps: { orderBy: { order: "asc" } },
     },
@@ -49,14 +49,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (cr.status !== "PENDING") {
     return NextResponse.json(
       { error: `이미 ${cr.status === "APPROVED" ? "승인" : "처리"}된 취소 결재입니다.` },
-      { status: 409 }
-    );
-  }
-  // 휴가 첫날부터는 취소 결재를 **승인하지 않는다**(9/11 디렉터 — 진행 중 휴가는 취소 대상이 아니다).
-  // 반려는 막지 않는다(휴가가 그대로 남으므로 해가 없다). 남은 요청은 봇이 매시 기한 만료로 닫는다.
-  if (action === "approve" && cr.leaveRequest.startDate.getTime() <= kstTodayMidnight().getTime()) {
-    return NextResponse.json(
-      { error: "휴가가 이미 시작돼 취소 결재를 승인할 수 없습니다. 이 요청은 기한 만료로 정리됩니다. 연차 정정은 관리자 '잔여 조정'으로 해주세요." },
       { status: 409 }
     );
   }
@@ -77,6 +69,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   });
   if (!myStep && session.role !== "ADMIN") {
     return NextResponse.json({ error: "결재 차례가 아닙니다." }, { status: 403 });
+  }
+  // 휴가 첫날부터는 취소 결재를 **승인하지 않는다**(9/11 디렉터 — 진행 중 휴가는 취소 대상이 아니다).
+  // 반려는 막지 않는다(휴가가 그대로 남으므로 해가 없다). 남은 요청은 봇이 아침(08시 이후)에 기한 만료로 닫는다.
+  // 권한 검사 **뒤에** 둔다 — 결재자가 아닌 사람에게 휴가 시작 여부를 알려주지 않는다(9/11 검증).
+  if (action === "approve" && cr.leaveRequest.startDate.getTime() <= kstTodayMidnight().getTime()) {
+    return NextResponse.json(
+      { error: "휴가가 이미 시작돼 취소 결재를 승인할 수 없습니다. 이 요청은 기한 만료로 정리됩니다. 연차 정정은 관리자 '잔여 조정'으로 해주세요." },
+      { status: 409 }
+    );
   }
   const override = !myStep;   // 관리자 직접처리
 

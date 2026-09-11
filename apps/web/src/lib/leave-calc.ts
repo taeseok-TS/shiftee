@@ -36,13 +36,20 @@ export function currentLeaveYear(): number {
   return leaveYearOf(new Date());
 }
 
-/**
- * 그 시각이 속한 연차 연도(KST 달력 연도). 차감은 **승인 시점의** 연도 행에 들어가므로
- * 취소 복원도 같은 연도 행에 넣어야 한다 — "지금" 연도에 넣으면 12월에 승인한 휴가를
- * 1월에 취소할 때 새해 잔여가 늘고 작년 사용일은 그대로 남는다(2026-09-10 검증에서 적발).
- */
+/** 그 시각이 속한 달력 연도(KST). "지금" 연도는 currentLeaveYear() 로 쓴다. */
 export function leaveYearOf(d: Date): number {
   return new Date(d.getTime() + 9 * 60 * 60 * 1000).getUTCFullYear();
+}
+
+/**
+ * **휴가가 속한 연차 연도 = 시작일의 연도**(2026-09-11 디렉터 "휴가를 쓰는 해 기준").
+ * 차감·복구·잔여 확인이 모두 이 함수를 쓴다(lib/leave-balance.ts). 12월에 승인한 1월 휴가는 **새해** 연차에서
+ * 깎이고, 취소하면 새해로 돌아온다 — 종전(승인한 해 기준)에는 1월에 취소하면 이미 마감된 작년 행으로 복구돼
+ * 새해 잔여가 늘지 않았다. 해를 걸친 휴가(12/30~1/2)는 시작일의 해로 한꺼번에 센다.
+ * startDate 는 @db.Date(UTC 자정)라 UTC 연도가 곧 그 날짜의 연도다.
+ */
+export function leaveYearOfLeave(startDate: Date | string): number {
+  return new Date(startDate).getUTCFullYear();
 }
 
 /** 1일 통상임금 = (연봉/12)/209시간 × 8시간 */
