@@ -4,8 +4,9 @@
 //
 // - 확인에 성공하면 그 단계에만 통하는 짧은 증표(2시간)를 준다. 업로드 티켓(uploads:)·완료본 티켓(signeddoc:)과
 //   **다른 서명 도메인(extsign:)** 이라 서로 바꿔 쓸 수 없다 — 섞이면 업로드 경로의 우회로가 된다.
-// - 4자리는 1만 가지뿐이라 **틀린 시도를 막는다**: 한 링크당 5번 틀리면 30분 잠금. 프로세스 메모리라 재배포 때
-//   풀리지만, 재배포는 드물고 잠금 사이 시도 수가 여전히 막힌다(서버 1대).
+// - 4자리는 1만 가지뿐이라 **틀린 시도를 막는다**: 한 링크당 5번 틀리면 잠그고, 잠금이 거듭될수록 길게
+//   (30분 → 1시간 → 2시간 … 최대 24시간, #205 검증 A5 — 고정 30분이면 링크 유효 14일 동안 약 34% 확률로 맞혔다).
+//   프로세스 메모리라 재배포 때 풀린다(서버 1대, 재배포는 드물다).
 import crypto from "crypto";
 
 const secret = () => process.env.JWT_SECRET || "";
@@ -55,7 +56,7 @@ export function checkExternalVerify(stepId: string, t: string | null | undefined
 }
 
 // 링크(단계)별 틀린 횟수 — globalThis 싱글턴(개발 모드 핫리로드에도 한 벌)
-type Fail = { count: number; lockedUntil: number };
+type Fail = { count: number; lockedUntil: number; locks: number };
 const g = globalThis as unknown as { __extVerifyFails?: Map<string, Fail> };
 const fails = (g.__extVerifyFails ??= new Map<string, Fail>());
 
@@ -72,9 +73,40 @@ export function tryLast4(stepId: string, phone: string | null | undefined, input
   const ok = !!want && got.length === 4 &&
     crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
   if (ok) { fails.delete(stepId); return true; }
-  const f = fails.get(stepId) ?? { count: 0, lockedUntil: 0 };
+  const f = fails.get(stepId) ?? { count: 0, lockedUntil: 0, locks: 0 };
   f.count += 1;
-  if (f.count >= MAX_FAILS) { f.lockedUntil = Date.now() + LOCK_MS; f.count = 0; }
+  if (f.count >= MAX_FAILS) {
+    f.locks += 1;
+    f.lockedUntil = Date.now() + Math.min(LOCK_MS * 2 ** (f.locks - 1), 24 * 3600 * 1000);
+    f.count = 0;
+  }
   fails.set(stepId, f);
   return false;
+}
+
+// ── 문자 중계 링크 표식 (#205 검증 A1) ──
+// 중계 페이지(/sms-relay)는 **번호 전체**로 문자 앱을 여는 곳이다. 서명 링크와 같은 토큰을 쓰면, 서명 링크를 받은 사람이
+// 경로만 /sms-relay/ 로 바꿔 번호를 보고 그 뒷자리로 본인 확인을 통과할 수 있었다. 중계 링크는 사내 결재자에게만 가므로
+// 서명 링크로는 **만들 수 없는** 별도 표식을 쓴다: "단계 id + HMAC(단계 id·현재 서명 토큰)". 서명 토큰이 바뀌면
+// (재발송·결재 초기화) 중계 링크도 함께 무효가 된다. 로그인을 요구하지 않는 이유 — 앱 채팅에서 탭하면 폰 브라우저로
+// 열리는데 거기엔 웹 로그인이 없다(문자 전달이 현장 관리자의 폰에서 이뤄지는 게 이 페이지의 존재 이유).
+function relayMac(stepId: string, signToken: string): string {
+  return crypto.createHmac("sha256", secret()).update(`smsrelay:${stepId}:${signToken}`).digest("hex").slice(0, 32);
+}
+
+export function relayToken(stepId: string, signToken: string): string {
+  if (!secret()) throw new Error("JWT_SECRET 미설정");
+  return `${stepId}.${relayMac(stepId, signToken)}`;
+}
+
+export function parseRelayToken(t: string): { stepId: string; sig: string } | null {
+  const i = (t || "").lastIndexOf(".");
+  if (i <= 0) return null;
+  const sig = t.slice(i + 1);
+  return sig.length === 32 ? { stepId: t.slice(0, i), sig } : null;
+}
+
+export function checkRelayToken(sig: string, stepId: string, signToken: string | null | undefined): boolean {
+  if (!signToken || !secret()) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(relayMac(stepId, signToken))); } catch { return false; }
 }

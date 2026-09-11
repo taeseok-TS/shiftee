@@ -5,7 +5,7 @@ import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import { preserveDecidedSteps } from "@/lib/contract-reset";
-import { isValidMobile } from "@/lib/external-verify";
+import { isValidMobile, relayToken } from "@/lib/external-verify";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -142,12 +142,15 @@ export async function POST(
     const internalIds = stepApproverIds.length > 0 ? stepApproverIds : [session.userId];
     if (rep && internalIds.length > 0) {
       const base = getAppUrl();
+      // 문자 중계 링크는 서명 링크와 **다른 전용 표식**(#205 검증 A1) — 서명 링크 경로만 바꿔 번호를 보는 우회를 막는다
+      const relayStep = await prisma.contractApprovalStep.findUnique({ where: { signToken: externalSignToken }, select: { id: true } });
+      const relayLink = relayStep ? relayToken(relayStep.id, externalSignToken) : "";
       const msg = [
         `📩 외부 계약 발송 — ${rep.externalName} 님${rep.externalPhone ? ` (${rep.externalPhone})` : ""}`,
         `「${rep.title}」 외 ${sent - 1}건 (패키지 — 링크 하나로 전 문서 서명)`,
         ``,
         `아래 링크를 누르면 문자 앱이 열립니다(내용 자동 입력, 보내기만 누르면 됨):`,
-        `${base}/sms-relay/${externalSignToken}`,
+        `${base}/sms-relay/${relayLink}`,
         ``,
         `서명 링크만 직접 전달하려면:`,
         `${base}/sign/${externalSignToken}`,

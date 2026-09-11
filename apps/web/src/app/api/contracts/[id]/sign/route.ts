@@ -16,12 +16,15 @@ import { lockSteps } from "@/lib/contract-reset";
 // globalThis 싱글턴(개발 핫리로드에도 한 벌). 서버 1대라 프로세스 메모리로 충분하다.
 const gpw = globalThis as unknown as { __signPwFails?: Map<string, { count: number; until: number }> };
 const pwFails = (gpw.__signPwFails ??= new Map<string, { count: number; until: number }>());
-const pwLockedUntil = (u: string) => { const f = pwFails.get(u); return f && f.until > Date.now() ? f.until : 0; };
-const pwFail = (u: string) => {
+// 시도를 **비교 전에** 센다(#205 검증 A4) — 확인과 기록 사이에 DB 조회·bcrypt(비동기)가 끼면 동시 요청 N개가 모두
+// 비교됐다. 여기는 동기 코드라 확인과 계수가 한 번에 일어난다. 잠겨 있으면 풀리는 시각(ms), 아니면 0. 성공하면 기록을 지운다.
+const pwTakeAttempt = (u: string): number => {
   const f = pwFails.get(u) ?? { count: 0, until: 0 };
+  if (f.until > Date.now()) return f.until;
   f.count += 1;
   if (f.count >= 5) { f.until = Date.now() + 15 * 60 * 1000; f.count = 0; }
   pwFails.set(u, f);
+  return 0;
 };
 
 // 서명 확정 실패 사유 — 409 로 돌려준다
@@ -113,18 +116,21 @@ export async function POST(
   const pendingMine = contract.approvalLine?.steps.find((st) => st.approverId === session.userId && st.status === "PENDING");
   const isEmployeeSignStep = !!pendingMine && pendingMine.approverId === contract.userId && !contract.externalName;
   if (isEmployeeSignStep) {
+    // 안내 문구에 "어디서 서명하면 되는지"를 넣는다 — 원장·관리자 결재 화면은 본인 계약에 비밀번호 칸이 없고(#205 검증 A2),
+    // 앱 업데이트 전 옛 앱도 칸이 없다(과도기, A6). 옛 앱은 이 문구를 그대로 띄운다.
     if (useSaved)
-      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. 직접 서명해 주세요." }, { status: 400 });
-    const lock = pwLockedUntil(session.userId);
+      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. [전자계약]의 내 계약 화면에서 직접 서명해 주세요." }, { status: 400 });
+    if (typeof password !== "string" || !password)
+      return NextResponse.json({
+        code: "PASSWORD_REQUIRED",
+        error: "본인 확인을 위해 비밀번호를 입력해 주세요. 비밀번호 칸이 없으면 [전자계약]의 내 계약 화면에서 서명하거나, 앱은 완전히 닫았다가 다시 열어 업데이트해 주세요.",
+      }, { status: 400 });
+    const lock = pwTakeAttempt(session.userId);
     if (lock)
       return NextResponse.json({ code: "PASSWORD_LOCKED", error: `비밀번호를 여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도해 주세요.` }, { status: 429 });
-    if (typeof password !== "string" || !password)
-      return NextResponse.json({ code: "PASSWORD_REQUIRED", error: "본인 확인을 위해 비밀번호를 입력해 주세요." }, { status: 400 });
     const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { password: true } });
-    if (!me?.password || !(await bcrypt.compare(password, me.password))) {
-      pwFail(session.userId);
+    if (!me?.password || !(await bcrypt.compare(password, me.password)))
       return NextResponse.json({ code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." }, { status: 400 });
-    }
     pwFails.delete(session.userId);
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { lockSteps } from "@/lib/contract-reset";
 
 export async function POST(
   request: NextRequest,
@@ -55,6 +56,8 @@ export async function POST(
 
     // 트랜잭션으로 처리
     const result = await prisma.$transaction(async (tx) => {
+      // 단계 행을 먼저 잠근다 — 다른 쓰기 경로(수정·서명 확정·반려·초기화)와 같은 순서(단계 → 계약)로 교착을 막는다(#205 검증 A3)
+      await lockSteps(tx, id);
       // revocationLog JSON 배열로 관리
       const newLog = {
         type: "employee",

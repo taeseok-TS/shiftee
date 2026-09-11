@@ -7,7 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
-import { isValidMobile } from "@/lib/external-verify";
+import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
 import type { Contract } from "@shiftee/api";
 import fs from "fs/promises";
@@ -430,7 +430,7 @@ export async function PATCH(
         `「${updated.title}」`,
         ``,
         `아래 링크를 누르면 문자 앱이 열립니다(내용 자동 입력, 보내기만 누르면 됨):`,
-        `${base}/sms-relay/${extStep.signToken}`,
+        `${base}/sms-relay/${relayToken(extStep.id, extStep.signToken)}`, // 서명 링크와 다른 전용 표식(#205 검증 A1)
         ``,
         `서명 링크만 직접 전달하려면:`,
         `${base}/sign/${extStep.signToken}`,
