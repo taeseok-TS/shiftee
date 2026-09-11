@@ -75,12 +75,22 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
 
   // 완료본은 있는데 고정 PDF 가 없는 계약 — 고정 실패분과 9/11 이전 완료분(백필). 오래된 것부터 5건씩.
   const freezeWhere = { status: "SIGNED" as const, signedUrl: { not: null }, signedPdfUrl: null, updatedAt: { lt: cutoff } };
-  const toFreeze = await prisma.contract.findMany({ where: freezeWhere, select: { id: true }, orderBy: { updatedAt: "asc" }, take: 5 });
+  // 최근 6시간 안에 고정에 실패한 계약은 건너뛴다 — 안 되는 몇 건이 맨 앞을 막아 뒤 계약이 영영 고정되지 않거나,
+  // 매시간 같은 실패가 오류 로그에 쌓이지 않게(8330d85 검증 3). 6시간마다는 다시 시도한다.
+  const recentFails = await prisma.systemErrorLog.findMany({
+    where: { createdAt: { gt: new Date(Date.now() - 6 * 3600 * 1000) }, message: { contains: "완료본 고정 실패" } },
+    select: { path: true }, take: 500,
+  });
+  const skip = [...new Set(recentFails.map((l) => /\/api\/contracts\/([^/ ]+)\//.exec(l.path || "")?.[1]).filter((x): x is string => !!x))];
+  const toFreeze = await prisma.contract.findMany({
+    where: { ...freezeWhere, ...(skip.length ? { id: { notIn: skip } } : {}) },
+    select: { id: true }, orderBy: { updatedAt: "asc" }, take: 5,
+  });
   const { freezeSignedPdf } = await import("@/lib/signed-freeze");
   for (const c of toFreeze) {
     try {
       if (await freezeSignedPdf(c.id)) { out.frozen++; continue; }
-      out.freezeFailed++; out.freezeFailedIds.push(c.id);
+      // null = 그 사이 완료가 풀렸다(경쟁) — 실패로 세지 않는다
     } catch (e) {
       out.freezeFailed++; out.freezeFailedIds.push(c.id);
       await recordSignedDocFailure(c.id, new Error(`완료본 고정 실패 — ${e instanceof Error ? e.message : String(e)}`));

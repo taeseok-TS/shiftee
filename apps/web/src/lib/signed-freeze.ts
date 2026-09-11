@@ -97,11 +97,16 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   if (!c || c.status !== "SIGNED" || !c.signedUrl) return null;
   if (c.signedPdfUrl && c.signedSha256 && c.docNo) return { docNo: c.docNo, sha256: c.signedSha256 }; // 이미 고정 — 불변
 
-  const events = await prisma.contractEvent.findMany({
-    where: { contractId, type: { in: ["SIGNED", "VERIFY_OK", "CONSENT"] } },
+  const all = await prisma.contractEvent.findMany({
+    where: { contractId, type: { in: ["SIGNED", "VERIFY_OK", "CONSENT", "SENT", "RESEND", "RESET"] } },
     orderBy: { createdAt: "asc" },
   });
-  const lastOf = (type: string, order: number) => [...events].reverse().find((e) => e.type === type && e.stepOrder === order);
+  // 이번 회차(마지막 발송·재발송·결재 초기화 이후) 기록만 본다 — 옛 회차의 같은 단계 번호 기록(다른 사람의 동의·IP)이
+  // 섞이지 않게(8330d85 검증 5). 사내 단계는 그 단계 결재자 본인 기록만, 외부 단계는 계정이 없어 단계 번호로.
+  const roundStart = [...all].reverse().find((e) => e.type === "SENT" || e.type === "RESEND" || e.type === "RESET")?.createdAt;
+  const events = all.filter((e) => !roundStart || e.createdAt >= roundStart);
+  const lastOf = (type: string, st: { order: number; approverId: string | null }) =>
+    [...events].reverse().find((e) => e.type === type && e.stepOrder === st.order && (!st.approverId || e.actorId === st.approverId));
 
   const src = await sourcePdf(c.signedUrl);
   const doc = await PDFDocument.load(src, { ignoreEncryption: true });
@@ -128,10 +133,10 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     const employee = external ? false : st.approverId === c.userId && !c.externalName;
     const role = external ? "외부 계약자" : employee ? "근로자 본인" : `${st.order}단계 결재자`;
     const name = st.approver?.name || st.externalName || c.externalName || "외부 서명자";
-    const signed = lastOf("SIGNED", st.order);
-    const consent = lastOf("CONSENT", st.order);
+    const signed = lastOf("SIGNED", st);
+    const consent = lastOf("CONSENT", st);
     const method = external
-      ? (lastOf("VERIFY_OK", st.order) ? "서명 링크 + 연락처 뒷자리 확인" : "서명 링크")
+      ? (lastOf("VERIFY_OK", st) ? "서명 링크 + 연락처 뒷자리 확인" : "서명 링크")
       : employee
         ? (signed ? "로그인 + 비밀번호 재확인" : "로그인 계정")
         : "로그인 계정";
@@ -167,10 +172,16 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   const url = `/api/uploads/contracts/${filename}`;
 
   // 동시에 두 번 고정되지 않게, 그리고 그 사이 회수·재완료됐으면 쓰지 않게 — 읽은 완료본 그대로이고 아직 비어 있을 때만
-  const r = await prisma.contract.updateMany({
-    where: { id: contractId, status: "SIGNED", signedUrl: c.signedUrl, signedPdfUrl: null },
-    data: { docNo, signedPdfUrl: url, signedSha256: sha256, signedPdfAt: now },
-  });
+  let r: { count: number };
+  try {
+    r = await prisma.contract.updateMany({
+      where: { id: contractId, status: "SIGNED", signedUrl: c.signedUrl, signedPdfUrl: null },
+      data: { docNo, signedPdfUrl: url, signedSha256: sha256, signedPdfAt: now },
+    });
+  } catch (e) {
+    await fs.unlink(path.join(dir, filename)).catch(() => {}); // 기록 실패(문서번호 충돌 등) — 방금 만든 사본을 남기지 않는다
+    throw e;
+  }
   if (r.count === 0) {
     await fs.unlink(path.join(dir, filename)).catch(() => {}); // 방금 만든 쓰지 않을 사본
     const cur = await prisma.contract.findUnique({ where: { id: contractId }, select: { docNo: true, signedSha256: true } });

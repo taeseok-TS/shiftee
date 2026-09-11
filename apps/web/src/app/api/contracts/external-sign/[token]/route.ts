@@ -317,6 +317,9 @@ export async function POST(
         data: { status: "SIGNED", employeeSignedAt: new Date(), signedAt: new Date() },
       });
       // 패키지 동반 문서도 같은 동의·서명으로 끝났다 — 문서마다 남긴다(#205-4)
+      // 본인 확인은 대표 문서 링크에서 한 번 했다(위에서 증표 확인) — 동반 문서 증명 쪽에도 그대로 적히게 남긴다(8330d85 검증 1)
+      if (phoneLast4(extPhone))
+        await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "VERIFY_OK", meta: { via: "대표 문서 링크", bundleWith: contractId } });
       await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "CONSENT", meta: { text: SIGN_CONSENT_TEXT, readToEnd: null, bundleWith: contractId } });
       await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "SIGNED", meta: { role: "외부 계약자", bundleWith: contractId } });
       await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "COMPLETED" });
