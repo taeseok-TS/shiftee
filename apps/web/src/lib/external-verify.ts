@@ -64,10 +64,10 @@ export type Last4Result = { result: "ok" } | { result: "wrong" } | { result: "lo
  * 확인과 계수 사이에 틈이 없어 동시 요청으로 5회 제한을 넘지 못한다. 맞으면 기록을 지우고, 5번째까지 틀리면 잠근다.
  */
 export async function tryLast4(stepId: string, phone: string | null | undefined, input: string): Promise<Last4Result> {
-  const now = new Date();
+  // 잠금 시각은 UTC 로 저장된다(timestamp). DB 시계를 UTC 로 바꿔 비교 — DB 세션 시간대 설정과 무관하게(묶음 ① 검증 권고)
   const rows = await prisma.$queryRaw<{ verifyFails: number; verifyLocks: number }[]>`
     UPDATE "ContractApprovalStep" SET "verifyFails" = "verifyFails" + 1
-    WHERE id = ${stepId} AND ("verifyLockedUntil" IS NULL OR "verifyLockedUntil" < ${now})
+    WHERE id = ${stepId} AND ("verifyLockedUntil" IS NULL OR "verifyLockedUntil" < (now() AT TIME ZONE 'UTC'))
     RETURNING "verifyFails", "verifyLocks"`;
   if (rows.length === 0) {
     const s = await prisma.contractApprovalStep.findUnique({ where: { id: stepId }, select: { verifyLockedUntil: true } });

@@ -11,6 +11,8 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import type { Prisma } from "@prisma/client";
 import { lockSteps } from "@/lib/contract-reset";
+import { recordContractEvent } from "@/lib/contract-events";
+import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 
 // 본인 서명 비밀번호 확인 — 틀린 횟수 제한(5번 → 15분 잠금). 로그인과 다른 경로라 여기서도 막는다.
 // globalThis 싱글턴(개발 핫리로드에도 한 벌). 서버 1대라 프로세스 메모리로 충분하다.
@@ -98,7 +100,7 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault, password } = body;
+  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault, password, agree, readToEnd } = body;
 
   const contract = await prisma.contract.findUnique({
     where: { id },
@@ -119,7 +121,13 @@ export async function POST(
     // 안내 문구에 "어디서 서명하면 되는지"를 넣는다 — 원장·관리자 결재 화면은 본인 계약에 비밀번호 칸이 없고(#205 검증 A2),
     // 앱 업데이트 전 옛 앱도 칸이 없다(과도기, A6). 옛 앱은 이 문구를 그대로 띄운다.
     if (useSaved)
-      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. 본인 계약 화면에서 직접 서명해 주세요(웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약], 앱: [전자계약])." }, { status: 400 });
+      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. 본인 계약 화면에서 직접 서명해 주세요(웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약], 앱: [더보기] → [계약서])." }, { status: 400 });
+    // 전자서명 동의(#205-3) — 서명 칸 앞에서 명시적으로 체크해야 한다. 비밀번호 시도로 세기 전에 본다.
+    if (agree !== true)
+      return NextResponse.json({
+        code: "CONSENT_REQUIRED",
+        error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
+      }, { status: 400 });
     if (typeof password !== "string" || !password)
       return NextResponse.json({
         code: "PASSWORD_REQUIRED",
@@ -260,6 +268,12 @@ export async function POST(
     });
     if (!r.ok) return NextResponse.json({ code: r.code, error: SIGN_FAIL[r.code] }, { status: 409 });
     const updated = r.contract;
+    // 감사 기록(#205-4) — 동의(#205-3)·서명·완료. 트랜잭션 밖, 실패해도 서명은 그대로
+    await recordContractEvent({ contractId: id, type: "CONSENT", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
+      meta: { text: SIGN_CONSENT_TEXT, readToEnd: typeof readToEnd === "boolean" ? readToEnd : null } });
+    await recordContractEvent({ contractId: id, type: "SIGNED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
+      meta: { role: "근로자 본인", docVersion: contract.version } });
+    if (!nextStep) await recordContractEvent({ contractId: id, type: "COMPLETED", actorId: session.userId, actorName: session.name, request });
 
     // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
     if (!nextStep) {
@@ -334,6 +348,10 @@ export async function POST(
     });
     if (!r.ok) return NextResponse.json({ code: r.code, error: SIGN_FAIL[r.code] }, { status: 409 });
     const finalContract = r.contract;
+    // 감사 기록(#205-4) — 결재 서명·완료
+    await recordContractEvent({ contractId: id, type: "SIGNED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
+      meta: { role: "결재자", savedSignature: !!useSaved, docVersion: contract.version } });
+    if (!nextStep) await recordContractEvent({ contractId: id, type: "COMPLETED", actorId: session.userId, actorName: session.name, request });
 
     // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용
     if (!nextStep) {
@@ -393,7 +411,7 @@ export async function POST(
     if (nextStep) {
       if (nextStep.approverId) {
         const dm = nextStep.approverId === finalContract.userId && !contract.externalName
-          ? `📝 전자계약 서명 요청\n「${finalContract.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
+          ? `📝 전자계약 서명 요청\n「${finalContract.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
           : `🖋 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
         hrBotSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
       }

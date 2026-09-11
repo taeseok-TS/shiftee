@@ -165,25 +165,28 @@ export async function markChannelRead(channelId: string) {
 
 // ─── 개인정보동의서 선택 항목 동의 포함 서명 (공유 클라이언트 미지원 → 직접 호출) ───
 import axios from "axios";
+import { getDeviceId } from "./device";
 // 문서 버전 묶기(#206 검증 F2, 2026-09-11) — 서명 창을 연 뒤 관리자가 내용을 고쳤으면(버전이 올라감) 서버가 409 로
 // 거절한다(보지 않은 내용에 서명 방지). 버전을 모르면 헤더를 싣지 않는다(서버는 그때 종전 동작).
-const signHeaders = (token: string | null, version?: number) => ({
+// x-device-id — 계약 감사 기록(#205-4)에 "어느 기기에서" 서명·열람했는지 남긴다(기기 잠금과 같은 번호).
+const signHeaders = async (token: string | null, version?: number) => ({
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
   ...(typeof version === "number" ? { "x-doc-version": String(version) } : {}),
+  "x-device-id": await getDeviceId().catch(() => ""),
 });
 
 // 저장된 결재 서명(관리자·원장)으로 원클릭 승인
 export async function signContractSaved(id: string, version?: number) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`, { useSaved: true, isApprover: true },
-    { headers: signHeaders(token, version) });
+    { headers: await signHeaders(token, version) });
 }
 
 // 그린 서명으로 승인 + 기본 서명으로 저장(다음 결재부터 원클릭)
 export async function signContractAndSave(id: string, signatureData: string, version?: number) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`, { signatureData, isApprover: true, saveAsDefault: true },
-    { headers: signHeaders(token, version) });
+    { headers: await signHeaders(token, version) });
 }
 
 // 계약 반려 — 결재자.직원 모두 자기 차례일 때만. 2026-09-11 부터 반려는 최종이 아니다(관리자가 고쳐 다시 보낼 수 있다).
@@ -197,25 +200,26 @@ export async function signContractWithConsent(id: string, signatureData: string,
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,
     { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) },
-    { headers: signHeaders(token, version) });
+    { headers: await signHeaders(token, version) });
 }
 
 // 근로자 본인 서명 — 비밀번호 재확인 필수, 매번 직접 그린 서명(#205-1·#205-2, 2026-09-11 디렉터).
 // 서버가 근로자 본인 서명 단계에서 password 를 확인하고 저장 서명(useSaved)을 거절한다.
 export async function signContractAsEmployee(
   id: string, signatureData: string, password: string,
-  extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string> },
+  extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string>; agree?: boolean },
   version?: number
 ) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,
     {
-      signatureData, password, isApprover: false,
+      // agree — 전자서명 동의(#205-3). 화면이 체크를 받은 뒤에만 true 로 보낸다
+      signatureData, password, isApprover: false, agree: extra?.agree === true,
       ...(extra?.consent ? { consent: extra.consent } : {}),
       ...(extra?.profile ? { profile: extra.profile } : {}),
       ...(extra?.fields ? { fields: extra.fields } : {}),
     },
-    { headers: signHeaders(token, version) });
+    { headers: await signHeaders(token, version) });
 }
 
 // 내 프로필(주소·생년월일 포함) — 전자계약 서명 시 입력 유도 판단용
@@ -231,4 +235,11 @@ export async function getSignedDocLink(id: string): Promise<string> {
   const res = await axios.get(`${API_URL}/contracts/${id}/signed-link`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   return res.data?.url;
+}
+
+// 열람 알림(#205-4) — 계약서를 열면 서버 감사 기록에 남긴다(실패해도 무시). 서버가 10분 안 중복은 하나로 친다.
+export async function recordContractViewed(id: string) {
+  const token = await getToken();
+  return axios.post(`${API_URL}/contracts/${id}/events`, { type: "VIEWED" },
+    { headers: await signHeaders(token) });
 }

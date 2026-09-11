@@ -104,7 +104,11 @@ export async function resetApprovalInPlace(tx: Tx, contractId: string, by: strin
     if (!s.approverId && s.signToken) {
       await tx.contractApprovalStep.update({
         where: { id: s.id },
-        data: { signToken: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""), tokenExpiresAt: expires },
+        // 새 링크는 뒷자리 확인 잠금도 새로 — 옛 링크는 어차피 무효라, 넘겨 오면 스스로 잠긴 본인만 막힌다(묶음 ① 검증 권고)
+        data: {
+          signToken: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""), tokenExpiresAt: expires,
+          verifyFails: 0, verifyLocks: 0, verifyLockedUntil: null,
+        },
       });
     }
   }

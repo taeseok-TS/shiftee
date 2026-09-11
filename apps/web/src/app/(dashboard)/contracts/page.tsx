@@ -1,4 +1,5 @@
 ﻿"use client";
+import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -785,8 +786,18 @@ export default function ContractsPage() {
   const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
   // 근로자 본인 서명 — 비밀번호 재확인 + 매번 직접 서명(#205-1·#205-2, 2026-09-11 디렉터). 결재자 서명은 지금처럼.
   const [signPassword, setSignPassword] = useState("");
+  // 전자서명 동의(#205-3) + 문서를 끝까지 내려 봤는가(뷰어가 알려준다) — 서명 때 함께 기록된다
+  const [signAgree, setSignAgree] = useState(false);
+  const [docReadToEnd, setDocReadToEnd] = useState(false);
   const isEmpSign = !!signTarget && signTarget.userId === myId;
-  useEffect(() => { if (!signOpen) setSignPassword(""); }, [signOpen]);
+  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); } }, [signOpen]);
+  // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
+  useEffect(() => {
+    if (!signOpen || !signTarget) return;
+    fetch(`/api/contracts/${signTarget.id}/events`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "VIEWED" }),
+    }).catch(() => {});
+  }, [signOpen, signTarget]);
   async function handleSign(id: string, isApprover = false) {
     if (signSubmitting) return;
     // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1).
@@ -794,6 +805,7 @@ export default function ContractsPage() {
     const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
     if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
     if (isEmpSign && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
     if (missingProfile.length) {
@@ -834,7 +846,7 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { password: signPassword } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { password: signPassword, agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -1867,7 +1879,8 @@ export default function ContractsPage() {
                       <div className="relative">
                         <PdfViewer url={pdfSrc(getFileUrl(signTarget.fileUrl))}
                           className="w-full border rounded" style={{ height: "52vh" }}
-                          onLoaded={() => setPreviewLoading(false)} />
+                          onLoaded={() => setPreviewLoading(false)}
+                          onReachEnd={() => setDocReadToEnd(true)} />
                         <button type="button" onClick={() => { setZoomLoading(true); setPreviewZoom(true); }} title="클릭하여 크게 보기"
                           className="absolute inset-0 cursor-zoom-in flex items-start justify-end p-2">
                           <span className="text-[11px] bg-black/60 text-white rounded-full px-2.5 py-1 shadow">🔍 클릭하면 크게 보입니다</span>
@@ -1914,6 +1927,13 @@ export default function ContractsPage() {
                         onChange={e => setSignPassword(e.target.value)} placeholder="로그인 비밀번호" />
                       <p className="text-[11px] text-gray-400">본인이 직접 서명하는지 확인합니다. 비밀번호는 저장되지 않습니다.</p>
                     </div>
+                  )}
+                  {/* 전자서명 동의(#205-3) — 근로자 본인 서명만. 문구는 서버 기록과 같은 상수 */}
+                  {isEmpSign && (
+                    <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer rounded border border-indigo-200 bg-indigo-50 p-2">
+                      <input type="checkbox" className="mt-0.5" checked={signAgree} onChange={e => setSignAgree(e.target.checked)} />
+                      <span><b>[필수]</b> {SIGN_CONSENT_TEXT}</span>
+                    </label>
                   )}
                   {/* 스크롤해도 항상 보이도록 하단에 붙인다 (#196) */}
                   <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">

@@ -90,6 +90,7 @@ export default function ContractListScreen() {
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveSigDefault, setSaveSigDefault] = useState(false); // 기본 해제 — 체크한 결재자만 저장(#205-2, 2026-09-11)
   const [signPw, setSignPw] = useState(""); // 근로자 본인 서명 비밀번호 재확인(#205-1)
+  const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
@@ -174,12 +175,13 @@ export default function ContractListScreen() {
     // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
     const own = isOwnSign;
     if (own && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    if (own && !signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
     const ownPw = signPw;
     setSignTarget(null);
     setSigning(true);
     try {
       if (own) {
-        await api.signContractAsEmployee(id, sig, ownPw, { consent: hasConsent ? choices : undefined, profile, fields }, ver);
+        await api.signContractAsEmployee(id, sig, ownPw, { consent: hasConsent ? choices : undefined, profile, fields, agree: true }, ver);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
         setSignPw("");
       } else if (hasConsent || profile || fields) {
@@ -280,12 +282,12 @@ export default function ContractListScreen() {
               ))}
               <View style={styles.approvalBtns}>
                 {view && (
-                  <TouchableOpacity style={styles.viewBtn} onPress={() => Linking.openURL(view)}>
+                  <TouchableOpacity style={styles.viewBtn} onPress={() => { api.recordContractViewed(c.id).catch(() => {}); Linking.openURL(view); }}>
                     <Ionicons name="eye-outline" size={16} color="#374151" />
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -498,6 +500,11 @@ export default function ContractListScreen() {
                   <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>
                   <TextInput style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
                     autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />
+                  {/* 전자서명 동의(#205-3) — 문구는 웹·서버 기록과 같게 */}
+                  <TouchableOpacity style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 }} onPress={() => setSignAgree((v) => !v)}>
+                    <Ionicons name={signAgree ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
+                    <Text style={{ flex: 1, fontSize: 13, color: "#374151" }}>[필수] 본인은 위 문서의 내용을 모두 확인하였으며, 전자서명 방식으로 서명하는 데 동의합니다.</Text>
+                  </TouchableOpacity>
                 </View>
               )}
               {signTarget && signTarget.userId !== myId && mySigUrl && !drawNewSig ? (

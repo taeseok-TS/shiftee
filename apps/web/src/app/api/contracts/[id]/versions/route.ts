@@ -42,10 +42,14 @@ export async function GET(
     const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
     const isOwner = contract.userId === session.userId;
     const isAdmin = session.role === "ADMIN";
+    // 원장: 목록과 같은 규칙 — 담당 지점 직원 계약이되 직원전용 문서·외부 계약은 뺀다. 단 결재선에 걸린 원장은 본다(결재함에서 여는 경우)
     const isManager =
       session.role === "MANAGER" &&
-      !!contract.user?.branch &&
-      myBranches.includes(contract.user.branch);
+      ((!!contract.user?.branch && myBranches.includes(contract.user.branch) && !contract.employeeOnly && !contract.externalName) ||
+        !!(await prisma.contractApprovalStep.findFirst({
+          where: { approverId: session.userId, approvalLine: { contractId: id } },
+          select: { id: true },
+        })));
 
     if (!isOwner && !isAdmin && !isManager) {
       return NextResponse.json(

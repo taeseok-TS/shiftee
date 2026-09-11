@@ -61,6 +61,7 @@ export default function ContractDetailScreen() {
   const [rejectReason, setRejectReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [signPw, setSignPw] = useState(""); // 본인 확인 비밀번호 — 근로자 본인 서명(#205-1)
+  const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
 
   async function submitReject() {
     const reason = rejectReason.trim();
@@ -96,12 +97,14 @@ export default function ContractDetailScreen() {
   const handleSignature = async (sig: string) => {
     // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
     if (!signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    if (!signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
     setShowSign(false);
     setSigning(true);
     try {
       // 연 문서의 버전을 함께 보낸다 — 그 사이 관리자가 고쳤으면 서버가 거절한다(#206 검증 F2)
-      await api.signContractAsEmployee(id, sig, signPw, undefined, (contract as { version?: number } | null)?.version);
+      await api.signContractAsEmployee(id, sig, signPw, { agree: true }, (contract as { version?: number } | null)?.version);
       setSignPw("");
+      setSignAgree(false);
       Alert.alert("완료", "서명이 제출되었습니다.");
       await load();
     } catch (error: any) {
@@ -197,6 +200,7 @@ export default function ContractDetailScreen() {
           <TouchableOpacity
             style={styles.fileBtn}
             onPress={() => {
+              api.recordContractViewed(contract.id).catch(() => {}); // 열람 기록(#205-4)
               if (isAdmin) { openFile(originalFile); return; }
               // 직원: 다운로드가 아니라 인앱 뷰어(웹 docs/viewer)로 열람만
               const viewer = fileUri(originalFile);
@@ -328,6 +332,11 @@ export default function ContractDetailScreen() {
               style={{ borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, backgroundColor: "#fff" }}
             />
           </View>
+          {/* 전자서명 동의(#205-3) — 명시적으로 체크해야 제출된다. 문구는 웹·서버 기록(SIGN_CONSENT_TEXT)과 같게 */}
+          <TouchableOpacity style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingHorizontal: 16, paddingBottom: 8 }} onPress={() => setSignAgree((v) => !v)}>
+            <Ionicons name={signAgree ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
+            <Text style={{ flex: 1, fontSize: 13, color: "#374151" }}>[필수] 본인은 위 문서의 내용을 모두 확인하였으며, 전자서명 방식으로 서명하는 데 동의합니다.</Text>
+          </TouchableOpacity>
           <View style={styles.padWrap}>
             <SignatureScreen
               ref={sigRef}

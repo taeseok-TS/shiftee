@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { lockSteps } from "@/lib/contract-reset";
+import { recordContractEvent } from "@/lib/contract-events";
 
 /**
  * 계약 반려 (2026-09-04, 디렉터 지시)
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "이미 처리된 단계입니다. 화면을 새로고침해 주세요." }, { status: 409 });
     throw e;
   }
+
+  // 감사 기록(#205-4)
+  await recordContractEvent({ contractId: id, type: "REJECTED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request, meta: { reason } });
 
   // 알림 — 작성자.당사자.**결재선에 걸린 사람 전부**. 반려한 본인은 뺀다.
   // ⚠ 종전에는 "이미 APPROVED 한 사람"만 받았다. 그러면 방금 강제로 닫힌 뒷 단계 결재자는

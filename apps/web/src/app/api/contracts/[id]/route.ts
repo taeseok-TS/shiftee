@@ -9,6 +9,7 @@ import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/l
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
+import { recordContractEvent } from "@/lib/contract-events";
 import type { Contract } from "@shiftee/api";
 import fs from "fs/promises";
 import path from "path";
@@ -431,6 +432,12 @@ export async function PATCH(
         }, { status: 409 });
   }
 
+  // 감사 기록(#205-4) — 수정·결재 초기화·발송/재발송
+  const evActor = { contractId: id, actorId: session.userId, actorName: session.name, request };
+  if (contentChanged) await recordContractEvent({ ...evActor, type: "EDITED", meta: { fields: versionChanges.map((c) => c.field) } });
+  if (needsReset) await recordContractEvent({ ...evActor, type: "RESET", meta: { signers: resetSigners.map((x) => x.name) } });
+  if (status === "SENT") await recordContractEvent({ ...evActor, type: contract.status === "DRAFT" ? "SENT" : "RESEND" });
+
   // 외부 계약 발송 → 결재선의 내부 결재자들에게 큐브티워크 봇 DM 으로 서명 링크 전달.
   // 발송자는 PC 앞이어도, 문자를 실제로 보낼 현장 관리자는 폰을 들고 있다 —
   // 채팅의 문자 중계 링크(https)를 탭하면 문자 앱이 번호·본문 채워진 채 열린다.
@@ -499,7 +506,7 @@ export async function PATCH(
       // 외부 계약의 userId 는 작성 관리자 — 직원 서명 문구가 아니라 결재 요청 문구여야 한다
       const isEmployee = firstPendingStep.approverId === updated.userId && !contract.externalName;
       const dm = isEmployee
-        ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
+        ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
         : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((firstPendingStep as { approver?: { role?: string } }).approver?.role)}`;
       hrBotSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }

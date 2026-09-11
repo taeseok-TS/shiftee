@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { recordContractEvent } from "@/lib/contract-events";
 
 export async function POST(
   request: NextRequest,
@@ -180,6 +181,9 @@ ${who} 님의 「${title}」에서 ${revokedFrom}단계 이후 결재가 회수�
       }).catch(() => {});
     }
   })();
+
+  // 감사 기록(#205-4)
+  await recordContractEvent({ contractId: id, type: "REVOKED", actorId: session.userId, actorName: session.name, stepOrder: revokeStep.order, request, meta: { kind: "결재 회수", reason } });
 
   return NextResponse.json({
     success: true,

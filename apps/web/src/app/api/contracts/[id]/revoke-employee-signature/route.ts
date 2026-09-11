@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { lockSteps } from "@/lib/contract-reset";
+import { recordContractEvent } from "@/lib/contract-events";
 
 export async function POST(
   request: NextRequest,
@@ -115,6 +116,9 @@ export async function POST(
 
       return updatedContract;
     });
+
+    // 감사 기록(#205-4)
+    await recordContractEvent({ contractId: id, type: "REVOKED", actorId: session.userId, actorName: session.name, request, meta: { kind: "직원 서명 회수", reason } });
 
     return NextResponse.json({
       success: true,

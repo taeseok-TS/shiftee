@@ -4,6 +4,7 @@
 // 패키지(계약서+비밀유지서약서+개인정보동의서)면 문서 탭으로 전환하며 확인 후 한 번의 서명으로 함께 서명
 import { use, useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
+import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 
 type Doc = { title: string; fileUrl: string | null };
 type Info = {
@@ -35,6 +36,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [last4, setLast4] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyToken, setVerifyToken] = useState("");
+  const [agree, setAgree] = useState(false); // 전자서명 동의(#205-3) — 명시적으로 체크해야 제출
+  const viewedSent = useRef(false);          // 열람 알림은 한 번만(#205-4)
 
   const load = (vt?: string) =>
     fetch(`/api/contracts/external-sign/${token}`, vt ? { headers: { "x-sign-verify": vt } } : undefined)
@@ -49,6 +52,17 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // 열람 기록(#205-4) — 문서를 받은 뒤 한 번 알린다(서버는 GET 에 기록을 넣지 않는다)
+  useEffect(() => {
+    if (viewedSent.current || !info || info.state !== "ready" || info.needVerify) return;
+    if (!(info.documents?.length || info.fileUrl)) return;
+    viewedSent.current = true;
+    fetch(`/api/contracts/external-sign/${token}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "viewed", verifyToken }),
+    }).catch(() => {});
+  }, [info, token, verifyToken]);
 
   async function verify() {
     if (!/^\d{4}$/.test(last4)) { alert("연락처 뒷자리 4자리를 입력해주세요."); return; }
@@ -71,10 +85,11 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
       if (!consentRequired) { alert("필수 항목 동의에 체크해주세요."); return; }
       if (!consentUnique || !consentRecruit) { alert("선택 항목의 동의 여부를 각각 선택해주세요."); return; }
     }
+    if (!agree) { alert("전자서명 동의에 체크해주세요."); return; }
     if (!sigRef.current || sigRef.current.isEmpty()) { alert("서명을 입력해주세요."); return; }
     setSubmitting(true);
     try {
-      const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL(), verifyToken };
+      const body: Record<string, unknown> = { signatureData: sigRef.current.toDataURL(), verifyToken, agree: true };
       if (info?.consentDoc) {
         body.consent = {
           동의필수: "동의",
@@ -202,6 +217,11 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                 <p className="text-sm font-semibold">
                   {docs.length > 1 ? `문서 ${docs.length}건의 내용을 모두 확인하셨다면 아래에 서명해주세요` : "계약서 내용을 확인하셨다면 아래에 서명해주세요"}
                 </p>
+                {/* 전자서명 동의(#205-3) — 명시적으로 체크해야 제출된다(종전엔 "제출하면 동의로 간주" 안내뿐) */}
+                <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer rounded-lg border border-indigo-200 bg-indigo-50 p-2.5">
+                  <input type="checkbox" className="mt-0.5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+                  <span><b>[필수]</b> {SIGN_CONSENT_TEXT}{docs.length > 1 ? ` (위 문서 ${docs.length}건 전체에 서명이 적용됩니다)` : ""}</span>
+                </label>
                 <SignaturePad ref={sigRef} />
                 <div className="flex gap-2 justify-end">
                   <button type="button" onClick={() => sigRef.current?.clear()}
@@ -211,9 +231,6 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                     {submitting ? "제출 중..." : "서명 제출"}
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-400">
-                  {docs.length > 1 ? "서명 제출 시 위 문서 전체에 서명이 적용되며, 내용에 동의하는 것으로 간주됩니다." : "서명 제출 시 본 계약 내용에 동의하는 것으로 간주됩니다."}
-                </p>
               </div>
             )}
           </>

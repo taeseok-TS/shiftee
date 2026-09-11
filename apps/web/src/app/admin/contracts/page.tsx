@@ -1,4 +1,5 @@
 ﻿"use client";
+import ContractEventsList from "@/components/contracts/ContractEventsList";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -3593,6 +3594,9 @@ ${url}`;
                   })}
                 </div>
               )}
+
+              {/* 감사 기록(#205-4) — 발송·열람·본인 확인·동의·서명·반려·회수·수정의 시각·IP·기기 */}
+              <ContractEventsList contractId={approvalDetailsTarget.id} />
             </div>
           )}
         </DialogContent>

@@ -6,6 +6,7 @@ import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import { preserveDecidedSteps } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
+import { recordContractEvent } from "@/lib/contract-events";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -119,6 +120,8 @@ export async function POST(
           signedUrl: null, signedAt: null, employeeSignedAt: null,
         } : {}) },
     });
+    // 감사 기록(#205-4)
+    await recordContractEvent({ contractId: c.id, type: c.status === "DRAFT" ? "SENT" : "RESEND", actorId: session.userId, actorName: session.name, request, meta: { bundleId } });
     sent++;
 
     // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
@@ -172,7 +175,7 @@ export async function POST(
   for (const [uid, info] of dmTargets) {
     const head = info.titles.length > 1 ? `「${info.titles[0]}」 외 ${info.titles.length - 1}건` : `「${info.titles[0]}」`;
     const dm = info.isEmployee
-      ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 하단 [전자계약]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contracts`
+      ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contracts`
       : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(dmRoles.get(uid))}`;
     hrBotSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
   }

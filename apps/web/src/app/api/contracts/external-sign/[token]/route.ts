@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 import { phoneHint, phoneLast4, issueExternalVerify, checkExternalVerify, tryLast4 } from "@/lib/external-verify";
+import { recordContractEvent } from "@/lib/contract-events";
+import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { lockSteps } from "@/lib/contract-reset";
 
 // 외부(미가입) 계약자 게스트 서명 — 로그인 없이 서명 링크 토큰으로 인증
@@ -126,7 +128,8 @@ export async function POST(
   if (step.status !== "PENDING")
     return NextResponse.json({ error: "아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 서명할 수 있습니다." }, { status: 400 });
 
-  const { signatureData, consent, action, last4, verifyToken } = (await request.json().catch(() => ({}))) as {
+  const { signatureData, consent, action, last4, verifyToken, agree } = (await request.json().catch(() => ({}))) as {
+    agree?: boolean;      // 전자서명 동의(#205-3)
     signatureData?: string;
     consent?: Record<string, string> | null; // 개인정보동의서 선택 항목 (동의고유식별/동의채용정보)
     action?: string;      // "verify" — 본인 확인만 한다(#205-1)
@@ -136,18 +139,37 @@ export async function POST(
 
   // ── 본인 확인 (#205-1) ── 서명 차례·만료 검사를 통과한 링크에서만. 틀린 시도는 5번에 30분 잠금.
   const extPhone = step.approvalLine.contract.externalPhone;
+  // 감사 기록 공통(#205-4) — 외부 계약자는 계정이 없어 이름·단계로 남긴다
+  const evBase = {
+    contractId: step.approvalLine.contract.id,
+    actorName: step.externalName || step.approvalLine.contract.externalName || "외부 계약자",
+    stepOrder: step.order,
+    request,
+  };
   if (action === "verify") {
     if (!phoneLast4(extPhone)) return NextResponse.json({ verifyToken: issueExternalVerify(step.id) }); // 연락처 없는 옛 계약
     // 잠금 확인과 계수를 한 문장으로(잠금 상태는 DB — 재배포에도 유지)
     const r = await tryLast4(step.id, extPhone, String(last4 ?? ""));
     if (r.result === "locked")
       return NextResponse.json({ code: "VERIFY_LOCKED", error: `여러 번 틀렸습니다. ${Math.max(1, Math.ceil((r.until - Date.now()) / 60000))}분 뒤에 다시 시도하거나 담당자에게 문의해 주세요.` }, { status: 429 });
-    if (r.result === "wrong")
+    if (r.result === "wrong") {
+      // 틀린 시도만 남긴다(잠긴 뒤 두드리는 요청까지 남기면 기록이 넘친다 — 틀림은 잠금 한 번에 최대 5건)
+      await recordContractEvent({ ...evBase, type: "VERIFY_FAIL" });
       return NextResponse.json({ code: "VERIFY_FAILED", error: "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
+    }
+    await recordContractEvent({ ...evBase, type: "VERIFY_OK" });
     return NextResponse.json({ verifyToken: issueExternalVerify(step.id) });
   }
   if (phoneLast4(extPhone) && !checkExternalVerify(step.id, verifyToken))
     return NextResponse.json({ code: "VERIFY_REQUIRED", error: "본인 확인이 필요합니다. 연락처 뒷자리를 먼저 입력해 주세요." }, { status: 403 });
+  // 열람 기록(#205-4) — 게스트 페이지가 문서를 받은 뒤 한 번 알린다(GET 에는 기록을 넣지 않는 규칙)
+  if (action === "viewed") {
+    await recordContractEvent({ ...evBase, type: "VIEWED" });
+    return NextResponse.json({ ok: true });
+  }
+  // 전자서명 동의(#205-3) — 서명 칸 앞에서 명시적으로 체크해야 한다(종전엔 "제출하면 동의로 간주" 안내뿐)
+  if (agree !== true)
+    return NextResponse.json({ code: "CONSENT_REQUIRED", error: "전자서명 동의에 체크해 주세요." }, { status: 400 });
   const m = /^data:image\/png;base64,(.+)$/.exec(signatureData || "");
   if (!m) return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
 
@@ -205,6 +227,10 @@ export async function POST(
   if (signFail === "STEP_CHANGED")
     return NextResponse.json({ code: "STEP_CHANGED", error: "이미 서명됐거나 결재가 다시 시작된 문서입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 409 });
   // 알림은 저장이 끝난 뒤에만
+  // 감사 기록(#205-4) — 동의·서명·완료
+  await recordContractEvent({ ...evBase, type: "CONSENT", meta: { text: SIGN_CONSENT_TEXT, readToEnd: null } });
+  await recordContractEvent({ ...evBase, type: "SIGNED", meta: { role: "외부 계약자", docVersion: step.approvalLine.contract.version } });
+  if (!nextStep) await recordContractEvent({ ...evBase, type: "COMPLETED" });
   // 발송 작성자(createdBy, 없으면 외부 계약 소유자=작성 관리자)에게 서명 진행 알림
   // (개선 제안 2026-08-25, 이예지대리). 마지막 단계면 아래 완료 알림이 대신한다 (#136)
   if (nextStep) {
@@ -282,6 +308,10 @@ export async function POST(
         where: { id: sib.id },
         data: { status: "SIGNED", employeeSignedAt: new Date(), signedAt: new Date() },
       });
+      // 패키지 동반 문서도 같은 동의·서명으로 끝났다 — 문서마다 남긴다(#205-4)
+      await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "CONSENT", meta: { text: SIGN_CONSENT_TEXT, readToEnd: null, bundleWith: contractId } });
+      await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "SIGNED", meta: { role: "외부 계약자", bundleWith: contractId } });
+      await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "COMPLETED" });
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(sib.id);
     } catch (e) {
