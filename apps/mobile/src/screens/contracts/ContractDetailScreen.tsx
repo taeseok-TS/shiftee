@@ -275,7 +275,7 @@ export default function ContractDetailScreen() {
           </View>
           <View style={{ padding: 16 }}>
             <Text style={styles.rejectWarn}>
-              거부하면 이 계약은 종료됩니다. 다시 진행하려면 관리자가 계약을 새로 만들어 보내야 합니다.
+              거부하면 결재가 멈추고 관리자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 처음부터 다시 진행됩니다.
             </Text>
             <TextInput
               style={styles.rejectInput}

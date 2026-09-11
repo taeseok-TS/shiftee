@@ -379,7 +379,7 @@ export default function ContractApprovalsPage() {
             <div className="text-sm text-gray-700">
               <div className="font-medium">{rejectTarget?.name} — {rejectTarget?.title}</div>
               <p className="mt-2 text-red-600">
-                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+                반려하면 결재가 멈추고 작성자·당사자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.
               </p>
             </div>
             <div>

@@ -10,7 +10,8 @@ import { Prisma } from "@prisma/client";
  * 버티는 수밖에 없어서 **이유가 어디에도 기록되지 않았고**, 관리자는 왜 멈춰 있는지 몰랐다.
  *
  * 규칙(디렉터 결정):
- *  - 반려는 **최종 상태**다. 다시 진행하려면 관리자가 계약을 새로 만들어 발송한다.
+ *  - 반려하면 결재가 멈춘다. 2026-09-11 부터는 **최종이 아니다** — 관리자가 고쳐(수정) 또는 그대로(재발송)
+ *    다시 보낼 수 있고, 그때 결재는 1단계부터 다시 받는다(#206-4, lib/contract-reset.ts).
  *  - **직원 본인도** 자기 서명 차례에 반려할 수 있다(결재자와 같은 규칙).
  *  - 사유는 필수다. 사유 없는 반려는 받는 쪽에서 아무 것도 할 수 없다.
  *
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const isSelf = myStep.approverId === contract.userId;
       const head = isSelf ? `${who} 님이 서명을 거부했습니다` : `${who} 님이 계약을 반려했습니다`;
       const text = `📄 ${head}\n\n「${contract.title}」\n사유: ${reason}\n\n`
-        + `이 계약은 반려로 종료됐습니다. 다시 진행하려면 계약을 새로 만들어 발송해 주세요.`;
+        + `결재가 멈췄습니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.`;
       for (const uid of targets) await botSendDM(uid, text).catch(() => {});
     } catch (e) {
       const { logSystemError } = await import("@/lib/monitor");

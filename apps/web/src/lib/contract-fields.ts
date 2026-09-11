@@ -315,7 +315,9 @@ export async function templateFieldNames(templateFileUrl: string): Promise<strin
       const text = (para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
       for (const m of text.matchAll(/\{([^{}\n]{1,30})\}/g)) {
         const name = m[1].trim();
-        if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 표시
+        if (name.startsWith("/")) continue;
+        // 조건 구간 {#신규입사} 는 "#신규입사" 로 남긴다 — 필드 이름과 섞이지 않게. 요약의 "계약구분"을 남길지 판단에 쓴다(#206-2 검증 F2)
+        if (name.startsWith("#")) { if (!names.includes(name)) names.push(name); continue; }
         if (!names.includes(name)) names.push(name);
       }
     }
@@ -330,6 +332,14 @@ export async function templateFieldNames(templateFileUrl: string): Promise<strin
 export function summaryForTemplate(extra: unknown, names: string[] | null | undefined): Record<string, string> | null {
   if (!extra || typeof extra !== "object") return null;
   const e = extra as Record<string, string>;
-  if (!names || names.length === 0) return e;
-  return Object.fromEntries(Object.entries(e).filter(([k]) => names.includes(k)));
+  // 모름(null)일 때만 거르지 않는다 — "필드 없음"([])은 빈 요약이 맞다(#206-2 검증 F3: 필드 없는 문서에 공통값이 전부 떴다)
+  if (!names) return e;
+  // "연봉"은 buildFieldSummary 가 salary 로 넣는 키라, 템플릿이 {연봉} 대신 {연봉숫자}·{기본급} 등만 써도 남긴다(F1 —
+  // 작성 폼이 연봉 입력란을 띄우는 조건과 같은 목록). "계약구분"은 조건 구간 {#신규입사}/{#재계약} 이 있으면 남긴다(F2).
+  const SALARY_FIELDS = ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"];
+  const keep = (k: string) =>
+    names.includes(k) ||
+    (k === "연봉" && SALARY_FIELDS.some((f) => names.includes(f))) ||
+    (k === "계약구분" && (names.includes("#신규입사") || names.includes("#재계약")));
+  return Object.fromEntries(Object.entries(e).filter(([k]) => keep(k)));
 }

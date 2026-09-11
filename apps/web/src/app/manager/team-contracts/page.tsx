@@ -46,7 +46,7 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
-  // 반려는 최종 상태다 — 다시 하려면 계약을 새로 만들어 발송한다 (2026-09-04)
+  // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
   REJECTED: { label: "반려", variant: "destructive" },
 };
 
@@ -382,7 +382,7 @@ export default function ManagerContractsPage() {
             <div className="text-sm text-gray-700">
               <div className="font-medium">{signTarget?.title}</div>
               <p className="mt-2 text-red-600">
-                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+                반려하면 결재가 멈추고 작성자·당사자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.
               </p>
             </div>
             <div>

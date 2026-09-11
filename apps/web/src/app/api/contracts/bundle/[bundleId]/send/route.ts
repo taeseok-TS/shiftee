@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
+import { preserveDecidedSteps } from "@/lib/contract-reset";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -50,7 +51,8 @@ export async function POST(
     // 서명 완료 문서만 보존 — 그 외에는 재발송 허용(결재라인·게스트 토큰 재생성, 만료 링크 복구 경로)
     // ⚠ 반려도 건너뛴다. 종전에는 SIGNED 만 보호해서, 형제 문서를 재발송하면 **반려된
     //   문서가 아무 경고 없이 SENT 로 되살아나고** 결재선이 삭제되며 반려 사유까지
-    //   사라졌다 — "반려는 최종 상태"라는 규칙이 무너진다(2026-09-04 검증관 F3).
+    //   사라졌다(2026-09-04 검증관 F3). 반려 문서를 다시 보내는 것은 9/11 부터 허용되지만(#206-4)
+    //   **그 문서를 골라서**(수정 또는 단건 재발송) 한다 — 형제 재발송에 딸려 몰래 되살아나지 않게.
     if (c.status === "SIGNED" || c.status === "REJECTED") continue;
 
     // employeeOnly 문서: 사내=직원 본인 1단계 / 외부=외부인 서명 1단계(자체 토큰)
@@ -73,6 +75,8 @@ export async function POST(
       if (ext?.signToken) externalSignToken = ext.signToken;
     }
 
+    // 지우기 전에 서명 기록을 이력에 남긴다(#206 조사 — 재발송하면 누가 언제 서명했는지가 사라졌다)
+    await preserveDecidedSteps(prisma, c.id, "resend", session.userId, "패키지 재발송");
     await prisma.contractApprovalLine.deleteMany({ where: { contractId: c.id } });
     await prisma.contractApprovalLine.create({
       data: {

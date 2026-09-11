@@ -88,7 +88,7 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
-  // 반려는 최종 상태다 — 다시 하려면 계약을 새로 만들어 발송한다 (2026-09-04)
+  // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
   REJECTED: { label: "반려", variant: "destructive" },
 };
 
@@ -543,7 +543,8 @@ export default function ContractsPage() {
   };
 
   // 계약서 수정 (DRAFT 상태)
-  const handleEditContract = async (e: React.FormEvent) => {
+  // confirmReset — 서버가 "서명이 초기화됩니다"(409 RESET_CONFIRM)를 돌려주면 확인받고 이 표시를 달아 다시 보낸다(#206-1)
+  const handleEditContract = async (e: React.FormEvent, confirmReset = false) => {
     e.preventDefault();
     if (!editingContract) return;
 
@@ -559,6 +560,7 @@ export default function ContractsPage() {
         if (editForm.salary) formData.append("salary", editForm.salary);
         if (Object.keys(editExtraFields).length > 0) formData.append("extraFields", JSON.stringify(editExtraFields));
         formData.append("files", editFile);
+        if (confirmReset) formData.append("confirmReset", "1");
 
         const res = await fetch(`/api/contracts/${editingContract.id}`, {
           method: "PATCH",
@@ -568,6 +570,12 @@ export default function ContractsPage() {
         if (!res.ok) {
           try {
             const data = await res.json();
+            // 서명(또는 반려)이 있는 계약 — 저장하면 결재가 처음부터라 **확인받고** 다시 보낸다
+            if (res.status === 409 && data.code === "RESET_CONFIRM" && !confirmReset) {
+              setEditUploading(false);
+              if (window.confirm(data.error)) await handleEditContract(e, true);
+              return;
+            }
             toast.error(data.error || "계약서 수정에 실패했습니다.");
           } catch {
             toast.error(`계약서 수정 실패 (${res.status})`);
@@ -578,7 +586,7 @@ export default function ContractsPage() {
 
         try {
           const data = await res.json();
-          toast.success("계약서가 수정되었습니다.");
+          toast.success(data.reset ? "수정했습니다 — 결재를 1단계부터 다시 받습니다." : "계약서가 수정되었습니다.");
           setEditOpen(false);
           setEditingContract(null);
           setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
@@ -601,12 +609,19 @@ export default function ContractsPage() {
             endDate: editForm.endDate || null,
             ...(editForm.salary ? { salary: editForm.salary } : {}),
             ...(Object.keys(editExtraFields).length > 0 ? { extraFields: editExtraFields } : {}),
+            ...(confirmReset ? { confirmReset: true } : {}),
           }),
         });
 
         if (!res.ok) {
           try {
             const data = await res.json();
+            // 서명(또는 반려)이 있는 계약 — 저장하면 결재가 처음부터라 **확인받고** 다시 보낸다
+            if (res.status === 409 && data.code === "RESET_CONFIRM" && !confirmReset) {
+              setEditUploading(false);
+              if (window.confirm(data.error)) await handleEditContract(e, true);
+              return;
+            }
             toast.error(data.error || "계약서 수정에 실패했습니다.");
           } catch {
             toast.error(`계약서 수정 실패 (${res.status})`);
@@ -617,7 +632,7 @@ export default function ContractsPage() {
 
         try {
           const data = await res.json();
-          toast.success("계약서가 수정되었습니다.");
+          toast.success(data.reset ? "수정했습니다 — 결재를 1단계부터 다시 받습니다." : "계약서가 수정되었습니다.");
           setEditOpen(false);
           setEditingContract(null);
           setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
@@ -1322,8 +1337,9 @@ ${url}`;
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
 
     // 패키지(묶음)면 3종을 함께 발송 — 근로계약서는 결재라인 전체, 나머지는 직원 서명만
+    // 반려된 문서는 **그 문서만** 다시 보낸다(#206-4) — 패키지 발송은 반려 문서를 일부러 건너뛴다
     const bundleId = sendTarget?.bundleId;
-    if (bundleId) {
+    if (bundleId && sendTarget?.status !== "REJECTED") {
       const res = await fetch(`/api/contracts/bundle/${bundleId}/send`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approverIds }),
@@ -2824,8 +2840,9 @@ ${url}`;
                         {role !== "EMPLOYEE" && c.employeeOnly && c.bundleId && c.status === "DRAFT" && (
                           <span className="text-[11px] text-gray-400">근로계약서와 함께 발송</span>
                         )}
-                        {/* 초안 + 진행 중(회수 후 포함) 계약: 수정·재발송 가능, 삭제는 초안만 (직원전용 패키지 문서 제외) */}
-                        {role !== "EMPLOYEE" && !(c.employeeOnly && c.bundleId) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED") && (
+                        {/* 초안 + 진행 중(회수 후 포함) + 반려(9/11 — 고쳐서 다시 보낼 수 있다, #206-4) 계약: 수정·재발송 가능,
+                            삭제는 초안만 (직원전용 패키지 문서 제외) */}
+                        {role !== "EMPLOYEE" && !(c.employeeOnly && c.bundleId) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED") && (
                           <>
                             <Button
                               size="sm"
@@ -3528,8 +3545,12 @@ ${url}`;
                     const actor = employees.find(e => e.id === actorId);
                     const at = new Date(log.rejectedAt ?? log.revokedAt ?? NaN);
                     const when = isNaN(at.getTime()) ? "시각 미상" : format(at, "yyyy-MM-dd HH:mm");
+                    // reset(서명 후 수정)·resend(재발송)는 초기화 직전 결재를 signers 로 함께 남긴다(#206, 2026-09-11).
+                    // 반려는 9/11 부터 최종이 아니다(고쳐서 다시 보낼 수 있다) — "계약 종료" 문구를 뺐다.
                     const what = isReject
-                      ? `${log.stepOrder}단계 반려 — 계약 종료`
+                      ? `${log.stepOrder}단계 반려`
+                      : log.type === "reset" ? "내용 수정으로 결재 초기화"
+                      : log.type === "resend" ? "재발송으로 결재 초기화"
                       : log.type === "employee" ? "직원 서명 회수" : `${log.stepOrder}단계 결재 회수`;
                     return (
                       <div key={idx} className="bg-red-50 border border-red-200 rounded p-2 space-y-1">
@@ -3543,6 +3564,14 @@ ${url}`;
                         </div>
                         <p className="text-xs text-red-700 bg-white rounded p-2 border border-red-100 whitespace-pre-wrap">
                           <strong>사유:</strong> {log.reason || "사유 없음"}
+                          {Array.isArray(log.signers) && log.signers.length > 0 && (
+                            <span className="block mt-1 text-gray-600">
+                              초기화 전 결재: {log.signers.map((x: { order: number; name: string; status: string; decidedAt?: string | null }) => {
+                                const d = new Date(x.decidedAt ?? NaN);
+                                return `${x.order}단계 ${x.name} ${x.status === "REJECTED" ? "반려" : "서명"}${isNaN(d.getTime()) ? "" : ` ${format(d, "MM-dd HH:mm")}`}`;
+                              }).join(" · ")}
+                            </span>
+                          )}
                         </p>
                       </div>
                     );
@@ -3645,7 +3674,7 @@ ${url}`;
             <div className="text-sm text-gray-700">
               <div className="font-medium">{signTarget?.title}</div>
               <p className="mt-2 text-red-600">
-                반려하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 계약을 새로 만들어 발송해야 합니다.
+                반려하면 결재가 멈추고 작성자·당사자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.
               </p>
             </div>
             <div>

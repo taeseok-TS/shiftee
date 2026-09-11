@@ -84,7 +84,7 @@ const statusConfig: Record<string, { label: string; variant: any }> = {
   APPROVED: { label: "결재 중", variant: "secondary" },
   SIGNED: { label: "완료", variant: "default" },
   EXPIRED: { label: "만료", variant: "destructive" },
-  // 반려는 최종 상태다 — 다시 하려면 계약을 새로 만들어 발송한다 (2026-09-04)
+  // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
   REJECTED: { label: "반려", variant: "destructive" },
 };
 
@@ -2294,8 +2294,12 @@ export default function ContractsPage() {
                     const actor = employees.find(e => e.id === actorId);
                     const at = new Date(log.rejectedAt ?? log.revokedAt ?? NaN);
                     const when = isNaN(at.getTime()) ? "시각 미상" : format(at, "yyyy-MM-dd HH:mm");
+                    // reset(서명 후 수정)·resend(재발송)는 초기화 직전 결재를 signers 로 함께 남긴다(#206, 2026-09-11).
+                    // 반려는 9/11 부터 최종이 아니다(고쳐서 다시 보낼 수 있다) — "계약 종료" 문구를 뺐다.
                     const what = isReject
-                      ? `${log.stepOrder}단계 반려 — 계약 종료`
+                      ? `${log.stepOrder}단계 반려`
+                      : log.type === "reset" ? "내용 수정으로 결재 초기화"
+                      : log.type === "resend" ? "재발송으로 결재 초기화"
                       : log.type === "employee" ? "직원 서명 회수" : `${log.stepOrder}단계 결재 회수`;
                     return (
                       <div key={idx} className="bg-red-50 border border-red-200 rounded p-2 space-y-1">
@@ -2309,6 +2313,14 @@ export default function ContractsPage() {
                         </div>
                         <p className="text-xs text-red-700 bg-white rounded p-2 border border-red-100 whitespace-pre-wrap">
                           <strong>사유:</strong> {log.reason || "사유 없음"}
+                          {Array.isArray(log.signers) && log.signers.length > 0 && (
+                            <span className="block mt-1 text-gray-600">
+                              초기화 전 결재: {log.signers.map((x: { order: number; name: string; status: string; decidedAt?: string | null }) => {
+                                const d = new Date(x.decidedAt ?? NaN);
+                                return `${x.order}단계 ${x.name} ${x.status === "REJECTED" ? "반려" : "서명"}${isNaN(d.getTime()) ? "" : ` ${format(d, "MM-dd HH:mm")}`}`;
+                              }).join(" · ")}
+                            </span>
+                          )}
                         </p>
                       </div>
                     );
@@ -2364,7 +2376,7 @@ export default function ContractsPage() {
             <div className="text-sm text-gray-700">
               <div className="font-medium">{signTarget?.title}</div>
               <p className="mt-2 text-red-600">
-                거부하면 이 계약은 <b>종료</b>됩니다. 다시 진행하려면 관리자가 계약을 새로 만들어 보내야 합니다.
+                거부하면 결재가 멈추고 관리자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 처음부터 다시 진행됩니다.
               </p>
             </div>
             <div>
