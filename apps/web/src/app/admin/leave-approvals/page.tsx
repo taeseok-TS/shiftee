@@ -15,6 +15,7 @@ import {
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -118,6 +119,14 @@ export default function ApprovalsPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightId, leaveSteps]);
   const [activeTab, setActiveTab] = useState("leave");
+  // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
+  const [cancelCount, setCancelCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/leave/cancel-requests/my-approvals")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCancelCount(d?.steps?.length ?? 0))
+      .catch(() => {});
+  }, []);
 
   // 결재 대기 요청 조회
   const fetchApprovals = useCallback(async () => {
@@ -279,7 +288,7 @@ export default function ApprovalsPage() {
     }
   };
 
-  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length;
+  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount;
 
   return (
     <div className="space-y-6">
@@ -340,7 +349,7 @@ export default function ApprovalsPage() {
 
       {/* 탭 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 ({filteredLeaveSteps.length})
@@ -348,6 +357,9 @@ export default function ApprovalsPage() {
           <TabsTrigger value="schedule" className="flex items-center gap-2">
             <Calendar size={16} />
             근무일정 ({filteredScheduleSteps.length})
+          </TabsTrigger>
+          <TabsTrigger value="cancel" className="flex items-center gap-2">
+            휴가 취소 ({cancelCount})
           </TabsTrigger>
         </TabsList>
 
@@ -611,6 +623,10 @@ export default function ApprovalsPage() {
               </div>
             </Card>
           )}
+        </TabsContent>
+        {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
+        <TabsContent value="cancel" className="space-y-4 mt-6">
+          <LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} />
         </TabsContent>
       </Tabs>
 

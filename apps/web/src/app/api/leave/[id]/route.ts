@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { isLeaveDeductible } from "@/lib/leave-types";
-import { leaveYearOf } from "@/lib/leave-calc";
 import { leaveCancelDenial } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 
-// 휴가 신청 취소 — 본인은 대기 중인 건만, 원장.관리자는 담당 직원의 건을 처리할 수 있다.
-// 취소하면 승인된 건의 연차가 복원되므로, 남의 건을 취소하면 감사로그와 당사자 DM 을 남긴다.
+// 휴가 신청 취소 — **대기 중인 신청만** 거둔다(연차 영향 없음). 본인은 자기 건, 원장.관리자는 담당 범위의 건.
+// ⚠ 승인된 휴가는 여기서 취소하지 않는다(9/11 디렉터) — 본인이 "취소 결재"를 올려 관리자까지 승인받고,
+//   연차 복구는 그 최종 승인에서만 한다(lib/leave-cancel-flow.ts). 남의 건을 거두면 감사로그와 당사자 DM.
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -27,8 +26,8 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
 
   // 누가 무엇을 취소할 수 있는지는 lib/leave-cancel.ts **한 곳에서만** 정한다.
   // 목록 API 가 같은 함수로 canCancel 을 내려주고 화면은 그 값으로만 버튼을 그린다.
-  // (범위 · 원장끼리는 메인 원장만 · 반려건 덮어쓰기 금지 · 지난 휴가 금지 · 본인 승인건 금지 ·
-  //  관리자 승인건은 관리자만). 보는 사람 정보도 cancelViewerFor 한 곳에서 만든다.
+  // (범위 · 원장끼리는 메인 원장만 · 반려건 덮어쓰기 금지 · 지난 휴가 금지 · **승인건은 취소 결재로만**).
+  // 보는 사람 정보도 cancelViewerFor 한 곳에서 만든다.
   const denial = leaveCancelDenial(await cancelViewerFor(session), leave);
   if (denial) return NextResponse.json({ error: denial.error }, { status: denial.status });
 
@@ -50,18 +49,8 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
       data: { status: "REJECTED", comment: "신청 취소", decidedAt: new Date() },
     });
 
-    // 승인된 건을 취소하면 잔여 복원 (연차 차감 유형만). **차감된 연도 행**에 되돌린다 —
-    // 승인된 휴가의 updatedAt 은 최종 승인 시각이다(휴가 행을 고치는 경로는 승인·취소뿐.
-    // 휴가 수정 경로를 새로 만들면 이 전제가 깨지니 승인 시각을 따로 남길 것).
-    if (leave.status === "APPROVED" && isLeaveDeductible(leave.type)) {
-      await tx.leaveBalance.updateMany({
-        where: { userId: leave.userId, year: leaveYearOf(leave.updatedAt) },
-        data: {
-          used:      { decrement: leave.days },
-          remaining: { increment: leave.days },
-        },
-      });
-    }
+    // 승인된 휴가는 여기로 오지 않는다(규칙이 NEEDS_REQUEST 로 막는다). 연차 복구는 취소 결재
+    // 최종 승인에서만 한다(lib/leave-cancel-flow.ts) — 복구 경로를 한 곳으로 둔다(9/11).
   });
 
   if (!done) {

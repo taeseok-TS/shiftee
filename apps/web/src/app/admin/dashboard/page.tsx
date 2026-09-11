@@ -44,7 +44,7 @@ type MissingAttendance = {
 
 type PendingApproval = {
   id: string;
-  type: "leave" | "schedule" | "contract";
+  type: "leave" | "schedule" | "contract" | "leaveCancel";
   title: string;
   requester: string;
   requestedAt: string;
@@ -53,7 +53,7 @@ type PendingApproval = {
 export default function AdminDashboardPage() {
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
   const [totalEmployees, setTotalEmployees] = useState<number | null>(null);
-  const [pendingCounts, setPendingCounts] = useState({ leave: 0, schedule: 0 });
+  const [pendingCounts, setPendingCounts] = useState({ leave: 0, schedule: 0, leaveCancel: 0 });
   const [missingAttendance, setMissingAttendance] = useState<MissingAttendance[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,7 +87,7 @@ export default function AdminDashboardPage() {
         const data = await statsRes.json();
         setAttendanceStats(data.attendance || null);
         setTotalEmployees(data.totalEmployees ?? null);
-        setPendingCounts(data.pending || { leave: 0, schedule: 0 });
+        setPendingCounts({ leave: 0, schedule: 0, leaveCancel: 0, ...(data.pending || {}) });
         setMissingAttendance(data.missingAttendance || []);
         leaveScheduleItems = data.pendingItems || [];
       }
@@ -270,7 +270,7 @@ export default function AdminDashboardPage() {
             <div className="text-2xl font-bold text-green-600">
               {pendingCounts.leave}
             </div>
-            <p className="text-xs text-gray-500 mt-1">승인 대기 · 근무일정 {pendingCounts.schedule}건</p>
+            <p className="text-xs text-gray-500 mt-1">승인 대기 · 근무일정 {pendingCounts.schedule}건 · 휴가 취소 {pendingCounts.leaveCancel}건</p>
           </CardContent>
         </Card>
 
@@ -430,6 +430,7 @@ export default function AdminDashboardPage() {
                         <Badge className="bg-yellow-100 text-yellow-800">
                           {approval.type === "contract" ? "계약 승인 대기"
                             : approval.type === "schedule" ? "근무일정 승인 대기"
+                            : approval.type === "leaveCancel" ? "휴가 취소 승인 대기"
                             : "휴가 승인 대기"}
                         </Badge>
                       </td>

@@ -98,6 +98,20 @@ export async function GET() {
   };
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 
+  // 휴가 취소 결재 — 결재함(/api/leave/cancel-requests/my-approvals)과 같은 기준(본인 요청 제외)
+  const [pendingLeaveCancel, pendingCancelItems] = await Promise.all([
+    prisma.leaveCancelRequest.count({ where: pendingForMe }),
+    prisma.leaveCancelRequest.findMany({
+      where: pendingForMe,
+      include: {
+        user: { select: { name: true } },
+        leaveRequest: { select: { type: true, startDate: true, endDate: true, days: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
+
   const pendingItems = [
     ...pendingLeaveItems.map((r) => ({
       id: r.id,
@@ -110,6 +124,13 @@ export async function GET() {
       id: r.id,
       type: "schedule" as const,
       title: `근무일정 ${r.templateName ?? ""} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
+      requester: r.user.name,
+      requestedAt: r.createdAt,
+    })),
+    ...pendingCancelItems.map((r) => ({
+      id: r.id,
+      type: "leaveCancel" as const,
+      title: `휴가 취소 요청 · ${LEAVE_TYPE_LABEL[r.leaveRequest.type] ?? r.leaveRequest.type} ${fmt(r.leaveRequest.startDate)}~${fmt(r.leaveRequest.endDate)} (${r.leaveRequest.days}일)`,
       requester: r.user.name,
       requestedAt: r.createdAt,
     })),
@@ -126,7 +147,7 @@ export async function GET() {
   return NextResponse.json({
     totalEmployees,
     attendance: { present, late, absent, earlyLeave, onLeave },
-    pending: { leave: pendingLeave, schedule: pendingSchedule },
+    pending: { leave: pendingLeave, schedule: pendingSchedule, leaveCancel: pendingLeaveCancel },
     pendingItems,
     missingAttendance,
   });

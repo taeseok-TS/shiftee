@@ -81,6 +81,7 @@ export type TeamLeave = {
   reason: string | null;
   canCancel?: boolean;
   cancelBlock?: string | null;   // 못 하는 이유 코드(서버)
+  pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재(9/11)
   user: { id: string; name: string; branch?: string | null };
   approvalSteps?: InboxStepInfo[];
 };
@@ -113,6 +114,41 @@ export async function cancelLeave(id: string) {
 
 export async function cancelSchedule(id: string) {
   await axios.delete(`${API_URL}/schedule-requests/${id}`, { headers: await authHeaders() });
+}
+
+/**
+ * 승인된 휴가의 **취소 결재**(2026-09-11 디렉터 — 내부 회의).
+ * 승인된 연차는 버튼으로 바로 취소하지 않는다. 휴가 쓴 본인이 취소 결재를 올리고 관리자까지 승인받으면
+ * 휴가가 취소되고 연차가 복구된다. 올릴 수 있는 기한은 시작 전날까지(서버가 판정 — 목록의 canRequestCancel).
+ */
+export type LeaveCancelInboxStep = InboxStepInfo & {
+  cancelRequest: {
+    id: string;
+    reason: string | null;
+    createdAt: string;
+    user: InboxUser;
+    leaveRequest: { id: string; type: string; startDate: string; endDate: string; days: number; reason: string | null };
+    approvalSteps?: InboxStepInfo[];
+  };
+};
+
+export async function getLeaveCancelApprovals(): Promise<LeaveCancelInboxStep[]> {
+  const res = await axios.get(`${API_URL}/leave/cancel-requests/my-approvals`, { headers: await authHeaders() });
+  return (res.data?.steps as LeaveCancelInboxStep[]) || [];
+}
+
+export async function decideLeaveCancel(id: string, action: "approve" | "reject", reason?: string) {
+  await axios.post(`${API_URL}/leave/cancel-requests/${id}/approve`, { action, reason }, { headers: await authHeaders() });
+}
+
+/** 본인 휴가의 취소 결재 올리기 */
+export async function requestLeaveCancel(leaveId: string, reason?: string) {
+  await axios.post(`${API_URL}/leave/${leaveId}/cancel-request`, { reason }, { headers: await authHeaders() });
+}
+
+/** 본인이 올린 취소 결재 철회(대기 중일 때만) */
+export async function withdrawLeaveCancel(cancelRequestId: string) {
+  await axios.delete(`${API_URL}/leave/cancel-requests/${cancelRequestId}`, { headers: await authHeaders() });
 }
 
 // 단계 라벨: 역할기반 단계는 승인 전 approver가 null → 역할명 표시

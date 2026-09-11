@@ -111,7 +111,7 @@ export async function botNotifyApprovalRequest(step: {
   approverRole?: string | null;
   branch?: string | null;
   approverId?: string | null;
-}, opts: { kind: "근무일정" | "휴가"; requesterName: string; period: string; requesterId: string }) {
+}, opts: { kind: "근무일정" | "휴가" | "휴가 취소"; requesterName: string; period: string; requesterId: string }) {
   try {
     const { prisma } = await import("@/lib/db");
     const targets: string[] = [];

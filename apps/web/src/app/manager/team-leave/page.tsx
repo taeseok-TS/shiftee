@@ -15,6 +15,7 @@ import {
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -64,6 +65,7 @@ type HistoryLeave = {
   status: string;
   canCancel?: boolean;
   cancelBlock?: string | null;   // 못 하는 이유 코드(서버) — 화면이 조건을 다시 쓰지 않게
+  pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재(9/11)
   user: { id: string; name: string; branch: string | null };
   approvalSteps?: ApprovalStep[];
 };
@@ -110,8 +112,7 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
 // 취소 불가 사유(서버 cancelBlock) → 짧은 표시. 없는 코드는 "-"
 const CANCEL_BLOCK_LABEL: Record<string, string> = {
   PAST: "지난 휴가",
-  ADMIN_ONLY: "관리자만 취소 가능",
-  SELF_APPROVED: "관리자에게 요청",
+  NEEDS_REQUEST: "본인 취소 요청으로만",
   MAIN_ONLY: "메인 원장만 취소 가능",
 };
 
@@ -140,6 +141,14 @@ export default function ManagerApprovalsPage() {
   }, [highlightId, leaveSteps]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("leave");
+  // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
+  const [cancelCount, setCancelCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/leave/cancel-requests/my-approvals")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCancelCount(d?.steps?.length ?? 0))
+      .catch(() => {});
+  }, []);
   const [history, setHistory] = useState<HistoryLeave[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [myId, setMyId] = useState("");
@@ -366,7 +375,7 @@ export default function ManagerApprovalsPage() {
     }
   };
 
-  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length;
+  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount;
 
   return (
     <div className="space-y-6">
@@ -424,7 +433,7 @@ export default function ManagerApprovalsPage() {
 
       {/* 탭 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 ({filteredLeaveSteps.length})
@@ -436,6 +445,9 @@ export default function ManagerApprovalsPage() {
           <TabsTrigger value="history" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 내역 ({filteredHistory.length})
+          </TabsTrigger>
+          <TabsTrigger value="cancel" className="flex items-center gap-2">
+            휴가 취소 ({cancelCount})
           </TabsTrigger>
         </TabsList>
 
@@ -749,6 +761,7 @@ export default function ManagerApprovalsPage() {
                             <Badge variant="outline" className={approved ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}>
                               {approved ? "승인" : "진행 중"}
                             </Badge>
+                            {req.pendingCancel && <div className="text-xs text-amber-700 mt-1">취소 결재 중</div>}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-1 text-xs flex-wrap">
@@ -792,6 +805,10 @@ export default function ManagerApprovalsPage() {
               </div>
             </Card>
           )}
+        </TabsContent>
+        {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
+        <TabsContent value="cancel" className="space-y-4 mt-6">
+          <LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} />
         </TabsContent>
       </Tabs>
 

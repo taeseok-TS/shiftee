@@ -56,6 +56,8 @@ model User {
   approvalLines         ApprovalLine[]         @relation("ApprovalLineTarget")
   approvalLineSteps     ApprovalLineStep[]     @relation("ApprovalLineApprover")
   leaveApprovalSteps    LeaveApprovalStep[]    @relation("LeaveApprovalApprover")
+  leaveCancelRequests   LeaveCancelRequest[]   @relation("LeaveCancelRequester")
+  leaveCancelSteps      LeaveCancelStep[]      @relation("LeaveCancelApprover")
   scheduleApprovalSteps ScheduleApprovalStep[] @relation("ScheduleApprovalApprover")
   contractApprovalSteps ContractApprovalStep[] @relation("ContractApprover")
   scheduleRequests      ScheduleRequest[]
@@ -220,6 +222,7 @@ model LeaveRequest {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   approvalSteps  LeaveApprovalStep[]
+  cancelRequests LeaveCancelRequest[] // 승인된 휴가의 취소 결재(2026-09-11)
 
   @@index([userId, status])
 }
@@ -399,6 +402,52 @@ model LeaveApprovalStep {
 
   @@unique([leaveRequestId, order])
   @@index([approverId, status])
+}
+
+/// 승인된 휴가의 **취소 결재** (2026-09-11 디렉터 확정 — 내부 회의).
+/// 승인된 연차는 버튼으로 바로 취소하지 않는다. 휴가 쓴 본인이 취소 결재를 올리고 **관리자까지** 승인받는다.
+/// 결재가 도는 동안 연차는 차감된 채이고, 최종 승인 순간 원 휴가를 CANCELLED 로 바꾸며 차감된 연도 행에 복구한다
+/// (lib/leave-cancel-flow.ts). 휴가 표와 **따로 둔다** — "승인된 휴가"를 세는 곳(브리핑·달력·연차 집계)에
+/// 취소 신청 행이 섞이지 않게.
+/// ⚠ 운영 DB 에는 `"leaveRequestId" WHERE status='PENDING'` 부분 유일 인덱스가 **추가로** 있다
+///   (휴가 하나에 대기 중인 취소 결재는 하나 — 더블클릭 동시 요청 차단). Prisma 는 부분 인덱스를 표현하지 못한다.
+model LeaveCancelRequest {
+  id             String            @id @default(cuid())
+  leaveRequestId String
+  leaveRequest   LeaveRequest      @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  userId         String // 요청자 = 휴가 쓴 본인
+  user           User              @relation("LeaveCancelRequester", fields: [userId], references: [id])
+  reason         String?
+  status         LeaveStatus       @default(PENDING) // PENDING | APPROVED(휴가 취소·연차 복구됨) | REJECTED | CANCELLED(철회)
+  approverId     String? // 최종 결정자
+  rejectedReason String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  approvalSteps  LeaveCancelStep[]
+
+  @@index([leaveRequestId, status])
+  @@index([userId, status])
+}
+
+/// 취소 결재 단계 — LeaveApprovalStep 과 같은 모양(역할·지점 기반, 못박은 결재자는 approverId 로 미리 지정)
+model LeaveCancelStep {
+  id              String             @id @default(cuid())
+  cancelRequestId String
+  cancelRequest   LeaveCancelRequest @relation(fields: [cancelRequestId], references: [id], onDelete: Cascade)
+  order           Int
+  approverId      String? // 실제 결재한 사람(역할기반 단계는 결재 시 기록). 못박은 단계는 미리 들어 있다
+  approver        User?              @relation("LeaveCancelApprover", fields: [approverId], references: [id])
+  approverRole    String? // MANAGER | ADMIN
+  branch          String? // MANAGER 단계일 때 해당 지점
+  status          ApprovalStepStatus @default(PENDING)
+  comment         String?
+  decidedAt       DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([cancelRequestId, order])
+  @@index([approverId, status])
+  @@index([status])
 }
 
 enum ApprovalStepStatus {

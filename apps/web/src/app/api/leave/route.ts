@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { leaveCancelDenial, cancelFlags } from "@/lib/leave-cancel";
+import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } from "@/lib/leave-cancel";
+import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { kstTodayMidnight } from "@/lib/resign";
 import { botNotifyApprovalRequest } from "@/lib/bot";
@@ -10,7 +11,7 @@ import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
-import { getManagerBranches, branchHasManager, branchHasOtherManager, branchMainManager } from "@/lib/manager-branches";
+import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 import { LEAVE_STATUSES, pick, LEAVE_TYPES, type LeaveTypeValue } from "@/lib/enums";
 
@@ -83,6 +84,11 @@ export async function GET(request: NextRequest) {
         include: { approver: { select: { id: true, name: true, position: true, branch: true } } },
         orderBy: { order: "asc" },
       },
+      // 진행 중인 취소 결재(있으면 하나) — "취소 결재 중" 표시·철회 버튼·요청 가능 여부 판정(9/11)
+      cancelRequests: {
+        where: { status: "PENDING" },
+        select: { id: true, userId: true, createdAt: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -102,6 +108,12 @@ export async function GET(request: NextRequest) {
     },
     approver: req.approver ? { name: req.approver.name, branch: req.approver.branch } : null,
     ...cancelFlags(leaveCancelDenial(viewer, req)),   // canCancel + cancelBlock(못 하는 이유)
+    // 승인된 휴가의 **취소 결재**(9/11) — 진행 중인 것과, 본인이 올릴 수 있는지(요청 라우트와 같은 함수)
+    pendingCancel: req.cancelRequests[0]
+      ? { id: req.cancelRequests[0].id, createdAt: req.cancelRequests[0].createdAt, mine: req.cancelRequests[0].userId === session.userId }
+      : null,
+    cancelRequests: undefined,
+    ...requestFlags(cancelRequestDenial(viewer, req, req.cancelRequests.length > 0)),
   }));
 
   return NextResponse.json({ requests: filteredRequests });
@@ -195,59 +207,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 역할/지점 기반 자동 결재 정책 ──
-  //  2일 이상: 직원 → [소속 지점 원장 → 관리자],  원장 → [관리자]
-  //  1일 이하: 직원 → [소속 지점 원장],          원장 → [관리자]
-  //  관리자 본인: 다른 관리자 1명 결재(없으면 자동 승인)
-  const submitter = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { role: true, branch: true },
-  });
-  const adminStep = { approverRole: "ADMIN", branch: null as string | null };
-  const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
-  const hasBranchManager = submitter?.branch
-    ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
-    : false;
-
-  let policySteps: { approverRole: string; branch: string | null; approverId?: string }[] = [];
-  if (submitter?.role === "MANAGER") {
-    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
-    //
-    //  · **겸직(멀티) 원장이 신청자면 바로 관리자 결재로 간다** (2026-09-09 디렉터 지시).
-    //    여러 지점을 총괄하는 사람이라 같은 급의 원장에게 먼저 받을 이유가 없다.
-    //  · 단일 지점 원장은, 그 지점을 함께 보는 다른 원장이 있으면 그 원장이 먼저 결재한다
-    //    — 한 지점에 원장이 2명이면 서로가 상대의 결재자가 되고, 겸직 원장은 자기가
-    //    관리하는 다른 지점의 원장을 결재한다.
-    //  · 그런 원장이 없으면 관리자 단독.
-    //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
-    const myBranches = await getManagerBranches(session.userId);
-    const isMultiBranch = myBranches.length > 1;
-
-    // 메인 원장이 지정돼 있으면 **방향이 정해진다** — 메인이 두 번째를 결재한다.
-    // 메인 원장 본인이 신청하면 겸직 원장과 같이 관리자에게 바로 간다.
-    const main = !isMultiBranch && submitter.branch
-      ? await branchMainManager(submitter.branch)
-      : null;
-
-    if (main && main.id !== session.userId) {
-      // 두 번째 원장의 신청 → [메인 원장 → 관리자]. 지정 결재자로 못박는다.
-      policySteps = [{ approverRole: "MANAGER", branch: submitter.branch ?? null, approverId: main.id }, adminStep];
-    } else if (main) {
-      policySteps = [adminStep];               // 메인 원장 본인 → 관리자 바로
-    } else {
-      // 메인 지정이 없으면 종전대로 — 같은 지점에 다른 원장이 있으면 그 원장이 먼저.
-      const peer = !isMultiBranch && submitter.branch
-        ? await branchHasOtherManager(submitter.branch, session.userId)
-        : false;
-      policySteps = peer ? [managerStep, adminStep] : [adminStep];
-    }
-  } else if (submitter?.role === "ADMIN") {
-    const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
-    policySteps = otherAdmins > 0 ? [adminStep] : [];
-  } else {
-    if (days >= 2) policySteps = hasBranchManager ? [managerStep, adminStep] : [adminStep];
-    else policySteps = hasBranchManager ? [managerStep] : [adminStep];
-  }
+  // 결재선 — 취소 결재와 **같은 함수**(lib/leave-policy.ts). 정책 설명도 거기에 있다.
+  const policySteps = await leavePolicySteps(session.userId, { days });
 
   // ⚠ 트랜잭션이 던지면 미처리 500 이 된다 — 근무일정에는 try/catch 가 있는데
   //   휴가만 빠져 있었다(2026-09-09 검증에서 적발).

@@ -26,6 +26,9 @@ import {
   cancelSchedule,
   stepLabel,
   getTeamLeaves,
+  getLeaveCancelApprovals,
+  decideLeaveCancel,
+  LeaveCancelInboxStep,
   LeaveInboxStep,
   ScheduleInboxStep,
   TeamLeave,
@@ -63,16 +66,16 @@ function fmtRange(start: string, end: string): string {
 // 취소 불가 사유(서버 cancelBlock) → 짧은 표시 (웹 원장 화면과 같은 표)
 const CANCEL_BLOCK_LABEL: Record<string, string> = {
   PAST: "지난 휴가 — 취소할 수 없습니다",
-  ADMIN_ONLY: "관리자가 승인한 휴가 — 관리자만 취소할 수 있습니다",
-  SELF_APPROVED: "승인된 본인 휴가 — 관리자에게 요청해주세요",
+  NEEDS_REQUEST: "승인된 휴가 — 본인이 취소 요청을 올려야 합니다",
   MAIN_ONLY: "다른 원장의 신청 — 메인 원장만 취소할 수 있습니다",
 };
 
-type RejectTarget = { kind: "leave" | "schedule"; id: string } | null;
+type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel"; id: string } | null;
 
 export default function ApprovalsScreen() {
   const [leave, setLeave] = useState<LeaveInboxStep[]>([]);
   const [schedule, setSchedule] = useState<ScheduleInboxStep[]>([]);
+  const [cancelReqs, setCancelReqs] = useState<LeaveCancelInboxStep[]>([]);   // 휴가 취소 결재(9/11)
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -87,13 +90,15 @@ export default function ApprovalsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [l, s, h] = await Promise.all([
+      const [l, s, h, c] = await Promise.all([
         getLeaveApprovals(),
         getScheduleApprovals(),
         getTeamLeaves().catch(() => null),   // 내역 실패가 결재함까지 막지 않게
+        getLeaveCancelApprovals().catch(() => [] as LeaveCancelInboxStep[]),
       ]);
       setLeave(l);
       setSchedule(s);
+      setCancelReqs(c);
       setHistoryFailed(h === null);
       // 실패하면 비운다 — 옛 목록이 실패 문구와 함께 남으면 지금 상태로 오해한다(9/10 검증 지적)
       setHistory(h ?? []);
@@ -119,10 +124,11 @@ export default function ApprovalsScreen() {
     load();
   }, [load]);
 
-  const approve = async (kind: "leave" | "schedule", id: string) => {
+  const approve = async (kind: "leave" | "schedule" | "leaveCancel", id: string) => {
     setProcessingId(id);
     try {
       if (kind === "leave") await decideLeave(id, "approve");
+      else if (kind === "leaveCancel") await decideLeaveCancel(id, "approve");
       else await decideSchedule(id, "approve");
       await load();
     } catch (error: any) {
@@ -180,6 +186,7 @@ export default function ApprovalsScreen() {
     setRejectReason("");
     try {
       if (kind === "leave") await decideLeave(id, "reject", reason);
+      else if (kind === "leaveCancel") await decideLeaveCancel(id, "reject", reason);
       else await decideSchedule(id, "reject", reason);
       await load();
     } catch (error: any) {
@@ -197,7 +204,7 @@ export default function ApprovalsScreen() {
     );
   }
 
-  const total = leave.length + schedule.length;
+  const total = leave.length + schedule.length + cancelReqs.length;
 
   const Actions = ({ kind, id, who, canCancel }: { kind: "leave" | "schedule"; id: string; who: string; canCancel?: boolean }) => (
     <View style={styles.actions}>
@@ -323,6 +330,60 @@ export default function ApprovalsScreen() {
           </View>
         )}
 
+        {tab === "inbox" && cancelReqs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>휴가 취소 ({cancelReqs.length})</Text>
+            {cancelReqs.map((step) => {
+              const c = step.cancelRequest;
+              const r = c.leaveRequest;
+              return (
+                <View key={step.id} style={styles.card}>
+                  <View style={styles.cardHead}>
+                    <Text style={styles.who}>
+                      {c.user.branch ? `[${c.user.branch}] ` : ""}{c.user.name}
+                    </Text>
+                    <View style={[styles.badge, { backgroundColor: "#fef2f2" }]}>
+                      <Text style={[styles.badgeText, { color: "#dc2626" }]}>취소 요청</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.line}>{LEAVE_TYPE_LABEL[r.type] || r.type} · {fmtRange(r.startDate, r.endDate)} · {r.days}일</Text>
+                  {!!c.reason && <Text style={styles.reason}>취소 사유: {c.reason}</Text>}
+                  <Text style={styles.chain}>최종 승인되면 휴가가 취소되고 연차가 복구됩니다. 반려하면 휴가는 그대로입니다.</Text>
+                  {!!c.approvalSteps?.length && (
+                    <Text style={styles.chain}>
+                      {c.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}${s.status === "APPROVED" ? " ✓" : ""}`).join("  →  ")}
+                    </Text>
+                  )}
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.approveBtn]}
+                      disabled={processingId === c.id}
+                      onPress={() => approve("leaveCancel", c.id)}
+                    >
+                      {processingId === c.id ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark" size={16} color="#fff" />
+                          <Text style={styles.btnText}>승인</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.rejectBtn]}
+                      disabled={processingId === c.id}
+                      onPress={() => setRejectTarget({ kind: "leaveCancel", id: c.id })}
+                    >
+                      <Ionicons name="close" size={16} color="#dc2626" />
+                      <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {tab === "history" && (
           <View style={styles.section}>
             {historyFailed && (
@@ -357,6 +418,7 @@ export default function ApprovalsScreen() {
                       {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}${s.status === "APPROVED" ? " ✓" : ""}`).join("  →  ")}
                     </Text>
                   )}
+                  {!!r.pendingCancel && <Text style={styles.blockNote}>취소 결재 진행 중</Text>}
                   {r.canCancel ? (
                     <TouchableOpacity
                       style={[styles.btn, styles.cancelBtn, { marginTop: 14 }]}

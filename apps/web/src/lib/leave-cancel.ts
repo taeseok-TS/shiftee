@@ -8,7 +8,9 @@
  * "버튼은 없는데 id 로는 되는" 구멍(반려건 덮어쓰기)이 남았다(2026-09-10).
  *
  * 디렉터 확정 (2026-09-10)
- *  - 본인: 대기 중일 때만. 승인된 자기 휴가는 관리자에게 요청한다.
+ *  - **승인된 휴가는 누구도 바로 취소하지 않는다**(9/11 내부 회의). 휴가 쓴 본인이 "취소 결재"를
+ *    올려 관리자까지 승인받는다 — 올릴 수 있는지는 아래 cancelRequestDenial, 흐름은 lib/leave-cancel-flow.ts.
+ *  - 본인: 대기 중인 자기 신청은 바로 취소할 수 있다.
  *  - 반려·취소된 건: 누구도 취소할 수 없다 — 반려 기록을 취소로 덮어쓰지 않는다.
  *  - **지나간 휴가(종료일이 오늘 이전)는 누구도 취소할 수 없다.** 연차는 관리자 "잔여 조정"으로
  *    정정한다. 여러 날 휴가는 **종료일 기준**(9/11 디렉터) — 진행 중이면 아직 취소할 수 있다.
@@ -16,7 +18,6 @@
  *  - 원장: 담당 지점(대표+겸직) 소속 **직원**의 건. 다른 원장의 건은 **그 지점 메인 원장이
  *    일반 원장 건만** — "같은 지점 원장끼리 취소할 수 있는 건 단 하나, 메인 원장이 일반 원장이
  *    올린 것만". 겸직 원장이라도 메인이 아닌 지점의 원장 건은 못 한다. 관리자 건은 불가.
- *    승인된 휴가는 원장 선에서 최종 승인된 것만(직원 1일 휴가) — 관리자가 관여한 건은 관리자만.
  *  - 관리자: 모두(위 공통 제한만).
  *  - 근무일정: 누구든 대기 중만(승인건은 이미 일정으로 반영돼 있어서). 범위 규칙은 휴가와 같고,
  *    **지난 신청(종료일이 오늘 이전)도 취소할 수 없다**(9/11 디렉터 "휴가처럼 지난 건은 막아").
@@ -34,8 +35,7 @@ export type CancelBlock =
   | "REJECTED"       // 반려건 — 덮어쓰기 금지
   | "STATE"          // 그 밖에 처리할 수 없는 상태(근무일정 승인건 등)
   | "PAST"           // 지난 건(종료일이 오늘 이전) — 휴가·근무일정
-  | "SELF_APPROVED"  // 승인된 본인 휴가
-  | "ADMIN_ONLY";    // 관리자가 승인한 휴가
+  | "NEEDS_REQUEST"; // 승인된 휴가 — 본인의 취소 결재로만(9/11)
 
 export type CancelDenial = { status: number; error: string; block: CancelBlock };
 
@@ -85,7 +85,17 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
 
   if (t.status === "CANCELLED") return { status: 400, error: "이미 취소된 신청입니다.", block: "DONE" };
   if (t.status === "REJECTED") return { status: 409, error: "반려된 신청은 취소할 수 없습니다.", block: "REJECTED" };
-  if (t.status !== "PENDING" && t.status !== "APPROVED") {
+  // ⚠ **승인된 휴가는 여기서 바로 취소하지 않는다**(9/11 디렉터 — 내부 회의 결정). 휴가 쓴 본인이
+  //   "취소 결재"를 올려 관리자까지 승인받아야 하고, 최종 승인 순간 연차가 복구된다
+  //   (lib/leave-cancel-flow.ts). 관리자도 예외 없다 — 정정은 "잔여 조정"으로.
+  if (t.status === "APPROVED") {
+    return {
+      status: 409,
+      error: "승인된 휴가는 바로 취소할 수 없습니다. 본인이 '취소 요청'을 올려 관리자까지 결재받아야 합니다.",
+      block: "NEEDS_REQUEST",
+    };
+  }
+  if (t.status !== "PENDING") {
     return { status: 409, error: "처리할 수 없는 상태의 신청입니다.", block: "STATE" };
   }
 
@@ -98,28 +108,6 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
       error: "이미 지난 휴가는 취소할 수 없습니다. 연차는 관리자 '잔여 조정'으로 정정해주세요.",
       block: "PAST",
     };
-  }
-
-  // 승인된 자기 휴가를 스스로 되돌려 연차를 돌려받는 길은 막는다(2026-09-09 검증에서 적발)
-  const mine = t.userId === v.userId;
-  if (mine && t.status !== "PENDING") {
-    return {
-      status: 403,
-      error: "이미 승인된 본인 휴가는 직접 취소할 수 없습니다. 관리자에게 요청해주세요.",
-      block: "SELF_APPROVED",
-    };
-  }
-
-  // 원장은 **원장 선에서 끝난** 승인 건만. 결재선의 관리자 단계는 항상 마지막이라,
-  // 최종 승인자가 원장이고 관리자 단계 승인이 없으면 관리자가 관여하지 않은 건이다.
-  // 최종 승인자를 알 수 없는 옛 데이터는 관리자 몫으로 둔다.
-  if (!mine && v.role === "MANAGER" && t.status === "APPROVED") {
-    const managerFinal =
-      t.approver?.role === "MANAGER" &&
-      !t.approvalSteps.some((s) => s.approverRole === "ADMIN" && s.status === "APPROVED");
-    if (!managerFinal) {
-      return { status: 403, error: "관리자가 승인한 휴가는 관리자만 취소할 수 있습니다.", block: "ADMIN_ONLY" };
-    }
   }
 
   return null;
@@ -146,4 +134,37 @@ export function scheduleCancelDenial(v: CancelViewer, t: ScheduleCancelTarget): 
     return { status: 409, error: "이미 지난 근무일정 신청은 취소할 수 없습니다.", block: "PAST" };
   }
   return null;
+}
+
+// ── 승인된 휴가의 **취소 결재** 올리기 ─────────────────────────────────────────────
+// 디렉터 확정(9/11): 휴가 쓴 **본인만** · **시작 전날까지**(첫날부터는 진행 중 — 취소 대상이 아니고,
+// 정정은 관리자 "잔여 조정") · 휴가 하나에 진행 중인 취소 결재는 **하나**. 결재선은 항상 관리자까지
+// (lib/leave-policy.ts forCancel). 목록 API 의 canRequestCancel 과 취소 요청 라우트가 이 함수 하나를 쓴다.
+export type CancelRequestBlock = "SCOPE" | "STATE" | "PENDING_REQUEST" | "STARTED";
+export type CancelRequestDenial = { status: number; error: string; block: CancelRequestBlock };
+
+export function cancelRequestDenial(
+  v: { userId: string; today: Date },
+  t: { userId: string; status: string; startDate: Date | string },
+  hasPendingRequest: boolean
+): CancelRequestDenial | null {
+  if (t.userId !== v.userId) return { status: 403, error: "본인 휴가만 취소 요청할 수 있습니다.", block: "SCOPE" };
+  if (t.status !== "APPROVED") {
+    return { status: 409, error: "승인된 휴가만 취소 결재를 올립니다. 대기 중인 신청은 바로 취소할 수 있습니다.", block: "STATE" };
+  }
+  if (hasPendingRequest) return { status: 409, error: "이미 취소 결재가 진행 중입니다.", block: "PENDING_REQUEST" };
+  // 시작 전날까지 — 시작일이 KST 오늘보다 **뒤**여야 한다(@db.Date UTC 자정끼리 비교)
+  if (new Date(t.startDate).getTime() <= v.today.getTime()) {
+    return {
+      status: 409,
+      error: "휴가 시작 전날까지만 취소 요청할 수 있습니다. 이미 시작했거나 지난 휴가는 관리자에게 '잔여 조정'을 요청해주세요.",
+      block: "STARTED",
+    };
+  }
+  return null;
+}
+
+/** 목록 응답에 싣는 값 — canRequestCancel(취소 요청 버튼을 그릴지) + requestBlock(못 그리는 이유) */
+export function requestFlags(d: CancelRequestDenial | null): { canRequestCancel: boolean; requestBlock: CancelRequestBlock | null } {
+  return { canRequestCancel: d === null, requestBlock: d?.block ?? null };
 }

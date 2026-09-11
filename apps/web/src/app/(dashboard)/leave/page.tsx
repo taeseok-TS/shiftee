@@ -36,6 +36,8 @@ type LeaveRequest = {
   approver: { name: string } | null;
   approvalSteps?: ApprovalStepInfo[];
   canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts)
+  canRequestCancel?: boolean;   // 취소 결재를 올릴 수 있나(본인·승인건·시작 전날까지 — 서버 판정)
+  pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재
 };
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
@@ -280,6 +282,28 @@ export default function LeavePage() {
     fetchRequests(); fetchBalance();
   }
 
+  /* ── 취소 결재 (승인된 휴가 — 9/11 디렉터: 버튼으로 바로 취소하지 않고 관리자까지 결재) ── */
+  async function handleRequestCancel(id: string) {
+    const reason = window.prompt(
+      "승인된 휴가의 취소 결재를 올립니다.\n관리자까지 승인되면 휴가가 취소되고 연차가 복구됩니다.\n\n취소 사유 (선택)",
+      ""
+    );
+    if (reason === null) return;
+    const res = await fetch(`/api/leave/${id}/cancel-request`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error || "취소 요청을 올리지 못했습니다."); return; }
+    toast.success("취소 결재를 올렸습니다. 관리자까지 승인되면 연차가 복구됩니다.");
+    fetchRequests(); fetchBalance();
+  }
+  async function handleWithdrawCancel(cancelId: string) {
+    if (!confirm("취소 요청을 철회할까요? 휴가는 그대로 유지됩니다.")) return;
+    const res = await fetch(`/api/leave/cancel-requests/${cancelId}`, { method: "DELETE" });
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error || "철회하지 못했습니다."); return; }
+    toast.success("취소 요청을 철회했습니다.");
+    fetchRequests();
+  }
+
   /* ── 잔여 조정 ── */
   async function handleEditSave() {
     if (!editTarget) return;
@@ -502,6 +526,20 @@ export default function LeavePage() {
                               {r.canCancel && !(isAdmin && r.status === "PENDING") && (
                                 <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
                                   onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
+                              )}
+                              {/* 승인된 휴가는 **취소 결재로만** — 버튼 표시 여부는 서버 판정(canRequestCancel) */}
+                              {r.canRequestCancel && (
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-red-500"
+                                  onClick={() => handleRequestCancel(r.id)}>취소 요청</Button>
+                              )}
+                              {r.pendingCancel && (
+                                <span className="inline-flex items-center gap-1 text-xs text-amber-700 whitespace-nowrap">
+                                  취소 결재 중
+                                  {r.pendingCancel.mine && (
+                                    <button type="button" className="underline text-gray-400 hover:text-gray-600"
+                                      onClick={() => handleWithdrawCancel(r.pendingCancel!.id)}>철회</button>
+                                  )}
+                                </span>
                               )}
                             </div>
                           </td>

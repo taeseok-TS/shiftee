@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { cancelLeave } from "../../services/approvals";
+import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel } from "../../services/approvals";
 import {
   View,
   Text,
@@ -160,6 +160,54 @@ export default function LeaveRequestScreen() {
     );
   };
 
+
+  // 승인된 휴가의 **취소 결재** — 버튼으로 바로 취소하지 않고 관리자까지 결재받는다(디렉터 9/11).
+  // 결재가 도는 동안 연차는 차감된 채이고, 최종 승인 순간 복구된다. 버튼 표시는 서버 판정(canRequestCancel).
+  const requestCancel = (id: string) => {
+    Alert.alert(
+      "취소 결재 올리기",
+      "이 휴가의 취소 결재를 올릴까요?\n\n관리자까지 승인되면 휴가가 취소되고 연차가 복구됩니다. 휴가 시작 전날까지만 올릴 수 있습니다.",
+      [
+        { text: "닫기", style: "cancel" },
+        {
+          text: "올리기",
+          onPress: async () => {
+            setCancelingId(id);
+            try {
+              await requestLeaveCancel(id);
+              await load();
+              Alert.alert("취소 결재를 올렸습니다", "결재가 끝나면 알림으로 알려드립니다.");
+            } catch (e: any) {
+              Alert.alert("요청 실패", e?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+            } finally {
+              setCancelingId("");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const withdrawCancel = (cancelId: string, leaveId: string) => {
+    Alert.alert("취소 요청 철회", "취소 요청을 철회할까요? 휴가는 그대로 유지됩니다.", [
+      { text: "닫기", style: "cancel" },
+      {
+        text: "철회",
+        style: "destructive",
+        onPress: async () => {
+          setCancelingId(leaveId);
+          try {
+            await withdrawLeaveCancel(cancelId);
+            await load();
+          } catch (e: any) {
+            Alert.alert("철회 실패", e?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+          } finally {
+            setCancelingId("");
+          }
+        },
+      },
+    ]);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -398,6 +446,31 @@ export default function LeaveRequestScreen() {
                       : <Text style={styles.histCancelText}>신청 취소</Text>}
                   </TouchableOpacity>
                 )}
+                {(r as { canRequestCancel?: boolean }).canRequestCancel && (
+                  <TouchableOpacity
+                    style={styles.histCancelBtn}
+                    disabled={cancelingId === r.id}
+                    onPress={() => requestCancel(r.id)}
+                  >
+                    {cancelingId === r.id
+                      ? <ActivityIndicator size="small" color="#6b7280" />
+                      : <Text style={styles.histCancelText}>취소 요청</Text>}
+                  </TouchableOpacity>
+                )}
+                {(() => {
+                  const pc = (r as { pendingCancel?: { id: string; mine: boolean } | null }).pendingCancel;
+                  if (!pc) return null;
+                  return (
+                    <View style={styles.pendingCancelRow}>
+                      <Text style={styles.pendingCancelText}>취소 결재 중 — 승인되면 연차가 복구됩니다</Text>
+                      {pc.mine && (
+                        <TouchableOpacity disabled={cancelingId === r.id} onPress={() => withdrawCancel(pc.id, r.id)}>
+                          <Text style={styles.withdrawText}>철회</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })()}
               </View>
             );
           })
@@ -534,6 +607,9 @@ const styles = StyleSheet.create({
   histCancelBtn: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 12,
                    borderRadius: 6, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#fff" },
   histCancelText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
+  pendingCancelRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
+  pendingCancelText: { fontSize: 12, color: "#b45309", flexShrink: 1 },
+  withdrawText: { fontSize: 12, color: "#6b7280", textDecorationLine: "underline" },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   // 드롭다운 모달

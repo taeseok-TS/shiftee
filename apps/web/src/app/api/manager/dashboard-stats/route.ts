@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cancelStepWhere } from "@/lib/leave-cancel-flow";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
@@ -45,6 +46,8 @@ export async function GET() {
     leaveRequest: { userId: { not: session.userId } },
     ...(stepOr ? { OR: stepOr } : {}),
   };
+  // 휴가 취소 결재도 **결재함과 같은 함수**로 센다(lib/leave-cancel-flow.ts cancelStepWhere)
+  const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, myBranches) });
 
   const memberWhere = await countableEmployeeWhere(
     session.role === "MANAGER" ? { branches: myBranches } : {}
@@ -110,7 +113,7 @@ export async function GET() {
     teamCount,
     attendance: { present, late, absent, earlyLeave, onLeave },
     pendingContracts,
-    pendingApprovals: pendingLeaveSteps + pendingScheduleSteps,
+    pendingApprovals: pendingLeaveSteps + pendingScheduleSteps + pendingCancelSteps,
     monthAbsent: monthAbsent.length,
   });
 }
