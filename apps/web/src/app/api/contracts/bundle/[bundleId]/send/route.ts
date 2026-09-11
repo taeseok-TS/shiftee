@@ -117,7 +117,7 @@ export async function POST(
           // 재발송이면 결재선이 새로 만들어져 서명이 전부 사라진다. 저장된 완료본과 서명 시각을
           // 남기면 옛 완료본이 되살아나고 직원 화면이 "서명했다"로 오판한다.
           // 단건 재발송(PATCH)에는 넣었는데 패키지만 빠져 있었다 (2026-09-04).
-          signedUrl: null, signedAt: null, employeeSignedAt: null,
+          signedUrl: null, signedAt: null, employeeSignedAt: null, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null,
         } : {}) },
     });
     // 감사 기록(#205-4)

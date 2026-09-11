@@ -126,7 +126,7 @@ export async function POST(
     if (agree !== true)
       return NextResponse.json({
         code: "CONSENT_REQUIRED",
-        error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
+        error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
     if (typeof password !== "string" || !password)
       return NextResponse.json({

@@ -146,6 +146,14 @@ export async function POST(
     stepOrder: step.order,
     request,
   };
+  // 열람·본인 확인 성공은 같은 링크에서 10분에 한 번만 남긴다 — 링크를 가진 사람이 반복 호출해 기록을 쌓지 못하게(묶음 ② 검증 1)
+  const recordOnce = async (type: "VIEWED" | "VERIFY_OK") => {
+    const recent = await prisma.contractEvent.findFirst({
+      where: { contractId: evBase.contractId, type, stepOrder: step.order, createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) } },
+      select: { id: true },
+    });
+    if (!recent) await recordContractEvent({ ...evBase, type });
+  };
   if (action === "verify") {
     if (!phoneLast4(extPhone)) return NextResponse.json({ verifyToken: issueExternalVerify(step.id) }); // 연락처 없는 옛 계약
     // 잠금 확인과 계수를 한 문장으로(잠금 상태는 DB — 재배포에도 유지)
@@ -157,14 +165,14 @@ export async function POST(
       await recordContractEvent({ ...evBase, type: "VERIFY_FAIL" });
       return NextResponse.json({ code: "VERIFY_FAILED", error: "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
     }
-    await recordContractEvent({ ...evBase, type: "VERIFY_OK" });
+    await recordOnce("VERIFY_OK");
     return NextResponse.json({ verifyToken: issueExternalVerify(step.id) });
   }
   if (phoneLast4(extPhone) && !checkExternalVerify(step.id, verifyToken))
     return NextResponse.json({ code: "VERIFY_REQUIRED", error: "본인 확인이 필요합니다. 연락처 뒷자리를 먼저 입력해 주세요." }, { status: 403 });
   // 열람 기록(#205-4) — 게스트 페이지가 문서를 받은 뒤 한 번 알린다(GET 에는 기록을 넣지 않는 규칙)
   if (action === "viewed") {
-    await recordContractEvent({ ...evBase, type: "VIEWED" });
+    await recordOnce("VIEWED");
     return NextResponse.json({ ok: true });
   }
   // 전자서명 동의(#205-3) — 서명 칸 앞에서 명시적으로 체크해야 한다(종전엔 "제출하면 동의로 간주" 안내뿐)

@@ -249,7 +249,7 @@ export default function ContractDetailScreen() {
           <Text style={styles.signHint}>아래 버튼을 눌러 서명하면 계약이 진행됩니다.</Text>
           <TouchableOpacity
             style={[styles.signBtn, signing && styles.btnDisabled]}
-            onPress={() => setShowSign(true)}
+            onPress={() => { /* 열 때마다 새로 — 실패·문서 변경 뒤 체크가 남지 않게(묶음 ② 검증 4) */ setSignPw(""); setSignAgree(false); setShowSign(true); }}
             disabled={signing}
           >
             {signing ? (

@@ -11,7 +11,7 @@ import { prisma } from "@/lib/db";
  */
 export type ContractEventType =
   | "SENT" | "RESEND" | "EDITED" | "RESET" | "VIEWED" | "VERIFY_OK" | "VERIFY_FAIL"
-  | "CONSENT" | "SIGNED" | "COMPLETED" | "REJECTED" | "REVOKED";
+  | "CONSENT" | "SIGNED" | "COMPLETED" | "REJECTED" | "REVOKED" | "FROZEN";
 
 /** 요청에서 IP·브라우저·기기 — 프록시(Caddy)가 x-forwarded-for 에 실제 접속 IP 를 넣는다(첫 값). 앱은 x-device-id 를 싣는다. */
 export function requestInfo(req?: Request | null) {

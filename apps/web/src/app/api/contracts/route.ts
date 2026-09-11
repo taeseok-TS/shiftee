@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         !!contract.employeeSignedAt;
       return ({
       ...contract,
-      ...(hideFiles ? { fileUrl: null, signedUrl: null } : {}),
+      ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,
       summaryFields: summaryForTemplate(contract.extraFields, template?.fileUrl ? namesByTemplate.get(template.fileUrl) : null),

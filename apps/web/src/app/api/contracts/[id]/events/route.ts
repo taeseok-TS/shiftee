@@ -11,11 +11,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const events = await prisma.contractEvent.findMany({
     where: { contractId: id },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" }, // 최근 500건 — 열람이 쌓여도 서명·완료가 잘리지 않게, 보낼 때 오래된 순으로 뒤집는다
     take: 500,
     select: { id: true, type: true, actorName: true, stepOrder: true, ip: true, userAgent: true, deviceId: true, meta: true, createdAt: true },
   });
-  return NextResponse.json({ events });
+  events.reverse();
+  // 완료본 고정(#205-5) — 문서번호·해시
+  const frozen = await prisma.contract.findUnique({ where: { id }, select: { docNo: true, signedSha256: true, signedPdfAt: true } });
+  return NextResponse.json({ events, frozen: frozen?.docNo ? frozen : null });
 }
 
 // 열람 알림 — 화면이 문서를 열면 POST 로 알린다(GET 에 기록을 넣지 않는 규칙). 볼 권한이 있는 사람만, 10분 안 중복은 한 번.

@@ -114,6 +114,7 @@ export async function POST(
         // (bundle-preview 는 signedUrl 이 있으면 그것부터 쓴다). 되돌린 서명이 찍힌 문서다.
         signedUrl: null,
         signedAt: null,
+        docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, // 고정 완료본도(#205-5) — 다시 완료되면 새 문서번호로
         // ⚠ 회수 범위(order >= 회수 단계)에 **직원 서명 단계**가 들어가면 그 서명도 지워진다.
         //   그런데 employeeSignedAt 을 남기면 계약은 "직원이 서명함"으로 남아
         //   ① none 문서가 당사자에게 403 이 되고(다시 서명해야 하는 사람이 못 본다)

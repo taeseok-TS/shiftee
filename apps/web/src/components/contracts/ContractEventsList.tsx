@@ -12,7 +12,7 @@ type Ev = {
 const LABEL: Record<string, string> = {
   SENT: "발송", RESEND: "재발송", EDITED: "내용 수정", RESET: "결재 초기화", VIEWED: "문서 열람",
   VERIFY_OK: "본인 확인 통과", VERIFY_FAIL: "본인 확인 실패", CONSENT: "전자서명 동의", SIGNED: "서명",
-  COMPLETED: "계약 완료", REJECTED: "반려", REVOKED: "회수",
+  COMPLETED: "계약 완료", REJECTED: "반려", REVOKED: "회수", FROZEN: "완료본 고정",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다
@@ -26,10 +26,11 @@ function device(e: Ev): string {
 
 function detail(e: Ev): string {
   const m = e.meta || {};
-  if (e.type === "CONSENT") return m.readToEnd === true ? "문서를 끝까지 열람함" : m.readToEnd === false ? "끝까지 열람하지 않음" : "";
+  if (e.type === "CONSENT") return m.readToEnd === true ? "문서 끝까지 스크롤함(화면 기준)" : m.readToEnd === false ? "끝까지 스크롤하지 않음" : "";
   if (e.type === "EDITED" && Array.isArray(m.fields)) return `바뀐 항목: ${(m.fields as string[]).join(", ")}`;
   if ((e.type === "REJECTED" || e.type === "REVOKED") && typeof m.reason === "string") return `사유: ${m.reason}`;
   if (e.type === "SIGNED" && typeof m.role === "string") return `${m.role}${m.savedSignature ? " · 저장 서명" : ""}`;
+  if (e.type === "FROZEN" && typeof m.docNo === "string") return `문서번호 ${m.docNo}`;
   if (e.type === "RESET" && Array.isArray(m.signers)) return `초기화된 서명: ${(m.signers as string[]).join(", ") || "없음"}`;
   return "";
 }
@@ -38,6 +39,7 @@ const kst = (s: string) => new Date(new Date(s).getTime() + 9 * 3600 * 1000).toI
 
 export default function ContractEventsList({ contractId }: { contractId: string }) {
   const [events, setEvents] = useState<Ev[] | null>(null);
+  const [frozen, setFrozen] = useState<{ docNo: string; signedSha256: string | null; signedPdfAt: string | null } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let alive = true;
@@ -47,6 +49,7 @@ export default function ContractEventsList({ contractId }: { contractId: string 
         if (!alive) return;
         if (!r.ok) { setError(d.error || "감사 기록을 불러오지 못했습니다."); return; }
         setEvents(d.events || []);
+        setFrozen(d.frozen || null);
       })
       .catch(() => { if (alive) setError("감사 기록을 불러오지 못했습니다."); });
     return () => { alive = false; };
@@ -55,6 +58,16 @@ export default function ContractEventsList({ contractId }: { contractId: string 
   return (
     <div className="space-y-2 pt-2 border-t">
       <p className="text-sm font-medium text-gray-700">감사 기록</p>
+      {/* 완료본 고정(#205-5) — 문서번호·SHA-256·공개 검증 페이지 */}
+      {frozen && (
+        <div className="text-xs rounded border border-green-200 bg-green-50 px-2 py-1.5 space-y-0.5">
+          <div className="flex justify-between gap-2">
+            <span className="font-medium text-green-800">문서번호 {frozen.docNo}</span>
+            <a href={`/verify/${frozen.docNo}`} target="_blank" rel="noreferrer" className="text-indigo-600 underline shrink-0">검증 페이지</a>
+          </div>
+          <div className="font-mono text-[10px] text-gray-600 break-all">SHA-256 {frozen.signedSha256}</div>
+        </div>
+      )}
       {error && <p className="text-xs text-red-500">{error}</p>}
       {!error && events === null && <p className="text-xs text-gray-400">불러오는 중…</p>}
       {events && events.length === 0 && (

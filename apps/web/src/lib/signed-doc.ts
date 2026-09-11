@@ -577,6 +577,14 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   await fs.writeFile(path.join(dir, filename), buf);
   const url = `/api/uploads/contracts/${filename}`;
   await prisma.contract.update({ where: { id: contractId }, data: { signedUrl: url } });
+  // 완료본 고정(#205-5) — 문서번호·증명 쪽·SHA-256. 실패해도 완료본은 이미 저장됐다(매시 점검이 다시 고정한다)
+  try {
+    const { freezeSignedPdf } = await import("@/lib/signed-freeze");
+    await freezeSignedPdf(contractId);
+  } catch (e) {
+    const { recordSignedDocFailure } = await import("@/lib/signed-doc-heal");
+    await recordSignedDocFailure(contractId, new Error(`완료본 고정 실패 — ${e instanceof Error ? e.message : String(e)}`));
+  }
   return url;
 }
 

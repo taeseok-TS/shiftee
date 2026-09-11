@@ -99,6 +99,21 @@ export async function GET(
   //   종전에는 매번 fileUrl + 현재 서명자로 다시 합성해서, 서명 로직을 배포할 때마다
   //   **이미 서명된 계약서의 실물이 바뀌었다**(9/2 서명 문단 수정으로 줄 구성이 달라진 것을
   //   저장본과 대조해 확인). 서명된 문서는 불변이어야 한다 (2026-09-04 검증 지적).
+  // 고정 완료본(#205-5)이 있으면 **그것만** 준다 — 문서번호·증명 쪽이 든 바로 그 바이트라 검증 페이지의 SHA-256 과 맞는다.
+  //   (워드를 매번 변환하면 바이트가 달라져 대조가 안 된다.) 못 읽으면 아래 저장본으로 넘어간다.
+  if (contract.status === "SIGNED" && contract.signedPdfUrl) {
+    try {
+      const fbuf = await fs.readFile(diskPath(contract.signedPdfUrl));
+      return new NextResponse(asBody(fbuf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(`${contract.title}${suffix}${contract.docNo ? `_${contract.docNo}` : ""}.pdf`)}`,
+        },
+      });
+    } catch (e) {
+      console.error("고정 완료본 읽기 실패(저장본으로 진행):", e);
+    }
+  }
   const storedSigned = contract.status === "SIGNED" ? firstFile(contract.signedUrl || "") : null;
   if (storedSigned) {
     try {

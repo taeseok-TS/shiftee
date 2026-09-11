@@ -273,6 +273,14 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<{ issue
       });
     else if (r.healed > 0)
       console.log(`[monitor] 서명본 자동 복구 ${r.healed}건`);
+    // 완료본 고정(#205-5) — 실패만 알린다(백필 진행은 로그로)
+    if (r.freezeFailed > 0)
+      issues.push({
+        text: `🟠 완료본 고정(문서번호·SHA-256) 실패 ${r.freezeFailed}건 — 아직 고정 안 된 완료 계약 ${r.freezeBacklog}건.`
+          + ` 계약 id: ${r.freezeFailedIds.slice(0, 5).join(", ")}${r.freezeFailedIds.length > 5 ? " 외" : ""}`,
+        keys: ["signedFreezeFail"],
+      });
+    if (r.frozen > 0) console.log(`[monitor] 완료본 고정 ${r.frozen}건(남은 ${r.freezeBacklog}건)`);
   } catch (e) {
     issues.push({ text: `⚠️ 계약 서명본 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["signedDocUnknown"] });
   }

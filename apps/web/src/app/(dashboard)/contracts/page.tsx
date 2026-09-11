@@ -790,7 +790,8 @@ export default function ContractsPage() {
   const [signAgree, setSignAgree] = useState(false);
   const [docReadToEnd, setDocReadToEnd] = useState(false);
   const isEmpSign = !!signTarget && signTarget.userId === myId;
-  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); } }, [signOpen]);
+  // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
+  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
   useEffect(() => {
     if (!signOpen || !signTarget) return;

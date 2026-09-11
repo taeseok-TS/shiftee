@@ -30,6 +30,8 @@ export type HealResult = {
   checked: number; healed: number; failed: number; failedIds: string[];
   /** 아직 저장본이 없는 계약의 **총** 개수(이번에 손댄 5건이 아니라). */
   backlog: number;
+  /** 완료본 고정(#205-5) — 이번에 고정한 수·실패·밀린 총량 */
+  frozen: number; freezeFailed: number; freezeFailedIds: string[]; freezeBacklog: number;
 };
 
 /**
@@ -51,8 +53,7 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   // ⚠ 알림에 실을 숫자는 이번에 손댄 5건이 아니라 **밀린 총량**이어야 한다.
   //   50건이 깨졌는데 "5건"으로 읽히면 규모를 오판한다(검증관 A S-2).
   const backlog = await prisma.contract.count({ where });
-  const out: HealResult = { checked: targets.length, healed: 0, failed: 0, failedIds: [], backlog };
-  if (!targets.length) return out;
+  const out: HealResult = { checked: targets.length, healed: 0, failed: 0, failedIds: [], backlog, frozen: 0, freezeFailed: 0, freezeFailedIds: [], freezeBacklog: 0 };
 
   const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
   for (const c of targets) {
@@ -71,5 +72,20 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
       await recordSignedDocFailure(c.id, e);
     }
   }
+
+  // 완료본은 있는데 고정 PDF 가 없는 계약 — 고정 실패분과 9/11 이전 완료분(백필). 오래된 것부터 5건씩.
+  const freezeWhere = { status: "SIGNED" as const, signedUrl: { not: null }, signedPdfUrl: null, updatedAt: { lt: cutoff } };
+  const toFreeze = await prisma.contract.findMany({ where: freezeWhere, select: { id: true }, orderBy: { updatedAt: "asc" }, take: 5 });
+  const { freezeSignedPdf } = await import("@/lib/signed-freeze");
+  for (const c of toFreeze) {
+    try {
+      if (await freezeSignedPdf(c.id)) { out.frozen++; continue; }
+      out.freezeFailed++; out.freezeFailedIds.push(c.id);
+    } catch (e) {
+      out.freezeFailed++; out.freezeFailedIds.push(c.id);
+      await recordSignedDocFailure(c.id, new Error(`완료본 고정 실패 — ${e instanceof Error ? e.message : String(e)}`));
+    }
+  }
+  out.freezeBacklog = await prisma.contract.count({ where: freezeWhere });
   return out;
 }
