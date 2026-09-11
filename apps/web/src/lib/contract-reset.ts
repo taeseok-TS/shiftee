@@ -31,7 +31,9 @@ async function decidedSnapshot(tx: Tx, contractId: string) {
   });
   const steps = line?.steps ?? [];
   const signers: ResetSigner[] = steps
-    .filter((s) => !!s.signatureUrl || s.status === "APPROVED" || s.status === "REJECTED")
+    // 반려는 **반려한 사람만**(사유가 남은 단계). 반려 라우트가 뒤 단계를 사유 없이 함께 닫는데, 그들까지 "반려"로
+    // 적으면 이력에 반려하지 않은 사람이 반려자로 남고 "다시 서명해 달라" 알림까지 받는다(#206 검증 F1).
+    .filter((s) => !!s.signatureUrl || s.status === "APPROVED" || (s.status === "REJECTED" && !!s.comment))
     .map((s) => ({
       order: s.order,
       approverId: s.approverId,
@@ -54,6 +56,12 @@ async function appendLog(tx: Tx, contractId: string, entry: Record<string, unkno
   });
 }
 
+/** 이 계약의 결재 단계 행을 트랜잭션 끝까지 잠근다(SELECT … FOR UPDATE) — 초기화·수정 판정이 서명과 겹치지 않게(#206 검증 F2). */
+export async function lockSteps(tx: Tx, contractId: string): Promise<void> {
+  const line = await tx.contractApprovalLine.findUnique({ where: { contractId }, select: { id: true } });
+  if (line) await tx.$queryRaw`SELECT id FROM "ContractApprovalStep" WHERE "approvalLineId" = ${line.id} FOR UPDATE`;
+}
+
 /**
  * 결재선을 **지우기 직전** 결정된 단계(서명·승인·반려)를 이력에 남긴다 — 재발송(단건 PATCH·패키지 발송)용.
  * 결정된 단계가 없으면 아무것도 남기지 않는다. 남긴 단계 수를 돌려준다.
@@ -74,6 +82,9 @@ export async function preserveDecidedSteps(
  * 서명·결정했던 사람들을 돌려준다(알림용).
  */
 export async function resetApprovalInPlace(tx: Tx, contractId: string, by: string, reason: string): Promise<{ signers: ResetSigner[] }> {
+  // 단계 행을 **먼저 잠근다** — 스냅숏과 일괄 초기화 사이에 들어온 서명이 이력 없이 지워지지 않게(#206 검증 F2).
+  // 서명 라우트는 상태 조건부 갱신(PENDING 일 때만)이라, 잠금이 풀린 뒤 늦은 서명은 바뀐 상태를 보고 실패한다.
+  await lockSteps(tx, contractId);
   const { line, signers } = await decidedSnapshot(tx, contractId);
   if (!line || line.steps.length === 0) return { signers: [] };
   if (signers.length > 0) {

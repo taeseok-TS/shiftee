@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
+import { lockSteps } from "@/lib/contract-reset";
 import type { Contract } from "@shiftee/api";
 import fs from "fs/promises";
 import path from "path";
@@ -171,6 +172,10 @@ export async function PATCH(
   //   관리자가 고쳐서(수정) 또는 그대로(재발송) 다시 보내면 결재는 1단계부터 다시 받고, 반려 기록은 이력에 남는다.
   if (status && !["DRAFT", "SENT", "APPROVED", "SIGNED", "EXPIRED"].includes(status))
     return NextResponse.json({ error: "알 수 없는 계약 상태입니다." }, { status: 400 });
+  // 반려 해제는 [재발송](결재선 지정) 또는 내용 [수정](결재 처음부터)으로만 — 상태만 바꾸는 요청으로 풀면 반려 단계가
+  // 남은 채 "완료"가 되거나 결재 대기 없는 SENT 로 멈춘다(#206 검증 F3 — 9/4 검증 F3 가 막던 경로).
+  if (contract.status === "REJECTED" && status && !(status === "SENT" && Array.isArray(approverIds) && approverIds.length > 0))
+    return NextResponse.json({ error: "반려된 계약은 [수정] 또는 [재발송]으로만 다시 진행할 수 있습니다." }, { status: 400 });
 
   // 연봉·템플릿 동적 필드 수정: 요약 갱신 + (템플릿 기반 계약이면) 문서를 새 값으로 재생성
   let parsedExtra: Record<string, string> | null = null;
@@ -352,7 +357,21 @@ export async function PATCH(
   // 결재선 초기화와 계약 갱신을 **한 트랜잭션**으로 — 한쪽만 되면 "서명은 지워졌는데 내용은 옛것"이 된다.
   let resetSigners: ResetSigner[] = [];
   const sentNow = status === "SENT" || needsReset;
+  let conflict = null as "DONE" | "SIGNED" | null;
   const updated = await prisma.$transaction(async (tx) => {
+    // 판정(초기화 필요 여부·완료 여부)은 트랜잭션 밖에서 했다 — 그 사이(워드 재생성 등) 첫 서명이 들어오거나 계약이
+    // 완료됐으면 되돌린다. 단계 행을 잠그고 다시 본다(#206 검증 F2: 새 서명 위에 수정이 덮이는 #206-1 재발 방지).
+    if (contentChanged && !isResend && contract.status !== "DRAFT") {
+      await lockSteps(tx, id);
+      const cur = await tx.contract.findUnique({ where: { id }, select: { status: true, employeeSignedAt: true } });
+      if (cur?.status === "SIGNED") { conflict = "DONE"; throw new Error("CONTRACT_CHANGED"); }
+      if (!needsReset) {
+        const n = await tx.contractApprovalStep.count({
+          where: { approvalLine: { contractId: id }, OR: [{ signatureUrl: { not: null } }, { status: { in: ["APPROVED", "REJECTED"] } }] },
+        });
+        if (n > 0 || cur?.employeeSignedAt) { conflict = "SIGNED"; throw new Error("CONTRACT_CHANGED"); }
+      }
+    }
     if (needsReset) {
       resetSigners = (await resetApprovalInPlace(tx, id, session.userId,
         contract.status === "REJECTED" ? "반려된 계약을 수정해 다시 발송" : "서명 후 내용 수정")).signers;
@@ -382,7 +401,15 @@ export async function PATCH(
       },
     },
   });
-  });
+  }).catch((e) => { if (conflict) return null; throw e; });
+  if (!updated) {
+    return conflict === "DONE"
+      ? NextResponse.json({ error: "방금 계약이 완료됐습니다. 완료된 계약은 수정할 수 없습니다(결재 회수 후 수정)." }, { status: 409 })
+      : NextResponse.json({
+          code: "RESET_CONFIRM",
+          error: "방금 서명이 들어왔습니다. 저장하면 서명이 초기화되고 1단계부터 다시 받습니다(옛 서명 기록은 이력에 남습니다). 저장할까요?",
+        }, { status: 409 });
+  }
 
   // 외부 계약 발송 → 결재선의 내부 결재자들에게 큐브티워크 봇 DM 으로 서명 링크 전달.
   // 발송자는 PC 앞이어도, 문자를 실제로 보낼 현장 관리자는 폰을 들고 있다 —

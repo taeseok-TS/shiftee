@@ -14,7 +14,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -84,6 +84,8 @@ export async function GET(
   const { issueUploadTicket } = await import("@/lib/upload-ticket");
 
   return NextResponse.json({
+    // 문서 버전 — 서명 제출 때 x-doc-version 으로 되돌려 보낸다(연 뒤 내용이 바뀌었으면 거절, #206 검증 F2)
+    version: contract.version,
     title: contract.title,
     externalName: step.externalName,
     fileUrl: ready ? firstFileUrl(contract.fileUrl) : null,
@@ -134,10 +136,16 @@ export async function POST(
   const steps = step.approvalLine.steps;
 
   // 단계 승인 처리 + 다음 단계 진행 (기존 사내 결재와 동일한 흐름)
-  await prisma.contractApprovalStep.update({
-    where: { id: step.id },
+  // 문서 버전 묶기 + 조건부 찜(#206 검증 F2) — 서명 페이지를 연 뒤 내용이 바뀌었거나 결재가 다시 시작됐으면 받지 않는다
+  const seenRaw = request.headers.get("x-doc-version");
+  if (seenRaw && Number(seenRaw) !== step.approvalLine.contract.version)
+    return NextResponse.json({ code: "DOC_CHANGED", error: "서명 페이지를 연 뒤 문서가 수정됐습니다. 페이지를 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
+  const claimed = await prisma.contractApprovalStep.updateMany({
+    where: { id: step.id, status: "PENDING", approverId: null },
     data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
   });
+  if (claimed.count === 0)
+    return NextResponse.json({ code: "STEP_CHANGED", error: "이미 서명됐거나 결재가 다시 시작된 문서입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 409 });
   const nextStep = steps.find((s) => s.order === step.order + 1);
   // 발송 작성자(createdBy, 없으면 외부 계약 소유자=작성 관리자)에게 서명 진행 알림
   // (개선 제안 2026-08-25, 이예지대리). 마지막 단계면 아래 완료 알림이 대신한다 (#136)

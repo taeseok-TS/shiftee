@@ -13,6 +13,7 @@ type Info = {
   documents: Doc[];
   consentDoc: boolean;
   state: "ready" | "waiting" | "done" | "expired" | "rejected";
+  version?: number; // 문서 버전 — 제출 때 x-doc-version 으로 되돌려 보낸다(#206 검증 F2)
   fileTicket?: string | null; // 게스트 파일 접근 티켓 — 뷰어 URL 에 ?t= 로 부착
 };
 
@@ -57,7 +58,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
       }
       const res = await fetch(`/api/contracts/external-sign/${token}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(typeof info?.version === "number" ? { "x-doc-version": String(info.version) } : {}) },
         body: JSON.stringify(body),
       });
       const d = await res.json();

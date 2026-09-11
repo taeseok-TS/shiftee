@@ -51,6 +51,13 @@ export async function POST(
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
+  // 문서 버전 묶기(#206 검증 F2) — 서명 창을 연 뒤 관리자가 내용을 고쳤으면(버전이 올라감) 옛 화면에서 누른 서명을
+  // 받지 않는다. 화면이 x-doc-version 을 보낼 때만 본다(구버전 앱은 안 보낸다 — 그때는 종전 동작).
+  const seenVersionRaw = request.headers.get("x-doc-version");
+  const seenVersion = seenVersionRaw ? Number(seenVersionRaw) : NaN;
+  if (Number.isFinite(seenVersion) && seenVersion !== contract.version)
+    return NextResponse.json({ code: "DOC_CHANGED", error: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
+
   // 서명 시 직원이 입력한 프로필(주소/생년월일)을 저장 → 이후 계약서에 자동 적용, 다시 안 물어봄
   // 외부 계약은 소유자=작성 관리자 — 관리자 결재를 당사자 서명으로 오인해 프로필·문서를 건드리면 안 됨
   if (profile && typeof profile === "object" && contract.userId === session.userId && !contract.externalName) {
@@ -145,10 +152,19 @@ export async function POST(
     }
 
     // 현재 단계(직원 서명)를 APPROVED로 변경
-    await prisma.contractApprovalStep.update({
-      where: { id: myStep.id },
+    // 조건부로 찜한다(#206 검증 F2) — 결재가 초기화·반려·재발송된 뒤 늦게 도착한 서명이 조용히 성공하지 않게.
+    // 버전도 한 번 더 본다 — 위 확인과 여기 사이에 수정이 끼었을 수 있다(서명 시 문서 재생성은 1초 가까이 걸린다).
+    if (Number.isFinite(seenVersion)) {
+      const fresh = await prisma.contract.findUnique({ where: { id }, select: { version: true } });
+      if (fresh && fresh.version !== seenVersion)
+        return NextResponse.json({ code: "DOC_CHANGED", error: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
+    }
+    const claimed = await prisma.contractApprovalStep.updateMany({
+      where: { id: myStep.id, status: "PENDING" },
       data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
     });
+    if (claimed.count === 0)
+      return NextResponse.json({ code: "STEP_CHANGED", error: "이미 처리됐거나 결재가 다시 시작된 문서입니다. 화면을 새로 고친 뒤 다시 확인해 주세요." }, { status: 409 });
 
     // 다음 단계가 있으면 PENDING으로 변경
     const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);
@@ -244,10 +260,19 @@ export async function POST(
       return NextResponse.json({ error: "서명을 입력해주세요." }, { status: 400 });
     }
     // 현재 단계 승인으로 변경
-    await prisma.contractApprovalStep.update({
-      where: { id: myStep.id },
+    // 조건부로 찜한다(#206 검증 F2) — 결재가 초기화·반려·재발송된 뒤 늦게 도착한 서명이 조용히 성공하지 않게.
+    // 버전도 한 번 더 본다 — 위 확인과 여기 사이에 수정이 끼었을 수 있다(서명 시 문서 재생성은 1초 가까이 걸린다).
+    if (Number.isFinite(seenVersion)) {
+      const fresh = await prisma.contract.findUnique({ where: { id }, select: { version: true } });
+      if (fresh && fresh.version !== seenVersion)
+        return NextResponse.json({ code: "DOC_CHANGED", error: "서명 창을 연 뒤 문서가 수정됐습니다. 화면을 새로 고쳐 바뀐 내용을 확인한 뒤 다시 서명해 주세요." }, { status: 409 });
+    }
+    const claimed = await prisma.contractApprovalStep.updateMany({
+      where: { id: myStep.id, status: "PENDING" },
       data: { status: "APPROVED", decidedAt: new Date(), signatureUrl },
     });
+    if (claimed.count === 0)
+      return NextResponse.json({ code: "STEP_CHANGED", error: "이미 처리됐거나 결재가 다시 시작된 문서입니다. 화면을 새로 고친 뒤 다시 확인해 주세요." }, { status: 409 });
 
     // 다음 단계가 있으면 PENDING으로, 없으면 계약 완료
     const nextStep = approvalLine.steps.find((step) => step.order === myStep.order + 1);

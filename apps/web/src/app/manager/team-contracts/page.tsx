@@ -158,7 +158,8 @@ export default function ManagerContractsPage() {
     try {
       const res = await fetch(`/api/contracts/${signTarget.id}/sign`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
+        headers: { "Content-Type": "application/json", ...(typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) },
         body: JSON.stringify(body),
       });
       const data = await res.json();
