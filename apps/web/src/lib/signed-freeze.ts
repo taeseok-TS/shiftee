@@ -104,7 +104,9 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   // 이번 회차(마지막 발송·재발송·결재 초기화 이후) 기록만 본다 — 옛 회차의 같은 단계 번호 기록(다른 사람의 동의·IP)이
   // 섞이지 않게(8330d85 검증 5). 사내 단계는 그 단계 결재자 본인 기록만, 외부 단계는 계정이 없어 단계 번호로.
   const roundStart = [...all].reverse().find((e) => e.type === "SENT" || e.type === "RESEND" || e.type === "RESET")?.createdAt;
-  const events = all.filter((e) => !roundStart || e.createdAt >= roundStart);
+  // 1분 여유: 경계 기록(RESEND·SENT)은 새 결재선을 만든 **뒤**에 남아, 그 틈에 들어온 새 회차 서명이 경계보다 앞설 수 있다
+  // (6f53400 재검증 N2). 사내 단계는 결재자 본인 기록만 보고 외부 단계는 제출 시점 확인 기록이 있어 옛 회차가 섞이지 않는다.
+  const events = all.filter((e) => !roundStart || e.createdAt.getTime() >= roundStart.getTime() - 60_000);
   const lastOf = (type: string, st: { order: number; approverId: string | null }) =>
     [...events].reverse().find((e) => e.type === type && e.stepOrder === st.order && (!st.approverId || e.actorId === st.approverId));
 

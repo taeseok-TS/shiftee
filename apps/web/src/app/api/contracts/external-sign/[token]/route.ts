@@ -236,6 +236,9 @@ export async function POST(
     return NextResponse.json({ code: "STEP_CHANGED", error: "이미 서명됐거나 결재가 다시 시작된 문서입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 409 });
   // 알림은 저장이 끝난 뒤에만
   // 감사 기록(#205-4) — 동의·서명·완료
+  // 본인 확인: 이 제출은 확인 증표를 통과해야만 여기까지 온다 — 서명 시점에 한 번 더 남긴다. 확인 직후 재발송·초기화되면
+  // 10분 중복 억제로 새 회차 확인 기록이 빠져 증명 쪽에 "서명 링크"로만 적히던 것을 막는다(6f53400 재검증 N1)
+  if (phoneLast4(extPhone)) await recordContractEvent({ ...evBase, type: "VERIFY_OK", meta: { via: "서명 제출 시 확인 증표" } });
   await recordContractEvent({ ...evBase, type: "CONSENT", meta: { text: SIGN_CONSENT_TEXT, readToEnd: null } });
   await recordContractEvent({ ...evBase, type: "SIGNED", meta: { role: "외부 계약자", docVersion: step.approvalLine.contract.version } });
   if (!nextStep) await recordContractEvent({ ...evBase, type: "COMPLETED" });
