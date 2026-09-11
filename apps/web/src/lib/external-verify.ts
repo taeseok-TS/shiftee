@@ -6,8 +6,10 @@
 //   **다른 서명 도메인(extsign:)** 이라 서로 바꿔 쓸 수 없다 — 섞이면 업로드 경로의 우회로가 된다.
 // - 4자리는 1만 가지뿐이라 **틀린 시도를 막는다**: 한 링크당 5번 틀리면 잠그고, 잠금이 거듭될수록 길게
 //   (30분 → 1시간 → 2시간 … 최대 24시간, #205 검증 A5 — 고정 30분이면 링크 유효 14일 동안 약 34% 확률로 맞혔다).
-//   프로세스 메모리라 재배포 때 풀린다(서버 1대, 재배포는 드물다).
+//   잠금 상태는 **DB(결재 단계 행)** 에 둔다(디렉터 9/11 "저장하자") — 메모리였을 땐 재배포마다 풀려, 하루 여러 번 배포하면
+//   효과가 크게 약해졌다(검증관 모의: 4시간마다 재배포면 14일에 약 17%).
 import crypto from "crypto";
+import { prisma } from "@/lib/db";
 
 const secret = () => process.env.JWT_SECRET || "";
 const TTL_MS = 2 * 3600 * 1000;
@@ -55,33 +57,41 @@ export function checkExternalVerify(stepId: string, t: string | null | undefined
   try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mac(stepId, exp))); } catch { return false; }
 }
 
-// 링크(단계)별 틀린 횟수 — globalThis 싱글턴(개발 모드 핫리로드에도 한 벌)
-type Fail = { count: number; lockedUntil: number; locks: number };
-const g = globalThis as unknown as { __extVerifyFails?: Map<string, Fail> };
-const fails = (g.__extVerifyFails ??= new Map<string, Fail>());
+export type Last4Result = { result: "ok" } | { result: "wrong" } | { result: "locked"; until: number };
 
-/** 잠겨 있으면 풀리는 시각(ms), 아니면 0 */
-export function lockedUntil(stepId: string): number {
-  const f = fails.get(stepId);
-  return f && f.lockedUntil > Date.now() ? f.lockedUntil : 0;
-}
-
-/** 뒷자리 확인 — 맞으면 기록을 지우고 true, 틀리면 횟수를 올리고 false */
-export function tryLast4(stepId: string, phone: string | null | undefined, input: string): boolean {
+/**
+ * 뒷자리 확인 — 시도를 **비교 전에 한 문장으로** 센다: 잠겨 있지 않을 때만 틀린 횟수 +1(잠겨 있으면 0행).
+ * 확인과 계수 사이에 틈이 없어 동시 요청으로 5회 제한을 넘지 못한다. 맞으면 기록을 지우고, 5번째까지 틀리면 잠근다.
+ */
+export async function tryLast4(stepId: string, phone: string | null | undefined, input: string): Promise<Last4Result> {
+  const now = new Date();
+  const rows = await prisma.$queryRaw<{ verifyFails: number; verifyLocks: number }[]>`
+    UPDATE "ContractApprovalStep" SET "verifyFails" = "verifyFails" + 1
+    WHERE id = ${stepId} AND ("verifyLockedUntil" IS NULL OR "verifyLockedUntil" < ${now})
+    RETURNING "verifyFails", "verifyLocks"`;
+  if (rows.length === 0) {
+    const s = await prisma.contractApprovalStep.findUnique({ where: { id: stepId }, select: { verifyLockedUntil: true } });
+    return { result: "locked", until: s?.verifyLockedUntil?.getTime() ?? Date.now() + LOCK_MS };
+  }
+  const { verifyFails, verifyLocks } = rows[0];
   const want = phoneLast4(phone);
   const got = (input || "").replace(/\D/g, "");
-  const ok = !!want && got.length === 4 &&
+  // 한도를 넘겨 센 요청(동시 요청의 6번째 이후)은 비교하지 않는다
+  const ok = verifyFails <= MAX_FAILS && !!want && got.length === 4 &&
     crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
-  if (ok) { fails.delete(stepId); return true; }
-  const f = fails.get(stepId) ?? { count: 0, lockedUntil: 0, locks: 0 };
-  f.count += 1;
-  if (f.count >= MAX_FAILS) {
-    f.locks += 1;
-    f.lockedUntil = Date.now() + Math.min(LOCK_MS * 2 ** (f.locks - 1), 24 * 3600 * 1000);
-    f.count = 0;
+  if (ok) {
+    await prisma.contractApprovalStep.update({ where: { id: stepId }, data: { verifyFails: 0, verifyLocks: 0, verifyLockedUntil: null } });
+    return { result: "ok" };
   }
-  fails.set(stepId, f);
-  return false;
+  if (verifyFails >= MAX_FAILS) {
+    // 잠금이 거듭될수록 길게(30분 × 2^잠금횟수, 최대 24시간). 한 번만 잠그도록 조건부로 쓴다.
+    const until = new Date(Date.now() + Math.min(LOCK_MS * 2 ** verifyLocks, 24 * 3600 * 1000));
+    await prisma.contractApprovalStep.updateMany({
+      where: { id: stepId, verifyFails: { gte: MAX_FAILS } },
+      data: { verifyFails: 0, verifyLocks: { increment: 1 }, verifyLockedUntil: until },
+    });
+  }
+  return { result: "wrong" };
 }
 
 // ── 문자 중계 링크 표식 (#205 검증 A1) ──

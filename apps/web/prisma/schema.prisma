@@ -293,8 +293,14 @@ model Contract {
   createdBy        String? // 작성자(발송 관리자) userId — 단계·완료 알림 대상 (#136). 기존 계약은 null(작성자 알림 생략)
   employeeSignedAt DateTime?
   signedAt         DateTime?
+  // 완료본 고정(#205-5, 2026-09-11) — 완료 시점에 PDF 를 한 번 만들어 고정하고 SHA-256·문서번호를 남긴다(검증 페이지 대조용)
+  docNo            String?               @unique
+  signedPdfUrl     String?
+  signedSha256     String?
+  signedPdfAt      DateTime?
   approvalLine     ContractApprovalLine?
   versions         ContractVersion[]
+  events           ContractEvent[]
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
@@ -353,6 +359,10 @@ model ContractApprovalStep {
   signatureUrl   String? // 손글씨 서명 이미지 (PNG)
   decidedAt      DateTime?
   remindedAt     DateTime? // 미결재·미서명 리마인더 마지막 발송 시각 — 하루 1회 보장 (#128)
+  // 외부 계약자 본인 확인(뒷자리 4자리) 틀린 횟수·잠금 — 재배포에도 유지(#205 검증 A5, 디렉터 9/11)
+  verifyFails       Int                  @default(0)
+  verifyLocks       Int                  @default(0)
+  verifyLockedUntil DateTime?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -494,11 +504,33 @@ model ContractVersion {
   endDate       DateTime?      @db.Date
   createdBy     String
   createdByUser User           @relation("VersionCreator", fields: [createdBy], references: [id])
+  extraFields   Json? // 이 버전 당시 입력값 요약(#206-6)
+  changes       Json? // 이 버전 뒤에 바뀐 항목 [{field, from, to}] (#206-6)
+  reason        String? // 수정 사유 — 서명 후 수정·반려 후 수정 등 (#206-6)
   createdAt     DateTime       @default(now())
 
   @@unique([contractId, version])
   @@index([contractId, version])
   @@index([fileUrl])
+}
+
+// 계약 이벤트(감사 기록, #205-4, 2026-09-11) — 발송·열람·본인 확인·서명·반려·회수·초기화·수정·동의를
+// 시각·사람·IP·기기와 함께 남긴다. 사내 사용자는 actorId(FK 아님 — 퇴사·삭제로 기록이 막히지 않게), 외부 계약자는 null.
+model ContractEvent {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  type       String // SENT|VIEWED|VERIFY_OK|VERIFY_FAIL|SIGNED|REJECTED|REVOKED|RESET|RESEND|EDITED|CONSENT|COMPLETED
+  actorId    String?
+  actorName  String?
+  stepOrder  Int?
+  ip         String?
+  userAgent  String?
+  deviceId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([contractId, createdAt])
 }
 
 // ─── 지점 ───────────────────────────────────────────────────

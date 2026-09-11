@@ -73,6 +73,8 @@ type ContractVersion = {
   status: string;
   createdAt: string;
   createdByUser: { id: string; name: string };
+  changes?: { field: string; from: string | null; to: string | null }[] | null; // 이 버전 뒤에 바뀐 항목(#206-6)
+  reason?: string | null;
 };
 
 const typeLabel: Record<string, string> = {
@@ -3169,8 +3171,19 @@ ${url}`;
                         <p className="text-sm font-medium">V{v.version}</p>
                         <p className="text-xs text-gray-500">{v.title}</p>
                         <p className="text-xs text-gray-500">
-                          {v.createdByUser.name} · {format(new Date(v.createdAt), "yyyy-MM-dd HH:mm")}
+                          {v.createdByUser.name} · {format(new Date(v.createdAt), "yyyy-MM-dd HH:mm")} 수정
                         </p>
+                        {/* 무엇을 무엇에서 무엇으로(#206-6) — 이 기능 전의 버전에는 기록이 없다 */}
+                        {v.reason && <p className="text-xs text-amber-700 mt-0.5">{v.reason}</p>}
+                        {Array.isArray(v.changes) && v.changes.length > 0 && (
+                          <ul className="mt-1 space-y-0.5">
+                            {v.changes.map((c, i) => (
+                              <li key={i} className="text-xs text-gray-700 break-all">
+                                <span className="text-gray-400">{c.field}</span> {c.from ?? "(없음)"} → <b>{c.to ?? "(없음)"}</b>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                       <Badge variant="outline" className="text-xs">
                         이전 버전

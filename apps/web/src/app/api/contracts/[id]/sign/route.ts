@@ -119,11 +119,11 @@ export async function POST(
     // 안내 문구에 "어디서 서명하면 되는지"를 넣는다 — 원장·관리자 결재 화면은 본인 계약에 비밀번호 칸이 없고(#205 검증 A2),
     // 앱 업데이트 전 옛 앱도 칸이 없다(과도기, A6). 옛 앱은 이 문구를 그대로 띄운다.
     if (useSaved)
-      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. [전자계약]의 내 계약 화면에서 직접 서명해 주세요." }, { status: 400 });
+      return NextResponse.json({ code: "DRAW_REQUIRED", error: "본인 서명은 저장된 서명을 쓸 수 없습니다. 본인 계약 화면에서 직접 서명해 주세요(웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약], 앱: [전자계약])." }, { status: 400 });
     if (typeof password !== "string" || !password)
       return NextResponse.json({
         code: "PASSWORD_REQUIRED",
-        error: "본인 확인을 위해 비밀번호를 입력해 주세요. 비밀번호 칸이 없으면 [전자계약]의 내 계약 화면에서 서명하거나, 앱은 완전히 닫았다가 다시 열어 업데이트해 주세요.",
+        error: "본인 확인을 위해 비밀번호를 입력해 주세요. 비밀번호 칸이 보이지 않으면 — 웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
     const lock = pwTakeAttempt(session.userId);
     if (lock)

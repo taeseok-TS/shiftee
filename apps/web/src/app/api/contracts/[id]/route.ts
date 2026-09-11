@@ -200,6 +200,23 @@ export async function PATCH(
     (!!fieldSummary && sortedJson(fieldSummary) !== sortedJson(contract.extraFields));
   const isResend = (status === "SENT" || approverIds) && approverIds && approverIds.length > 0;
 
+  // 항목 단위 수정 이력(#206-6, 이예지대리) — "누가 어느 항목을 무엇에서 무엇으로". 버전 스냅숏에 함께 남긴다.
+  // 파일은 업로드 교체만 적는다(입력값 변경에 따른 재생성은 입력값 항목으로 드러난다).
+  const versionChanges: { field: string; from: string | null; to: string | null }[] = [];
+  if (newFileUrl) versionChanges.push({ field: "파일", from: "기존 파일", to: "새 파일 업로드" });
+  if (title && title !== contract.title) versionChanges.push({ field: "제목", from: contract.title, to: String(title) });
+  if (type && type !== contract.type) versionChanges.push({ field: "유형", from: String(contract.type), to: String(type) });
+  if (startDate && String(startDate).slice(0, 10) !== ymd(contract.startDate))
+    versionChanges.push({ field: "시작일", from: ymd(contract.startDate) || null, to: String(startDate).slice(0, 10) });
+  if (endDate && String(endDate).slice(0, 10) !== ymd(contract.endDate))
+    versionChanges.push({ field: "종료일", from: ymd(contract.endDate) || null, to: String(endDate).slice(0, 10) });
+  if (fieldSummary) {
+    const before = (contract.extraFields as Record<string, string> | null) || {};
+    for (const k of new Set([...Object.keys(before), ...Object.keys(fieldSummary)])) {
+      if ((before[k] ?? "") !== (fieldSummary[k] ?? "")) versionChanges.push({ field: k, from: before[k] ?? null, to: fieldSummary[k] ?? null });
+    }
+  }
+
   // 완료된 계약의 내용은 바꾸지 않는다 — 화면에도 수정 버튼이 없다. 완료본을 고치려면 결재 회수부터.
   if (contentChanged && contract.status === "SIGNED")
     return NextResponse.json({ error: "완료된 계약은 수정할 수 없습니다. 결재를 회수한 뒤 수정해 주세요." }, { status: 409 });
@@ -264,6 +281,9 @@ export async function PATCH(
         startDate: contract.startDate,
         endDate: contract.endDate,
         createdBy: session.userId,
+        extraFields: (contract.extraFields ?? undefined) as any,
+        changes: versionChanges as any,
+        reason: needsReset ? (contract.status === "REJECTED" ? "반려 후 수정 — 결재 처음부터" : "서명 후 수정 — 서명 초기화") : null,
   } : null;
 
   // 발송(SENT) 상태로 변경 시 또는 승인라인을 추가/업데이트할 때

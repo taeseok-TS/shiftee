@@ -26,7 +26,8 @@ export async function GET(
     const contract = await prisma.contract.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, name: true } },
+        // ⚠ branch 를 빼먹어 원장 권한 판정이 늘 거짓 → 원장은 버전 이력을 항상 403 으로 받았다(#206 조사)
+        user: { select: { id: true, name: true, branch: true } },
       },
     });
 
@@ -43,9 +44,8 @@ export async function GET(
     const isAdmin = session.role === "ADMIN";
     const isManager =
       session.role === "MANAGER" &&
-      contract.user &&
-      !!(contract.user as any).branch &&
-      myBranches.includes((contract.user as any).branch);
+      !!contract.user?.branch &&
+      myBranches.includes(contract.user.branch);
 
     if (!isOwner && !isAdmin && !isManager) {
       return NextResponse.json(
@@ -84,6 +84,8 @@ export async function GET(
           select: { id: true, name: true },
         },
         createdAt: true,
+        changes: true, // 이 버전 뒤에 바뀐 항목(#206-6)
+        reason: true,
       },
       orderBy: { version: "asc" },
     });

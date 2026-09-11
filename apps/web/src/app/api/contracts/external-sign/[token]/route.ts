@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
-import { phoneHint, phoneLast4, issueExternalVerify, checkExternalVerify, lockedUntil, tryLast4 } from "@/lib/external-verify";
+import { phoneHint, phoneLast4, issueExternalVerify, checkExternalVerify, tryLast4 } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
 
 // 외부(미가입) 계약자 게스트 서명 — 로그인 없이 서명 링크 토큰으로 인증
@@ -138,10 +138,11 @@ export async function POST(
   const extPhone = step.approvalLine.contract.externalPhone;
   if (action === "verify") {
     if (!phoneLast4(extPhone)) return NextResponse.json({ verifyToken: issueExternalVerify(step.id) }); // 연락처 없는 옛 계약
-    const lock = lockedUntil(step.id);
-    if (lock)
-      return NextResponse.json({ code: "VERIFY_LOCKED", error: `여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도하거나 담당자에게 문의해 주세요.` }, { status: 429 });
-    if (!tryLast4(step.id, extPhone, String(last4 ?? "")))
+    // 잠금 확인과 계수를 한 문장으로(잠금 상태는 DB — 재배포에도 유지)
+    const r = await tryLast4(step.id, extPhone, String(last4 ?? ""));
+    if (r.result === "locked")
+      return NextResponse.json({ code: "VERIFY_LOCKED", error: `여러 번 틀렸습니다. ${Math.max(1, Math.ceil((r.until - Date.now()) / 60000))}분 뒤에 다시 시도하거나 담당자에게 문의해 주세요.` }, { status: 429 });
+    if (r.result === "wrong")
       return NextResponse.json({ code: "VERIFY_FAILED", error: "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
     return NextResponse.json({ verifyToken: issueExternalVerify(step.id) });
   }

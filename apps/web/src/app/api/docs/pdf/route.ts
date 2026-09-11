@@ -87,11 +87,14 @@ export async function GET(request: NextRequest) {
 
     // 계약서는 파일 접근과 같은 규칙을 적용한다. 세션이 없어도 티켓 주체로 판정한다.
     if (group === "contracts") {
-      const { canAccessContractFile, resolvePrincipal, guestTicketCovers } = await import("@/lib/contract-access");
+      const { canAccessContractFile, resolvePrincipal, judgeGuestFile } = await import("@/lib/contract-access");
       const { who, guestContractId } = await resolvePrincipal(session, tk?.subject ?? null);
       if (guestContractId) {
-        if (!(await guestTicketCovers(guestContractId, filename)))
-          return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+        // 범위("이 계약의 파일인가")와 **정책을 함께** 본다(#206-5) — 종전에는 범위만 봐서, 서명 직후 2시간 안에는
+        // 열람 금지·열람만 문서도 게스트 증표로 download=1 받을 수 있었다. uploads 라우트와 같은 판정 함수.
+        const g = await judgeGuestFile(guestContractId, filename);
+        if (!g.allowed) return NextResponse.json({ error: g.error }, { status: g.status });
+        if (g.viewOnly) viewOnly = true;
       } else {
         const r = await canAccessContractFile({ fileName: filename }, who);
         if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
