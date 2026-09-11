@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { leaveCancelDenial, cancelFlags } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
+import { kstTodayMidnight } from "@/lib/resign";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -54,10 +55,17 @@ export async function GET(request: NextRequest) {
   const branchFilter =
     session.role === "MANAGER" ? { user: { branch: { in: myBranches } } } : {};
 
+  // current=1 — **진행 중·앞으로의** 대기·승인 휴가만(종료일 ≥ KST 오늘). 원장·관리자 "휴가 내역"
+  // 화면의 평상시 보기다(9/11 디렉터). 지난 기록은 지우지 않는다 — 연도 조회로 찾는다.
+  // 화면이 전부 받아서 거르면 1년에 수천 건이 쌓여도 매번 다 내려간다(9/10 검증 지적).
+  const currentFilter = searchParams.get("current") === "1"
+    ? { endDate: { gte: kstTodayMidnight() }, status: { in: ["PENDING", "APPROVED"] as ("PENDING" | "APPROVED")[] } }
+    : {};
+
   const where =
     selfOnly
-      ? { userId: session.userId, ...(status ? { status } : {}), ...dateFilter }
-      : { ...branchFilter, ...(status ? { status } : {}), ...dateFilter };
+      ? { userId: session.userId, ...(status ? { status } : {}), ...dateFilter, ...currentFilter }
+      : { ...branchFilter, ...(status ? { status } : {}), ...dateFilter, ...currentFilter };
 
   const requests = await prisma.leaveRequest.findMany({
     where,

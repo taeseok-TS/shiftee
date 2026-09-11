@@ -91,7 +91,7 @@ export async function GET() {
 type InboxLeave = {
   userId: string;
   status: string;
-  startDate: Date;
+  endDate: Date;
   user: { id: string; name: string; department: string | null; position: string | null; branch: string | null; role: string };
   approvalSteps: { approverRole: string | null; status: string }[];
 };

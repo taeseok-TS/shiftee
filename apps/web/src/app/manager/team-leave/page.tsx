@@ -167,7 +167,7 @@ export default function ManagerApprovalsPage() {
   // 취소 가능 여부(canCancel)는 서버가 취소 라우트와 같은 함수로 판정한다.
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch("/api/leave");
+      const res = await fetch("/api/leave?current=1");   // 진행 중·앞으로만 — 서버가 거른다
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       setHistory(((data.requests || []) as HistoryLeave[])
@@ -176,6 +176,7 @@ export default function ManagerApprovalsPage() {
       // 실패를 빈 목록으로 보이면 "취소할 휴가가 없다"로 오해한다
       console.error("휴가 내역 조회 오류:", error);
       toast.error("휴가 내역을 불러오지 못했습니다");
+      setHistory([]);   // 실패하면 비운다 — 옛 목록이 남아 있으면 지금 상태로 오해한다
     } finally {
       setHistoryLoading(false);
     }
@@ -244,7 +245,14 @@ export default function ManagerApprovalsPage() {
 
   // 휴가 신청 취소 — 근무일정과 **같은 기준**이다(원장은 담당 지점 직원의 건, 서버가 재확인).
   // 근무일정에만 붙이고 휴가를 빠뜨렸던 것을 맞춘다(2026-09-09 검증에서 적발).
-  const handleCancelLeave = async (requestId: string, who: string, approved = false, mine = false) => {
+  const handleCancelLeave = async (requestId: string, who: string, approved = false, ownerId?: string) => {
+    // 본인 건인지는 누르는 순간에 판단한다 — 내 정보가 아직 안 왔으면 그 자리에서 받아 온다
+    // (종전엔 로딩 전에 누르면 본인 건에도 "신청자에게 알림이 갑니다"가 떴다)
+    let me = myId;
+    if (ownerId && !me) {
+      me = (await fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null))?.user?.id || "";
+    }
+    const mine = !!ownerId && ownerId === me;
     const note = approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : "";
     const ask = mine
       ? "내 휴가 신청을 취소할까요?"   // 본인 건은 알림이 가지 않는다
@@ -702,7 +710,7 @@ export default function ManagerApprovalsPage() {
             <Card>
               <CardContent className="pt-6 text-center text-gray-500">
                 <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
-                <p>진행 중이거나 승인된 휴가가 없습니다</p>
+                <p>진행 중이거나 예정된 휴가가 없습니다</p>
               </CardContent>
             </Card>
           ) : (
@@ -767,7 +775,7 @@ export default function ManagerApprovalsPage() {
                                 className="text-gray-500 hover:bg-gray-100"
                                 disabled={processingId === req.id}
                                 title={approved ? "취소하면 차감된 연차가 되돌아갑니다" : "신청 자체를 거둡니다"}
-                                onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id === myId)}
+                                onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id)}
                               >
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
                                 취소

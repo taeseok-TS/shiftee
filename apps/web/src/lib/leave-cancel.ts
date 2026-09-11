@@ -10,14 +10,16 @@
  * 디렉터 확정 (2026-09-10)
  *  - 본인: 대기 중일 때만. 승인된 자기 휴가는 관리자에게 요청한다.
  *  - 반려·취소된 건: 누구도 취소할 수 없다 — 반려 기록을 취소로 덮어쓰지 않는다.
- *  - **지나간 휴가(시작일이 오늘 이전)는 누구도 취소할 수 없다.** 연차는 관리자 "잔여 조정"으로
- *    정정한다. 오늘 시작하는 휴가는 취소할 수 있다(아침에 취소하고 출근하는 경우).
+ *  - **지나간 휴가(종료일이 오늘 이전)는 누구도 취소할 수 없다.** 연차는 관리자 "잔여 조정"으로
+ *    정정한다. 여러 날 휴가는 **종료일 기준**(9/11 디렉터) — 진행 중이면 아직 취소할 수 있다.
+ *    이때 이미 쓴 날까지 전부 복원되므로, 쓴 날은 관리자가 잔여 조정으로 맞춘다.
  *  - 원장: 담당 지점(대표+겸직) 소속 **직원**의 건. 다른 원장의 건은 **그 지점 메인 원장이
  *    일반 원장 건만** — "같은 지점 원장끼리 취소할 수 있는 건 단 하나, 메인 원장이 일반 원장이
  *    올린 것만". 겸직 원장이라도 메인이 아닌 지점의 원장 건은 못 한다. 관리자 건은 불가.
  *    승인된 휴가는 원장 선에서 최종 승인된 것만(직원 1일 휴가) — 관리자가 관여한 건은 관리자만.
  *  - 관리자: 모두(위 공통 제한만).
- *  - 근무일정: 누구든 대기 중만(승인건은 이미 일정으로 반영돼 있어서). 범위 규칙은 휴가와 같다.
+ *  - 근무일정: 누구든 대기 중만(승인건은 이미 일정으로 반영돼 있어서). 범위 규칙은 휴가와 같고,
+ *    **지난 신청(종료일이 오늘 이전)도 취소할 수 없다**(9/11 디렉터 "휴가처럼 지난 건은 막아").
  *
  * 연차는 **최종 승인 순간에만** 깎인다. 원장 승인 후 관리자 대기(PENDING) 건은 아직 깎인 적이
  * 없어 취소해도 그대로이고, 승인된 건은 취소 라우트가 차감된 연도 행으로 되돌린다.
@@ -31,7 +33,7 @@ export type CancelBlock =
   | "DONE"           // 이미 취소됨
   | "REJECTED"       // 반려건 — 덮어쓰기 금지
   | "STATE"          // 그 밖에 처리할 수 없는 상태(근무일정 승인건 등)
-  | "PAST"           // 시작일이 지난 휴가
+  | "PAST"           // 지난 건(종료일이 오늘 이전) — 휴가·근무일정
   | "SELF_APPROVED"  // 승인된 본인 휴가
   | "ADMIN_ONLY";    // 관리자가 승인한 휴가
 
@@ -70,7 +72,7 @@ function scopeDenial(v: CancelViewer, targetUserId: string, u: TargetUser): Canc
 export type LeaveCancelTarget = {
   userId: string;
   status: string;
-  startDate: Date | string;
+  endDate: Date | string;     // 지난 휴가 판정(종료일 기준)
   user: TargetUser;
   approver: { role: string } | null;                          // 최종 승인자(leaveRequest.approverId)
   approvalSteps: { approverRole: string | null; status: string }[];
@@ -88,8 +90,9 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
   }
 
   // 지나간 휴가는 누구도 취소하지 않는다 — 관리자 "잔여 조정"으로 정정한다(디렉터 확정).
-  // startDate 는 @db.Date(UTC 자정)라 KST 오늘 0시를 같은 형식으로 만든 today 와 비교한다.
-  if (new Date(t.startDate).getTime() < v.today.getTime()) {
+  // **종료일 기준**(9/11 디렉터): 어제 시작해 내일 끝나는 휴가는 아직 취소할 수 있다.
+  // 날짜는 @db.Date(UTC 자정)라 KST 오늘 0시를 같은 형식으로 만든 today 와 비교한다.
+  if (new Date(t.endDate).getTime() < v.today.getTime()) {
     return {
       status: 409,
       error: "이미 지난 휴가는 취소할 수 없습니다. 연차는 관리자 '잔여 조정'으로 정정해주세요.",
@@ -122,7 +125,7 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
   return null;
 }
 
-export type ScheduleCancelTarget = { userId: string; status: string; user: TargetUser };
+export type ScheduleCancelTarget = { userId: string; status: string; endDate: Date | string; user: TargetUser };
 
 export function scheduleCancelDenial(v: CancelViewer, t: ScheduleCancelTarget): CancelDenial | null {
   const scope = scopeDenial(v, t.userId, t.user);
@@ -137,6 +140,10 @@ export function scheduleCancelDenial(v: CancelViewer, t: ScheduleCancelTarget): 
       error: `이미 ${t.status === "APPROVED" ? "승인" : "처리"}된 신청은 취소할 수 없습니다.`,
       block: t.status === "CANCELLED" ? "DONE" : "STATE",
     };
+  }
+  // 지난 신청은 취소하지 않는다 — 휴가와 같다(9/11 디렉터 "휴가처럼 지난 건은 막아"). 종료일 기준.
+  if (new Date(t.endDate).getTime() < v.today.getTime()) {
+    return { status: 409, error: "이미 지난 근무일정 신청은 취소할 수 없습니다.", block: "PAST" };
   }
   return null;
 }

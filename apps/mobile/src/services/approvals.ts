@@ -86,7 +86,8 @@ export type TeamLeave = {
 };
 
 export async function getTeamLeaves(): Promise<TeamLeave[]> {
-  const res = await axios.get(`${API_URL}/leave`, { headers: await authHeaders() });
+  // current=1 — 진행 중·앞으로의 대기·승인만(서버가 거른다). 지난 기록은 연도 조회로 찾는다.
+  const res = await axios.get(`${API_URL}/leave`, { params: { current: 1 }, headers: await authHeaders() });
   return (res.data?.requests as TeamLeave[]) || [];
 }
 

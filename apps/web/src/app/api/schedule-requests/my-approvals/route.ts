@@ -99,6 +99,7 @@ export async function GET() {
 type InboxSchedule = {
   userId: string;
   status: string;
+  endDate: Date;
   user: { id: string; name: string; department: string | null; position: string | null; branch: string | null; role: string };
 };
 

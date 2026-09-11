@@ -95,7 +95,8 @@ export default function ApprovalsScreen() {
       setLeave(l);
       setSchedule(s);
       setHistoryFailed(h === null);
-      if (h) setHistory(h.filter((x) => x.status === "PENDING" || x.status === "APPROVED"));
+      // 실패하면 비운다 — 옛 목록이 실패 문구와 함께 남으면 지금 상태로 오해한다(9/10 검증 지적)
+      setHistory(h ?? []);
     } catch (error) {
       console.error("❌ Failed to load approvals:", error);
       Alert.alert("오류", "결재 목록을 불러오지 못했습니다.");
@@ -133,15 +134,19 @@ export default function ApprovalsScreen() {
 
   // 취소 — 반려와 다르다. 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다.
   // 잘못 낸 신청을 반려로 처리하면 기록에 "반려당함"으로 남아 나중에 오해를 산다.
-  const cancel = (
+  const cancel = async (
     kind: "leave" | "schedule",
     id: string,
     who: string,
-    opts: { approved?: boolean; mine?: boolean } = {}
+    opts: { approved?: boolean; ownerId?: string } = {}
   ) => {
+    // 본인 건인지는 누르는 순간에 판단한다 — 내 정보가 아직 없으면 그 자리에서 읽는다
+    // (종전엔 로딩 전에 누르면 본인 건에도 "신청자에게 알림이 갑니다"가 떴다)
+    const me = myId || (await storage.getUser().catch(() => null))?.id || "";
+    const mine = !!opts.ownerId && opts.ownerId === me;
     Alert.alert(
       "신청 취소",
-      opts.mine
+      mine
         ? "내 휴가 신청을 취소할까요?"   // 본인 건은 알림이 가지 않는다
         : `${who}님의 신청을 취소할까요?${opts.approved ? "\n승인된 휴가라 차감된 연차가 되돌아갑니다." : ""}\n\n반려와 달리 결재 기록에 남지 않고, 신청자에게 알림이 갑니다.`,
       [
@@ -326,7 +331,7 @@ export default function ApprovalsScreen() {
             {!historyFailed && history.length === 0 && (
               <View style={styles.emptyWrap}>
                 <Ionicons name="calendar-outline" size={48} color="#d1d5db" />
-                <Text style={styles.empty}>진행 중이거나 승인된 휴가가 없습니다.</Text>
+                <Text style={styles.empty}>진행 중이거나 예정된 휴가가 없습니다.</Text>
               </View>
             )}
             {history.map((r) => {
@@ -356,7 +361,7 @@ export default function ApprovalsScreen() {
                     <TouchableOpacity
                       style={[styles.btn, styles.cancelBtn, { marginTop: 14 }]}
                       disabled={processingId === r.id}
-                      onPress={() => cancel("leave", r.id, r.user.name, { approved, mine: r.userId === myId })}
+                      onPress={() => cancel("leave", r.id, r.user.name, { approved, ownerId: r.userId })}
                     >
                       {processingId === r.id ? (
                         <ActivityIndicator size="small" color="#6b7280" />
