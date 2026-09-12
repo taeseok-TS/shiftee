@@ -104,6 +104,26 @@ export async function GET(request: NextRequest) {
       if (u && !namesByTemplate.has(u)) namesByTemplate.set(u, await templateFieldNames(u));
     }
 
+    // 회수·반려 이력의 처리자 이름(9/12) — 이력에는 사람 id 만 남아, 직원 화면(직원 목록이 없다)에서는 늘 "알 수 없는 사용자"로 보였다
+    const actorOf = (l: unknown): string | undefined => {
+      const x = (l ?? {}) as { rejectedBy?: unknown; revokedBy?: unknown };
+      const id = x.rejectedBy ?? x.revokedBy;
+      return typeof id === "string" ? id : undefined;
+    };
+    const actorIds = new Set<string>();
+    for (const c of contracts) {
+      if (!Array.isArray(c.revocationLog)) continue;
+      for (const l of c.revocationLog) {
+        const id = actorOf(l);
+        if (typeof id === "string") actorIds.add(id);
+      }
+    }
+    const actorNames = new Map<string, string>(
+      actorIds.size
+        ? (await prisma.user.findMany({ where: { id: { in: [...actorIds] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name] as [string, string])
+        : [],
+    );
+
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
     const filteredContracts = contracts.map(({ template, ...contract }) => {
       const access = template?.postSignAccess || "full";
@@ -118,6 +138,12 @@ export async function GET(request: NextRequest) {
       return ({
       ...contract,
       tsaToken: undefined, // 시각 도장 원문(약 8KB)은 목록·상세에 싣지 않는다 — 공개 /api/verify/문서번호/tsr 로만
+      revocationLog: Array.isArray(contract.revocationLog)
+        ? contract.revocationLog.map((l) => {
+            const id = actorOf(l);
+            return { ...(l as Record<string, unknown>), actorName: (id && actorNames.get(id)) ?? null };
+          })
+        : contract.revocationLog,
       ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,

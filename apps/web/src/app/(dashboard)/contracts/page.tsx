@@ -1008,8 +1008,8 @@ export default function ContractsPage() {
                           <div className="flex-1">
                             <p className="text-xs font-medium text-red-700">{what}</p>
                             <p className="text-xs text-red-600">
-                              {/* 처리자 이름은 이 화면에 직원 목록이 없어 종전에도 늘 이 문구였다(9/12 죽은 코드 정리 — 표시 그대로) */}
-                              알 수 없는 사용자 · {when}
+                              {/* 처리자 이름은 목록 API 가 actorName 으로 채워 준다(9/12) — 이 화면엔 직원 목록이 없다 */}
+                              {log.actorName || "알 수 없는 사용자"} · {when}
                             </p>
                           </div>
                         </div>
