@@ -5,13 +5,14 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
   { href: "/work/announcements", label: "공지", icon: Megaphone },
   { href: "/work/calendar", label: "캘린더", icon: CalendarDays },
   { href: "/work/meeting", label: "화상회의", icon: Video },
+  { href: "/work/submissions", label: "자료제출", icon: FileUp }, // 2026-09-13 디렉터 승인 기획 1단계
 ];
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
@@ -21,20 +22,26 @@ const NOTICE_SEEN_KEY = "work_notice_seen_at";
 function useWorkBadges(pathname: string) {
   const [chatUnread, setChatUnread] = useState(0);
   const [noticeNew, setNoticeNew] = useState(0);
+  const [submissionPending, setSubmissionPending] = useState(0); // 자료제출 — 내게 걸린 요청 중 아직 안 낸 수
 
   const ivRef = useRef<number>(0);
   useEffect(() => {
     let alive = true;
     async function load() {
       try {
-        const [chRes, anRes] = await Promise.all([
+        const [chRes, anRes, sbRes] = await Promise.all([
           fetch("/api/work/channels"),
           fetch("/api/work/announcements?times=1"),
+          fetch("/api/work/submissions/badge"),
         ]);
         if (!alive) return;
         // 세션이 끊기면 폴링을 멈추고 로그인으로 보낸다 — 종전에는 조용히 삼켜
         // 낡은 화면을 그대로 두고 영원히 찔렀다 (2026-09-04)
         if (isSessionExpired(chRes) || isSessionExpired(anRes)) { window.clearInterval(ivRef.current); return; }
+        if (sbRes.ok) {
+          const d = await sbRes.json();
+          setSubmissionPending(Number(d.pending) || 0);
+        }
         if (chRes.ok) {
           const d = await chRes.json();
           const sum = (d.channels || []).reduce((a: number, c: { unread?: number }) => a + (c.unread || 0), 0);
@@ -66,7 +73,7 @@ function useWorkBadges(pathname: string) {
     }
   }, [pathname]);
 
-  return { "/work/chat": chatUnread, "/work/announcements": noticeNew } as Record<string, number>;
+  return { "/work/chat": chatUnread, "/work/announcements": noticeNew, "/work/submissions": submissionPending } as Record<string, number>;
 }
 
 function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) {

@@ -919,6 +919,81 @@ model WorkAnnouncement {
   @@index([createdAt])
 }
 
+// ─── 큐브티워크: 자료제출 (2026-09-13 디렉터 승인 기획 1단계) ───────────
+// 교육 과제·본부 프로모션/이벤트 기획안을 직원이 내고, 본부가 현황을 보고 공유하는 창구.
+// ⚠ 운영 DB 는 `deploy/ddl_submissions.sql` 을 손으로 먼저 적용한다(prisma db push 금지).
+model SubmissionCategory {
+  id        String   @id @default(cuid())
+  group     String // EDU(교육) | PROMO(본부 프로모션) | EVENT(본부 이벤트)
+  name      String // "HOW교육" 등 — 본부가 화면에서 추가·이름 변경·숨김
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  requests    SubmissionRequest[]
+  submissions Submission[]
+
+  @@unique([group, name])
+}
+
+// 본부가 거는 "제출 요청" — 대상(직군·지점)과 마감이 있고, 현황표·독촉의 단위가 된다
+model SubmissionRequest {
+  id                String    @id @default(cuid())
+  title             String
+  description       String?
+  categoryId        String
+  category          SubmissionCategory @relation(fields: [categoryId], references: [id])
+  targetJobGroups   String[]  @default([]) // 빈 배열 = 전 직군(본부 제외)
+  targetBranches    String[]  @default([]) // 빈 배열 = 전 지점
+  dueDate           DateTime? @db.Date
+  createdBy         String
+  createdByName     String // 작성 시점 스냅샷
+  closedAt          DateTime? // 본부가 닫으면 더 받지 않는다
+  remindedAt        DateTime? // 마감 전날 독촉 발송 시각(멱등)
+  overdueNotifiedAt DateTime? // 마감 다음날 알림 발송 시각(멱등)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  submissions Submission[]
+
+  @@index([dueDate])
+  @@index([createdAt])
+}
+
+model Submission {
+  id           String   @id @default(cuid())
+  requestId    String? // 자유 제출이면 null
+  request      SubmissionRequest? @relation(fields: [requestId], references: [id])
+  categoryId   String
+  category     SubmissionCategory @relation(fields: [categoryId], references: [id])
+  userId       String
+  // 제출 시점 스냅샷 — 나중에 지점을 옮겨도 "그때 대치 CM 이 낸 자료"로 남는다
+  userName     String
+  userBranch   String?
+  userJobGroup String?
+  userPosition String?
+  yearMonth    String // "2026-09" (KST)
+  title        String
+  memo         String?
+  files        Json // [{url,name,size,type}] — url 은 /api/uploads/submissions/… 만
+  status       String   @default("SUBMITTED") // SUBMITTED | CHECKED(본부 확인)
+  checkedBy    String?
+  checkedAt    DateTime?
+  shared       Boolean  @default(false)
+  shareJobGroups String[] @default([]) // 공유 대상 직군. "*" 는 전체
+  sharedBy     String?
+  sharedAt     DateTime?
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([requestId])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([shared])
+}
+
 // ─── 시프티워크: 화상회의 ─────────────────────────────────────
 model WorkMeeting {
   id        String    @id @default(cuid())

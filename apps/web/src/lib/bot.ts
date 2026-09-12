@@ -522,7 +522,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -559,6 +559,20 @@ export function startBotScheduler() {
       try { await runNoticeReminders(); } catch (e) { console.error("[bot] 공지 재알림 오류:", e); }
       // 임시 비번(12345678) 24시간 이상 미변경자에게 변경 요청 (매일 09:00, 바꿀 때까지)
       try { await runPasswordResetReminders(); } catch (e) { console.error("[bot] 비번 변경 요청 오류:", e); }
+      // 자료제출 — 마감 전날 독촉·마감 다음날 알림 (2026-09-13, 멱등은 DB 표시로)
+      try {
+        const { runSubmissionDailyJobs } = await import("@/lib/submission-notify");
+        await runSubmissionDailyJobs();
+      } catch (e) { console.error("[bot] 자료제출 독촉 오류:", e); }
+    }
+
+    // 자료제출 18시 요약 — 오늘 들어온 제출을 본부에 한 통(없으면 안 보냄). 5분 창(틱 드리프트 흡수)
+    if (k.getUTCHours() === 18 && k.getUTCMinutes() < 5 && g.__botSubmissionDigest !== today) {
+      g.__botSubmissionDigest = today;
+      try {
+        const { runSubmissionDigest } = await import("@/lib/submission-notify");
+        await runSubmissionDigest();
+      } catch (e) { console.error("[bot] 자료제출 요약 오류:", e); }
     }
 
     // 전자계약 미결재·미서명 리마인더 — 매일 KST 10:00경 1회 (#128)

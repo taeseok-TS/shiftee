@@ -48,6 +48,20 @@ export async function GET(
       return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
   }
 
+  // 자료제출 첨부(2026-09-13) — **첫날부터 잠근다.** UPLOADS_GATE 목록과 무관하게 코드에서 고정한다
+  // (운영 compose 가 UPLOADS_GATE 를 명시하고 있어 env 목록에 넣어도 안 먹는다). 판정은 lib/submission-access
+  // 한 곳: 본인·본부·담당 원장·공유 대상 직군. 제출되지 않은 파일은 404.
+  if (decoded[0] === "submissions" || pathParts[0] === "submissions") {
+    const { verifyUploadTicket } = await import("@/lib/upload-ticket");
+    const { canAccessSubmissionFile } = await import("@/lib/submission-access");
+    const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
+    const session = await getSession();
+    if (!tk && !session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
+    const r = await canAccessSubmissionFile(fname, session, tk?.subject ?? null);
+    if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+  }
+
   // 접근 게이트 (2026-08-24) — 세션(웹 쿠키/Bearer) 또는 접근 티켓(?t=) 필수.
   // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL 에 부착한다(lib/upload-ticket).
   // 어떤 경로군을 막을지는 lib/upload-gate 한 곳에서 정하고, 앱도 같은 목록을 받아 쓴다.

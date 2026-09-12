@@ -1,0 +1,91 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import Busboy from "busboy";
+import { Readable } from "stream";
+import { createWriteStream } from "fs";
+import fs from "fs/promises";
+import path from "path";
+import { ALLOWED_EXT, MAX_FILE_BYTES, extOf, fileTypeOf, magicMatches } from "@/lib/submissions";
+
+// 자료제출 첨부 업로드 — 채팅 업로드(api/work/upload)와 같은 디스크 스트리밍이지만
+// 저장 구역이 다르고(uploads/submissions — 서빙 라우트가 권한을 본다), 50MB·확장자·매직바이트를 본다.
+// 올린 파일은 아직 어느 제출물에도 속하지 않는다 — 제출(POST /api/work/submissions)이 되기 전엔
+// 서빙 라우트가 404 를 준다(제출물에 없는 파일은 아무도 못 본다).
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.includes("multipart/form-data") || !request.body)
+    return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
+
+  const dir = path.join(process.cwd(), "uploads", "submissions");
+  await fs.mkdir(dir, { recursive: true });
+
+  const result = await new Promise<
+    { fileName: string; safeName: string } | { _error: string; status: number }
+  >((resolve) => {
+    const bb = Busboy({
+      headers: { "content-type": contentType },
+      defParamCharset: "utf8", // 한글 파일명
+      limits: { fileSize: MAX_FILE_BYTES, files: 1 },
+    });
+    let sawFile = false;
+    bb.on("file", (_field, stream, info) => {
+      sawFile = true;
+      const fileName = (info.filename || "file").trim();
+      const ext = extOf(fileName);
+      if (!ALLOWED_EXT.has(ext)) {
+        stream.resume(); // 본문은 버린다
+        resolve({ _error: "워드·엑셀·PPT·PDF·한글·이미지·ZIP 파일만 올릴 수 있습니다.", status: 400 });
+        return;
+      }
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_")}`;
+      const dest = createWriteStream(path.join(dir, safeName));
+      stream.pipe(dest);
+      stream.on("limit", () => {
+        dest.destroy();
+        fs.unlink(path.join(dir, safeName)).catch(() => {});
+        resolve({ _error: "파일당 50MB 이하만 올릴 수 있습니다.", status: 400 });
+      });
+      dest.on("finish", () => resolve({ fileName, safeName }));
+      dest.on("error", () => {
+        fs.unlink(path.join(dir, safeName)).catch(() => {});
+        resolve({ _error: "파일 저장 중 오류가 발생했습니다.", status: 500 });
+      });
+    });
+    bb.on("error", () => resolve({ _error: "업로드 본문을 읽지 못했습니다. 다시 시도해주세요.", status: 400 }));
+    bb.on("finish", () => { if (!sawFile) resolve({ _error: "파일이 없습니다.", status: 400 }); });
+    Readable.fromWeb(request.body as import("stream/web").ReadableStream).pipe(bb);
+  });
+
+  if ("_error" in result) return NextResponse.json({ error: result._error }, { status: result.status });
+
+  const full = path.join(dir, result.safeName);
+  const ext = extOf(result.fileName);
+  // 확장자만 바꾼 실행 파일을 거른다 — 머리 32바이트와 확장자가 맞아야 한다
+  let size = 0;
+  try {
+    const fh = await fs.open(full, "r");
+    try {
+      const head = new Uint8Array(32);
+      const { bytesRead } = await fh.read(head, 0, 32, 0);
+      size = (await fh.stat()).size;
+      if (bytesRead === 0 || !magicMatches(ext, head.subarray(0, bytesRead))) {
+        await fh.close();
+        await fs.unlink(full).catch(() => {});
+        return NextResponse.json({ error: "파일 내용이 확장자와 맞지 않습니다. 원본 파일을 그대로 올려주세요." }, { status: 400 });
+      }
+    } finally { await fh.close().catch(() => {}); }
+  } catch {
+    await fs.unlink(full).catch(() => {});
+    return NextResponse.json({ error: "파일 저장 중 오류가 발생했습니다." }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    url: `/api/uploads/submissions/${result.safeName}`,
+    name: result.fileName,
+    size,
+    type: fileTypeOf(ext),
+  });
+}

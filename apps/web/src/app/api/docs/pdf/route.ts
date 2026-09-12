@@ -101,6 +101,12 @@ export async function GET(request: NextRequest) {
         if (r.viewOnly) viewOnly = true;
       }
     }
+    // 자료제출 첨부는 파일 서빙과 같은 판정(본인·본부·담당 원장·공유 대상) — 2026-09-13
+    if (group === "submissions") {
+      const { canAccessSubmissionFile } = await import("@/lib/submission-access");
+      const r = await canAccessSubmissionFile(filename, session, tk?.subject ?? null);
+      if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
+    }
   }
 
   const filePath = path.join(process.cwd(), "uploads", group, filename);
@@ -127,7 +133,9 @@ export async function GET(request: NextRequest) {
 
   // 이미 PDF 면 그대로
   if (/\.pdf$/i.test(filename)) return new NextResponse(new Uint8Array(buf), { headers: headers("application/pdf", ".pdf") });
-  if (!/\.docx?$/i.test(filename))
+  // 워드 외에 PPT·엑셀도 같은 LibreOffice 변환으로 (자료제출 미리보기, 2026-09-13). 한글(hwp)은 변환기가 없다.
+  const srcExt = (/\.(docx?|pptx?|xlsx?)$/i.exec(filename)?.[0] || "").toLowerCase();
+  if (!srcExt)
     return NextResponse.json({ error: "미리보기를 지원하지 않는 형식입니다." }, { status: 400 });
 
   // 변환 결과 디스크 캐시 (#179, 2026-08-31 이예지대리 — 서명 화면 미리보기가 매번 1.5~1.8초)
@@ -154,7 +162,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const fd = new FormData();
-    fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+    fd.append("files", new Blob([new Uint8Array(buf)]), `document${srcExt}`); // 확장자로 변환 필터를 고른다
     const gres = await fetch(
       `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
       { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 아래 catch(오류 안내)
