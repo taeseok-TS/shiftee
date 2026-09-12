@@ -41,7 +41,7 @@ export async function GET(
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       const gres = await fetch(
         `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
-        { method: "POST", body: fd }
+        { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 catch 로(워드 또는 503)
       );
       if (gres.ok) {
         const pdf = Buffer.from(await gres.arrayBuffer());

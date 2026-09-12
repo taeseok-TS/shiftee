@@ -136,7 +136,8 @@ export async function GET(
       let pdf0: Buffer | null = null;
       let convStatus: number | string = "연결 실패";
       try {
-        const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0 });
+        // 제한 시간 60초 — 변환기가 응답 없이 멈추면 요청도 같이 멈췄다. 넘기면 예외 → 아래에서 변환 실패로 처리
+        const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0, signal: AbortSignal.timeout(60_000) });
         convStatus = g0.status;
         if (g0.ok) pdf0 = Buffer.from(await g0.arrayBuffer());
       } catch (ce) {
@@ -152,7 +153,7 @@ export async function GET(
       }
       // 변환기가 실패해도 **재합성하지 않는다** — 재합성본은 지금의 서명 로직·시각 표기로 새로 만들어져 저장된 완료본과
       // 다른 문서가 된다(59fc92f 검증 R1). 열람만 허용 문서는 워드를 줄 수 없으니 잠시 후 다시, 그 외는 저장된 워드 그대로.
-      console.error("저장된 완료본 PDF 변환 실패(워드 원본 제공):", convStatus);
+      console.error(`저장된 완료본 PDF 변환 실패(${viewOnly ? "열람 전용 — 503" : "워드 원본 제공"}):`, convStatus);
       if (viewOnly)
         return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
       return new NextResponse(asBody(sbuf), {
@@ -176,7 +177,7 @@ export async function GET(
           fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
           const gres = await fetch(
             `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
-            { method: "POST", body: fd }
+            { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 catch 로(워드 또는 503)
           );
           if (gres.ok) {
             const pdf = Buffer.from(await gres.arrayBuffer());

@@ -210,7 +210,8 @@ export async function GET(
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
       fd.append("metadata", JSON.stringify({ Title: (d as { title?: string }).title || contract.title }));
-      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd }).catch(() => null);
+      // 제한 시간 60초 — 넘기면 null 로 떨어져 이 문서만 안내 쪽으로 대신한다
+      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
       if (!gres || !gres.ok) {
         // 변환기 장애도 묶음 전체를 막지 않는다(F2). 대신 기록은 남긴다 — 조용히 넘어가면
         // "원래 안 보이는 문서"로 학습된다.
@@ -232,8 +233,8 @@ export async function GET(
       const fd = new FormData();
       pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
       fd.append("metadata", JSON.stringify({ Title: contract.title + `_외${docs.length - 1}건` })); // 탭 제목 (#147)
-      const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd });
-      if (!mres.ok) return NextResponse.json({ error: "PDF 병합에 실패했습니다." }, { status: 502 });
+      const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
+      if (!mres || !mres.ok) return NextResponse.json({ error: "PDF 병합에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
       out = Buffer.from(await mres.arrayBuffer());
     }
     return new NextResponse(asBody(out), {

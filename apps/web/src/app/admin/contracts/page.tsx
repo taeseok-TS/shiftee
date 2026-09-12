@@ -2872,7 +2872,8 @@ ${url}`;
                                 // 작성 시 입력한 템플릿 동적 필드 복원 (날짜는 date input 형식으로)
                                 const extras: Record<string, string> = {};
                                 Object.entries(c.extraFields || {}).forEach(([k, v]) => {
-                                  if (k !== "연봉") extras[k] = koreanToIso(String(v));
+                                  // 값이 비어 있는(null) 옛 데이터는 빈칸으로 — 글자 "null" 이 칸에 보이지 않게(칸 종류 판정과도 맞춤)
+                                  if (k !== "연봉") extras[k] = koreanToIso(v == null ? "" : String(v));
                                 });
                                 setEditExtraFields(extras);
                                 setEditOpen(true);

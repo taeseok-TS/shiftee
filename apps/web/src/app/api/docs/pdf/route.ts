@@ -157,7 +157,7 @@ export async function GET(request: NextRequest) {
     fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
     const gres = await fetch(
       `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
-      { method: "POST", body: fd }
+      { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 아래 catch(오류 안내)
     );
     if (!gres.ok) {
       console.error("문서 PDF 변환 실패(gotenberg):", gres.status);

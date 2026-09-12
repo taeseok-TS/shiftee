@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
       fd.append("metadata", JSON.stringify({ Title: title || tmpl.name }));
-      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd });
+      // 제한 시간 60초 — 변환기가 응답 없이 멈추면 요청도 같이 멈췄다. 넘기면 아래 catch(오류 안내)
+      const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) });
       if (!gres.ok) {
         console.error("미리보기 변환 실패(gotenberg):", gres.status);
         return NextResponse.json({ error: "PDF 변환기가 응답하지 않습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
       const fd = new FormData();
       pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
       fd.append("metadata", JSON.stringify({ Title: title || firstName })); // 탭 제목 (#147)
-      const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd });
+      const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) });
       if (!mres.ok) {
         console.error("미리보기 병합 실패(gotenberg):", mres.status);
         return NextResponse.json({ error: "PDF 병합에 실패했습니다." }, { status: 502 });
