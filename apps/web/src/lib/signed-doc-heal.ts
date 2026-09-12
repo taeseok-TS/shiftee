@@ -32,6 +32,8 @@ export type HealResult = {
   backlog: number;
   /** 완료본 고정(#205-5) — 이번에 고정한 수·실패·밀린 총량 */
   frozen: number; freezeFailed: number; freezeFailedIds: string[]; freezeBacklog: number;
+  /** 제3자 시각 도장(TSA) — 이번에 받은 수·실패·밀린 총량 */
+  stamped: number; stampFailed: number; stampBacklog: number;
 };
 
 /**
@@ -53,7 +55,7 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   // ⚠ 알림에 실을 숫자는 이번에 손댄 5건이 아니라 **밀린 총량**이어야 한다.
   //   50건이 깨졌는데 "5건"으로 읽히면 규모를 오판한다(검증관 A S-2).
   const backlog = await prisma.contract.count({ where });
-  const out: HealResult = { checked: targets.length, healed: 0, failed: 0, failedIds: [], backlog, frozen: 0, freezeFailed: 0, freezeFailedIds: [], freezeBacklog: 0 };
+  const out: HealResult = { checked: targets.length, healed: 0, failed: 0, failedIds: [], backlog, frozen: 0, freezeFailed: 0, freezeFailedIds: [], freezeBacklog: 0, stamped: 0, stampFailed: 0, stampBacklog: 0 };
 
   const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
   for (const c of targets) {
@@ -97,5 +99,16 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
     }
   }
   out.freezeBacklog = await prisma.contract.count({ where: freezeWhere });
+
+  // 제3자 시각 도장(TSA) — 고정됐는데 도장이 없는 완료본(실패분 + 9/12 이전 고정분). 오래된 것부터 5건씩. 실패는 다음 시간에 다시.
+  const stampWhere = { status: "SIGNED" as const, signedSha256: { not: null }, tsaToken: null, signedPdfAt: { lt: cutoff } };
+  const toStamp = await prisma.contract.findMany({ where: stampWhere, select: { id: true, signedSha256: true }, orderBy: { signedPdfAt: "asc" }, take: 5 });
+  if (toStamp.length) {
+    const { stampFrozen } = await import("@/lib/tsa");
+    for (const c of toStamp) {
+      if (await stampFrozen(c.id, c.signedSha256!)) out.stamped++; else out.stampFailed++;
+    }
+  }
+  out.stampBacklog = await prisma.contract.count({ where: stampWhere });
   return out;
 }

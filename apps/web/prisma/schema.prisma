@@ -298,6 +298,10 @@ model Contract {
   signedPdfUrl     String?
   signedSha256     String?
   signedPdfAt      DateTime?
+  // 제3자 시각 인증(TSA, RFC 3161) — 고정본 SHA-256 에 받은 시각 도장 응답(DER, base64)·시각·발급처. 9/12 디렉터 "해외 무료 먼저"
+  tsaToken         String?
+  tsaAt            DateTime?
+  tsaUrl           String?
   approvalLine     ContractApprovalLine?
   versions         ContractVersion[]
   events           ContractEvent[]

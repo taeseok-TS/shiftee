@@ -281,6 +281,10 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<{ issue
         keys: ["signedFreezeFail"],
       });
     if (r.frozen > 0) console.log(`[monitor] 완료본 고정 ${r.frozen}건(남은 ${r.freezeBacklog}건)`);
+    // 제3자 시각 도장(TSA) — 무료 공개 서비스라 가끔 실패한다. 실패가 있으면 알린다(유형별 하루 1회)
+    if (r.stampFailed > 0)
+      issues.push({ text: `🟡 제3자 시각 인증(TSA) 실패 ${r.stampFailed}건 — 도장 없는 완료본 ${r.stampBacklog}건(다음 시간에 다시 시도).`, keys: ["tsaFail"] });
+    if (r.stamped > 0) console.log(`[monitor] 시각 도장 ${r.stamped}건(남은 ${r.stampBacklog}건)`);
   } catch (e) {
     issues.push({ text: `⚠️ 계약 서명본 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["signedDocUnknown"] });
   }

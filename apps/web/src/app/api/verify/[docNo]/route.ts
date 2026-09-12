@@ -10,7 +10,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   if (!DOC_NO_RE.test(docNo)) return NextResponse.json({ found: false }, { status: 404 });
   const c = await prisma.contract.findUnique({
     where: { docNo },
-    select: { status: true, signedSha256: true, signedAt: true, signedPdfAt: true, approvalLine: { select: { steps: { select: { signatureUrl: true } } } } },
+    select: { status: true, signedSha256: true, signedAt: true, signedPdfAt: true, tsaAt: true, tsaUrl: true, approvalLine: { select: { steps: { select: { signatureUrl: true } } } } },
   });
   if (!c || c.status !== "SIGNED" || !c.signedSha256) return NextResponse.json({ found: false }, { status: 404 });
   return NextResponse.json({
@@ -20,5 +20,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     completedAt: c.signedAt,
     frozenAt: c.signedPdfAt,
     signerCount: (c.approvalLine?.steps || []).filter((s) => !!s.signatureUrl).length,
+    // 제3자 시각 인증(TSA) — 발급처·시각. 도장 파일은 /api/verify/문서번호/tsr
+    tsa: c.tsaAt ? { at: c.tsaAt, url: c.tsaUrl } : null,
   });
 }

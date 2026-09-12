@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   });
   events.reverse();
   // 완료본 고정(#205-5) — 문서번호·해시
-  const frozen = await prisma.contract.findUnique({ where: { id }, select: { docNo: true, signedSha256: true, signedPdfAt: true } });
+  const frozen = await prisma.contract.findUnique({ where: { id }, select: { docNo: true, signedSha256: true, signedPdfAt: true, tsaAt: true, tsaUrl: true } });
   return NextResponse.json({ events, frozen: frozen?.docNo ? frozen : null });
 }
 

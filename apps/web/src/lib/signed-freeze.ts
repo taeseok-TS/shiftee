@@ -209,5 +209,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     return cur?.docNo && cur.signedSha256 ? { docNo: cur.docNo, sha256: cur.signedSha256 } : null;
   }
   await recordContractEvent({ contractId, type: "FROZEN", actorName: "시스템", meta: { docNo, sha256 } });
+  // 제3자 시각 도장(TSA) — 기다리지 않는다(외부 서비스가 느려도 서명 응답이 늦지 않게). 실패·유실분은 매시 점검이 다시 받는다.
+  void import("@/lib/tsa").then(({ stampFrozen }) => stampFrozen(contractId, sha256)).catch(() => {});
   return { docNo, sha256 };
 }

@@ -2,8 +2,10 @@
 
 // 완료본 진위 확인 페이지(#205-5) — 로그인 없이 문서번호로. 파일은 서버로 보내지 않고 이 브라우저 안에서 SHA-256 을 계산해 대조한다.
 import { use, useEffect, useState } from "react";
+import { tsaName } from "@/lib/tsa-label";
 
-type Info = { found: boolean; docNo?: string; sha256?: string; completedAt?: string | null; frozenAt?: string | null; signerCount?: number };
+type Info = { found: boolean; docNo?: string; sha256?: string; completedAt?: string | null; frozenAt?: string | null; signerCount?: number;
+  tsa?: { at: string; url: string | null } | null };
 
 const kst = (s?: string | null) =>
   s ? new Date(new Date(s).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") + " (KST)" : "-";
@@ -56,6 +58,16 @@ export default function VerifyPage({ params }: { params: Promise<{ docNo: string
               <p><span className="text-gray-500">계약 완료</span> {kst(info.completedAt)}</p>
               <p><span className="text-gray-500">완료본 고정</span> {kst(info.frozenAt)}</p>
               <p><span className="text-gray-500">서명</span> {info.signerCount}명</p>
+              {/* 제3자 시각 인증(TSA) — 우리 서버 밖 기관이 이 해시가 그 시각에 있었음을 서명했다 */}
+              <p>
+                <span className="text-gray-500">제3자 시각 인증</span>{" "}
+                {info.tsa ? (
+                  <>
+                    {tsaName(info.tsa.url)} · {kst(info.tsa.at)}{" "}
+                    <a href={`/api/verify/${encodeURIComponent(docNo)}/tsr`} className="text-indigo-600 underline">도장 파일 받기</a>
+                  </>
+                ) : <span className="text-gray-400">받는 중(발급 뒤 1시간 안에 붙습니다)</span>}
+              </p>
               <p className="text-gray-500">SHA-256</p>
               <p className="font-mono text-xs break-all text-gray-800">{info.sha256}</p>
             </div>
