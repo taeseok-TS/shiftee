@@ -1,4 +1,8 @@
 import crypto from "crypto";
+import { execFile } from "child_process";
+import os from "os";
+import path from "path";
+import fs from "fs/promises";
 import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
 
@@ -75,8 +79,52 @@ export function parseTimeStampResp(resp: Buffer, hash: Buffer, nonce: Buffer, no
   throw new Error("TSA 도장에서 시각을 찾지 못함");
 }
 
-/** SHA-256(hex)에 시각 도장을 받는다 — 주소를 차례로 시도. 성공하면 응답(base64)·시각·주소. */
-export async function requestTimestamp(sha256Hex: string): Promise<{ token: string; at: Date; url: string }> {
+// 도장 서명 검증에 쓰는 신뢰 루트 — 컨테이너(Debian)의 시스템 인증서 묶음. 로컬 시험은 TSA_CAFILE 로 바꾼다.
+const CA_FILE = process.env.TSA_CAFILE || "/etc/ssl/certs/ca-certificates.crt";
+
+/**
+ * 도장의 **발급 기관 서명·인증서 사슬**을 openssl 로 확인한다 — 우리 해시에 대해 신뢰 루트까지 이어지는 서명인가.
+ * 종전엔 형식(해시·요청 번호·시각)만 봐서, 전송 구간에서 서명 없는 가짜 도장을 넣으면 그대로 저장됐다(8bedf07 검증 3).
+ * 실패하면 던진다 → 다음 발급처로 넘어가고, 모두 실패하면 저장하지 않는다(다음 점검에 다시).
+ */
+export async function verifyTsaSignature(resp: Buffer, sha256Hex: string): Promise<void> {
+  if (!/^[0-9a-f]{64}$/i.test(sha256Hex)) throw new Error("SHA-256 값이 아님");
+  const f = path.join(os.tmpdir(), `tsa-${crypto.randomBytes(6).toString("hex")}.tsr`);
+  await fs.writeFile(f, resp);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile("openssl", ["ts", "-verify", "-digest", sha256Hex, "-in", f, "-CAfile", CA_FILE], { timeout: 15_000 },
+        (err, stdout, stderr) => {
+          if (!err && /Verification: OK/.test(stdout)) resolve();
+          else reject(new Error(`도장 서명 검증 실패 — ${String(stderr || stdout || err).trim().replace(/\s+/g, " ").slice(0, 200)}`));
+        });
+    });
+  } finally {
+    await fs.unlink(f).catch(() => {});
+  }
+}
+
+// 요청 간격 — Sectigo 공개 TSA 는 요청 사이 15초 이상을 권한다. 매시 점검·패키지 완료(여러 문서 동시 고정)의 요청을
+// 한 줄로 세워 간격을 둔다(8bedf07 검증 권고). 프로세스 전역(개발 핫리로드에도 한 줄).
+const TSA_GAP_MS = 15_000;
+const gq = globalThis as unknown as { __tsaQueue?: Promise<unknown>; __tsaLast?: number };
+function spaced<T>(fn: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    const wait = (gq.__tsaLast ?? 0) + TSA_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try { return await fn(); } finally { gq.__tsaLast = Date.now(); }
+  };
+  const p = (gq.__tsaQueue ?? Promise.resolve()).then(run, run);
+  gq.__tsaQueue = p.catch(() => {});
+  return p;
+}
+
+/** SHA-256(hex)에 시각 도장을 받는다 — 요청 간격을 지키며, 주소를 차례로 시도. 성공하면 응답(base64)·시각·주소. */
+export function requestTimestamp(sha256Hex: string): Promise<{ token: string; at: Date; url: string }> {
+  return spaced(() => requestTimestampOnce(sha256Hex));
+}
+
+async function requestTimestampOnce(sha256Hex: string): Promise<{ token: string; at: Date; url: string }> {
   const hash = Buffer.from(sha256Hex, "hex");
   if (hash.length !== 32) throw new Error("SHA-256 값이 아님");
   const nonce = crypto.randomBytes(8);
@@ -94,6 +142,7 @@ export async function requestTimestamp(sha256Hex: string): Promise<{ token: stri
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const resp = Buffer.from(await r.arrayBuffer());
       const at = parseTimeStampResp(resp, hash, nonce);
+      await verifyTsaSignature(resp, sha256Hex); // 발급 기관 서명까지 확인된 도장만 저장
       return { token: resp.toString("base64"), at, url };
     } catch (e) {
       last = e;

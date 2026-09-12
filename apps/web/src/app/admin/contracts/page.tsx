@@ -548,18 +548,31 @@ export default function ContractsPage() {
   };
 
   // 계약서 수정 (DRAFT 상태)
+  // 발송 두 번 누름 방지 — 요청이 끝날 때까지 잠근다. 두 번 가면 결재선을 두 번 다시 만들고 알림도 두 번 간다(85c58dc 검증 1).
+  // 화면 상태는 다음 그리기 전까지 옛 값이라, 아주 빠른 두 번째 클릭은 즉시 반영되는 ref 로 막는다.
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
+
   // 패키지 직원전용 문서(비밀유지·개인정보동의서) 반려 뒤 [다시 보내기] — 서명자는 직원 본인 한 단계로 고정(#206 검증 F5, 9/12 디렉터).
   // 반려 기록은 서버가 지우기 전에 이력으로 남기고, 직원에게 서명 요청 봇 알림이 간다.
   const resendEmployeeOnly = async (c: Contract) => {
-    const res = await fetch(`/api/contracts/${c.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "SENT", approverIds: [c.userId] }),
-    });
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(d.error || "다시 보내지 못했습니다."); return; }
-    toast.success("직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
-    fetchContracts();
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/contracts/${c.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "SENT", approverIds: [c.userId] }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "다시 보내지 못했습니다."); return; }
+      toast.success("직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
+      fetchContracts();
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+    }
   };
 
   // confirmReset — 서버가 "서명이 초기화됩니다"(409 RESET_CONFIRM)를 돌려주면 확인받고 이 표시를 달아 다시 보낸다(#206-1)
@@ -1354,6 +1367,10 @@ ${url}`;
 
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
+    if (sendingRef.current) return; // 두 번 누름 방지(요청이 끝날 때까지)
+    sendingRef.current = true;
+    setSending(true);
+    try {
 
     // 패키지(묶음)면 3종을 함께 발송 — 근로계약서는 결재라인 전체, 나머지는 직원 서명만
     // 반려된 문서는 **그 문서만** 다시 보낸다(#206-4) — 패키지 발송은 반려 문서를 일부러 건너뛴다
@@ -1411,6 +1428,10 @@ ${url}`;
     setSendOpen(false);
     resetApproverSlots();
     fetchContracts();
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+    }
   }
 
   // ── 승인자 슬롯 조작 (#158·#159) ──────────────────────────────
@@ -2925,7 +2946,7 @@ ${url}`;
                             )}
                             {c.employeeOnly && c.bundleId ? (
                               // 직원전용 문서는 서명자가 직원 본인으로 정해져 있다 — 결재선 고르는 창 없이 한 번에(F5)
-                              <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => resendEmployeeOnly(c)}>
+                              <Button size="sm" variant="outline" className="h-7 gap-1" disabled={sending} onClick={() => resendEmployeeOnly(c)}>
                                 <Send size={12} />다시 보내기
                               </Button>
                             ) : (
@@ -3044,7 +3065,7 @@ ${url}`;
                                     <div className="flex gap-2 justify-end">
                                       <Button variant="outline" onClick={() => setSendOpen(false)}>취소</Button>
                                       {/* 발송 후 수정 불가 — 최종 확인 (#100) */}
-                                      <Button disabled={approverIds.length === 0} onClick={() => {
+                                      <Button disabled={approverIds.length === 0 || sending} onClick={() => {
                                         // 어느 단계에 누가 들어갔는지 그대로 보여준다 (#158)
                                         const names = approverSlots
                                           .map((id, i) => (id ? `${i + 1}단계 ${SLOT_ROLES[i]} ${approverName(id)}` : null))
@@ -3052,7 +3073,7 @@ ${url}`;
                                           .join(" → ");
                                         if (!confirm(`${names}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
                                         handleSend(sendTarget.id);
-                                      }}>발송</Button>
+                                      }}>{sending ? "발송 중…" : "발송"}</Button>
                                     </div>
                                   </div>
                                 )}
