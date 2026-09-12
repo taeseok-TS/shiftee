@@ -176,7 +176,6 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
 
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
-  const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
@@ -336,13 +335,9 @@ export default function ContractsPage() {
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
     setContracts(data.contracts || []);
-
-    if (role !== "EMPLOYEE") {
-      const approvalRes = await fetch("/api/contracts/my-approvals");
-      const approvalData = await approvalRes.json();
-      setMyApprovals(approvalData.contracts || []);
-    }
-  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterSearchText, showHiddenRevoked]);
+    // (9/12) 결재 대기("내 승인 대기") 카드·요청 삭제 — 이 화면은 역할이 늘 EMPLOYEE 라 한 번도 그려지지 않던 죽은 코드.
+    //   결재는 관리자 /admin/contract-approvals · 원장 /manager/team-contracts 에서 한다.
+  }, [filterYear, filterMonth, filterStatus, filterUserId, filterSearchText, showHiddenRevoked]);
 
   const fetchTemplates = useCallback(async () => {
     if (role === "EMPLOYEE") return;
@@ -1405,37 +1400,6 @@ export default function ContractsPage() {
             </form>
           </DialogContent>
         </Dialog>
-      )}
-
-      {/* 내 승인 대기 */}
-      {role !== "EMPLOYEE" && myApprovals.length > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="text-base text-orange-700">내 승인 대기 ({myApprovals.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {myApprovals.map(c => (
-              <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-orange-200">
-                <div>
-                  <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type]}</p>
-                </div>
-                <div className="flex gap-2">
-                  {/* 결재자는 다운로드 대신 브라우저 열람 (파일 보관 방지).
-                      MS 뷰어는 서버가 쿠키 없이 파일을 가져와 게이트에 막힌다 — 인앱 뷰어 라우팅(viewHref) 사용 */}
-                  {getFileUrl(c.fileUrl) && (
-                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
-                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
-                    </a>
-                  )}
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
-                    <PenLine size={14} />승인
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
       )}
 
       {/* 직원 서명 대기 */}
