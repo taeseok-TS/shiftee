@@ -10,12 +10,15 @@ import { recordContractEvent } from "@/lib/contract-events";
  * 제3자 시각 인증(TSA, RFC 3161) — 9/12 디렉터 "해외 무료 먼저". 완료본 고정(#205-5)의 SHA-256 에 시각 도장을 받아
  * "이 문서가 그 시각에 존재했고 이후 바뀌지 않았다"를 우리 서버 밖(발급 기관 서명)으로 증명한다.
  *
- * - 무료 공개 TSA: DigiCert → 실패 시 Sectigo. 법적 인정 지위는 없는 **기술적 증거**. 국내 유료로 바꿀 땐 TSA_URLS 만 바꾼다.
+ * - 무료 공개 TSA: DigiCert → 실패 시 Sectigo. 법적 인정 지위는 없는 **기술적 증거**. 국내 유료로 바꿀 땐
+ *   TSA_URLS **와 TSA_CAFILE(그 발급처 루트 인증서)을 함께** 바꾼다 — 저장 전 서명 검증이 루트까지 이어져야 해서, 주소만 바꾸면
+ *   도장이 매시 전부 실패한다(f4e19a1 검증 1). 도장 안에 중간 인증서를 싣지 않는 발급처도 마찬가지.
  * - 응답(TimeStampResp DER)을 **통째로** 보관한다 — 누구나 `openssl ts -verify -in 응답.tsr -data 받은.pdf -CAfile …` 로 검증.
- * - 외부 라이브러리 없이 요청 DER 을 직접 만들고, 응답은 상태·우리 해시·요청 번호(nonce)·시각만 확인한다(서명 검증은 openssl 로 사후에).
+ * - 외부 라이브러리 없이 요청 DER 을 직접 만들고, 응답은 상태·우리 해시·요청 번호(nonce)·시각을 확인한 뒤
+ *   **발급 기관 서명·인증서 사슬을 openssl 로 검증**하고서야 저장한다(verifyTsaSignature).
  * - 실패해도 고정·서명은 그대로다(도장만 나중에 매시 점검이 다시 받는다). 던지지 않는다.
  */
-// 보안 연결(https) 먼저 — 서명 검증을 하지 않으므로 전송 구간 위조를 https 로 막는다(2cdaf5c 검증 3). http 는 예비.
+// 보안 연결(https) 먼저, http 는 예비 — 저장 전 서명 검증(verifyTsaSignature)과 함께 전송 구간 위조를 이중으로 막는다.
 const TSA_URLS = (process.env.TSA_URLS || "https://timestamp.sectigo.com,http://timestamp.digicert.com")
   .split(",").map((u) => u.trim()).filter(Boolean);
 
