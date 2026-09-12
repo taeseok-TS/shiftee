@@ -79,7 +79,7 @@ export async function POST(
           // 저장된 완료본도 지운다 — 남으면 미리보기 폴백이 회수 전 문서를 되살린다
           signedUrl: null,
           signedAt: null,
-          docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, // 고정 완료본도(#205-5) — 다시 완료되면 새 문서번호로
+          docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, tsaToken: null, tsaAt: null, tsaUrl: null, // 고정 완료본도(#205-5) — 다시 완료되면 새 문서번호로
           revocationLog: updatedLogs,
         },
         include: {

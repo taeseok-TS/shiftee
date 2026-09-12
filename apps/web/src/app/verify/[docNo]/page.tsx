@@ -66,7 +66,7 @@ export default function VerifyPage({ params }: { params: Promise<{ docNo: string
                     {tsaName(info.tsa.url)} · {kst(info.tsa.at)}{" "}
                     <a href={`/api/verify/${encodeURIComponent(docNo)}/tsr`} className="text-indigo-600 underline">도장 파일 받기</a>
                   </>
-                ) : <span className="text-gray-400">받는 중(발급 뒤 1시간 안에 붙습니다)</span>}
+                ) : <span className="text-gray-400">받는 중(잠시 뒤 붙습니다 — 보통 1시간 안)</span>}
               </p>
               <p className="text-gray-500">SHA-256</p>
               <p className="font-mono text-xs break-all text-gray-800">{info.sha256}</p>

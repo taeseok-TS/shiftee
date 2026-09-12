@@ -127,7 +127,7 @@ export async function POST(
           // 남기면 옛 완료본이 되살아나고 직원 화면이 "서명했다"로 오판한다.
           // 단건 재발송(PATCH)에는 넣었는데 패키지만 빠져 있었다 (2026-09-04).
           // ⚠ 종전엔 이 줄이 재생성 삼항 **안**에 있어 템플릿 없는 문서는 비워지지 않았다(8330d85 검증 4) — 밖으로.
-          signedUrl: null, signedAt: null, employeeSignedAt: null, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null,
+          signedUrl: null, signedAt: null, employeeSignedAt: null, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, tsaToken: null, tsaAt: null, tsaUrl: null,
         },
     });
     // 감사 기록(#205-4)

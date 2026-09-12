@@ -71,7 +71,7 @@ export default function ContractEventsList({ contractId }: { contractId: string 
           </div>
           <div className="font-mono text-[10px] text-gray-600 break-all">SHA-256 {frozen.signedSha256}</div>
           <div className="text-[10px] text-gray-600">
-            제3자 시각 인증: {frozen.tsaAt ? `${tsaName(frozen.tsaUrl)} · ${kst(frozen.tsaAt)}` : "받는 중(1시간 안에)"}
+            제3자 시각 인증: {frozen.tsaAt ? `${tsaName(frozen.tsaUrl)} · ${kst(frozen.tsaAt)}` : "받는 중"}
           </div>
         </div>
       )}

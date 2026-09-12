@@ -106,7 +106,9 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   if (toStamp.length) {
     const { stampFrozen } = await import("@/lib/tsa");
     for (const c of toStamp) {
-      if (await stampFrozen(c.id, c.signedSha256!)) out.stamped++; else out.stampFailed++;
+      const r = await stampFrozen(c.id, c.signedSha256!);
+      if (r === true) out.stamped++;
+      else if (r === false) { out.stampFailed++; break; } // TSA 가 멈췄으면 첫 실패에서 그만 — 봇 틱이 밀리지 않게(2cdaf5c 검증 5)
     }
   }
   out.stampBacklog = await prisma.contract.count({ where: stampWhere });

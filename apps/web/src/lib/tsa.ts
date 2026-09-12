@@ -11,7 +11,8 @@ import { recordContractEvent } from "@/lib/contract-events";
  * - 외부 라이브러리 없이 요청 DER 을 직접 만들고, 응답은 상태·우리 해시·요청 번호(nonce)·시각만 확인한다(서명 검증은 openssl 로 사후에).
  * - 실패해도 고정·서명은 그대로다(도장만 나중에 매시 점검이 다시 받는다). 던지지 않는다.
  */
-const TSA_URLS = (process.env.TSA_URLS || "http://timestamp.digicert.com,https://timestamp.sectigo.com")
+// 보안 연결(https) 먼저 — 서명 검증을 하지 않으므로 전송 구간 위조를 https 로 막는다(2cdaf5c 검증 3). http 는 예비.
+const TSA_URLS = (process.env.TSA_URLS || "https://timestamp.sectigo.com,http://timestamp.digicert.com")
   .split(",").map((u) => u.trim()).filter(Boolean);
 
 function derLen(n: number): Buffer {
@@ -53,6 +54,8 @@ export function parseTimeStampResp(resp: Buffer, hash: Buffer, nonce: Buffer, no
   const st = readTlv(resp, top.start);
   const code = readTlv(resp, st.start);
   if (resp[top.start] !== 0x30 || resp[st.start] !== 0x02) throw new Error("TSA 응답 상태 형식 아님");
+  // 하위 요소가 상위 경계를 넘거나, 최상위 뒤에 꼬리 바이트가 붙은 응답은 받지 않는다 — 찾기는 최상위 안에서만(2cdaf5c 검증 3)
+  if (st.end > top.end || code.end > st.end || top.end !== resp.length) throw new Error("TSA 응답 경계 이상");
   const status = resp[code.end - 1];
   if (code.end - code.start !== 1 || (status !== 0 && status !== 1)) throw new Error(`TSA 거절(상태 ${status})`);
   if (st.end >= top.end) throw new Error("TSA 응답에 도장이 없음");
@@ -62,7 +65,7 @@ export function parseTimeStampResp(resp: Buffer, hash: Buffer, nonce: Buffer, no
   for (let i = at + hash.length; i < Math.min(resp.length - 2, at + hash.length + 200); i++) {
     if (resp[i] !== 0x18) continue;
     const L = resp[i + 1];
-    if (L < 15 || L > 24 || i + 2 + L > resp.length) continue;
+    if (L < 15 || L > 30 || i + 2 + L > resp.length) continue; // 소수점 초 자릿수가 긴 표기도(2cdaf5c 검증 5)
     const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\.\d+)?Z$/.exec(resp.subarray(i + 2, i + 2 + L).toString("latin1"));
     if (!m) continue;
     const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
@@ -77,6 +80,9 @@ export async function requestTimestamp(sha256Hex: string): Promise<{ token: stri
   const hash = Buffer.from(sha256Hex, "hex");
   if (hash.length !== 32) throw new Error("SHA-256 값이 아님");
   const nonce = crypto.randomBytes(8);
+  // 첫 바이트를 1~127 로 — 0 으로 시작하면 INTEGER 앞자리 0 이 규격 위반(openssl "illegal padding")이 되고,
+  // 128 이상이면 앞에 0 을 붙여야 해 응답 대조가 어긋날 수 있다(2cdaf5c 검증 2)
+  nonce[0] = (nonce[0] & 0x7f) | 0x01;
   const req = buildTimeStampReq(hash, nonce);
   let last: unknown = null;
   for (const url of TSA_URLS) {
@@ -96,18 +102,24 @@ export async function requestTimestamp(sha256Hex: string): Promise<{ token: stri
   throw new Error(`시각 인증 실패 — ${last instanceof Error ? last.message : String(last)}`);
 }
 
+/** 저장된 도장이 **지금 고정본 해시**에 대한 것인가 — 공개 경로는 이 확인을 거친 도장만 보인다(2cdaf5c 검증 1 방어). */
+export function tsaMatches(tsaToken: string | null | undefined, sha256: string | null | undefined): boolean {
+  if (!tsaToken || !sha256 || !/^[0-9a-f]{64}$/i.test(sha256)) return false;
+  return Buffer.from(tsaToken, "base64").indexOf(Buffer.from(sha256, "hex")) >= 0;
+}
+
 /**
  * 고정본에 도장을 받아 저장 — **그 해시 그대로이고 아직 도장이 없을 때만**(그 사이 회수·재고정되면 쓰지 않는다).
- * 성공하면 true. 던지지 않는다(실패는 로그만 — 매시 점검이 다시 받는다).
+ * true = 받음, null = 건너뜀(그 사이 바뀌었거나 이미 받음 — 실패 아님), false = 실패. 던지지 않는다(실패는 로그만).
  */
-export async function stampFrozen(contractId: string, sha256: string): Promise<boolean> {
+export async function stampFrozen(contractId: string, sha256: string): Promise<boolean | null> {
   try {
     const t = await requestTimestamp(sha256);
     const r = await prisma.contract.updateMany({
       where: { id: contractId, signedSha256: sha256, tsaToken: null },
       data: { tsaToken: t.token, tsaAt: t.at, tsaUrl: t.url },
     });
-    if (r.count === 0) return false;
+    if (r.count === 0) return null;
     await recordContractEvent({ contractId, type: "TSA", actorName: "시스템", meta: { url: t.url, at: t.at.toISOString(), sha256 } });
     return true;
   } catch (e) {

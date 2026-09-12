@@ -585,7 +585,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   await fs.writeFile(path.join(dir, filename), buf);
   const url = `/api/uploads/contracts/${filename}`;
   // 새 완료본이면 옛 고정본은 무효 — 네 칸을 비워 새 문서번호로 다시 고정한다(어느 경로로 완료가 풀렸든, 8330d85 검증 4)
-  await prisma.contract.update({ where: { id: contractId }, data: { signedUrl: url, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null } });
+  await prisma.contract.update({ where: { id: contractId }, data: { signedUrl: url, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, tsaToken: null, tsaAt: null, tsaUrl: null } });
   // 완료본 고정(#205-5) — 문서번호·증명 쪽·SHA-256. 실패해도 완료본은 이미 저장됐다(매시 점검이 다시 고정한다)
   try {
     const { freezeSignedPdf } = await import("@/lib/signed-freeze");

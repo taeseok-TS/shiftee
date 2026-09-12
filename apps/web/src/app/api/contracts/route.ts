@@ -117,6 +117,7 @@ export async function GET(request: NextRequest) {
         !!contract.employeeSignedAt;
       return ({
       ...contract,
+      tsaToken: undefined, // 시각 도장 원문(약 8KB)은 목록·상세에 싣지 않는다 — 공개 /api/verify/문서번호/tsr 로만
       ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,
