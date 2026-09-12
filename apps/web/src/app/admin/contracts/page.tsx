@@ -548,6 +548,20 @@ export default function ContractsPage() {
   };
 
   // 계약서 수정 (DRAFT 상태)
+  // 패키지 직원전용 문서(비밀유지·개인정보동의서) 반려 뒤 [다시 보내기] — 서명자는 직원 본인 한 단계로 고정(#206 검증 F5, 9/12 디렉터).
+  // 반려 기록은 서버가 지우기 전에 이력으로 남기고, 직원에게 서명 요청 봇 알림이 간다.
+  const resendEmployeeOnly = async (c: Contract) => {
+    const res = await fetch(`/api/contracts/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "SENT", approverIds: [c.userId] }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "다시 보내지 못했습니다."); return; }
+    toast.success("직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
+    fetchContracts();
+  };
+
   // confirmReset — 서버가 "서명이 초기화됩니다"(409 RESET_CONFIRM)를 돌려주면 확인받고 이 표시를 달아 다시 보낸다(#206-1)
   const handleEditContract = async (e: React.FormEvent, confirmReset = false) => {
     e.preventDefault();
@@ -2854,7 +2868,9 @@ ${url}`;
                         )}
                         {/* 초안 + 진행 중(회수 후 포함) + 반려(9/11 — 고쳐서 다시 보낼 수 있다, #206-4) 계약: 수정·재발송 가능,
                             삭제는 초안만 (직원전용 패키지 문서 제외) */}
-                        {role !== "EMPLOYEE" && !(c.employeeOnly && c.bundleId) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED") && (
+                        {/* 패키지 직원전용 문서도 **반려**되면 [수정]·[다시 보내기] — 종전엔 버튼이 없어 패키지를 새로 만들어야 했다
+                            (#206 검증 F5, 9/12 디렉터). 외부 계약자는 게스트 화면에 반려가 없어 해당 없음 */}
+                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || (c.status === "REJECTED" && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED") && (
                           <>
                             <Button
                               size="sm"
@@ -2907,9 +2923,16 @@ ${url}`;
                                 <History size={12} />최신 양식
                               </Button>
                             )}
+                            {c.employeeOnly && c.bundleId ? (
+                              // 직원전용 문서는 서명자가 직원 본인으로 정해져 있다 — 결재선 고르는 창 없이 한 번에(F5)
+                              <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => resendEmployeeOnly(c)}>
+                                <Send size={12} />다시 보내기
+                              </Button>
+                            ) : (
                             <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendOpen(true); }}>
                               <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
+                            )}
                             <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
                               {/* 폭 — 안내 문구가 박스 밖으로 삐져나오던 것 (#178, 2026-08-31 이예지대리) */}
                               <DialogContent className="max-w-lg sm:max-w-lg">

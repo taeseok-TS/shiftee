@@ -162,7 +162,7 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -191,7 +191,10 @@ export async function PATCH(
   // 수정 화면은 저장할 때마다 제목·기간·입력값을 **그대로 다시 보낸다.** 보냈다는 것만으로 "바뀜"으로 보면
   // 아무것도 안 고쳐도 서명이 초기화되고 빈 버전이 쌓인다(버전은 실제로 그렇게 쌓이고 있었다 — #206 조사).
   const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
-  const sortedJson = (o: unknown) => JSON.stringify(Object.entries((o as Record<string, string>) || {}).sort());
+  // 요약 함수(buildFieldSummary)와 같은 기준 — 글자이고 비어 있지 않은 값만 비교한다. 저장된 옛 값에 null·빈칸이 있으면
+  // 새 요약에선 빠져서, 아무것도 안 고쳐도 늘 "내용 바뀜"(서명 초기화 경고)이 됐다(2ee8b6a 검증 3)
+  const sortedJson = (o: unknown) => JSON.stringify(
+    Object.entries((o as Record<string, unknown>) || {}).filter(([, v]) => typeof v === "string" && v !== "").sort());
   const contentChanged =
     !!newFileUrl /* 파일 교체(여기까지는 업로드만 채운다) */ ||
     (!!title && title !== contract.title) ||
@@ -303,15 +306,29 @@ export async function PATCH(
     if (approverIds.filter((a: string) => a === "EXTERNAL").length > 1) {
       return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
     }
+    // 직원전용 문서(비밀유지·개인정보동의서)는 서명자가 정해져 있다 — 사내는 직원 본인, 외부는 외부 계약자 한 단계뿐.
+    // 화면의 [다시 보내기](F5)가 이렇게 보내고, API 로 다른 결재자에게 보내는 것은 막는다.
+    if (contract.employeeOnly) {
+      const only = contract.externalName ? "EXTERNAL" : contract.userId;
+      if (approverIds.length !== 1 || approverIds[0] !== only)
+        return NextResponse.json({ error: "직원전용 문서는 서명자 본인 한 단계로만 보낼 수 있습니다." }, { status: 400 });
+    }
 
     // 기존 승인라인 제거 — **지우기 전에** 서명·반려 기록을 이력에 남긴다. 종전에는 재발송하면
     // 누가 언제 서명·반려했는지가 결재선과 함께 사라졌다(#206 조사).
-    await preserveDecidedSteps(prisma, id, "resend", session.userId,
-      contract.status === "REJECTED" ? "반려 후 재발송" : "재발송");
-    await prisma.contractApprovalLine.deleteMany({ where: { contractId: id } });
+    // 기록·삭제·새 결재선을 **결재 단계 잠금 + 한 트랜잭션**으로(D7) — 따로 돌면 ① 기록과 삭제 사이에 들어온 서명이 기록 없이
+    // 지워지고 ② 새 결재선 생성이 실패하면 결재선 없는 계약이 남고 ③ 방금 마지막 서명으로 완료된 계약의 결재선을 다시 만들었다
+    // (위 SIGNED 검사는 옛 값이라 못 막는다). 잠금 순서는 서명·초기화와 같다(단계 → 계약).
+    const resend = await prisma.$transaction(async (tx) => {
+      await lockSteps(tx, id);
+      const cur = await tx.contract.findUnique({ where: { id }, select: { status: true } });
+      if (cur?.status === "SIGNED") return "SIGNED" as const;
+      await preserveDecidedSteps(tx, id, "resend", session.userId,
+        contract.status === "REJECTED" ? "반려 후 재발송" : "재발송");
+      await tx.contractApprovalLine.deleteMany({ where: { contractId: id } });
 
     // 새 승인라인 생성 (SENT 상태일 때는 첫 번째 단계를 PENDING으로 설정)
-    const approvalLine = await prisma.contractApprovalLine.create({
+    await tx.contractApprovalLine.create({
       data: {
         contractId: id,
         steps: {
@@ -340,6 +357,10 @@ export async function PATCH(
         },
       },
     });
+      return "OK" as const;
+    });
+    if (resend === "SIGNED")
+      return NextResponse.json({ error: "방금 계약이 완료됐습니다. 완료된 계약은 다시 보낼 수 없습니다(결재 회수 후 재발송)." }, { status: 409 });
   }
 
   // 발송 시 최신 템플릿으로 문서 재생성 (#163, 2026-08-27 디렉터 확정)

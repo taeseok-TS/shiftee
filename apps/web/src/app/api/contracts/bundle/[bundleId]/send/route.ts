@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
-import { preserveDecidedSteps } from "@/lib/contract-reset";
+import { preserveDecidedSteps, lockSteps } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { recordContractEvent } from "@/lib/contract-events";
 
@@ -75,20 +75,29 @@ export async function POST(
             : { approverId: approverId as string | null, order: idx + 1, status };
         });
 
+    // 지우기 전에 서명 기록을 이력에 남긴다(#206 조사 — 재발송하면 누가 언제 서명했는지가 사라졌다)
+    // 기록·삭제·새 결재선을 결재 단계 잠금 + 한 트랜잭션으로(D7). 위의 완료·반려 건너뛰기는 루프 전에 읽은 값이라,
+    // 그 사이 마지막 서명으로 완료됐거나 반려된 문서는 **잠근 뒤 다시 보고** 건너뛴다(완료 문서를 다시 보내지 않게).
+    const resent = await prisma.$transaction(async (tx) => {
+      await lockSteps(tx, c.id);
+      const cur = await tx.contract.findUnique({ where: { id: c.id }, select: { status: true } });
+      if (cur?.status === "SIGNED" || cur?.status === "REJECTED") return false;
+      await preserveDecidedSteps(tx, c.id, "resend", session.userId, "패키지 재발송");
+      await tx.contractApprovalLine.deleteMany({ where: { contractId: c.id } });
+      await tx.contractApprovalLine.create({
+        data: {
+          contractId: c.id,
+          steps: { createMany: { data: stepsData } },
+        },
+      });
+      return true;
+    });
+    if (!resent) continue;
+    // 외부 서명 링크는 **실제로 다시 보낸** 문서의 것만(건너뛴 문서의 토큰은 DB 에 없다)
     if (c.externalName && !c.employeeOnly) {
       const ext = stepsData.find((st) => st.signToken);
       if (ext?.signToken) externalSignToken = ext.signToken;
     }
-
-    // 지우기 전에 서명 기록을 이력에 남긴다(#206 조사 — 재발송하면 누가 언제 서명했는지가 사라졌다)
-    await preserveDecidedSteps(prisma, c.id, "resend", session.userId, "패키지 재발송");
-    await prisma.contractApprovalLine.deleteMany({ where: { contractId: c.id } });
-    await prisma.contractApprovalLine.create({
-      data: {
-        contractId: c.id,
-        steps: { createMany: { data: stepsData } },
-      },
-    });
     // 발송 시 최신 템플릿으로 문서 재생성 (#163) — 양식 수정이 발송 문서에 반드시 반영되게.
     // 입력값은 그대로 쓰므로 내용은 바뀌지 않는다. 실패해도 발송은 막지 않는다.
     let reRendered: string | null = null;

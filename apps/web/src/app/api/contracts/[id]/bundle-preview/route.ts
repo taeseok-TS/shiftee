@@ -212,7 +212,9 @@ export async function GET(
       fd.append("metadata", JSON.stringify({ Title: (d as { title?: string }).title || contract.title }));
       // 제한 시간 60초 — 넘기면 null 로 떨어져 이 문서만 안내 쪽으로 대신한다
       const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
-      if (!gres || !gres.ok) {
+      // 본문 받기도 제한 시간에 걸린다 — 받다 끊기면 묶음 전체 500 이 아니라 이 문서만 안내 쪽으로(2ee8b6a 검증 1)
+      const gbody = gres && gres.ok ? await gres.arrayBuffer().catch(() => null) : null;
+      if (!gres || !gres.ok || !gbody) {
         // 변환기 장애도 묶음 전체를 막지 않는다(F2). 대신 기록은 남긴다 — 조용히 넘어가면
         // "원래 안 보이는 문서"로 학습된다.
         const { logSystemError } = await import("@/lib/monitor");
@@ -224,7 +226,7 @@ export async function GET(
           (d as { title?: string }).title || contract.title, "PDF 변환기가 응답하지 않습니다."));
         continue;
       }
-      pdfs.push(Buffer.from(await gres.arrayBuffer()));
+      pdfs.push(Buffer.from(gbody));
     }
     if (pdfs.length === 0) return NextResponse.json({ error: "문서 파일이 없습니다." }, { status: 404 });
     let out: Buffer;
@@ -234,8 +236,9 @@ export async function GET(
       pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
       fd.append("metadata", JSON.stringify({ Title: contract.title + `_외${docs.length - 1}건` })); // 탭 제목 (#147)
       const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
-      if (!mres || !mres.ok) return NextResponse.json({ error: "PDF 병합에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
-      out = Buffer.from(await mres.arrayBuffer());
+      const mbody = mres && mres.ok ? await mres.arrayBuffer().catch(() => null) : null;
+      if (!mbody) return NextResponse.json({ error: "PDF 병합에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+      out = Buffer.from(mbody);
     }
     return new NextResponse(asBody(out), {
       headers: {
