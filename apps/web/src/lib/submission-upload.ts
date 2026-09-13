@@ -31,6 +31,7 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
     let pending = 0;
     let finished = false;
     const done = () => { if (finished && pending === 0) resolve(); };
+    const fails = new Set<(msg: string) => void>(); // 전송 중 끊기면 진행 중인 파일을 전부 실패 처리(재검증관 1)
     bb.on("field", (name, val) => { if (typeof val === "string") fields[name] = val.slice(0, 4000); });
     bb.on("file", (_field, stream, info) => {
       const fileName = (info.filename || "").trim();
@@ -44,13 +45,14 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       //   busboy 파일 스트림은 멈춘 채 'end' 를 못 내 finish 가 영영 안 온다(핸들러 무응답). 파일마다 **한 번만** 정산하고,
       //   실패하면 unpipe + resume 으로 busboy 가 나머지를 비우게 한다.
       let settled = false;
-      const settle = (fn: () => void) => { if (settled) return; settled = true; fn(); pending--; done(); };
+      const settle = (fn: () => void) => { if (settled) return; settled = true; fails.delete(fail); fn(); pending--; done(); };
       const fail = (msg: string) => settle(() => {
         stream.unpipe(dest); stream.resume();
         dest.destroy();
         fs.unlink(full).catch(() => {});
         if (!error) error = msg;
       });
+      fails.add(fail);
       stream.pipe(dest);
       stream.on("limit", () => fail(`파일당 50MB 이하만 올릴 수 있습니다: ${fileName}`));
       stream.on("error", () => fail("업로드 본문을 읽지 못했습니다."));
@@ -58,9 +60,14 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다."));
     });
     bb.on("filesLimit", () => { error = `파일은 ${MAX_FILES}개까지입니다.`; });
-    bb.on("error", () => { error = "업로드 본문을 읽지 못했습니다."; finished = true; done(); });
+    const abort = (msg: string) => { for (const f of [...fails]) f(msg); if (!error) error = msg; finished = true; done(); };
+    bb.on("error", () => abort("업로드 본문을 읽지 못했습니다."));
     bb.on("finish", () => { finished = true; done(); });
-    Readable.fromWeb(request.body as import("stream/web").ReadableStream).pipe(bb);
+    // 클라이언트가 중간에 끊으면 요청 본문 스트림이 'error' 를 낸다 — 리스너가 없으면 uncaughtException 이 되고
+    // 진행 중인 파일·핸들러가 영원히 남는다(재검증관 1). 전부 실패 처리하고 정리한다.
+    const src = Readable.fromWeb(request.body as import("stream/web").ReadableStream);
+    src.on("error", () => abort("전송이 끊겼습니다. 다시 시도해주세요."));
+    src.pipe(bb);
   });
 
   // 매직바이트 검사 — 하나라도 틀리면 전부 지운다

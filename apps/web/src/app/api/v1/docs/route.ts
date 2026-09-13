@@ -68,7 +68,7 @@ curl -X POST ${base}/submissions \\
 
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
-- 1시간에 1,500회(받아들인 요청 기준)를 넘으면 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다.
+- 한도(429)에 걸린 요청이 1시간에 600회를 넘으면 — 즉 한도를 넘겨도 계속 두드리면 — 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다. 429 를 받으면 기다렸다가 다시 보내세요.
 `;
   return new NextResponse(md, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "public, max-age=300" } });
 }

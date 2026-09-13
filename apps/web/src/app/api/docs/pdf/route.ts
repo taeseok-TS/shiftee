@@ -86,7 +86,9 @@ export async function GET(request: NextRequest) {
     let keySubject: string | null = null;
     if (!tk && !session && group === "submissions") {
       const { apiKeyFileSubject } = await import("@/lib/api-key");
-      keySubject = await apiKeyFileSubject(request);
+      const k = await apiKeyFileSubject(request);
+      if (k.res) return k.res; // 키는 있는데 거부 — 그 이유 그대로(429·멈춤·범위 없음)
+      keySubject = k.subject;
     }
     if (!tk && !session && !keySubject)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });

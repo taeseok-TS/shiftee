@@ -60,8 +60,10 @@ export async function GET(
     let subject: string | null = tk?.subject ?? null;
     if (!tk && !session) {
       const { apiKeyFileSubject } = await import("@/lib/api-key");
-      subject = await apiKeyFileSubject(_request);
-      if (!subject) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+      const k = await apiKeyFileSubject(_request);
+      if (k.res) return k.res; // 키는 있는데 거부(429·멈춤·범위 없음) — 그 이유 그대로
+      if (!k.subject) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+      subject = k.subject;
     }
     const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
     const r = await canAccessSubmissionFile(fname, session, subject);
