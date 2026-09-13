@@ -21,8 +21,13 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
   const saved: { fileName: string; safeName: string }[] = [];
   let error: string | undefined;
 
+  let bb: ReturnType<typeof Busboy>;
+  try {
+    bb = Busboy({ headers: { "content-type": contentType }, defParamCharset: "utf8", limits: { fileSize: MAX_FILE_BYTES, files: MAX_FILES, fields: 20 } });
+  } catch {
+    return { fields: {}, files: [], error: "multipart 본문이 올바르지 않습니다(boundary 없음)." }; // 검증관 P4 — 500 이 아니라 400
+  }
   await new Promise<void>((resolve) => {
-    const bb = Busboy({ headers: { "content-type": contentType }, defParamCharset: "utf8", limits: { fileSize: MAX_FILE_BYTES, files: MAX_FILES, fields: 20 } });
     let pending = 0;
     let finished = false;
     const done = () => { if (finished && pending === 0) resolve(); };
@@ -33,11 +38,24 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       if (!fileName || !ALLOWED_EXT.has(ext) || error) { stream.resume(); if (!error && fileName) error = `허용하지 않는 파일 형식입니다: ${fileName}`; return; }
       pending++;
       const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${tag}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_").replace(/\.{2,}/g, ".")}`;
-      const dest = createWriteStream(path.join(dir, safeName));
+      const full = path.join(dir, safeName);
+      const dest = createWriteStream(full);
+      // ⚠ 검증관 C1: limit 뒤 dest.destroy() 하면 pipe 가 파괴된 스트림에 쓰다 'error' 를 또 내고(pending 두 번 감소),
+      //   busboy 파일 스트림은 멈춘 채 'end' 를 못 내 finish 가 영영 안 온다(핸들러 무응답). 파일마다 **한 번만** 정산하고,
+      //   실패하면 unpipe + resume 으로 busboy 가 나머지를 비우게 한다.
+      let settled = false;
+      const settle = (fn: () => void) => { if (settled) return; settled = true; fn(); pending--; done(); };
+      const fail = (msg: string) => settle(() => {
+        stream.unpipe(dest); stream.resume();
+        dest.destroy();
+        fs.unlink(full).catch(() => {});
+        if (!error) error = msg;
+      });
       stream.pipe(dest);
-      stream.on("limit", () => { dest.destroy(); fs.unlink(path.join(dir, safeName)).catch(() => {}); error = `파일당 50MB 이하만 올릴 수 있습니다: ${fileName}`; pending--; done(); });
-      dest.on("finish", () => { saved.push({ fileName, safeName }); pending--; done(); });
-      dest.on("error", () => { fs.unlink(path.join(dir, safeName)).catch(() => {}); error = "파일 저장 중 오류가 발생했습니다."; pending--; done(); });
+      stream.on("limit", () => fail(`파일당 50MB 이하만 올릴 수 있습니다: ${fileName}`));
+      stream.on("error", () => fail("업로드 본문을 읽지 못했습니다."));
+      dest.on("finish", () => settle(() => { saved.push({ fileName, safeName }); }));
+      dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다."));
     });
     bb.on("filesLimit", () => { error = `파일은 ${MAX_FILES}개까지입니다.`; });
     bb.on("error", () => { error = "업로드 본문을 읽지 못했습니다."; finished = true; done(); });

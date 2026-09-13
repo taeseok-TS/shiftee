@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { publicKey } from "@/lib/api-key";
+import { publicKey, resetApiKeyBucket } from "@/lib/api-key";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (key.revokedAt) return NextResponse.json({ error: "꺼진 키는 다시 켤 수 없습니다. 새로 만들어주세요." }, { status: 400 });
   if (!key.suspendedAt) return NextResponse.json({ error: "멈춘 키가 아닙니다." }, { status: 400 });
   const row = await prisma.apiKey.update({ where: { id }, data: { suspendedAt: null, suspendReason: null } });
+  resetApiKeyBucket(id); // 집계를 비워야 첫 요청에서 바로 다시 멈추지 않는다
   await logAudit({ actorId: session.userId, actorName: session.name, action: "API_KEY_RESUME", targetType: "API_KEY", targetId: id, targetName: key.name, detail: `멈춤 해제 (${key.suspendReason ?? ""})` });
   return NextResponse.json({ key: publicKey(row) });
 }

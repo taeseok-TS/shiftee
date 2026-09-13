@@ -56,9 +56,15 @@ export async function GET(
     const { canAccessSubmissionFile } = await import("@/lib/submission-access");
     const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
     const session = await getSession();
-    if (!tk && !session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    // 개인 API 키(Bearer cbt_pk_…)도 받는다 — 유효한 submissions:read 키면 그 사람 주체로 같은 판정(2026-09-13 2단계)
+    let subject: string | null = tk?.subject ?? null;
+    if (!tk && !session) {
+      const { apiKeyFileSubject } = await import("@/lib/api-key");
+      subject = await apiKeyFileSubject(_request);
+      if (!subject) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    }
     const fname = decoded[decoded.length - 1] || pathParts[pathParts.length - 1] || "";
-    const r = await canAccessSubmissionFile(fname, session, tk?.subject ?? null);
+    const r = await canAccessSubmissionFile(fname, session, subject);
     if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
   }
 

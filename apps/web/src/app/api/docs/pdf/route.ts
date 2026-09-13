@@ -82,7 +82,13 @@ export async function GET(request: NextRequest) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const tk = verifyUploadTicket(ticket);
     const session = await getSession();
-    if (!tk && !session)
+    // 자료제출 첨부는 개인 API 키(Bearer cbt_pk_…)로도 미리보기를 받는다(2026-09-13 2단계)
+    let keySubject: string | null = null;
+    if (!tk && !session && group === "submissions") {
+      const { apiKeyFileSubject } = await import("@/lib/api-key");
+      keySubject = await apiKeyFileSubject(request);
+    }
+    if (!tk && !session && !keySubject)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
     // 계약서는 파일 접근과 같은 규칙을 적용한다. 세션이 없어도 티켓 주체로 판정한다.
@@ -104,7 +110,7 @@ export async function GET(request: NextRequest) {
     // 자료제출 첨부는 파일 서빙과 같은 판정(본인·본부·담당 원장·공유 대상) — 2026-09-13
     if (group === "submissions") {
       const { canAccessSubmissionFile } = await import("@/lib/submission-access");
-      const r = await canAccessSubmissionFile(filename, session, tk?.subject ?? null);
+      const r = await canAccessSubmissionFile(filename, session, tk?.subject ?? keySubject);
       if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
     }
   }

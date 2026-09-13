@@ -44,21 +44,9 @@ function deviceOf(ua: string | null, deviceId: string | null): string {
 }
 
 // 증명 쪽은 근로자·외부 계약자에게도 간다 — IP 는 앞 두 마디만 적는다(112.170.*.*). 전체 IP 는 관리자 감사 기록에만.
-// 9/12 디렉터 확정 (나). IPv6 는 앞 두 묶음만, 알 수 없는 형식은 통째로 가린다.
-export function maskIp(ip: string | null | undefined): string {
-  if (!ip) return "-";
-  const t = ip.trim();
-  const v4 = /^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/i.exec(t);
-  if (v4) return `${v4[1]}.${v4[2]}.*.*`;
-  // 순수 IPv6(16진수·콜론만)만 앞부분을 보인다 — 포트·괄호·점·%가 섞인 형식(1.2.3.4:5678 등)은 통째로 가린다.
-  // 앞부분은 "::" 앞에서만 센다(2001::abcd 가 2001:abcd 로 적히지 않게). 33456f8 검증 F1·F2
-  // 올바른 IPv6 모양(:: 축약이 있거나 8묶음)만 — "a:b" 같은 두 묶음짜리가 통째로 적히지 않게(359ea9c 검증 P1)
-  if (t.includes(":") && /^[0-9a-f:]+$/i.test(t) && (t.includes("::") || t.split(":").length === 8)) {
-    const head = t.split("::")[0].split(":").filter(Boolean);
-    return head.length >= 2 ? `${head[0]}:${head[1]}:*` : head.length === 1 ? `${head[0]}:*` : "*";
-  }
-  return "*";
-}
+// 구현은 lib/mask-ip 로 옮겼다(2026-09-13, API 키 라우트도 같이 쓰기 위해). 기존 import 는 그대로 통한다.
+import { maskIp } from "@/lib/mask-ip";
+export { maskIp };
 
 // 워드 완료본은 한 번만 PDF 로 변환한다(signed-document 라우트와 같은 변환기)
 async function sourcePdf(signedUrl: string): Promise<Buffer> {

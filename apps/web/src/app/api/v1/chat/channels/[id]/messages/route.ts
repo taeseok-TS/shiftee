@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateApiKey, v1Error } from "@/lib/api-key";
 import { prisma } from "@/lib/db";
-import { logAudit } from "@/lib/audit";
 import { channelAccessible, postChannelMessage } from "@/lib/work-post";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +22,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!m) return v1Error(400, "after 메시지를 찾을 수 없습니다.", "BAD_AFTER");
     afterAt = m.createdAt;
   }
-  // 시작점 = after 메시지 시각과 과거기록 열람 범위(historyFrom) 중 늦은 쪽
-  const from = [afterAt, my?.historyFrom ?? null].filter((d): d is Date => !!d).sort((x, y) => y.getTime() - x.getTime())[0] ?? null;
+  // 커서 = (createdAt, id) — 같은 밀리초 메시지를 건너뛰지 않게(검증관 P7). 과거기록 범위(historyFrom)는 웹과 같이 gte.
   const rows = await prisma.workMessage.findMany({
-    where: { channelId: id, parentId: null, deletedAt: null, ...(from ? { createdAt: { gt: from } } : {}) },
+    where: {
+      channelId: id, parentId: null, deletedAt: null,
+      ...(my?.historyFrom ? { createdAt: { gte: my.historyFrom } } : {}),
+      ...(afterAt && after ? { AND: [{ OR: [{ createdAt: { gt: afterAt } }, { createdAt: afterAt, id: { gt: after } }] }] } : {}),
+    },
     include: { user: { select: { name: true } } },
-    orderBy: { createdAt: afterAt ? "asc" : "desc" },
+    orderBy: afterAt ? [{ createdAt: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "desc" }],
     take: limit,
   });
   if (!afterAt) rows.reverse();
@@ -51,6 +53,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (content.length > 2000) return v1Error(400, "메시지는 2,000자까지입니다.", "TOO_LONG");
   const r = await postChannelMessage({ channelId: id, userId: a.p.user.id, content, apiKeyId: a.p.key.id });
   if ("error" in r) return v1Error(r.status, r.error, "NOT_MEMBER");
-  await logAudit({ actorId: a.p.user.id, actorName: a.p.user.name, action: "API_CHAT_POST", targetType: "WORK_CHANNEL", targetId: id, targetName: null, detail: `API 키 「${a.p.key.name}」 · ${content.length}자` });
+  // 메시지마다 감사 기록은 남기지 않는다(관리자 변경 이력이 채팅으로 덮인다) — WorkMessage.apiKeyId 로 추적한다
   return NextResponse.json({ message: r.message });
 }

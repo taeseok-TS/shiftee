@@ -9,7 +9,7 @@ import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { isResigned } from "@/lib/resign";
-import { maskIp } from "@/lib/signed-freeze";
+import { maskIp } from "@/lib/mask-ip";
 import type { ApiKey } from "@prisma/client";
 
 export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write"] as const;
@@ -45,7 +45,11 @@ export type ApiPrincipal = {
 type Bucket = { minute: string; minuteCount: number; writeCount: number; hour: string; hourCount: number; day: string; dayCount: number; uploadCount: number };
 const g = globalThis as unknown as { __apiKeyBuckets?: Map<string, Bucket> };
 const buckets: Map<string, Bucket> = g.__apiKeyBuckets ?? (g.__apiKeyBuckets = new Map());
-const LIMITS = { perMinute: 60, perDay: 2000, writesPerMinute: 10, uploadsPerDay: 50, anomalyPerHour: 500 };
+// 이상 감지 기준은 허용치(분당 60 = 시간당 최대 3,600)와 충돌하지 않게 **받아들인 요청** 기준 시간당 1,500 (검증관 P1).
+const LIMITS = { perMinute: 60, perDay: 2000, writesPerMinute: 10, uploadsPerDay: 50, anomalyPerHour: 1500 };
+
+/** 멈춤 해제(resume) 때 버킷도 비운다 — 안 비우면 첫 요청에서 바로 다시 멈추고 DM 이 또 나간다(검증관 C2) */
+export function resetApiKeyBucket(keyId: string) { buckets.delete(keyId); }
 
 function keys(now: Date) {
   const iso = now.toISOString();
@@ -99,20 +103,21 @@ export async function authenticateApiKey(
     return { ok: false, res: v1Error(401, "사용할 수 없는 계정입니다.", "USER_INACTIVE") };
   if (!u.apiKeysAllowed) return { ok: false, res: v1Error(403, "API 키 사용 허용이 꺼져 있습니다. 본부에 문의해주세요.", "NOT_ALLOWED") };
 
-  // 속도 제한
+  // 속도 제한 — 거부(429)된 요청은 시간당 이상 감지 집계에 넣지 않는다(재시도하는 클라이언트가 더 빨리 멈추는 것을 막는다)
   const now = new Date();
   const b = bucketFor(key.id, now);
-  b.minuteCount++; b.hourCount++; b.dayCount++;
+  b.minuteCount++; b.dayCount++;
   if (kind !== "read") b.writeCount++;
   if (kind === "upload") b.uploadCount++;
+  if (b.minuteCount > LIMITS.perMinute) return { ok: false, res: v1Error(429, `분당 ${LIMITS.perMinute}회를 넘었습니다. 잠시 뒤 다시 시도해주세요.`, "RATE_MINUTE") };
+  if (b.dayCount > LIMITS.perDay) return { ok: false, res: v1Error(429, `하루 ${LIMITS.perDay}회를 넘었습니다.`, "RATE_DAY") };
+  if (kind !== "read" && b.writeCount > LIMITS.writesPerMinute) return { ok: false, res: v1Error(429, `쓰기는 분당 ${LIMITS.writesPerMinute}회까지입니다.`, "RATE_WRITE") };
+  if (kind === "upload" && b.uploadCount > LIMITS.uploadsPerDay) return { ok: false, res: v1Error(429, `파일 올리기(요청)는 하루 ${LIMITS.uploadsPerDay}회까지입니다.`, "RATE_UPLOAD") };
+  b.hourCount++;
   if (b.hourCount > LIMITS.anomalyPerHour) {
     await suspendKey(key, `1시간에 ${LIMITS.anomalyPerHour}회 초과`).catch(() => {});
     return { ok: false, res: v1Error(403, "이상 사용이 감지되어 키를 멈췄습니다. 본인과 본부에 알렸습니다.", "SUSPENDED") };
   }
-  if (b.minuteCount > LIMITS.perMinute) return { ok: false, res: v1Error(429, `분당 ${LIMITS.perMinute}회를 넘었습니다. 잠시 뒤 다시 시도해주세요.`, "RATE_MINUTE") };
-  if (b.dayCount > LIMITS.perDay) return { ok: false, res: v1Error(429, `하루 ${LIMITS.perDay}회를 넘었습니다.`, "RATE_DAY") };
-  if (kind !== "read" && b.writeCount > LIMITS.writesPerMinute) return { ok: false, res: v1Error(429, `쓰기는 분당 ${LIMITS.writesPerMinute}회까지입니다.`, "RATE_WRITE") };
-  if (kind === "upload" && b.uploadCount > LIMITS.uploadsPerDay) return { ok: false, res: v1Error(429, `파일 올리기는 하루 ${LIMITS.uploadsPerDay}개까지입니다.`, "RATE_UPLOAD") };
 
   // 마지막 사용 — 1분에 한 번만 기록(매 요청 UPDATE 방지). 응답을 막지 않는다.
   if (!key.lastUsedAt || now.getTime() - key.lastUsedAt.getTime() > 60_000) {
@@ -134,6 +139,16 @@ async function suspendKey(key: ApiKey, reason: string) {
   for (const a of admins) await botSendDM(a.id, `⚠️ ${owner?.name ?? key.userId} 님의 API 키 「${key.name}」이 이상 사용(${reason})으로 멈췄습니다.`);
   const { logAudit } = await import("@/lib/audit");
   await logAudit({ actorId: "system", actorName: "시스템", action: "API_KEY_SUSPEND", targetType: "API_KEY", targetId: key.id, targetName: key.name, detail: reason });
+}
+
+/**
+ * 파일 서빙·PDF 미리보기가 키 요청도 받게 하는 다리(검증관 C3) — 유효한 submissions:read 키면 `u:<userId>` 주체를 돌려준다.
+ * 파일 접근 판정(canAccessSubmissionFile)은 그 주체로 세션·티켓과 똑같이 한다.
+ */
+export async function apiKeyFileSubject(request: NextRequest): Promise<string | null> {
+  if (!/^Bearer\s+cbt_pk_/i.test(request.headers.get("authorization") || "")) return null;
+  const a = await authenticateApiKey(request, "submissions:read");
+  return a.ok ? `u:${a.p.user.id}` : null;
 }
 
 /** 목록 응답용 — 원문·해시는 절대 싣지 않는다 */
