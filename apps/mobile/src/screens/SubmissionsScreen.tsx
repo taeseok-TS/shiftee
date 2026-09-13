@@ -70,12 +70,15 @@ export default function SubmissionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<{ open: boolean; request?: SubmissionRequest | null }>({ open: false });
 
+  const [loadError, setLoadError] = useState(false);
   const load = useCallback(async () => {
     const [c, r, m, s] = await Promise.allSettled([getCategories(), getMyRequests("open"), getSubmissions("mine"), getSubmissions("shared")]);
     if (c.status === "fulfilled") setCategories(c.value);
     setRequests(r.status === "fulfilled" ? r.value : []);
     setMine(m.status === "fulfilled" ? m.value : []);
     setShared(s.status === "fulfilled" ? s.value : []);
+    // 실패를 "없습니다"로 위장하지 않는다(검증관 P3) — 마감 임박 요청이 있는데 없다고 보이면 안 된다
+    setLoadError([r, m, s].some((x) => x.status === "rejected"));
   }, []);
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
@@ -103,6 +106,9 @@ export default function SubmissionsScreen() {
         ))}
       </View>
       <ScrollView style={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {loadError && (
+          <View style={styles.errorBox}><Ionicons name="cloud-offline-outline" size={16} color="#b45309" /><Text style={styles.errorText}>목록을 불러오지 못했습니다. 연결을 확인하고 아래로 당겨 새로고침해주세요.</Text></View>
+        )}
         {tab === "todo" && (
           !requests ? <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
           : requests.length === 0 ? <Text style={styles.empty}>지금 내야 할 자료가 없습니다.{"\n"}본부가 요청을 걸면 여기와 큐브티 봇 알림으로 알려드립니다.</Text>
@@ -132,7 +138,8 @@ export default function SubmissionsScreen() {
           : mine.length === 0 ? <Text style={styles.empty}>아직 올린 자료가 없습니다.</Text>
           : mine.map((s) => {
             const due = s.request?.dueDate ?? null;
-            const canDelete = s.status !== "CHECKED" && (!due || due >= todayStr());
+            // 서버 DELETE 규칙과 같게: 본부 확인 전 · 마감 전 · 요청이 닫히지 않음
+            const canDelete = s.status !== "CHECKED" && (!due || due >= todayStr()) && !s.request?.closedAt;
             return (
               <View key={s.id} style={styles.card}>
                 <View style={styles.itemHead}>
@@ -190,8 +197,12 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
     try {
       const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
       if (result.canceled) return;
-      for (const a of result.assets ?? []) {
-        if (files.length >= MAX_FILES) break;
+      // files 는 클로저 스냅샷이라 루프 안에서 안 늘어난다 — 따로 센다(검증관 C1)
+      let count = files.length;
+      const assets = result.assets ?? [];
+      if (count + assets.length > MAX_FILES) Alert.alert("알림", `파일은 제출당 ${MAX_FILES}개까지입니다. 앞의 ${Math.max(0, MAX_FILES - count)}개만 올립니다.`);
+      for (const a of assets) {
+        if (count >= MAX_FILES) break;
         const ext = extOf(a.name);
         if (!ALLOWED_EXT.includes(ext)) { Alert.alert("알림", `${a.name}: 워드·엑셀·PPT·PDF·한글·이미지·ZIP 만 올릴 수 있습니다.`); continue; }
         if ((a.size ?? 0) > MAX_BYTES) { Alert.alert("알림", `${a.name}: 파일당 50MB 이하만 올릴 수 있습니다.`); continue; }
@@ -199,6 +210,7 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
         try {
           const up = await uploadSubmissionFile({ uri: a.uri, name: a.name, mimeType: a.mimeType }, (pct) => setUploading({ name: a.name, pct }));
           setFiles((prev) => [...prev, up]);
+          count++;
           setTitle((t) => t || a.name.replace(/\.[^.]+$/, ""));
         } catch (e: any) {
           Alert.alert("업로드 실패", `${a.name}: ${e?.message || "올리지 못했습니다."}`);
@@ -224,12 +236,21 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
     } finally { setSaving(false); }
   };
 
+  // 올리는 중엔 닫지 않는다(검증관 P4) — 닫아도 전송은 계속되고 파일만 서버에 남는다
+  const tryClose = () => {
+    if (uploading) { Alert.alert("올리는 중", "파일을 올리는 중입니다. 끝난 뒤 닫아주세요."); return; }
+    if (files.length && !saving) {
+      Alert.alert("닫을까요?", "올린 파일은 제출하지 않으면 사라집니다.", [{ text: "계속 작성", style: "cancel" }, { text: "닫기", style: "destructive", onPress: onClose }]);
+      return;
+    }
+    onClose();
+  };
   const groups: ("EDU" | "PROMO" | "EVENT")[] = ["EDU", "PROMO", "EVENT"];
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
+    <Modal visible animationType="slide" onRequestClose={tryClose}>
       <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#fff" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.sheetHead}>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close" size={24} color="#374151" /></TouchableOpacity>
+          <TouchableOpacity onPress={tryClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close" size={24} color="#374151" /></TouchableOpacity>
           <Text style={styles.sheetTitle} numberOfLines={1}>{request ? `제출 — ${request.title}` : "자료 올리기"}</Text>
           <View style={{ width: 24 }} />
         </View>
@@ -305,6 +326,8 @@ const styles = StyleSheet.create({
   primaryBtnDisabled: { backgroundColor: "#c7d2fe" },
   primaryBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   empty: { textAlign: "center", color: "#9ca3af", fontSize: 13, paddingVertical: 32, lineHeight: 20 },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fef3c7", borderRadius: 10, padding: 10, marginBottom: 12 },
+  errorText: { flex: 1, fontSize: 12, color: "#92400e", lineHeight: 17 },
   fileRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, borderTopWidth: 1, borderTopColor: "#f3f4f6", marginTop: 6 },
   typeBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, minWidth: 26, alignItems: "center" },
   typeBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },

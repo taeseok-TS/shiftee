@@ -21,7 +21,7 @@ export type SubmissionRequest = {
   mySubmissionId?: string | null; mySubmittedAt?: string | null;
 };
 export type Submission = {
-  id: string; requestId: string | null; request: { id: string; title: string; dueDate: string | null } | null;
+  id: string; requestId: string | null; request: { id: string; title: string; dueDate: string | null; closedAt?: string | null } | null;
   categoryId: string; category?: { id: string; group: string; name: string };
   userId: string; userName: string; userBranch: string | null; userJobGroup: string | null; userPosition: string | null;
   yearMonth: string; title: string; memo: string | null; files: SubmissionFile[]; status: "SUBMITTED" | "CHECKED";

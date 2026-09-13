@@ -10,7 +10,7 @@ import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-const withRel = { category: true, request: { select: { id: true, title: true, dueDate: true } } } as const;
+const withRel = { category: true, request: { select: { id: true, title: true, dueDate: true, closedAt: true } } } as const;
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();

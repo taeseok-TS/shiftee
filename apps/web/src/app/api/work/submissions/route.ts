@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   const rows = await prisma.submission.findMany({
     where,
-    include: { category: true, request: { select: { id: true, title: true, dueDate: true } } },
+    include: { category: true, request: { select: { id: true, title: true, dueDate: true, closedAt: true } } },
     orderBy: { createdAt: "desc" },
     take: 300,
   });
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     if (requestRow.closedAt) return NextResponse.json({ error: "닫힌 요청입니다." }, { status: 400 });
     if (!isTargeted(v, requestRow)) return NextResponse.json({ error: "이 요청의 대상이 아닙니다." }, { status: 403 });
     const dup = await prisma.submission.findFirst({ where: { requestId: requestRow.id, userId: v.userId, deletedAt: null }, select: { id: true } });
-    if (dup) return NextResponse.json({ error: "이 요청에는 이미 제출했습니다. '내 제출'에서 파일을 바꿔주세요.", submissionId: dup.id }, { status: 409 });
+    if (dup) return NextResponse.json({ error: "이 요청에는 이미 제출했습니다. '내 제출'에서 기존 제출물을 고치거나 지우고 다시 내주세요.", submissionId: dup.id }, { status: 409 });
   }
   const categoryId = requestRow ? requestRow.categoryId : typeof body.categoryId === "string" ? body.categoryId : "";
   const category = categoryId ? await prisma.submissionCategory.findUnique({ where: { id: categoryId } }) : null;
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       memo,
       files: files as unknown as Prisma.InputJsonValue,
     },
-    include: { category: true, request: { select: { id: true, title: true, dueDate: true } } },
+    include: { category: true, request: { select: { id: true, title: true, dueDate: true, closedAt: true } } },
   });
   await logAudit({
     actorId: v.userId, actorName: v.name, action: "SUBMISSION_CREATE", targetType: "SUBMISSION", targetId: row.id, targetName: title,

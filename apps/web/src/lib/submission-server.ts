@@ -51,11 +51,12 @@ export function serializeRequest(r: SubmissionRequest & { category?: SubmissionC
   };
 }
 
-export function serializeSubmission(s: Submission & { category?: SubmissionCategory | null; request?: { id: string; title: string; dueDate: Date | null } | null }) {
+export function serializeSubmission(s: Submission & { category?: SubmissionCategory | null; request?: { id: string; title: string; dueDate: Date | null; closedAt?: Date | null } | null }) {
   return {
     id: s.id,
     requestId: s.requestId,
-    request: s.request ? { id: s.request.id, title: s.request.title, dueDate: dateStr(s.request.dueDate) } : null,
+    // closedAt 도 실어 화면이 삭제 가능 여부를 서버 규칙과 같게 판단한다(앱 검증관 P2)
+    request: s.request ? { id: s.request.id, title: s.request.title, dueDate: dateStr(s.request.dueDate), closedAt: s.request.closedAt ?? null } : null,
     categoryId: s.categoryId,
     category: s.category ? { id: s.category.id, group: s.category.group, name: s.category.name } : undefined,
     userId: s.userId,

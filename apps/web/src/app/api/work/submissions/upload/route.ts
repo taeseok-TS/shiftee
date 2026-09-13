@@ -44,18 +44,22 @@ export async function POST(request: NextRequest) {
       // 연속 점(..)은 서빙 라우트가 경로 이탈로 막아 열 수 없게 된다(검증관 2) — 점 하나로 접는다
       // 올린 사람 표식(tag)을 이름에 박는다 — 제출 때 본인 파일인지 대조한다(lib/submission-access fileBelongsTo)
       const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${uploaderTag(session.userId)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_").replace(/\.{2,}/g, ".")}`;
-      const dest = createWriteStream(path.join(dir, safeName));
-      stream.pipe(dest);
-      stream.on("limit", () => {
+      const full = path.join(dir, safeName);
+      const dest = createWriteStream(full);
+      // 한 번만 정산 + 실패 시 unpipe/resume, unlink 는 close 뒤 — lib/submission-upload 와 같은 방식(앱 검증관 P1)
+      let settled = false;
+      const fail = (msg: string, status: number) => {
+        if (settled) return; settled = true;
+        stream.unpipe(dest); stream.resume();
+        dest.once("close", () => { fs.unlink(full).catch(() => {}); });
         dest.destroy();
-        fs.unlink(path.join(dir, safeName)).catch(() => {});
-        resolve({ _error: "파일당 50MB 이하만 올릴 수 있습니다.", status: 400 });
-      });
-      dest.on("finish", () => resolve({ fileName, safeName }));
-      dest.on("error", () => {
-        fs.unlink(path.join(dir, safeName)).catch(() => {});
-        resolve({ _error: "파일 저장 중 오류가 발생했습니다.", status: 500 });
-      });
+        resolve({ _error: msg, status });
+      };
+      stream.pipe(dest);
+      stream.on("limit", () => fail("파일당 50MB 이하만 올릴 수 있습니다.", 400));
+      stream.on("error", () => fail("업로드 본문을 읽지 못했습니다.", 400));
+      dest.on("finish", () => { if (!settled) { settled = true; resolve({ fileName, safeName }); } });
+      dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다.", 500));
     });
     bb.on("error", () => resolve({ _error: "업로드 본문을 읽지 못했습니다. 다시 시도해주세요.", status: 400 }));
     bb.on("finish", () => { if (!sawFile) resolve({ _error: "파일이 없습니다.", status: 400 }); });

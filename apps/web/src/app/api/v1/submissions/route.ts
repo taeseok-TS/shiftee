@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!v) return v1Error(401, "사용할 수 없는 계정입니다.", "USER_INACTIVE");
   const scope = new URL(request.url).searchParams.get("scope") || "mine";
   const where: Prisma.SubmissionWhereInput = scope === "shared" ? sharedSubmissionWhere(v) : { deletedAt: null, userId: v.userId };
-  const rows = await prisma.submission.findMany({ where, include: { category: true, request: { select: { id: true, title: true, dueDate: true } } }, orderBy: { createdAt: "desc" }, take: 200 });
+  const rows = await prisma.submission.findMany({ where, include: { category: true, request: { select: { id: true, title: true, dueDate: true, closedAt: true } } }, orderBy: { createdAt: "desc" }, take: 200 });
   return NextResponse.json({ submissions: rows.map(serializeSubmission) });
 }
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       userName: v.name, userBranch: v.branch, userJobGroup: v.jobGroup, userPosition: v.position,
       yearMonth, title, memo, files: mp.files as unknown as Prisma.InputJsonValue,
     },
-    include: { category: true, request: { select: { id: true, title: true, dueDate: true } } },
+    include: { category: true, request: { select: { id: true, title: true, dueDate: true, closedAt: true } } },
   });
   await logAudit({
     actorId: v.userId, actorName: v.name, action: "SUBMISSION_CREATE", targetType: "SUBMISSION", targetId: row.id, targetName: title,
