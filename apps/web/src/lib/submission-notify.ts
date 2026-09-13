@@ -135,13 +135,15 @@ export async function sweepOrphanUploads(now: Date = new Date()) {
   let names: string[];
   try { names = await fs.readdir(dir); } catch { return; }
   const cutoff = now.getTime() - 24 * 3600 * 1000;
+  const old = names.filter((name) => { const ts = Number(/^(\d{13})-/.exec(name)?.[1]); return ts && ts <= cutoff; });
+  if (!old.length) return;
+  // 제출물의 파일 URL 을 한 번에 읽어 메모리에서 차집합 — 파일마다 JSONB 조회를 돌리면 매일 선형으로 느려진다(재검증관 2)
+  const rows = await prisma.submission.findMany({ select: { files: true } });
+  const used = new Set<string>();
+  for (const r of rows) for (const f of (Array.isArray(r.files) ? r.files : []) as { url?: unknown }[]) if (typeof f?.url === "string") used.add(f.url);
   let removed = 0;
-  for (const name of names) {
-    const ts = Number(/^(\d{13})-/.exec(name)?.[1]);
-    if (!ts || ts > cutoff) continue;
-    const url = `/api/uploads/submissions/${name}`;
-    const used = await prisma.submission.findFirst({ where: { files: { array_contains: [{ url }] } }, select: { id: true } });
-    if (used) continue;
+  for (const name of old) {
+    if (used.has(`/api/uploads/submissions/${name}`) || used.has(`/api/uploads/submissions/${encodeURIComponent(name)}`)) continue;
     await fs.unlink(path.join(dir, name)).catch(() => {});
     removed++;
   }

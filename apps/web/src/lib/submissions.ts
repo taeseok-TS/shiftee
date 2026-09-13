@@ -133,10 +133,11 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
     if (!isSubmissionFileUrl(url) || seen.has(url)) return null;
     if (typeof name !== "string") return null;
     // 표시 이름 — 경로 문자·연속 점은 ZIP 항목명 조작에 쓰일 수 있어 지운다(검증관 3)
-    const cleanName = name.replace(/[\\/:*?"<>|\r\n]/g, "_").replace(/\.{2,}/g, ".").trim().slice(0, 200);
-    if (!cleanName) return null;
-    const ext = extOf(cleanName);
-    if (!ALLOWED_EXT.has(ext)) return null;
+    const cleaned = name.replace(/[\\/:*?"<>|\r\n]/g, "_").replace(/\.{2,}/g, ".").trim();
+    const ext = extOf(cleaned);
+    if (!cleaned || !ALLOWED_EXT.has(ext)) return null;
+    // 긴 이름은 확장자를 지키고 앞부분만 자른다(자르고 나서 확장자가 사라지면 엉뚱한 거부가 된다)
+    const cleanName = cleaned.length > 200 ? cleaned.slice(0, 200 - ext.length) + ext : cleaned;
     seen.add(url);
     out.push({
       url,

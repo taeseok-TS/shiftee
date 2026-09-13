@@ -127,6 +127,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     if (cur.status === "CHECKED") return NextResponse.json({ error: "본부가 확인한 자료는 지울 수 없습니다." }, { status: 400 });
     const due = dateStr(cur.request?.dueDate ?? null);
     if (due && due < todayStrKST()) return NextResponse.json({ error: "마감이 지난 제출물은 지울 수 없습니다." }, { status: 400 });
+    if (cur.request) {
+      const req = await prisma.submissionRequest.findUnique({ where: { id: cur.request.id }, select: { closedAt: true } });
+      if (req?.closedAt) return NextResponse.json({ error: "닫힌 요청의 제출물은 지울 수 없습니다." }, { status: 400 });
+    }
   }
   await prisma.submission.update({ where: { id }, data: { deletedAt: new Date() } });
   await logAudit({ actorId: v.userId, actorName: v.name, action: "SUBMISSION_DELETE", targetType: "SUBMISSION", targetId: id, targetName: cur.title, detail: `${cur.userBranch ?? ""} ${cur.userName}` });

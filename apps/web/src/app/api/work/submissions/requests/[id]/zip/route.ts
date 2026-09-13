@@ -9,8 +9,10 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
-// ZIP 은 메모리에서 만든다(PizZip) — 합계가 이 상한을 넘으면 만들지 않고 안내한다(검증관 4, 컨테이너 OOM 방지)
-const MAX_ZIP_BYTES = 300 * 1024 * 1024;
+// ZIP 은 메모리에서 만든다(PizZip, 스트리밍 없음) — 합계가 이 상한을 넘으면 만들지 않고 안내한다.
+// ⚠ 컨테이너 메모리 한도가 768m 이고 실측(재검증관) 입력 100MB 에 +450MB 라 상한은 80MB 로 둔다.
+//   더 큰 묶음이 필요해지면 스트리밍 ZIP(archiver) 으로 바꾼다 — 의존성 추가라 1단계에서는 보류.
+const MAX_ZIP_BYTES = 80 * 1024 * 1024;
 
 // 요청의 제출 파일을 ZIP 한 번에 — 본부는 전부, 원장은 담당 지점만. 폴더는 지점/이름_파일명.
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -40,7 +42,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }
   }
   if (total > MAX_ZIP_BYTES)
-    return NextResponse.json({ error: `파일 합계가 ${Math.round(total / 1048576)}MB 라 한 번에 묶을 수 없습니다(상한 300MB). 지점·개별 파일로 내려받아주세요.` }, { status: 413 });
+    return NextResponse.json({ error: `파일 합계가 ${Math.round(total / 1048576)}MB 라 한 번에 묶을 수 없습니다(상한 80MB). 개별 파일로 내려받아주세요.` }, { status: 413 });
 
   const zip = new PizZip();
   const used = new Set<string>();
@@ -49,8 +51,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     {
       let buf: Buffer;
       try { buf = await fs.readFile(p); } catch { continue; }
-      const folder = (s.userBranch || "지점없음").replace(/[\\/:*?"<>|]/g, "_");
       const safe = (v: string) => path.basename(v).replace(/[\\/:*?"<>|]/g, "_").replace(/\.{2,}/g, ".");
+      const folder = safe(s.userBranch || "지점없음");
       let name = `${folder}/${safe(s.userName)}_${safe(f.name)}`;
       if (used.has(name)) { const dot = name.lastIndexOf("."); name = dot > 0 ? `${name.slice(0, dot)}-${count}${name.slice(dot)}` : `${name}-${count}`; }
       used.add(name);
@@ -59,9 +61,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }
   }
   if (count === 0) return NextResponse.json({ error: "내려받을 파일이 없습니다." }, { status: 404 });
-  const out: Buffer = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  // 입력이 대부분 이미 압축된 형식(docx·pptx·pdf·zip)이라 DEFLATE 이득이 없고 메모리만 먹는다 → STORE
+  const out: Buffer = zip.generate({ type: "nodebuffer", compression: "STORE" });
   const zipName = `${r.title.replace(/[^a-zA-Z0-9가-힣._ -]/g, "_").trim() || "submissions"}.zip`;
-  return new NextResponse(new Uint8Array(out), {
+  // 복사본을 만들지 않고 같은 메모리를 본다
+  return new NextResponse(out as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`,

@@ -532,6 +532,23 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
   const isAdmin = me.role === "ADMIN";
   useEffect(() => { fetch(`/api/work/submissions/requests/${id}`).then((r) => r.json()).then((x) => setD(x.request ? x : null)).catch(() => setD(null)); }, [id, key]);
   const refresh = () => { setKey((k) => k + 1); onChanged(); };
+  const [zipping, setZipping] = useState(false);
+  // <a href> 로 열면 413·404 응답이 JSON 원문 페이지로 넘어가 화면을 잃는다 → fetch 로 받아 저장
+  async function downloadZip() {
+    setZipping(true);
+    try {
+      const res = await fetch(`/api/work/submissions/requests/${id}/zip`);
+      if (!res.ok) { const x = await res.json().catch(() => ({})); toast.error(x.error || "ZIP 을 만들지 못했습니다."); return; }
+      const blob = await res.blob();
+      const cd = res.headers.get("content-disposition") || "";
+      const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = m ? decodeURIComponent(m[1]) : "submissions.zip";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    } finally { setZipping(false); }
+  }
   async function remind() {
     if (!confirm("아직 내지 않은 사람들에게만 봇 DM 으로 독촉합니다. 보낼까요?")) return;
     const res = await fetch(`/api/work/submissions/requests/${id}/remind`, { method: "POST" });
@@ -562,7 +579,7 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
               <span>완료 지점 <b className="tabular-nums">{d.branches.filter((b) => b.missing.length === 0 && b.targets > 0).length} / {d.branches.length}</b></span>
               {d.summary.extra > 0 && <span className="text-gray-500">대상 밖 제출 {d.summary.extra}</span>}
               <div className="ml-auto flex gap-1.5 flex-wrap">
-                {d.submissions.length > 0 && <a href={`/api/work/submissions/requests/${id}/zip`}><Button size="sm" variant="outline" className="gap-1 h-8"><FolderArchive size={14} />ZIP 내려받기</Button></a>}
+                {d.submissions.length > 0 && <Button size="sm" variant="outline" className="gap-1 h-8" disabled={zipping} onClick={downloadZip}><FolderArchive size={14} />{zipping ? "묶는 중…" : "ZIP 내려받기"}</Button>}
                 {isAdmin && !d.request.closedAt && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={remind}><Bell size={14} />미제출자 독촉</Button>}
                 {isAdmin && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={() => onEdit(d.request)}><Pencil size={14} />수정</Button>}
                 {isAdmin && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={toggleClose}>{d.request.closedAt ? <><Unlock size={14} />다시 열기</> : <><Lock size={14} />닫기</>}</Button>}
