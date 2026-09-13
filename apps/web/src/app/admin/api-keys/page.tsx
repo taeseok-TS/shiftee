@@ -58,15 +58,18 @@ export default function AdminApiKeysPage() {
           ))}
           {!allowed.length && <span className="text-sm text-gray-400">아직 허용한 사람이 없습니다. 시범 2~3명으로 시작하는 것을 권합니다.</span>}
         </div>
-        <div className="relative max-w-sm">
+        <div className="max-w-sm">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·지점으로 찾아 허용 추가" />
-          {candidates.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full bg-white border rounded-md shadow-md">
+          {/* 검색 결과는 카드 안에 그대로 펼친다 — 띄우면(absolute) 카드 경계에 잘려 안 보였다(디렉터 9/13) */}
+          {q.trim() && (
+            <div className="mt-1 w-full bg-white border rounded-md divide-y">
               {candidates.map((e) => (
-                <button key={e.id} type="button" onClick={() => { setAllow(e.id, true); setQ(""); }} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
-                  {e.name} <span className="text-xs text-gray-500">{[e.branch, e.jobGroup, e.role === "ADMIN" ? "본부" : e.role === "MANAGER" ? "원장" : ""].filter(Boolean).join(" · ")}</span>
+                <button key={e.id} type="button" onClick={() => { setAllow(e.id, true); setQ(""); }} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center justify-between gap-2">
+                  <span>{e.name} <span className="text-xs text-gray-500">{[e.branch, e.jobGroup, e.role === "ADMIN" ? "본부" : e.role === "MANAGER" ? "원장" : ""].filter(Boolean).join(" · ")}</span></span>
+                  <span className="text-xs text-indigo-600 shrink-0">허용 추가</span>
                 </button>
               ))}
+              {!candidates.length && <p className="px-3 py-2 text-xs text-gray-400">{employees.length ? "일치하는 직원이 없습니다(이미 허용된 사람은 위 목록에 있습니다)." : "직원 목록을 불러오는 중…"}</p>}
             </div>
           )}
         </div>
