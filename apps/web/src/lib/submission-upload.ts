@@ -48,8 +48,9 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       const settle = (fn: () => void) => { if (settled) return; settled = true; fails.delete(fail); fn(); pending--; done(); };
       const fail = (msg: string) => settle(() => {
         stream.unpipe(dest); stream.resume();
+        // unlink 는 파일이 실제로 닫힌 뒤에 — open 이 끝나기 전에 지우면 그 뒤 open 이 빈 파일을 남긴다(3차 검증관 R1)
+        dest.once("close", () => { fs.unlink(full).catch(() => {}); });
         dest.destroy();
-        fs.unlink(full).catch(() => {});
         if (!error) error = msg;
       });
       fails.add(fail);
