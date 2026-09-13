@@ -6,6 +6,7 @@ import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import { ALLOWED_EXT, MAX_FILE_BYTES, extOf, fileTypeOf, magicMatches } from "@/lib/submissions";
+import { uploaderTag } from "@/lib/submission-access";
 
 // 자료제출 첨부 업로드 — 채팅 업로드(api/work/upload)와 같은 디스크 스트리밍이지만
 // 저장 구역이 다르고(uploads/submissions — 서빙 라우트가 권한을 본다), 50MB·확장자·매직바이트를 본다.
@@ -40,7 +41,9 @@ export async function POST(request: NextRequest) {
         resolve({ _error: "워드·엑셀·PPT·PDF·한글·이미지·ZIP 파일만 올릴 수 있습니다.", status: 400 });
         return;
       }
-      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_")}`;
+      // 연속 점(..)은 서빙 라우트가 경로 이탈로 막아 열 수 없게 된다(검증관 2) — 점 하나로 접는다
+      // 올린 사람 표식(tag)을 이름에 박는다 — 제출 때 본인 파일인지 대조한다(lib/submission-access fileBelongsTo)
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${uploaderTag(session.userId)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_").replace(/\.{2,}/g, ".")}`;
       const dest = createWriteStream(path.join(dir, safeName));
       stream.pipe(dest);
       stream.on("limit", () => {

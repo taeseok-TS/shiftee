@@ -131,13 +131,16 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
     if (!f || typeof f !== "object") return null;
     const { url, name, size, type } = f as Record<string, unknown>;
     if (!isSubmissionFileUrl(url) || seen.has(url)) return null;
-    if (typeof name !== "string" || !name.trim()) return null;
-    const ext = extOf(name);
+    if (typeof name !== "string") return null;
+    // 표시 이름 — 경로 문자·연속 점은 ZIP 항목명 조작에 쓰일 수 있어 지운다(검증관 3)
+    const cleanName = name.replace(/[\\/:*?"<>|\r\n]/g, "_").replace(/\.{2,}/g, ".").trim().slice(0, 200);
+    if (!cleanName) return null;
+    const ext = extOf(cleanName);
     if (!ALLOWED_EXT.has(ext)) return null;
     seen.add(url);
     out.push({
       url,
-      name: name.trim().slice(0, 200),
+      name: cleanName,
       size: typeof size === "number" && size >= 0 ? Math.floor(size) : 0,
       type: typeof type === "string" && type ? type : fileTypeOf(ext),
     });

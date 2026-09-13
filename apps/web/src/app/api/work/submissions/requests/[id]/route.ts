@@ -67,7 +67,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!t) return NextResponse.json({ error: "제목을 입력해주세요." }, { status: 400 });
     if (t !== cur.title) { data.title = t; changes.push(`제목 ${cur.title}→${t}`); }
   }
-  if (typeof body.description === "string") { data.description = body.description.trim().slice(0, 2000) || null; changes.push("안내문"); }
+  if (typeof body.description === "string") {
+    const desc = body.description.trim().slice(0, 2000) || null;
+    if (desc !== cur.description) { data.description = desc; changes.push("안내문"); }
+  }
   if (typeof body.categoryId === "string" && body.categoryId !== cur.categoryId) {
     const c = await prisma.submissionCategory.findUnique({ where: { id: body.categoryId } });
     if (!c || !c.active) return NextResponse.json({ error: "분류가 올바르지 않습니다." }, { status: 400 });
@@ -84,7 +87,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     data.targetBranches = b; changes.push(`대상 지점 ${b.length ? b.join("/") : "전 지점"}`);
   }
   if (body.dueDate !== undefined) {
-    if (body.dueDate === null || body.dueDate === "") { data.dueDate = null; changes.push("마감 없음"); }
+    if (body.dueDate === null || body.dueDate === "") { if (cur.dueDate) { data.dueDate = null; data.remindedAt = null; data.overdueNotifiedAt = null; changes.push("마감 없음"); } }
     else {
       const d = parseDateStr(body.dueDate);
       if (!d) return NextResponse.json({ error: "마감일이 올바르지 않습니다." }, { status: 400 });

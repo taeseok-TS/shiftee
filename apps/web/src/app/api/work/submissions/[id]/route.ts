@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { canViewSubmission, resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-access";
+import { canViewSubmission, fileBelongsTo, resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-access";
 import { pickJobGroups, serializeSubmission } from "@/lib/submission-server";
 import { SUBMISSION_STATUSES, dateStr, normalizeFiles, todayStrKST } from "@/lib/submissions";
 import fs from "fs/promises";
@@ -43,15 +43,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (body.title !== undefined || body.memo !== undefined || body.files !== undefined) {
     if (!isOwner && !isAdmin) return NextResponse.json({ error: "본인 제출물만 고칠 수 있습니다." }, { status: 403 });
     if (isOwner && !isAdmin && cur.status === "CHECKED") return NextResponse.json({ error: "본부가 확인한 자료는 고칠 수 없습니다." }, { status: 400 });
+    // 파일 교체는 삭제와 같은 선 — 마감 지남·닫힌 요청이면 본인은 못 바꾼다(검증관 6)
+    if (isOwner && !isAdmin && body.files !== undefined && cur.request) {
+      const due = dateStr(cur.request.dueDate);
+      if (due && due < todayStrKST()) return NextResponse.json({ error: "마감이 지난 제출물의 파일은 바꿀 수 없습니다." }, { status: 400 });
+      const req = await prisma.submissionRequest.findUnique({ where: { id: cur.request.id }, select: { closedAt: true } });
+      if (req?.closedAt) return NextResponse.json({ error: "닫힌 요청의 제출물은 바꿀 수 없습니다." }, { status: 400 });
+    }
     if (typeof body.title === "string") { const t = body.title.trim().slice(0, 150); if (!t) return NextResponse.json({ error: "제목을 입력해주세요." }, { status: 400 }); if (t !== cur.title) { data.title = t; changes.push("제목"); } }
     if (typeof body.memo === "string") { data.memo = body.memo.trim().slice(0, 1000) || null; changes.push("메모"); }
     if (body.files !== undefined) {
       const files = normalizeFiles(body.files);
       if (!files) return NextResponse.json({ error: "파일을 1~10개 올려주세요." }, { status: 400 });
       for (const f of files) {
+        // 이미 이 제출물에 있던 파일은 그대로, 새로 붙는 파일은 본인이 올린 것만
+        const already = (Array.isArray(cur.files) ? (cur.files as unknown as { url: string }[]) : []).some((x) => x.url === f.url);
+        if (!already && !fileBelongsTo(f.url, v.userId) && !isAdmin) return NextResponse.json({ error: `본인이 올린 파일만 넣을 수 있습니다: ${f.name}` }, { status: 400 });
         const p = submissionDiskPath(f.url);
         const st = p ? await fs.stat(p).catch(() => null) : null;
         if (!st?.isFile()) return NextResponse.json({ error: `파일을 찾을 수 없습니다: ${f.name}` }, { status: 400 });
+        f.size = st.size;
         const taken = await prisma.submission.findFirst({ where: { id: { not: id }, files: { array_contains: [{ url: f.url }] } }, select: { id: true } });
         if (taken) return NextResponse.json({ error: `이미 다른 제출물에 있는 파일입니다: ${f.name}` }, { status: 409 });
       }

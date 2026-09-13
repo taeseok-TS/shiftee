@@ -5,8 +5,12 @@ import { resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-ac
 import type { SubmissionFile } from "@/lib/submissions";
 import PizZip from "pizzip";
 import fs from "fs/promises";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+// ZIP 은 메모리에서 만든다(PizZip) — 합계가 이 상한을 넘으면 만들지 않고 안내한다(검증관 4, 컨테이너 OOM 방지)
+const MAX_ZIP_BYTES = 300 * 1024 * 1024;
 
 // 요청의 제출 파일을 ZIP 한 번에 — 본부는 전부, 원장은 담당 지점만. 폴더는 지점/이름_파일명.
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,18 +26,32 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     select: { userName: true, userBranch: true, files: true },
     orderBy: [{ userBranch: "asc" }, { userName: "asc" }],
   });
+  // 먼저 크기 합계 — 상한을 넘으면 메모리에 올리기 전에 거절
+  let total = 0;
+  const entries: { s: (typeof subs)[number]; f: SubmissionFile; p: string }[] = [];
+  for (const s of subs) {
+    for (const f of (Array.isArray(s.files) ? s.files : []) as SubmissionFile[]) {
+      const p = submissionDiskPath(f.url);
+      if (!p) continue;
+      const st = await fs.stat(p).catch(() => null);
+      if (!st?.isFile()) continue;
+      total += st.size;
+      entries.push({ s, f, p });
+    }
+  }
+  if (total > MAX_ZIP_BYTES)
+    return NextResponse.json({ error: `파일 합계가 ${Math.round(total / 1048576)}MB 라 한 번에 묶을 수 없습니다(상한 300MB). 지점·개별 파일로 내려받아주세요.` }, { status: 413 });
+
   const zip = new PizZip();
   const used = new Set<string>();
   let count = 0;
-  for (const s of subs) {
-    const files = (Array.isArray(s.files) ? s.files : []) as SubmissionFile[];
-    for (const f of files) {
-      const p = submissionDiskPath(f.url);
-      if (!p) continue;
+  for (const { s, f, p } of entries) {
+    {
       let buf: Buffer;
       try { buf = await fs.readFile(p); } catch { continue; }
       const folder = (s.userBranch || "지점없음").replace(/[\\/:*?"<>|]/g, "_");
-      let name = `${folder}/${s.userName}_${f.name}`.replace(/[:*?"<>|]/g, "_");
+      const safe = (v: string) => path.basename(v).replace(/[\\/:*?"<>|]/g, "_").replace(/\.{2,}/g, ".");
+      let name = `${folder}/${safe(s.userName)}_${safe(f.name)}`;
       if (used.has(name)) { const dot = name.lastIndexOf("."); name = dot > 0 ? `${name.slice(0, dot)}-${count}${name.slice(dot)}` : `${name}-${count}`; }
       used.add(name);
       zip.file(name, buf);

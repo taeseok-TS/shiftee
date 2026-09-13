@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
         ...(v.role === "MANAGER" ? { OR: [{ targetBranches: { isEmpty: true } }, { targetBranches: { hasSome: v.branches } }] } : {}),
       },
       include: { category: true },
-      orderBy: [{ closedAt: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ closedAt: { sort: "asc", nulls: "first" } }, { dueDate: "asc" }, { createdAt: "desc" }], // 열린 요청 먼저
       take: 200,
     });
     // 대상자·제출자 집계 — 사람 목록은 한 번만 읽고 요청마다 메모리에서 거른다

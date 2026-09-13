@@ -9,7 +9,9 @@
 // 같은 주체로 판정한다 — 계약서 파일 접근과 같은 방식(2026-09-02 사고 이후 원칙).
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { isResigned } from "@/lib/resign";
 import path from "path";
+import crypto from "crypto";
 import { SHARE_ALL, isSubmissionFileUrl } from "@/lib/submissions";
 import type { Prisma } from "@prisma/client";
 
@@ -32,9 +34,10 @@ export async function resolveSubmissionViewer(
   if (!userId) return null;
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, role: true, name: true, branch: true, jobGroup: true, position: true, isActive: true, deletedAt: true, employmentStatus: true },
+    select: { id: true, role: true, name: true, branch: true, jobGroup: true, position: true, isActive: true, deletedAt: true, employmentStatus: true, resignDate: true },
   });
-  if (!u || !u.isActive || u.deletedAt || u.employmentStatus === "RESIGNED") return null;
+  // 퇴사일이 지난 사람은 getSession 과 같은 기준으로 막는다(티켓 경로도 — 검증관 10)
+  if (!u || !u.isActive || u.deletedAt || u.employmentStatus === "RESIGNED" || isResigned(u.resignDate)) return null;
   const role = u.role as SubmissionViewer["role"];
   const branches = role === "MANAGER" ? await getManagerBranches(u.id) : [];
   return { userId: u.id, role, branches, branch: u.branch, jobGroup: u.jobGroup, name: u.name, position: u.position };
@@ -97,6 +100,20 @@ export async function canAccessSubmissionFile(
   if (rows.length === 0) return { allowed: false, status: 404, error: "파일을 찾을 수 없습니다." };
   if (rows.some((r) => canViewSubmission(r, v))) return { allowed: true, status: 200, error: "" };
   return { allowed: false, status: 403, error: "이 자료를 볼 권한이 없습니다." };
+}
+
+/**
+ * 업로더 표식(검증관 7) — 파일명에 올린 사람의 짧은 HMAC 을 박아, 남이 올려 둔(아직 제출 안 한) 파일 URL 을
+ * 자기 제출에 붙이지 못하게 한다. 파일명: <ts>-<rand>-<tag8>-<이름>
+ */
+export function uploaderTag(userId: string): string {
+  return crypto.createHmac("sha256", process.env.JWT_SECRET || "").update(`subup:${userId}`).digest("hex").slice(0, 8);
+}
+export function fileBelongsTo(fileUrl: string, userId: string): boolean {
+  let name = fileUrl.split("/").pop() || "";
+  try { name = decodeURIComponent(name); } catch { /* 그대로 */ }
+  const m = /^\d{13}-[a-z0-9]{1,10}-([0-9a-f]{8})-/.exec(name);
+  return !!m && m[1] === uploaderTag(userId);
 }
 
 /** 첨부 URL → 디스크 경로. uploads/submissions 밖으로 나가면 null. (lib/work-file 과 같은 봉인) */

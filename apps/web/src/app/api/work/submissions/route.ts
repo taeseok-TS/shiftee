@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { resolveSubmissionViewer, sharedSubmissionWhere, submissionDiskPath } from "@/lib/submission-access";
+import { fileBelongsTo, resolveSubmissionViewer, sharedSubmissionWhere, submissionDiskPath } from "@/lib/submission-access";
 import { isTargeted } from "@/lib/submission-targets";
 import { serializeSubmission } from "@/lib/submission-server";
 import { currentYearMonthKST, isYearMonth, normalizeFiles } from "@/lib/submissions";
@@ -63,9 +63,11 @@ export async function POST(request: NextRequest) {
   if (!files) return NextResponse.json({ error: "파일을 1~10개 올려주세요." }, { status: 400 });
   // 올린 파일이 실제로 우리 저장 구역에 있어야 하고, 다른 제출물에 이미 매여 있으면 안 된다
   for (const f of files) {
+    if (!fileBelongsTo(f.url, v.userId)) return NextResponse.json({ error: `본인이 올린 파일만 제출할 수 있습니다: ${f.name}` }, { status: 400 });
     const p = submissionDiskPath(f.url);
     const st = p ? await fs.stat(p).catch(() => null) : null;
     if (!st?.isFile()) return NextResponse.json({ error: `파일을 찾을 수 없습니다: ${f.name}. 다시 올려주세요.` }, { status: 400 });
+    f.size = st.size; // 크기는 디스크 값으로(검증관 11)
     const taken = await prisma.submission.findFirst({ where: { files: { array_contains: [{ url: f.url }] } }, select: { id: true } });
     if (taken) return NextResponse.json({ error: `이미 제출된 파일입니다: ${f.name}` }, { status: 409 });
   }
