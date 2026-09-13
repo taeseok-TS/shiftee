@@ -137,7 +137,7 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
     const ext = extOf(cleaned);
     if (!cleaned || !ALLOWED_EXT.has(ext)) return null;
     // 긴 이름은 확장자를 지키고 앞부분만 자른다(자르고 나서 확장자가 사라지면 엉뚱한 거부가 된다)
-    const cleanName = cleaned.length > 200 ? cleaned.slice(0, 200 - ext.length) + ext : cleaned;
+    const cleanName = cleaned.length > 200 ? cleaned.slice(0, 200 - ext.length).replace(/\.+$/, "") + ext : cleaned;
     seen.add(url);
     out.push({
       url,

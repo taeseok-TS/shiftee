@@ -547,7 +547,8 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
       a.download = m ? decodeURIComponent(m[1]) : "submissions.zip";
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-    } finally { setZipping(false); }
+    } catch { toast.error("ZIP 을 내려받지 못했습니다. 연결을 확인하고 다시 시도해주세요."); }
+    finally { setZipping(false); }
   }
   async function remind() {
     if (!confirm("아직 내지 않은 사람들에게만 봇 DM 으로 독촉합니다. 보낼까요?")) return;
