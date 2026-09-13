@@ -36,26 +36,36 @@ export async function POST(request: NextRequest) {
       limits: { fileSize: MAX_SIZE, files: 1 },
     });
     let sawFile = false;
+    let failCurrent: ((msg: string, status: number) => void) | null = null;
     bb.on("file", (_field, stream, info) => {
       sawFile = true;
       const fileName = info.filename || "file";
       const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_")}`;
-      const dest = createWriteStream(path.join(dir, safeName));
-      stream.pipe(dest);
-      stream.on("limit", () => {
+      const full = path.join(dir, safeName);
+      const dest = createWriteStream(full);
+      // 한 번만 정산 + 실패 시 unpipe/resume, unlink 는 close 뒤 — 자료제출 업로드와 같은 방식(2026-09-13 검증관).
+      // 종전엔 limit 뒤 destroy 한 dest 에 pipe 가 또 써서 error 가 겹치고, 끊김이면 응답 없이 매달렸다.
+      let settled = false;
+      const fail = (msg: string, status: number) => {
+        if (settled) return; settled = true;
+        stream.unpipe(dest); stream.resume();
+        dest.once("close", () => { fs.unlink(full).catch(() => {}); });
         dest.destroy();
-        fs.unlink(path.join(dir, safeName)).catch(() => {});
-        resolve({ _error: "500MB 이하 파일만 업로드할 수 있습니다.", status: 400 });
-      });
-      dest.on("finish", () => resolve({ fileName, safeName }));
-      dest.on("error", () => {
-        fs.unlink(path.join(dir, safeName)).catch(() => {});
-        resolve({ _error: "파일 저장 중 오류가 발생했습니다.", status: 500 });
-      });
+        resolve({ _error: msg, status });
+      };
+      failCurrent = fail;
+      stream.pipe(dest);
+      stream.on("limit", () => fail("500MB 이하 파일만 업로드할 수 있습니다.", 400));
+      stream.on("error", () => fail("업로드 본문을 읽지 못했습니다.", 400));
+      dest.on("finish", () => { if (!settled) { settled = true; resolve({ fileName, safeName }); } });
+      dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다.", 500));
     });
     bb.on("error", () => resolve({ _error: "업로드 본문을 읽지 못했습니다. 다시 시도해주세요.", status: 400 }));
     bb.on("finish", () => { if (!sawFile) resolve({ _error: "파일이 없습니다.", status: 400 }); });
-    Readable.fromWeb(request.body as import("stream/web").ReadableStream).pipe(bb);
+    // 클라이언트가 중간에 끊으면 요청 본문 스트림이 'error' 를 낸다 — 리스너가 없으면 uncaughtException + 핸들러·파일 잔류
+    const src = Readable.fromWeb(request.body as import("stream/web").ReadableStream);
+    src.on("error", () => { failCurrent?.("전송이 끊겼습니다.", 400); resolve({ _error: "전송이 끊겼습니다. 다시 시도해주세요.", status: 400 }); });
+    src.pipe(bb);
   });
 
   if ("_error" in result) return NextResponse.json({ error: result._error }, { status: result.status });

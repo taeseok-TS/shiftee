@@ -78,7 +78,7 @@ export default function SubmissionsScreen() {
     setMine(m.status === "fulfilled" ? m.value : []);
     setShared(s.status === "fulfilled" ? s.value : []);
     // 실패를 "없습니다"로 위장하지 않는다(검증관 P3) — 마감 임박 요청이 있는데 없다고 보이면 안 된다
-    setLoadError([r, m, s].some((x) => x.status === "rejected"));
+    setLoadError([c, r, m, s].some((x) => x.status === "rejected")); // 분류 실패도 포함 — 자유 올리기가 막힌다
   }, []);
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
@@ -239,7 +239,8 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
   // 올리는 중엔 닫지 않는다(검증관 P4) — 닫아도 전송은 계속되고 파일만 서버에 남는다
   const tryClose = () => {
     if (uploading) { Alert.alert("올리는 중", "파일을 올리는 중입니다. 끝난 뒤 닫아주세요."); return; }
-    if (files.length && !saving) {
+    if (saving) { Alert.alert("제출 중", "제출을 처리하는 중입니다. 잠시만 기다려주세요."); return; }
+    if (files.length) {
       Alert.alert("닫을까요?", "올린 파일은 제출하지 않으면 사라집니다.", [{ text: "계속 작성", style: "cancel" }, { text: "닫기", style: "destructive", onPress: onClose }]);
       return;
     }
@@ -268,6 +269,8 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
           <Text style={styles.label}>어디에</Text>
           {request ? (
             <View style={styles.autoBox}><Text style={styles.autoText}>{request.category ? `${CATEGORY_GROUP_LABEL[request.category.group] ?? ""} › ${request.category.name}` : "요청의 분류"}</Text><Text style={styles.autoTag}>요청</Text></View>
+          ) : !categories.some((c) => c.active) ? (
+            <Text style={styles.dropHint}>분류를 불러오지 못했습니다. 목록 화면에서 아래로 당겨 새로고침한 뒤 다시 열어주세요.</Text>
           ) : (
             groups.map((g) => {
               const list = categories.filter((c) => c.group === g && c.active);

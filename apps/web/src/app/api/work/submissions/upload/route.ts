@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       limits: { fileSize: MAX_FILE_BYTES, files: 1 },
     });
     let sawFile = false;
+    let failCurrent: ((msg: string, status: number) => void) | null = null;
     bb.on("file", (_field, stream, info) => {
       sawFile = true;
       const fileName = (info.filename || "file").trim();
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
         dest.destroy();
         resolve({ _error: msg, status });
       };
+      failCurrent = fail;
       stream.pipe(dest);
       stream.on("limit", () => fail("파일당 50MB 이하만 올릴 수 있습니다.", 400));
       stream.on("error", () => fail("업로드 본문을 읽지 못했습니다.", 400));
@@ -63,7 +65,11 @@ export async function POST(request: NextRequest) {
     });
     bb.on("error", () => resolve({ _error: "업로드 본문을 읽지 못했습니다. 다시 시도해주세요.", status: 400 }));
     bb.on("finish", () => { if (!sawFile) resolve({ _error: "파일이 없습니다.", status: 400 }); });
-    Readable.fromWeb(request.body as import("stream/web").ReadableStream).pipe(bb);
+    // 클라이언트가 중간에 끊으면 요청 본문 스트림이 'error' 를 낸다 — 리스너가 없으면 uncaughtException 이 되고
+    // 진행 중 파일·핸들러가 영원히 남는다(9/13 검증관). 정리하고 응답한다. (앱 업로드는 끊김이 잦다)
+    const src = Readable.fromWeb(request.body as import("stream/web").ReadableStream);
+    src.on("error", () => { failCurrent?.("전송이 끊겼습니다.", 400); resolve({ _error: "전송이 끊겼습니다. 다시 시도해주세요.", status: 400 }); });
+    src.pipe(bb);
   });
 
   if ("_error" in result) return NextResponse.json({ error: result._error }, { status: result.status });

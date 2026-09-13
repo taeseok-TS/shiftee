@@ -18,7 +18,7 @@ const statusLabel: Record<string, string> = { active: "사용 중", suspended: "
 export default function AdminApiKeysPage() {
   const [allowed, setAllowed] = useState<AllowedUser[]>([]);
   const [keys, setKeys] = useState<KeyRow[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employees, setEmployees] = useState<Employee[] | null>(null); // null = 아직 못 받음(실패 포함)
   const [q, setQ] = useState("");
   const load = useCallback(() => {
     fetch("/api/admin/api-keys").then((r) => r.json()).then((d) => { setAllowed(d.allowed || []); setKeys(d.keys || []); }).catch(() => {});
@@ -38,7 +38,7 @@ export default function AdminApiKeysPage() {
     toast.success("껐습니다."); load();
   }
   const allowedIds = new Set(allowed.map((a) => a.id));
-  const candidates = q.trim() ? employees.filter((e) => !allowedIds.has(e.id) && (e.name.includes(q.trim()) || (e.branch || "").includes(q.trim()))).slice(0, 8) : [];
+  const candidates = q.trim() && employees ? employees.filter((e) => !allowedIds.has(e.id) && (e.name.includes(q.trim()) || (e.branch || "").includes(q.trim()))).slice(0, 8) : [];
 
   return (
     <div className="p-6 space-y-6 max-w-5xl">
@@ -69,7 +69,7 @@ export default function AdminApiKeysPage() {
                   <span className="text-xs text-indigo-600 shrink-0">허용 추가</span>
                 </button>
               ))}
-              {!candidates.length && <p className="px-3 py-2 text-xs text-gray-400">{employees.length ? "일치하는 직원이 없습니다(이미 허용된 사람은 위 목록에 있습니다)." : "직원 목록을 불러오는 중…"}</p>}
+              {!candidates.length && <p className="px-3 py-2 text-xs text-gray-400">{employees === null ? "직원 목록을 불러오지 못했습니다. 새로고침해주세요." : "일치하는 직원이 없습니다(이미 허용된 사람은 위 목록에 있습니다)."}</p>}
             </div>
           )}
         </div>
