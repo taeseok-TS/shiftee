@@ -30,14 +30,25 @@ export async function resolveSubmissionViewer(
   session: { userId: string; role: string } | null,
   ticketSubject: string | null,
 ): Promise<SubmissionViewer | null> {
-  const userId = session?.userId ?? (ticketSubject?.startsWith("u:") ? ticketSubject.slice(2) : null);
+  // 티켓 주체는 `u:<userId>~<발급 당시 tokenVersion>` (contract-access resolvePrincipal 과 같은 규칙, 2026-09-07).
+  // ~ 뒤가 없으면 옛 티켓(0 으로 본다). 세션 무효화(기기 초기화·비번 초기화) 뒤에는 그 전 티켓이 통하면 안 된다.
+  // (API 키 경로 apiKeyFileSubject 는 `u:<userId>` 만 주므로 ~ 없이 오면 세션번호를 대조하지 않는다 — 키는 이미 재직·허용을 봤다)
+  let userId: string | null = session?.userId ?? null;
+  let ticketTv: number | null = null;
+  if (!userId && ticketSubject?.startsWith("u:")) {
+    const raw = ticketSubject.slice(2);
+    const cut = raw.lastIndexOf("~");
+    userId = cut >= 0 ? raw.slice(0, cut) : raw;
+    if (cut >= 0) { const tvRaw = raw.slice(cut + 1); ticketTv = /^\d+$/.test(tvRaw) ? Number(tvRaw) : NaN; }
+  }
   if (!userId) return null;
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, role: true, name: true, branch: true, jobGroup: true, position: true, isActive: true, deletedAt: true, employmentStatus: true, resignDate: true },
+    select: { id: true, role: true, name: true, branch: true, jobGroup: true, position: true, isActive: true, deletedAt: true, employmentStatus: true, resignDate: true, tokenVersion: true },
   });
   // 퇴사일이 지난 사람은 getSession 과 같은 기준으로 막는다(티켓 경로도 — 검증관 10)
   if (!u || !u.isActive || u.deletedAt || u.employmentStatus === "RESIGNED" || isResigned(u.resignDate)) return null;
+  if (ticketTv !== null && u.tokenVersion !== ticketTv) return null; // 끊긴 세션의 티켓
   const role = u.role as SubmissionViewer["role"];
   const branches = role === "MANAGER" ? await getManagerBranches(u.id) : [];
   return { userId: u.id, role, branches, branch: u.branch, jobGroup: u.jobGroup, name: u.name, position: u.position };

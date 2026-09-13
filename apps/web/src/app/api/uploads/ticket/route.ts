@@ -16,5 +16,7 @@ import { uploadGateGroups } from "@/lib/upload-gate";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  return NextResponse.json({ t: issueUploadTicket(`u:${session.userId}~${session.tv ?? 0}`), gate: uploadGateGroups() });
+  // submissions(자료제출 첨부)는 env 목록과 무관하게 코드에서 늘 잠겨 있다 — 앱이 티켓을 붙이도록 목록에 넣어 준다(2026-09-13)
+  const gate = [...new Set([...uploadGateGroups(), "submissions"])];
+  return NextResponse.json({ t: issueUploadTicket(`u:${session.userId}~${session.tv ?? 0}`), gate });
 }
