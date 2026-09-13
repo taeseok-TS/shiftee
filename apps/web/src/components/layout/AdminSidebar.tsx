@@ -38,6 +38,7 @@ const adminNavItems = [
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
   { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
   { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
+  { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
   { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
 ];
 

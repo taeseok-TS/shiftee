@@ -36,6 +36,7 @@ model User {
   tokenVersion         Int       @default(0)
   notifyApproval       Boolean   @default(true) // 결재 결과 푸시 수신 여부(꺼도 봇 DM 은 남는다) — 본인 설정 (관리자 강제발송 시 무시)
   workMuteAll          Boolean   @default(false) // 큐브티워크 채팅 알림 전체 끄기 — 메시지·투표·공지 푸시만 차단(결재 DM·중요공지 재알림은 유지)
+  apiKeysAllowed       Boolean   @default(false) // 개인 API 키 발급 허용 — 관리자가 켜 준 사람만(2026-09-13 승인 ⑤). 끄면 그 사람 키가 즉시 안 통한다
   passwordResetAt      DateTime? // 관리자가 임시 비번(1234)으로 초기화한 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
   hireDate             DateTime?
   isActive             Boolean          @default(true)
@@ -849,6 +850,7 @@ model WorkMessage {
   editedAt  DateTime? // 수정됨 표시
   deletedAt DateTime? // 메시지 삭제(되돌리기) — 내용 숨기고 "삭제된 메시지" 표시
   system    Boolean     @default(false) // 시스템 알림(이름 변경 등) — 중앙 회색 문구로 렌더
+  apiKeyId  String? // 개인 API 키로 올린 메시지(2026-09-13) — 감사용. 표시는 본문 앞 "🤖 " 로 어디서나 보인다
   // 투표 메시지: pollId가 있으면 버블을 투표 카드로 렌더
   pollId    String?
   poll      WorkPoll?   @relation(fields: [pollId], references: [id], onDelete: SetNull)
@@ -992,6 +994,30 @@ model Submission {
   @@index([categoryId])
   @@index([createdAt])
   @@index([shared])
+}
+
+// ─── 개인 API 키 (2026-09-13 디렉터 승인 기획 2단계) ─────────────────
+// 직원 본인 이름의 키. /api/v1/* 에서만 통하고, 할 수 있는 일은 그 직원이 화면에서 할 수 있는 것 중
+// 자료제출·채팅(본인이 속한 방)뿐. 원문은 발급 때 한 번만 보여 주고 해시만 둔다.
+// ⚠ 운영 DB 는 `deploy/ddl_apikeys.sql` 을 손으로 먼저 적용한다.
+model ApiKey {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String // 용도 — "과제 자동 제출 (Claude)"
+  prefix        String // 원문 앞 8자(cbt_pk_ 뒤) — 목록에서 어느 키인지 알아보는 용
+  keyHash       String    @unique // sha256(원문)
+  scopes        String[]  @default([]) // submissions:read|submissions:write|chat:read|chat:write
+  channelIds    String[]  @default([]) // chat:write 가 허용된 방(본인이 속한 방 중 고른 것)
+  expiresAt     DateTime
+  lastUsedAt    DateTime?
+  lastUsedIp    String? // 앞 두 자리만
+  suspendedAt   DateTime? // 이상 감지로 멈춤(본인이 다시 켤 수 있다)
+  suspendReason String?
+  revokedAt     DateTime?
+  revokedBy     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // ─── 시프티워크: 화상회의 ─────────────────────────────────────

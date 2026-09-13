@@ -53,6 +53,8 @@ export async function PATCH(
     // "폰을 잃어버려서 비번을 바꿨다"가 정작 탈취된 세션을 못 끊으면 의미가 없다
     // (2026-09-07 검증에서 적발). 새 비번으로 다시 로그인하면 된다.
     await bumpTokenVersion(id).catch(() => {});
+    // 개인 API 키도 전부 끈다 — 계정이 넘어갔을 가능성을 전제로 초기화하는 것이라 키도 같은 취급(2026-09-13 기획 2-4 ⑨)
+    await prisma.apiKey.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedBy: session.userId } }).catch(() => {});
 
     await logAudit({
       actorId: session.userId,

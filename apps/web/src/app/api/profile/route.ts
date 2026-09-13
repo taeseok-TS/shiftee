@@ -29,6 +29,7 @@ export async function GET(_request: NextRequest) {
         role: true,
         avatarUrl: true,
         signatureUrl: true,
+        apiKeysAllowed: true, // 환경설정 "AI 연결 키" 탭 표시 여부(2026-09-13)
       },
     });
 

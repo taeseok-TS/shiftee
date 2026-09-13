@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ApiKeysPanel } from "@/components/profile/ApiKeysPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ interface User {
   birthDate: string | null;
   role: string;
   avatarUrl?: string | null;
+  apiKeysAllowed?: boolean; // 본부가 API 키 발급을 허용한 계정 — "AI 연결 키" 탭 표시 (2026-09-13)
 }
 
 /**
@@ -288,9 +290,23 @@ export default function ProfilePage() {
           >
             보안
           </button>
+          {user.apiKeysAllowed && (
+            <button
+              onClick={() => setTabValue(2)}
+              className={`flex-1 py-3 px-4 text-sm font-medium text-center border-b-2 transition-colors ${
+                tabValue === 2
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              AI 연결 키
+            </button>
+          )}
         </div>
 
         <CardContent className="pt-6">
+          {/* 탭 3: AI 연결 키 — 본부가 허용한 계정만 (2026-09-13) */}
+          {tabValue === 2 && user.apiKeysAllowed && <ApiKeysPanel />}
           {/* 탭 1: 기본 정보 (읽기 전용) */}
           {tabValue === 0 && (
             <div className="space-y-4">
