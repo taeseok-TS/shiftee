@@ -9,10 +9,12 @@ export type JobGroup = (typeof JOB_GROUPS)[number];
 /** shareJobGroups 에 이 값이 있으면 전 직원 공유 */
 export const SHARE_ALL = "*";
 
-export const CATEGORY_GROUPS = ["EDU", "PROMO", "EVENT"] as const;
+export const CATEGORY_GROUPS = ["EDU", "PROMO", "EVENT", "MARKETING"] as const;
 export const CATEGORY_GROUP_LABEL: Record<(typeof CATEGORY_GROUPS)[number], string> = {
-  EDU: "교육", PROMO: "본부 프로모션", EVENT: "본부 이벤트",
+  EDU: "교육", PROMO: "본부 프로모션", EVENT: "본부 이벤트", MARKETING: "마케팅 자료",
 };
+/** 자료제출 화면(교육·프로모션·이벤트)에 보이는 구분 — 마케팅 자료는 별도 메뉴(/work/marketing)에서만 */
+export const SUBMISSION_GROUPS = ["EDU", "PROMO", "EVENT"] as const;
 
 export const SUBMISSION_STATUSES = ["SUBMITTED", "CHECKED"] as const;
 

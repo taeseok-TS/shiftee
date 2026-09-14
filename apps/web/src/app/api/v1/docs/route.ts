@@ -66,6 +66,21 @@ curl -X POST ${base}/submissions \\
 \`POST /chat/channels/{id}/messages\` JSON \`{ "content": "…" }\` (2,000자까지)
 → 올라간 메시지는 앞에 🤖 표시가 붙어 자동 전송임이 보입니다. 키 생성 때 고르지 않은 방은 403.
 
+## 마케팅 자료 — 회사 연동 키 전용 (scope: marketing:read / marketing:publish)
+
+본부가 \`/admin/api-keys\` 에서 발급한 **회사 연동 키**로만 됩니다(개인 키 불가). 큐브마케팅이 지점이 올린 마케팅 자료를 가져가 블로그에 발행하고 결과를 되돌려주는 창구입니다.
+
+### 가져가기
+\`GET /marketing/materials?status=new|published|all&since=<ISO 시각>&limit=50&cursor=<id>\` (기본 status=new — 아직 발행되지 않은 것)
+→ \`{ materials: [{ id, title, description, category: {id,name}, branch, uploader: {name, jobGroup, position}, yearMonth, consent: true, files: [{url(절대 주소), name, size, type}], publishedAt, publishedUrl, createdAt }], nextCursor }\`
+- 개인정보 동의 체크가 된 자료만 나옵니다. 검수(얼굴·이름·성적 가림 확인)는 가져가는 쪽 책임입니다.
+- 파일은 \`files[].url\` 에 같은 Authorization 헤더로 GET. 워드·PPT·엑셀 PDF 미리보기는 \`GET ${getAppUrl()}/api/docs/pdf?src=<url>\`.
+- 오래된 순(createdAt 오름차순). \`nextCursor\` 가 있으면 \`cursor=\` 로 이어서 받습니다. 주기 폴링은 마지막으로 본 \`createdAt\` 을 \`since\` 로.
+
+### 발행 결과 되돌려주기
+\`POST /marketing/materials/{id}/published\` JSON \`{ "url": "https://blog…", "note": "선택" }\`
+→ 자료에 발행 시각·주소가 기록되고, 올린 직원에게 봇 DM "블로그에 발행되었습니다 + 주소"가 갑니다. 같은 자료에 다시 보내면 주소를 갱신합니다.
+
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
 - 한도(429)에 걸린 요청이 1시간에 600회를 넘으면 — 즉 한도를 넘겨도 계속 두드리면 — 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다. 429 를 받으면 기다렸다가 다시 보내세요.

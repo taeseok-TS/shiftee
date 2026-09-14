@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
   if (!title) return NextResponse.json({ error: "제목을 입력해주세요." }, { status: 400 });
   const category = typeof body.categoryId === "string" ? await prisma.submissionCategory.findUnique({ where: { id: body.categoryId } }) : null;
   if (!category || !category.active) return NextResponse.json({ error: "분류를 선택해주세요." }, { status: 400 });
+  if (category.group === "MARKETING") return NextResponse.json({ error: "마케팅 자료는 제출 요청 대상이 아닙니다(자유 올리기만)." }, { status: 400 });
   const targetJobGroups = pickJobGroups(body.targetJobGroups);
   if (!targetJobGroups) return NextResponse.json({ error: "대상 직군이 올바르지 않습니다." }, { status: 400 });
   const targetBranches = await pickBranches(body.targetBranches);

@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
@@ -13,6 +13,7 @@ const workNavItems = [
   { href: "/work/calendar", label: "캘린더", icon: CalendarDays },
   { href: "/work/meeting", label: "화상회의", icon: Video },
   { href: "/work/submissions", label: "자료제출", icon: FileUp }, // 2026-09-13 디렉터 승인 기획 1단계
+  { href: "/work/marketing", label: "마케팅 자료", icon: Camera }, // 2026-09-14 본부장 과제 — 지점 마케팅 자료 올리기 → 큐브마케팅 블로그 발행
 ];
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),

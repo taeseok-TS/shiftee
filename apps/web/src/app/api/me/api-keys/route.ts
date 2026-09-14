@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { API_SCOPES, DEFAULT_TTL_DAYS, MAX_KEYS_PER_USER, MAX_TTL_DAYS, generateApiKey, publicKey, type ApiScope } from "@/lib/api-key";
+import { PERSONAL_SCOPES, DEFAULT_TTL_DAYS, MAX_KEYS_PER_USER, MAX_TTL_DAYS, generateApiKey, publicKey, type ApiScope } from "@/lib/api-key";
 import { channelAccessible } from "@/lib/work-post";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { apiKeysAllowed: true } });
-  const keys = await prisma.apiKey.findMany({ where: { userId: session.userId }, orderBy: { createdAt: "desc" } });
+  const keys = await prisma.apiKey.findMany({ where: { userId: session.userId, kind: "PERSONAL" }, orderBy: { createdAt: "desc" } });
   return NextResponse.json({ allowed: !!me?.apiKeysAllowed, keys: keys.map(publicKey) });
 }
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
   if (!name) return NextResponse.json({ error: "용도를 적어주세요. (예: 과제 자동 제출)" }, { status: 400 });
   const scopes: ApiScope[] = Array.isArray(body.scopes)
-    ? [...new Set((body.scopes as unknown[]).filter((s): s is ApiScope => typeof s === "string" && (API_SCOPES as readonly string[]).includes(s)))]
+    ? [...new Set((body.scopes as unknown[]).filter((s): s is ApiScope => typeof s === "string" && (PERSONAL_SCOPES as readonly string[]).includes(s)))]
     : [];
   if (!scopes.length) return NextResponse.json({ error: "권한을 하나 이상 골라주세요." }, { status: 400 });
   const ttlRaw = Number(body.ttlDays);
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
     channelIds = wanted;
   }
-  const liveCount = await prisma.apiKey.count({ where: { userId: session.userId, revokedAt: null, expiresAt: { gt: new Date() } } });
+  const liveCount = await prisma.apiKey.count({ where: { userId: session.userId, kind: "PERSONAL", revokedAt: null, expiresAt: { gt: new Date() } } });
   if (liveCount >= MAX_KEYS_PER_USER) return NextResponse.json({ error: `키는 ${MAX_KEYS_PER_USER}개까지 둘 수 있습니다. 안 쓰는 키를 끄고 만들어주세요.` }, { status: 400 });
 
   const { raw, prefix, hash } = generateApiKey();

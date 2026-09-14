@@ -985,6 +985,11 @@ model Submission {
   shareJobGroups String[] @default([]) // 공유 대상 직군. "*" 는 전체
   sharedBy     String?
   sharedAt     DateTime?
+  // 마케팅 자료(2026-09-14, 본부장 과제): 개인정보 동의 체크 + 큐브마케팅 발행 결과
+  consent      Boolean  @default(false) // "얼굴·이름·성적은 동의를 받았거나 가렸습니다" — MARKETING 분류는 필수
+  publishedAt  DateTime? // 큐브마케팅이 블로그 발행 뒤 되돌려준 시각
+  publishedUrl String?
+  publishedBy  String? // 되돌려준 연동 키 이름
   deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -1003,6 +1008,7 @@ model Submission {
 model ApiKey {
   id            String    @id @default(cuid())
   userId        String
+  kind          String    @default("PERSONAL") // PERSONAL(직원 본인) | ORG(회사 연동 — 본부가 발급, 큐브마케팅 등 외부 프로그램용, 2026-09-14)
   name          String // 용도 — "과제 자동 제출 (Claude)"
   prefix        String // 원문 앞 8자(cbt_pk_ 뒤) — 목록에서 어느 키인지 알아보는 용
   keyHash       String    @unique // sha256(원문)

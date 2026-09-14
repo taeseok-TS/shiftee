@@ -11,7 +11,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
-  const key = await prisma.apiKey.findFirst({ where: { id, userId: session.userId } });
+  const key = await prisma.apiKey.findFirst({ where: { id, userId: session.userId, kind: "PERSONAL" } }); // 회사 연동 키는 관리자 화면에서만
   if (!key) return NextResponse.json({ error: "키를 찾을 수 없습니다." }, { status: 404 });
   if (!key.revokedAt) {
     await prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date(), revokedBy: session.userId } });

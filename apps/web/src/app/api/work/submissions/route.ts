@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
   const branch = sp.get("branch"); if (branch && scope !== "mine") where.userBranch = scope === "branch" && v.role === "MANAGER" && !v.branches.includes(branch) ? { in: [] } : branch;
   const jobGroup = sp.get("jobGroup"); if (jobGroup) where.userJobGroup = jobGroup;
   const requestId = sp.get("requestId"); if (requestId) where.requestId = requestId;
+  // 구분 필터 — 마케팅 자료(/work/marketing)와 자료제출(/work/submissions)은 같은 표를 쓰되 화면을 나눈다(2026-09-14)
+  const group = sp.get("group"); if (group) where.category = { group };
+  else if (sp.get("excludeMarketing") === "1") where.category = { group: { not: "MARKETING" } };
   const q = (sp.get("q") || "").trim();
   if (q) where.OR = [{ title: { contains: q, mode: "insensitive" } }, { userName: { contains: q, mode: "insensitive" } }];
 
@@ -88,11 +91,16 @@ export async function POST(request: NextRequest) {
   const title = (typeof body.title === "string" ? body.title.trim() : "").slice(0, 150) || files[0].name.replace(/\.[^.]+$/, "");
   const memo = typeof body.memo === "string" ? body.memo.trim().slice(0, 1000) || null : null;
   const yearMonth = isYearMonth(body.yearMonth) ? body.yearMonth : currentYearMonthKST();
+  // 마케팅 자료는 외부(블로그)로 나갈 수 있어 개인정보 동의 체크가 필수(2026-09-14 디렉터 확정)
+  const consent = body.consent === true;
+  if (category.group === "MARKETING" && !consent)
+    return NextResponse.json({ error: "학생 얼굴·이름·성적이 보이는 경우 동의를 받았거나 가렸다는 확인에 체크해주세요." }, { status: 400 });
 
   const row = await prisma.submission.create({
     data: {
       requestId: requestRow?.id ?? null,
       categoryId: category.id,
+      consent,
       userId: v.userId,
       userName: v.name,
       userBranch: v.branch,

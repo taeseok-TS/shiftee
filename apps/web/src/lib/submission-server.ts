@@ -73,6 +73,9 @@ export function serializeSubmission(s: Submission & { category?: SubmissionCateg
     shared: s.shared,
     shareJobGroups: s.shareJobGroups,
     sharedAt: s.sharedAt,
+    consent: s.consent,
+    publishedAt: s.publishedAt,
+    publishedUrl: s.publishedUrl,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
   };

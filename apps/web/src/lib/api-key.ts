@@ -12,13 +12,18 @@ import { isResigned } from "@/lib/resign";
 import { maskIp } from "@/lib/mask-ip";
 import type { ApiKey } from "@prisma/client";
 
-export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write"] as const;
+export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish"] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
+/** 직원 본인이 만드는 개인 키에 허용되는 범위 — marketing:* 는 본부가 발급하는 회사 연동 키(ORG)에만 */
+export const PERSONAL_SCOPES: readonly ApiScope[] = ["submissions:read", "submissions:write", "chat:read", "chat:write"];
+export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish"];
 export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "submissions:read": "자료제출 읽기 — 내야 할 것·내 제출·공유 자료",
   "submissions:write": "자료제출 쓰기 — 파일 올리고 제출",
   "chat:read": "채팅 읽기 — 내가 속한 방과 새 메시지",
   "chat:write": "채팅 쓰기 — 고른 방에 메시지 올리기",
+  "marketing:read": "마케팅 자료 읽기 — 지점이 올린 마케팅 자료·파일 가져가기 (회사 연동)",
+  "marketing:publish": "마케팅 발행 결과 — 블로그 발행 주소 되돌려주기 (회사 연동)",
 };
 export const KEY_PREFIX = "cbt_pk_";
 export const MAX_TTL_DAYS = 365;
@@ -102,7 +107,10 @@ export async function authenticateApiKey(
   });
   if (!u || !u.isActive || u.deletedAt || u.employmentStatus === "RESIGNED" || isResigned(u.resignDate))
     return { ok: false, res: v1Error(401, "사용할 수 없는 계정입니다.", "USER_INACTIVE") };
-  if (!u.apiKeysAllowed) return { ok: false, res: v1Error(403, "API 키 사용 허용이 꺼져 있습니다. 본부에 문의해주세요.", "NOT_ALLOWED") };
+  // 회사 연동 키(ORG)는 본부 관리자가 발급한 것이라 "발급 허용" 스위치와 무관. 발급자가 관리자에서 내려오면 죽는다.
+  if (key.kind === "ORG") {
+    if (u.role !== "ADMIN") return { ok: false, res: v1Error(403, "연동 키의 발급자가 더 이상 관리자가 아닙니다. 본부에서 새 키를 발급해주세요.", "ORG_OWNER_NOT_ADMIN") };
+  } else if (!u.apiKeysAllowed) return { ok: false, res: v1Error(403, "API 키 사용 허용이 꺼져 있습니다. 본부에 문의해주세요.", "NOT_ALLOWED") };
 
   // 속도 제한. 거부(429)는 하루 집계를 소모하지 않는다 — 폭주 스크립트가 몇 분 만에 그날 한도를 태우지 않게.
   const now = new Date();
@@ -151,7 +159,11 @@ async function suspendKey(key: ApiKey, reason: string) {
  */
 export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject: string; res: null } | { subject: null; res: NextResponse | null }> {
   if (!/^Bearer\s+cbt_pk_/i.test(request.headers.get("authorization") || "")) return { subject: null, res: null }; // 키가 아니면 관여 안 함
-  const a = await authenticateApiKey(request, "submissions:read");
+  // 개인 키는 submissions:read, 회사 연동 키는 marketing:read 로 파일을 받는다
+  const probe = await authenticateApiKey(request, null);
+  if (probe.ok === false) return { subject: null, res: probe.res };
+  const scope: ApiScope = probe.p.key.scopes.includes("marketing:read") && !probe.p.key.scopes.includes("submissions:read") ? "marketing:read" : "submissions:read";
+  const a = await authenticateApiKey(request, scope);
   // 429·403(멈춤·범위 없음) 을 401 로 뭉개지 않는다 — 클라이언트가 키가 깨진 줄 알고 재발급하지 않게(재검증관 3)
   if (a.ok === false) return { subject: null, res: a.res }; // strictNullChecks 없이는 삼항의 !a.ok 로 좁혀지지 않는다
   return { subject: `u:${a.p.user.id}`, res: null };
@@ -160,7 +172,7 @@ export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject
 /** 목록 응답용 — 원문·해시는 절대 싣지 않는다 */
 export function publicKey(k: ApiKey) {
   return {
-    id: k.id, name: k.name, prefix: k.prefix, scopes: k.scopes, channelIds: k.channelIds,
+    id: k.id, kind: k.kind, name: k.name, prefix: k.prefix, scopes: k.scopes, channelIds: k.channelIds,
     expiresAt: k.expiresAt, lastUsedAt: k.lastUsedAt, lastUsedIp: k.lastUsedIp,
     suspendedAt: k.suspendedAt, suspendReason: k.suspendReason, revokedAt: k.revokedAt, createdAt: k.createdAt,
     status: k.revokedAt ? "revoked" : k.suspendedAt ? "suspended" : k.expiresAt.getTime() < Date.now() ? "expired" : "active",

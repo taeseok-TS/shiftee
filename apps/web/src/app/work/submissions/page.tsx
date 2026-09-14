@@ -18,7 +18,7 @@ import {
 } from "@/lib/submissions";
 
 type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; branch: string | null; jobGroup: string | null; position: string | null };
-type Category = { id: string; group: "EDU" | "PROMO" | "EVENT"; name: string; sortOrder: number; active: boolean };
+type Category = { id: string; group: "EDU" | "PROMO" | "EVENT" | "MARKETING"; name: string; sortOrder: number; active: boolean };
 type Req = {
   id: string; title: string; description: string | null; categoryId: string; category?: { id: string; group: string; name: string };
   targetJobGroups: string[]; targetBranches: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
@@ -201,7 +201,7 @@ function SubmissionList({ me, scope, categories, reloadKey, onChanged, onEdit }:
     }
   }, [scope]);
   useEffect(() => {
-    const qs = new URLSearchParams({ scope });
+    const qs = new URLSearchParams({ scope, excludeMarketing: "1" }); // 마케팅 자료는 /work/marketing 에서만
     Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
     const my = stamp;
     fetch(`/api/work/submissions?${qs}`).then((r) => r.json()).then((d) => setData({ stamp: my, rows: d.submissions || [] })).catch(() => setData({ stamp: my, rows: [] }));
@@ -613,7 +613,7 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
 // ─── 분류 관리(본부) ────────────────────────────────────────
 function CategoryManager({ categories, onChanged }: { categories: Category[]; onChanged: () => void }) {
   const [name, setName] = useState("");
-  const [group, setGroup] = useState<"EDU" | "PROMO" | "EVENT">("EDU");
+  const [group, setGroup] = useState<"EDU" | "PROMO" | "EVENT" | "MARKETING">("EDU");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   async function call(url: string, method: string, body: unknown) {
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -624,11 +624,12 @@ function CategoryManager({ categories, onChanged }: { categories: Category[]; on
   return (
     <div className="space-y-4 max-w-2xl">
       <div className="flex gap-2 items-end flex-wrap">
-        <div><label className="text-xs text-gray-500">구분</label><select className={`${selectCls} block`} value={group} onChange={(e) => setGroup(e.target.value as typeof group)}>{(["EDU", "PROMO", "EVENT"] as const).map((g) => <option key={g} value={g}>{CATEGORY_GROUP_LABEL[g]}</option>)}</select></div>
+        <div><label className="text-xs text-gray-500">구분</label><select className={`${selectCls} block`} value={group} onChange={(e) => setGroup(e.target.value as typeof group)}>{(["EDU", "PROMO", "EVENT", "MARKETING"] as const).map((g) => <option key={g} value={g}>{CATEGORY_GROUP_LABEL[g]}</option>)}</select></div>
         <div className="flex-1 min-w-[160px]"><label className="text-xs text-gray-500">새 분류 이름</label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 신규 원장 교육" /></div>
         <Button className="gap-1 bg-indigo-600 hover:bg-indigo-700" disabled={!name.trim()} onClick={async () => { if (await call("/api/work/submissions/categories", "POST", { group, name })) { setName(""); toast.success("추가했습니다."); } }}><Plus size={16} />추가</Button>
       </div>
-      {(["EDU", "PROMO", "EVENT"] as const).map((g) => (
+      {/* 마케팅 자료 유형도 여기서 관리한다(화면은 /work/marketing 별도) */}
+      {(["EDU", "PROMO", "EVENT", "MARKETING"] as const).map((g) => (
         <div key={g} className="bg-white border rounded-lg">
           <p className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 border-b">{CATEGORY_GROUP_LABEL[g]}</p>
           {categories.filter((c) => c.group === g).map((c) => (
