@@ -648,7 +648,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>취소</Button>
-          <Button disabled={saving || (people !== null && preview.length === 0)} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : req ? "저장" : "요청 걸기"}</Button>
+          <Button disabled={saving || people === null || preview.length === 0} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : people === null ? "직원 목록 불러오는 중…" : req ? "저장" : "요청 걸기"}</Button>
         </div>
       </DialogContent>
     </Dialog>

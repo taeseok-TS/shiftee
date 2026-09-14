@@ -27,14 +27,18 @@ export function pickJobGroups(v: unknown, allowAll = false): string[] | null {
 /** 지점 목록 검증 — Branch 표에 있는 이름만 */
 /** 직접 지정 대상 검증 — 문자열 id 배열(최대 300), 전원이 제출 대상 자격(재직·본부 아님)이어야 한다. 검증된 사람 목록을 돌려준다.
  *  값이 없으면 [] (직군·지점 방식), 형식이 틀리거나 자격 없는 id 가 섞이면 null. */
-export async function pickTargetUsers(v: unknown): Promise<{ ids: string[]; users: TargetUser[] } | null> {
+export async function pickTargetUsers(v: unknown, opts: { tolerate?: string[] } = {}): Promise<{ ids: string[]; users: TargetUser[] } | null> {
   if (v === undefined || v === null) return { ids: [], users: [] };
   if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return null;
   const ids = [...new Set(v as string[])].filter(Boolean);
   if (!ids.length) return { ids: [], users: [] };
   if (ids.length > 300) return null;
   const users = await targetUsersFor({ targetJobGroups: [], targetBranches: [], targetUserIds: ids });
-  if (users.length !== ids.length) return null;
+  // 수정 때: 이미 걸려 있던 사람이 그 사이 퇴사했으면 조용히 뺀다(그 요청을 영영 못 고치는 일 방지). 새로 넣는 id 는 여전히 자격이 있어야 한다.
+  const found = new Set(users.map((u) => u.id));
+  const tolerate = new Set(opts.tolerate ?? []);
+  if (ids.some((id) => !found.has(id) && !tolerate.has(id))) return null;
+  if (!users.length) return null; // 전원 퇴사 — 조용히 "전 직군"으로 풀리면 수십 명에게 나가므로 거절(화면에서 다시 고르게)
   // 저장 순서는 지점·이름순으로 정돈
   return { ids: users.map((u) => u.id), users };
 }

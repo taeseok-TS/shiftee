@@ -79,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // 받는 사람 — 사람을 콕 집으면 직군·지점은 비우고, 직군·지점으로 바꾸면 사람 지정은 비운다(섞지 않는다)
   let picked: Awaited<ReturnType<typeof pickTargetUsers>> = null;
   if (body.targetUserIds !== undefined) {
-    picked = await pickTargetUsers(body.targetUserIds);
+    picked = await pickTargetUsers(body.targetUserIds, { tolerate: cur.targetUserIds });
     if (!picked) return NextResponse.json({ error: "받는 사람이 올바르지 않습니다(퇴사자·본부는 넣을 수 없습니다)." }, { status: 400 });
     const same = picked.ids.length === cur.targetUserIds.length && picked.ids.every((x) => cur.targetUserIds.includes(x));
     if (!same) {
