@@ -116,7 +116,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.closed !== wasClosed) { data.closedAt = body.closed ? new Date() : null; changes.push(body.closed ? "닫음" : "다시 엶"); }
   }
   if (!changes.length) return NextResponse.json({ error: "바꿀 내용이 없습니다." }, { status: 400 });
+  // 바뀐 뒤 받는 사람이 0명이면 막는다(POST 와 같은 규칙 — 화면은 미리보기로 막지만 API 직접 호출 대비)
+  const after = {
+    targetJobGroups: (data.targetJobGroups as string[] | undefined) ?? cur.targetJobGroups,
+    targetBranches: (data.targetBranches as string[] | undefined) ?? cur.targetBranches,
+    targetUserIds: (data.targetUserIds as string[] | undefined) ?? cur.targetUserIds,
+  };
+  if (data.targetJobGroups !== undefined || data.targetBranches !== undefined || data.targetUserIds !== undefined) {
+    if (!(await targetUsersFor(after)).length) return NextResponse.json({ error: "이 조건에 맞는 직원이 없습니다. 받는 사람을 다시 골라주세요." }, { status: 400 });
+  }
   const row = await prisma.submissionRequest.update({ where: { id }, data, include: { category: true } });
   await logAudit({ actorId: session.userId, actorName: session.name, action: "SUBMISSION_REQUEST_UPDATE", targetType: "SUBMISSION_REQUEST", targetId: id, targetName: row.title, detail: changes.join(", ") });
+  // 받는 사람이 새로 추가됐고 요청이 열려 있으면 그 사람들에게만 "내야 할 자료" DM (기존 대상자는 다시 받지 않는다)
+  if (data.targetUserIds !== undefined && !row.closedAt) {
+    const before = new Set(cur.targetUserIds.length ? cur.targetUserIds : (await targetUsersFor(cur)).map((u) => u.id));
+    const added = (data.targetUserIds as string[]).filter((x) => !before.has(x));
+    if (added.length) { const { notifyRequestCreated } = await import("@/lib/submission-notify"); void notifyRequestCreated(id, added); }
+  }
   return NextResponse.json({ request: serializeRequest(row) });
 }

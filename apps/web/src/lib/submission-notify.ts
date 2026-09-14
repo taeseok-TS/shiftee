@@ -34,11 +34,14 @@ async function sendMany(userIds: string[], content: string) {
   for (const id of userIds) await botSendDM(id, content, { respectWorkMute: true });
 }
 
-export async function notifyRequestCreated(requestId: string) {
+/** 요청 생성 알림. onlyUserIds 를 주면 그 사람들에게만(수정으로 받는 사람이 추가됐을 때) */
+export async function notifyRequestCreated(requestId: string, onlyUserIds?: string[]) {
   try {
     const r = await loadRequest(requestId);
     if (!r) return;
-    const targets = await targetUsersFor(r);
+    const all = await targetUsersFor(r);
+    const targets = onlyUserIds ? all.filter((t) => onlyUserIds.includes(t.id)) : all;
+    if (!targets.length) return;
     const msg =
       `📤 내야 할 자료가 생겼습니다\n「${r.title}」\n` +
       `분류 ${r.category.name} · ${dueText(r.dueDate)}` +

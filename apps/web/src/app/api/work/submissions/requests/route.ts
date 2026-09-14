@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         const done = subBy.get(r.id) ?? new Set<string>();
         const submitted = targets.filter((t) => done.has(t.id)).length;
         // 직접 지정이면 이름 몇 개를 같이 실어 목록에 "직접 지정 7명 (김○○·이○○·박○○ 외 4명)" 로 보인다
-        const names = r.targetUserIds.length ? everyone.filter((u) => r.targetUserIds.includes(u.id)).map((u) => u.name) : [];
+        const names = r.targetUserIds.length ? pool.filter((u) => r.targetUserIds.includes(u.id)).map((u) => u.name) : []; // 원장은 담당 지점 사람 이름만
         return { ...serializeRequest(r), targetCount: targets.length, submittedCount: submitted, targetLabel: targetLabel(r, names) };
       }),
     });

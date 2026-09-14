@@ -456,7 +456,7 @@ function RequestsTab({ me, categories, reloadKey, onChanged }: { me: Me; categor
         : rows.map((r) => {
           const d = dday(r.dueDate); const pct = r.targetCount ? Math.round(((r.submittedCount ?? 0) / r.targetCount) * 100) : 0;
           return (
-            <div key={r.id} role="button" tabIndex={0} onClick={() => setDetailId(r.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailId(r.id); } }} className="w-full text-left bg-white border rounded-lg p-3 hover:border-indigo-300 cursor-pointer">
+            <div key={r.id} role="button" tabIndex={0} onClick={() => setDetailId(r.id)} onKeyDown={(e) => { if (e.target !== e.currentTarget) return; /* 안쪽 버튼(같은 대상으로 다시)의 Enter 는 그 버튼 몫 */ if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailId(r.id); } }} className="w-full text-left bg-white border rounded-lg p-3 hover:border-indigo-300 cursor-pointer">
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{r.title} {r.closedAt && <Chip tone="grey">닫힘</Chip>}</p>
