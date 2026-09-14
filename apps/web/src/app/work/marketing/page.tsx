@@ -75,7 +75,11 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
       .catch(() => setData({ stamp: my, rows: [] }));
   }, [scope, categoryId, reloadKey, stamp]);
   async function remove(s: Sub) {
-    if (!confirm(`「${s.title}」 자료를 지울까요?`)) return;
+    // 발행된 자료는 본부만 지울 수 있고, 지우면 큐브마케팅이 파일을 다시 가져갈 수 없다 — 확인창으로 한 번 더 (2026-09-14 디렉터 결정: 잠금 대신 확인창)
+    const msg = s.publishedAt
+      ? `「${s.title}」은(는) 이미 블로그에 발행된 자료입니다.\n지우면 큐브마케팅이 이 자료의 파일을 다시 가져갈 수 없습니다(발행된 글은 그대로 남습니다).\n그래도 지울까요?`
+      : `「${s.title}」 자료를 지울까요?`;
+    if (!confirm(msg)) return;
     const res = await fetch(`/api/work/submissions/${s.id}`, { method: "DELETE" });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(d.error || "지우지 못했습니다."); return; }
@@ -113,7 +117,7 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
                       <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}<ExternalLink size={10} />
                     </a>
                   ) : <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-100 text-gray-600 border-gray-200">발행 대기</span>}
-                  {(isOwner || me.role === "ADMIN") && !s.publishedAt && <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-600" onClick={() => remove(s)}><Trash2 size={12} /></Button>}
+                  {((isOwner && !s.publishedAt) || me.role === "ADMIN") && <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-600" onClick={() => remove(s)}><Trash2 size={12} /></Button>}
                 </div>
               </div>
               {images.length > 0 && (
