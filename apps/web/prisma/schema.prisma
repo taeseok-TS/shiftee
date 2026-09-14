@@ -939,6 +939,18 @@ model SubmissionCategory {
 }
 
 // 본부가 거는 "제출 요청" — 대상(직군·지점)과 마감이 있고, 현황표·독촉의 단위가 된다
+// 받는 사람 묶음 — 본부가 자주 쓰는 대상 조합(예: "교육 CM 7명")을 이름 붙여 저장. 본부 관리자 공용.
+// 사람 id 목록만 저장하고, 쓸 때 재직자만 남긴다(퇴사자는 자동으로 빠짐).
+model SubmissionTargetGroup {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  userIds       String[] @default([])
+  createdBy     String
+  createdByName String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model SubmissionRequest {
   id                String    @id @default(cuid())
   title             String
@@ -947,6 +959,7 @@ model SubmissionRequest {
   category          SubmissionCategory @relation(fields: [categoryId], references: [id])
   targetJobGroups   String[]  @default([]) // 빈 배열 = 전 직군(본부 제외)
   targetBranches    String[]  @default([]) // 빈 배열 = 전 지점
+  targetUserIds     String[]  @default([]) // 비어 있지 않으면 "이 사람들에게만" — 직군·지점 조건은 무시(2026-09-14, CM 7명 콕 집기)
   dueDate           DateTime? @db.Date
   createdBy         String
   createdByName     String // 작성 시점 스냅샷

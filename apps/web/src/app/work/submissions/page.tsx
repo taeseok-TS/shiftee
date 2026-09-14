@@ -21,8 +21,8 @@ type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; br
 type Category = { id: string; group: "EDU" | "PROMO" | "EVENT" | "MARKETING"; name: string; sortOrder: number; active: boolean };
 type Req = {
   id: string; title: string; description: string | null; categoryId: string; category?: { id: string; group: string; name: string };
-  targetJobGroups: string[]; targetBranches: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
-  mySubmissionId?: string | null; mySubmittedAt?: string | null; targetCount?: number; submittedCount?: number;
+  targetJobGroups: string[]; targetBranches: string[]; targetUserIds: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
+  mySubmissionId?: string | null; mySubmittedAt?: string | null; targetCount?: number; submittedCount?: number; targetLabel?: string;
 };
 type Sub = {
   id: string; requestId: string | null; request: { id: string; title: string; dueDate: string | null } | null;
@@ -163,7 +163,7 @@ function TodoTab({ me, reloadKey, onSubmit }: { me: Me; reloadKey: number; onSub
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm">{r.title}</p>
           <p className="text-xs text-gray-500 mt-0.5">
-            {r.category ? `${CATEGORY_GROUP_LABEL[r.category.group as keyof typeof CATEGORY_GROUP_LABEL] ?? r.category.group} › ${r.category.name}` : ""} · 대상 {r.targetJobGroups.length ? r.targetJobGroups.join("·") : "전 직군"}{r.targetBranches.length ? ` (${r.targetBranches.join("·")})` : ""} · 본부 {r.createdByName}
+            {r.category ? `${CATEGORY_GROUP_LABEL[r.category.group as keyof typeof CATEGORY_GROUP_LABEL] ?? r.category.group} › ${r.category.name}` : ""} · 대상 {reqTargetText(r)} · 본부 {r.createdByName}
           </p>
           {r.description && <p className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">{r.description}</p>}
         </div>
@@ -436,7 +436,7 @@ function RequestsTab({ me, categories, reloadKey, onChanged }: { me: Me; categor
   const stamp = `${status}|${reloadKey}`;
   const [data, setData] = useState<{ stamp: string; rows: Req[] } | null>(null);
   const rows = data && data.stamp === stamp ? data.rows : null;
-  const [edit, setEdit] = useState<{ open: boolean; req?: Req | null }>({ open: false });
+  const [edit, setEdit] = useState<{ open: boolean; req?: Req | null; clone?: Req | null }>({ open: false });
   const [detailId, setDetailId] = useState<string | null>(null);
   const isAdmin = me.role === "ADMIN";
   useEffect(() => {
@@ -456,36 +456,106 @@ function RequestsTab({ me, categories, reloadKey, onChanged }: { me: Me; categor
         : rows.map((r) => {
           const d = dday(r.dueDate); const pct = r.targetCount ? Math.round(((r.submittedCount ?? 0) / r.targetCount) * 100) : 0;
           return (
-            <button key={r.id} type="button" onClick={() => setDetailId(r.id)} className="w-full text-left bg-white border rounded-lg p-3 hover:border-indigo-300">
+            <div key={r.id} role="button" tabIndex={0} onClick={() => setDetailId(r.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailId(r.id); } }} className="w-full text-left bg-white border rounded-lg p-3 hover:border-indigo-300 cursor-pointer">
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{r.title} {r.closedAt && <Chip tone="grey">닫힘</Chip>}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{r.category?.name} · 대상 {r.targetJobGroups.length ? r.targetJobGroups.join("·") : "전 직군"}{r.targetBranches.length ? ` (${r.targetBranches.join("·")})` : ""} · {r.createdByName} · {format(new Date(r.createdAt), "M/d")}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{r.category?.name} · 대상 {reqTargetText(r)} · {r.createdByName} · {format(new Date(r.createdAt), "M/d")}</p>
                   <div className="mt-2 h-1.5 bg-gray-100 rounded overflow-hidden"><div className="h-full bg-indigo-500" style={{ width: `${pct}%` }} /></div>
                 </div>
                 <div className="text-right shrink-0 space-y-1">
                   <Chip tone={r.closedAt ? "grey" : d.tone}>{d.label}</Chip>
                   <p className="text-sm tabular-nums"><b>{r.submittedCount ?? 0}</b> / {r.targetCount ?? 0} 제출</p>
+                  {isAdmin && <button type="button" className="text-[11px] text-indigo-600 hover:underline" title="분류·받는 사람·안내문을 그대로 채운 새 요청 창을 엽니다" onClick={(e) => { e.stopPropagation(); setEdit({ open: true, req: null, clone: r }); }}>같은 대상으로 다시</button>}
                 </div>
               </div>
-            </button>
+            </div>
           );
         })}
-      {edit.open && <RequestDialog categories={categories} req={edit.req ?? null} onClose={() => setEdit({ open: false })} onDone={() => { setEdit({ open: false }); onChanged(); }} />}
-      {detailId && <RequestDetail id={detailId} me={me} onClose={() => setDetailId(null)} onChanged={onChanged} onEdit={(r) => { setDetailId(null); setEdit({ open: true, req: r }); }} />}
+      {edit.open && <RequestDialog categories={categories} req={edit.req ?? null} clone={edit.clone ?? null} onClose={() => setEdit({ open: false })} onDone={() => { setEdit({ open: false }); onChanged(); }} />}
+      {detailId && <RequestDetail id={detailId} me={me} onClose={() => setDetailId(null)} onChanged={onChanged} onEdit={(r) => { setDetailId(null); setEdit({ open: true, req: r }); }} onClone={(r) => { setDetailId(null); setEdit({ open: true, req: null, clone: r }); }} />}
     </div>
   );
 }
 
-function RequestDialog({ categories, req, onClose, onDone }: { categories: Category[]; req: Req | null; onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ title: req?.title ?? "", description: req?.description ?? "", categoryId: req?.categoryId ?? "", dueDate: req?.dueDate ?? "", targetJobGroups: req?.targetJobGroups ?? [] as string[], targetBranches: req?.targetBranches ?? [] as string[] });
+type TargetUser = { id: string; name: string; branch: string | null; jobGroup: string | null; position: string | null };
+type TargetGroup = { id: string; name: string; userIds: string[]; createdByName: string };
+
+/** 목록·상세 공용 대상 표기 — 서버가 이름을 실어 주면 그대로, 아니면 수 만 */
+function reqTargetText(r: Pick<Req, "targetJobGroups" | "targetBranches" | "targetUserIds" | "targetLabel">): string {
+  if (r.targetLabel) return r.targetLabel;
+  if (r.targetUserIds?.length) return `직접 지정 ${r.targetUserIds.length}명`;
+  return `${r.targetJobGroups.length ? r.targetJobGroups.join("·") : "전 직군"}${r.targetBranches.length ? ` (${r.targetBranches.join("·")})` : ""}`;
+}
+
+// 요청 걸기 / 수정 / 같은 대상으로 다시 걸기(clone: 제목·마감만 비우고 분류·안내문·받는 사람은 그대로)
+function RequestDialog({ categories, req, clone, onClose, onDone }: { categories: Category[]; req: Req | null; clone?: Req | null; onClose: () => void; onDone: () => void }) {
+  const src = req ?? clone ?? null;
+  const [form, setForm] = useState({
+    title: req?.title ?? "", description: src?.description ?? "", categoryId: src?.categoryId ?? "", dueDate: req?.dueDate ?? "",
+    targetJobGroups: src?.targetJobGroups ?? ([] as string[]), targetBranches: src?.targetBranches ?? ([] as string[]), targetUserIds: src?.targetUserIds ?? ([] as string[]),
+  });
   const [branches, setBranches] = useState<string[]>([]);
+  const [people, setPeople] = useState<TargetUser[] | null>(null); // 받을 수 있는 사람 전원(본부·퇴사자 제외)
+  const [groups, setGroups] = useState<TargetGroup[]>([]);
+  const [q, setQ] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [saving, setSaving] = useState(false);
-  useEffect(() => { fetch("/api/branches").then((r) => r.json()).then((d) => setBranches((d.branches || []).map((b: { name: string }) => b.name))).catch(() => {}); }, []);
+  useEffect(() => {
+    fetch("/api/branches").then((r) => r.json()).then((d) => setBranches((d.branches || []).map((b: { name: string }) => b.name))).catch(() => {});
+    fetch("/api/work/submissions/targets").then((r) => r.json()).then((d) => {
+      const list: TargetUser[] = d.users || [];
+      setPeople(list);
+      // 수정·복사로 들어온 사람 중 지금은 대상이 될 수 없는(퇴사) 사람은 뺀다 — 그대로 보내면 서버가 거절한다
+      const ok = new Set(list.map((u) => u.id));
+      setForm((f) => ({ ...f, targetUserIds: f.targetUserIds.filter((id) => ok.has(id)) }));
+    }).catch(() => setPeople([]));
+    fetch("/api/work/submissions/target-groups").then((r) => r.json()).then((d) => setGroups(d.groups || [])).catch(() => {});
+  }, []);
+  const byId = useMemo(() => new Map((people ?? []).map((p) => [p.id, p])), [people]);
+  const peopleMode = form.targetUserIds.length > 0;
+  // 미리보기 — 어떤 방식으로 골랐든 "실제로 누구에게 가는가"
+  const preview = useMemo<TargetUser[]>(() => {
+    if (!people) return [];
+    if (peopleMode) return form.targetUserIds.map((id) => byId.get(id)).filter((x): x is TargetUser => !!x);
+    return people.filter((p) => (!form.targetJobGroups.length || (p.jobGroup && form.targetJobGroups.includes(p.jobGroup))) && (!form.targetBranches.length || (p.branch && form.targetBranches.includes(p.branch))));
+  }, [people, peopleMode, form.targetUserIds, form.targetJobGroups, form.targetBranches, byId]);
+  const matches = useMemo(() => {
+    const s = q.trim();
+    if (!s || !people) return [];
+    const sel = new Set(form.targetUserIds);
+    return people.filter((p) => !sel.has(p.id) && [p.name, p.branch, p.jobGroup, p.position].some((x) => x && x.includes(s))).slice(0, 30);
+  }, [q, people, form.targetUserIds]);
   const toggle = (key: "targetJobGroups" | "targetBranches", v: string) => setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }));
+  const addPerson = (id: string) => setForm((f) => ({ ...f, targetUserIds: f.targetUserIds.includes(id) ? f.targetUserIds : [...f.targetUserIds, id], targetJobGroups: [], targetBranches: [] }));
+  const removePerson = (id: string) => setForm((f) => ({ ...f, targetUserIds: f.targetUserIds.filter((x) => x !== id) }));
+  function applyGroup(g: TargetGroup) {
+    const ids = g.userIds.filter((id) => byId.has(id));
+    if (!ids.length) { toast.error("이 묶음의 사람들이 모두 퇴사해 받을 사람이 없습니다."); return; }
+    setForm((f) => ({ ...f, targetUserIds: ids, targetJobGroups: [], targetBranches: [] }));
+    if (ids.length < g.userIds.length) toast.message(`퇴사한 ${g.userIds.length - ids.length}명은 뺐습니다.`);
+  }
+  async function saveGroup() {
+    const name = groupName.trim();
+    if (!name) { toast.error("묶음 이름을 입력해주세요."); return; }
+    if (groups.some((g) => g.name === name) && !confirm(`「${name}」 묶음이 이미 있습니다. 지금 고른 사람들로 바꿀까요?`)) return;
+    const res = await fetch("/api/work/submissions/target-groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, userIds: form.targetUserIds }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return; }
+    setGroups((gs) => [...gs.filter((g) => g.id !== d.group.id), d.group].sort((a, b) => a.name.localeCompare(b.name, "ko")));
+    setGroupName("");
+    toast.success(`「${name}」 묶음으로 저장했습니다. 다음부터 한 번에 고를 수 있습니다.`);
+  }
+  async function deleteGroup(g: TargetGroup) {
+    if (!confirm(`「${g.name}」 묶음을 지울까요? 이미 걸린 요청에는 영향이 없습니다.`)) return;
+    const res = await fetch(`/api/work/submissions/target-groups/${g.id}`, { method: "DELETE" });
+    if (!res.ok) { toast.error("지우지 못했습니다."); return; }
+    setGroups((gs) => gs.filter((x) => x.id !== g.id));
+  }
   async function save() {
     if (!form.title.trim()) { toast.error("제목을 입력해주세요."); return; }
     if (!form.categoryId) { toast.error("분류를 골라주세요."); return; }
+    if (people && preview.length === 0) { toast.error("받는 사람이 없습니다. 직원을 고르거나 직군·지점을 다시 골라주세요."); return; }
     setSaving(true);
     try {
       const res = await fetch(req ? `/api/work/submissions/requests/${req.id}` : "/api/work/submissions/requests", {
@@ -494,15 +564,16 @@ function RequestDialog({ categories, req, onClose, onDone }: { categories: Categ
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return; }
-      toast.success(req ? "고쳤습니다." : "요청을 걸었습니다. 대상 직원에게 알렸습니다.");
+      toast.success(req ? "고쳤습니다." : `요청을 걸었습니다. ${preview.length}명에게 알렸습니다.`);
       onDone();
     } finally { setSaving(false); }
   }
   const pill = (on: boolean) => `px-2.5 py-1 rounded-md border text-xs ${on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-300 bg-white text-gray-700"}`;
+  const who = (p: TargetUser) => `${p.branch ?? "-"} ${p.name}`;
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{req ? "요청 수정" : "제출 요청 걸기"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{req ? "요청 수정" : clone ? "같은 대상으로 새 요청" : "제출 요청 걸기"}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="md:col-span-2"><label className="text-xs text-gray-500">제목</label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="예: 9월 HOW교육 과제 — 교실 운영 개선안" /></div>
           <div><label className="text-xs text-gray-500">분류</label>
@@ -511,22 +582,80 @@ function RequestDialog({ categories, req, onClose, onDone }: { categories: Categ
               {(["EDU", "PROMO", "EVENT"] as const).map((g) => <optgroup key={g} label={CATEGORY_GROUP_LABEL[g]}>{categories.filter((c) => c.group === g && c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>)}
             </select></div>
           <div><label className="text-xs text-gray-500">마감일 (비우면 마감 없음)</label><Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
-          <div className="md:col-span-2"><label className="text-xs text-gray-500">대상 직군 — 아무것도 안 고르면 전 직군(본부 제외)</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">{JOB_GROUPS.map((g) => <button key={g} type="button" className={pill(form.targetJobGroups.includes(g))} onClick={() => toggle("targetJobGroups", g)}>{g}</button>)}</div></div>
-          <div className="md:col-span-2"><label className="text-xs text-gray-500">대상 지점 — 아무것도 안 고르면 전 지점</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">{branches.map((b) => <button key={b} type="button" className={pill(form.targetBranches.includes(b))} onClick={() => toggle("targetBranches", b)}>{b}</button>)}</div></div>
+
+          {/* ── 받는 사람 ── */}
+          <div className="md:col-span-2 border rounded-lg p-3 space-y-2.5 bg-gray-50/60">
+            <p className="text-sm font-medium">받는 사람</p>
+            {groups.length > 0 && (
+              <div>
+                <label className="text-xs text-gray-500">저장한 묶음 — 누르면 그 사람들로 채워집니다</label>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {groups.map((g) => (
+                    <span key={g.id} className="inline-flex items-center rounded-md border border-indigo-300 bg-white text-xs overflow-hidden">
+                      <button type="button" className="px-2.5 py-1 text-indigo-700 hover:bg-indigo-50" onClick={() => applyGroup(g)}>{g.name} <span className="text-gray-400">{g.userIds.length}명</span></button>
+                      <button type="button" className="px-1.5 py-1 text-gray-400 hover:text-red-600 border-l" title="묶음 지우기" onClick={() => deleteGroup(g)}><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-gray-500">직원 직접 고르기 — 이름·지점·직군으로 찾아 누르면 추가됩니다</label>
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={people === null ? "직원 목록 불러오는 중…" : "예: 김, 대치, CM"} className="mt-1 bg-white" />
+              {matches.length > 0 && (
+                <div className="mt-1 border rounded-md bg-white max-h-44 overflow-y-auto divide-y">
+                  {matches.map((p) => (
+                    <button key={p.id} type="button" className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-indigo-50 flex gap-2" onClick={() => { addPerson(p.id); }}>
+                      <span className="text-gray-500 w-16 shrink-0">{p.branch ?? "-"}</span><b>{p.name}</b><span className="text-gray-500">{[p.jobGroup, p.position].filter(Boolean).join(" · ")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {q.trim() && people && matches.length === 0 && <p className="text-xs text-gray-400 mt-1">맞는 직원이 없습니다(본부·퇴사자는 받을 수 없습니다).</p>}
+            </div>
+            {peopleMode ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {form.targetUserIds.map((id) => { const p = byId.get(id); return p ? (
+                    <span key={id} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-indigo-600 text-white text-xs">{who(p)}<span className="text-indigo-200">{p.jobGroup ?? ""}</span><button type="button" className="ml-0.5 rounded hover:bg-indigo-500 p-0.5" onClick={() => removePerson(id)}><X size={11} /></button></span>
+                  ) : null; })}
+                  <button type="button" className="text-xs text-gray-500 underline px-1" onClick={() => setForm((f) => ({ ...f, targetUserIds: [] }))}>전부 비우기</button>
+                </div>
+                <div className="flex gap-1.5 items-center">
+                  <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="이 사람들을 묶음으로 저장 — 이름 (예: 교육 CM 7명)" className="h-8 text-xs bg-white" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveGroup(); } }} />
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={saveGroup}>묶음 저장</Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div><label className="text-xs text-gray-500">또는 직군으로 — 아무것도 안 고르면 전 직군(본부 제외)</label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">{JOB_GROUPS.map((g) => <button key={g} type="button" className={pill(form.targetJobGroups.includes(g))} onClick={() => toggle("targetJobGroups", g)}>{g}</button>)}</div></div>
+                <div><label className="text-xs text-gray-500">지점 — 아무것도 안 고르면 전 지점</label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">{branches.map((b) => <button key={b} type="button" className={pill(form.targetBranches.includes(b))} onClick={() => toggle("targetBranches", b)}>{b}</button>)}</div></div>
+              </>
+            )}
+            {/* 미리보기 — 실수로 수십 명에게 나가는 것을 막는다 */}
+            {people && (
+              <p className={`text-xs rounded-md px-2.5 py-1.5 ${preview.length ? "bg-white border text-gray-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                {preview.length
+                  ? <>이 요청은 <b>{preview.length}명</b>에게 갑니다 — {preview.slice(0, 12).map(who).join(", ")}{preview.length > 12 ? ` 외 ${preview.length - 12}명` : ""}</>
+                  : "받는 사람이 없습니다 — 직원을 고르거나 직군·지점을 다시 골라주세요."}
+              </p>
+            )}
+          </div>
+
           <div className="md:col-span-2"><label className="text-xs text-gray-500">안내문 (선택 — 봇 DM 에 함께 나갑니다)</label><Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>취소</Button>
-          <Button disabled={saving} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : req ? "저장" : "요청 걸기"}</Button>
+          <Button disabled={saving || (people !== null && preview.length === 0)} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : req ? "저장" : "요청 걸기"}</Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me: Me; onClose: () => void; onChanged: () => void; onEdit: (r: Req) => void }) {
+function RequestDetail({ id, me, onClose, onChanged, onEdit, onClone }: { id: string; me: Me; onClose: () => void; onChanged: () => void; onEdit: (r: Req) => void; onClone: (r: Req) => void }) {
   const [d, setD] = useState<ReqDetail | null>(null);
   const [key, setKey] = useState(0);
   const isAdmin = me.role === "ADMIN";
@@ -573,7 +702,7 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 flex-wrap">{d.request.title} {d.request.closedAt ? <Chip tone="grey">닫힘</Chip> : <Chip tone={dday(d.request.dueDate).tone}>{dday(d.request.dueDate).label}</Chip>}</DialogTitle>
             </DialogHeader>
-            <p className="text-xs text-gray-500">{d.request.category?.name} · 대상 {d.request.targetJobGroups.length ? d.request.targetJobGroups.join("·") : "전 직군"}{d.request.targetBranches.length ? ` (${d.request.targetBranches.join("·")})` : ""} · {d.request.createdByName}</p>
+            <p className="text-xs text-gray-500">{d.request.category?.name} · 대상 {reqTargetText(d.request)} · {d.request.createdByName}</p>
             {d.request.description && <p className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-2">{d.request.description}</p>}
             <div className="flex items-center gap-4 text-sm flex-wrap">
               <span>제출 <b className="tabular-nums">{d.summary.submitted} / {d.summary.targets}</b></span>
@@ -583,6 +712,7 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit }: { id: string; me:
                 {d.submissions.length > 0 && <Button size="sm" variant="outline" className="gap-1 h-8" disabled={zipping} onClick={downloadZip}><FolderArchive size={14} />{zipping ? "묶는 중…" : "ZIP 내려받기"}</Button>}
                 {isAdmin && !d.request.closedAt && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={remind}><Bell size={14} />미제출자 독촉</Button>}
                 {isAdmin && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={() => onEdit(d.request)}><Pencil size={14} />수정</Button>}
+                {isAdmin && <Button size="sm" variant="outline" className="gap-1 h-8" title="분류·받는 사람·안내문을 그대로 채운 새 요청 창을 엽니다" onClick={() => onClone(d.request)}><Plus size={14} />같은 대상으로 다시</Button>}
                 {isAdmin && <Button size="sm" variant="outline" className="gap-1 h-8" onClick={toggleClose}>{d.request.closedAt ? <><Unlock size={14} />다시 열기</> : <><Lock size={14} />닫기</>}</Button>}
               </div>
             </div>

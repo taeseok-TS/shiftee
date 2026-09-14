@@ -17,7 +17,7 @@ export type SubmissionFile = { url: string; name: string; size: number; type: st
 export type Category = { id: string; group: "EDU" | "PROMO" | "EVENT"; name: string; active: boolean };
 export type SubmissionRequest = {
   id: string; title: string; description: string | null; categoryId: string; category?: { id: string; group: string; name: string };
-  targetJobGroups: string[]; targetBranches: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
+  targetJobGroups: string[]; targetBranches: string[]; targetUserIds?: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
   mySubmissionId?: string | null; mySubmittedAt?: string | null;
 };
 export type Submission = {

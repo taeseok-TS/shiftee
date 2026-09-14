@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/db";
 import { CATEGORY_GROUPS, JOB_GROUPS, SHARE_ALL, dateStr, type SubmissionFile } from "@/lib/submissions";
 import type { Submission, SubmissionRequest, SubmissionCategory } from "@prisma/client";
+import { targetUsersFor, type TargetUser } from "@/lib/submission-targets";
 
 export { CATEGORY_GROUPS };
 
@@ -24,6 +25,20 @@ export function pickJobGroups(v: unknown, allowAll = false): string[] | null {
 }
 
 /** 지점 목록 검증 — Branch 표에 있는 이름만 */
+/** 직접 지정 대상 검증 — 문자열 id 배열(최대 300), 전원이 제출 대상 자격(재직·본부 아님)이어야 한다. 검증된 사람 목록을 돌려준다.
+ *  값이 없으면 [] (직군·지점 방식), 형식이 틀리거나 자격 없는 id 가 섞이면 null. */
+export async function pickTargetUsers(v: unknown): Promise<{ ids: string[]; users: TargetUser[] } | null> {
+  if (v === undefined || v === null) return { ids: [], users: [] };
+  if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return null;
+  const ids = [...new Set(v as string[])].filter(Boolean);
+  if (!ids.length) return { ids: [], users: [] };
+  if (ids.length > 300) return null;
+  const users = await targetUsersFor({ targetJobGroups: [], targetBranches: [], targetUserIds: ids });
+  if (users.length !== ids.length) return null;
+  // 저장 순서는 지점·이름순으로 정돈
+  return { ids: users.map((u) => u.id), users };
+}
+
 export async function pickBranches(v: unknown): Promise<string[] | null> {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || v.some((b) => typeof b !== "string")) return null;
@@ -43,6 +58,7 @@ export function serializeRequest(r: SubmissionRequest & { category?: SubmissionC
     category: r.category ? { id: r.category.id, group: r.category.group, name: r.category.name } : undefined,
     targetJobGroups: r.targetJobGroups,
     targetBranches: r.targetBranches,
+    targetUserIds: r.targetUserIds,
     dueDate: dateStr(r.dueDate),
     createdBy: r.createdBy,
     createdByName: r.createdByName,

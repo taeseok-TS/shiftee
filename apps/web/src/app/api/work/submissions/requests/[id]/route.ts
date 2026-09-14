@@ -3,8 +3,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { resolveSubmissionViewer } from "@/lib/submission-access";
-import { isTargeted, targetUsersFor } from "@/lib/submission-targets";
-import { pickBranches, pickJobGroups, serializeRequest, serializeSubmission } from "@/lib/submission-server";
+import { isTargeted, targetLabel, targetUsersFor } from "@/lib/submission-targets";
+import { pickBranches, pickJobGroups, pickTargetUsers, serializeRequest, serializeSubmission } from "@/lib/submission-server";
 import { parseDateStr, dateStr } from "@/lib/submissions";
 
 export const dynamic = "force-dynamic";
@@ -76,15 +76,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!c || !c.active) return NextResponse.json({ error: "분류가 올바르지 않습니다." }, { status: 400 });
     data.categoryId = c.id; changes.push(`분류 ${c.name}`);
   }
-  if (body.targetJobGroups !== undefined) {
+  // 받는 사람 — 사람을 콕 집으면 직군·지점은 비우고, 직군·지점으로 바꾸면 사람 지정은 비운다(섞지 않는다)
+  let picked: Awaited<ReturnType<typeof pickTargetUsers>> = null;
+  if (body.targetUserIds !== undefined) {
+    picked = await pickTargetUsers(body.targetUserIds);
+    if (!picked) return NextResponse.json({ error: "받는 사람이 올바르지 않습니다(퇴사자·본부는 넣을 수 없습니다)." }, { status: 400 });
+    const same = picked.ids.length === cur.targetUserIds.length && picked.ids.every((x) => cur.targetUserIds.includes(x));
+    if (!same) {
+      data.targetUserIds = picked.ids;
+      if (picked.ids.length) { data.targetJobGroups = []; data.targetBranches = []; }
+      changes.push(`대상 ${picked.ids.length ? targetLabel({ targetJobGroups: [], targetBranches: [], targetUserIds: picked.ids }, picked.users.map((u) => u.name)) : "직접 지정 해제"}`);
+    }
+  }
+  const peopleMode = picked ? picked.ids.length > 0 : cur.targetUserIds.length > 0;
+  if (!peopleMode && body.targetJobGroups !== undefined) {
     const g = pickJobGroups(body.targetJobGroups);
     if (!g) return NextResponse.json({ error: "대상 직군이 올바르지 않습니다." }, { status: 400 });
-    data.targetJobGroups = g; changes.push(`대상 직군 ${g.length ? g.join("/") : "전 직군"}`);
+    if (g.join("|") !== cur.targetJobGroups.join("|") || cur.targetUserIds.length) { data.targetJobGroups = g; changes.push(`대상 직군 ${g.length ? g.join("/") : "전 직군"}`); }
   }
-  if (body.targetBranches !== undefined) {
+  if (!peopleMode && body.targetBranches !== undefined) {
     const b = await pickBranches(body.targetBranches);
     if (!b) return NextResponse.json({ error: "대상 지점이 올바르지 않습니다." }, { status: 400 });
-    data.targetBranches = b; changes.push(`대상 지점 ${b.length ? b.join("/") : "전 지점"}`);
+    if (b.join("|") !== cur.targetBranches.join("|") || cur.targetUserIds.length) { data.targetBranches = b; changes.push(`대상 지점 ${b.length ? b.join("/") : "전 지점"}`); }
   }
   if (body.dueDate !== undefined) {
     if (body.dueDate === null || body.dueDate === "") { if (cur.dueDate) { data.dueDate = null; data.remindedAt = null; data.overdueNotifiedAt = null; changes.push("마감 없음"); } }

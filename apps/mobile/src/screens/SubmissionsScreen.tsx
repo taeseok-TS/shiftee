@@ -117,7 +117,7 @@ export default function SubmissionsScreen() {
             return (
               <View key={r.id} style={styles.card}>
                 <Text style={styles.itemTitle}>{r.title}</Text>
-                <Text style={styles.itemMeta}>{r.category ? `${CATEGORY_GROUP_LABEL[r.category.group] ?? ""} › ${r.category.name}` : ""} · 대상 {r.targetJobGroups.length ? r.targetJobGroups.join("·") : "전 직군"} · 본부 {r.createdByName}</Text>
+                <Text style={styles.itemMeta}>{r.category ? `${CATEGORY_GROUP_LABEL[r.category.group] ?? ""} › ${r.category.name}` : ""} · 대상 {r.targetUserIds?.length ? "직접 지정" : r.targetJobGroups.length ? r.targetJobGroups.join("·") : "전 직군"} · 본부 {r.createdByName}</Text>
                 {r.description ? <Text style={styles.itemDesc}>{r.description}</Text> : null}
                 <View style={styles.itemFoot}>
                   {r.mySubmissionId ? (
