@@ -495,6 +495,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
     title: req?.title ?? "", description: src?.description ?? "", categoryId: src?.categoryId ?? "", dueDate: req?.dueDate ?? "",
     targetJobGroups: src?.targetJobGroups ?? ([] as string[]), targetBranches: src?.targetBranches ?? ([] as string[]), targetUserIds: src?.targetUserIds ?? ([] as string[]),
   });
+  const initialIds = useRef<string[]>(src?.targetUserIds ?? []); // 수정·복사로 들어온 받는 사람 — 로드 후 퇴사자를 몇 명 뺐는지 알리는 데 쓴다
   const [branches, setBranches] = useState<string[]>([]);
   const [people, setPeople] = useState<TargetUser[] | null>(null); // 받을 수 있는 사람 전원(본부·퇴사자 제외)
   const [groups, setGroups] = useState<TargetGroup[]>([]);
@@ -503,13 +504,18 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     fetch("/api/branches").then((r) => r.json()).then((d) => setBranches((d.branches || []).map((b: { name: string }) => b.name))).catch(() => {});
-    fetch("/api/work/submissions/targets").then((r) => r.json()).then((d) => {
+    fetch("/api/work/submissions/targets").then(async (r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
       const list: TargetUser[] = d.users || [];
       setPeople(list);
-      // 수정·복사로 들어온 사람 중 지금은 대상이 될 수 없는(퇴사) 사람은 뺀다 — 그대로 보내면 서버가 거절한다
+      // 수정·복사로 들어온 사람 중 지금은 대상이 될 수 없는(퇴사) 사람은 뺀다 — 그대로 보내면 서버가 거절한다. 뺐으면 알린다(조용히 대상이 바뀌면 안 된다)
       const ok = new Set(list.map((u) => u.id));
+      const kept = initialIds.current.filter((id) => ok.has(id));
+      const removed = initialIds.current.length - kept.length;
+      if (removed > 0) toast.warning(`퇴사한 ${removed}명은 받는 사람에서 뺐습니다.${kept.length ? "" : " 받는 사람을 다시 골라주세요."}`);
       setForm((f) => ({ ...f, targetUserIds: f.targetUserIds.filter((id) => ok.has(id)) }));
-    }).catch(() => setPeople([]));
+    }).catch(() => { setPeople([]); toast.error("직원 목록을 불러오지 못했습니다. 새로고침한 뒤 다시 열어주세요."); });
     fetch("/api/work/submissions/target-groups").then((r) => r.json()).then((d) => setGroups(d.groups || [])).catch(() => {});
   }, []);
   const byId = useMemo(() => new Map((people ?? []).map((p) => [p.id, p])), [people]);

@@ -81,6 +81,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (body.targetUserIds !== undefined) {
     picked = await pickTargetUsers(body.targetUserIds, { tolerate: cur.targetUserIds });
     if (!picked) return NextResponse.json({ error: "받는 사람이 올바르지 않습니다(퇴사자·본부는 넣을 수 없습니다)." }, { status: 400 });
+    // 사람 지정 요청이 "아무도 없음"(전 직군·전 지점)으로 조용히 풀리는 것을 막는다 — 대상 전원 퇴사 뒤 화면이 [] 를 보내는 경우(검증관 3차)
+    if (cur.targetUserIds.length && !picked.ids.length && !(Array.isArray(body.targetJobGroups) && body.targetJobGroups.length) && !(Array.isArray(body.targetBranches) && body.targetBranches.length))
+      return NextResponse.json({ error: "받는 사람을 다시 골라주세요. 직원을 고르거나 직군·지점을 정해야 합니다(전 직원으로는 바뀌지 않습니다)." }, { status: 400 });
     const same = picked.ids.length === cur.targetUserIds.length && picked.ids.every((x) => cur.targetUserIds.includes(x));
     if (!same) {
       data.targetUserIds = picked.ids;
