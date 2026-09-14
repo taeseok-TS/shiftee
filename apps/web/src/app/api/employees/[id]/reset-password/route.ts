@@ -54,7 +54,13 @@ export async function PATCH(
     // (2026-09-07 검증에서 적발). 새 비번으로 다시 로그인하면 된다.
     await bumpTokenVersion(id).catch(() => {});
     // 개인 API 키도 전부 끈다 — 계정이 넘어갔을 가능성을 전제로 초기화하는 것이라 키도 같은 취급(2026-09-13 기획 2-4 ⑨)
+    const orgKeys = await prisma.apiKey.findMany({ where: { userId: id, kind: "ORG", revokedAt: null }, select: { name: true } }).catch(() => []);
     await prisma.apiKey.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedBy: session.userId } }).catch(() => {});
+    // 회사 연동 키(큐브마케팅 등)가 같이 꺼지면 연동이 조용히 끊긴다 — 본부 전원에게 알린다(2026-09-14 검증관)
+    if (orgKeys.length) {
+      const { notifyOrgKeysRevoked } = await import("@/lib/api-key");
+      void notifyOrgKeysRevoked(orgKeys.map((k) => k.name), `${user.name} 님 비밀번호 초기화`);
+    }
 
     await logAudit({
       actorId: session.userId,

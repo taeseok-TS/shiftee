@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
   // (2026-09-07 검증에서 적발). 새 비번으로 다시 로그인하면 된다.
   await bumpTokenVersion(row.userId).catch(() => {});
   // 메일 링크로 비밀번호를 다시 정한 것도 "계정이 넘어갔을 수 있다"는 신호 — 개인 API 키를 전부 끈다(2026-09-13 검증관 P2)
+  const orgKeys = await prisma.apiKey.findMany({ where: { userId: row.userId, kind: "ORG", revokedAt: null }, select: { name: true } }).catch(() => []);
   await prisma.apiKey.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: new Date(), revokedBy: row.userId } }).catch(() => {});
+  if (orgKeys.length) {
+    const { notifyOrgKeysRevoked } = await import("@/lib/api-key");
+    void notifyOrgKeysRevoked(orgKeys.map((k) => k.name), "발급자 비밀번호 재설정(메일 링크)");
+  }
 
   // 본인에게 보안 알림 + 감사 흔적 (실패해도 응답은 성공)
   botSendDM(row.userId, "🔐 비밀번호가 방금 변경되었습니다.\n본인이 아니라면 즉시 관리자에게 알려주세요.").catch(() => {});

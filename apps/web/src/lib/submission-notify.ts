@@ -160,12 +160,12 @@ export async function runSubmissionDigest(now: Date = new Date()) {
   const start = new Date(end.getTime() - 24 * 3600 * 1000);
   const rows = await prisma.submission.findMany({
     where: { deletedAt: null, createdAt: { gte: start, lt: end } },
-    select: { requestId: true, request: { select: { title: true } }, category: { select: { name: true } } },
+    select: { requestId: true, request: { select: { title: true } }, category: { select: { name: true, group: true } } },
   });
   if (!rows.length) return;
   const byKey = new Map<string, number>();
   for (const r of rows) {
-    const k = r.request ? `「${r.request.title}」` : `자유 제출 · ${r.category.name}`;
+    const k = r.category.group === "MARKETING" ? `마케팅 자료 · ${r.category.name}` : r.request ? `「${r.request.title}」` : `자유 제출 · ${r.category.name}`;
     byKey.set(k, (byKey.get(k) ?? 0) + 1);
   }
   const lines = [...byKey.entries()].map(([k, n]) => `· ${k} ${n}건`).join("\n");

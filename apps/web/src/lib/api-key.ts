@@ -159,14 +159,28 @@ async function suspendKey(key: ApiKey, reason: string) {
  */
 export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject: string; res: null } | { subject: null; res: NextResponse | null }> {
   if (!/^Bearer\s+cbt_pk_/i.test(request.headers.get("authorization") || "")) return { subject: null, res: null }; // 키가 아니면 관여 안 함
-  // 개인 키는 submissions:read, 회사 연동 키는 marketing:read 로 파일을 받는다
-  const probe = await authenticateApiKey(request, null);
-  if (probe.ok === false) return { subject: null, res: probe.res };
-  const scope: ApiScope = probe.p.key.scopes.includes("marketing:read") && !probe.p.key.scopes.includes("submissions:read") ? "marketing:read" : "submissions:read";
-  const a = await authenticateApiKey(request, scope);
+  // 한 번만 인증(속도 제한도 1회) 하고 범위는 여기서 본다(검증관 3) — 개인 키는 submissions:read, 회사 연동 키는 marketing:read
+  const a = await authenticateApiKey(request, null);
   // 429·403(멈춤·범위 없음) 을 401 로 뭉개지 않는다 — 클라이언트가 키가 깨진 줄 알고 재발급하지 않게(재검증관 3)
   if (a.ok === false) return { subject: null, res: a.res }; // strictNullChecks 없이는 삼항의 !a.ok 로 좁혀지지 않는다
-  return { subject: `u:${a.p.user.id}`, res: null };
+  const { key, user } = a.p;
+  if (key.kind === "ORG") {
+    if (!key.scopes.includes("marketing:read")) return { subject: null, res: v1Error(403, "이 키에는 'marketing:read' 권한이 없습니다.", "NO_SCOPE") };
+    // 연동 키는 **마케팅 자료(동의됨·미삭제)의 파일만** — 발급자(관리자) 권한을 그대로 쓰면 자료제출 전체가 열린다(검증관 1)
+    return { subject: `mkt:${user.id}`, res: null };
+  }
+  if (!key.scopes.includes("submissions:read")) return { subject: null, res: v1Error(403, "이 키에는 'submissions:read' 권한이 없습니다.", "NO_SCOPE") };
+  return { subject: `u:${user.id}`, res: null };
+}
+
+/** 회사 연동 키가 발급자 사정(비번 초기화 등)으로 꺼졌을 때 본부 전원에게 알린다 — 조용히 끊기면 큐브마케팅 연동이 멈춘 줄 모른다 */
+export async function notifyOrgKeysRevoked(names: string[], reason: string) {
+  try {
+    const { botSendDM } = await import("@/lib/bot");
+    const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true, deletedAt: null }, select: { id: true } });
+    const msg = `🔑 회사 연동 키 ${names.map((n) => `「${n}」`).join(", ")}이(가) ${reason}으로 꺼졌습니다. 외부 연동(큐브마케팅 등)이 멈추니 /admin/api-keys 에서 새로 발급해 전달해주세요.`;
+    for (const a of admins) await botSendDM(a.id, msg);
+  } catch (e) { console.error("[api-key] 연동 키 회수 알림 오류:", e); }
 }
 
 /** 목록 응답용 — 원문·해시는 절대 싣지 않는다 */

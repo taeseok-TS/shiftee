@@ -40,8 +40,8 @@ export async function GET(request: NextRequest) {
   const jobGroup = sp.get("jobGroup"); if (jobGroup) where.userJobGroup = jobGroup;
   const requestId = sp.get("requestId"); if (requestId) where.requestId = requestId;
   // 구분 필터 — 마케팅 자료(/work/marketing)와 자료제출(/work/submissions)은 같은 표를 쓰되 화면을 나눈다(2026-09-14)
-  const group = sp.get("group"); if (group) where.category = { group };
-  else if (sp.get("excludeMarketing") === "1") where.category = { group: { not: "MARKETING" } };
+  // group 을 명시하지 않으면 마케팅 자료는 늘 뺀다 — 앱(옛 번들 포함)·자료제출 화면이 같은 목록 API 를 쓰기 때문(검증관 5)
+  const group = sp.get("group"); where.category = group ? { group } : { group: { not: "MARKETING" } };
   const q = (sp.get("q") || "").trim();
   if (q) where.OR = [{ title: { contains: q, mode: "insensitive" } }, { userName: { contains: q, mode: "insensitive" } }];
 
@@ -64,6 +64,13 @@ export async function POST(request: NextRequest) {
 
   const files = normalizeFiles(body.files);
   if (!files) return NextResponse.json({ error: "파일을 1~10개 올려주세요." }, { status: 400 });
+  // 마케팅 자료는 외부(블로그)로 나갈 수 있어 개인정보 동의 체크가 필수(2026-09-14 디렉터 확정) — 파일 검사보다 먼저(값싼 검증부터)
+  const consent = body.consent === true;
+  if (!body.requestId && typeof body.categoryId === "string") {
+    const pre = await prisma.submissionCategory.findUnique({ where: { id: body.categoryId }, select: { group: true } });
+    if (pre?.group === "MARKETING" && !consent)
+      return NextResponse.json({ error: "학생 얼굴·이름·성적이 보이는 경우 동의를 받았거나 가렸다는 확인에 체크해주세요." }, { status: 400 });
+  }
   // 올린 파일이 실제로 우리 저장 구역에 있어야 하고, 다른 제출물에 이미 매여 있으면 안 된다
   for (const f of files) {
     if (!fileBelongsTo(f.url, v.userId)) return NextResponse.json({ error: `본인이 올린 파일만 제출할 수 있습니다: ${f.name}` }, { status: 400 });
@@ -91,8 +98,6 @@ export async function POST(request: NextRequest) {
   const title = (typeof body.title === "string" ? body.title.trim() : "").slice(0, 150) || files[0].name.replace(/\.[^.]+$/, "");
   const memo = typeof body.memo === "string" ? body.memo.trim().slice(0, 1000) || null : null;
   const yearMonth = isYearMonth(body.yearMonth) ? body.yearMonth : currentYearMonthKST();
-  // 마케팅 자료는 외부(블로그)로 나갈 수 있어 개인정보 동의 체크가 필수(2026-09-14 디렉터 확정)
-  const consent = body.consent === true;
   if (category.group === "MARKETING" && !consent)
     return NextResponse.json({ error: "학생 얼굴·이름·성적이 보이는 경우 동의를 받았거나 가렸다는 확인에 체크해주세요." }, { status: 400 });
 

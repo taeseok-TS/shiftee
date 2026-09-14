@@ -213,7 +213,7 @@ function SubmissionList({ me, scope, categories, reloadKey, onChanged, onEdit }:
         <div className="flex flex-wrap gap-2 items-center">
           <select className={selectCls} value={f.categoryId} onChange={(e) => setF({ ...f, categoryId: e.target.value })}>
             <option value="">모든 분류</option>
-            {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{CATEGORY_GROUP_LABEL[c.group]} › {c.name}</option>)}
+            {categories.filter((c) => c.active && c.group !== "MARKETING").map((c) => <option key={c.id} value={c.id}>{CATEGORY_GROUP_LABEL[c.group]} › {c.name}</option>)}
           </select>
           <select className={selectCls} value={f.yearMonth} onChange={(e) => setF({ ...f, yearMonth: e.target.value })}>
             <option value="">모든 연월</option>

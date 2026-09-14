@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
   const categoryId = requestRow ? requestRow.categoryId : mp.fields.categoryId || "";
   const category = categoryId ? await prisma.submissionCategory.findUnique({ where: { id: categoryId } }) : null;
   if (!category || (!requestRow && !category.active)) { await cleanup(); return v1Error(400, "requestId 또는 유효한 categoryId 가 필요합니다. GET /submissions/categories 로 목록을 보세요.", "NO_CATEGORY"); }
+  // 마케팅 자료는 개인정보 동의 체크가 필수라 화면(/work/marketing·앱)에서만 올린다 — 키 경로로는 동의 확인이 없다
+  if (category.group === "MARKETING") { await cleanup(); return v1Error(400, "마케팅 자료는 큐브티워크 화면에서 개인정보 확인 체크와 함께 올려주세요.", "MARKETING_UI_ONLY"); }
 
   const title = (mp.fields.title || "").trim().slice(0, 150) || mp.files[0].name.replace(/\.[^.]+$/, "");
   const memo = (mp.fields.memo || "").trim().slice(0, 1000) || null;

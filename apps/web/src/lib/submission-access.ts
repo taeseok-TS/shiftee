@@ -97,18 +97,30 @@ export async function canAccessSubmissionFile(
   session: { userId: string; role: string } | null,
   ticketSubject: string | null,
 ): Promise<{ allowed: boolean; status: number; error: string }> {
-  const v = await resolveSubmissionViewer(session, ticketSubject);
-  if (!v) return { allowed: false, status: 401, error: "인증이 필요합니다." };
   const url = `/api/uploads/submissions/${fileName}`;
   // 파일명은 업로드 때 안전화(영문·숫자·한글·.-_)돼 있어 URL 과 1:1 — 인코딩 차이는 양쪽 다 찾아본다
   const urls = [url];
   try { const enc = `/api/uploads/submissions/${encodeURIComponent(fileName)}`; if (enc !== url) urls.push(enc); } catch { /* ignore */ }
+  const fileWhere = { OR: urls.map((u) => ({ files: { array_contains: [{ url: u }] } })) };
+
+  // 회사 연동 키(mkt:<발급자>) — 마케팅 자료(동의됨·미삭제)의 파일만. 발급자 권한과 무관(검증관 1)
+  if (ticketSubject?.startsWith("mkt:")) {
+    const hit = await prisma.submission.findFirst({ where: { ...fileWhere, deletedAt: null, consent: true, category: { group: "MARKETING" } }, select: { id: true } });
+    return hit ? { allowed: true, status: 200, error: "" } : { allowed: false, status: 404, error: "파일을 찾을 수 없습니다." };
+  }
+
+  const v = await resolveSubmissionViewer(session, ticketSubject);
+  if (!v) return { allowed: false, status: 401, error: "인증이 필요합니다." };
   const rows = await prisma.submission.findMany({
-    where: { OR: urls.map((u) => ({ files: { array_contains: [{ url: u }] } })) },
+    where: fileWhere,
     select: { userId: true, userBranch: true, shared: true, shareJobGroups: true, deletedAt: true },
     take: 5,
   });
-  if (rows.length === 0) return { allowed: false, status: 404, error: "파일을 찾을 수 없습니다." };
+  if (rows.length === 0) {
+    // 아직 제출하지 않은 파일은 올린 본인에게만 보인다 — 올리기 창의 사진 미리보기용(검증관 2). 파일명의 업로더 표식으로 판정.
+    if (fileBelongsTo(url, v.userId)) return { allowed: true, status: 200, error: "" };
+    return { allowed: false, status: 404, error: "파일을 찾을 수 없습니다." };
+  }
   if (rows.some((r) => canViewSubmission(r, v))) return { allowed: true, status: 200, error: "" };
   return { allowed: false, status: 403, error: "이 자료를 볼 권한이 없습니다." };
 }

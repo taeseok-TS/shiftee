@@ -43,6 +43,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (body.title !== undefined || body.memo !== undefined || body.files !== undefined) {
     if (!isOwner && !isAdmin) return NextResponse.json({ error: "본인 제출물만 고칠 수 있습니다." }, { status: 403 });
     if (isOwner && !isAdmin && cur.status === "CHECKED") return NextResponse.json({ error: "본부가 확인한 자료는 고칠 수 없습니다." }, { status: 400 });
+    if (!isAdmin && cur.publishedAt) return NextResponse.json({ error: "블로그에 발행된 자료는 고칠 수 없습니다." }, { status: 400 });
     // 파일 교체는 삭제와 같은 선 — 마감 지남·닫힌 요청이면 본인은 못 바꾼다(검증관 6)
     if (isOwner && !isAdmin && body.files !== undefined && cur.request) {
       const due = dateStr(cur.request.dueDate);
@@ -125,6 +126,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (v.role !== "ADMIN") {
     if (cur.userId !== v.userId) return NextResponse.json({ error: "본인 제출물만 지울 수 있습니다." }, { status: 403 });
     if (cur.status === "CHECKED") return NextResponse.json({ error: "본부가 확인한 자료는 지울 수 없습니다." }, { status: 400 });
+    if (cur.publishedAt) return NextResponse.json({ error: "블로그에 발행된 자료는 지울 수 없습니다." }, { status: 400 });
     const due = dateStr(cur.request?.dueDate ?? null);
     if (due && due < todayStrKST()) return NextResponse.json({ error: "마감이 지난 제출물은 지울 수 없습니다." }, { status: 400 });
     if (cur.request?.closedAt) return NextResponse.json({ error: "닫힌 요청의 제출물은 지울 수 없습니다." }, { status: 400 });

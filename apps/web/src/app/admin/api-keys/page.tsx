@@ -128,7 +128,7 @@ function OrgKeyCard({ keys, onChanged, onRevoke }: { keys: KeyRow[]; onChanged: 
     <Card><CardContent className="pt-6 space-y-3">
       <div className="flex items-center gap-2">
         <p className="font-medium text-sm">회사 연동 키 ({keys.length}개)</p>
-        <span className="text-xs text-gray-500">큐브마케팅 등 외부 프로그램이 마케팅 자료를 가져가고 발행 결과를 돌려주는 용도</span>
+        <span className="text-xs text-gray-500">큐브마케팅 등 외부 프로그램이 마케팅 자료를 가져가고 발행 결과를 돌려주는 용도. 발급한 관리자가 강등·퇴사하거나 비밀번호가 초기화되면 키가 꺼지고 본부에 봇 DM 이 갑니다.</span>
         <Button size="sm" className="ml-auto gap-1 bg-indigo-600 hover:bg-indigo-700" onClick={() => setOpen(true)}><KeyRound size={14} />연동 키 발급</Button>
       </div>
       {secret && (
