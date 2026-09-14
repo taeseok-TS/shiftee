@@ -565,7 +565,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
     if (!form.title.trim()) { toast.error("제목을 입력해주세요."); return; }
     if (!form.categoryId) { toast.error("분류를 골라주세요."); return; }
     if (people && preview.length === 0) { toast.error("받는 사람이 없습니다. 직원을 고르거나 직군·지점을 다시 골라주세요."); return; }
-    if (lostAll) { toast.error("원래 받던 사람들이 모두 퇴사했습니다. 받는 사람을 다시 골라주세요(전 직원으로는 나가지 않습니다)."); return; }
+    if (lostAll) { toast.error("받는 사람이 비었습니다. 직원을 고르거나 직군·지점을 정해주세요(전 직원으로는 나가지 않습니다)."); return; }
     setSaving(true);
     try {
       const res = await fetch(req ? `/api/work/submissions/requests/${req.id}` : "/api/work/submissions/requests", {
@@ -648,7 +648,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
             {people && (
               <p className={`text-xs rounded-md px-2.5 py-1.5 ${preview.length && !lostAll ? "bg-white border text-gray-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
                 {lostAll
-                  ? "원래 받던 사람들이 모두 퇴사해 받는 사람이 비었습니다 — 직원을 새로 고르거나 직군·지점을 정해주세요(전 직원으로는 나가지 않습니다)."
+                  ? "받는 사람이 비었습니다 — 직원을 새로 고르거나 직군·지점을 정해주세요(원래 사람을 콕 집은 요청이라 전 직원으로는 나가지 않습니다)."
                   : preview.length
                   ? <>이 요청은 <b>{preview.length}명</b>에게 갑니다 — {preview.slice(0, 12).map(who).join(", ")}{preview.length > 12 ? ` 외 ${preview.length - 12}명` : ""}</>
                   : "받는 사람이 없습니다 — 직원을 고르거나 직군·지점을 다시 골라주세요."}
