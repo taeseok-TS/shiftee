@@ -495,7 +495,8 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
     title: req?.title ?? "", description: src?.description ?? "", categoryId: src?.categoryId ?? "", dueDate: req?.dueDate ?? "",
     targetJobGroups: src?.targetJobGroups ?? ([] as string[]), targetBranches: src?.targetBranches ?? ([] as string[]), targetUserIds: src?.targetUserIds ?? ([] as string[]),
   });
-  const initialIds = useRef<string[]>(src?.targetUserIds ?? []); // 수정·복사로 들어온 받는 사람 — 로드 후 퇴사자를 몇 명 뺐는지 알리는 데 쓴다
+  const initialIds = useRef<string[]>(src?.targetUserIds ?? []); // 수정·복사로 들어온 받는 사람 — 로드 후 퇴사자를 몇 명 뺐는지 알리는 데 쓴다(effect 안에서만 읽는다)
+  const [initialCount] = useState(src?.targetUserIds?.length ?? 0); // 렌더에서 쓰는 값은 state 로(react-hooks/refs)
   const [branches, setBranches] = useState<string[]>([]);
   const [people, setPeople] = useState<TargetUser[] | null>(null); // 받을 수 있는 사람 전원(본부·퇴사자 제외)
   const [groups, setGroups] = useState<TargetGroup[]>([]);
@@ -520,6 +521,8 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
   }, []);
   const byId = useMemo(() => new Map((people ?? []).map((p) => [p.id, p])), [people]);
   const peopleMode = form.targetUserIds.length > 0;
+  // 원래 사람 지정이었는데(수정·복사) 퇴사로 전부 빠져 아무 조건도 없는 상태 — 이대로 저장하면 전 직원에게 나간다. 잠근다(검증관 4차)
+  const lostAll = initialCount > 0 && !peopleMode && !form.targetJobGroups.length && !form.targetBranches.length;
   // 미리보기 — 어떤 방식으로 골랐든 "실제로 누구에게 가는가"
   const preview = useMemo<TargetUser[]>(() => {
     if (!people) return [];
@@ -562,6 +565,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
     if (!form.title.trim()) { toast.error("제목을 입력해주세요."); return; }
     if (!form.categoryId) { toast.error("분류를 골라주세요."); return; }
     if (people && preview.length === 0) { toast.error("받는 사람이 없습니다. 직원을 고르거나 직군·지점을 다시 골라주세요."); return; }
+    if (lostAll) { toast.error("원래 받던 사람들이 모두 퇴사했습니다. 받는 사람을 다시 골라주세요(전 직원으로는 나가지 않습니다)."); return; }
     setSaving(true);
     try {
       const res = await fetch(req ? `/api/work/submissions/requests/${req.id}` : "/api/work/submissions/requests", {
@@ -642,8 +646,10 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
             )}
             {/* 미리보기 — 실수로 수십 명에게 나가는 것을 막는다 */}
             {people && (
-              <p className={`text-xs rounded-md px-2.5 py-1.5 ${preview.length ? "bg-white border text-gray-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
-                {preview.length
+              <p className={`text-xs rounded-md px-2.5 py-1.5 ${preview.length && !lostAll ? "bg-white border text-gray-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                {lostAll
+                  ? "원래 받던 사람들이 모두 퇴사해 받는 사람이 비었습니다 — 직원을 새로 고르거나 직군·지점을 정해주세요(전 직원으로는 나가지 않습니다)."
+                  : preview.length
                   ? <>이 요청은 <b>{preview.length}명</b>에게 갑니다 — {preview.slice(0, 12).map(who).join(", ")}{preview.length > 12 ? ` 외 ${preview.length - 12}명` : ""}</>
                   : "받는 사람이 없습니다 — 직원을 고르거나 직군·지점을 다시 골라주세요."}
               </p>
@@ -654,7 +660,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>취소</Button>
-          <Button disabled={saving || people === null || preview.length === 0} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : people === null ? "직원 목록 불러오는 중…" : req ? "저장" : "요청 걸기"}</Button>
+          <Button disabled={saving || people === null || preview.length === 0 || lostAll} onClick={save} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "저장 중…" : people === null ? "직원 목록 불러오는 중…" : req ? "저장" : "요청 걸기"}</Button>
         </div>
       </DialogContent>
     </Dialog>
