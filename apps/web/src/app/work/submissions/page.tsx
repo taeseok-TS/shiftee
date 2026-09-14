@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { FileUp, Plus, Bell, X, Paperclip, Eye, Trash2, Lock, Unlock, Share2, Check, Pencil, Loader2, FolderArchive } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import {
+import { HEIC_EXT, HEIC_MARKETING_ONLY_MSG,
   ALLOWED_EXT, CATEGORY_GROUP_LABEL, IMAGE_EXT, JOB_GROUPS, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, SHARE_ALL,
   currentYearMonthKST, extOf, type SubmissionFile,
 } from "@/lib/submissions";
@@ -346,6 +346,7 @@ function UploadDialog({ me, categories, request, editing, onClose, onDone }: {
     for (const file of arr) {
       const ext = extOf(file.name);
       if (!ALLOWED_EXT.has(ext)) { toast.error(`${file.name}: 워드·엑셀·PPT·PDF·한글·이미지·ZIP 만 올릴 수 있습니다.`); continue; }
+      if (HEIC_EXT.has(ext)) { toast.error(`${file.name}: ${HEIC_MARKETING_ONLY_MSG}`); continue; }
       if (file.size > MAX_FILE_BYTES) { toast.error(`${file.name}: 파일당 50MB 이하만 올릴 수 있습니다.`); continue; }
       setUploading((n) => n + 1);
       try {

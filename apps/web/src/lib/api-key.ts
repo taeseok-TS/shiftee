@@ -47,12 +47,13 @@ export type ApiPrincipal = {
 
 // ── 속도 제한(인메모리, 프로세스당) ─────────────────────────────
 // 키당 분당 60·하루 2,000, 쓰기 분당 10, 파일 올리기(요청) 하루 50. 한도 초과 거부가 시간당 600 넘으면 이상으로 보고 멈춘다.
-type Bucket = { minute: string; minuteCount: number; writeCount: number; hour: string; hourCount: number; day: string; dayCount: number; uploadCount: number };
+type Bucket = { minute: string; minuteCount: number; writeCount: number; hour: string; hourCount: number; day: string; dayCount: number; uploadCount: number; fileCount: number };
 const g = globalThis as unknown as { __apiKeyBuckets?: Map<string, Bucket> };
 const buckets: Map<string, Bucket> = g.__apiKeyBuckets ?? (g.__apiKeyBuckets = new Map());
 // 이상 감지는 **거부(429)된 횟수** 기준 — 수락 요청 수 기준으로는 허용치(분당 60·하루 2,000)를 지키는 클라이언트도
 // 걸리는 값밖에 없다(재검증관 2). 한도를 넘겨도 계속 두드리는 것(폭주·탈취)만 이상으로 본다: 시간당 429 가 600 회.
-const LIMITS = { perMinute: 60, perDay: 2000, writesPerMinute: 10, uploadsPerDay: 50, anomalyRejectsPerHour: 600 };
+// 회사 연동 키의 **파일 받기**는 따로 하루 5,000 — 목록 호출과 합쳐 2,000 이면 사진 많은 날 넘친다(큐브마케팅 요청 ④, 2026-09-14)
+const LIMITS = { perMinute: 60, perDay: 2000, writesPerMinute: 10, uploadsPerDay: 50, filesPerDayOrg: 5000, anomalyRejectsPerHour: 600 };
 
 /** 멈춤 해제(resume) 때 버킷도 비운다 — 안 비우면 첫 요청에서 바로 다시 멈추고 DM 이 또 나간다(검증관 C2) */
 export function resetApiKeyBucket(keyId: string) { buckets.delete(keyId); }
@@ -64,10 +65,10 @@ function keys(now: Date) {
 function bucketFor(id: string, now: Date): Bucket {
   const k = keys(now);
   let b = buckets.get(id);
-  if (!b) { b = { minute: k.minute, minuteCount: 0, writeCount: 0, hour: k.hour, hourCount: 0, day: k.day, dayCount: 0, uploadCount: 0 }; buckets.set(id, b); }
+  if (!b) { b = { minute: k.minute, minuteCount: 0, writeCount: 0, hour: k.hour, hourCount: 0, day: k.day, dayCount: 0, uploadCount: 0, fileCount: 0 }; buckets.set(id, b); }
   if (b.minute !== k.minute) { b.minute = k.minute; b.minuteCount = 0; b.writeCount = 0; }
   if (b.hour !== k.hour) { b.hour = k.hour; b.hourCount = 0; }
-  if (b.day !== k.day) { b.day = k.day; b.dayCount = 0; b.uploadCount = 0; }
+  if (b.day !== k.day) { b.day = k.day; b.dayCount = 0; b.uploadCount = 0; b.fileCount = 0; }
   // 오래된 키 정리(메모리) — 1,000개 넘으면 오늘 안 쓴 것부터
   if (buckets.size > 1000) for (const [kid, kb] of buckets) if (kb.day !== k.day) buckets.delete(kid);
   return b;
@@ -84,12 +85,12 @@ function clientIp(request: NextRequest): string | null {
 
 /**
  * /api/v1 인증. 성공하면 주체(사용자+키), 실패하면 응답.
- * kind: "read" | "write" | "upload" — 쓰기·업로드는 더 낮은 한도를 적용한다.
+ * kind: "read" | "write" | "upload" | "file" — 쓰기·업로드는 더 낮은 한도. "file"(첨부 내려받기)은 회사 연동 키에 한해 별도 하루 한도만 본다.
  */
 export async function authenticateApiKey(
   request: NextRequest,
   scope: ApiScope | null, // null = 범위 검사 없이 유효한 키인지만(/me)
-  kind: "read" | "write" | "upload" = "read",
+  kind: "read" | "write" | "upload" | "file" = "read",
 ): Promise<{ ok: true; p: ApiPrincipal } | { ok: false; res: NextResponse }> {
   const auth = request.headers.get("authorization") || "";
   const m = /^Bearer\s+(cbt_pk_[A-Za-z0-9_-]{20,})$/i.exec(auth.trim());
@@ -123,13 +124,19 @@ export async function authenticateApiKey(
     }
     return { ok: false as const, res: v1Error(status, msg, code) };
   };
-  if (b.minuteCount >= LIMITS.perMinute) return reject(429, `분당 ${LIMITS.perMinute}회를 넘었습니다. 잠시 뒤 다시 시도해주세요.`, "RATE_MINUTE");
-  if (b.dayCount >= LIMITS.perDay) return reject(429, `하루 ${LIMITS.perDay}회를 넘었습니다.`, "RATE_DAY");
-  if (kind !== "read" && b.writeCount >= LIMITS.writesPerMinute) return reject(429, `쓰기는 분당 ${LIMITS.writesPerMinute}회까지입니다.`, "RATE_WRITE");
-  if (kind === "upload" && b.uploadCount >= LIMITS.uploadsPerDay) return reject(429, `파일 올리기(요청)는 하루 ${LIMITS.uploadsPerDay}회까지입니다.`, "RATE_UPLOAD");
-  b.minuteCount++; b.dayCount++;
-  if (kind !== "read") b.writeCount++;
-  if (kind === "upload") b.uploadCount++;
+  if (kind === "file" && key.kind === "ORG") {
+    // 연동 키 파일 받기 — 분·일 API 한도와 별개로 하루 5,000 만 본다
+    if (b.fileCount >= LIMITS.filesPerDayOrg) return reject(429, `파일 받기는 하루 ${LIMITS.filesPerDayOrg}회까지입니다.`, "RATE_FILE");
+    b.fileCount++;
+  } else {
+    if (b.minuteCount >= LIMITS.perMinute) return reject(429, `분당 ${LIMITS.perMinute}회를 넘었습니다. 잠시 뒤 다시 시도해주세요.`, "RATE_MINUTE");
+    if (b.dayCount >= LIMITS.perDay) return reject(429, `하루 ${LIMITS.perDay}회를 넘었습니다.`, "RATE_DAY");
+    if (kind === "write" || kind === "upload") { if (b.writeCount >= LIMITS.writesPerMinute) return reject(429, `쓰기는 분당 ${LIMITS.writesPerMinute}회까지입니다.`, "RATE_WRITE"); }
+    if (kind === "upload" && b.uploadCount >= LIMITS.uploadsPerDay) return reject(429, `파일 올리기(요청)는 하루 ${LIMITS.uploadsPerDay}회까지입니다.`, "RATE_UPLOAD");
+    b.minuteCount++; b.dayCount++;
+    if (kind === "write" || kind === "upload") b.writeCount++;
+    if (kind === "upload") b.uploadCount++;
+  }
 
   // 마지막 사용 — 1분에 한 번만 기록(매 요청 UPDATE 방지). 응답을 막지 않는다.
   if (!key.lastUsedAt || now.getTime() - key.lastUsedAt.getTime() > 60_000) {
@@ -160,7 +167,7 @@ async function suspendKey(key: ApiKey, reason: string) {
 export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject: string; res: null } | { subject: null; res: NextResponse | null }> {
   if (!/^Bearer\s+cbt_pk_/i.test(request.headers.get("authorization") || "")) return { subject: null, res: null }; // 키가 아니면 관여 안 함
   // 한 번만 인증(속도 제한도 1회) 하고 범위는 여기서 본다(검증관 3) — 개인 키는 submissions:read, 회사 연동 키는 marketing:read
-  const a = await authenticateApiKey(request, null);
+  const a = await authenticateApiKey(request, null, "file");
   // 429·403(멈춤·범위 없음) 을 401 로 뭉개지 않는다 — 클라이언트가 키가 깨진 줄 알고 재발급하지 않게(재검증관 3)
   if (a.ok === false) return { subject: null, res: a.res }; // strictNullChecks 없이는 삼항의 !a.ok 로 좁혀지지 않는다
   const { key, user } = a.p;

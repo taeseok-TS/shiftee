@@ -1,6 +1,7 @@
 // 자료제출 첨부 받기(멀티파트) — /api/v1/submissions POST 가 파일과 항목을 한 번에 받을 때 쓴다 (2026-09-13)
 // 검사 규칙은 웹 업로드 라우트(api/work/submissions/upload)와 같다: 확장자·50MB·매직바이트, 파일명 안전화 + 업로더 표식.
 import Busboy from "busboy";
+import { createHash } from "crypto";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import fs from "fs/promises";
@@ -18,7 +19,7 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
   await fs.mkdir(dir, { recursive: true });
   const tag = uploaderTag(userId);
   const fields: Record<string, string> = {};
-  const saved: { fileName: string; safeName: string }[] = [];
+  const saved: { fileName: string; safeName: string; sha256: string }[] = [];
   let error: string | undefined;
 
   let bb: ReturnType<typeof Busboy>;
@@ -45,6 +46,8 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       //   busboy 파일 스트림은 멈춘 채 'end' 를 못 내 finish 가 영영 안 온다(핸들러 무응답). 파일마다 **한 번만** 정산하고,
       //   실패하면 unpipe + resume 으로 busboy 가 나머지를 비우게 한다.
       let settled = false;
+      const hash = createHash("sha256"); // 받으면서 바로 계산 — 큐브마케팅이 "파일이 바뀌었나" 를 이걸로 본다(요청 ⑤)
+      stream.on("data", (c: Buffer) => hash.update(c));
       const settle = (fn: () => void) => { if (settled) return; settled = true; fails.delete(fail); fn(); pending--; done(); };
       const fail = (msg: string) => settle(() => {
         stream.unpipe(dest); stream.resume();
@@ -57,7 +60,7 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       stream.pipe(dest);
       stream.on("limit", () => fail(`파일당 50MB 이하만 올릴 수 있습니다: ${fileName}`));
       stream.on("error", () => fail("업로드 본문을 읽지 못했습니다."));
-      dest.on("finish", () => settle(() => { saved.push({ fileName, safeName }); }));
+      dest.on("finish", () => settle(() => { saved.push({ fileName, safeName, sha256: hash.digest("hex") }); }));
       dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다."));
     });
     bb.on("filesLimit", () => { error = `파일은 ${MAX_FILES}개까지입니다.`; });
@@ -83,7 +86,7 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
       finally { await fh.close().catch(() => {}); }
     } catch { ok = false; }
     if (!ok) { error = error || `파일 내용이 확장자와 맞지 않습니다: ${s.fileName}`; continue; }
-    files.push({ url: `/api/uploads/submissions/${s.safeName}`, name: s.fileName, size, type: fileTypeOf(ext) });
+    files.push({ url: `/api/uploads/submissions/${s.safeName}`, name: s.fileName, size, type: fileTypeOf(ext), sha256: s.sha256 });
   }
   if (error) {
     for (const s of saved) await fs.unlink(path.join(dir, s.safeName)).catch(() => {});

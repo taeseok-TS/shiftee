@@ -162,7 +162,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
     for (const file of arr) {
       if (count >= MAX_FILES) break;
       const ext = extOf(file.name);
-      if (!ALLOWED_EXT.has(ext)) { toast.error(`${file.name}: 사진·워드·엑셀·PPT·PDF·한글·ZIP 만 올릴 수 있습니다.`); continue; }
+      if (!ALLOWED_EXT.has(ext)) { toast.error(`${file.name}: 사진(HEIC 포함)·워드·엑셀·PPT·PDF·한글·ZIP 만 올릴 수 있습니다.`); continue; }
       if (file.size > MAX_FILE_BYTES) { toast.error(`${file.name}: 파일당 50MB 이하만 올릴 수 있습니다.`); continue; }
       setUploading((n) => n + 1);
       try {
@@ -195,7 +195,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }} onClick={() => inputRef.current?.click()}
           className="border-2 border-dashed rounded-lg p-5 text-center text-sm cursor-pointer border-gray-300 text-gray-500 hover:bg-gray-50">
           <Paperclip size={18} className="inline mr-1" />사진·파일을 여기에 끌어다 놓거나 클릭해서 고르기
-          <p className="text-[11px] text-gray-400 mt-1">사진(JPG·PNG) 여러 장 · 워드·PPT·PDF·한글·ZIP — 파일당 50MB, {MAX_FILES}개까지</p>
+          <p className="text-[11px] text-gray-400 mt-1">사진(JPG·PNG·아이폰 HEIC 원본) 여러 장 · 워드·PPT·PDF·한글·ZIP — 파일당 50MB, {MAX_FILES}개까지</p>
           <input ref={inputRef} type="file" multiple hidden accept={[...ALLOWED_EXT].join(",")} onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }} />
         </div>
         {(files.length > 0 || uploading > 0) && (

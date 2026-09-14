@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import Busboy from "busboy";
+import { createHash } from "crypto";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import fs from "fs/promises";
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
   await fs.mkdir(dir, { recursive: true });
 
   const result = await new Promise<
-    { fileName: string; safeName: string } | { _error: string; status: number }
+    { fileName: string; safeName: string; sha256: string } | { _error: string; status: number }
   >((resolve) => {
     const bb = Busboy({
       headers: { "content-type": contentType },
@@ -49,6 +50,8 @@ export async function POST(request: NextRequest) {
       const dest = createWriteStream(full);
       // 한 번만 정산 + 실패 시 unpipe/resume, unlink 는 close 뒤 — lib/submission-upload 와 같은 방식(앱 검증관 P1)
       let settled = false;
+      const hash = createHash("sha256"); // 받으면서 바로 계산(요청 ⑤)
+      stream.on("data", (c: Buffer) => hash.update(c));
       const fail = (msg: string, status: number) => {
         if (settled) return; settled = true;
         stream.unpipe(dest); stream.resume();
@@ -60,7 +63,7 @@ export async function POST(request: NextRequest) {
       stream.pipe(dest);
       stream.on("limit", () => fail("파일당 50MB 이하만 올릴 수 있습니다.", 400));
       stream.on("error", () => fail("업로드 본문을 읽지 못했습니다.", 400));
-      dest.on("finish", () => { if (!settled) { settled = true; resolve({ fileName, safeName }); } });
+      dest.on("finish", () => { if (!settled) { settled = true; resolve({ fileName, safeName, sha256: hash.digest("hex") }); } });
       dest.on("error", () => fail("파일 저장 중 오류가 발생했습니다.", 500));
     });
     bb.on("error", () => resolve({ _error: "업로드 본문을 읽지 못했습니다. 다시 시도해주세요.", status: 400 }));
@@ -98,6 +101,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     url: `/api/uploads/submissions/${result.safeName}`,
     name: result.fileName,
+    sha256: result.sha256,
     size,
     type: fileTypeOf(ext),
   });

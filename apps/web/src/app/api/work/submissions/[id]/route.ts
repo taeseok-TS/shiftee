@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { canViewSubmission, fileBelongsTo, resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-access";
 import { pickJobGroups, serializeSubmission } from "@/lib/submission-server";
-import { SUBMISSION_STATUSES, dateStr, normalizeFiles, todayStrKST } from "@/lib/submissions";
+import { HEIC_MARKETING_ONLY_MSG, SUBMISSION_STATUSES, dateStr, hasHeic, normalizeFiles, todayStrKST } from "@/lib/submissions";
 import fs from "fs/promises";
 import type { Prisma } from "@prisma/client";
 
@@ -56,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.files !== undefined) {
       const files = normalizeFiles(body.files);
       if (!files) return NextResponse.json({ error: "파일을 1~10개 올려주세요." }, { status: 400 });
+      if (cur.category?.group !== "MARKETING" && hasHeic(files)) return NextResponse.json({ error: HEIC_MARKETING_ONLY_MSG }, { status: 400 });
       for (const f of files) {
         // 이미 이 제출물에 있던 파일은 그대로, 새로 붙는 파일은 본인이 올린 것만
         const already = (Array.isArray(cur.files) ? (cur.files as unknown as { url: string }[]) : []).some((x) => x.url === f.url);

@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { fileBelongsTo, resolveSubmissionViewer, sharedSubmissionWhere, submissionDiskPath } from "@/lib/submission-access";
 import { isTargeted } from "@/lib/submission-targets";
 import { serializeSubmission } from "@/lib/submission-server";
-import { currentYearMonthKST, isYearMonth, normalizeFiles } from "@/lib/submissions";
+import { HEIC_MARKETING_ONLY_MSG, currentYearMonthKST, hasHeic, isYearMonth, normalizeFiles } from "@/lib/submissions";
 import fs from "fs/promises";
 import type { Prisma } from "@prisma/client";
 
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
   const yearMonth = isYearMonth(body.yearMonth) ? body.yearMonth : currentYearMonthKST();
   if (category.group === "MARKETING" && !consent)
     return NextResponse.json({ error: "학생 얼굴·이름·성적이 보이는 경우 동의를 받았거나 가렸다는 확인에 체크해주세요." }, { status: 400 });
+  if (category.group !== "MARKETING" && hasHeic(files)) return NextResponse.json({ error: HEIC_MARKETING_ONLY_MSG }, { status: 400 });
 
   const row = await prisma.submission.create({
     data: {

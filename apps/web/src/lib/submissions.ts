@@ -25,14 +25,19 @@ export const ALLOWED_EXT = new Set([
   ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf",
   ".hwp", ".hwpx",
   ".png", ".jpg", ".jpeg", ".gif", ".webp",
+  ".heic", ".heif", // 아이폰 원본 사진 — **마케팅 자료에만** 허용(제출 라우트가 분류로 거른다). 변환은 큐브마케팅이 한다(2026-09-14 요청 ①)
   ".zip",
 ]);
 
 /** /api/docs/pdf 로 미리보기가 되는 확장자 (LibreOffice 변환). 한글은 변환기가 없어 내려받기만. */
 export const PREVIEW_EXT = new Set([".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf"]);
 export const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+/** 브라우저가 못 그리는 원본 사진 — 미리보기 없이 내려받기만. 마케팅 자료 전용 */
+export const HEIC_EXT = new Set([".heic", ".heif"]);
+export function hasHeic(files: { name: string }[]): boolean { return files.some((f) => HEIC_EXT.has(extOf(f.name))); }
+export const HEIC_MARKETING_ONLY_MSG = "HEIC(아이폰 원본) 사진은 마케팅 자료에만 올릴 수 있습니다. 다른 자료는 JPG 로 바꿔 올려주세요.";
 
-export type SubmissionFile = { url: string; name: string; size: number; type: string };
+export type SubmissionFile = { url: string; name: string; size: number; type: string; sha256?: string /* 올릴 때 계산(2026-09-14 ⑤) — 옛 파일은 없음 */ };
 
 export function extOf(name: string): string {
   const m = /\.[^./\\]+$/.exec(name || "");
@@ -40,7 +45,7 @@ export function extOf(name: string): string {
 }
 
 export function fileTypeOf(ext: string): string {
-  if (IMAGE_EXT.has(ext)) return "image";
+  if (IMAGE_EXT.has(ext) || HEIC_EXT.has(ext)) return "image";
   if (ext === ".pdf") return "pdf";
   if (ext === ".doc" || ext === ".docx") return "word";
   if (ext === ".xls" || ext === ".xlsx") return "excel";
@@ -82,6 +87,9 @@ export function magicMatches(ext: string, h: Uint8Array): boolean {
       return ascii(0, 4) === "GIF8";
     case ".webp":
       return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+    case ".heic": case ".heif":
+      // ISO BMFF: [size(4)] "ftyp" [brand(4)] — 아이폰 HEIC 는 heic/heix/mif1 이 흔하다
+      return ascii(4, 8) === "ftyp" && ["heic", "heix", "hevc", "hevx", "heif", "mif1", "msf1"].includes(ascii(8, 12));
     default:
       return false;
   }
@@ -129,7 +137,7 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
   const seen = new Set<string>();
   for (const f of raw) {
     if (!f || typeof f !== "object") return null;
-    const { url, name, size, type } = f as Record<string, unknown>;
+    const { url, name, size, type, sha256 } = f as Record<string, unknown>;
     if (!isSubmissionFileUrl(url) || seen.has(url)) return null;
     if (typeof name !== "string") return null;
     // 표시 이름 — 경로 문자·연속 점은 ZIP 항목명 조작에 쓰일 수 있어 지운다(검증관 3)
@@ -144,6 +152,7 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
       name: cleanName,
       size: typeof size === "number" && size >= 0 ? Math.floor(size) : 0,
       type: typeof type === "string" && type ? type : fileTypeOf(ext),
+      ...(typeof sha256 === "string" && /^[0-9a-f]{64}$/.test(sha256) ? { sha256 } : {}),
     });
   }
   return out;
