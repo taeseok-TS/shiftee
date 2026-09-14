@@ -6,7 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { fileUri } from "../services/work";
+import { FILE_ORIGIN, fileUri } from "../services/work";
 import { getUser } from "../services/storage";
 import { Category, Submission, SubmissionFile, createSubmission, deleteSubmission, getCategories, getMarketing, uploadSubmissionFile } from "../services/submissions";
 
@@ -24,7 +24,7 @@ const extOf = (n: string) => { const m = /\.[^./\\]+$/.exec(n || ""); return m ?
 const fmtBytes = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : n >= 1024 ? `${Math.round(n / 1024)}KB` : `${n}B`);
 const TYPE_BADGE: Record<string, string> = { word: "#2b579a", excel: "#217346", ppt: "#d24726", pdf: "#b91c1c", hwp: "#0369a1", image: "#6b7280", zip: "#374151", file: "#6b7280" };
 const TYPE_LABEL: Record<string, string> = { word: "W", excel: "X", ppt: "P", pdf: "PDF", hwp: "한", image: "IMG", zip: "ZIP", file: "F" };
-const FILE_ORIGIN_VIEWER = (url: string, name: string) => `${url.split("/api/")[0]}/docs/viewer?src=${encodeURIComponent(url)}&title=${encodeURIComponent(name.replace(/\.[^.]+$/, ""))}`;
+const FILE_ORIGIN_VIEWER = (url: string, name: string) => `${FILE_ORIGIN}/docs/viewer?src=${encodeURIComponent(url)}&title=${encodeURIComponent(name.replace(/\.[^.]+$/, ""))}`;
 
 function openFile(f: SubmissionFile) {
   const ext = extOf(f.name);
@@ -64,8 +64,11 @@ export default function MarketingScreen() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => { getUser().then((u) => setMe(u ? { id: u.id, role: u.role } : null)); }, []);
+  const loadSeq = React.useRef(0); // 탭을 빨리 바꾸면 늦게 온 이전 탭 결과가 덮지 않게(검증관)
   const load = useCallback(async (sc: Scope) => {
+    const my = ++loadSeq.current;
     const [c, r] = await Promise.allSettled([getCategories(), getMarketing(sc)]);
+    if (my !== loadSeq.current) return;
     if (c.status === "fulfilled") setCategories(c.value.filter((x) => x.group === "MARKETING"));
     setRows(r.status === "fulfilled" ? r.value : []);
     setLoadError(c.status === "rejected" || r.status === "rejected"); // 실패를 "없습니다" 로 위장하지 않는다
@@ -108,7 +111,7 @@ export default function MarketingScreen() {
           const isOwner = !!me && s.userId === me.id;
           const images = s.files.filter((f) => IMAGE_EXT.includes(extOf(f.name)));
           const others = s.files.filter((f) => !IMAGE_EXT.includes(extOf(f.name)));
-          const canDelete = isOwner && !s.publishedAt;
+          const canDelete = isOwner && !s.publishedAt && s.status !== "CHECKED"; // 서버 DELETE 규칙과 같게
           return (
             <View key={s.id} style={styles.card}>
               <View style={styles.itemHead}>
@@ -194,8 +197,7 @@ function UploadSheet({ categories, onClose, onDone }: { categories: Category[]; 
     if (uploading) return;
     if (files.length >= MAX_FILES) { Alert.alert("알림", `파일은 ${MAX_FILES}개까지입니다.`); return; }
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { Alert.alert("권한 필요", "사진 보관함 접근을 허용해주세요(설정 > 큐브티 > 사진)."); return; }
+      // 사진 고르기는 iOS·안드로이드 최신 포토피커라 보관함 권한이 필요 없다 — 채팅·제안 화면과 같게 바로 연다(검증관)
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: Math.max(1, MAX_FILES - files.length), quality: 1, exif: false,
         // 원본 그대로 — iOS 가 HEIC 를 JPEG 로 바꾸지 않게(큐브마케팅이 변환한다)
