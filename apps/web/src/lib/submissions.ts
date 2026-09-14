@@ -34,7 +34,7 @@ export const PREVIEW_EXT = new Set([".doc", ".docx", ".xls", ".xlsx", ".ppt", ".
 export const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 /** 브라우저가 못 그리는 원본 사진 — 미리보기 없이 내려받기만. 마케팅 자료 전용 */
 export const HEIC_EXT = new Set([".heic", ".heif"]);
-export function hasHeic(files: { name: string }[]): boolean { return files.some((f) => HEIC_EXT.has(extOf(f.name))); }
+export function hasHeic(files: { name: string; url?: string }[]): boolean { return files.some((f) => HEIC_EXT.has(extOf(f.name)) || (f.url ? HEIC_EXT.has(extOf(f.url)) : false)); }
 export const HEIC_MARKETING_ONLY_MSG = "HEIC(아이폰 원본) 사진은 마케팅 자료에만 올릴 수 있습니다. 다른 자료는 JPG 로 바꿔 올려주세요.";
 
 export type SubmissionFile = { url: string; name: string; size: number; type: string; sha256?: string /* 올릴 때 계산(2026-09-14 ⑤) — 옛 파일은 없음 */ };
@@ -144,6 +144,8 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
     const cleaned = name.replace(/[\\/:*?"<>|\r\n]/g, "_").replace(/\.{2,}/g, ".").trim();
     const ext = extOf(cleaned);
     if (!cleaned || !ALLOWED_EXT.has(ext)) return null;
+    // 표시 이름의 확장자는 실제 저장 파일(url)의 확장자와 같아야 한다 — 이름만 .jpg 로 바꿔 HEIC 제한·형식 판정을 속이지 못하게(2026-09-14 검증관)
+    if (extOf(url) !== ext) return null;
     // 긴 이름은 확장자를 지키고 앞부분만 자른다(자르고 나서 확장자가 사라지면 엉뚱한 거부가 된다)
     const cleanName = cleaned.length > 200 ? cleaned.slice(0, 200 - ext.length).replace(/\.+$/, "") + ext : cleaned;
     seen.add(url);

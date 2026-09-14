@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { canViewSubmission, fileBelongsTo, resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-access";
+import { canViewSubmission, fileBelongsTo, resolveSubmissionViewer, submissionDiskPath, submissionFileSha256 } from "@/lib/submission-access";
 import { pickJobGroups, serializeSubmission } from "@/lib/submission-server";
 import { HEIC_MARKETING_ONLY_MSG, SUBMISSION_STATUSES, dateStr, hasHeic, normalizeFiles, todayStrKST } from "@/lib/submissions";
 import fs from "fs/promises";
@@ -65,6 +65,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const st = p ? await fs.stat(p).catch(() => null) : null;
         if (!st?.isFile()) return NextResponse.json({ error: `파일을 찾을 수 없습니다: ${f.name}` }, { status: 400 });
         f.size = st.size;
+        if (!already) f.sha256 = (await submissionFileSha256(p as string)) ?? undefined; // 새 파일은 해시를 디스크에서
+        else { const prev = (cur.files as unknown as { url: string; sha256?: string }[]).find((x) => x.url === f.url); f.sha256 = prev?.sha256; }
         const taken = await prisma.submission.findFirst({ where: { id: { not: id }, files: { array_contains: [{ url: f.url }] } }, select: { id: true } });
         if (taken) return NextResponse.json({ error: `이미 다른 제출물에 있는 파일입니다: ${f.name}` }, { status: 409 });
       }

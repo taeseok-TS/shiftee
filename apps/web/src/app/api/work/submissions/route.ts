@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { fileBelongsTo, resolveSubmissionViewer, sharedSubmissionWhere, submissionDiskPath } from "@/lib/submission-access";
+import { fileBelongsTo, resolveSubmissionViewer, sharedSubmissionWhere, submissionDiskPath, submissionFileSha256 } from "@/lib/submission-access";
 import { isTargeted } from "@/lib/submission-targets";
 import { serializeSubmission } from "@/lib/submission-server";
 import { HEIC_MARKETING_ONLY_MSG, currentYearMonthKST, hasHeic, isYearMonth, normalizeFiles } from "@/lib/submissions";
@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
     const st = p ? await fs.stat(p).catch(() => null) : null;
     if (!st?.isFile()) return NextResponse.json({ error: `파일을 찾을 수 없습니다: ${f.name}. 다시 올려주세요.` }, { status: 400 });
     f.size = st.size; // 크기는 디스크 값으로(검증관 11)
+    f.sha256 = (await submissionFileSha256(p as string)) ?? undefined; // 해시도 디스크 값으로
     const taken = await prisma.submission.findFirst({ where: { files: { array_contains: [{ url: f.url }] } }, select: { id: true } });
     if (taken) return NextResponse.json({ error: `이미 제출된 파일입니다: ${f.name}` }, { status: 409 });
   }

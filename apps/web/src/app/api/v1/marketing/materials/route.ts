@@ -11,14 +11,15 @@ export const dynamic = "force-dynamic";
 //  ?status=new(기본: 아직 발행 안 됨)|published|all   ?limit=50   ?cursor=<id>
 //  ?since=<ISO>          그 뒤 **올라온** 것만 (createdAt 순)
 //  ?updatedSince=<ISO>   그 뒤 **바뀐** 것만 (updatedAt 순) — 제목·파일 교체·발행·삭제 모두 updatedAt 이 움직인다 (요청 ③)
-//  ?includeRemoved=1     삭제·동의 해제된 것도 removedAt 을 달아 준다(파일 없음) — 큐브마케팅이 "사용 중지" 로 돌릴 수 있게
+//  ?includeRemoved=1     삭제·동의 해제된 것도 removedAt 을 달아 준다(파일 없음) — 큐브마케팅이 "사용 중지" 로 돌릴 수 있게. 이때 status 기본은 all
 //  동의 체크된 것만(includeRemoved 아니면). 파일 주소는 절대 URL — 같은 키(Authorization 헤더)로 받는다. files[].sha256 은 올릴 때 계산(옛 파일은 없음).
 export async function GET(request: NextRequest) {
   const a = await authenticateApiKey(request, "marketing:read");
   if (a.ok === false) return a.res;
   if (a.p.key.kind !== "ORG") return v1Error(403, "회사 연동 키로만 쓸 수 있습니다.", "ORG_KEY_ONLY");
   const sp = new URL(request.url).searchParams;
-  const status = sp.get("status") || "new";
+  const includeRemoved = sp.get("includeRemoved") === "1";
+  const status = sp.get("status") || (includeRemoved ? "all" : "new"); // 제거분을 달라면 발행 여부와 무관하게
   const limit = Math.min(Math.max(Number(sp.get("limit")) || 50, 1), 200);
   const parseTs = (name: string, code: string): Date | null | NextResponse => {
     const raw = sp.get(name);
@@ -30,7 +31,6 @@ export async function GET(request: NextRequest) {
   if (since instanceof NextResponse) return since;
   const updatedSince = parseTs("updatedSince", "BAD_UPDATED_SINCE");
   if (updatedSince instanceof NextResponse) return updatedSince;
-  const includeRemoved = sp.get("includeRemoved") === "1";
   const cursor = sp.get("cursor");
 
   const where: Prisma.SubmissionWhereInput = {

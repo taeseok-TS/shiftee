@@ -140,6 +140,18 @@ export function fileBelongsTo(fileUrl: string, userId: string): boolean {
 }
 
 /** 첨부 URL → 디스크 경로. uploads/submissions 밖으로 나가면 null. (lib/work-file 과 같은 봉인) */
+/** 저장된 파일의 sha256 — 제출·교체 시점에 디스크에서 계산(클라이언트가 보낸 값은 쓰지 않는다, 2026-09-14 검증관) */
+export async function submissionFileSha256(diskPath: string): Promise<string | null> {
+  try {
+    const { createHash } = await import("crypto");
+    const { createReadStream } = await import("fs");
+    return await new Promise<string>((resolve, reject) => {
+      const h = createHash("sha256");
+      createReadStream(diskPath).on("data", (c: Buffer | string) => h.update(c)).on("end", () => resolve(h.digest("hex"))).on("error", reject);
+    });
+  } catch { return null; }
+}
+
 export function submissionDiskPath(fileUrl: string): string | null {
   if (!isSubmissionFileUrl(fileUrl)) return null;
   let name: string;
