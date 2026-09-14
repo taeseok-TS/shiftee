@@ -13,8 +13,8 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type SubmissionFile = { url: string; name: string; size: number; type: string };
-export type Category = { id: string; group: "EDU" | "PROMO" | "EVENT"; name: string; active: boolean };
+export type SubmissionFile = { url: string; name: string; size: number; type: string; sha256?: string };
+export type Category = { id: string; group: "EDU" | "PROMO" | "EVENT" | "MARKETING"; name: string; active: boolean };
 export type SubmissionRequest = {
   id: string; title: string; description: string | null; categoryId: string; category?: { id: string; group: string; name: string };
   targetJobGroups: string[]; targetBranches: string[]; targetUserIds?: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
@@ -26,9 +26,11 @@ export type Submission = {
   userId: string; userName: string; userBranch: string | null; userJobGroup: string | null; userPosition: string | null;
   yearMonth: string; title: string; memo: string | null; files: SubmissionFile[]; status: "SUBMITTED" | "CHECKED";
   checkedAt: string | null; shared: boolean; shareJobGroups: string[]; createdAt: string;
+  // 마케팅 자료(2026-09-14): 개인정보 동의, 큐브마케팅 블로그 발행 결과
+  consent?: boolean; publishedAt?: string | null; publishedUrl?: string | null;
 };
 
-export const CATEGORY_GROUP_LABEL: Record<string, string> = { EDU: "교육", PROMO: "본부 프로모션", EVENT: "본부 이벤트" };
+export const CATEGORY_GROUP_LABEL: Record<string, string> = { EDU: "교육", PROMO: "본부 프로모션", EVENT: "본부 이벤트", MARKETING: "마케팅 자료" };
 
 export async function getCategories(): Promise<Category[]> {
   const res = await axios.get(`${API_URL}/work/submissions/categories`, { headers: await authHeaders() });
@@ -45,7 +47,13 @@ export async function getSubmissions(scope: "mine" | "shared"): Promise<Submissi
   return res.data.submissions ?? [];
 }
 
-export async function createSubmission(body: { requestId?: string | null; categoryId?: string; title?: string; memo?: string; files: SubmissionFile[] }): Promise<Submission> {
+// 마케팅 자료 목록 — 서버가 group=MARKETING 으로 거른다. scope: mine(본인) | branch(원장 담당 지점) | all(본부)
+export async function getMarketing(scope: "mine" | "branch" | "all"): Promise<Submission[]> {
+  const res = await axios.get(`${API_URL}/work/submissions`, { params: { scope, group: "MARKETING" }, headers: await authHeaders() });
+  return (res.data.submissions ?? []).filter((s: Submission) => s.category?.group === "MARKETING");
+}
+
+export async function createSubmission(body: { requestId?: string | null; categoryId?: string; title?: string; memo?: string; files: SubmissionFile[]; consent?: boolean }): Promise<Submission> {
   const res = await axios.post(`${API_URL}/work/submissions`, body, { headers: await authHeaders() });
   return res.data.submission;
 }

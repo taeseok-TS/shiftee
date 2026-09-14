@@ -7,6 +7,7 @@ import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import SuggestionScreen from "../screens/SuggestionScreen";
 import SubmissionsScreen from "../screens/SubmissionsScreen";
+import MarketingScreen from "../screens/MarketingScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -22,6 +23,7 @@ export default function MoreNavigator() {
       <Stack.Screen name="Leave" component={LeaveRequestScreen} options={{ title: "휴가" }} />
       <Stack.Screen name="Suggestions" component={SuggestionScreen} options={{ title: "개선 제안" }} />
       <Stack.Screen name="Submissions" component={SubmissionsScreen} options={{ title: "자료제출" }} />
+      <Stack.Screen name="Marketing" component={MarketingScreen} options={{ title: "마케팅 자료" }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: "설정" }} />
     </Stack.Navigator>
   );
