@@ -30,16 +30,29 @@ const STATUS_LABEL: Record<string, string> = { APPLIED: "자동 반영", DONE: "
 const pad = (n: number | null | undefined) => (n == null ? "-" : String(n).padStart(5, "0"));
 const s = (v: unknown) => (v === null || v === undefined || v === "" ? "-" : String(v));
 
+type Target = { name?: string; branch?: string | null; empNo?: number | null };
+const targetOf = (c: Change) => (c.diff.target ?? null) as Target | null;
+/** 일반 칸 변경이라도 이름이 다르거나(개명) 원장 계정의 지점·직책이면 개별 확인으로 */
+const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope;
+
+function TargetLine({ c }: { c: Change }) {
+  const tg = targetOf(c);
+  if (!tg) return null;
+  return <p className="text-[11px] text-gray-500">큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)})</p>;
+}
+
 function Detail({ c }: { c: Change }) {
   const d = c.diff;
   if (c.kind === "UPDATE") {
     const fields = (d.fields ?? {}) as Record<string, Pair>;
     return (
       <div className="text-xs text-gray-700 space-y-0.5">
-        {d.nameMismatch ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />사번은 같은데 이름이 다릅니다. 같은 사람인지 확인한 뒤 반영해주세요.</p> : null}
+        {d.nameMismatch ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름이 바뀌었습니다(회사 이메일은 같음). 같은 사람인지 확인한 뒤 반영해주세요.</p> : null}
+        {d.managerScope ? <p className="text-amber-700 flex items-center gap-1"><AlertTriangle size={12} />원장 계정입니다. 지점·직책이 바뀌면 담당 범위가 따라 바뀌어 확인 후 반영합니다.</p> : null}
         {Object.entries(fields).map(([k, v]) => (
           <p key={k}><span className="text-gray-500">{FIELD_LABEL[k] ?? k}</span> {v[0] || "-"} → <b>{v[1]}</b></p>
         ))}
+        <TargetLine c={c} />
       </div>
     );
   }
@@ -53,10 +66,20 @@ function Detail({ c }: { c: Change }) {
       </div>
     );
   }
-  if (c.kind === "RESIGN") return <p className="text-xs text-gray-700">퇴사일 <b>{s(d.resignDate)}</b> · 반영하면 그날이 지난 뒤 로그인이 막히고 결재선에서 빠집니다.</p>;
-  if (c.kind === "LEAVE") return <p className="text-xs text-gray-700">포털에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p>;
-  if (c.kind === "RETURN") return <p className="text-xs text-gray-700">{d.from === "RESIGNED" ? "큐브티에서는 퇴사 처리돼 있는데 포털은 재직입니다. 반영하면 계정을 다시 켭니다." : "포털에서 복직 — 재직으로 바꿉니다."}</p>;
-  if (c.kind === "LINK") return <p className="text-xs text-gray-700">큐브티 {s(d.userBranch)} {s(d.userName)}님의 사번 {pad(d.fromEmpNo as number | null)} → <b>{pad(d.toEmpNo as number)}</b> ({d.by === "email" ? "회사 이메일이 같음" : "이름·지점이 같음"})</p>;
+  if (c.kind === "RESIGN") return <div className="text-xs text-gray-700 space-y-0.5"><p>퇴사일 <b>{s(d.resignDate)}</b> · 반영하면 바로 로그아웃되고, 퇴사일이 지나면 로그인이 막히며 결재선에서 빠집니다.</p><TargetLine c={c} /></div>;
+  if (c.kind === "LEAVE") return <div className="text-xs text-gray-700 space-y-0.5"><p>포털에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p><TargetLine c={c} /></div>;
+  if (c.kind === "RETURN") return (
+    <div className="text-xs text-gray-700 space-y-0.5">
+      <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 포털에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다." : "포털에서 복직 — 재직으로 바꿉니다."}</p>
+      <TargetLine c={c} />
+    </div>
+  );
+  if (c.kind === "LINK") return (
+    <div className="text-xs text-gray-700 space-y-0.5">
+      <p>큐브티 사번 {pad(d.fromEmpNo as number | null)} → <b>포털 사번 {pad(d.toEmpNo as number)}</b> ({d.by === "email" ? "회사 이메일이 같음" : "이름·지점이 같음 — 동명이인이 아닌지 확인해주세요"})</p>
+      <TargetLine c={c} />
+    </div>
+  );
   return null;
 }
 
@@ -92,7 +115,10 @@ export default function PortalSyncPage() {
     if (d) { toast.success(`정보 변경 ${d.done}건을 반영했습니다${d.failed ? ` (실패 ${d.failed}건)` : ""}.`); load(); }
   }
   async function decide(c: Change, action: "apply" | "dismiss") {
-    if (action === "apply" && (c.kind === "RESIGN" || c.kind === "HIRE" || c.kind === "RETURN") && !confirm(`${c.name}님 ${KIND_LABEL[c.kind]}을(를) 큐브티에 반영할까요?`)) return;
+    const tg = targetOf(c);
+    const who = tg ? `큐브티 ${tg.branch ?? "-"} ${tg.name}님(사번 ${pad(tg.empNo ?? null)})` : `${c.name}님`;
+    if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n포털: ${c.name} (사번 ${c.portalId})`)) return;
+    if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 포털 값으로 바꿀까요?`)) return;
     setBusy(c.id);
     try {
       const res = await fetch(`/api/admin/portal-sync/changes/${c.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
@@ -113,8 +139,8 @@ export default function PortalSyncPage() {
   if (!data) return <div className="p-8 text-sm text-gray-500">불러오는 중…</div>;
   const last = data.runs[0];
   const sum = last?.summary ?? {};
-  const pendingUpdates = data.pending.filter((c) => c.kind === "UPDATE" && c.status === "PENDING" && !c.diff.nameMismatch);
-  const confirms = data.pending.filter((c) => !(c.kind === "UPDATE" && !c.diff.nameMismatch));
+  const pendingUpdates = data.pending.filter((c) => !needsConfirm(c) && c.status === "PENDING");
+  const confirms = data.pending.filter((c) => needsConfirm(c) || c.status === "APPLYING");
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
@@ -145,7 +171,7 @@ export default function PortalSyncPage() {
           <div key={c.id} className="bg-white border rounded-lg p-3 flex items-start gap-3">
             <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">사번 {c.portalId}</span></p>
+              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">포털 사번 {c.portalId}</span>{c.status === "APPLYING" ? <span className="ml-1 text-[11px] text-amber-700">반영 중…</span> : null}</p>
               <Detail c={c} />
             </div>
             <div className="flex gap-1.5 shrink-0">

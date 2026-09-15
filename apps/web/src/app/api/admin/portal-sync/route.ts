@@ -59,11 +59,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "applyAllUpdates") {
-    // 이름이 달라 확인이 필요한 건(nameMismatch)은 빼고 일반 칸 변경만 한 번에
+    // 개별 확인이 필요한 건(개명·원장 계정)은 빼고 일반 칸 변경만 한 번에
     const rows = await prisma.portalSyncChange.findMany({ where: { status: "PENDING", kind: "UPDATE" }, select: { id: true, diff: true } });
     let done = 0; const failed: string[] = [];
     for (const r of rows) {
-      if ((r.diff as { nameMismatch?: boolean } | null)?.nameMismatch) continue;
+      const d = r.diff as { nameMismatch?: boolean; managerScope?: boolean } | null;
+      if (d?.nameMismatch || d?.managerScope) continue; // 개명·원장 계정은 한 건씩 확인
       const res = await decideChange(r.id, "apply", actor);
       if (res.ok === false) failed.push(res.error); else done++; // strictNullChecks 없이는 res.ok 로 좁혀지지 않는다
     }
