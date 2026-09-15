@@ -192,9 +192,10 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     if (ps === "OTHER") { skip(r, `알 수 없는 상태: ${r.status || "(빈 값)"}`); continue; }
     const u = byEmp.get(r.empNo);
     if (!u) { if (ps !== "RESIGNED") unmatched.push(r); continue; }
-    seen.add(u.id);
 
     // 같은 사람인가 — 이름(공백 무시) 또는 회사 이메일이 같아야 한다. 둘 다 다르면 아무것도 하지 않는다(H1).
+    // ⚠ 건너뛸 때는 seen 에 넣지 않는다 — 그 큐브티 직원은 자기 진짜 포털 행과 "사번 연결"로 이어져야 한다.
+    //   넣으면 진짜 행이 "입사"로 떠서 확인 한 번에 중복 계정이 생긴다(검증관 N2).
     const sameName = !!r.name && normName(r.name) === normName(u.name);
     const sameEmail = !!r.email && u.email.toLowerCase() === r.email;
     if (!r.name) { skip(r, "포털 이름이 비어 있음"); continue; }
@@ -202,23 +203,28 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
       skip(r, `사번 충돌 의심 — 큐브티 ${u.branch ?? "-"} ${u.name} / 포털 ${r.branch || "-"} ${r.name}. 같은 사람이 아니면 한쪽 사번을 고쳐주세요`);
       continue;
     }
+    seen.add(u.id);
+    // 이름만 같고 이메일·지점·입사일이 하나도 안 맞으면 동명이인이 사번까지 우연히 겹친 것일 수 있다 —
+    // 자동 반영하지 않고, 카드·확인창에 양쪽 지점·입사일을 보여 확인받는다(검증관 N1)
+    const portalBranch = mapBranch(r.branch, known).value;
+    const weakIdentity = !sameEmail && !(portalBranch && portalBranch === u.branch) && !(r.joinDate && r.joinDate === dstr(u.hireDate));
     const base = { empNo: r.empNo, portalId: r.portalId, name: r.name, userId: u.id };
-    const target = { name: u.name, branch: u.branch, empNo: u.empNo };
+    const idf = { target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: dstr(u.hireDate) || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null }, weakIdentity };
     const cs = cubeteeState(u);
 
     if (cs === "DISABLED") { if (ps !== "RESIGNED") skip(r, "큐브티에서 비활성 처리된 직원 — 직원 관리에서 확인해주세요"); continue; }
     if (cs === "RESIGNED") {
-      if (ps === "ACTIVE" || ps === "LEAVE") plans.push({ ...base, kind: "RETURN", diff: { from: "RESIGNED", to: ps, target } });
+      if (ps === "ACTIVE" || ps === "LEAVE") plans.push({ ...base, kind: "RETURN", diff: { from: "RESIGNED", to: ps, ...idf } });
       continue; // 퇴사자의 일반 칸은 건드리지 않는다
     }
     if (ps === "RESIGNED") {
       // 퇴사일이 비어 있으면 "오늘"로 채우지 않는다 — 날마다 내용이 달라져 [무시]가 안 먹고 실제 퇴사일도 틀린다(M2)
       if (!r.leaveDate) skip(r, "포털이 퇴사인데 퇴사일이 비어 있음 — 포털에 퇴사일을 넣어주세요");
-      else if (dstr(u.resignDate) !== r.leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: r.leaveDate, portalStatus: r.status, target } });
+      else if (dstr(u.resignDate) !== r.leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: r.leaveDate, portalStatus: r.status, ...idf } });
       continue;
     }
-    if (ps === "LEAVE" && cs === "ACTIVE") plans.push({ ...base, kind: "LEAVE", diff: { portalStatus: r.status, target } });
-    if (ps === "ACTIVE" && cs === "LEAVE") plans.push({ ...base, kind: "RETURN", diff: { from: "LEAVE", to: "ACTIVE", target } });
+    if (ps === "LEAVE" && cs === "ACTIVE") plans.push({ ...base, kind: "LEAVE", diff: { portalStatus: r.status, ...idf } });
+    if (ps === "ACTIVE" && cs === "LEAVE") plans.push({ ...base, kind: "RETURN", diff: { from: "LEAVE", to: "ACTIVE", ...idf } });
 
     // 일반 칸
     const fields: Fields = {};
@@ -237,7 +243,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
       const nameMismatch = !!fields.name;
       // 원장 계정의 지점·직책이 바뀌면 담당 범위·권한 판정이 따라 바뀐다 — 자동으로 두지 않는다(M5)
       const managerScope = u.role === "MANAGER" && !!(fields.branch || fields.jobGroup);
-      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, target }, forceConfirm: nameMismatch || managerScope });
+      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || weakIdentity });
     }
   }
 
@@ -280,7 +286,10 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     if (!mb) missing.push("지점");
     plans.push({
       ...base, kind: "HIRE", userId: null,
-      diff: { email: r.email || null, branch: mb, portalBranch: r.branch, jobGroup: mapJobGroup(r.job, r.position), position: mapPosition(r.position), hireDate: r.joinDate || null, onLeave: portalState(r) === "LEAVE", missing },
+      diff: {
+        email: r.email || null, branch: mb, portalBranch: r.branch, jobGroup: mapJobGroup(r.job, r.position), position: mapPosition(r.position), hireDate: r.joinDate || null, onLeave: portalState(r) === "LEAVE", missing,
+        sameNameInCubetee: users.filter((u) => normName(u.name) === normName(r.name)).slice(0, 3).map((u) => ({ name: u.name, branch: u.branch, empNo: u.empNo, state: cubeteeState(u) })),
+      },
     });
   }
 
@@ -296,7 +305,7 @@ function sigOf(p: Plan): string {
   // 큐브티 쪽 현재값(target·before)은 빼고 "포털이 원하는 값"만으로 — 무시한 뒤 큐브티가 조금 바뀌어도 다시 올리지 않게
   const target = p.kind === "UPDATE"
     ? Object.entries((p.diff.fields ?? {}) as Fields).map(([k, v]) => [k, v?.[1]]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => k !== "target"));
+    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => k !== "target" && k !== "weakIdentity" && k !== "sameNameInCubetee"));
   return createHash("sha256").update(`${p.kind}|${p.empNo}|${p.userId ?? ""}|${JSON.stringify(target)}`).digest("hex").slice(0, 32);
 }
 
@@ -309,6 +318,9 @@ async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
   if (!u || u.deletedAt) throw new Error("직원을 찾을 수 없습니다.");
   // 관리자 계정은 연동으로 바꾸지 않는다(관리자 수정은 메인 관리자 전용 — PATCH 와 같은 선, L5)
   if (u.role === "ADMIN") throw new Error("관리자 계정은 연동으로 바꾸지 않습니다.");
+  // 확인 대기가 묵는 사이 퇴사·비활성된 사람의 정보는 바꾸지 않는다(L6)
+  const st = cubeteeState(u);
+  if (st === "RESIGNED" || st === "DISABLED") throw new Error("그사이 큐브티에서 퇴사·비활성 처리된 직원입니다.");
   if (fields.branch && !(await prisma.branch.findFirst({ where: { name: fields.branch[1] }, select: { id: true } })))
     throw new Error(`큐브티에 없는 지점입니다: ${fields.branch[1]}`);
   const data: Prisma.UserUpdateInput = {};

@@ -45,7 +45,7 @@ export async function PATCH(
   const todayMidnight = kstTodayMidnight();
 
   // 변경 전 값(감사 로그용)
-  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true } });
+  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true, employmentStatus: true } });
 
   // MANAGER는 담당 지점(대표+겸직) 구성원만 수정 가능
   if (session.role === "MANAGER") {
@@ -135,12 +135,16 @@ export async function PATCH(
       isContractApprover: typeof isContractApprover === "boolean" ? isContractApprover : undefined,
       // 재직상태도 함께 맞춘다 — 퇴직자 현황이 이 값으로 조회하기 때문.
       // 앞으로의 퇴사일이면 아직 재직이므로 ACTIVE 로 두고, 날짜가 지나면 조회 시점에 퇴직자로 잡힌다.
+      // ⚠ 퇴직 상태를 풀 때만 재직(ACTIVE)으로 되돌린다. 수정 모달은 재직자에게도 resignDate:null 을 항상 보내서,
+      //   종전에는 휴직(ON_LEAVE)·임시휴무 직원의 전화번호만 고쳐도 재직으로 덮였다(2026-09-15 검증관 N5 — 포털 연동이 휴직을 쓰기 시작).
       employmentStatus:
         resignVal === undefined
           ? undefined
           : resignVal && resignVal < todayMidnight
           ? "RESIGNED"
-          : "ACTIVE",
+          : before?.employmentStatus === "RESIGNED"
+          ? "ACTIVE"
+          : undefined,
       // 퇴사일이 지났으면 **비활성도 함께 내린다**(2026-09-09 디렉터 지시).
       // 종전에는 resignDate 만 써서 isActive 는 true 로 남았고, 그러면 로그인은 막히는데
       // 결재선.집계는 재직자로 보는 어긋난 상태가 됐다.

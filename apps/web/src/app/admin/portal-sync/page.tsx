@@ -30,15 +30,24 @@ const STATUS_LABEL: Record<string, string> = { APPLIED: "자동 반영", DONE: "
 const pad = (n: number | null | undefined) => (n == null ? "-" : String(n).padStart(5, "0"));
 const s = (v: unknown) => (v === null || v === undefined || v === "" ? "-" : String(v));
 
-type Target = { name?: string; branch?: string | null; empNo?: number | null };
+type Target = { name?: string; branch?: string | null; empNo?: number | null; hireDate?: string | null };
+type PortalSide = { branch?: string | null; joinDate?: string | null };
 const targetOf = (c: Change) => (c.diff.target ?? null) as Target | null;
-/** 일반 칸 변경이라도 이름이 다르거나(개명) 원장 계정의 지점·직책이면 개별 확인으로 */
-const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope;
+const portalOf = (c: Change) => (c.diff.portal ?? null) as PortalSide | null;
+/** 일반 칸 변경이라도 개명·원장 계정·이름만 같은 약한 일치면 개별 확인으로 */
+const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope || !!c.diff.weakIdentity;
 
 function TargetLine({ c }: { c: Change }) {
   const tg = targetOf(c);
+  const pt = portalOf(c);
   if (!tg) return null;
-  return <p className="text-[11px] text-gray-500">큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)})</p>;
+  return (
+    <div className="text-[11px] text-gray-500 space-y-0.5">
+      {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다(이메일·지점·입사일이 모두 다름). 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
+      <p>큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)}{tg.hireDate ? ` · 입사 ${tg.hireDate}` : ""})</p>
+      {pt ? <p>포털: {pt.branch ?? "-"} {c.name} (사번 {c.portalId}{pt.joinDate ? ` · 입사 ${pt.joinDate}` : ""})</p> : null}
+    </div>
+  );
 }
 
 function Detail({ c }: { c: Change }) {
@@ -63,6 +72,9 @@ function Detail({ c }: { c: Change }) {
         <p>{s(d.branch ?? d.portalBranch)} · {s(d.jobGroup)} · {s(d.position)} · 입사 {s(d.hireDate)} · {s(d.email)}{d.onLeave ? " · 휴직 중" : ""}</p>
         {missing.length ? <p className="text-red-700">{missing.join("·")}이(가) 없어 지금은 반영할 수 없습니다.</p>
           : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.</p>}
+        {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
+          <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 포털 사번으로 고쳐주세요.</p>
+        ) : null}
       </div>
     );
   }
@@ -70,7 +82,7 @@ function Detail({ c }: { c: Change }) {
   if (c.kind === "LEAVE") return <div className="text-xs text-gray-700 space-y-0.5"><p>포털에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p><TargetLine c={c} /></div>;
   if (c.kind === "RETURN") return (
     <div className="text-xs text-gray-700 space-y-0.5">
-      <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 포털에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다." : "포털에서 복직 — 재직으로 바꿉니다."}</p>
+      <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 포털에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다 — 퇴직자 현황의 과거 집계에서도 빠집니다." : "포털에서 복직 — 재직으로 바꿉니다."}</p>
       <TargetLine c={c} />
     </div>
   );
@@ -117,8 +129,10 @@ export default function PortalSyncPage() {
   async function decide(c: Change, action: "apply" | "dismiss") {
     const tg = targetOf(c);
     const who = tg ? `큐브티 ${tg.branch ?? "-"} ${tg.name}님(사번 ${pad(tg.empNo ?? null)})` : `${c.name}님`;
-    if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n포털: ${c.name} (사번 ${c.portalId})`)) return;
-    if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 포털 값으로 바꿀까요?`)) return;
+    const pt = portalOf(c);
+    const warn = c.diff.weakIdentity ? "\n⚠ 이름만 같습니다 — 동명이인이 아닌지 확인해주세요." : "";
+    if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
+    if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 포털 값으로 바꿀까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
     setBusy(c.id);
     try {
       const res = await fetch(`/api/admin/portal-sync/changes/${c.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
