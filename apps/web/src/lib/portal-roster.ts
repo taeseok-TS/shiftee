@@ -197,7 +197,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     // ⚠ 건너뛸 때는 seen 에 넣지 않는다 — 그 큐브티 직원은 자기 진짜 포털 행과 "사번 연결"로 이어져야 한다.
     //   넣으면 진짜 행이 "입사"로 떠서 확인 한 번에 중복 계정이 생긴다(검증관 N2).
     const sameName = !!r.name && normName(r.name) === normName(u.name);
-    const sameEmail = !!r.email && u.email.toLowerCase() === r.email;
+    const sameEmail = !!r.email && u.email.trim().toLowerCase() === r.email;
     if (!r.name) { skip(r, "포털 이름이 비어 있음"); continue; }
     if (!sameName && !sameEmail) {
       skip(r, `사번 충돌 의심 — 큐브티 ${u.branch ?? "-"} ${u.name} / 포털 ${r.branch || "-"} ${r.name}. 같은 사람이 아니면 한쪽 사번을 고쳐주세요`);
@@ -209,14 +209,19 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     const portalBranch = mapBranch(r.branch, known).value;
     const cHire = dstr(u.hireDate);
     const sameBranch = !!portalBranch && portalBranch === u.branch;
-    const sameHire = !!r.joinDate && r.joinDate === cHire;
+    // 입사일은 하루 차이까지 같은 날로 본다 — 옛 데이터 중 KST 자정으로 저장돼 하루 앞서 보이는 행이 있다(검증관 4차 낮음 3)
+    const dayGap = r.joinDate && cHire ? Math.abs(Date.parse(r.joinDate) - Date.parse(cHire)) / 86_400_000 : NaN;
+    const sameHire = dayGap <= 1;
     // 양쪽에 다 있는데 다른 것만 "반대 증거"로 친다 — 값이 비어 있는 건 증거가 아니다(검증관 3차 낮음 1: 정상 전근자 오경고)
-    const emailDiffers = !!r.email && !!u.email && u.email.toLowerCase() !== r.email;
-    const hireDiffers = !!r.joinDate && !!cHire && r.joinDate !== cHire;
+    const emailDiffers = !!r.email && !!u.email && u.email.trim().toLowerCase() !== r.email;
+    const hireDiffers = dayGap > 1;
     const weakIdentity = !sameEmail && !sameBranch && !sameHire && (emailDiffers || hireDiffers);
+    // 반대 증거는 없어도 이메일·지점·입사일 어느 것으로도 같은 사람임이 확인되지 않으면 — 경고는 안 띄우되
+    // 자동 반영하지 않고 확인으로 돌린다(검증관 4차 중간: 이메일·입사일이 비면 동명이인의 지점 이동이 새던 경로)
+    const unverified = !sameEmail && !sameBranch && !sameHire;
     const weakReasons = weakIdentity ? [emailDiffers ? "이메일 다름" : "", hireDiffers ? "입사일 다름" : "", portalBranch && u.branch && portalBranch !== u.branch ? "지점 다름" : ""].filter(Boolean) : [];
     const base = { empNo: r.empNo, portalId: r.portalId, name: r.name, userId: u.id };
-    const idf = { target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: cHire || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null }, weakIdentity, weakReasons };
+    const idf = { target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: cHire || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null }, weakIdentity, weakReasons, unverified };
     const cs = cubeteeState(u);
 
     if (cs === "DISABLED") { if (ps !== "RESIGNED") skip(r, "큐브티에서 비활성 처리된 직원 — 직원 관리에서 확인해주세요"); continue; }
@@ -250,7 +255,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
       const nameMismatch = !!fields.name;
       // 원장 계정의 지점·직책이 바뀌면 담당 범위·권한 판정이 따라 바뀐다 — 자동으로 두지 않는다(M5)
       const managerScope = u.role === "MANAGER" && !!(fields.branch || fields.jobGroup);
-      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || weakIdentity });
+      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || weakIdentity || unverified });
     }
   }
 
@@ -262,7 +267,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
   const taken = new Set<string>();
   for (const r of unmatched) {
     if (!r.email) continue;
-    const hits = free.filter((u) => !taken.has(u.id) && u.email.toLowerCase() === r.email);
+    const hits = free.filter((u) => !taken.has(u.id) && u.email.trim().toLowerCase() === r.email);
     if (hits.length === 1) { linked.set(r, { u: hits[0], by: "email" }); taken.add(hits[0].id); }
   }
   const nameKey = (name: string, branch: string | null) => `${normName(name)}|${branch ?? ""}`;
@@ -313,7 +318,7 @@ function sigOf(p: Plan): string {
   // 큐브티 쪽 현재값(target·before)은 빼고 "포털이 원하는 값"만으로 — 무시한 뒤 큐브티가 조금 바뀌어도 다시 올리지 않게
   const target = p.kind === "UPDATE"
     ? Object.entries((p.diff.fields ?? {}) as Fields).map(([k, v]) => [k, v?.[1]]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => !["target", "portal", "weakIdentity", "weakReasons", "sameNameInCubetee"].includes(k)));
+    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => !["target", "portal", "weakIdentity", "weakReasons", "unverified", "sameNameInCubetee"].includes(k)));
   return createHash("sha256").update(`${p.kind}|${p.empNo}|${p.userId ?? ""}|${JSON.stringify(target)}`).digest("hex").slice(0, 32);
 }
 
@@ -522,6 +527,11 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
     const open = await prisma.portalSyncChange.findMany({ where: { status: "PENDING" }, select: { id: true, empNo: true, kind: true } });
     const stale = open.filter((c) => !keep.has(`${c.empNo}|${c.kind}`)).map((c) => c.id);
     if (stale.length) await prisma.portalSyncChange.updateMany({ where: { id: { in: stale }, status: "PENDING" }, data: { status: "SUPERSEDED" } });
+    // [무시]는 그 상황이 이어지는 동안만 — (사번, 종류)가 이번에 안 나오면 만료시켜, 다음에 다시 휴직·복직하면 새로 올라오게(검증관 4차 낮음 4)
+    const planned = new Set(plan.plans.map((p) => `${p.empNo}|${p.kind}`));
+    const dismissed = await prisma.portalSyncChange.findMany({ where: { status: "DISMISSED" }, select: { id: true, empNo: true, kind: true } });
+    const expire = dismissed.filter((c) => !planned.has(`${c.empNo}|${c.kind}`)).map((c) => c.id);
+    if (expire.length) await prisma.portalSyncChange.updateMany({ where: { id: { in: expire }, status: "DISMISSED" }, data: { status: "EXPIRED" } });
 
     await prisma.portalSyncRun.update({
       where: { id: run.id },

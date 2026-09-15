@@ -35,7 +35,7 @@ type PortalSide = { branch?: string | null; joinDate?: string | null };
 const targetOf = (c: Change) => (c.diff.target ?? null) as Target | null;
 const portalOf = (c: Change) => (c.diff.portal ?? null) as PortalSide | null;
 /** 일반 칸 변경이라도 개명·원장 계정·이름만 같은 약한 일치면 개별 확인으로 */
-const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope || !!c.diff.weakIdentity;
+const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope || !!c.diff.weakIdentity || !!c.diff.unverified;
 
 function TargetLine({ c }: { c: Change }) {
   const tg = targetOf(c);
@@ -44,6 +44,7 @@ function TargetLine({ c }: { c: Change }) {
   return (
     <div className="text-[11px] text-gray-500 space-y-0.5">
       {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다{Array.isArray(c.diff.weakReasons) && (c.diff.weakReasons as string[]).length ? `(${(c.diff.weakReasons as string[]).join("·")})` : ""}. 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
+      {!c.diff.weakIdentity && c.diff.unverified ? <p className="text-amber-700">이메일·지점·입사일로 같은 사람임이 확인되지 않았습니다 — 양쪽을 보고 반영해주세요.</p> : null}
       <p>큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)}{tg.hireDate ? ` · 입사 ${tg.hireDate}` : ""})</p>
       {pt ? <p>포털: {pt.branch ?? "-"} {c.name} (사번 {c.portalId}{pt.joinDate ? ` · 입사 ${pt.joinDate}` : ""})</p> : null}
     </div>
