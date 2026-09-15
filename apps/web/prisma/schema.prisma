@@ -688,6 +688,50 @@ model Holiday {
 }
 
 // 앱 전역 설정 (키-값) — 예: forceApprovalNotify(결재 알림 강제발송)
+// 포털(직영인사) 인원명부 → 큐브티 한 방향 동기화 (2026-09-15 디렉터 결정). 실행 1회 = 1행.
+model PortalSyncRun {
+  id         String    @id @default(cuid())
+  trigger    String // AUTO(매일 06:30) | MANUAL(지금 가져오기)
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ok         Boolean   @default(false)
+  error      String?
+  fetched    Int       @default(0)
+  matched    Int       @default(0)
+  applied    Int       @default(0)
+  pending    Int       @default(0)
+  skipped    Int       @default(0)
+  actorName  String?
+  summary    Json? // { skipped[], roleMismatch[], missingInPortal[] }
+
+  changes PortalSyncChange[]
+
+  @@index([startedAt])
+}
+
+// 포털 값과 달라 반영했거나(APPLIED/DONE) 본부 확인을 기다리는(PENDING) 변경 한 건
+model PortalSyncChange {
+  id        String        @id @default(cuid())
+  runId     String
+  run       PortalSyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  empNo     Int
+  portalId  String // 포털 사번 원문 (예: "02512")
+  name      String
+  userId    String?
+  kind      String // UPDATE | HIRE | RESIGN | LEAVE | RETURN | LINK
+  diff      Json
+  sig       String // 같은 내용 판별 — 무시한 것을 다시 올리지 않는다
+  status    String // APPLIED | PENDING | APPLYING | DONE | DISMISSED | SUPERSEDED
+  decidedBy String?
+  decidedAt DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status, kind])
+  @@index([empNo])
+  @@index([sig])
+}
+
 model AppSetting {
   key       String   @id
   value     String

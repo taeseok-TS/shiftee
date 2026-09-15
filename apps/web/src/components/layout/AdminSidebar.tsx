@@ -21,6 +21,7 @@ import {
   Lightbulb,
   CalendarDays,
   Bot,
+  RefreshCw,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -34,6 +35,7 @@ const adminNavItems = [
   { href: "/admin/contract-templates", label: "계약 템플릿", icon: FileText },
   { href: "/admin/employees", label: "직원 관리", icon: Users },
   { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
+  { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
   { href: "/admin/branches", label: "지점 관리", icon: Building2 },
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
   { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },

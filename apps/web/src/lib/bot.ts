@@ -522,7 +522,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -596,6 +596,16 @@ export function startBotScheduler() {
         const { runDailyHealthReport } = await import("@/lib/monitor");
         await runDailyHealthReport();
       } catch (e) { console.error("[bot] 일일 상태 보고 오류:", e); }
+    }
+
+    // 포털(직영인사) 인원명부 가져오기 — 매일 KST 06:30경 1회 (2026-09-15 디렉터 결정: 하루 한 번).
+    // 연결 정보가 없으면 조용히 건너뛴다. 30분 창 = 틱이 밀려도 그날을 통째로 건너뛰지 않게.
+    if (k.getUTCHours() === 6 && k.getUTCMinutes() >= 30 && g.__botPortalSync !== today) {
+      g.__botPortalSync = today;
+      try {
+        const { runPortalSyncDaily } = await import("@/lib/portal-roster");
+        await runPortalSyncDaily();
+      } catch (e) { console.error("[bot] 포털 인원명부 오류:", e); }
     }
 
     // 예약 전송 + 메시지 리마인더 (매분)

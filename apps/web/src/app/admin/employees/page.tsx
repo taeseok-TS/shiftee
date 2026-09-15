@@ -1,4 +1,5 @@
 "use client";
+import PortalSyncNote from "@/components/admin/PortalSyncNote";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -962,6 +963,7 @@ export default function EmployeesPage() {
                                       </SelectContent>
                                     </Select>
                                   </div>
+                                  <PortalSyncNote />
                                   <div>
                                     <Label>전화번호</Label>
                                     <Input
