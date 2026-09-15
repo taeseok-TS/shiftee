@@ -43,7 +43,7 @@ function TargetLine({ c }: { c: Change }) {
   if (!tg) return null;
   return (
     <div className="text-[11px] text-gray-500 space-y-0.5">
-      {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다(이메일·지점·입사일이 모두 다름). 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
+      {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다{Array.isArray(c.diff.weakReasons) && (c.diff.weakReasons as string[]).length ? `(${(c.diff.weakReasons as string[]).join("·")})` : ""}. 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
       <p>큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)}{tg.hireDate ? ` · 입사 ${tg.hireDate}` : ""})</p>
       {pt ? <p>포털: {pt.branch ?? "-"} {c.name} (사번 {c.portalId}{pt.joinDate ? ` · 입사 ${pt.joinDate}` : ""})</p> : null}
     </div>
@@ -72,6 +72,7 @@ function Detail({ c }: { c: Change }) {
         <p>{s(d.branch ?? d.portalBranch)} · {s(d.jobGroup)} · {s(d.position)} · 입사 {s(d.hireDate)} · {s(d.email)}{d.onLeave ? " · 휴직 중" : ""}</p>
         {missing.length ? <p className="text-red-700">{missing.join("·")}이(가) 없어 지금은 반영할 수 없습니다.</p>
           : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.</p>}
+        {portalOf(c) ? <p className="text-[11px] text-gray-500">포털: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
         {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
           <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 포털 사번으로 고쳐주세요.</p>
         ) : null}

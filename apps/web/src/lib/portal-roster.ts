@@ -207,9 +207,16 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     // 이름만 같고 이메일·지점·입사일이 하나도 안 맞으면 동명이인이 사번까지 우연히 겹친 것일 수 있다 —
     // 자동 반영하지 않고, 카드·확인창에 양쪽 지점·입사일을 보여 확인받는다(검증관 N1)
     const portalBranch = mapBranch(r.branch, known).value;
-    const weakIdentity = !sameEmail && !(portalBranch && portalBranch === u.branch) && !(r.joinDate && r.joinDate === dstr(u.hireDate));
+    const cHire = dstr(u.hireDate);
+    const sameBranch = !!portalBranch && portalBranch === u.branch;
+    const sameHire = !!r.joinDate && r.joinDate === cHire;
+    // 양쪽에 다 있는데 다른 것만 "반대 증거"로 친다 — 값이 비어 있는 건 증거가 아니다(검증관 3차 낮음 1: 정상 전근자 오경고)
+    const emailDiffers = !!r.email && !!u.email && u.email.toLowerCase() !== r.email;
+    const hireDiffers = !!r.joinDate && !!cHire && r.joinDate !== cHire;
+    const weakIdentity = !sameEmail && !sameBranch && !sameHire && (emailDiffers || hireDiffers);
+    const weakReasons = weakIdentity ? [emailDiffers ? "이메일 다름" : "", hireDiffers ? "입사일 다름" : "", portalBranch && u.branch && portalBranch !== u.branch ? "지점 다름" : ""].filter(Boolean) : [];
     const base = { empNo: r.empNo, portalId: r.portalId, name: r.name, userId: u.id };
-    const idf = { target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: dstr(u.hireDate) || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null }, weakIdentity };
+    const idf = { target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: cHire || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null }, weakIdentity, weakReasons };
     const cs = cubeteeState(u);
 
     if (cs === "DISABLED") { if (ps !== "RESIGNED") skip(r, "큐브티에서 비활성 처리된 직원 — 직원 관리에서 확인해주세요"); continue; }
@@ -276,7 +283,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     const base = { empNo: r.empNo as number, portalId: r.portalId, name: r.name };
     const hit = linked.get(r);
     if (hit) {
-      plans.push({ ...base, kind: "LINK", userId: hit.u.id, diff: { fromEmpNo: hit.u.empNo, toEmpNo: r.empNo, by: hit.by, target: { name: hit.u.name, branch: hit.u.branch, empNo: hit.u.empNo } } });
+      plans.push({ ...base, kind: "LINK", userId: hit.u.id, diff: { fromEmpNo: hit.u.empNo, toEmpNo: r.empNo, by: hit.by, target: { name: hit.u.name, branch: hit.u.branch, empNo: hit.u.empNo, hireDate: dstr(hit.u.hireDate) || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null } } });
       continue;
     }
     const mb = mapBranch(r.branch, known).value;
@@ -288,6 +295,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
       ...base, kind: "HIRE", userId: null,
       diff: {
         email: r.email || null, branch: mb, portalBranch: r.branch, jobGroup: mapJobGroup(r.job, r.position), position: mapPosition(r.position), hireDate: r.joinDate || null, onLeave: portalState(r) === "LEAVE", missing,
+        portal: { branch: r.branch || null, joinDate: r.joinDate || null },
         sameNameInCubetee: users.filter((u) => normName(u.name) === normName(r.name)).slice(0, 3).map((u) => ({ name: u.name, branch: u.branch, empNo: u.empNo, state: cubeteeState(u) })),
       },
     });
@@ -305,7 +313,7 @@ function sigOf(p: Plan): string {
   // 큐브티 쪽 현재값(target·before)은 빼고 "포털이 원하는 값"만으로 — 무시한 뒤 큐브티가 조금 바뀌어도 다시 올리지 않게
   const target = p.kind === "UPDATE"
     ? Object.entries((p.diff.fields ?? {}) as Fields).map(([k, v]) => [k, v?.[1]]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => k !== "target" && k !== "weakIdentity" && k !== "sameNameInCubetee"));
+    : Object.fromEntries(Object.entries(p.diff).filter(([k]) => !["target", "portal", "weakIdentity", "weakReasons", "sameNameInCubetee"].includes(k)));
   return createHash("sha256").update(`${p.kind}|${p.empNo}|${p.userId ?? ""}|${JSON.stringify(target)}`).digest("hex").slice(0, 32);
 }
 
