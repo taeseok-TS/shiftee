@@ -23,6 +23,7 @@ type ApprovalItem = {
   extraFields?: Record<string, string> | null;
   summaryFields?: Record<string, string> | null;
   userId?: string;
+  externalName?: string | null; // 외부(게스트) 계약 — 소유자가 작성 관리자라 본인 계약과 구별해야 한다
   user?: { id?: string; name?: string; branch?: string | null } | null;
 };
 
@@ -386,13 +387,13 @@ export default function ContractsPage() {
       </div>
 
       {/* 내 결재 대기 — 결재자로서 내 차례인 계약서 */}
-      {myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).length > 0 && (
+      {myId && myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length > 0 && (
         <Card className="border-amber-200 bg-amber-50">
           <CardHeader>
-            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).length})</CardTitle>
+            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).map((c) => (
+            {myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).map((c) => (
               <div key={c.id} className="flex items-start justify-between gap-3 bg-white rounded-lg p-3 border border-amber-200">
                 <div className="min-w-0">
                   <p className="font-medium text-sm">{c.title}</p>

@@ -1556,7 +1556,7 @@ ${url}`;
               setCreateOpen(open);
               if (!open) {
                 setEmployeeSearchText("");
-                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+                setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
                 setFiles([]);
                 setUseTemplate(false);
                 setSelectedTemplate("");
@@ -2473,7 +2473,7 @@ ${url}`;
           setEditOpen(open);
           if (!open) {
             setEditingContract(null);
-            setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
+            setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({}); setEditSalaryFocus(false);
             setEditFile(null);
           }
         }}>
