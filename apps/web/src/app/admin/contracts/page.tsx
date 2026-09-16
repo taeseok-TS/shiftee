@@ -3120,7 +3120,7 @@ ${url}`;
             <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
-                <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
+                <p className="text-xs text-gray-500">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : `${signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}${signTarget.user.name}`}</p>
                 <button type="button" className="text-xs text-blue-600 underline text-left"
                   onClick={() => openBigDoc(`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(signTarget.fileUrl))}&title=${encodeURIComponent(signTarget.title)}`, signTarget.title)}>
                   문서 보기 (PDF)

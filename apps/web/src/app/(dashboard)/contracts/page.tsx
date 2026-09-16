@@ -824,7 +824,7 @@ export default function ContractsPage() {
                     </label>
                   )}
                   {/* 스크롤해도 항상 보이도록 하단에 붙인다 (#196) */}
-                  {!myId && <p className="text-xs text-red-600">내 정보를 불러오지 못했습니다. 페이지를 새로고침 한 뒤 다시 시도해 주세요.</p>}
+                  {meLoaded && !myId && <p className="text-xs text-red-600">내 정보를 불러오지 못했습니다. 페이지를 새로고침 한 뒤 다시 시도해 주세요.</p>}
                   <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
