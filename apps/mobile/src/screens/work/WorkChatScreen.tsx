@@ -431,12 +431,20 @@ export default function WorkChatScreen() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
   const [scheduledList, setScheduledList] = useState<ScheduledItem[] | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  // 첨부만 있고 글이 없는 예약을 목록에 뭐라고 쓸지 (웹·푸시 문구와 같은 규칙)
+  const attachSummary = (a?: { fileName: string; fileType: string }[]) => {
+    if (!a || a.length === 0) return "";
+    const imgs = a.filter((x) => x.fileType === "image");
+    if (imgs.length >= 2) return `🖼️ 사진 ${imgs.length}장${a.length > imgs.length ? ` 외 ${a.length - imgs.length}개` : ""}`;
+    if (a.length > 1) return `📎 첨부 ${a.length}개`;
+    const one = a[0];
+    return one.fileType === "image" ? "🖼️ 사진"
+      : one.fileType === "video" ? "🎬 동영상"
+      : one.fileType === "audio" ? "🎤 음성 메시지"
+      : `📎 ${one.fileName || "파일"}`;
+  };
   const openSchedule = async () => {
-    // 예약 전송은 글만 지원 — 첨부가 대기 중이면 조용히 버려지지 않게 차단
-    if (pendingAtts.length > 0) {
-      Alert.alert("알림", "예약 전송은 글만 지원합니다.\n첨부는 전송 버튼으로 바로 보내주세요.");
-      return;
-    }
     const t = new Date(Date.now() + 60 * 60 * 1000);
     setScheduleDate(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`);
     setScheduleTime(`${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`);
@@ -445,18 +453,40 @@ export default function WorkChatScreen() {
     try { setScheduledList(await getScheduledMessages(channelId)); } catch { setScheduledList([]); }
   };
   const submitSchedule = async () => {
-    if (!text.trim()) { Alert.alert("알림", "먼저 입력창에 보낼 메시지를 작성해주세요."); return; }
+    if (!text.trim() && pendingAtts.length === 0) { Alert.alert("알림", "먼저 입력창에 보낼 메시지를 작성하거나 파일을 첨부해주세요."); return; }
     if (!scheduleDate || !/^\d{2}:\d{2}$/.test(scheduleTime)) { Alert.alert("알림", "날짜와 시간을 확인해주세요. (시간은 HH:mm)"); return; }
     const at = new Date(`${scheduleDate}T${scheduleTime}:00`);
     if (isNaN(at.getTime()) || at.getTime() < Date.now() + 60 * 1000) { Alert.alert("알림", "예약 시간은 현재보다 이후여야 합니다."); return; }
+    if (scheduling || uploading) return;
+    setScheduling(true);
     try {
-      await createScheduledMessage(channelId, text.trim(), at.toISOString());
+      // 첨부는 예약 시점에 미리 올려두고 주소만 저장한다 (앱이 파일을 며칠씩 들고 있을 수 없다)
+      const attachments: { fileUrl: string; fileName: string; fileType: string }[] = [];
+      if (pendingAtts.length > 0) {
+        setUploading(true);
+        for (const a of pendingAtts.slice(0, 10)) {
+          const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
+          attachments.push({ fileUrl: up.fileUrl, fileName: up.fileName, fileType: up.fileType });
+        }
+        clearProgress();
+        setUploading(false);
+      }
+      await createScheduledMessage(channelId, text.trim(), at.toISOString(), {
+        attachments,
+        attachFirst: attachFirstRef.current,
+      });
       setText("");
+      setPendingAtts([]);
+      attachFirstRef.current = false;
       setMentionQuery(null);
       setScheduleOpen(false);
       Alert.alert("완료", "메시지를 예약했습니다. 시간이 되면 자동으로 전송됩니다.");
     } catch (e: any) {
-      Alert.alert("실패", e?.response?.data?.error || "예약 중 오류가 발생했습니다.");
+      Alert.alert("실패", e?.response?.data?.error || e?.message || "예약 중 오류가 발생했습니다.");
+    } finally {
+      setScheduling(false);
+      setUploading(false);
+      clearProgress();
     }
   };
   const removeScheduled = async (sid: string) => {
@@ -1957,7 +1987,13 @@ export default function WorkChatScreen() {
         <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>⏰ 예약 전송</Text>
-            <Text style={styles.forwardPreview} numberOfLines={3}>{text.trim() || "입력창에 메시지를 먼저 작성해주세요."}</Text>
+            <Text style={styles.forwardPreview} numberOfLines={3}>
+              {text.trim() || (pendingAtts.length > 0 ? "" : "입력창에 메시지를 먼저 작성하거나 파일을 첨부해주세요.")}
+              {pendingAtts.length > 0 ? `${text.trim() ? "\n" : ""}📎 ${pendingAtts.map((a) => a.name).join(", ")}` : ""}
+            </Text>
+            {pendingAtts.length > 0 && (
+              <Text style={styles.scheduleHint}>첨부는 지금 올려두고 예약 시각에 글과 함께 전송됩니다. 예약을 취소하면 올려둔 파일도 지워집니다.</Text>
+            )}
             <Text style={styles.reqLabel2}>발송 시각</Text>
             <View style={styles.scheduleRow}>
               <View style={{ flex: 1 }}>
@@ -1984,7 +2020,7 @@ export default function WorkChatScreen() {
                       <Text style={styles.scheduledAt}>
                         {new Date(s.sendAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </Text>
-                      <Text style={styles.scheduledText} numberOfLines={1}>{s.content}</Text>
+                      <Text style={styles.scheduledText} numberOfLines={1}>{s.content || attachSummary(s.attachments)}</Text>
                       <TouchableOpacity onPress={() => removeScheduled(s.id)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                         <Ionicons name="close-circle" size={18} color="#9ca3af" />
                       </TouchableOpacity>
@@ -1997,8 +2033,14 @@ export default function WorkChatScreen() {
               <TouchableOpacity style={styles.addCancel} onPress={() => setScheduleOpen(false)}>
                 <Text style={styles.addCancelText}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.addConfirm, !text.trim() && { opacity: 0.5 }]} disabled={!text.trim()} onPress={submitSchedule}>
-                <Text style={styles.addConfirmText}>예약하기</Text>
+              <TouchableOpacity
+                style={[styles.addConfirm, ((!text.trim() && pendingAtts.length === 0) || scheduling) && { opacity: 0.5 }]}
+                disabled={(!text.trim() && pendingAtts.length === 0) || scheduling}
+                onPress={submitSchedule}
+              >
+                <Text style={styles.addConfirmText}>
+                  {scheduling ? (uploadPct !== null ? `업로드 ${uploadPct}%` : "예약 중…") : "예약하기"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2263,6 +2305,7 @@ const styles = StyleSheet.create({
   reqLabel2: { fontSize: 13, fontWeight: "600", color: "#6b7280", marginTop: 8, marginBottom: 6 },
   scheduleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   timeInput: { width: 88, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, textAlign: "center", color: "#111827" },
+  scheduleHint: { fontSize: 11, color: "#9ca3af", marginTop: 6, lineHeight: 15 },
   scheduledRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   scheduledAt: { fontSize: 12, color: "#4f46e5", fontWeight: "700" },
   scheduledText: { flex: 1, fontSize: 13, color: "#374151" },

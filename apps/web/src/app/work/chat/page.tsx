@@ -759,10 +759,24 @@ export default function WorkChatPage() {
   }
 
   // 예약 전송
-  type ScheduledItem = { id: string; content: string; sendAt: string };
+  type SchedAttach = { fileUrl: string; fileName: string; fileType: string };
+  type ScheduledItem = { id: string; content: string; sendAt: string; attachments?: SchedAttach[] };
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduling, setScheduling] = useState(false);
   const [scheduledList, setScheduledList] = useState<ScheduledItem[] | null>(null);
+  // 첨부만 있고 글이 없는 예약을 목록에 뭐라고 쓸지 (푸시 문구와 같은 규칙)
+  const attachSummary = (a?: SchedAttach[]) => {
+    if (!a || a.length === 0) return "";
+    const imgs = a.filter((x) => x.fileType === "image");
+    if (imgs.length >= 2) return `🖼️ 사진 ${imgs.length}장${a.length > imgs.length ? ` 외 ${a.length - imgs.length}개` : ""}`;
+    if (a.length > 1) return `📎 첨부 ${a.length}개`;
+    const one = a[0];
+    return one.fileType === "image" ? "🖼️ 사진"
+      : one.fileType === "video" ? "🎬 동영상"
+      : one.fileType === "audio" ? "🎤 음성 메시지"
+      : `📎 ${one.fileName || "파일"}`;
+  };
   async function openSchedule() {
     if (!activeId) return;
     // 기본값: 1시간 후 (datetime-local 로컬 표기)
@@ -775,16 +789,36 @@ export default function WorkChatPage() {
     if (res.ok) setScheduledList((await res.json()).scheduled || []);
   }
   async function submitSchedule() {
-    if (!activeId || !input.trim() || !scheduleAt) return;
-    const res = await fetch(`/api/work/channels/${activeId}/scheduled`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: input, sendAt: new Date(scheduleAt).toISOString() }),
-    });
-    const d = await res.json();
-    if (!res.ok) { toast.error(d.error || "예약 실패"); return; }
-    toast.success("메시지를 예약했습니다.");
-    setInput(""); setMentionQuery(null); if (inputRef.current) inputRef.current.style.height = "auto";
-    setScheduleOpen(false);
+    if (!activeId || (!input.trim() && pendingFiles.length === 0) || !scheduleAt || scheduling) return;
+    setScheduling(true);
+    try {
+      // 첨부는 예약 시점에 미리 올려두고 주소만 저장한다 (브라우저가 파일을 며칠씩 들고 있을 수 없다)
+      const attachments: { fileUrl: string; fileName: string; fileType: string }[] = [];
+      if (pendingFiles.length > 0) {
+        setUploadProgress(0);
+        for (const p of pendingFiles) {
+          const u = await uploadOne(p.file);
+          if (!u) { setUploadProgress(null); return; } // 실패 시 대기 첨부 유지 — 다시 시도 가능
+          attachments.push(u);
+        }
+        setUploadProgress(null);
+      }
+      const res = await fetch(`/api/work/channels/${activeId}/scheduled`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: input, sendAt: new Date(scheduleAt).toISOString(),
+          attachments, attachFirst: attachFirstRef.current,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "예약 실패"); return; }
+      toast.success("메시지를 예약했습니다.");
+      pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
+      attachFirstRef.current = false;
+      setPendingFiles([]);
+      setInput(""); setMentionQuery(null); if (inputRef.current) inputRef.current.style.height = "auto";
+      setScheduleOpen(false);
+    } finally { setScheduling(false); setUploadProgress(null); }
   }
   async function cancelScheduled(sid: string) {
     const res = await fetch(`/api/work/scheduled/${sid}`, { method: "DELETE" });
@@ -1853,17 +1887,32 @@ export default function WorkChatPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>⏰ 예약 전송</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            {input.trim() ? (
-              <div className="rounded-lg bg-gray-50 border px-3 py-2 text-sm text-gray-700 max-h-24 overflow-y-auto whitespace-pre-wrap">{input}</div>
+            {input.trim() || pendingFiles.length > 0 ? (
+              <div className="rounded-lg bg-gray-50 border px-3 py-2 text-sm text-gray-700 max-h-32 overflow-y-auto space-y-1.5">
+                {input.trim() && <div className="whitespace-pre-wrap">{input}</div>}
+                {pendingFiles.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs text-gray-500">
+                    <Paperclip size={12} className="shrink-0" />
+                    {pendingFiles.map((p, i) => (
+                      <span key={i} className="max-w-[150px] truncate border rounded px-1.5 py-0.5 bg-white">{p.file.name}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
-              <p className="text-xs text-amber-600">⚠️ 먼저 채팅 입력창에 보낼 메시지를 작성한 뒤 예약해주세요.</p>
+              <p className="text-xs text-amber-600">⚠️ 먼저 채팅 입력창에 보낼 메시지를 작성하거나 파일을 첨부한 뒤 예약해주세요.</p>
+            )}
+            {pendingFiles.length > 0 && (
+              <p className="text-xs text-gray-400">첨부는 지금 업로드해두고 예약 시각에 글과 함께 전송됩니다. 예약을 취소하면 올려둔 파일도 지워집니다.</p>
             )}
             <div className="flex items-center gap-2 text-sm">
               발송 시각 <Input type="datetime-local" className="flex-1" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
             </div>
             <div className="flex justify-end">
-              <Button size="sm" onClick={submitSchedule} disabled={!input.trim() || !scheduleAt} className="bg-indigo-500 hover:bg-indigo-600 gap-1">
-                <Clock size={13} />예약하기
+              <Button size="sm" onClick={submitSchedule}
+                disabled={(!input.trim() && pendingFiles.length === 0) || !scheduleAt || scheduling}
+                className="bg-indigo-500 hover:bg-indigo-600 gap-1">
+                <Clock size={13} />{scheduling ? (uploadProgress !== null ? `업로드 ${uploadProgress}%` : "예약 중…") : "예약하기"}
               </Button>
             </div>
             <div className="border-t pt-2">
@@ -1877,7 +1926,7 @@ export default function WorkChatPage() {
                   {scheduledList.map((s) => (
                     <div key={s.id} className="flex items-center gap-2 text-xs border rounded-lg px-2.5 py-1.5">
                       <span className="text-indigo-600 font-medium shrink-0">{format(new Date(s.sendAt), "MM/dd HH:mm")}</span>
-                      <span className="flex-1 truncate text-gray-600">{s.content}</span>
+                      <span className="flex-1 truncate text-gray-600">{s.content || attachSummary(s.attachments)}</span>
                       <button onClick={() => cancelScheduled(s.id)} className="text-gray-400 hover:text-red-500"><X size={13} /></button>
                     </div>
                   ))}

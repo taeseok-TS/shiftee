@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
+import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachments";
 
 /**
  * 큐브티 봇 — 자동 알림 (아침 브리핑, 결재 결과 DM, 중요 공지 재알림)
@@ -438,14 +439,46 @@ export async function runScheduledMessages() {
     // ⚠ 틱은 겹친다. setInterval 은 async 콜백을 기다리지 않고, 틱 안의 영상 압축이 최대
     //   1시간을 잡는다(2026-09-04 검증관 C C-9). 조건 없는 update 면 겹친 두 틱이 같은
     //   예약을 각각 보내 **중복 발송**된다. "아직 안 보낸 것만" 원자적으로 찜한다.
+    //   취소 조건도 함께 건다 — 찜 직전에 취소됐으면 첨부 파일이 이미 지워졌을 수 있다.
     const claim = await prisma.workScheduledMessage.updateMany({
-      where: { id: s.id, sentAt: null }, data: { sentAt: new Date() },
+      where: { id: s.id, sentAt: null, canceledAt: null }, data: { sentAt: new Date() },
     });
-    if (claim.count === 0) continue; // 다른 틱이 이미 가져갔다
-    if (s.channel.deletedAt) continue; // 채널이 삭제됐으면 조용히 소멸
-    await prisma.workMessage.create({ data: { channelId: s.channelId, userId: s.userId, content: s.content } });
+    if (claim.count === 0) continue; // 다른 틱이 이미 가져갔거나 그 사이 취소됐다
+    const files = parseAttachments(s.attachments);
+    if (s.channel.deletedAt) {
+      // 채널이 삭제됐으면 조용히 소멸 — 올려둔 첨부 파일도 남기지 않는다
+      await deleteWorkAttachmentFiles(files).catch(() => {});
+      continue;
+    }
+    // 첨부는 즉시 전송과 같은 규칙으로 쪼갠다: 사진 2장 이상은 앨범 묶음, 나머지는 개별 메시지.
+    // 글(캡션)은 첫 메시지에만 붙는다 (웹·앱 send() 와 동일)
+    const images = files.filter((f) => f.fileType === "image");
+    const isAlbum = images.length >= 2;
+    let caption = s.content;
+    if (isAlbum) {
+      await prisma.workMessage.create({
+        data: {
+          channelId: s.channelId, userId: s.userId, content: caption,
+          albumUrls: images.slice(0, 10).map((f) => f.fileUrl), attachFirst: s.attachFirst,
+        },
+      });
+      caption = "";
+    }
+    const singles = isAlbum ? files.filter((f) => f.fileType !== "image") : files;
+    for (const f of singles) {
+      await prisma.workMessage.create({
+        data: {
+          channelId: s.channelId, userId: s.userId, content: caption,
+          fileUrl: f.fileUrl, fileName: f.fileName, fileType: f.fileType, attachFirst: s.attachFirst,
+        },
+      });
+      caption = "";
+    }
+    if (files.length === 0) {
+      await prisma.workMessage.create({ data: { channelId: s.channelId, userId: s.userId, content: s.content } });
+    }
     emitWork({ type: "message", channelId: s.channelId });
-    // 푸시 (일반 메시지 규칙과 동일)
+    // 푸시 (일반 메시지 규칙과 동일 — 미리보기 문구도 notifyNewMessage 와 같게)
     try {
       const members = await prisma.workChannelMember.findMany({
         where: { channelId: s.channelId, userId: { not: s.userId } },
@@ -456,9 +489,18 @@ export async function runScheduledMessages() {
         .filter((m) => m.notify !== "MUTE")
         .filter((m) => (m.notify === "MENTION" ? isMentioned(s.content, m.user.name) : true))
         .map((m) => m.userId);
+      const preview = s.content.trim()
+        ? s.content.trim().slice(0, 100)
+        : isAlbum
+        ? `사진 ${Math.min(images.length, 10)}장을 보냈습니다.`
+        : files[0]?.fileType === "audio"
+        ? "음성 메시지를 보냈습니다."
+        : files.length > 0
+        ? "사진/파일을 보냈습니다."
+        : "";
       await sendPushToUsers(recipients, {
         title: s.channel.name,
-        body: `${s.user.name}: ${s.content.slice(0, 100)}`,
+        body: `${s.user.name}: ${preview}`,
         data: { channelId: s.channelId, type: "work-message" },
       }, { respectWorkMute: true, withWorkBadge: true });
     } catch (e) {

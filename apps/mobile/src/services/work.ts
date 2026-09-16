@@ -123,9 +123,19 @@ export async function sendTextMessage(channelId: string, content: string, replyT
 }
 
 // 예약 전송
-export type ScheduledItem = { id: string; content: string; sendAt: string };
-export async function createScheduledMessage(channelId: string, content: string, sendAt: string) {
-  await axios.post(`${API_URL}/work/channels/${channelId}/scheduled`, { content, sendAt }, { headers: await authHeaders() });
+export type SchedAttach = { fileUrl: string; fileName: string; fileType: string };
+export type ScheduledItem = { id: string; content: string; sendAt: string; attachments?: SchedAttach[] };
+export async function createScheduledMessage(
+  channelId: string,
+  content: string,
+  sendAt: string,
+  opts?: { attachments?: SchedAttach[]; attachFirst?: boolean }
+) {
+  await axios.post(
+    `${API_URL}/work/channels/${channelId}/scheduled`,
+    { content, sendAt, attachments: opts?.attachments ?? [], attachFirst: !!opts?.attachFirst },
+    { headers: await authHeaders() }
+  );
 }
 export async function getScheduledMessages(channelId: string): Promise<ScheduledItem[]> {
   const res = await axios.get(`${API_URL}/work/channels/${channelId}/scheduled`, { headers: await authHeaders() });

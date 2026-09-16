@@ -780,6 +780,10 @@ model WorkScheduledMessage {
   userId     String
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   content    String
+  // 첨부(선택) — 예약 시점에 업로드해 URL만 보관한다. [{ fileUrl, fileName, fileType }]
+  // 발송 때 즉시 전송과 같은 규칙으로 쪼갠다(사진 2장 이상=앨범 묶음, 나머지는 개별 메시지)
+  attachments Json?
+  attachFirst Boolean    @default(false) // 첨부를 글보다 먼저 붙였는지 (렌더 순서 재현)
   sendAt     DateTime
   sentAt     DateTime?
   canceledAt DateTime?
