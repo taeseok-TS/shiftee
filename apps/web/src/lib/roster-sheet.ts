@@ -111,7 +111,11 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
     if (!r.some((c) => c.trim())) continue; // 빈 줄
     const portalId = cell(r, at.empNo);
     const status = cell(r, at.status);
-    if (!portalId && !status) continue;
+    // 상태 칸이 비어 있는 행은 **명부가 아니다** — 지원자·과거 이력이 349행 있다.
+    // 올리면 매일 "알 수 없는 상태" 건너뜀으로 기록돼 정작 봐야 할 몇 건이 묻히고,
+    // 지원자 이름·사번이 인사 시스템 DB 에 쌓인다(2026-09-16 검증관 4).
+    if (!status) continue;
+    if (!portalId) continue;
     const n = /^\d{1,9}$/.test(portalId) ? parseInt(portalId, 10) : NaN;
     out.push({
       portalId,

@@ -23,10 +23,22 @@ export async function GET(request: NextRequest) {
     isSuperAdmin(session.userId),
   ]);
   const val = (k: string) => settings.find((s) => s.key === k)?.value ?? "";
+  // ⚠ 시트 주소는 그 자체가 열쇠다 — 링크를 아는 사람은 인사 원장 전체(생년월일·연락처·주소)를 내려받는다.
+  //   예전 포털 주소는 키 없이는 쓸모가 없어 그대로 내려줊c지만, 지금은 주소 하나가 접근권이다.
+  //   어느 관리자에게도 원문을 주지 않고, 어디에 붙어 있는지만 보여준다(2026-09-16 검증관 2).
+  const urlLabel = (() => {
+    const u = val(PORTAL_SETTING.url);
+    if (!u) return "";
+    try {
+      const h = new URL(u);
+      if (h.hostname === "docs.google.com") return "인사 원장(구글 시트)";
+      return h.hostname;
+    } catch { return "등록됨"; }
+  })();
   return NextResponse.json({
     configured: !!cfg,
     canEditConnection: superAdmin,
-    connection: { url: val(PORTAL_SETTING.url), apikeySet: !!val(PORTAL_SETTING.apikey), tokenSet: !!val(PORTAL_SETTING.token) },
+    connection: { urlLabel, urlSet: !!val(PORTAL_SETTING.url), apikeySet: !!val(PORTAL_SETTING.apikey), tokenSet: !!val(PORTAL_SETTING.token) },
     autoApply,
     // 요약(skipped·missingInPortal 목록)은 가장 최근 실행 것만 싣는다
     runs: runs.map((r, i) => ({ ...r, summary: i === 0 ? r.summary : null })),
@@ -45,7 +57,7 @@ export async function POST(request: NextRequest) {
   const action = typeof body.action === "string" ? body.action : "";
 
   if (action === "run") {
-    if (!(await portalConfig())) return NextResponse.json({ error: "포털 연결 정보를 먼저 저장해주세요." }, { status: 400 });
+    if (!(await portalConfig())) return NextResponse.json({ error: "연결 정보를 먼저 저장해주세요." }, { status: 400 });
     const r = await runPortalSync("MANUAL", actor);
     if (!r.ok) return NextResponse.json({ error: r.error || "가져오지 못했습니다.", result: r }, { status: 502 });
     return NextResponse.json({ result: r });
@@ -54,7 +66,7 @@ export async function POST(request: NextRequest) {
   if (action === "setAuto") {
     if (typeof body.value !== "boolean") return NextResponse.json({ error: "값이 올바르지 않습니다." }, { status: 400 });
     await prisma.appSetting.upsert({ where: { key: PORTAL_SETTING.auto }, create: { key: PORTAL_SETTING.auto, value: body.value ? "1" : "0" }, update: { value: body.value ? "1" : "0" } });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `포털 인원명부 일반 칸 자동 반영 ${body.value ? "켬" : "끔"}` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 일반 칸 자동 반영 ${body.value ? "켬" : "끔"}` });
     return NextResponse.json({ autoApply: body.value });
   }
 
@@ -85,7 +97,7 @@ export async function POST(request: NextRequest) {
     // 비워 두면 기존 키를 유지한다(화면에 키를 다시 보여주지 않으므로)
     if (apikey) await put(PORTAL_SETTING.apikey, apikey);
     if (token) await put(PORTAL_SETTING.token, token);
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `포털 인원명부 연결 정보 저장 (${new URL(url).host}${apikey ? " · API 키 교체" : ""}${token ? " · 토큰 교체" : ""})` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 연결 정보 저장 (${new URL(url).host}${apikey ? " · API 키 교체" : ""}${token ? " · 토큰 교체" : ""})` });
     return NextResponse.json({ ok: true });
   }
 

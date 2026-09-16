@@ -647,7 +647,7 @@ export function startBotScheduler() {
       try {
         const { runPortalSyncDaily } = await import("@/lib/portal-roster");
         await runPortalSyncDaily();
-      } catch (e) { console.error("[bot] 포털 인원명부 오류:", e); }
+      } catch (e) { console.error("[bot] 인사명부 연동 오류:", e); }
     }
 
     // 예약 전송 + 메시지 리마인더 (매분)

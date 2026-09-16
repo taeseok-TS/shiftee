@@ -18,7 +18,7 @@ type Summary = {
   missingInPortal?: { empNo: number | null; name: string; branch: string | null }[];
 };
 type Run = { id: string; trigger: string; startedAt: string; finishedAt: string | null; ok: boolean; error: string | null; fetched: number; matched: number; applied: number; pending: number; skipped: number; actorName: string | null; summary: Summary | null };
-type Data = { configured: boolean; canEditConnection: boolean; connection: { url: string; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
+type Data = { configured: boolean; canEditConnection: boolean; connection: { urlLabel: string; urlSet: boolean; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
 
 const KIND_LABEL: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직·재입사", LINK: "사번 연결" };
 const KIND_TONE: Record<string, string> = {
@@ -46,7 +46,7 @@ function TargetLine({ c }: { c: Change }) {
       {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다{Array.isArray(c.diff.weakReasons) && (c.diff.weakReasons as string[]).length ? `(${(c.diff.weakReasons as string[]).join("·")})` : ""}. 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
       {!c.diff.weakIdentity && c.diff.unverified ? <p className="text-amber-700">이메일·지점·입사일로 같은 사람임이 확인되지 않았습니다 — 양쪽을 보고 반영해주세요.</p> : null}
       <p>큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)}{tg.hireDate ? ` · 입사 ${tg.hireDate}` : ""})</p>
-      {pt ? <p>포털: {pt.branch ?? "-"} {c.name} (사번 {c.portalId}{pt.joinDate ? ` · 입사 ${pt.joinDate}` : ""})</p> : null}
+      {pt ? <p>명부: {pt.branch ?? "-"} {c.name} (사번 {c.portalId}{pt.joinDate ? ` · 입사 ${pt.joinDate}` : ""})</p> : null}
     </div>
   );
 }
@@ -73,24 +73,24 @@ function Detail({ c }: { c: Change }) {
         <p>{s(d.branch ?? d.portalBranch)} · {s(d.jobGroup)} · {s(d.position)} · 입사 {s(d.hireDate)} · {s(d.email)}{d.onLeave ? " · 휴직 중" : ""}</p>
         {missing.length ? <p className="text-red-700">{missing.join("·")}이(가) 없어 지금은 반영할 수 없습니다.</p>
           : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.</p>}
-        {portalOf(c) ? <p className="text-[11px] text-gray-500">포털: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
+        {portalOf(c) ? <p className="text-[11px] text-gray-500">명부: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
         {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
-          <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 포털 사번으로 고쳐주세요.</p>
+          <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 명부 사번으로 고쳐주세요.</p>
         ) : null}
       </div>
     );
   }
   if (c.kind === "RESIGN") return <div className="text-xs text-gray-700 space-y-0.5"><p>퇴사일 <b>{s(d.resignDate)}</b> · 반영하면 바로 로그아웃되고, 퇴사일이 지나면 로그인이 막히며 결재선에서 빠집니다.</p><TargetLine c={c} /></div>;
-  if (c.kind === "LEAVE") return <div className="text-xs text-gray-700 space-y-0.5"><p>포털에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p><TargetLine c={c} /></div>;
+  if (c.kind === "LEAVE") return <div className="text-xs text-gray-700 space-y-0.5"><p>명부에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p><TargetLine c={c} /></div>;
   if (c.kind === "RETURN") return (
     <div className="text-xs text-gray-700 space-y-0.5">
-      <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 포털에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다 — 퇴직자 현황의 과거 집계에서도 빠집니다." : "포털에서 복직 — 재직으로 바꿉니다."}</p>
+      <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 명부에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다 — 퇴직자 현황의 과거 집계에서도 빠집니다." : "명부에서 복직 — 재직으로 바꿉니다."}</p>
       <TargetLine c={c} />
     </div>
   );
   if (c.kind === "LINK") return (
     <div className="text-xs text-gray-700 space-y-0.5">
-      <p>큐브티 사번 {pad(d.fromEmpNo as number | null)} → <b>포털 사번 {pad(d.toEmpNo as number)}</b> ({d.by === "email" ? "회사 이메일이 같음" : "이름·지점이 같음 — 동명이인이 아닌지 확인해주세요"})</p>
+      <p>큐브티 사번 {pad(d.fromEmpNo as number | null)} → <b>명부 사번 {pad(d.toEmpNo as number)}</b> ({d.by === "email" ? "회사 이메일이 같음" : "이름·지점이 같음 — 동명이인이 아닌지 확인해주세요"})</p>
       <TargetLine c={c} />
     </div>
   );
@@ -102,7 +102,7 @@ export default function PortalSyncPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [conn, setConn] = useState({ url: "", apikey: "", token: "" });
   const load = useCallback(() => {
-    fetch("/api/admin/portal-sync").then((r) => r.json()).then((d: Data) => { setData(d); setConn((c) => ({ ...c, url: c.url || d.connection?.url || "" })); }).catch(() => toast.error("불러오지 못했습니다."));
+    fetch("/api/admin/portal-sync").then((r) => r.json()).then((d: Data) => setData(d)) // 주소는 다시 내려주지 않는다 — 시트 주소 자체가 열쇠라서(검증관 2).catch(() => toast.error("불러오지 못했습니다."));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -134,8 +134,8 @@ export default function PortalSyncPage() {
     const pt = portalOf(c);
     const warn = c.diff.weakIdentity ? "\n⚠ 이름만 같습니다 — 동명이인이 아닌지 확인해주세요."
       : c.diff.unverified ? "\n⚠ 이메일·지점·입사일로 같은 사람임이 확인되지 않았습니다." : "";
-    if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
-    if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 포털 값으로 바꿀까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
+    if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n명부: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
+    if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 명부 값으로 바꿀까요?\n명부: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
     setBusy(c.id);
     try {
       const res = await fetch(`/api/admin/portal-sync/changes/${c.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
@@ -162,7 +162,7 @@ export default function PortalSyncPage() {
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-xl font-bold flex items-center gap-2"><RefreshCw size={20} className="text-indigo-600" />포털 인원명부 연동</h1>
+        <h1 className="text-xl font-bold flex items-center gap-2"><RefreshCw size={20} className="text-indigo-600" />인사명부 연동</h1>
         <span className={`text-xs px-2 py-0.5 rounded-full border ${data.configured ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{data.configured ? "연결됨" : "연결 정보 없음"}</span>
         <div className="ml-auto flex gap-2">
           <Button variant="outline" disabled={!data.configured || busy === "auto"} onClick={() => setAuto(!data.autoApply)}>일반 칸 자동 반영: {data.autoApply ? "켜짐" : "꺼짐"}</Button>
@@ -175,7 +175,7 @@ export default function PortalSyncPage() {
         <Card><CardContent className="p-3 text-sm flex flex-wrap gap-x-5 gap-y-1">
           <span>마지막 가져오기 <b>{format(new Date(last.startedAt), "M/d HH:mm")}</b> ({last.trigger === "AUTO" ? "자동" : last.actorName})</span>
           {last.ok ? (<>
-            <span>포털 {last.fetched}명 · 사번 일치 {last.matched}명</span>
+            <span>명부 {last.fetched}명 · 사번 일치 {last.matched}명</span>
             <span>자동 반영 {last.applied} · 확인 대기 {last.pending} · 건너뜀 {last.skipped}</span>
           </>) : <span className="text-red-700 flex items-center gap-1"><AlertTriangle size={14} />실패 — {last.error}</span>}
         </CardContent></Card>
@@ -188,7 +188,7 @@ export default function PortalSyncPage() {
           <div key={c.id} className="bg-white border rounded-lg p-3 flex items-start gap-3">
             <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">포털 사번 {c.portalId}</span>{c.status === "APPLYING" ? <span className="ml-1 text-[11px] text-amber-700">반영 중…</span> : null}</p>
+              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">명부 사번 {c.portalId}</span>{c.status === "APPLYING" ? <span className="ml-1 text-[11px] text-amber-700">반영 중…</span> : null}</p>
               <Detail c={c} />
             </div>
             <div className="flex gap-1.5 shrink-0">
@@ -228,12 +228,12 @@ export default function PortalSyncPage() {
           </CardContent></Card>
           <Card><CardContent className="p-3 space-y-1">
             <p className="text-sm font-semibold">포털에 없는 큐브티 재직자 {sum.missingInPortal?.length ?? 0}</p>
-            <p className="text-[11px] text-gray-500">사번이 포털과 다르거나 포털에 아직 없는 직원 — 자동으로 퇴사시키지 않습니다</p>
+            <p className="text-[11px] text-gray-500">사번이 명부와 다르거나 명부에 아직 없는 직원 — 자동으로 퇴사시키지 않습니다</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.missingInPortal ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span></li>)}</ul>
           </CardContent></Card>
           <Card><CardContent className="p-3 space-y-1">
             <p className="text-sm font-semibold">원장 권한 확인 {sum.roleMismatch?.length ?? 0}</p>
-            <p className="text-[11px] text-gray-500">포털 직무는 원장인데 큐브티 권한은 직원 — 권한은 직원 관리에서 직접 바꿔주세요</p>
+            <p className="text-[11px] text-gray-500">명부 직무는 원장인데 큐브티 권한은 직원 — 권한은 직원 관리에서 직접 바꿔주세요</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.roleMismatch ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span></li>)}</ul>
           </CardContent></Card>
         </section>
@@ -263,7 +263,7 @@ export default function PortalSyncPage() {
         <p className="text-xs text-gray-500">직영 인사 원장(구글 시트) 주소를 넣습니다 — 편집 주소를 그대로 붙여 넣으셔도 됩니다. 시트는 읽기만 하고 고치지 않습니다. (아래 키·토큰은 예전 포털 DB 방식을 쓸 때만 필요합니다.)</p>
         {data.canEditConnection ? (
           <div className="grid md:grid-cols-3 gap-2">
-            <Input placeholder="https://docs.google.com/spreadsheets/d/… (인사 원장 주소)" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} className="md:col-span-3" />
+            <Input placeholder={data.connection.urlSet ? `주소 — 등록됨(${data.connection.urlLabel}). 바꿀 때만 입력` : "https://docs.google.com/spreadsheets/d/… (인사 원장 주소)"} value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} className="md:col-span-3" />
             <Input type="password" autoComplete="off" placeholder={data.connection.apikeySet ? "API 키 — 등록됨(바꿀 때만 입력)" : "API 키 (시트는 비워 두세요)"} value={conn.apikey} onChange={(e) => setConn({ ...conn, apikey: e.target.value })} />
             <Input type="password" autoComplete="off" placeholder={data.connection.tokenSet ? "읽기 전용 토큰 — 등록됨(바꿀 때만 입력)" : "읽기 전용 토큰 (시트는 비워 두세요)"} value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
             <div className="flex gap-2">
@@ -271,7 +271,7 @@ export default function PortalSyncPage() {
               <Button variant="outline" className="flex-1" disabled={busy === "test" || !data.configured} onClick={testConn}>연결 확인</Button>
             </div>
           </div>
-        ) : <p className="text-xs text-gray-500">{data.configured ? `연결됨 — ${data.connection.url}` : "메인 관리자가 연결 정보를 넣어야 합니다."}</p>}
+        ) : <p className="text-xs text-gray-500">{data.configured ? `연결됨 — ${data.connection.urlLabel}` : "메인 관리자가 연결 정보를 넣어야 합니다."}</p>}
       </CardContent></Card>
     </div>
   );

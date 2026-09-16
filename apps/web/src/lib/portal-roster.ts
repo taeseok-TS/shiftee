@@ -18,7 +18,7 @@ import { currentLeaveYear } from "@/lib/leave-calc";
 import { isSheetUrl, fetchSheetRoster } from "@/lib/roster-sheet";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
-export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "포털 인원명부 연동" };
+export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
 // 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 값·같은 규칙(24시간 뒤 봇이 변경 요청)
 const TEMP_PASSWORD = "12345678";
 // 봇 계정(비활성 EMPLOYEE)은 사람이 아니다 — 대조에서 뺀다
@@ -84,7 +84,7 @@ export async function fetchPortalRoster(cfg: Cfg): Promise<PortalRow[]> {
   }
   const data: unknown = await res.json();
   if (!Array.isArray(data)) throw new Error("포털 응답이 목록 형식이 아닙니다.");
-  // PostgREST 는 최대 행 수를 넘으면 조용히 자른다 — 일부만 받고 "포털에 없음"으로 오판하지 않게 전체 수를 대조
+  // PostgREST 는 최대 행 수를 넘으면 조용히 자른다 — 일부만 받고 "명부에 없음"으로 오판하지 않게 전체 수를 대조
   const total = Number((res.headers.get("content-range") || "").split("/")[1]);
   if (Number.isFinite(total) && total > data.length)
     throw new Error(`포털 인원 ${total}명 중 ${data.length}명만 받았습니다. 포털 담당자에게 조회 최대 행 수를 늘려 달라고 요청해주세요.`);
@@ -179,7 +179,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     prisma.branch.findMany({ select: { name: true, countInStats: true } }),
   ]);
   const known = new Set(branchRows.map((b) => b.name));
-  const notCounted = new Set(branchRows.filter((b) => !b.countInStats).map((b) => b.name)); // 본부·테스트지점 — "포털에 없음" 목록에서 뺀다
+  const notCounted = new Set(branchRows.filter((b) => !b.countInStats).map((b) => b.name)); // 본부·테스트지점 — "명부에 없음" 목록에서 뺀다
   const byEmp = new Map<number, CUser>();
   for (const u of users) if (u.empNo != null) byEmp.set(u.empNo, u);
 
@@ -194,7 +194,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
 
   for (const r of rows) {
     if (!r.empNo) { skip(r, r.portalId ? `사번 형식이 숫자가 아님: ${r.portalId}` : "사번 없음"); continue; }
-    if ((dupCount.get(r.empNo) ?? 0) > 1) { skip(r, "포털에 같은 사번이 여러 명"); continue; }
+    if ((dupCount.get(r.empNo) ?? 0) > 1) { skip(r, "명부에 같은 사번이 여러 명"); continue; }
     const ps = portalState(r);
     if (ps === "OTHER") { skip(r, `알 수 없는 상태: ${r.status || "(빈 값)"}`); continue; }
     const u = byEmp.get(r.empNo);
@@ -205,9 +205,9 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     //   넣으면 진짜 행이 "입사"로 떠서 확인 한 번에 중복 계정이 생긴다(검증관 N2).
     const sameName = !!r.name && normName(r.name) === normName(u.name);
     const sameEmail = !!r.email && u.email.trim().toLowerCase() === r.email;
-    if (!r.name) { skip(r, "포털 이름이 비어 있음"); continue; }
+    if (!r.name) { skip(r, "명부 이름이 비어 있음"); continue; }
     if (!sameName && !sameEmail) {
-      skip(r, `사번 충돌 의심 — 큐브티 ${u.branch ?? "-"} ${u.name} / 포털 ${r.branch || "-"} ${r.name}. 같은 사람이 아니면 한쪽 사번을 고쳐주세요`);
+      skip(r, `사번 충돌 의심 — 큐브티 ${u.branch ?? "-"} ${u.name} / 명부 ${r.branch || "-"} ${r.name}. 같은 사람이 아니면 한쪽 사번을 고쳐주세요`);
       continue;
     }
     seen.add(u.id);
@@ -238,7 +238,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     }
     if (ps === "RESIGNED") {
       // 퇴사일이 비어 있으면 "오늘"로 채우지 않는다 — 날마다 내용이 달라져 [무시]가 안 먹고 실제 퇴사일도 틀린다(M2)
-      if (!r.leaveDate) skip(r, "포털이 퇴사인데 퇴사일이 비어 있음 — 포털에 퇴사일을 넣어주세요");
+      if (!r.leaveDate) skip(r, "명부에서 퇴사로 바뀜지만 퇴사일을 알 수 없습니다(명부에 퇴사일 칸이 없습니다) — 직원 관리에서 퇴사일을 직접 넣어주세요");
       else if (dstr(u.resignDate) !== r.leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: r.leaveDate, portalStatus: r.status, ...idf } });
       continue;
     }
@@ -260,9 +260,13 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     if (r.joinDate && r.joinDate !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
+      // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 말없이 바꾸지 않는다.
+      //   인사 원장의 "지점입사일"은 대개 큰브티 입사일과 같지만(112명 중 68명 일치),
+      //   루트 교육생 출신은 루트입과일로 들어가 있어 3주가지 차이 난다(2026-09-16 실측).
+      const hireChange = !!fields.hireDate;
       // 원장 계정의 지점·직책이 바뀌면 담당 범위·권한 판정이 따라 바뀐다 — 자동으로 두지 않는다(M5)
       const managerScope = u.role === "MANAGER" && !!(fields.branch || fields.jobGroup);
-      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || weakIdentity || unverified });
+      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || hireChange || weakIdentity || unverified });
     }
   }
 
@@ -322,7 +326,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function sigOf(p: Plan): string {
-  // 큐브티 쪽 현재값(target·before)은 빼고 "포털이 원하는 값"만으로 — 무시한 뒤 큐브티가 조금 바뀌어도 다시 올리지 않게
+  // 큐브티 쪽 현재값(target·before)은 빼고 "명부 값"만으로 — 무시한 뒤 큐브티가 조금 바뀌어도 다시 올리지 않게
   const target = p.kind === "UPDATE"
     ? Object.entries((p.diff.fields ?? {}) as Fields).map(([k, v]) => [k, v?.[1]]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
     : Object.fromEntries(Object.entries(p.diff).filter(([k]) => !["target", "portal", "weakIdentity", "weakReasons", "unverified", "sameNameInCubetee"].includes(k)));
@@ -358,7 +362,7 @@ async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
   }
   const labels: Record<FieldKey, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일" };
   const detail = (Object.entries(fields) as [FieldKey, [string | null, string]][]).map(([k, v]) => `${labels[k]} ${v[0] ?? "-"}→${v[1]}`).join(", ");
-  await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: userId, targetName: u.name, detail: `포털 인원명부 반영 — ${detail}` });
+  await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: userId, targetName: u.name, detail: `인사명부 반영 — ${detail}` });
 }
 
 type ChangeRow = { id: string; kind: string; empNo: number; name: string; userId: string | null; diff: Prisma.JsonValue };
@@ -372,7 +376,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
   }
   if (c.kind === "HIRE") {
     const missing = Array.isArray(d.missing) ? (d.missing as string[]) : [];
-    if (missing.length) throw new Error(`${missing.join("·")}이(가) 없어 계정을 만들 수 없습니다. 포털에서 채운 뒤 다음 가져오기를 기다리거나 직원 관리에서 직접 등록해주세요.`);
+    if (missing.length) throw new Error(`${missing.join("·")}이(가) 없어 계정을 만들 수 없습니다. 명부에서 채운 뒤 다음 가져오기를 기다리거나 직원 관리에서 직접 등록해주세요.`);
     const email = s(d.email).toLowerCase();
     if (!EMAIL_RE.test(email)) throw new Error("회사 이메일 형식이 올바르지 않습니다.");
     if (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, select: { id: true } }))
@@ -395,7 +399,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: 15, used: 0, remaining: 15 } });
       return created;
     });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `포털 인원명부 입사 반영 (${branch}, 사번 ${c.empNo}, 임시 비밀번호)` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch}, 사번 ${c.empNo}, 임시 비밀번호)` });
     return;
   }
   if (!c.userId) throw new Error("대상 직원이 없습니다.");
@@ -414,17 +418,17 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     await prisma.user.update({
       where: { id: u.id },
       // 미래 퇴사일이면 지금 상태(휴직 등)를 그대로 둔다 — 날짜가 지나면 조회 시점에 퇴직자로 잡힌다
-      data: { resignDate: date, resignReason: "포털 인원명부 퇴사", ...(past ? { employmentStatus: "RESIGNED", isActive: false } : {}) },
+      data: { resignDate: date, resignReason: "인사명부 퇴사", ...(past ? { employmentStatus: "RESIGNED", isActive: false } : {}) },
     });
     await bumpTokenVersion(u.id).catch(() => {});
     await syncMainManagerFor(u.id);
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_RESIGN", targetType: "USER", targetId: u.id, targetName: u.name, detail: `포털 인원명부 퇴사 반영 (${rd})` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_RESIGN", targetType: "USER", targetId: u.id, targetName: u.name, detail: `인사명부 퇴사 반영 (${rd})` });
     return;
   }
   if (c.kind === "LEAVE") {
     if (cs !== "ACTIVE") throw changed();
     await prisma.user.update({ where: { id: u.id }, data: { employmentStatus: "ON_LEAVE" } });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: "포털 인원명부 휴직 반영" });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: "인사명부 휴직 반영" });
     return;
   }
   if (c.kind === "RETURN") {
@@ -441,7 +445,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await syncMainManagerFor(u.id);
       clearSessionCache(u.id); // 되살렸는데 "비활성" 캐시가 30초 남아 있으면 그동안 로그인이 안 된다(restore 와 같게)
     }
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: fromResigned ? "EMPLOYEE_RESTORE" : "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: fromResigned ? `포털 인원명부 재입사 반영 — 퇴사일 ${dstr(u.resignDate)} 해제, 계정 다시 켬` : "포털 인원명부 복직 반영" });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: fromResigned ? "EMPLOYEE_RESTORE" : "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: fromResigned ? `인사명부 재입사 반영 — 퇴사일 ${dstr(u.resignDate)} 해제, 계정 다시 켬` : "인사명부 복직 반영" });
     return;
   }
   if (c.kind === "LINK") {
@@ -451,7 +455,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     const dup = await prisma.user.findUnique({ where: { empNo: to }, select: { id: true, name: true } });
     if (dup && dup.id !== u.id) throw new Error(`사번 ${to} 을(를) 이미 ${dup.name}님이 쓰고 있습니다.`);
     await prisma.user.update({ where: { id: u.id }, data: { empNo: to } });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `포털 사번 연결 ${s(d.fromEmpNo) || "-"}→${to}` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `명부 사번 연결 ${s(d.fromEmpNo) || "-"}→${to}` });
     return;
   }
   throw new Error("알 수 없는 항목입니다.");
@@ -467,7 +471,7 @@ export async function decideChange(id: string, action: "apply" | "dismiss", acto
   });
   if (claimed.count === 0) return { ok: false, error: "이미 처리됐거나 처리 중인 항목입니다.", status: 409 };
   if (action === "dismiss") {
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_DISMISS", targetType: "USER", targetId: c.userId, targetName: c.name, detail: `포털 인원명부 ${c.kind} 무시 (사번 ${c.empNo})` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_DISMISS", targetType: "USER", targetId: c.userId, targetName: c.name, detail: `인사명부 ${c.kind} 무시 (사번 ${c.empNo})` });
     return { ok: true };
   }
   try {
@@ -495,9 +499,9 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
     const run = await prisma.portalSyncRun.create({ data: { trigger, actorName: actor.name } });
     runId = run.id;
     const cfg = await portalConfig();
-    if (!cfg) throw new Error("포털 연결 정보가 없습니다.");
+    if (!cfg) throw new Error("인사명부 연결 정보가 없습니다.");
     const rows = await fetchPortalRoster(cfg);
-    // 0명이면 큐브티 재직자 전원이 "포털에 없음"이 된다 — 설정 사고로 보고 멈춘다
+    // 0명이면 큐브티 재직자 전원이 "명부에 없음"이 된다 — 설정 사고로 보고 멈춘다
     if (!rows.length) throw new Error("포털에서 0명을 받았습니다. 뷰·권한 설정을 확인해주세요.");
     const plan = await planPortalSync(rows);
     const auto = await isAutoApply();
@@ -572,11 +576,11 @@ export async function runPortalSyncDaily() {
   });
   const link = `${getAppUrl()}/admin/portal-sync`;
   let msg: string;
-  if (!r.ok) msg = `⚠️ 포털 인원명부를 가져오지 못했습니다.\n${r.error}\n→ ${link}`;
+  if (!r.ok) msg = `⚠️ 인사명부를 가져오지 못했습니다.\n${r.error}\n→ ${link}`;
   else {
     const rows = await prisma.portalSyncChange.groupBy({ by: ["kind"], where: { status: "PENDING" }, _count: { _all: true } });
     const label: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직", LINK: "사번 연결" };
-    msg = `🔄 포털 인원명부 확인 대기 ${r.pending}건 (${rows.map((x) => `${label[x.kind] ?? x.kind} ${x._count._all}`).join(" · ")})\n반영 전에는 큐브티에 바뀌지 않습니다.\n→ ${link}`;
+    msg = `🔄 인사명부 확인 대기 ${r.pending}건 (${rows.map((x) => `${label[x.kind] ?? x.kind} ${x._count._all}`).join(" · ")})\n반영 전에는 큐브티에 바뀌지 않습니다.\n→ ${link}`;
   }
   for (const a of admins) await botSendDM(a.id, msg);
 }
