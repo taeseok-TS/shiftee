@@ -1554,6 +1554,7 @@ ${url}`;
           <>
             <Dialog open={createOpen} onOpenChange={(open) => {
               setCreateOpen(open);
+              if (open) setSalaryFocus(false); // 저장·취소 버튼으로 닫힌 뒤 포커스 표시가 남아 콤마가 안 보이던 것(검증관 F4)
               if (!open) {
                 setEmployeeSearchText("");
                 setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
@@ -2471,6 +2472,7 @@ ${url}`;
       {editingContract && (
         <Dialog open={editOpen} onOpenChange={(open) => {
           setEditOpen(open);
+          if (open) setEditSalaryFocus(false);
           if (!open) {
             setEditingContract(null);
             setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({}); setEditSalaryFocus(false);

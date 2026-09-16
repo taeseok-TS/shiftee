@@ -31,6 +31,7 @@ type Contract = {
   id: string;
   postSignAccess?: string; // 서명 완료 후 근로자 접근: full | view | none (#129)
   userId: string;
+  externalName?: string | null; // 외부(게스트) 계약이면 게스트 이름 — userId 는 작성 관리자라 본인 서명과 구별해야 한다
   title: string;
   type: string;
   fileUrl: string;
@@ -168,6 +169,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myId, setMyId] = useState("");
+  const [meLoaded, setMeLoaded] = useState(false); // 내 정보 조회가 끝났는지 — 실패해도 결재 대기 카드를 감추지 않는다(검증관 F3)
 
   const [signOpen, setSignOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
@@ -224,10 +226,10 @@ export default function ContractsPage() {
   };
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 (입력 유도) — 본인(계약 대상 직원)이 서명할 때만
   // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
-  const missingProfile = (signTarget?.userId === myId ? (signTarget?.profileFields || []) : []).filter((f: string) =>
+  const missingProfile = (signTarget?.userId === myId && !signTarget?.externalName ? (signTarget?.profileFields || []) : []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
-  const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
+  const empFields: string[] = (signTarget?.userId === myId && !signTarget?.externalName ? signTarget?.employeeFields : null) || [];
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
   // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
@@ -293,11 +295,12 @@ export default function ContractsPage() {
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
+      setMeLoaded(true);
       // 개인 페이지: 역할과 무관하게 본인 계약서만 표시 (작성/관리는 관리자·원장 페이지에서)
       setMyId(d.user?.id || "");
       setMyProfile({ address: d.user?.address || "", birthDate: d.user?.birthDate ? String(d.user.birthDate).slice(0, 10) : "" });
       setMySigUrl(d.user?.signatureUrl || "");
-    });
+    }).catch(() => setMeLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -310,7 +313,8 @@ export default function ContractsPage() {
   // 전자서명 동의(#205-3) + 문서를 끝까지 내려 봤는가(뷰어가 알려준다) — 서명 때 함께 기록된다
   const [signAgree, setSignAgree] = useState(false);
   const [docReadToEnd, setDocReadToEnd] = useState(false);
-  const isEmpSign = !!signTarget && signTarget.userId === myId;
+  // 외부 계약은 소유자가 작성 관리자라 userId 만 보면 본인 서명으로 오판된다 — 서버 sign 라우트와 같은 기준(검증관 F1)
+  const isEmpSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
   // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
   useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
@@ -387,7 +391,7 @@ export default function ContractsPage() {
       </div>
 
       {/* 내 결재 대기 — 결재자로서 내 차례인 계약서 */}
-      {myId && myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length > 0 && (
+      {meLoaded && myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length > 0 && (
         <Card className="border-amber-200 bg-amber-50">
           <CardHeader>
             <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length})</CardTitle>
@@ -398,7 +402,7 @@ export default function ContractsPage() {
                 <div className="min-w-0">
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-600 mt-0.5">
-                    {c.user?.name}{c.user?.branch ? ` · ${c.user.branch}` : ""}
+                    {c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}
                     {c.startDate || c.endDate ? ` · 계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : ""}
                   </p>
                   {Object.entries(c.summaryFields || c.extraFields || {}).length > 0 && (
