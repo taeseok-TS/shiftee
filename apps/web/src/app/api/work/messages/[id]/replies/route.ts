@@ -32,15 +32,20 @@ export async function GET(
     orderBy: { createdAt: "asc" },
   });
 
+  // ⚠ 목록 API(work/channels/[id]/messages)와 **같은 모양**으로 내보낸다.
+  //   예전에는 albumUrls 가 빠져 본문에선 보이던 사진 앱범이 스레드 창에서만 통째로 사라졌고,
+  //   deletedAt 도 안 보내 **삭제한 댓글이 원문 그대로** 남아 있었다(2026-09-16).
   const shape = (m: typeof replies[number]) => ({
     id: m.id,
     userId: m.userId,
     userName: m.user.name,
-    content: m.content,
-    fileUrl: m.fileUrl,
-    fileName: m.fileName,
-    fileType: m.fileType,
+    content: m.deletedAt ? "" : m.content,
+    fileUrl: m.deletedAt ? null : m.fileUrl,
+    albumUrls: m.deletedAt ? null : (m.albumUrls as string[] | null),
+    fileName: m.deletedAt ? null : m.fileName,
+    fileType: m.deletedAt ? null : m.fileType,
     createdAt: m.createdAt,
+    deleted: !!m.deletedAt,
     mine: m.userId === session.userId,
   });
 
@@ -49,11 +54,13 @@ export async function GET(
       id: parent.id,
       userId: parent.userId,
       userName: parent.user.name,
-      content: parent.content,
-      fileUrl: parent.fileUrl,
-      fileName: parent.fileName,
-      fileType: parent.fileType,
+      content: parent.deletedAt ? "" : parent.content,
+      fileUrl: parent.deletedAt ? null : parent.fileUrl,
+      albumUrls: parent.deletedAt ? null : (parent.albumUrls as string[] | null),
+      fileName: parent.deletedAt ? null : parent.fileName,
+      fileType: parent.deletedAt ? null : parent.fileType,
       createdAt: parent.createdAt,
+      deleted: !!parent.deletedAt,
       mine: parent.userId === session.userId,
     },
     replies: replies.map(shape),

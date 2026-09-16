@@ -1658,14 +1658,14 @@ export default function WorkChatPage() {
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             <div className="border-b pb-3">
               <div className="text-xs text-gray-500 mb-0.5">{thread.parent.userName}</div>
-              <div className="text-sm whitespace-pre-wrap">{thread.parent.content}</div>
-              {renderAttachment(thread.parent)}
+              <div className="text-sm whitespace-pre-wrap">{thread.parent.deleted ? <span className="italic opacity-70">삭제된 메시지입니다</span> : thread.parent.content}</div>
+              {!thread.parent.deleted && renderAttachment(thread.parent)}
             </div>
             {thread.replies.map((r) => (
               <div key={r.id}>
                 <div className="text-xs text-gray-500 mb-0.5">{r.userName} · {format(new Date(r.createdAt), "HH:mm")}</div>
-                <div className="text-sm whitespace-pre-wrap">{r.content}</div>
-                {renderAttachment(r)}
+                <div className="text-sm whitespace-pre-wrap">{r.deleted ? <span className="italic opacity-70">삭제된 메시지입니다</span> : r.content}</div>
+                {!r.deleted && renderAttachment(r)}
               </div>
             ))}
             {thread.replies.length === 0 && <div className="text-xs text-gray-400 text-center py-6">첫 댓글을 남겨보세요.</div>}
