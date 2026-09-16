@@ -15,6 +15,7 @@ import { syncMainManagerFor } from "@/lib/manager-branches";
 import { logAudit } from "@/lib/audit";
 import { isResigned, kstTodayMidnight } from "@/lib/resign";
 import { currentLeaveYear } from "@/lib/leave-calc";
+import { isSheetUrl, fetchSheetRoster } from "@/lib/roster-sheet";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "포털 인원명부 연동" };
@@ -36,7 +37,9 @@ async function setting(key: string): Promise<string> {
 }
 export async function portalConfig(): Promise<Cfg | null> {
   const [url, apikey, token] = await Promise.all([setting(PORTAL_SETTING.url), setting(PORTAL_SETTING.apikey), setting(PORTAL_SETTING.token)]);
-  if (!url || !apikey) return null;
+  if (!url) return null;
+  // 구글 시트(인사 원장)은 공유 주소만으로 읽는다 — 열쇠가 없어도 설정된 것으로 본다
+  if (!apikey && !isSheetUrl(url)) return null;
   return { url, apikey, token: token || apikey };
 }
 export async function isAutoApply(): Promise<boolean> {
@@ -44,6 +47,7 @@ export async function isAutoApply(): Promise<boolean> {
 }
 /** 연결 주소 검사 — https + *.supabase.co + REST 경로만(키를 엉뚱한 곳·내부망으로 보내지 않게, 검증관 L9) */
 export function validRosterUrl(url: string): boolean {
+  if (isSheetUrl(url)) return true; // 인사 원장(구글 시트) — 2026-09-16부터 기본 원천
   try {
     const u = new URL(url);
     return u.protocol === "https:" && u.hostname.endsWith(".supabase.co") && u.pathname.startsWith("/rest/v1/") && !u.username && !u.password;
@@ -63,6 +67,8 @@ const dateOnly = (v: unknown) => {
 };
 
 export async function fetchPortalRoster(cfg: Cfg): Promise<PortalRow[]> {
+  // 인사 원장(구글 시트) — 디렉터 지시로 2026-09-16부터 이쪽을 쓴다. 아래 포털 DB 경로는 그대로 둠.
+  if (isSheetUrl(cfg.url)) return fetchSheetRoster(cfg.url);
   if (!validRosterUrl(cfg.url)) throw new Error("연결 주소가 올바르지 않습니다(https://…supabase.co/rest/v1/… 형식이어야 합니다).");
   const u = new URL(cfg.url);
   u.searchParams.set("select", "*");
@@ -135,6 +141,7 @@ export function mapPosition(position: string): string | null {
 
 type PState = "ACTIVE" | "LEAVE" | "RESIGNED" | "OTHER";
 function portalState(r: PortalRow): PState {
+  // 인사 원장의 "본사발령"은 큰브티 관리 대상이 아니다(본사 인원은 계정 체계가 따로다) — OTHER 로 두어 손대지 않는다
   if (r.status === "퇴사" || r.status === "퇴직") return "RESIGNED";
   if (r.status === "휴직") return "LEAVE";
   if (r.status === "재직") return r.leaveDate ? "RESIGNED" : "ACTIVE";

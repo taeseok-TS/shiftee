@@ -260,12 +260,12 @@ export default function PortalSyncPage() {
       {/* 연결 정보 — 메인 관리자만 */}
       <Card><CardContent className="p-4 space-y-3">
         <p className="font-semibold flex items-center gap-2"><Link2 size={16} />연결 정보</p>
-        <p className="text-xs text-gray-500">포털 담당자가 만든 읽기 전용 뷰의 주소·API 키·토큰을 넣습니다. 저장한 키는 다시 보여주지 않으며, 비워 두고 저장하면 기존 키를 유지합니다.</p>
+        <p className="text-xs text-gray-500">직영 인사 원장(구글 시트) 주소를 넣습니다 — 편집 주소를 그대로 붙여 넣으셔도 됩니다. 시트는 읽기만 하고 고치지 않습니다. (아래 키·토큰은 예전 포털 DB 방식을 쓸 때만 필요합니다.)</p>
         {data.canEditConnection ? (
           <div className="grid md:grid-cols-3 gap-2">
-            <Input placeholder="https://xxxx.supabase.co/rest/v1/cubetee_roster" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} className="md:col-span-3" />
-            <Input type="password" autoComplete="off" placeholder={data.connection.apikeySet ? "API 키 — 등록됨(바꿀 때만 입력)" : "API 키 (anon/publishable)"} value={conn.apikey} onChange={(e) => setConn({ ...conn, apikey: e.target.value })} />
-            <Input type="password" autoComplete="off" placeholder={data.connection.tokenSet ? "읽기 전용 토큰 — 등록됨(바꿀 때만 입력)" : "읽기 전용 토큰 (cubetee_reader)"} value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
+            <Input placeholder="https://docs.google.com/spreadsheets/d/… (인사 원장 주소)" value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} className="md:col-span-3" />
+            <Input type="password" autoComplete="off" placeholder={data.connection.apikeySet ? "API 키 — 등록됨(바꿀 때만 입력)" : "API 키 (시트는 비워 두세요)"} value={conn.apikey} onChange={(e) => setConn({ ...conn, apikey: e.target.value })} />
+            <Input type="password" autoComplete="off" placeholder={data.connection.tokenSet ? "읽기 전용 토큰 — 등록됨(바꿀 때만 입력)" : "읽기 전용 토큰 (시트는 비워 두세요)"} value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
             <div className="flex gap-2">
               <Button className="flex-1" disabled={busy === "save" || !conn.url} onClick={saveConn}>저장</Button>
               <Button variant="outline" className="flex-1" disabled={busy === "test" || !data.configured} onClick={testConn}>연결 확인</Button>

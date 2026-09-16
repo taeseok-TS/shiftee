@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const apikey = typeof body.apikey === "string" ? body.apikey.trim() : "";
     const token = typeof body.token === "string" ? body.token.trim() : "";
-    if (!validRosterUrl(url)) return NextResponse.json({ error: "주소는 https://…supabase.co/rest/v1/cubetee_roster 형식이어야 합니다." }, { status: 400 });
+    if (!validRosterUrl(url)) return NextResponse.json({ error: "주소는 인사 원장(https://docs.google.com/spreadsheets/d/…) 또는 포털 읽기 전용 뷰(https://…supabase.co/rest/v1/…) 주소여야 합니다." }, { status: 400 });
     const put = (key: string, value: string) => prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     await put(PORTAL_SETTING.url, url);
     // 비워 두면 기존 키를 유지한다(화면에 키를 다시 보여주지 않으므로)
