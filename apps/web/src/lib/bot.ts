@@ -460,13 +460,19 @@ export async function runScheduledMessages() {
     let caption = s.content;
     const ops: Prisma.PrismaPromise<unknown>[] = [];
     if (isAlbum) {
-      ops.push(prisma.workMessage.create({
-        data: {
-          channelId: s.channelId, userId: s.userId, content: caption,
-          albumUrls: images.slice(0, 10).map((f) => f.fileUrl), attachFirst: s.attachFirst,
-        },
-      }));
-      caption = "";
+      // 앨범 한 건은 10장까지다. 첨부 상한이 20으로 올라간 뒤로 11장째부터는 말없이 사라졌다
+      // (2026-09-16 검증관 V-2) — 10장씩 끊어 여러 건으로 보낸다. 글(캡션)은 첫 건에만.
+      for (let i = 0; i < images.length; i += 10) {
+        const part = images.slice(i, i + 10).map((f) => f.fileUrl);
+        const cap = caption;
+        ops.push(prisma.workMessage.create({
+          data: {
+            channelId: s.channelId, userId: s.userId, content: cap,
+            albumUrls: part, attachFirst: s.attachFirst,
+          },
+        }));
+        caption = "";
+      }
     }
     for (const f of singles) {
       ops.push(prisma.workMessage.create({

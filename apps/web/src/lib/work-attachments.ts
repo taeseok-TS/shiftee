@@ -9,13 +9,13 @@ export type StoredAttachment = WorkAttachment & { owned: boolean };
 // 예약은 파일을 미리 올려두는 구조라 무한정 받으면 디스크가 인질이 된다.
 export const MAX_SCHEDULED_ATTACHMENTS = 20;
 
-// 채팅 첨부 주소 검증 — 클라이언트가 주는 값이라 그대로 믿으면 안 된다.
-// 계약서·서명·직인 경로를 넣어두고 첨부로 빼내는 우회가 있었다(2026-09-02). work 군만 허용한다.
 /** 주소 정규화 — 쿼리(?…)를 뗀 값 하나로만 다룬다.
  *  ⚠ 비교는 원문으로, 삭제는 쿼리를 뗀 경로로 하면 `?x` 한 글자로 "쓰이는 중" 검사가 통째로 비켜간다
  *  (2026-09-16 검증관: 직원 누구나 남의 첨부를 영구 삭제할 수 있었다). */
 export const bareUrl = (u: string) => u.split("?")[0];
 
+// 채팅 첨부 주소 검증 — 클라이언트가 주는 값이라 그대로 믿으면 안 된다.
+// 계약서·서명·직인 경로를 넣어두고 첨부로 빼내는 우회가 있었다(2026-09-02). work 군만 허용한다.
 export function okWorkAttachUrl(u: unknown): u is string {
   return (
     typeof u === "string" &&
@@ -76,12 +76,17 @@ export async function isFileReferenced(rawUrl: string, exceptScheduledId?: strin
   if (pending.some((r) => parseAttachments(r.attachments).some((a) => a.fileUrl === url))) return true;
   // 같은 uploads/work 파일은 채팅 말고도 **관리자 브리핑 첨부**(아직 발송 안 된 12개월치 카드뉴스)와
   // **공지 첨부** 로도 참조된다. 메시지가 아직 없으니 소유로 찍혀 통째로 지울 수 있었다(검증관 1-c).
+  // ⚠ uploads/work 는 채팅 전용이 아니다. **휴가 증빙과 개선 제안 스크린샷**도 같은 업로더를 쓴다 —
+  //   이걸 빠뜨리면 결재자가 자기 앞으로 올라온 직원 증빙을 흔적 없이 지울 수 있다(2026-09-16 검증관 V-1).
   const asBrief = JSON.stringify([{ url }]);
-  const [brief, notice] = await Promise.all([
+  const one = JSON.stringify([url]);
+  const [brief, notice, leave, sugg] = await Promise.all([
     prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "BotBriefing" WHERE "attachments" @> ${asBrief}::jsonb LIMIT 1`,
     prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "WorkAnnouncement" WHERE position(${url} in "attachments") > 0 LIMIT 1`,
+    prisma.leaveRequest.findFirst({ where: { attachmentUrl: url }, select: { id: true } }),
+    prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "Suggestion" WHERE "imageUrls" @> ${one}::jsonb LIMIT 1`,
   ]);
-  return brief.length > 0 || notice.length > 0;
+  return brief.length > 0 || notice.length > 0 || !!leave || sugg.length > 0;
 }
 
 // 예약 등록 시점에 "이 예약이 데려온 새 파일"만 소유로 표시한다.
