@@ -28,6 +28,7 @@ type Contract = {
   status: string;
   fileUrl: string;
   userId: string;
+  externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 소유자는 작성 관리자라 당사자 표기가 다르다
   startDate: string | null;
   endDate: string | null;
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
@@ -216,8 +217,8 @@ export default function ManagerContractsPage() {
               <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-orange-200">
                 <div className="space-y-1">
                   <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.user.name} · {typeLabel[c.type] || c.type}</p>
-                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
+                  <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type] || c.type}</p>
+                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
                 </div>
                 <div className="flex gap-2">
                   {getFileUrl(c.fileUrl) && (
@@ -291,7 +292,7 @@ export default function ManagerContractsPage() {
                           <div className="text-xs text-gray-400">{typeLabel[c.type] || c.type}</div>
                         </td>
                         <td className="py-3"><Badge variant={sc.variant}>{sc.label}</Badge></td>
-                        <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} /></td>
+                        <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} /></td>
                         <td className="py-3 text-right">
                           <div className="flex gap-2 justify-end">
                             {getFileUrl(c.fileUrl) && (
@@ -323,11 +324,11 @@ export default function ManagerContractsPage() {
             {signTarget && (
               <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                 <p className="font-medium">{signTarget.title}</p>
-                <p className="text-gray-500 text-xs">{signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
-                <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.userId} />
+                <p className="text-gray-500 text-xs">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
+                <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.externalName ? undefined : signTarget.userId} />
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
                 <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                  <span className="text-gray-400">직원명</span><span>{signTarget.user.name}{signTarget.user.branch ? ` (${signTarget.user.branch})` : ""}</span>
+                  <span className="text-gray-400">{signTarget.externalName ? "계약자" : "직원명"}</span><span>{signTarget.externalName ? `${signTarget.externalName} (외부)` : `${signTarget.user.name}${signTarget.user.branch ? ` (${signTarget.user.branch})` : ""}`}</span>
                   {(signTarget.startDate || signTarget.endDate) && (
                     <><span className="text-gray-400">계약기간</span>
                     <span>{signTarget.startDate ? format(new Date(signTarget.startDate), "yyyy-MM-dd") : "?"} ~ {signTarget.endDate ? format(new Date(signTarget.endDate), "yyyy-MM-dd") : "?"}</span></>

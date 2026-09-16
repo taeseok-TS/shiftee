@@ -298,7 +298,7 @@ export async function POST(
         nextStep.approver.email,
         nextStep.approver.name,
         updated.title,
-        updated.user.name,
+        updated.externalName || updated.user.name, // 계약 당사자 — 외부 계약은 게스트 이름
         nextStep.order,
         appUrl,
         nextStep.approverId || undefined
@@ -309,7 +309,7 @@ export async function POST(
         updated.user.email,
         updated.user.name,
         updated.title,
-        updated.user.name,
+        updated.externalName || updated.user.name,
         appUrl,
         updated.user.id // 본인 확인 관문(#140)
       );
@@ -372,13 +372,13 @@ export async function POST(
     const appUrl = getAppUrl();
     if (nextStep?.approver?.email) {
       // 다음 단계가 직원 서명인지 확인
-      if (nextStep.approverId === finalContract.userId) {
+      if (nextStep.approverId === finalContract.userId && !finalContract.externalName) {
         // 직원에게 서명 요청 알림
         await sendApprovalRequest(
           finalContract.user.email,
           finalContract.user.name,
           finalContract.title,
-          finalContract.user.name,
+          finalContract.externalName || finalContract.user.name, // 계약 당사자
           nextStep.order,
           appUrl,
           finalContract.user.id // 본인 확인 관문(#140)
@@ -389,7 +389,7 @@ export async function POST(
           nextStep.approver.email,
           nextStep.approver.name,
           finalContract.title,
-          finalContract.user.name,
+          finalContract.externalName || finalContract.user.name, // 계약 당사자
           nextStep.order,
           appUrl,
           nextStep.approverId || undefined // 본인 확인 관문(#140)
@@ -401,7 +401,7 @@ export async function POST(
         finalContract.user.email,
         finalContract.user.name,
         finalContract.title,
-        finalContract.user.name,
+        finalContract.externalName || finalContract.user.name,
         appUrl,
         finalContract.user.id // 본인 확인 관문(#140)
       );

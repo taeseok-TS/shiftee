@@ -96,10 +96,10 @@ export default function ContractListScreen() {
   const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 — 본인(계약 대상 직원)이 서명할 때만
   // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
-  const missingProfile: string[] = (signTarget?.userId === myId ? (signTarget?.profileFields || []) : []).filter((f: string) =>
+  const missingProfile: string[] = (signTarget?.userId === myId && !signTarget?.externalName ? (signTarget?.profileFields || []) : []).filter((f: string) =>
     f === "주소" ? !myProfile.address : f === "생년월일" ? !myProfile.birthDate : false);
   // 직원 직접입력 필드 — 본인(계약 대상 직원)이 서명할 때만 (원장/본부 결재 시엔 이미 채워짐)
-  const empFields: string[] = (signTarget?.userId === myId ? signTarget?.employeeFields : null) || [];
+  const empFields: string[] = (signTarget?.userId === myId && !signTarget?.externalName ? signTarget?.employeeFields : null) || [];
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
   // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
@@ -273,7 +273,7 @@ export default function ContractListScreen() {
           return (
             <View key={c.id} style={styles.approvalCard}>
               <Text style={styles.cardTitle}>{c.title}</Text>
-              <Text style={styles.cardSubtitle}>{c.user?.name}{c.user?.branch ? ` · ${c.user.branch}` : ""}</Text>
+              <Text style={styles.cardSubtitle}>{c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}</Text>
               {(c.startDate || c.endDate) && (
                 <Text style={styles.cardDate}>계약기간 {String(c.startDate || "?").slice(0, 10)} ~ {String(c.endDate || "?").slice(0, 10)}</Text>
               )}

@@ -497,7 +497,7 @@ export async function PATCH(
 
     if (firstPendingStep) {
       // 첫 번째 단계의 담당자가 직원(employee)인지 확인
-      if (firstPendingStep.approverId === updated.userId && updated.user.email) {
+      if (firstPendingStep.approverId === updated.userId && !updated.externalName && updated.user.email) {
         // 직원이 첫 번째 승인자인 경우 - 서명 요청 이메일
         console.log(`📧 첫 번째 PENDING 단계가 직원입니다. 직원에게 서명 요청 이메일 발송: ${updated.user.email}`);
         await sendContractNotification(
@@ -514,7 +514,7 @@ export async function PATCH(
           firstPendingStep.approver.email,
           firstPendingStep.approver.name,
           updated.title,
-          updated.user.name,
+          updated.externalName || updated.user.name, // 계약 당사자 — 외부 계약은 게스트 이름
           firstPendingStep.order,
           appUrl,
           firstPendingStep.approverId || undefined

@@ -3464,8 +3464,8 @@ ${url}`;
               <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
-                    <p className="text-sm font-medium">직원 서명</p>
-                    <p className="text-xs text-gray-500">{approvalDetailsTarget.user.name}</p>
+                    <p className="text-sm font-medium">{approvalDetailsTarget.externalName ? "외부 서명" : "직원 서명"}</p>
+                    <p className="text-xs text-gray-500">{approvalDetailsTarget.externalName ? `[외부] ${approvalDetailsTarget.externalName}` : approvalDetailsTarget.user.name}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {approvalDetailsTarget.employeeSignedAt ? (

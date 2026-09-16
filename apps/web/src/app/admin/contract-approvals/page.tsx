@@ -36,6 +36,7 @@ type Contract = {
   templateId?: string | null;
   fileUrl?: string | null;
   createdAt: string;
+  externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 소유자는 작성 관리자라 당사자 표기가 다르다
   user: {
     id: string;
     name: string;
@@ -108,7 +109,7 @@ export default function ContractApprovalsPage() {
   const filteredContracts = useMemo(() => {
     return contracts.filter(approval => {
       const contract = approval; // 응답 항목이 곧 계약
-      const nameMatch = contract.user.name.toLowerCase().includes(searchName.toLowerCase());
+      const nameMatch = (contract.externalName || contract.user.name).toLowerCase().includes(searchName.toLowerCase());
       const dateMatch = !searchDate ||
         contract.createdAt.includes(searchDate);
       return nameMatch && dateMatch;
@@ -275,8 +276,8 @@ export default function ContractApprovalsPage() {
                       {/* 직원 정보 */}
                       <td className="px-6 py-4">
                         <div>
-                          <div className="font-medium text-gray-900">{contract.user.name}</div>
-                          <div className="text-xs text-gray-500">{contract.user.department || "-"} / {contract.user.branch || "-"}</div>
+                          <div className="font-medium text-gray-900">{contract.externalName ? `[외부] ${contract.externalName}` : contract.user.name}</div>
+                          <div className="text-xs text-gray-500">{contract.externalName ? "외부 계약자" : `${contract.user.department || "-"} / ${contract.user.branch || "-"}`}</div>
                         </div>
                       </td>
 
@@ -351,7 +352,7 @@ export default function ContractApprovalsPage() {
                             disabled={processingId === contract.id}
                             onClick={() => {
                               setRejectReason("");
-                              setRejectTarget({ id: contract.id, title: contract.title, name: contract.user.name });
+                              setRejectTarget({ id: contract.id, title: contract.title, name: contract.externalName || contract.user.name });
                             }}
                           >
                             <X size={16} />
