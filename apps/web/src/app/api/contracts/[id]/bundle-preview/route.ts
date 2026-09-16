@@ -5,6 +5,7 @@ import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, buildPlaceholderP
 import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
+import { bufferCacheKey, mergeCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
 
 // Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
 // 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
@@ -80,6 +81,8 @@ export async function GET(
 
   const GOTENBERG = process.env.GOTENBERG_URL || "http://gotenberg:3000";
   const tmpFilesOuter: string[] = [];
+  // 변환기 장애로 안내 쪽(placeholder)이 섞인 결과는 **캐시하지 않는다** — 복구된 뒤에도 장애 화면이 남는다
+  let degraded = false;
   try {
     const pdfs: Buffer[] = [];
     const tmpFiles = tmpFilesOuter;
@@ -193,6 +196,7 @@ export async function GET(
               //   **나머지 4건도 못 본다**(2026-09-04 검증관 A F2). 그렇다고 조용히 빼면
               //   사용자는 묶음이 원래 4건인 줄 안다. 자리를 지키고 이유를 적는다.
               //   서명 없는 원본을 완료본으로 보여주는 일은 여전히 하지 않는다.
+              degraded = true;
               pdfs.push(await buildPlaceholderPdf(
                 (d as { title?: string }).title || contract.title,
                 "서명이 반영된 문서를 만들지 못했습니다."));
@@ -206,10 +210,17 @@ export async function GET(
         pdfs.push(buf);
         continue;
       }
+      // 변환 결과 디스크 캐시 (#179, 2026-09-16 디렉터 지시). 서명을 얹거나 템플릿을 다시 그린 문서도
+      // 있으므로 파일 경로가 아니라 **지금 변환할 바이트 그대로**를 키로 쓴다 — 내용이 같아야만 캐시가 맞는다.
+      // 탭 제목(PDF Title 메타)이 결과에 들어가므로 제목도 키에 넣는다.
+      const docTitle = (d as { title?: string }).title || contract.title;
+      const convKey = bufferCacheKey(buf, `docx|title=${docTitle}`);
+      const convHit = await readCachedPdf(convKey);
+      if (convHit) { pdfs.push(convHit); continue; }
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
-      fd.append("metadata", JSON.stringify({ Title: (d as { title?: string }).title || contract.title }));
+      fd.append("metadata", JSON.stringify({ Title: docTitle }));
       // 제한 시간 60초 — 넘기면 null 로 떨어져 이 문서만 안내 쪽으로 대신한다
       const gres = await fetch(`${GOTENBERG}/forms/libreoffice/convert`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
       // 본문 받기도 제한 시간에 걸린다 — 받다 끊기면 묶음 전체 500 이 아니라 이 문서만 안내 쪽으로(2ee8b6a 검증 1)
@@ -222,23 +233,33 @@ export async function GET(
           path: `/api/contracts/${id}/bundle-preview`, method: "GET",
           message: `PDF 변환 실패(${gres ? gres.status : "연결 실패"}): ${(d as { title?: string }).title || contract.title}`,
         }).catch(() => {});
-        pdfs.push(await buildPlaceholderPdf(
-          (d as { title?: string }).title || contract.title, "PDF 변환기가 응답하지 않습니다."));
+        degraded = true;
+        pdfs.push(await buildPlaceholderPdf(docTitle, "PDF 변환기가 응답하지 않습니다."));
         continue;
       }
-      pdfs.push(Buffer.from(gbody));
+      const converted = Buffer.from(gbody);
+      void writeCachedPdf(convKey, converted); // 저장은 응답을 막지 않는다
+      pdfs.push(converted);
     }
     if (pdfs.length === 0) return NextResponse.json({ error: "문서 파일이 없습니다." }, { status: 404 });
     let out: Buffer;
     if (pdfs.length === 1) out = pdfs[0];
     else {
-      const fd = new FormData();
-      pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
-      fd.append("metadata", JSON.stringify({ Title: contract.title + `_외${docs.length - 1}건` })); // 탭 제목 (#147)
-      const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
-      const mbody = mres && mres.ok ? await mres.arrayBuffer().catch(() => null) : null;
-      if (!mbody) return NextResponse.json({ error: "PDF 병합에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
-      out = Buffer.from(mbody);
+      const mergeTitle = contract.title + `_외${docs.length - 1}건`;
+      // 병합 결과도 캐시한다 — 조각들의 내용.순서.제목이 같을 때만 맞는 키다.
+      const mKey = mergeCacheKey(pdfs, mergeTitle);
+      const mHit = degraded ? null : await readCachedPdf(mKey);
+      if (mHit) out = mHit;
+      else {
+        const fd = new FormData();
+        pdfs.forEach((b, i) => fd.append("files", new Blob([new Uint8Array(b)]), `doc${i + 1}.pdf`));
+        fd.append("metadata", JSON.stringify({ Title: mergeTitle })); // 탭 제목 (#147)
+        const mres = await fetch(`${GOTENBERG}/forms/pdfengines/merge`, { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) }).catch(() => null);
+        const mbody = mres && mres.ok ? await mres.arrayBuffer().catch(() => null) : null;
+        if (!mbody) return NextResponse.json({ error: "PDF 병합에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+        out = Buffer.from(mbody);
+        if (!degraded) void writeCachedPdf(mKey, out);
+      }
     }
     return new NextResponse(asBody(out), {
       headers: {

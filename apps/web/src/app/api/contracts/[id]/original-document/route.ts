@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { firstFile, diskPath } from "@/lib/signed-doc";
 import fs from "fs";
+import { fileCacheKey, bufferCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
 
 // 서명 전 원본(작성본) 다운로드를 PDF로 — 워드 파일이 그대로 나가면 수정·유출 위험 (개선 제안 #67~#71).
 // gotenberg가 죽어 있으면 워드로 폴백해 다운로드 자체는 항상 된다.
@@ -36,6 +37,23 @@ export async function GET(
   const dispo = acc.viewOnly || new URL(request.url).searchParams.get("inline") === "1" ? "inline" : "attachment";
 
   if (orig.toLowerCase().endsWith(".docx")) {
+    // 변환 결과 디스크 캐시 (#179, 2026-09-16 디렉터 지시로 이 경로까지 넓혔다 — 측정 1.4초→0.5초).
+    // 키는 문서 뷰어(/api/docs/pdf)와 같은 형식이라 같은 파일이면 **서로의 캐시를 그대로 쓴다.**
+    // 파일이 재생성되면 이름 자체가 바뀌고, 교체돼도 mtime.크기가 달라져 새 키가 된다.
+    const st = fs.statSync(path);
+    const m = /\/api\/uploads\/([^/]+)\/([^/?#]+)$/.exec(orig);
+    const cacheKey = m
+      ? fileCacheKey(decodeURIComponent(m[1]), decodeURIComponent(m[2]), st.mtimeMs, st.size)
+      : bufferCacheKey(buf);
+    const hit = await readCachedPdf(cacheKey);
+    if (hit) {
+      return new NextResponse(new Uint8Array(hit), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + ".pdf")}`,
+        },
+      });
+    }
     try {
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
@@ -45,6 +63,7 @@ export async function GET(
       );
       if (gres.ok) {
         const pdf = Buffer.from(await gres.arrayBuffer());
+        void writeCachedPdf(cacheKey, pdf); // 저장은 응답을 막지 않는다
         return new NextResponse(pdf, {
           headers: {
             "Content-Type": "application/pdf",
