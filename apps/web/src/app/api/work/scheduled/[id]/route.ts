@@ -14,7 +14,7 @@ export async function DELETE(
   const { id } = await params;
   const scheduled = await prisma.workScheduledMessage.findUnique({
     where: { id },
-    select: { userId: true, sentAt: true, canceledAt: true, attachments: true },
+    select: { userId: true, sentAt: true, canceledAt: true, attachments: true, createdAt: true },
   });
   if (!scheduled) return NextResponse.json({ error: "예약을 찾을 수 없습니다." }, { status: 404 });
   if (scheduled.userId !== session.userId)
@@ -32,7 +32,7 @@ export async function DELETE(
     return NextResponse.json({ error: "이미 발송되었거나 취소된 예약입니다." }, { status: 400 });
 
   // 예약과 함께 올려둔 첨부 파일도 지운다 (디렉터 지시 2026-09-16)
-  await deleteWorkAttachmentFiles(scheduled.attachments, id).catch((e) =>
+  await deleteWorkAttachmentFiles(scheduled.attachments, id, scheduled.createdAt).catch((e) =>
     console.error("[예약취소] 첨부 삭제 오류:", e)
   );
   return NextResponse.json({ success: true });

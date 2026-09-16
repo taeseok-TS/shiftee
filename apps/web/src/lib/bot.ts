@@ -448,7 +448,7 @@ export async function runScheduledMessages() {
     const files = parseAttachments(s.attachments);
     if (s.channel.deletedAt) {
       // 채널이 삭제됐으면 조용히 소멸 — 올려둔 첨부 파일도 남기지 않는다
-      await deleteWorkAttachmentFiles(s.attachments, s.id).catch(() => {});
+      await deleteWorkAttachmentFiles(s.attachments, s.id, s.createdAt).catch(() => {});
       continue;
     }
     // 첨부는 즉시 전송과 같은 규칙으로 쪼갠다: 사진 2장 이상은 앨범 묶음, 나머지는 개별 메시지.
