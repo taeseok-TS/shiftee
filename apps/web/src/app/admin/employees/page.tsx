@@ -26,6 +26,7 @@ type Employee = {
   branch: string | null;
   hireDate: string | null;
   birthDate: string | null;
+  employmentStatus?: string | null; // ACTIVE | ON_LEAVE | TEMPORARY | RESIGNED — 휴직은 포털 연동·이 화면에서만 바뀐다
   resignDate: string | null; // 있으면 그날까지 재직, 지나면 자동으로 퇴직자 처리
   resignReason: string | null;
   phone: string | null;
@@ -237,6 +238,7 @@ export default function EmployeesPage() {
           phone: editEmployee.phone,
           hireDate: editEmployee.hireDate,
           birthDate: editEmployee.birthDate,
+          employmentStatus: editEmployee.employmentStatus || "ACTIVE",
           resignDate: editEmployee.resignDate,
           resignReason: editEmployee.resignReason,
           // 겸직 지점: 원장만 유지, 역할이 바뀌면 비움
@@ -998,6 +1000,21 @@ export default function EmployeesPage() {
                                         })
                                       }
                                     />
+                                  </div>
+                                  <div>
+                                    <Label>재직상태</Label>
+                                    <Select
+                                      value={editEmployee.employmentStatus === "ON_LEAVE" || editEmployee.employmentStatus === "TEMPORARY" ? editEmployee.employmentStatus : "ACTIVE"}
+                                      onValueChange={(value) => setEditEmployee({ ...editEmployee, employmentStatus: value })}
+                                    >
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="ACTIVE">재직</SelectItem>
+                                        <SelectItem value="ON_LEAVE">휴직</SelectItem>
+                                        <SelectItem value="TEMPORARY">임시휴무</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-[11px] text-gray-500 mt-1">휴직·임시휴무는 인원 집계·근무일정에서 빠집니다. 퇴직은 아래 퇴사일로 처리합니다.</p>
                                   </div>
                                   <div>
                                     <Label>퇴사일</Label>

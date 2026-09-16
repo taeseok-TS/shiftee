@@ -33,7 +33,13 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason, isContractApprover } = body;
+  const { name, role, department, jobGroup, position, branch, phone, hireDate, birthDate, managerBranches, password, empNo, resignDate, resignReason, isContractApprover, employmentStatus } = body;
+  // 재직상태 — 퇴직(RESIGNED)은 퇴사일로만 정한다. 휴직·임시휴무를 화면에서 되돌릴 수 있게 받는다(2026-09-16 디렉터 지시)
+  const WORK_STATES = ["ACTIVE", "ON_LEAVE", "TEMPORARY"] as const;
+  type WorkState = (typeof WORK_STATES)[number];
+  if (employmentStatus !== undefined && !(WORK_STATES as readonly string[]).includes(String(employmentStatus)))
+    return NextResponse.json({ error: "재직상태가 올바르지 않습니다." }, { status: 400 });
+  const statusInput: WorkState | undefined = employmentStatus === undefined ? undefined : (String(employmentStatus) as WorkState);
 
   // 퇴사일 — 빈 문자열/null 이면 해제(재직 복귀), 값이 있으면 그날짜로 설정.
   // 입사일·생일과 같이 UTC 자정으로 저장한다(KST 오프셋을 붙이면 화면에서 하루 앞당겨 보인다).
@@ -138,10 +144,12 @@ export async function PATCH(
       // ⚠ 퇴직 상태를 풀 때만 재직(ACTIVE)으로 되돌린다. 수정 모달은 재직자에게도 resignDate:null 을 항상 보내서,
       //   종전에는 휴직(ON_LEAVE)·임시휴무 직원의 전화번호만 고쳐도 재직으로 덮였다(2026-09-15 검증관 N5 — 포털 연동이 휴직을 쓰기 시작).
       employmentStatus:
-        resignVal === undefined
+        resignVal && resignVal < todayMidnight
+          ? "RESIGNED" // 지난 퇴사일이 최우선
+          : statusInput !== undefined
+          ? statusInput // 화면에서 고른 재직·휴직·임시휴무
+          : resignVal === undefined
           ? undefined
-          : resignVal && resignVal < todayMidnight
-          ? "RESIGNED"
           : before?.employmentStatus === "RESIGNED"
           ? "ACTIVE"
           : undefined,

@@ -17,6 +17,14 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
 
+type ApprovalItem = {
+  id: string; title: string; fileUrl: string; status: string;
+  startDate?: string | null; endDate?: string | null;
+  extraFields?: Record<string, string> | null;
+  summaryFields?: Record<string, string> | null;
+  user?: { name?: string; branch?: string | null } | null;
+};
+
 type Contract = {
   id: string;
   postSignAccess?: string; // 서명 완료 후 근로자 접근: full | view | none (#129)
@@ -165,6 +173,9 @@ export default function ContractsPage() {
   // **이유가 어디에도 안 남았다**. 사유를 적어 거부하면 관리자에게 바로 알림이 간다
   // (디렉터 결정 2026-09-04). 반려는 최종 상태다.
   const [rejectOpen, setRejectOpen] = useState(false);
+  // 내 결재 대기 — 결재자(원장·본부 등)로 내 차례인 남의 계약서. 앱 계약서 화면과 같은 구성(2026-09-16 디렉터 지시)
+  const [myApprovals, setMyApprovals] = useState<ApprovalItem[]>([]);
+  const [approverMode, setApproverMode] = useState(false); // 결재자 승인 서명 창인지(본인 서명과 절차가 다르다)
   const [rejectReason, setRejectReason] = useState("");
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
   async function handleReject() {
@@ -259,8 +270,12 @@ export default function ContractsPage() {
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
     setContracts(data.contracts || []);
-    // (9/12) 결재 대기("내 승인 대기") 카드·요청 삭제 — 이 화면은 역할이 늘 EMPLOYEE 라 한 번도 그려지지 않던 죽은 코드.
-    //   결재는 관리자 /admin/contract-approvals · 원장 /manager/team-contracts 에서 한다.
+    // 내 결재 대기 — 결재 차례가 온 남의 계약서(앱과 같은 API). 관리자·원장 화면에도 있지만 개인 화면에서도 보여준다.
+    try {
+      const ar = await fetch("/api/contracts/my-approvals");
+      const ad = await ar.json();
+      setMyApprovals(ar.ok ? (ad.contracts || []) : []);
+    } catch { setMyApprovals([]); }
   }, [filterYear, filterMonth, filterStatus, filterSearchText, showHiddenRevoked]);
 
   const fetchVersions = useCallback(async (contractId: string) => {
@@ -369,6 +384,41 @@ export default function ContractsPage() {
         <h1 className="text-2xl font-bold text-gray-900">전자계약</h1>
       </div>
 
+      {/* 내 결재 대기 — 결재자로서 내 차례인 계약서 */}
+      {myApprovals.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {myApprovals.map((c) => (
+              <div key={c.id} className="flex items-start justify-between gap-3 bg-white rounded-lg p-3 border border-amber-200">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{c.title}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {c.user?.name}{c.user?.branch ? ` · ${c.user.branch}` : ""}
+                    {c.startDate || c.endDate ? ` · 계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : ""}
+                  </p>
+                  {Object.entries(c.summaryFields || c.extraFields || {}).length > 0 && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {Object.entries(c.summaryFields || c.extraFields || {}).map(([k, v]) => `${k} ${v}`).join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                    <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
+                  </a>
+                  <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => { setApproverMode(true); setSignTarget(c as unknown as Contract); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: "", 동의채용정보: "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }}>
+                    <PenLine size={14} />승인 (서명)
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 직원 서명 대기 */}
       {contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).length > 0 && (
         <Card className="border-blue-200 bg-blue-50">
@@ -386,7 +436,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setApproverMode(false); setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -776,7 +826,7 @@ export default function ContractsPage() {
                             onClick={() => { setRejectReason(""); setRejectOpen(true); }}>
                       서명 거부
                     </Button>
-                    <Button onClick={() => handleSign(signTarget.id, signTarget.status === "APPROVED")} disabled={signSubmitting}>{signSubmitting ? "서명 중..." : "서명"}</Button>
+                    <Button onClick={() => handleSign(signTarget.id, approverMode || signTarget.status === "APPROVED")} disabled={signSubmitting}>{signSubmitting ? "서명 중..." : "서명"}</Button>
                   </div>
                 </>
               )}

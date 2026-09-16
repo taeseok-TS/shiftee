@@ -132,7 +132,8 @@ export default function PortalSyncPage() {
     const tg = targetOf(c);
     const who = tg ? `큐브티 ${tg.branch ?? "-"} ${tg.name}님(사번 ${pad(tg.empNo ?? null)})` : `${c.name}님`;
     const pt = portalOf(c);
-    const warn = c.diff.weakIdentity ? "\n⚠ 이름만 같습니다 — 동명이인이 아닌지 확인해주세요." : "";
+    const warn = c.diff.weakIdentity ? "\n⚠ 이름만 같습니다 — 동명이인이 아닌지 확인해주세요."
+      : c.diff.unverified ? "\n⚠ 이메일·지점·입사일로 같은 사람임이 확인되지 않았습니다." : "";
     if (action === "apply" && c.kind !== "UPDATE" && !confirm(`${who}에게 「${KIND_LABEL[c.kind] ?? c.kind}」을(를) 반영할까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
     if (action === "apply" && c.kind === "UPDATE" && needsConfirm(c) && !confirm(`${who}의 정보를 포털 값으로 바꿀까요?\n포털: ${pt?.branch ?? "-"} ${c.name} (사번 ${c.portalId})${warn}`)) return;
     setBusy(c.id);
@@ -140,7 +141,7 @@ export default function PortalSyncPage() {
       const res = await fetch(`/api/admin/portal-sync/changes/${c.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "실패했습니다."); return; }
-      toast.success(action === "apply" ? "반영했습니다." : "무시했습니다. 같은 내용은 다시 올라오지 않습니다.");
+      toast.success(action === "apply" ? "반영했습니다." : "무시했습니다. 같은 상황이 이어지는 동안은 다시 올라오지 않습니다.");
       load();
     } finally { setBusy(null); }
   }

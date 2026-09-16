@@ -579,6 +579,11 @@ export default function ContractsPage() {
   const handleEditContract = async (e: React.FormEvent, confirmReset = false) => {
     e.preventDefault();
     if (!editingContract) return;
+    // 임금이 들어 있던 계약을 빈칸으로 저장하면 문서 계산이 깨진다 — 막는다(2026-09-16 디렉터 지시)
+    if (editingContract.extraFields?.["연봉"] && !String(editForm.salary || "").trim()) {
+      toast.error("연봉을 입력해주세요. 비우고 저장할 수 없습니다.");
+      return;
+    }
 
     setEditUploading(true);
     try {
@@ -1037,6 +1042,9 @@ export default function ContractsPage() {
       if (!externalForm.name.trim()) { toast.error("외부 계약자 이름을 입력해주세요."); return; }
     } else if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
+    // 임금(연봉)은 기본급·월급여합계·연봉총액·연봉한글이 모두 여기서 계산된다 — 비우면 문서에 빈칸이 박힌다(2026-09-16 디렉터 지시)
+    const needsSalary = !useTemplate || templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    if (needsSalary && !String(createForm.salary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
 
     setUploading(true);
 
@@ -2015,10 +2023,11 @@ ${url}`;
                 <div className="space-y-2">
                   <Label>연봉 <span className="text-xs text-gray-400 font-normal">(급여표 기본급·월합계·연봉총액이 자동 계산됩니다)</span></Label>
                   <Input
-                    type="number"
-                    placeholder="예: 36000000"
-                    value={createForm.salary}
-                    onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value }))}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="예: 36,000,000"
+                    value={createForm.salary ? Number(createForm.salary).toLocaleString() : ""}
+                    onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                   />
                   {createForm.salary && (
                     <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원</p>
@@ -2536,10 +2545,11 @@ ${url}`;
               <div className="space-y-2">
                 <Label>연봉 <span className="text-xs text-gray-400 font-normal">(워드 템플릿의 {"{연봉}"} 필드)</span></Label>
                 <Input
-                  type="number"
-                  placeholder="예: 36000000"
-                  value={editForm.salary}
-                  onChange={e => setEditForm(f => ({ ...f, salary: e.target.value }))}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="예: 36,000,000"
+                  value={editForm.salary ? Number(editForm.salary).toLocaleString() : ""}
+                  onChange={e => setEditForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                 />
                 {editForm.salary && (
                   <p className="text-xs text-gray-500">{Number(editForm.salary).toLocaleString()}원</p>
