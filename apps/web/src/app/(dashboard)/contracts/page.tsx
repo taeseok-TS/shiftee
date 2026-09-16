@@ -621,7 +621,7 @@ export default function ContractsPage() {
             <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
-                <p className="text-xs text-gray-500">{signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}{signTarget.user.name}</p>
+                <p className="text-xs text-gray-500">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : `${signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}${signTarget.user.name}`}</p>
               </div>
 
               {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
@@ -824,6 +824,7 @@ export default function ContractsPage() {
                     </label>
                   )}
                   {/* 스크롤해도 항상 보이도록 하단에 붙인다 (#196) */}
+                  {!myId && <p className="text-xs text-red-600">내 정보를 불러오지 못했습니다. 페이지를 새로고침 한 뒤 다시 시도해 주세요.</p>}
                   <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
                     {consentKeys.length > 0 && <Button variant="outline" onClick={() => setSignStep(1)}>← 이전</Button>}
                     <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
@@ -832,7 +833,7 @@ export default function ContractsPage() {
                             onClick={() => { setRejectReason(""); setRejectOpen(true); }}>
                       서명 거부
                     </Button>
-                    <Button onClick={() => handleSign(signTarget.id, approverMode || signTarget.status === "APPROVED")} disabled={signSubmitting}>{signSubmitting ? "서명 중..." : "서명"}</Button>
+                    <Button onClick={() => handleSign(signTarget.id, approverMode || signTarget.status === "APPROVED")} disabled={signSubmitting || !myId}>{signSubmitting ? "서명 중..." : "서명"}</Button>
                   </div>
                 </>
               )}

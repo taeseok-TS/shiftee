@@ -1554,7 +1554,6 @@ ${url}`;
           <>
             <Dialog open={createOpen} onOpenChange={(open) => {
               setCreateOpen(open);
-              if (open) setSalaryFocus(false); // 저장·취소 버튼으로 닫힌 뒤 포커스 표시가 남아 콤마가 안 보이던 것(검증관 F4)
               if (!open) {
                 setEmployeeSearchText("");
                 setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
@@ -1570,7 +1569,7 @@ ${url}`;
               }
             }}>
             <div className="flex gap-2">
-              <Button className="gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} />계약서 작성</Button>
+              <Button className="gap-2" onClick={() => { setSalaryFocus(false); setCreateOpen(true); }}><Plus size={16} />계약서 작성</Button>
               {role !== "EMPLOYEE" && (
                 <DropdownMenu>
                   <DropdownMenuTrigger className="px-4 py-2 border rounded-lg hover:bg-gray-50 inline-flex items-center gap-2 outline-none">
@@ -2365,7 +2364,7 @@ ${url}`;
                                 }));
                                 setSelectedTemplate(template.id);
                                 setUseTemplate(true);
-                                setCreateOpen(true);
+                                setSalaryFocus(false); setCreateOpen(true);
                                 setShowTemplatesList(false);
                               }}
                             >
@@ -2447,7 +2446,7 @@ ${url}`;
                         }));
                         setSelectedTemplate(previewTemplate.id);
                         setUseTemplate(true);
-                        setCreateOpen(true);
+                        setSalaryFocus(false); setCreateOpen(true);
                         setPreviewTemplate(null);
                         setShowTemplatesList(false);
                       }}
@@ -2472,7 +2471,6 @@ ${url}`;
       {editingContract && (
         <Dialog open={editOpen} onOpenChange={(open) => {
           setEditOpen(open);
-          if (open) setEditSalaryFocus(false);
           if (!open) {
             setEditingContract(null);
             setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({}); setEditSalaryFocus(false);
@@ -2933,7 +2931,7 @@ ${url}`;
                                   if (k !== "연봉") extras[k] = koreanToIso(v == null ? "" : String(v));
                                 });
                                 setEditExtraFields(extras);
-                                setEditOpen(true);
+                                setEditSalaryFocus(false); setEditOpen(true);
                               }}
                             >
                               <PenLine size={12} />수정
