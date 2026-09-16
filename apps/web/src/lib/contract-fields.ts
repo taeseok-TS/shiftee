@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { generateDeterministic } from "@/lib/docx-zip";
 import fs from "fs/promises";
 import path from "path";
 import PizZip from "pizzip";
@@ -105,7 +106,7 @@ export async function fillDocxTemplate(
     doc.getZip().file("word/document.xml", xml);
   }
 
-  const buf = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+  const buf = generateDeterministic(doc.getZip()); // 같은 입력 → 같은 바이트(PDF 캐시가 맞게)
   const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-contract.docx`;
   const dir = path.join(process.cwd(), "uploads", "contracts");
   await fs.mkdir(dir, { recursive: true });

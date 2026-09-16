@@ -41,7 +41,7 @@ for d in "$BASE"/*/; do
   # 2) 업로드 볼륨 미러 (계약서 서명본·채팅 파일)
   VOL=/var/lib/docker/volumes/cubetee-${CODE}_uploads/_data
   if [ -d "$VOL" ]; then
-    rsync -a --delete "$VOL/" "$d/backup/uploads-mirror/" 2>/dev/null
+    rsync -a --delete --exclude "private/pdfcache/" "$VOL/" "$d/backup/uploads-mirror/" 2>/dev/null  # 변환 PDF 캐시는 다시 만들면 되므로 백업 제외
     UP=$(du -sh "$d/backup/uploads-mirror" 2>/dev/null | cut -f1)
   else
     UP="-"

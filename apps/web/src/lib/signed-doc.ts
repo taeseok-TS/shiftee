@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { generateDeterministic } from "@/lib/docx-zip";
 import { PDFDocument, rgb } from "pdf-lib";
 import { embedKoreanFont } from "@/lib/pdf-korean-font";
 import PizZip from "pizzip";
@@ -442,7 +443,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
     const sIdx = docXml.lastIndexOf("<w:sectPr");
     docXml = sIdx !== -1 ? docXml.slice(0, sIdx) + footer + docXml.slice(sIdx) : docXml.replace("</w:body>", footer + "</w:body>");
     zip.file("word/document.xml", docXml);
-    return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return generateDeterministic(zip); // 같은 내용 → 같은 바이트(PDF 캐시가 맞게)
   }
 
   // 2) rels에 서명 이미지 관계 추가
@@ -491,7 +492,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
   }
   zip.file("word/document.xml", doc);
 
-  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  return generateDeterministic(zip);
 }
 
 function escapeXml(s: string) {
