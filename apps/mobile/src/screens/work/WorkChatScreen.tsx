@@ -1616,7 +1616,7 @@ export default function WorkChatScreen() {
           <TouchableOpacity
             style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
             onPress={handleSend}
-            onLongPress={() => { if (text.trim()) openSchedule(); }}
+            onLongPress={() => { if (text.trim() || pendingAtts.length > 0) openSchedule(); }}
             disabled={sending}
           >
             <Ionicons name="send" size={20} color="#fff" />
