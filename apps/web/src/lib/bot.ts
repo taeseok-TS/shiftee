@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
+import type { Prisma } from "@prisma/client";
 import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachments";
 
 /**
@@ -447,35 +448,49 @@ export async function runScheduledMessages() {
     const files = parseAttachments(s.attachments);
     if (s.channel.deletedAt) {
       // 채널이 삭제됐으면 조용히 소멸 — 올려둔 첨부 파일도 남기지 않는다
-      await deleteWorkAttachmentFiles(files).catch(() => {});
+      await deleteWorkAttachmentFiles(s.attachments, s.id).catch(() => {});
       continue;
     }
     // 첨부는 즉시 전송과 같은 규칙으로 쪼갠다: 사진 2장 이상은 앨범 묶음, 나머지는 개별 메시지.
-    // 글(캡션)은 첫 메시지에만 붙는다 (웹·앱 send() 와 동일)
+    // 사진이 1장 이하면 사진을 앞에 세운다(웹 send() 와 같은 순서). 글(캡션)은 첫 메시지에만 붙는다.
     const images = files.filter((f) => f.fileType === "image");
+    const others = files.filter((f) => f.fileType !== "image");
     const isAlbum = images.length >= 2;
+    const singles = isAlbum ? others : [...images, ...others];
     let caption = s.content;
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
     if (isAlbum) {
-      await prisma.workMessage.create({
+      ops.push(prisma.workMessage.create({
         data: {
           channelId: s.channelId, userId: s.userId, content: caption,
           albumUrls: images.slice(0, 10).map((f) => f.fileUrl), attachFirst: s.attachFirst,
         },
-      });
+      }));
       caption = "";
     }
-    const singles = isAlbum ? files.filter((f) => f.fileType !== "image") : files;
     for (const f of singles) {
-      await prisma.workMessage.create({
+      ops.push(prisma.workMessage.create({
         data: {
           channelId: s.channelId, userId: s.userId, content: caption,
           fileUrl: f.fileUrl, fileName: f.fileName, fileType: f.fileType, attachFirst: s.attachFirst,
         },
-      });
+      }));
       caption = "";
     }
     if (files.length === 0) {
-      await prisma.workMessage.create({ data: { channelId: s.channelId, userId: s.userId, content: s.content } });
+      ops.push(prisma.workMessage.create({ data: { channelId: s.channelId, userId: s.userId, content: s.content } }));
+    }
+    try {
+      // 첨부가 여러 건이면 메시지도 여러 건이다. 한 트랜잭션으로 묶어 **반쪽 발송**을 막는다
+      // (찜을 먼저 하므로, 중간에 실패하면 예약이 "보냄"으로 남고 나머지가 영영 사라진다 — 검증관 C-4)
+      await prisma.$transaction(ops);
+    } catch (e) {
+      console.error("[bot] 예약전송 메시지 생성 실패 — 다음 틱에 다시 시도:", e);
+      // 찜을 풀어 되돌린다(그 사이 취소됐으면 건드리지 않는다)
+      await prisma.workScheduledMessage
+        .updateMany({ where: { id: s.id, canceledAt: null }, data: { sentAt: null } })
+        .catch(() => {});
+      continue;
     }
     emitWork({ type: "message", channelId: s.channelId });
     // 푸시 (일반 메시지 규칙과 동일 — 미리보기 문구도 notifyNewMessage 와 같게)

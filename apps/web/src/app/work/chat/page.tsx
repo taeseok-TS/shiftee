@@ -790,6 +790,11 @@ export default function WorkChatPage() {
   }
   async function submitSchedule() {
     if (!activeId || (!input.trim() && pendingFiles.length === 0) || !scheduleAt || scheduling) return;
+    // 업로드 **전에** 막을 수 있는 건 미리 막는다 — 올린 뒤 서버가 400 을 주면 그 파일이 고아로 남는다
+    const at = new Date(scheduleAt);
+    if (isNaN(at.getTime()) || at.getTime() < Date.now() + 60 * 1000) { toast.error("예약 시간은 1분 이후여야 합니다."); return; }
+    if (at.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000) { toast.error("예약은 최대 90일 이내여야 합니다."); return; }
+    if (pendingFiles.length > 20) { toast.error("첨부는 한 번에 20개까지 예약할 수 있습니다."); return; }
     setScheduling(true);
     try {
       // 첨부는 예약 시점에 미리 올려두고 주소만 저장한다 (브라우저가 파일을 며칠씩 들고 있을 수 없다)
@@ -806,7 +811,7 @@ export default function WorkChatPage() {
       const res = await fetch(`/api/work/channels/${activeId}/scheduled`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: input, sendAt: new Date(scheduleAt).toISOString(),
+          content: input, sendAt: at.toISOString(),
           attachments, attachFirst: attachFirstRef.current,
         }),
       });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { parseAttachments } from "@/lib/work-attachments";
+import { parseAttachments, markOwnedAttachments, MAX_SCHEDULED_ATTACHMENTS } from "@/lib/work-attachments";
 
 async function assertMember(channelId: string, userId: string) {
   const channel = await prisma.workChannel.findUnique({
@@ -33,6 +33,11 @@ export async function POST(
     attachFirst?: unknown;
   };
   // 첨부는 예약 시점에 이미 업로드된 것만 받는다 (경로 검증은 즉시 전송과 동일 규칙)
+  if (Array.isArray(attachments) && attachments.length > MAX_SCHEDULED_ATTACHMENTS)
+    return NextResponse.json(
+      { error: `첨부는 한 번에 ${MAX_SCHEDULED_ATTACHMENTS}개까지 예약할 수 있습니다.` },
+      { status: 400 }
+    );
   const files = parseAttachments(attachments);
   if (!content?.trim() && files.length === 0)
     return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });
@@ -43,12 +48,15 @@ export async function POST(
   if (at.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000)
     return NextResponse.json({ error: "예약은 최대 90일 이내여야 합니다." }, { status: 400 });
 
+  // 이 예약이 데려온 새 파일만 소유로 표시한다 — 남의 파일 주소를 적어 보내고
+  // 예약을 취소해 그 파일을 지우는 우회를 막는다(2026-09-16 검증관 C-1).
+  const stored = files.length > 0 ? await markOwnedAttachments(files) : [];
   const scheduled = await prisma.workScheduledMessage.create({
     data: {
       channelId: id,
       userId: session.userId,
       content: content?.trim() ?? "",
-      attachments: files.length > 0 ? files : undefined,
+      attachments: stored.length > 0 ? stored : undefined,
       attachFirst: files.length > 0 && !!attachFirst,
       sendAt: at,
     },

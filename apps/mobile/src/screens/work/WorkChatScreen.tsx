@@ -457,6 +457,8 @@ export default function WorkChatScreen() {
     if (!scheduleDate || !/^\d{2}:\d{2}$/.test(scheduleTime)) { Alert.alert("알림", "날짜와 시간을 확인해주세요. (시간은 HH:mm)"); return; }
     const at = new Date(`${scheduleDate}T${scheduleTime}:00`);
     if (isNaN(at.getTime()) || at.getTime() < Date.now() + 60 * 1000) { Alert.alert("알림", "예약 시간은 현재보다 이후여야 합니다."); return; }
+    if (at.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000) { Alert.alert("알림", "예약은 최대 90일 이내여야 합니다."); return; }
+    if (pendingAtts.length > 20) { Alert.alert("알림", "첨부는 한 번에 20개까지 예약할 수 있습니다."); return; }
     if (scheduling || uploading) return;
     setScheduling(true);
     try {
@@ -464,7 +466,7 @@ export default function WorkChatScreen() {
       const attachments: { fileUrl: string; fileName: string; fileType: string }[] = [];
       if (pendingAtts.length > 0) {
         setUploading(true);
-        for (const a of pendingAtts.slice(0, 10)) {
+        for (const a of pendingAtts) {
           const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
           attachments.push({ fileUrl: up.fileUrl, fileName: up.fileName, fileType: up.fileType });
         }

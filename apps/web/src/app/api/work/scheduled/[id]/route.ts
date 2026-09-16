@@ -32,7 +32,7 @@ export async function DELETE(
     return NextResponse.json({ error: "이미 발송되었거나 취소된 예약입니다." }, { status: 400 });
 
   // 예약과 함께 올려둔 첨부 파일도 지운다 (디렉터 지시 2026-09-16)
-  await deleteWorkAttachmentFiles(scheduled.attachments).catch((e) =>
+  await deleteWorkAttachmentFiles(scheduled.attachments, id).catch((e) =>
     console.error("[예약취소] 첨부 삭제 오류:", e)
   );
   return NextResponse.json({ success: true });
