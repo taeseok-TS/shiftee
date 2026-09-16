@@ -93,7 +93,7 @@ export default function ContractListScreen() {
   const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
   const sigRef = useRef<SignatureViewRef>(null);
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
-  const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
+  const consentKeys = signTarget?.extraFields && signTarget.userId === myId && !signTarget.externalName ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 — 본인(계약 대상 직원)이 서명할 때만
   // (원장/본부 등 결재자는 대상 직원 정보이므로 입력 요구 X)
   const missingProfile: string[] = (signTarget?.userId === myId && !signTarget?.externalName ? (signTarget?.profileFields || []) : []).filter((f: string) =>
@@ -108,6 +108,8 @@ export default function ContractListScreen() {
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
   // 근로자 본인 서명(내 계약의 내 차례) — 비밀번호 재확인·직접 서명(#205-1·#205-2). 외부 계약은 소유자가 작성 관리자라 제외
   const isOwnSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
+  // 결재자로 서명하는 경우 — 본인 서명의 여집합이다(외부 계약은 소유자가 결재하는 관리자라 이쪽)
+  const isApproverSign = !!signTarget && !isOwnSign;
 
   useEffect(() => {
     loadContracts();
@@ -187,7 +189,7 @@ export default function ContractListScreen() {
       } else if (hasConsent || profile || fields) {
         await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields, ver);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
-      } else if (signTarget.userId !== myId && saveSigDefault) {
+      } else if (isApproverSign && saveSigDefault) {
         // 결재자(원장·본부)가 그린 서명 — 기본 서명으로 저장해 다음부터 원클릭
         await api.signContractAndSave(id, sig, ver);
         api.getMyProfile().then(p => setMySigUrl(p.signatureUrl || null)).catch(() => {});
@@ -507,7 +509,7 @@ export default function ContractListScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {signTarget && signTarget.userId !== myId && mySigUrl && !drawNewSig ? (
+              {isApproverSign && mySigUrl && !drawNewSig ? (
                 /* 결재자 — 저장된 서명으로 원클릭 승인 */
                 <>
                   <View style={{ flex: 1, padding: 20 }}>
@@ -548,7 +550,7 @@ export default function ContractListScreen() {
                         body, html { width: 100%; height: 100%; }`}
                     />
                   </View>
-                  {signTarget && signTarget.userId !== myId && (
+                  {isApproverSign && (
                     <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 8 }}
                       onPress={() => setSaveSigDefault(v => !v)}>
                       <Ionicons name={saveSigDefault ? "checkbox" : "square-outline"} size={20} color="#2563eb" />

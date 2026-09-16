@@ -148,7 +148,7 @@ export async function POST(
       const { botSendDM } = await import("@/lib/bot");
       const steps = result.contract.approvalLine?.steps || [];
       const revokedFrom = revokeStep.order;
-      const who = result.contract.user?.name || "직원";
+      const who = result.contract.externalName || result.contract.user?.name || "직원"; // 외부 계약은 게스트가 당사자
       const title = result.contract.title;
       const because = reason ? `
 사유: ${reason}` : "";
@@ -160,7 +160,7 @@ export async function POST(
       if (result.contract.userId) targets.add(result.contract.userId);
       targets.delete(session.userId);
       for (const uid of targets) {
-        const mine = uid === result.contract.userId;
+        const mine = uid === result.contract.userId && !result.contract.externalName; // 외부 계약 소유자는 작성 관리자라 당사자용 문구가 아니다
         const text = mine
           ? `📄 계약 서명이 회수되었습니다
 

@@ -284,8 +284,8 @@ export default function ManagerContractsPage() {
                     return (
                       <tr key={c.id} className="hover:bg-gray-50">
                         <td className="py-3">
-                          <div className="font-medium">{c.user.name}</div>
-                          <div className="text-xs text-gray-400">{c.user.branch}</div>
+                          <div className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : c.user.name}</div>
+                          <div className="text-xs text-gray-400">{c.externalName ? "외부 계약자" : c.user.branch}</div>
                         </td>
                         <td className="py-3">
                           <div>{c.title}</div>

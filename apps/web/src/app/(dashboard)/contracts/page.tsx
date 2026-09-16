@@ -238,7 +238,7 @@ export default function ContractsPage() {
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
   // 서명 대상에 선택 동의 항목이 있으면 라벨 매핑
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
-  const consentKeys = signTarget?.extraFields ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields!) : [];
+  const consentKeys = signTarget?.extraFields && signTarget.userId === myId && !signTarget.externalName ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields!) : [];
 
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionsTarget, setVersionsTarget] = useState<Contract | null>(null);

@@ -120,7 +120,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
       targets.delete(session.userId);
       const who = me?.name || "결재자";
-      const isSelf = myStep.approverId === contract.userId;
+      // 외부 계약은 소유자가 작성 관리자라 "당사자 거부" 가 아니다
+      const isSelf = myStep.approverId === contract.userId && !contract.externalName;
       const head = isSelf ? `${who} 님이 서명을 거부했습니다` : `${who} 님이 계약을 반려했습니다`;
       const text = `📄 ${head}\n\n「${contract.title}」\n사유: ${reason}\n\n`
         + `결재가 멈췄습니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.`;
