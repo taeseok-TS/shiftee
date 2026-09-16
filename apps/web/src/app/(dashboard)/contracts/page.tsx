@@ -22,7 +22,8 @@ type ApprovalItem = {
   startDate?: string | null; endDate?: string | null;
   extraFields?: Record<string, string> | null;
   summaryFields?: Record<string, string> | null;
-  user?: { name?: string; branch?: string | null } | null;
+  userId?: string;
+  user?: { id?: string; name?: string; branch?: string | null } | null;
 };
 
 type Contract = {
@@ -385,13 +386,13 @@ export default function ContractsPage() {
       </div>
 
       {/* 내 결재 대기 — 결재자로서 내 차례인 계약서 */}
-      {myApprovals.length > 0 && (
+      {myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).length > 0 && (
         <Card className="border-amber-200 bg-amber-50">
           <CardHeader>
-            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.length})</CardTitle>
+            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {myApprovals.map((c) => (
+            {myApprovals.filter((a) => (a.userId ?? a.user?.id) !== myId).map((c) => (
               <div key={c.id} className="flex items-start justify-between gap-3 bg-white rounded-lg p-3 border border-amber-200">
                 <div className="min-w-0">
                   <p className="font-medium text-sm">{c.title}</p>

@@ -37,9 +37,11 @@ export async function PATCH(
   // 재직상태 — 퇴직(RESIGNED)은 퇴사일로만 정한다. 휴직·임시휴무를 화면에서 되돌릴 수 있게 받는다(2026-09-16 디렉터 지시)
   const WORK_STATES = ["ACTIVE", "ON_LEAVE", "TEMPORARY"] as const;
   type WorkState = (typeof WORK_STATES)[number];
-  if (employmentStatus !== undefined && !(WORK_STATES as readonly string[]).includes(String(employmentStatus)))
+  // 퇴직(RESIGNED)은 퇴사일로만 정한다 — 값이 그대로 넘어와도 400 대신 무시한다(휴지통 복구로 RESIGNED 가 남은 직원이 수정조차 못 되던 문제, 검증관 F2)
+  const statusRaw = employmentStatus === undefined || employmentStatus === "RESIGNED" ? undefined : String(employmentStatus);
+  if (statusRaw !== undefined && !(WORK_STATES as readonly string[]).includes(statusRaw))
     return NextResponse.json({ error: "재직상태가 올바르지 않습니다." }, { status: 400 });
-  const statusInput: WorkState | undefined = employmentStatus === undefined ? undefined : (String(employmentStatus) as WorkState);
+  const statusInput: WorkState | undefined = statusRaw as WorkState | undefined;
 
   // 퇴사일 — 빈 문자열/null 이면 해제(재직 복귀), 값이 있으면 그날짜로 설정.
   // 입사일·생일과 같이 UTC 자정으로 저장한다(KST 오프셋을 붙이면 화면에서 하루 앞당겨 보인다).

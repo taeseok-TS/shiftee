@@ -238,7 +238,8 @@ export default function EmployeesPage() {
           phone: editEmployee.phone,
           hireDate: editEmployee.hireDate,
           birthDate: editEmployee.birthDate,
-          employmentStatus: editEmployee.employmentStatus || "ACTIVE",
+          // 화면 표시와 같은 값으로 — 퇴직(RESIGNED)은 퇴사일로만 정해지므로 여기선 재직으로 넘긴다(퇴사일이 지났으면 서버가 다시 퇴직으로 둔다)
+          employmentStatus: editEmployee.employmentStatus === "ON_LEAVE" || editEmployee.employmentStatus === "TEMPORARY" ? editEmployee.employmentStatus : "ACTIVE",
           resignDate: editEmployee.resignDate,
           resignReason: editEmployee.resignReason,
           // 겸직 지점: 원장만 유지, 역할이 바뀌면 비움

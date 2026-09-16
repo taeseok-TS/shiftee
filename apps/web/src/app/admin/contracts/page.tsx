@@ -296,6 +296,10 @@ export default function ContractsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<any>(null);
   const [editForm, setEditForm] = useState({ title: "", type: "", startDate: "", endDate: "", salary: "" });
+  // 금액 칸은 "입력 중엔 숫자만, 벗어나면 콤마" — 매 글자마다 다시 포맷하면 커서가 끝으로 튄다(검증관 F4)
+  const [salaryFocus, setSalaryFocus] = useState(false);
+  const [editSalaryFocus, setEditSalaryFocus] = useState(false);
+  const wonView = (v: string, focused: boolean) => (focused ? v : v ? Number(v).toLocaleString() : "");
   const [editExtraFields, setEditExtraFields] = useState<Record<string, string>>({}); // 템플릿 동적 필드 수정값
   // "2026년 8월 1일" → "2026-08-01" (수정 폼 date input용)
   // 값 **전체가** 한국어 날짜일 때만 바꾼다 — 종전엔 문장 속 날짜만 뽑아("2026년 9월 2일부터 3개월" → 2026-09-02) 나머지가 사라져,
@@ -1043,7 +1047,7 @@ export default function ContractsPage() {
     } else if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
     // 임금(연봉)은 기본급·월급여합계·연봉총액·연봉한글이 모두 여기서 계산된다 — 비우면 문서에 빈칸이 박힌다(2026-09-16 디렉터 지시)
-    const needsSalary = !useTemplate || templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
     if (needsSalary && !String(createForm.salary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
 
     setUploading(true);
@@ -2026,7 +2030,9 @@ ${url}`;
                     type="text"
                     inputMode="numeric"
                     placeholder="예: 36,000,000"
-                    value={createForm.salary ? Number(createForm.salary).toLocaleString() : ""}
+                    value={wonView(createForm.salary, salaryFocus)}
+                    onFocus={() => setSalaryFocus(true)}
+                    onBlur={() => setSalaryFocus(false)}
                     onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                   />
                   {createForm.salary && (
@@ -2548,7 +2554,9 @@ ${url}`;
                   type="text"
                   inputMode="numeric"
                   placeholder="예: 36,000,000"
-                  value={editForm.salary ? Number(editForm.salary).toLocaleString() : ""}
+                  value={wonView(editForm.salary, editSalaryFocus)}
+                  onFocus={() => setEditSalaryFocus(true)}
+                  onBlur={() => setEditSalaryFocus(false)}
                   onChange={e => setEditForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                 />
                 {editForm.salary && (
