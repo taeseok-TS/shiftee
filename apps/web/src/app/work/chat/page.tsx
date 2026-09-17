@@ -480,8 +480,12 @@ export default function WorkChatPage() {
           });
         // 캡션 유무와 무관하게 첫 메시지에 답장 연결
         let replyId: string | null = replyTo?.id ?? null;
-        if (images.length >= 2) {
-          const res = await post({ content: caption, albumUrls: images.slice(0, 10).map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyId });
+        // 앵범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 여러 건으로 보람다.
+        // 종전엔 slice(0,10) 이라 11장째부터 **말없이 사라지고** 이미 올린 파일만 남았다(2026-09-16 검증관 V-10).
+        for (let i = 0; images.length >= 2 && i < images.length; i += 10) {
+          const chunk = images.slice(i, i + 10);
+          if (chunk.length === 1) { others.unshift(chunk[0]); break; } // 마지막 한 장은 앵범이 아니다
+          const res = await post({ content: caption, albumUrls: chunk.map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyId });
           if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
           caption = ""; replyId = null;
         }

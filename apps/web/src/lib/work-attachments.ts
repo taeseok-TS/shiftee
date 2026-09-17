@@ -90,11 +90,12 @@ export async function isFileReferenced(rawUrl: string, exceptScheduledId?: strin
     prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "BotBriefing" WHERE "attachments" @> ${asBrief}::jsonb LIMIT 1`,
     // 공지는 첨부 칸뿐 아니라 **본문에 붙여넣은 마크다운 이미지**로도 같은 파일을 가리킨다(검증관 V-7)
     prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "WorkAnnouncement" WHERE position(${url} in "attachments") > 0 OR position(${url} in "content") > 0 LIMIT 1`,
-    prisma.leaveRequest.findFirst({ where: { attachmentUrl: url }, select: { id: true } }),
+    // 이 두 칸은 클라이언트 문자열을 그대로 저장하므로 ?쿼리가 붙어 있을 수 있다 — 떼고 보인다(검증관 P-3)
+    prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "LeaveRequest" WHERE split_part("attachmentUrl", '?', 1) = ${url} LIMIT 1`,
     prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "Suggestion" WHERE "imageUrls" @> ${one}::jsonb LIMIT 1`,
-    prisma.workChannel.findFirst({ where: { noticeImageUrl: url }, select: { id: true } }), // 채널 공지 이미지(V-8)
+    prisma.$queryRaw<{ one: number }[]>`SELECT 1 AS one FROM "WorkChannel" WHERE split_part("noticeImageUrl", '?', 1) = ${url} LIMIT 1`, // 채널 공지 이미지(V-8)
   ]);
-  return brief.length > 0 || notice.length > 0 || !!leave || sugg.length > 0 || !!chNotice;
+  return brief.length > 0 || notice.length > 0 || leave.length > 0 || sugg.length > 0 || chNotice.length > 0;
 }
 
 // 예약 등록 시점에 "이 예약이 데려온 새 파일"만 소유로 표시한다.
@@ -108,7 +109,8 @@ export async function markOwnedAttachments(files: WorkAttachment[]): Promise<Sto
 
 // 예약이 취소되거나 채널이 사라져 소멸할 때, 미리 올려둔 첨부 파일을 지운다 (디렉터 지시 2026-09-16).
 // 관문 둘: ①내가 데려온 파일만(owned) ②그 사이 누가 쓰기 시작했으면 두지 않는다.
-export async function deleteWorkAttachmentFiles(attachments: unknown, scheduledId?: string, scheduledAt?: Date | null) {
+/** scheduledAt 은 **필수**다 — 빠뜨리면 마지막 관문(시간 창)이 조용히 꺼진다(검증관 권고) */
+export async function deleteWorkAttachmentFiles(attachments: unknown, scheduledId: string, scheduledAt: Date) {
   const pending = await pendingScheduleAttachments(scheduledId).catch(() => null);
   if (pending === null) { console.error("[첨부 삭제] 대기 예약 조회 실패 — 지우지 않는다"); return; }
   for (const a of readAttachments(attachments)) {
@@ -126,13 +128,14 @@ export async function deleteWorkAttachmentFiles(attachments: unknown, scheduledI
     //   실제로 공지 첨부.본문 이미지.휴가 증빙.제안 스크린샷.채널 공지가 차례로 새로 발견됐다
     //   (2026-09-16 검증관 C-1·V-1·V-7·V-8). 남의 파일은 예약보다 한참 전에 올라와 있으므로
     //   이 시간 창 하나로 그 계열 전체가 닫힌다 — 아직 못 찾은 참조처가 있어도 막힌다.
-    if (scheduledAt) {
-      const st = await fs.stat(full).catch(() => null);
-      if (!st) continue;
-      const lo = scheduledAt.getTime() - 2 * 60 * 60 * 1000; // 올린 뒤 예약까지 최대 2시간
-      const hi = scheduledAt.getTime() + 5 * 60 * 1000;      // 시계 오차
-      if (st.mtimeMs < lo || st.mtimeMs > hi) continue;
-    }
+    const st = await fs.stat(full).catch(() => null);
+    if (!st) continue;
+    const lo = scheduledAt.getTime() - 2 * 60 * 60 * 1000; // 올린 뒤 예약까지 최대 2시간
+    const hi = scheduledAt.getTime() + 5 * 60 * 1000;      // 시계 오차
+    if (st.mtimeMs < lo || st.mtimeMs > hi) continue;
+    // 미리 읽어둔 목록은 루프를 도는 사이 낡는다 — 지우기 직전에 그 한 건만 다시 본다(검증관 P-4)
+    try { if (await isFileReferenced(a.fileUrl, scheduledId)) continue; }
+    catch { continue; }
     await fs.unlink(full).catch(() => {});
   }
 }

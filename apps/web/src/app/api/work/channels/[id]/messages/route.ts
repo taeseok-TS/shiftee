@@ -211,10 +211,12 @@ export async function POST(
   if (fileUrl && !okAttach(fileUrl))
     return NextResponse.json({ error: "첨부 파일 경로가 올바르지 않습니다." }, { status: 400 });
   // 앨범(여러 장 묶음): 내부 업로드 경로의 이미지 URL 2~10장
-  const album: string[] | null =
-    Array.isArray(albumUrls) && albumUrls.length >= 2
-      ? (albumUrls as unknown[]).filter(okAttach).slice(0, 10)
-      : null;
+  // ⚠ 조용한 slice 는 사진을 삼킨다 — 11장째부터 없어지고 사용자는 모른다(검증관 V-10).
+  //   화면은 10장씩 나눠 보내도록 고츠다 — 그래도 넘치면 거지한다.
+  const okAlbum = Array.isArray(albumUrls) ? (albumUrls as unknown[]).filter(okAttach) : [];
+  if (okAlbum.length > 10)
+    return NextResponse.json({ error: "사진 묶음은 한 번에 10장까지입니다." }, { status: 400 });
+  const album: string[] | null = okAlbum.length >= 2 ? okAlbum : null;
   if (!content?.trim() && !fileUrl && (!album || album.length < 2))
     return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });
 

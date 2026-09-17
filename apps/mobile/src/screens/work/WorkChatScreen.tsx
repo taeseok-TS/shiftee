@@ -859,16 +859,22 @@ export default function WorkChatScreen() {
       const images = atts.filter((a) => a.kind === "image");
       const isAlbum = images.length >= 2;
       if (isAlbum) {
-        const urls: string[] = [];
-        for (const a of images.slice(0, 10)) {
-          const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
-          urls.push(up.fileUrl);
+        // 앵범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 보람다.
+        // 종전엔 앞 10장만 보내고 나머지는 말없이 목록에서 지워졌다(2026-09-16 검증관 V-10).
+        for (let i = 0; i < images.length; i += 10) {
+          const chunk = images.slice(i, i + 10);
+          if (chunk.length < 2) break; // 마지막 한 장은 아래 개별 전송이 맡는다
+          const urls: string[] = [];
+          for (const a of chunk) {
+            const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
+            urls.push(up.fileUrl);
+          }
+          clearProgress();
+          await sendAlbumMessage(channelId, urls, { content: caption, attachFirst, replyToId: replyId });
+          caption = ""; replyId = undefined;
+          // 전송 성공분은 직시 대기 목록에서 제거 — 부분 실패 후 재전송 시 중복 방지
+          setPendingAtts((prev) => prev.filter((x) => !chunk.includes(x)));
         }
-        clearProgress();
-        await sendAlbumMessage(channelId, urls, { content: caption, attachFirst, replyToId: replyId });
-        caption = ""; replyId = undefined;
-        // 전송 성공분은 즉시 대기 목록에서 제거 — 부분 실패 후 재전송 시 중복 방지
-        setPendingAtts((prev) => prev.filter((p) => p.kind !== "image"));
         setText("");
       }
       const singles = isAlbum ? atts.filter((a) => a.kind !== "image") : atts;
