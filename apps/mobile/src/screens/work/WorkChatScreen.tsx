@@ -858,12 +858,13 @@ export default function WorkChatScreen() {
       let replyId: string | undefined = replyTarget?.id; // 캡션 유무와 무관하게 첫 메시지에 답장 연결
       const images = atts.filter((a) => a.kind === "image");
       const isAlbum = images.length >= 2;
+      const leftover: typeof images = []; // 앵범 조각에 들지 못한 마지막 한 장(사진 11·21·…장). 지금은 사진 10장 상한이 있어 당장 닷지 않는다
       if (isAlbum) {
-        // 앵범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 보람다.
+        // 앨범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 보낸다.
         // 종전엔 앞 10장만 보내고 나머지는 말없이 목록에서 지워졌다(2026-09-16 검증관 V-10).
         for (let i = 0; i < images.length; i += 10) {
           const chunk = images.slice(i, i + 10);
-          if (chunk.length < 2) break; // 마지막 한 장은 아래 개별 전송이 맡는다
+          if (chunk.length < 2) { leftover.push(...chunk); break; } // 마지막 한 장은 아래 개별 전송이 맡는다
           const urls: string[] = [];
           for (const a of chunk) {
             const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
@@ -872,12 +873,12 @@ export default function WorkChatScreen() {
           clearProgress();
           await sendAlbumMessage(channelId, urls, { content: caption, attachFirst, replyToId: replyId });
           caption = ""; replyId = undefined;
-          // 전송 성공분은 직시 대기 목록에서 제거 — 부분 실패 후 재전송 시 중복 방지
+          // 전송 성공분은 즉시 대기 목록에서 제거 — 부분 실패 후 재전송 시 중복 방지
           setPendingAtts((prev) => prev.filter((x) => !chunk.includes(x)));
         }
         setText("");
       }
-      const singles = isAlbum ? atts.filter((a) => a.kind !== "image") : atts;
+      const singles = isAlbum ? [...leftover, ...atts.filter((a) => a.kind !== "image")] : atts;
       for (const a of singles) {
         const up = await uploadFile({ uri: a.uri, name: a.name, mimeType: a.mimeType || undefined }, makeProgressHandler());
         clearProgress();

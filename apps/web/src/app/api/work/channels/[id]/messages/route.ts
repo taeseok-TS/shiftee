@@ -212,11 +212,15 @@ export async function POST(
     return NextResponse.json({ error: "첨부 파일 경로가 올바르지 않습니다." }, { status: 400 });
   // 앨범(여러 장 묶음): 내부 업로드 경로의 이미지 URL 2~10장
   // ⚠ 조용한 slice 는 사진을 삼킨다 — 11장째부터 없어지고 사용자는 모른다(검증관 V-10).
-  //   화면은 10장씩 나눠 보내도록 고츠다 — 그래도 넘치면 거지한다.
-  const okAlbum = Array.isArray(albumUrls) ? (albumUrls as unknown[]).filter(okAttach) : [];
-  if (okAlbum.length > 10)
+  //   화면은 10장씩 나눠 보내도록 고쳬다 — 그래도 넘치면 거절한다.
+  const rawAlbum = Array.isArray(albumUrls) ? (albumUrls as unknown[]) : [];
+  const okAlbum = rawAlbum.filter(okAttach);
+  // 개수는 **거러내기 전** 배열로 재다 — 잘못된 주소가 섞여 있을 때 나머지가 조용하 사라지는 것을 막는다(검증관 V-4)
+  if (rawAlbum.length > 10 || okAlbum.length > 10)
     return NextResponse.json({ error: "사진 묶음은 한 번에 10장까지입니다." }, { status: 400 });
-  const album: string[] | null = okAlbum.length >= 2 ? okAlbum : null;
+  if (okAlbum.length !== rawAlbum.length && rawAlbum.length > 0)
+    return NextResponse.json({ error: "사진 주소가 올바르지 않은 것이 섞여 있습니다." }, { status: 400 });
+  const album: string[] | null = okAlbum.length >= 2 ? (okAlbum as string[]) : null;
   if (!content?.trim() && !fileUrl && (!album || album.length < 2))
     return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });
 

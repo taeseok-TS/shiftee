@@ -35,6 +35,8 @@ function isEmojiOnly(s: string): boolean {
   }
 }
 const NOTIFY_LABEL: Record<string, string> = { ALL: "모든 메시지", MENTION: "멘션만", MUTE: "음소거" };
+// 한 번에 담을 수 있는 첨부 수 — 예약 전송과 같은 값(서버 lib/work-attachments 의 MAX_SCHEDULED_ATTACHMENTS)
+const MAX_ATTACH = 20;
 
 // @멘션 하이라이트 렌더링
 const URL_RE = /(https?:\/\/[^\s]+)/g;
@@ -480,19 +482,39 @@ export default function WorkChatPage() {
           });
         // 캡션 유무와 무관하게 첫 메시지에 답장 연결
         let replyId: string | null = replyTo?.id ?? null;
-        // 앵범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 여러 건으로 보람다.
+        // 중간에 실패하면 **이미 보낸 것은 대기 목록에서 빼준다** — 안 빼면 다시 전송 눌렀을 때
+        // 앞 조각이 또 올라간다(2026-09-16 검증관 V-2). ups[i] 는 pendingFiles[i] 와 같은 순서다.
+        const sent = new Set<string>();
+        const dropSent = () => {
+          const idx = new Set<number>();
+          ups.forEach((u, i) => { if (sent.has(u.fileUrl)) idx.add(i); });
+          setPendingFiles((prev) => prev.filter((p, i) => {
+            if (!idx.has(i)) return true;
+            if (p.preview) URL.revokeObjectURL(p.preview);
+            return false;
+          }));
+        };
+        const failed = async (res: Response) => {
+          const d = await res.json().catch(() => ({} as Record<string, string>));
+          toast.error(d.error || "전송 실패");
+          dropSent();
+          if (sent.size) { setInput(""); setReplyTo(null); fetchMessages(activeId); } // 보낸 건 화면에 반영
+        };
+        // 앨범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 여러 건으로 보낸다.
         // 종전엔 slice(0,10) 이라 11장째부터 **말없이 사라지고** 이미 올린 파일만 남았다(2026-09-16 검증관 V-10).
         for (let i = 0; images.length >= 2 && i < images.length; i += 10) {
           const chunk = images.slice(i, i + 10);
-          if (chunk.length === 1) { others.unshift(chunk[0]); break; } // 마지막 한 장은 앵범이 아니다
+          if (chunk.length === 1) { others.unshift(chunk[0]); break; } // 마지막 한 장은 앨범이 아니다
           const res = await post({ content: caption, albumUrls: chunk.map((u) => u.fileUrl), attachFirst: attachFirstRef.current, replyToId: replyId });
-          if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
+          if (!res.ok) { await failed(res); return; }
+          chunk.forEach((u) => sent.add(u.fileUrl));
           caption = ""; replyId = null;
         }
         const singles = images.length >= 2 ? others : [...images, ...others];
         for (const u of singles) {
           const res = await post({ content: caption, fileUrl: u.fileUrl, fileName: u.fileName, fileType: u.fileType, attachFirst: attachFirstRef.current, replyToId: replyId });
-          if (!res.ok) { const d = await res.json().catch(() => ({} as any)); toast.error(d.error || "전송 실패"); return; }
+          if (!res.ok) { await failed(res); return; }
+          sent.add(u.fileUrl);
           caption = ""; replyId = null;
         }
         pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
@@ -691,9 +713,15 @@ export default function WorkChatPage() {
     setPendingFiles((prev) => {
       // 첫 첨부를 붙일 때 글이 비어 있었으면 "첨부 먼저" — 표시 순서 재현용
       if (prev.length === 0) attachFirstRef.current = !input.trim();
+      // 한 번에 보낼 수 있는 개수 상한(예약과 같게 20개). 사진은 10장씩 앨범으로 나가므로
+      // 100장을 끌어다 놓으면 알림이 10번 울린다 — 조용히 버리지 않고 여기서 알린다(검증관 V-3).
+      const room = MAX_ATTACH - prev.length;
+      if (room <= 0) { toast.error(`첨부는 한 번에 ${MAX_ATTACH}개까지입니다.`); return prev; }
+      const take = files.slice(0, room);
+      if (take.length < files.length) toast.error(`첨부는 한 번에 ${MAX_ATTACH}개까지입니다. ${files.length - take.length}개는 담지 않았습니다.`);
       return [
         ...prev,
-        ...files.map((f) => ({ file: f, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null })),
+        ...take.map((f) => ({ file: f, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null })),
       ];
     });
     inputRef.current?.focus();
