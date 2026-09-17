@@ -129,6 +129,7 @@ export default function WorkChatPage() {
   // 상태는 한 번의 렌더 뒤에 바뀐다 — Enter 를 연달아 눌러도 같은 것을 다시 보내지 않게 ref 로 잠근다(앱이 하는 방식)
   const sendingRef = useRef(false);
   const replyingRef = useRef(false); // 스레드 댓글도 같은 이유로 잠근다
+  const [replying, setReplying] = useState(false); // 버튼을 잠그는 것은 ref 로 안 되므로 표시용 상태도 둔다
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -454,6 +455,7 @@ export default function WorkChatPage() {
   async function send() {
     if ((!input.trim() && pendingFiles.length === 0) || !activeId) return;
     if (sendingRef.current) return; // 이미 보내는 중 — 전송 버튼은 disabled 지만 Enter 는 그냥 들어온다
+    if (scheduling) return; // 예약이 돌고 있으면 같은 첨부가 두 번 나가고 진행률이 엉킨다(앱은 이미 이렇게 막는다)
     // ⚠ 잠금 획득도 try 안에서 한다 — 밖에 두면 여기서 무엇이든 던질 때 잠금이 영구히 굳어
     //   그 사용자는 다시 전송을 못 한다(검증관 지적)
     try {
@@ -610,9 +612,10 @@ export default function WorkChatPage() {
     if (!threadInput.trim() || !threadId || !activeId) return;
     // Enter 를 두 번 누르면 같은 댓글이 두 건 올라갔다 — 본문 전송과 같은 방식으로 잠근다(검증관 4)
     if (replyingRef.current) return;
-    replyingRef.current = true;
     const body = threadInput;
     try {
+      replyingRef.current = true;
+      setReplying(true);
       const res = await fetch(`/api/work/channels/${activeId}/messages`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: body, replyToId: threadId }),
@@ -624,7 +627,7 @@ export default function WorkChatPage() {
     } catch (e) {
       console.error("[댓글 전송] 실패:", e);
       toast.error("전송이 중단되었습니다. 연결을 확인하고 다시 시도해주세요.");
-    } finally { replyingRef.current = false; }
+    } finally { replyingRef.current = false; setReplying(false); }
   }
 
   async function createChannel() {
@@ -858,6 +861,7 @@ export default function WorkChatPage() {
     if (res.ok) setScheduledList((await res.json()).scheduled || []);
   }
   async function submitSchedule() {
+    if (sendingRef.current) return; // 전송이 돌고 있으면 진행률·첨부가 엉킨다 (전송 쪽에도 같은 가드가 있다)
     if (!activeId || (!input.trim() && pendingFiles.length === 0) || !scheduleAt || scheduling) return;
     // 업로드 **전에** 막을 수 있는 건 미리 막는다 — 올린 뒤 서버가 400 을 주면 그 파일이 고아로 남는다
     const at = new Date(scheduleAt);
@@ -1696,7 +1700,7 @@ export default function WorkChatPage() {
               <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} className="shrink-0"><Paperclip size={16} /></Button>
               {/* 폰 폭에서는 입력창 확보를 위해 투표·예약은 숨김(데스크톱 전용) */}
               <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0 hidden md:inline-flex"><BarChart3 size={16} /></Button>
-              <Button variant="ghost" size="sm" onClick={openSchedule} title="예약 전송" className="shrink-0 hidden md:inline-flex"><Clock size={16} /></Button>
+              <Button variant="ghost" size="sm" onClick={openSchedule} disabled={sending} title="예약 전송" className="shrink-0 hidden md:inline-flex"><Clock size={16} /></Button>
               <div className="relative shrink-0">
                 <Button variant="ghost" size="sm" onClick={() => setInputEmojiOpen((v) => !v)} title="이모지" className="shrink-0"><Smile size={16} /></Button>
                 {inputEmojiOpen && (
@@ -1788,7 +1792,7 @@ export default function WorkChatPage() {
               }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).style.height = "auto"; sendReply(); } }}
               placeholder="댓글 입력..." />
-            <Button onClick={sendReply} disabled={!threadInput.trim()} size="sm" className="bg-indigo-500 hover:bg-indigo-600"><Send size={14} /></Button>
+            <Button onClick={sendReply} disabled={!threadInput.trim() || replying} size="sm" className="bg-indigo-500 hover:bg-indigo-600"><Send size={14} /></Button>
           </div>
         </div>
       )}
