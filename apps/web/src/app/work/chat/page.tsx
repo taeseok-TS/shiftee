@@ -126,6 +126,8 @@ export default function WorkChatPage() {
   const [readWatermark, setReadWatermark] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  // 상태는 한 번의 렌더 뒤에 바뀐다 — Enter 를 연달아 눌러도 같은 것을 다시 보내지 않게 ref 로 잠근다(앱이 하는 방식)
+  const sendingRef = useRef(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -450,6 +452,8 @@ export default function WorkChatPage() {
 
   async function send() {
     if ((!input.trim() && pendingFiles.length === 0) || !activeId) return;
+    if (sendingRef.current) return; // 이미 보내는 중 — 전송 버튼은 disabled 지만 Enter 는 그냥 들어온다
+    sendingRef.current = true;
     setSending(true);
     // 전송 후 입력창 높이를 한 줄로 복귀
     if (inputRef.current) inputRef.current.style.height = "auto";
@@ -531,7 +535,8 @@ export default function WorkChatPage() {
         attachFirstRef.current = false;
         setInput(""); setReplyTo(null); setMentionQuery(null);
         fetchMessages(activeId); fetchChannels();
-        } catch {
+        } catch (e) {
+          console.error("[첨부 전송] 실패:", e); // 진짜 버그도 이 자리로 온다 — 삼키지 않고 남긴다
           // fetch 자체가 실패(연결 끊김 등)하면 !res.ok 경로를 안 탄다 — 여기서 같은 처리를 한다.
           // 안 하면 안내도 없고 보낸 조각도 목록에 남아, 다시 누르면 같은 앨범이 두 번 올라간다(검증관 3).
           stopped("전송이 중단되었습니다. 연결을 확인하고 다시 시도해주세요.");
@@ -547,7 +552,7 @@ export default function WorkChatPage() {
         setInput(""); setReplyTo(null); setMentionQuery(null);
         setMessages((m) => [...m, data.message]);
       }
-    } finally { setSending(false); }
+    } finally { setSending(false); sendingRef.current = false; }
   }
 
   // 파일 1개 업로드 (진행률 표시를 위해 XHR 사용 — fetch는 업로드 진행 이벤트 미지원). 실패 시 null
@@ -743,10 +748,13 @@ export default function WorkChatPage() {
     inputRef.current?.focus();
   }
   function removePending(i: number) {
+    // ⚠ 인덱스로 지우면 목록이 그 사이에 줄어들었을 때 엉뚱한 것이 지워진다 — 파일 객체로 찾는다(검증관 6)
+    const target = pendingFiles[i];
+    if (!target) return;
     setPendingFiles((prev) => {
-      const t = prev[i];
-      if (t?.preview) URL.revokeObjectURL(t.preview);
-      return prev.filter((_, idx) => idx !== i);
+      if (!prev.includes(target)) return prev;
+      if (target.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((p) => p !== target);
     });
   }
 
@@ -1627,8 +1635,8 @@ export default function WorkChatPage() {
                         <span className="text-xs max-w-[140px] truncate">{p.file.name}</span>
                       </>
                     )}
-                    <button onClick={() => removePending(i)} title="첨부 취소"
-                      className="absolute -top-1.5 -right-1.5 bg-gray-600 hover:bg-red-500 text-white rounded-full p-0.5">
+                    <button onClick={() => removePending(i)} title="첨부 취소" disabled={sending}
+                      className="absolute -top-1.5 -right-1.5 bg-gray-600 hover:bg-red-500 disabled:opacity-40 text-white rounded-full p-0.5">
                       <X size={10} />
                     </button>
                   </div>
