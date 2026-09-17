@@ -238,7 +238,7 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     }
     if (ps === "RESIGNED") {
       // 퇴사일이 비어 있으면 "오늘"로 채우지 않는다 — 날마다 내용이 달라져 [무시]가 안 먹고 실제 퇴사일도 틀린다(M2)
-      if (!r.leaveDate) skip(r, "명부에서 퇴사로 바뀜지만 퇴사일을 알 수 없습니다(명부에 퇴사일 칸이 없습니다) — 직원 관리에서 퇴사일을 직접 넣어주세요");
+      if (!r.leaveDate) skip(r, "명부에서 퇴사로 바뀌었지만 퇴사일을 알 수 없습니다(명부에 퇴사일 칸이 없습니다) — 직원 관리에서 퇴사일을 직접 넣어주세요");
       else if (dstr(u.resignDate) !== r.leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: r.leaveDate, portalStatus: r.status, ...idf } });
       continue;
     }

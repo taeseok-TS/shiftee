@@ -166,6 +166,10 @@ export default function WorkChatScreen() {
     if (!items.length) return;
     if (pendingAtts.length === 0) attachFirstRef.current = !text.trim();
     let merged = [...pendingAtts, ...items];
+    if (merged.length > 20) { // 총량 상한 — 웹·예약과 같은 20개. 문서 30개를 담으면 메시지 30건·푸시 30번이 나간다
+      Alert.alert("알림", "첨부는 한 번에 20개까지입니다.");
+      merged = merged.slice(0, 20);
+    }
     if (merged.filter((m) => m.kind === "image").length > 10) {
       Alert.alert("알림", "사진은 한 번에 최대 10장까지 첨부할 수 있습니다.");
       let n = 0;

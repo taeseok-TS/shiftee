@@ -467,10 +467,15 @@ export default function WorkChatPage() {
         // 대기 첨부 업로드 → 글(캡션)과 함께 발송. 이미지 2장 이상은 앨범 묶음, 나머지는 개별
         setUploadProgress(0);
         const ups: { fileUrl: string; fileName: string; fileType: string }[] = [];
+        // 주소 → 원본 File. 대기 목록에서 뺄 때 **인덱스 대신 이 객체로** 찾는다 —
+        // 전송 중에 사용자가 첨부를 지우면 인덱스가 밀려 엉뚱한 첨부가 사라졌다(2026-09-17 검증관 2).
+        const fileOf = new Map<string, File>();
         for (let i = 0; i < pendingFiles.length; i++) {
-          const u = await uploadOne(pendingFiles[i].file);
+          const f = pendingFiles[i].file;
+          const u = await uploadOne(f);
           if (!u) { setUploadProgress(null); return; } // 실패 시 대기 첨부 유지 — 다시 전송 시도 가능
           ups.push(u);
+          fileOf.set(u.fileUrl, f);
         }
         setUploadProgress(null);
         const images = ups.filter((u) => u.fileType === "image");
@@ -486,20 +491,24 @@ export default function WorkChatPage() {
         // 앞 조각이 또 올라간다(2026-09-16 검증관 V-2). ups[i] 는 pendingFiles[i] 와 같은 순서다.
         const sent = new Set<string>();
         const dropSent = () => {
-          const idx = new Set<number>();
-          ups.forEach((u, i) => { if (sent.has(u.fileUrl)) idx.add(i); });
-          setPendingFiles((prev) => prev.filter((p, i) => {
-            if (!idx.has(i)) return true;
+          const done = new Set<File>();
+          for (const url of sent) { const f = fileOf.get(url); if (f) done.add(f); }
+          setPendingFiles((prev) => prev.filter((p) => {
+            if (!done.has(p.file)) return true;
             if (p.preview) URL.revokeObjectURL(p.preview);
             return false;
           }));
         };
-        const failed = async (res: Response) => {
-          const d = await res.json().catch(() => ({} as Record<string, string>));
-          toast.error(d.error || "전송 실패");
+        const stopped = (msg: string) => {
+          toast.error(msg || "전송 실패");
           dropSent();
           if (sent.size) { setInput(""); setReplyTo(null); fetchMessages(activeId); } // 보낸 건 화면에 반영
         };
+        const failed = async (res: Response) => {
+          const d = await res.json().catch(() => ({} as Record<string, string>));
+          stopped(d.error || "전송 실패");
+        };
+        try {
         // 앨범 한 건은 10장까지 — 더 골랐으면 10장씩 나눠 여러 건으로 보낸다.
         // 종전엔 slice(0,10) 이라 11장째부터 **말없이 사라지고** 이미 올린 파일만 남았다(2026-09-16 검증관 V-10).
         for (let i = 0; images.length >= 2 && i < images.length; i += 10) {
@@ -517,10 +526,17 @@ export default function WorkChatPage() {
           sent.add(u.fileUrl);
           caption = ""; replyId = null;
         }
-        pendingFiles.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
+        // 보낸 것만 목록에서 뺀다 — 전송 중에 새로 담은 첨부를 조용히 버리지 않게(검증관 지적)
+        dropSent();
         attachFirstRef.current = false;
-        setPendingFiles([]); setInput(""); setReplyTo(null); setMentionQuery(null);
+        setInput(""); setReplyTo(null); setMentionQuery(null);
         fetchMessages(activeId); fetchChannels();
+        } catch {
+          // fetch 자체가 실패(연결 끊김 등)하면 !res.ok 경로를 안 탄다 — 여기서 같은 처리를 한다.
+          // 안 하면 안내도 없고 보낸 조각도 목록에 남아, 다시 누르면 같은 앨범이 두 번 올라간다(검증관 3).
+          stopped("전송이 중단되었습니다. 연결을 확인하고 다시 시도해주세요.");
+          return;
+        }
       } else {
         const res = await fetch(`/api/work/channels/${activeId}/messages`, {
           method: "POST", headers: { "Content-Type": "application/json" },

@@ -463,7 +463,11 @@ export async function runScheduledMessages() {
       // 앨범 한 건은 10장까지다. 첨부 상한이 20으로 올라간 뒤로 11장째부터는 말없이 사라졌다
       // (2026-09-16 검증관 V-2) — 10장씩 끊어 여러 건으로 보낸다. 글(캡션)은 첫 건에만.
       for (let i = 0; i < images.length; i += 10) {
-        const part = images.slice(i, i + 10).map((f) => f.fileUrl);
+        const piece = images.slice(i, i + 10);
+        // 조각이 1장이면 앨범이 아니다 — 개별 전송으로 넘긴다(웹·앱과 같은 규칙).
+        // 1장짜리 앨범으로 두면 화면이 반쪽으로 그려지고 그 메시지를 전달할 때 400 이 난다(검증관)
+        if (piece.length < 2) { singles.unshift(piece[0]); break; }
+        const part = piece.map((f) => f.fileUrl);
         const cap = caption;
         ops.push(prisma.workMessage.create({
           data: {
