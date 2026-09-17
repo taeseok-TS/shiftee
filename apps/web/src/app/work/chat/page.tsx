@@ -128,6 +128,7 @@ export default function WorkChatPage() {
   const [sending, setSending] = useState(false);
   // 상태는 한 번의 렌더 뒤에 바뀐다 — Enter 를 연달아 눌러도 같은 것을 다시 보내지 않게 ref 로 잠근다(앱이 하는 방식)
   const sendingRef = useRef(false);
+  const replyingRef = useRef(false); // 스레드 댓글도 같은 이유로 잠근다
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -453,11 +454,13 @@ export default function WorkChatPage() {
   async function send() {
     if ((!input.trim() && pendingFiles.length === 0) || !activeId) return;
     if (sendingRef.current) return; // 이미 보내는 중 — 전송 버튼은 disabled 지만 Enter 는 그냥 들어온다
-    sendingRef.current = true;
-    setSending(true);
-    // 전송 후 입력창 높이를 한 줄로 복귀
-    if (inputRef.current) inputRef.current.style.height = "auto";
+    // ⚠ 잠금 획득도 try 안에서 한다 — 밖에 두면 여기서 무엇이든 던질 때 잠금이 영구히 굳어
+    //   그 사용자는 다시 전송을 못 한다(검증관 지적)
     try {
+      sendingRef.current = true;
+      setSending(true);
+      // 전송 후 입력창 높이를 한 줄로 복귀
+      if (inputRef.current) inputRef.current.style.height = "auto";
       if (editingId) {
         const res = await fetch(`/api/work/messages/${editingId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -552,7 +555,7 @@ export default function WorkChatPage() {
         setInput(""); setReplyTo(null); setMentionQuery(null);
         setMessages((m) => [...m, data.message]);
       }
-    } finally { setSending(false); sendingRef.current = false; }
+    } finally { setSending(false); sendingRef.current = false; setUploadProgress(null); } // 진행률을 안 닫으면 전송 버튼이 영구 비활성이 된다
   }
 
   // 파일 1개 업로드 (진행률 표시를 위해 XHR 사용 — fetch는 업로드 진행 이벤트 미지원). 실패 시 null
@@ -605,13 +608,23 @@ export default function WorkChatPage() {
   // 답글은 카톡처럼 인용답장(replyToId)으로 전송 → 채팅 맨 아래 최신글로 표시 (앱과 동일 동작)
   async function sendReply() {
     if (!threadInput.trim() || !threadId || !activeId) return;
-    await fetch(`/api/work/channels/${activeId}/messages`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: threadInput, replyToId: threadId }),
-    });
-    setThreadInput("");
-    closeThread();
-    fetchMessages(activeId);
+    // Enter 를 두 번 누르면 같은 댓글이 두 건 올라갔다 — 본문 전송과 같은 방식으로 잠근다(검증관 4)
+    if (replyingRef.current) return;
+    replyingRef.current = true;
+    const body = threadInput;
+    try {
+      const res = await fetch(`/api/work/channels/${activeId}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: body, replyToId: threadId }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({} as Record<string, string>)); toast.error(d.error || "전송 실패"); return; }
+      setThreadInput("");
+      closeThread();
+      fetchMessages(activeId);
+    } catch (e) {
+      console.error("[댓글 전송] 실패:", e);
+      toast.error("전송이 중단되었습니다. 연결을 확인하고 다시 시도해주세요.");
+    } finally { replyingRef.current = false; }
   }
 
   async function createChannel() {
@@ -1635,7 +1648,7 @@ export default function WorkChatPage() {
                         <span className="text-xs max-w-[140px] truncate">{p.file.name}</span>
                       </>
                     )}
-                    <button onClick={() => removePending(i)} title="첨부 취소" disabled={sending}
+                    <button onClick={() => removePending(i)} title="첨부 취소" disabled={sending || scheduling}
                       className="absolute -top-1.5 -right-1.5 bg-gray-600 hover:bg-red-500 disabled:opacity-40 text-white rounded-full p-0.5">
                       <X size={10} />
                     </button>

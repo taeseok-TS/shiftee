@@ -1563,7 +1563,8 @@ export default function WorkChatScreen() {
                 )}
                 <TouchableOpacity
                   style={styles.pendingRemove}
-                  onPress={() => setPendingAtts((prev) => prev.filter((_, idx) => idx !== i))}
+                  disabled={sending}
+                  onPress={() => setPendingAtts((prev) => prev.filter((x) => x !== p))}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 >
                   <Ionicons name="close" size={12} color="#fff" />
