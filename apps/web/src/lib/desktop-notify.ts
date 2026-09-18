@@ -42,11 +42,14 @@ export function saveDesktopNotifyChoice(on: boolean) {
 /** 켜기 — 허용이 없으면 여기서 묻는다(반드시 클릭 처리 안에서 불러야 브라우저가 창을 띄운다). */
 export async function enableDesktopNotify(): Promise<DesktopNotifyState> {
   if (typeof Notification === "undefined") return "unsupported";
-  const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  const before = Notification.permission;
+  const perm = before === "granted" ? "granted" : await Notification.requestPermission();
   if (perm === "denied") {
-    // 브라우저 창에서 직접 [차단]을 눌렀다 — 끈 것으로 저장해 "허용으로 바꿔 주세요" 안내가
-    // 켤 때마다 따라다니지 않게 한다(검증 notify1 #1). 다시 받으려면 사이트 설정을 풀고 종을 켜면 된다.
-    saveDesktopNotifyChoice(false);
+    // 묻는 창에서 직접 [차단]을 눌렀을 때만(요청 전 default) 끈 것으로 저장한다 — "허용으로 바꿔 주세요"
+    // 안내가 켤 때마다 따라다니지 않게(검증 notify1 #1). 이미 막혀 있던 상태에서 켜려고 누른 것이면
+    // 켜려는 뜻이니 기록을 건드리지 않는다 — 여기서 끔을 저장하면 사이트 설정을 풀어도 꺼진 채 남는다(notify2 A).
+    if (before === "default") saveDesktopNotifyChoice(false);
+    else window.dispatchEvent(new Event(DESKTOP_NOTIFY_EVENT));
     return "denied";
   }
   if (perm !== "granted") {
