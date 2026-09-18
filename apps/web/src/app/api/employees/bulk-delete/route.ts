@@ -29,6 +29,22 @@ export async function POST(request: NextRequest) {
       errors.push(`${user.name}: 관리자 계정은 여기서 삭제할 수 없습니다.`);
       continue;
     }
+    // ⚠ 메신저 기록(메시지·반응·북마크·리마인더·예약 메시지)은 스키마가 **연쇄 삭제(Cascade)** 라 아래 FK 실패에
+    //   걸리지 않고 조용히 함께 지워진다. 그래서 "활동 기록이 있으면 거부"가 메신저만 쓴 직원에게는 통하지 않았다 —
+    //   2026-09-18 퇴사 처리해야 할 직원(입사 3년 차)이 이 경로로 지워져 메시지 13건과 반응이 함께 사라졌다(백업에서 복원).
+    //   메신저 기록이 하나라도 있으면 "잘못 올린 직원"이 아니라 실제 직원이므로 삭제하지 않는다.
+    const [msgs, reacts, marks, rems, sched] = await Promise.all([
+      prisma.workMessage.count({ where: { userId: id } }),
+      prisma.workMessageReaction.count({ where: { userId: id } }),
+      prisma.workBookmark.count({ where: { userId: id } }),
+      prisma.workReminder.count({ where: { userId: id } }),
+      prisma.workScheduledMessage.count({ where: { userId: id } }),
+    ]);
+    if (msgs + reacts + marks + rems + sched > 0) {
+      failed++;
+      errors.push(`${user.name}: 메신저 기록이 있어 삭제할 수 없습니다. 퇴사는 직원 정보에서 퇴사일을 넣어 처리해주세요.`);
+      continue;
+    }
     try {
       // 부속 데이터 정리 후 본체 삭제 — 활동 기록 FK가 남아 있으면 트랜잭션 전체가 실패(안전)
       await prisma.$transaction([

@@ -76,10 +76,12 @@ export default function EmployeesPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
+    // 퇴사를 삭제로 처리하는 사고가 있었다(2026-09-18) — 무엇을 위한 버튼인지부터 말한다
     if (!window.confirm(
-      `선택한 ${selectedIds.size}명을 완전히 삭제합니다.\n` +
-      `삭제된 직원은 복구할 수 없으며, 같은 이메일·사원번호로 다시 업로드할 수 있게 됩니다.\n` +
-      `(출퇴근·휴가·메시지 등 활동 기록이 있는 직원은 삭제되지 않고 안내됩니다)\n진행할까요?`
+      `⚠ 퇴사 처리가 아닙니다.\n` +
+      `퇴사는 직원을 눌러 [퇴사일]을 넣어 주세요 — 그래야 퇴직자 현황에 남습니다.\n\n` +
+      `이 버튼은 잘못 올린 직원을 지우는 용도입니다. 선택한 ${selectedIds.size}명을 완전히 삭제하며 복구할 수 없습니다.\n` +
+      `(출퇴근·휴가·메시지 등 활동 기록이 있는 직원은 삭제되지 않습니다)\n진행할까요?`
     )) return;
     setBulkDeleting(true);
     try {
