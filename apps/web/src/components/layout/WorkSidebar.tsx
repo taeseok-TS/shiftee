@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink } from "lucide-react";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
@@ -15,6 +15,10 @@ const workNavItems = [
   { href: "/work/submissions", label: "자료제출", icon: FileUp }, // 2026-09-13 디렉터 승인 기획 1단계
   { href: "/work/marketing", label: "마케팅 자료", icon: Camera }, // 2026-09-14 본부장 과제 — 지점 마케팅 자료 올리기 → 큐브마케팅 블로그 발행
 ];
+
+// 직영 포털 바로가기 (2026-09-18 직영 주간회의 건의 — 이예지 대리, 본부장 지시).
+// 포털을 매니저까지 전체 공유하기로 해서, 큐브티워크 안에서 바로 들어갈 수 있게 한다. 외부 사이트라 새 탭으로 연다.
+const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
 // 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수
@@ -162,6 +166,20 @@ export function WorkSidebar() {
             <NavBadge count={badges[href] || 0} collapsed={collapsed} />
           </Link>
         ))}
+        <a
+          href={JIKYOUNG_PORTAL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={collapsed ? "직영 포털 (새 탭)" : "새 탭에서 열립니다"}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-indigo-200 hover:bg-indigo-900 hover:text-white",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <Building2 size={18} />
+          {!collapsed && <span className="flex-1">직영 포털</span>}
+          {!collapsed && <ExternalLink size={13} className="opacity-60" />}
+        </a>
       </nav>
 
       <div className={cn("py-4 border-t border-indigo-800 space-y-1", collapsed ? "px-2" : "px-3")}>
@@ -220,6 +238,11 @@ export function WorkMobileNav() {
           </Link>
         ))}
       </nav>
+      {/* 폰 폭 상단 바는 칸이 좁아 아이콘만 — 누르면 직영 포털이 새 탭으로 열린다 */}
+      <a href={JIKYOUNG_PORTAL_URL} target="_blank" rel="noopener noreferrer" title="직영 포털 (새 탭)"
+        className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
+        <Building2 size={18} />
+      </a>
     </div>
   );
 }
