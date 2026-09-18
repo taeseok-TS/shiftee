@@ -299,7 +299,9 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
     const fields: Fields = {};
     if (!sameName) fields.name = [u.name, r.name]; // 이메일로 같은 사람임을 확인한 개명 — 확인 후에만
     const mb = mapBranch(r.branch, known);
-    if (mb.reason) skip(r, mb.reason);
+    // 명부가 휴직이면 지점을 맞추지 않는다 — 휴직자는 지점 없이 두고, 복귀 때 새 지점을 받는다(디렉터 확정 2026-09-18)
+    if (ps === "LEAVE") { /* 지점 건드리지 않음 */ }
+    else if (mb.reason) skip(r, mb.reason);
     else if (mb.value && mb.value !== u.branch) fields.branch = [u.branch, mb.value];
     const jg = mapJobGroup(r.job, r.position);
     if (!jg && r.job) skip(r, `직무 대응 없음: ${r.job}${r.position ? `/${r.position}` : ""}`);
@@ -353,15 +355,18 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
       plans.push({ ...base, kind: "LINK", userId: hit.u.id, diff: { fromEmpNo: hit.u.empNo, toEmpNo: r.empNo, by: hit.by, target: { name: hit.u.name, branch: hit.u.branch, empNo: hit.u.empNo, hireDate: dstr(hit.u.hireDate) || null }, portal: { branch: r.branch || null, joinDate: r.joinDate || null } } });
       continue;
     }
-    const mb = mapBranch(r.branch, known).value;
+    // 휴직자는 **지점 없이** 휴직으로 만든다 — 복귀할 때 지점이 바뀔 수 있어서(2026-09-18 디렉터 확정).
+    // 명부에 소속이 적혀 있어도 넣지 않는다. 복귀하면 명부의 새 지점이 정보 변경으로 올라온다.
+    const onLeave = portalState(r) === "LEAVE";
+    const mb = onLeave ? null : mapBranch(r.branch, known).value;
     const missing: string[] = [];
     if (!r.name) missing.push("이름");
     if (!r.email || !EMAIL_RE.test(r.email)) missing.push("회사 이메일");
-    if (!mb) missing.push("지점");
+    if (!mb && !onLeave) missing.push("지점");
     plans.push({
       ...base, kind: "HIRE", userId: null,
       diff: {
-        email: r.email || null, branch: mb, portalBranch: r.branch, jobGroup: mapJobGroup(r.job, r.position), position: mapPosition(r.position), hireDate: r.joinDate || null, onLeave: portalState(r) === "LEAVE", missing,
+        email: r.email || null, branch: mb, portalBranch: r.branch, jobGroup: mapJobGroup(r.job, r.position), position: mapPosition(r.position), hireDate: r.joinDate || null, onLeave, missing,
         portal: { branch: r.branch || null, joinDate: r.joinDate || null },
         sameNameInCubetee: users.filter((u) => normName(u.name) === normName(r.name)).slice(0, 3).map((u) => ({ name: u.name, branch: u.branch, empNo: u.empNo, state: cubeteeState(u) })),
       },
@@ -448,8 +453,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     if (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, select: { id: true } }))
       throw new Error(`이미 ${email} 계정이 있습니다. 사번이 다르게 들어간 같은 사람인지 직원 관리에서 확인해주세요.`);
     if (await prisma.user.findUnique({ where: { empNo: c.empNo }, select: { id: true } })) throw new Error(`사번 ${c.empNo} 을(를) 이미 다른 직원이 쓰고 있습니다.`);
-    const branch = s(d.branch);
-    if (!(await prisma.branch.findFirst({ where: { name: branch }, select: { id: true } }))) throw new Error(`큐브티에 없는 지점입니다: ${branch}`);
+    // 휴직자는 지점 없이 만든다(디렉터 확정 2026-09-18) — 그 외에는 큐브티에 있는 지점이어야 한다
+    const branch = d.onLeave ? null : s(d.branch);
+    if (branch !== null && !(await prisma.branch.findFirst({ where: { name: branch }, select: { id: true } }))) throw new Error(`큐브티에 없는 지점입니다: ${branch}`);
     const hashed = await bcrypt.hash(TEMP_PASSWORD, 10);
     // 계정과 연차 행을 함께 — 하나만 만들어지면 재시도가 "이미 계정 있음"으로 영구히 막힌다(L3)
     const user = await prisma.$transaction(async (tx) => {
@@ -465,7 +471,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: 15, used: 0, remaining: 15 } });
       return created;
     });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch}, 사번 ${c.empNo}, 임시 비밀번호)` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, 임시 비밀번호)` });
     return;
   }
   if (!c.userId) throw new Error("대상 직원이 없습니다.");
