@@ -264,9 +264,9 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
-      // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 말없이 바꾸지 않는다.
-      //   인사 원장의 "지점입사일"은 대개 큰브티 입사일과 같지만(112명 중 68명 일치),
-      //   루트 교육생 출신은 루트입과일로 들어가 있어 3주가지 차이 난다(2026-09-16 실측).
+      // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 바뀌는 건은 항상 확인받는다.
+      //   어느 날짜를 입사일로 보는지는 roster-sheet.ts 의 ROUTE_RULE_FROM 규칙을 따른다
+      //   (7월 이후 입사자 = 루트입과일, 그 전 입사자 = 건드리지 않음 — 2026-09-18 디렉터 확정).
       const hireChange = !!fields.hireDate;
       // 원장 계정의 지점·직책이 바뀌면 담당 범위·권한 판정이 따라 바뀐다 — 자동으로 두지 않는다(M5)
       const managerScope = u.role === "MANAGER" && !!(fields.branch || fields.jobGroup);

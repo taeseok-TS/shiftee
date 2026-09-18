@@ -71,12 +71,14 @@ export function parseCsv(text: string): string[][] {
  *  · 그 전에는 교육을 수료해야 입사였으므로 입사일 = 지점입사일이고, **큐브티 값을 건드리지 않는다.**
  * 실측: 7월 이후 입사자 7명 중 5명은 큐브티가 이미 루트입과일과 같고, 나머지 2명은 신규 계정이다.
  * 이 규칙 전에는 "지점입사일"만 보고 07-06 → 07-27 로 21일 늦추라는 잘못된 제안을 5건 냈다.
- * ⚠ 루트입과일 칸에 날짜 대신 "재입사" 글자가 든 사람이 있다(7명, 전부 7월 이전) — 날짜가 아니면 없는 것으로 본다.
+ * ⚠ 루트입과일 칸에 날짜 대신 "재입사" 글자가 든 행이 있다(재직·휴직 7명, 전체 16행 — 전부 7월 이전).
+ *   그 표기만 빈칸으로 보고, 그 밖에 날짜로 못 읽는 값은 입사일을 건드리지 않는 쪽으로 둔다.
  */
 const ROUTE_RULE_FROM = "2026-07-01";
 
 const dateOnly = (s: string) => {
-  const m = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/.exec(s.trim()) || /^(\d{4})(\d{2})(\d{2})$/.exec(s.trim());
+  // 한국어 구글 시트 기본 표시는 "2026. 7. 6" / "2026. 7. 6." 이고 CSV 로 그대로 나온다 — 점 뒤 공백·끝 점을 받아준다
+  const m = /^(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})\.?$/.exec(s.trim()) || /^(\d{4})(\d{2})(\d{2})$/.exec(s.trim());
   if (!m) return "";
   const [y, mo, d] = [m[1], m[2].padStart(2, "0"), m[3].padStart(2, "0")];
   // 2026-0601 같은 오타는 위 정규식에서 이미 걸러진다. 달·일 범위도 본다.
@@ -129,12 +131,17 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
     if (!portalId) continue;
     const n = /^\d{1,9}$/.test(portalId) ? parseInt(portalId, 10) : NaN;
     // 입사일 — 위 ROUTE_RULE_FROM 규칙. 7월 이후 입사자만 큐브티 입사일을 고칠 수 있다(hireDateEditable).
-    const route = dateOnly(cell(r, at.routeDate));
+    const routeRaw = cell(r, at.routeDate);
+    const route = dateOnly(routeRaw);
+    // 루트입과일 칸에 뭔가 적혀 있는데 날짜로 못 읽으면(오타·다른 표기) **빈칸으로 보지 않는다** —
+    // 빈칸 취급하면 지점입사일로 떨어져, 방금 막은 "07-06 → 07-27 늦추기" 제안이 되살아난다(검증관 D1).
+    // "재입사" 표기만 알려진 값이라 빈칸으로 본다(전부 7월 이전 입사자).
+    const routeUnreadable = !!routeRaw && !route && !routeRaw.includes("재입사");
     const branchJoin = dateOnly(cell(r, at.joinDate));
     let joinDate = branchJoin;
     let hireDateEditable = false;
     if (route && route >= ROUTE_RULE_FROM) { joinDate = route; hireDateEditable = true; }
-    else if (!route && branchJoin && branchJoin >= ROUTE_RULE_FROM) hireDateEditable = true; // 7월 이후 입사인데 루트를 안 거친 경우
+    else if (!route && !routeUnreadable && branchJoin && branchJoin >= ROUTE_RULE_FROM) hireDateEditable = true; // 7월 이후 입사인데 루트를 안 거친 경우
     out.push({
       portalId,
       empNo: Number.isFinite(n) && n > 0 ? n : null,
