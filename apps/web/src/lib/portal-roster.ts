@@ -6,7 +6,7 @@
 //  · 입사·퇴사·휴직·복직·사번 연결은 로그인·결재선이 따라 바뀌므로 **본부 확인 1클릭 뒤에만**.
 //  · ⚠ 사번은 같은데 이름·이메일이 모두 다르면 **아무것도 하지 않는다** — 큐브티 사번은 1001부터 자동 발급이라
 //    포털 사번과 우연히 겹친 다른 사람일 수 있다(검증관 H1: 남의 계정을 되살리거나 퇴사시키는 사고).
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -199,7 +199,9 @@ function findLeaveDate(leavers: Map<string, LeaverRow[]>, name: string, hireDate
   if (!hits.length) return { reason: "퇴사자 탭에 같은 이름은 있지만 입사일이 맞는 줄이 없습니다(동명이인이거나 입사일이 다르게 적힘)" };
   // 지점도 맞아야 한다 — 지점 이동이 퇴사로 적힌 줄이 있다(검증관 D2: 재직 중인 사람이 이전 지점 "퇴사" 줄에 맞음).
   // 퇴사자 탭의 지점은 마지막 근무지이므로 지금 큐브티 지점과 같아야 정상이다.
-  const sameBranch = branch ? hits.filter((l) => (mapBranch(l.branch, known).value ?? l.branch) === branch) : [];
+  // 큐브티 지점이 비어 있으면(휴직자는 지점 없이 만든다 — 디렉터 규칙) 지점으로 가를 수 없으므로 이름·입사일만으로 본다.
+  // 안 그러면 휴직 후 퇴사한 사람의 퇴사가 영영 안 올라온다(검증관 D1).
+  const sameBranch = branch ? hits.filter((l) => (mapBranch(l.branch, known).value ?? l.branch) === branch) : hits;
   if (!sameBranch.length) {
     const other = [...new Set(hits.map((h) => h.branch || "-"))].join(", ");
     return { reason: `퇴사자 탭에 이름·입사일이 맞는 줄은 있지만 지점이 다릅니다(탭 ${other} / 큐브티 ${branch ?? "-"}) — 지점 이동이 퇴사로 적힌 줄일 수 있습니다` };
@@ -456,12 +458,15 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     // 휴직자는 지점 없이 만든다(디렉터 확정 2026-09-18) — 그 외에는 큐브티에 있는 지점이어야 한다
     const branch = d.onLeave ? null : s(d.branch);
     if (branch !== null && !(await prisma.branch.findFirst({ where: { name: branch }, select: { id: true } }))) throw new Error(`큐브티에 없는 지점입니다: ${branch}`);
-    const hashed = await bcrypt.hash(TEMP_PASSWORD, 10);
+    // 휴직자 계정은 **아무도 모르는 무작위 비밀번호**로 만든다 — 모두가 아는 임시 비밀번호가 몇 달씩 열려 있으면
+    // 남이 먼저 로그인해 기기를 묶을 수 있고, 봇이 휴직 내내 매일 "비밀번호 바꾸세요" DM 을 보낸다(검증관 [4]).
+    // 복직할 때 관리자가 직원 관리에서 비밀번호 초기화(임시 비밀번호)를 해 준다.
+    const hashed = await bcrypt.hash(d.onLeave ? randomBytes(24).toString("base64url") : TEMP_PASSWORD, 10);
     // 계정과 연차 행을 함께 — 하나만 만들어지면 재시도가 "이미 계정 있음"으로 영구히 막힌다(L3)
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          name: c.name, email, password: hashed, passwordResetAt: new Date(), empNo: c.empNo,
+          name: c.name, email, password: hashed, passwordResetAt: d.onLeave ? null : new Date(), empNo: c.empNo,
           role: "EMPLOYEE", jobGroup: s(d.jobGroup) || null, position: s(d.position) || null, branch,
           hireDate: s(d.hireDate) ? utcDate(s(d.hireDate)) : null,
           employmentStatus: d.onLeave ? "ON_LEAVE" : "ACTIVE",
@@ -471,7 +476,7 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: 15, used: 0, remaining: 15 } });
       return created;
     });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, 임시 비밀번호)` });
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, ${d.onLeave ? "비밀번호 미발급 — 복직 때 초기화" : "임시 비밀번호"})` });
     return;
   }
   if (!c.userId) throw new Error("대상 직원이 없습니다.");
@@ -506,6 +511,10 @@ async function applyChange(c: ChangeRow, actor: Actor) {
   if (c.kind === "RETURN") {
     const fromResigned = d.from === "RESIGNED";
     if (fromResigned ? cs !== "RESIGNED" : cs !== "LEAVE") throw changed();
+    // 재직으로 돌아가는데 지점이 비어 있으면 막는다 — 휴직자는 지점 없이 만들므로(디렉터 규칙) 복직을 먼저 누르면
+    // "지점 없는 재직자"가 생기고, 그러면 출퇴근 위치 제한이 풀리고 어느 원장 담당에도 안 잡힌다(검증관 D2).
+    const toActive = !fromResigned || d.to !== "LEAVE";
+    if (toActive && !u.branch) throw new Error("지점이 비어 있어 먼저 복직시킬 수 없습니다. 지점 변경을 먼저 반영하거나 직원 관리에서 지점을 넣어주세요.");
     await prisma.user.update({
       where: { id: u.id },
       // 재입사 — 퇴사일을 비워야 로그인이 풀린다(직원 수정에서 퇴사일을 지우는 것과 같은 동작)

@@ -74,7 +74,9 @@ function Detail({ c }: { c: Change }) {
       <div className="text-xs text-gray-700 space-y-0.5">
         <p>{d.onLeave ? "지점 없음(휴직)" : s(d.branch ?? d.portalBranch)} · {s(d.jobGroup)} · {s(d.position)} · 입사 {s(d.hireDate)} · {s(d.email)}{d.onLeave ? " · 휴직 중" : ""}</p>
         {missing.length ? <p className="text-red-700">{missing.join("·")}이(가) 없어 지금은 반영할 수 없습니다.</p>
-          : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.{d.onLeave ? " 휴직자라 지점 없이 휴직으로 만들고, 복귀하면 명부의 지점이 정보 변경으로 올라옵니다." : ""}</p>}
+          : d.onLeave
+            ? <p className="text-gray-500">휴직자라 지점 없이 휴직으로 만들고, 비밀번호는 알려진 값으로 열어 두지 않습니다. 복직하면 명부의 지점이 정보 변경으로 올라오니 먼저 반영하시고, 직원 관리에서 비밀번호 초기화(임시 비밀번호)를 해 주세요.</p>
+            : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.</p>}
         {portalOf(c) ? <p className="text-[11px] text-gray-500">명부: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
         {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
           <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 명부 사번으로 고쳐주세요.</p>
@@ -99,6 +101,10 @@ function Detail({ c }: { c: Change }) {
   if (c.kind === "RETURN") return (
     <div className="text-xs text-gray-700 space-y-0.5">
       <p>{d.from === "RESIGNED" ? "큐브티에서 퇴사 처리된 직원이 명부에서는 재직입니다(재입사). 반영하면 계정을 다시 켜고 퇴사일 기록을 지웁니다 — 퇴직자 현황의 과거 집계에서도 빠집니다." : "명부에서 복직 — 재직으로 바꿉니다."}</p>
+      {/* 휴직자는 지점 없이 만들어진다 — 지점을 먼저 넣어야 복직이 반영된다(서버도 막는다) */}
+      {d.to !== "LEAVE" && !(d.target as Target | undefined)?.branch ? (
+        <p className="text-amber-700 flex items-center gap-1"><AlertTriangle size={12} />지점이 비어 있습니다 — 지점 변경을 먼저 반영하거나 직원 관리에서 지점을 넣어야 복직이 반영됩니다. 비밀번호 초기화도 함께 해 주세요.</p>
+      ) : null}
       <TargetLine c={c} />
     </div>
   );
