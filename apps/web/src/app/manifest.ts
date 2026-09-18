@@ -6,6 +6,8 @@ import type { MetadataRoute } from "next";
 // 새 메시지·공지 알림(웹 채팅의 데스크톱 알림)이 바로 온다. 별도 프로그램 설치는 필요 없다.
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    // 앱 식별값을 고정한다 — 없으면 start_url 로 정해져, 나중에 시작 화면을 바꾸면 PC 에 두 번 설치된다
+    id: "/",
     name: "큐브티",
     short_name: "큐브티",
     description: "큐브티 · 큐브티워크",
@@ -14,7 +16,7 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     background_color: "#ffffff",
-    theme_color: "#2563eb",
+    theme_color: "#1e1b4b", // 큐브티워크 사이드바(indigo-950)와 같은 색 — 앱 창 제목줄만 튀지 않게
     lang: "ko",
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

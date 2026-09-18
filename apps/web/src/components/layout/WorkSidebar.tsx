@@ -1,7 +1,7 @@
 "use client";
 
 import { isSessionExpired } from "@/lib/session-expiry";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,12 @@ const workNavItems = [
 // 직영 포털 바로가기 (2026-09-18 직영 주간회의 건의 — 이예지 대리, 본부장 지시).
 // 포털을 매니저까지 전체 공유하기로 해서, 큐브티워크 안에서 바로 들어갈 수 있게 한다. 외부 사이트라 새 탭으로 연다.
 const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
+// 직영 포털은 큐브티(cubetee.co.kr) 전용이다 — 판매용 고객사 인스턴스도 같은 화면을 쓰므로 거기서는 숨긴다(검증관 3).
+// 주소창의 호스트로 판단한다. 서버 렌더 때는 숨김(false)으로 시작해 화면이 뜬 뒤 보이므로 불일치가 없다.
+const noopSubscribe = () => () => {};
+function useShowPortalLink() {
+  return useSyncExternalStore(noopSubscribe, () => /(^|\.)cubetee\.co\.kr$/.test(window.location.hostname), () => false);
+}
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
 // 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수
@@ -94,6 +100,7 @@ function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) 
 
 export function WorkSidebar() {
   const pathname = usePathname();
+  const showPortal = useShowPortalLink();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const badges = useWorkBadges(pathname);
@@ -166,7 +173,7 @@ export function WorkSidebar() {
             <NavBadge count={badges[href] || 0} collapsed={collapsed} />
           </Link>
         ))}
-        <a
+        {showPortal && <a
           href={JIKYOUNG_PORTAL_URL}
           target="_blank"
           rel="noopener noreferrer"
@@ -179,7 +186,7 @@ export function WorkSidebar() {
           <Building2 size={18} />
           {!collapsed && <span className="flex-1">직영 포털</span>}
           {!collapsed && <ExternalLink size={13} className="opacity-60" />}
-        </a>
+        </a>}
       </nav>
 
       <div className={cn("py-4 border-t border-indigo-800 space-y-1", collapsed ? "px-2" : "px-3")}>
@@ -213,6 +220,7 @@ export function WorkSidebar() {
 // 모바일 전용 상단 바 — 폰 폭에서는 좌측 사이드바 대신 이 바로 이동한다
 export function WorkMobileNav() {
   const pathname = usePathname();
+  const showPortal = useShowPortalLink();
   const badges = useWorkBadges(pathname);
   return (
     <div className="md:hidden sticky top-0 z-40 h-12 shrink-0 bg-indigo-950 text-white flex items-center px-2 gap-1">
@@ -223,11 +231,13 @@ export function WorkMobileNav() {
       <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
         <span className="font-bold text-white text-sm">W</span>
       </div>
-      <nav className="flex-1 flex items-center justify-evenly">
+      {/* 폰 폭에서는 메뉴가 한 줄에 다 안 들어간다 — 원래도 375px 에서 이름이 세로로 접히며 넘쳤다.
+          줄바꿈 없이 옆으로 밀어 보게 한다(검증관 1: 포털 아이콘이 화면 밖으로 밀려나던 것과 함께 해결) */}
+      <nav className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto">
         {workNavItems.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href}
             className={cn(
-              "relative flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+              "relative shrink-0 whitespace-nowrap flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
               pathname === href || pathname.startsWith(href + "/")
                 ? "bg-indigo-500 text-white"
                 : "text-indigo-200"
@@ -239,10 +249,12 @@ export function WorkMobileNav() {
         ))}
       </nav>
       {/* 폰 폭 상단 바는 칸이 좁아 아이콘만 — 누르면 직영 포털이 새 탭으로 열린다 */}
-      <a href={JIKYOUNG_PORTAL_URL} target="_blank" rel="noopener noreferrer" title="직영 포털 (새 탭)"
-        className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
-        <Building2 size={18} />
-      </a>
+      {showPortal && (
+        <a href={JIKYOUNG_PORTAL_URL} target="_blank" rel="noopener noreferrer" title="직영 포털 (새 탭)"
+          className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
+          <Building2 size={18} />
+        </a>
+      )}
     </div>
   );
 }
