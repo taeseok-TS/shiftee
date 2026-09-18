@@ -136,9 +136,12 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
     // 루트입과일 칸에 뭔가 적혀 있는데 날짜로 못 읽으면(오타·다른 표기) **빈칸으로 보지 않는다** —
     // 빈칸 취급하면 지점입사일로 떨어져, 방금 막은 "07-06 → 07-27 늦추기" 제안이 되살아난다(검증관 D1).
     // "재입사" 표기만 알려진 값이라 빈칸으로 본다(전부 7월 이전 입사자).
-    const routeUnreadable = !!routeRaw && !route && !routeRaw.includes("재입사");
+    // "재입사" 는 **정확히 그 글자일 때만** — includes 로 보면 "재입사(2026.7.6)" 같은 값이 빈칸 취급돼 같은 구멍이 난다(검증관 D-A)
+    const routeUnreadable = !!routeRaw && !route && routeRaw !== "재입사";
     const branchJoin = dateOnly(cell(r, at.joinDate));
-    let joinDate = branchJoin;
+    // 못 읽는 루트입과일이면 입사일을 **모르는 것**으로 둔다 — 지점입사일로 떨어지면 신규 계정이 그 날짜로
+    // 만들어진다(입사일 변경 제안만 막고 계정 생성은 안 막던 것, 검증관 D-B)
+    let joinDate = routeUnreadable ? "" : branchJoin;
     let hireDateEditable = false;
     if (route && route >= ROUTE_RULE_FROM) { joinDate = route; hireDateEditable = true; }
     else if (!route && !routeUnreadable && branchJoin && branchJoin >= ROUTE_RULE_FROM) hireDateEditable = true; // 7월 이후 입사인데 루트를 안 거친 경우
