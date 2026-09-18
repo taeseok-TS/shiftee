@@ -9,6 +9,9 @@ import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, 
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { openWorkStream } from "@/lib/work-stream";
+import {
+  DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyState, saveDesktopNotifyChoice,
+} from "@/lib/desktop-notify";
 
 // 자주쓰는 6개만 기본 노출, "+"로 전체 그리드
 const EMOJIS = ["👍", "✅", "🙏", "😂", "❤️", "🫡"];
@@ -221,27 +224,28 @@ export default function WorkChatPage() {
   // 큐브티 어느 화면에 있어도 알림이 온다. 여기는 켜기/끄기 UI + 상태 연동만.
   const [desktopNotify, setDesktopNotify] = useState(false);
   useEffect(() => {
-    const on = typeof window !== "undefined" && localStorage.getItem("workDesktopNotify") === "on"
-      && typeof Notification !== "undefined" && Notification.permission === "granted";
-    setDesktopNotify(on);
+    // 켜짐 규칙은 lib/desktop-notify 하나 — 직접 끈 경우만 꺼짐. 켜기 안내·환경설정에서 바꿔도 따라간다.
+    const sync = () => setDesktopNotify(readDesktopNotifyState() === "on");
+    sync();
+    window.addEventListener(DESKTOP_NOTIFY_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(DESKTOP_NOTIFY_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
   const toggleDesktopNotify = async () => {
     if (desktopNotify) {
-      setDesktopNotify(false);
-      localStorage.setItem("workDesktopNotify", "off");
-      window.dispatchEvent(new Event("workDesktopNotifyChanged"));
+      saveDesktopNotifyChoice(false);
       toast.success("데스크톱 알림을 껐습니다.");
       return;
     }
-    if (typeof Notification === "undefined") { toast.error("이 브라우저는 알림을 지원하지 않습니다."); return; }
-    const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
-    if (perm !== "granted") {
+    const st = await enableDesktopNotify();
+    if (st === "unsupported") { toast.error("이 브라우저는 알림을 지원하지 않습니다."); return; }
+    if (st !== "on") {
       toast.error("브라우저 알림이 차단되어 있습니다. 주소창의 사이트 설정에서 알림을 허용해주세요.");
       return;
     }
-    setDesktopNotify(true);
-    localStorage.setItem("workDesktopNotify", "on");
-    window.dispatchEvent(new Event("workDesktopNotifyChanged"));
     toast.success("데스크톱 알림을 켰습니다. 큐브티 어느 화면에서든 새 메시지를 알려드립니다.");
   };
   // 전역 알림기와 연동: 보고 있는 채널 노출(그 방 알림 생략용) + 알림 클릭 시 채널 열기 + ?channel= 진입

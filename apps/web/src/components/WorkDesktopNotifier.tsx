@@ -2,18 +2,47 @@
 
 // 큐브티워크 데스크톱 알림 전역 컴포넌트 — 채팅 페이지가 아니어도(대시보드·출퇴근 등 어느 화면이든)
 // 새 메시지 브라우저 알림을 띄운다. 토글은 채팅 사이드바의 종 아이콘(localStorage workDesktopNotify).
+// 켜짐 판단은 lib/desktop-notify(직원이 직접 끈 경우만 꺼짐). 허용이 풀렸으면 로그인 화면이 아닌 곳에서
+// 켜기 안내를 띄워 한 번 클릭으로 되살린다(2026-09-18 "켤 때마다 알림이 꺼진다").
 // SSE 신호(message + senderId + msgId, 내용 미포함)를 받아 채널 목록을 재조회해 미리보기를 구성한다.
 // 탭이 여러 개 열려 있으면 메시지별 Web Lock을 선점한 탭 1개만 알림을 생성한다.
 // (여러 탭이 같은 tag로 동시에 생성하면 크롬이 배너 없이 조용히 교체해 알림이 안 보이는 문제 방지)
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openWorkStream } from "@/lib/work-stream";
+import {
+  DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyChoice, readDesktopNotifyState,
+  saveDesktopNotifyChoice,
+} from "@/lib/desktop-notify";
 
 type Ch = { id: string; name: string; notify: string; lastMessage: { content: string } | null };
 type LockManager = {
   request: (name: string, opts: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>) => Promise<void>;
 };
 
+// 켜기 안내 — [나중에]는 이 창을 닫을 때까지만(sessionStorage). 다음에 큐브티를 켜면 다시 묻는다.
+const PROMPT_LATER_KEY = "workDesktopNotifyLater";
+
+/**
+ * 켜기 안내를 띄울지. PC(마우스) 화면에서만 — 휴대폰 브라우저는 이 방식 알림이 안 되고 앱이 따로 있다.
+ *  - ask: 켜려는 상태(직접 끄지 않음)인데 브라우저 허용이 없다 → [알림 켜기] 한 번
+ *  - denied: 한 번 켰던 직원인데 브라우저가 막았다 → 푸는 방법 안내(코드로는 못 푼다)
+ *    처음부터 막아 둔 직원(선택 기록 없음)에게는 매번 띄우지 않는다.
+ */
+function promptFor(): "ask" | "denied" | null {
+  try {
+    if (!window.matchMedia("(pointer: fine)").matches) return null;
+    if (sessionStorage.getItem(PROMPT_LATER_KEY) === "1") return null;
+  } catch { /* noop */ }
+  const st = readDesktopNotifyState();
+  if (st === "ask") return "ask";
+  if (st === "denied" && readDesktopNotifyChoice() === "on") return "denied";
+  return null;
+}
+
 export default function WorkDesktopNotifier() {
+  const [prompt, setPrompt] = useState<"ask" | "denied" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const loggedInRef = useRef(false);
   const enabledRef = useRef(false);
   const myIdRef = useRef("");
   const myNameRef = useRef("");
@@ -23,17 +52,23 @@ export default function WorkDesktopNotifier() {
     let closeStream: (() => void) | null = null;
     let alive = true;
 
+    // 직원이 직접 끈 경우만 꺼짐 — 브라우저 허용이 있으면 기록이 비어도 켜짐(lib/desktop-notify)
     const readEnabled = () => {
-      enabledRef.current =
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted" &&
-        localStorage.getItem("workDesktopNotify") === "on";
+      enabledRef.current = readDesktopNotifyState() === "on";
     };
-    try { readEnabled(); } catch { /* localStorage 접근 불가 환경 */ }
-    // 채팅 페이지 토글(같은 탭) + 다른 탭 변경 반영
-    const onChanged = () => { try { readEnabled(); } catch { /* noop */ } };
-    window.addEventListener("workDesktopNotifyChanged", onChanged);
+    readEnabled();
+    // 채팅 페이지 토글(같은 탭) + 다른 탭 변경 + 켜기 안내 반영
+    const onChanged = () => {
+      readEnabled();
+      if (loggedInRef.current) setPrompt(promptFor());
+    };
+    window.addEventListener(DESKTOP_NOTIFY_EVENT, onChanged);
     window.addEventListener("storage", onChanged);
+    // 브라우저 사이트 설정에서 허용·차단을 바꾸면 바로 따라간다(지원 브라우저만)
+    let permStatus: PermissionStatus | null = null;
+    navigator.permissions?.query({ name: "notifications" as PermissionName })
+      .then((st) => { if (!alive) return; permStatus = st; st.onchange = onChanged; })
+      .catch(() => {});
 
     const show = async (channelId: string) => {
       const res = await fetch("/api/work/channels");
@@ -98,6 +133,8 @@ export default function WorkDesktopNotifier() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!alive || !d?.user) return;
+        loggedInRef.current = true;
+        setPrompt(promptFor());
         myIdRef.current = d.user.id || "";
         myNameRef.current = d.user.name || "";
         fetch("/api/me/notify").then((r) => (r.ok ? r.json() : null)).then((n) => {
@@ -115,10 +152,54 @@ export default function WorkDesktopNotifier() {
     return () => {
       alive = false;
       closeStream?.();
-      window.removeEventListener("workDesktopNotifyChanged", onChanged);
+      window.removeEventListener(DESKTOP_NOTIFY_EVENT, onChanged);
       window.removeEventListener("storage", onChanged);
+      if (permStatus) permStatus.onchange = null;
     };
   }, []);
 
-  return null;
+  if (!prompt) return null;
+  const turnOn = async () => {
+    setBusy(true);
+    try { await enableDesktopNotify(); } finally { setBusy(false); }
+    // 결과(켜짐·차단·창 닫음)는 DESKTOP_NOTIFY_EVENT → onChanged 가 안내를 다시 계산한다
+  };
+  const later = () => {
+    try { sessionStorage.setItem(PROMPT_LATER_KEY, "1"); } catch { /* noop */ }
+    setPrompt(null);
+  };
+  const never = () => {
+    saveDesktopNotifyChoice(false);
+    setPrompt(null);
+  };
+  return (
+    <div role="status"
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[min(460px,calc(100vw-32px))] rounded-xl border border-indigo-200 bg-white shadow-lg px-4 py-3">
+      <p className="text-sm font-semibold text-gray-900">🔔 PC 알림이 꺼져 있습니다</p>
+      {prompt === "ask" ? (
+        <>
+          <p className="text-xs text-gray-600 mt-1">공지·메시지를 놓치지 않도록 알림을 켜 주세요. 버튼을 누른 뒤 브라우저 창에서 [허용]을 누르면 됩니다.</p>
+          <div className="flex items-center justify-end gap-2 mt-2.5">
+            <button type="button" onClick={never} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">안 받기</button>
+            <button type="button" onClick={later} className="text-xs text-gray-600 hover:bg-gray-100 rounded-md px-2.5 py-1.5">나중에</button>
+            <button type="button" onClick={turnOn} disabled={busy}
+              className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-md px-3 py-1.5">
+              알림 켜기
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-gray-600 mt-1">
+            브라우저가 큐브티 알림을 막았습니다. 주소창 왼쪽 자물쇠(앱 창은 오른쪽 위 ⋯ → 앱 정보)를 눌러
+            <b> 알림 → 허용</b>으로 바꿔 주세요. 바꾸면 이 안내는 저절로 사라집니다.
+          </p>
+          <div className="flex items-center justify-end gap-2 mt-2.5">
+            <button type="button" onClick={never} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">안 받기</button>
+            <button type="button" onClick={later} className="text-xs text-gray-600 hover:bg-gray-100 rounded-md px-2.5 py-1.5">닫기</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

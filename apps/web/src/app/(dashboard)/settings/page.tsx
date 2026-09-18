@@ -13,6 +13,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import {
+  DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyState, saveDesktopNotifyChoice,
+} from "@/lib/desktop-notify";
 
 /** 프로필 화면과 같은 모양의 토글 — 두 화면이 달라 보이면 같은 설정인 줄 모른다. */
 function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
@@ -43,48 +46,42 @@ export default function SettingsPage() {
   // ── PC 알림 (이 브라우저에만 적용 — 서버가 아니라 localStorage 에 저장한다) ──
   // 채팅 화면 사이드바의 종 아이콘과 **같은 스위치**다. 한쪽에서 바꾸면 다른 쪽도 따라간다.
   const [browser, setBrowser] = useState<BrowserState>("off");
+  // 켜짐 규칙은 lib/desktop-notify 하나 — 직접 끈 경우만 꺼짐(허용이 있으면 기록이 비어도 켜짐).
+  // "ask"(허용이 아직 없음)는 스위치에선 꺼짐으로 보이고, 켜면 브라우저가 허용을 묻는다.
   const readBrowser = useCallback((): BrowserState => {
-    if (typeof Notification === "undefined") return "unsupported";
-    if (Notification.permission === "denied") return "denied";
-    try {
-      return localStorage.getItem("workDesktopNotify") === "on" && Notification.permission === "granted" ? "on" : "off";
-    } catch {
-      return "off"; // 사생활 보호 모드 등에서 localStorage 접근이 막힐 수 있다
-    }
+    const st = readDesktopNotifyState();
+    return st === "ask" ? "off" : st;
   }, []);
   useEffect(() => {
     setBrowser(readBrowser());
-    // 채팅 화면의 종 아이콘(같은 탭)과 다른 탭의 변경을 함께 따라간다
+    // 채팅 화면의 종 아이콘·켜기 안내(같은 탭)와 다른 탭의 변경을 함께 따라간다
     const sync = () => setBrowser(readBrowser());
-    window.addEventListener("workDesktopNotifyChanged", sync);
+    window.addEventListener(DESKTOP_NOTIFY_EVENT, sync);
     window.addEventListener("storage", sync);
     return () => {
-      window.removeEventListener("workDesktopNotifyChanged", sync);
+      window.removeEventListener(DESKTOP_NOTIFY_EVENT, sync);
       window.removeEventListener("storage", sync);
     };
   }, [readBrowser]);
 
   const toggleBrowser = async (on: boolean) => {
     if (!on) {
-      try { localStorage.setItem("workDesktopNotify", "off"); } catch { /* 저장 불가 */ }
-      window.dispatchEvent(new Event("workDesktopNotifyChanged"));
+      saveDesktopNotifyChoice(false);
       setBrowser("off");
       toast.success("이 브라우저에서 PC 알림을 껐습니다.");
       return;
     }
-    if (typeof Notification === "undefined") {
+    // 권한을 아직 안 물었으면 여기서 묻는다. 이미 차단돼 있으면 코드로는 풀 수 없다.
+    const st = await enableDesktopNotify();
+    if (st === "unsupported") {
       toast.error("이 브라우저는 알림을 지원하지 않습니다.");
       return;
     }
-    // 권한을 아직 안 물었으면 여기서 묻는다. 이미 차단돼 있으면 코드로는 풀 수 없다.
-    const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
-    if (perm !== "granted") {
-      setBrowser(Notification.permission === "denied" ? "denied" : "off");
+    if (st !== "on") {
+      setBrowser(st === "denied" ? "denied" : "off");
       toast.error("브라우저가 알림을 막고 있습니다. 주소창 왼쪽 자물쇠 → 알림 → 허용으로 바꿔주세요.");
       return;
     }
-    try { localStorage.setItem("workDesktopNotify", "on"); } catch { /* 저장 불가 */ }
-    window.dispatchEvent(new Event("workDesktopNotifyChanged"));
     setBrowser("on");
     toast.success("PC 알림을 켰습니다. 큐브티 어느 화면에 있어도 새 채팅을 알려드립니다.");
   };
