@@ -23,7 +23,8 @@ const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 // 주소창의 호스트로 판단한다. 서버 렌더 때는 숨김(false)으로 시작해 화면이 뜬 뒤 보이므로 불일치가 없다.
 const noopSubscribe = () => () => {};
 function useShowPortalLink() {
-  return useSyncExternalStore(noopSubscribe, () => /(^|\.)cubetee\.co\.kr$/.test(window.location.hostname), () => false);
+  // ⚠ 하위 주소 전체(*.cubetee.co.kr)로 보면 안 된다 — 고객사 기본 주소가 "회사명.cubetee.co.kr" 이다(검증관 1).
+  return useSyncExternalStore(noopSubscribe, () => /^(www\.)?cubetee\.co\.kr$/.test(window.location.hostname), () => false);
 }
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
@@ -222,6 +223,11 @@ export function WorkMobileNav() {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
   const badges = useWorkBadges(pathname);
+  const navRef = useRef<HTMLElement>(null);
+  // 지금 화면의 메뉴가 옆으로 가려진 쪽에 있으면 보이게 굴린다(검증관 4 — 예: 마케팅 자료 화면)
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [pathname]);
   return (
     <div className="md:hidden sticky top-0 z-40 h-12 shrink-0 bg-indigo-950 text-white flex items-center px-2 gap-1">
       <button onClick={() => (window.location.href = "/dashboard")} title="큐브티로 돌아가기"
@@ -233,9 +239,12 @@ export function WorkMobileNav() {
       </div>
       {/* 폰 폭에서는 메뉴가 한 줄에 다 안 들어간다 — 원래도 375px 에서 이름이 세로로 접히며 넘쳤다.
           줄바꿈 없이 옆으로 밀어 보게 한다(검증관 1: 포털 아이콘이 화면 밖으로 밀려나던 것과 함께 해결) */}
-      <nav className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto">
+      {/* py-1: 가로 스크롤은 세로도 잘라서 알림 점 윗부분이 잘렸다(검증관 2). 스크롤바는 감춘다 — 좁힌 PC 창에서
+          메뉴 밑에 15px 막대가 생기던 것(검증관 3). 폰은 손가락으로 민다. */}
+      <nav ref={navRef} className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {workNavItems.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href}
+            aria-current={pathname === href || pathname.startsWith(href + "/") ? "page" : undefined}
             className={cn(
               "relative shrink-0 whitespace-nowrap flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
               pathname === href || pathname.startsWith(href + "/")
