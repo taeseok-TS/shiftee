@@ -16,6 +16,7 @@ const COL = {
   position: ["현 직책", "현직책", "직책"],
   branch: ["현 소속", "현소속", "소속", "지점"],
   joinDate: ["지점입사일", "입사일"],
+  routeDate: ["루트입과일"],
   leaveDate: ["퇴사일", "퇴직일"], // 지금 원장에는 없는 열 — 생기면 자동으로 쓰인다
   email: ["회사 E-Mail", "회사 이메일", "회사메일"],
 } as const;
@@ -64,6 +65,16 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+/**
+ * 입사일 규칙 (2026-09-18 디렉터 확정)
+ *  · **2026년 7월부터 입사한 사람은 루트입과일이 입사일**이다.
+ *  · 그 전에는 교육을 수료해야 입사였으므로 입사일 = 지점입사일이고, **큐브티 값을 건드리지 않는다.**
+ * 실측: 7월 이후 입사자 7명 중 5명은 큐브티가 이미 루트입과일과 같고, 나머지 2명은 신규 계정이다.
+ * 이 규칙 전에는 "지점입사일"만 보고 07-06 → 07-27 로 21일 늦추라는 잘못된 제안을 5건 냈다.
+ * ⚠ 루트입과일 칸에 날짜 대신 "재입사" 글자가 든 사람이 있다(7명, 전부 7월 이전) — 날짜가 아니면 없는 것으로 본다.
+ */
+const ROUTE_RULE_FROM = "2026-07-01";
+
 const dateOnly = (s: string) => {
   const m = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/.exec(s.trim()) || /^(\d{4})(\d{2})(\d{2})$/.exec(s.trim());
   if (!m) return "";
@@ -98,7 +109,7 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
   const at = {
     empNo: pick(COL.empNo), name: pick(COL.name), status: pick(COL.status), job: pick(COL.job),
     position: pick(COL.position), branch: pick(COL.branch), joinDate: pick(COL.joinDate),
-    leaveDate: pick(COL.leaveDate), email: pick(COL.email),
+    routeDate: pick(COL.routeDate), leaveDate: pick(COL.leaveDate), email: pick(COL.email),
   };
   // 열 이름이 바뀌면 조용히 빈 값으로 읽혀 **전원 정보가 지워진 것처럼** 보인다 — 필수 열이 없으면 멈춘다
   const missing = (["empNo", "name", "status", "branch"] as const).filter((k) => at[k] < 0);
@@ -117,6 +128,13 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
     if (!status) continue;
     if (!portalId) continue;
     const n = /^\d{1,9}$/.test(portalId) ? parseInt(portalId, 10) : NaN;
+    // 입사일 — 위 ROUTE_RULE_FROM 규칙. 7월 이후 입사자만 큐브티 입사일을 고칠 수 있다(hireDateEditable).
+    const route = dateOnly(cell(r, at.routeDate));
+    const branchJoin = dateOnly(cell(r, at.joinDate));
+    let joinDate = branchJoin;
+    let hireDateEditable = false;
+    if (route && route >= ROUTE_RULE_FROM) { joinDate = route; hireDateEditable = true; }
+    else if (!route && branchJoin && branchJoin >= ROUTE_RULE_FROM) hireDateEditable = true; // 7월 이후 입사인데 루트를 안 거친 경우
     out.push({
       portalId,
       empNo: Number.isFinite(n) && n > 0 ? n : null,
@@ -125,7 +143,8 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
       job: cell(r, at.job),
       position: cell(r, at.position),
       branch: cell(r, at.branch),
-      joinDate: dateOnly(cell(r, at.joinDate)),
+      joinDate,
+      hireDateEditable,
       leaveDate: dateOnly(cell(r, at.leaveDate)),
       email: cell(r, at.email).toLowerCase(),
     });

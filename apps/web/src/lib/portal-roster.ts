@@ -58,6 +58,9 @@ export function validRosterUrl(url: string): boolean {
 export type PortalRow = {
   portalId: string; empNo: number | null; name: string; status: string; job: string; position: string;
   branch: string; joinDate: string; leaveDate: string; email: string;
+  // false 면 입사일을 고치지 않는다 — 인사명부 규칙상 7월 이전 입사자(roster-sheet.ts ROUTE_RULE_FROM).
+  // 없으면(예전 포털 DB 경로) 종전처럼 고칠 수 있는 것으로 본다.
+  hireDateEditable?: boolean;
 };
 const t = (v: unknown) => (v === null || v === undefined ? "" : String(v).trim());
 const dateOnly = (v: unknown) => {
@@ -257,7 +260,8 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     if (jg === "원장" && u.role !== "MANAGER") roleMismatch.push({ empNo: r.empNo, name: u.name, branch: u.branch });
     const pos = mapPosition(r.position);
     if (pos && pos !== u.position) fields.position = [u.position, pos];
-    if (r.joinDate && r.joinDate !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
+    // 7월 이전 입사자는 입사일을 건드리지 않는다(디렉터 확정 2026-09-18) — 교육 수료 후 입사라 기준이 다르다
+    if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
       // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 말없이 바꾸지 않는다.
