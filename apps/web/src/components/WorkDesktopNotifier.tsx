@@ -160,7 +160,7 @@ export default function WorkDesktopNotifier() {
           myNameRef.current = d.user.name || "";
           muteAllRef.current = false; // 앞서 로그인했던 사람의 '전체 음소거'가 남지 않게
           fetch("/api/me/notify").then((r) => (r.ok ? r.json() : null)).then((n) => {
-            if (n) muteAllRef.current = !!n.workMuteAll;
+            if (n && alive && my === gen) muteAllRef.current = !!n.workMuteAll; // 앞 사람의 늦은 응답은 버린다
           }).catch(() => {});
           closeStream = openWorkStream((ev) => {
             try {

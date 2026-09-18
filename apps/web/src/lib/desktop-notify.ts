@@ -47,9 +47,9 @@ export async function enableDesktopNotify(): Promise<DesktopNotifyState> {
   if (perm === "denied") {
     // 묻는 창에서 직접 [차단]을 눌렀을 때만(요청 전 default) 끈 것으로 저장한다 — "허용으로 바꿔 주세요"
     // 안내가 켤 때마다 따라다니지 않게(검증 notify1 #1). 이미 막혀 있던 상태에서 켜려고 누른 것이면
-    // 켜려는 뜻이니 기록을 건드리지 않는다 — 여기서 끔을 저장하면 사이트 설정을 풀어도 꺼진 채 남는다(notify2 A).
-    if (before === "default") saveDesktopNotifyChoice(false);
-    else window.dispatchEvent(new Event(DESKTOP_NOTIFY_EVENT));
+    // 켜려는 뜻이니 켬으로 저장한다 — 사이트 설정에서 허용으로 풀면 바로 켜지고(notify2 A),
+    // 예전에 끔이었던 직원도 안내대로 풀기만 하면 된다(notify3 B). 풀기 전까지는 푸는 방법 안내가 뜬다.
+    saveDesktopNotifyChoice(before !== "default");
     return "denied";
   }
   if (perm !== "granted") {
