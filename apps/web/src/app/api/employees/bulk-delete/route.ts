@@ -6,6 +6,9 @@ import { logAudit } from "@/lib/audit";
 // 직원 선택 삭제 (관리자 전용) — 잘못 업로드한 직원을 즉시 완전 삭제해 재업로드 가능하게 함.
 // 활동 기록(출퇴근·휴가·메시지 등)이 있는 직원은 데이터 보호를 위해 삭제하지 않고 실패로 안내
 // (그런 직원은 퇴사 처리 흐름을 사용). 부속 데이터(연차 잔여·기기·푸시토큰·채널 멤버십·겸직)는 함께 정리.
+// 잘못 올린 직원을 지울 수 있는 기간 — 등록 후 7일
+const BULK_DELETE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -22,11 +25,25 @@ export async function POST(request: NextRequest) {
   const deletedNames: string[] = [];
 
   for (const id of ids as string[]) {
-    const user = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true } });
+    const user = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, createdAt: true } });
     if (!user) { failed++; errors.push("직원을 찾을 수 없습니다."); continue; }
     if (user.role === "ADMIN" || id === session.userId) {
       failed++;
       errors.push(`${user.name}: 관리자 계정은 여기서 삭제할 수 없습니다.`);
+      continue;
+    }
+    // ⚠ **등록한 지 7일이 지난 직원은 지우지 않는다** — 이 버튼은 잘못 올린 직원을 올린 직후에 지우는 용도다.
+    //   "활동 기록이 있으면 거부"를 종류별로 막는 방식은 계속 새 구멍이 나왔다(메신저 연쇄 삭제, 휴가·일정 결재자
+    //   칸이 비워짐, 지점 대표 원장 연결 끊김, 제출물·제안·투표·회의 기록이 없는 직원을 가리킴 — 2026-09-18 검증관).
+    //   기간 하나로 거는 편이 빠진 종류가 있어도 막힌다. 그 뒤의 정리는 퇴사일(또는 휴지통 삭제)로 한다.
+    if (Date.now() - user.createdAt.getTime() > BULK_DELETE_WINDOW_MS) {
+      failed++;
+      errors.push(`${user.name}: 등록한 지 7일이 지난 직원은 여기서 삭제할 수 없습니다. 퇴사는 직원 정보에서 퇴사일을 넣어 처리해주세요.`);
+      continue;
+    }
+    if (await prisma.userDevice.count({ where: { userId: id } })) {
+      failed++; // 앱에 로그인한 적이 있으면 잘못 올린 직원이 아니다
+      errors.push(`${user.name}: 앱에 로그인한 기록이 있어 삭제할 수 없습니다. 퇴사일로 처리해주세요.`);
       continue;
     }
     // ⚠ 메신저 기록(메시지·반응·북마크·리마인더·예약 메시지)은 스키마가 **연쇄 삭제(Cascade)** 라 아래 FK 실패에
