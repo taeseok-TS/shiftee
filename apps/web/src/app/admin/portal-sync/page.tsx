@@ -20,6 +20,8 @@ type Summary = {
 type Run = { id: string; trigger: string; startedAt: string; finishedAt: string | null; ok: boolean; error: string | null; fetched: number; matched: number; applied: number; pending: number; skipped: number; actorName: string | null; summary: Summary | null };
 type Data = { configured: boolean; canEditConnection: boolean; connection: { urlLabel: string; urlSet: boolean; leaversSet?: boolean; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
 
+// 오늘(KST) — 퇴사 카드의 "지난 날짜" 경고용. 렌더 중에 Date.now() 를 부르지 않게 화면을 열 때 한 번만 잡는다
+const TODAY_KST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 const KIND_LABEL: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직·재입사", LINK: "사번 연결" };
 const KIND_TONE: Record<string, string> = {
   UPDATE: "bg-gray-100 text-gray-700", HIRE: "bg-green-100 text-green-800", RESIGN: "bg-red-100 text-red-700",
@@ -80,7 +82,19 @@ function Detail({ c }: { c: Change }) {
       </div>
     );
   }
-  if (c.kind === "RESIGN") return <div className="text-xs text-gray-700 space-y-0.5"><p>퇴사일 <b>{s(d.resignDate)}</b> · 반영하면 바로 로그아웃되고, 퇴사일이 지나면 로그인이 막히며 결재선에서 빠집니다.</p><TargetLine c={c} /></div>;
+  if (c.kind === "RESIGN") {
+    // 근거를 보여준다 — "명부가 퇴사라고 한 것"과 "명부에서 사라져 퇴사자 탭에서 찾은 것"은 무게가 다르다(검증관 D3)
+    const missing = d.portalStatus === "명부에 없음";
+    const past = s(d.resignDate) < TODAY_KST;
+    return (
+      <div className="text-xs text-gray-700 space-y-0.5">
+        <p>퇴사일 <b>{s(d.resignDate)}</b>{d.leaveDateFrom === "퇴사자 탭" ? " (퇴사자 탭에서 이름·입사일·지점으로 찾음)" : ""} · 반영하면 바로 로그아웃되고, 퇴사일이 지나면 로그인이 막히며 결재선에서 빠집니다.</p>
+        {missing ? <p className="text-amber-700 flex items-center gap-1"><AlertTriangle size={12} />명부가 퇴사라고 한 게 아니라 <b>명부에서 사라져</b> 퇴사자 탭에서 찾은 건입니다 — 사번이 바뀌었거나 명부 편집 실수일 수 있으니 확인해주세요.</p> : null}
+        {past ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />지난 날짜입니다 — 반영 즉시 로그인이 막힙니다.</p> : null}
+        <TargetLine c={c} />
+      </div>
+    );
+  }
   if (c.kind === "LEAVE") return <div className="text-xs text-gray-700 space-y-0.5"><p>명부에서 휴직 — 큐브티 재직상태를 휴직으로 바꿉니다.</p><TargetLine c={c} /></div>;
   if (c.kind === "RETURN") return (
     <div className="text-xs text-gray-700 space-y-0.5">
@@ -102,7 +116,8 @@ export default function PortalSyncPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [conn, setConn] = useState({ url: "", leaversUrl: "", apikey: "", token: "" });
   const load = useCallback(() => {
-    fetch("/api/admin/portal-sync").then((r) => r.json()).then((d: Data) => setData(d)) // 주소는 다시 내려주지 않는다 — 시트 주소 자체가 열쇠라서(검증관 2).catch(() => toast.error("불러오지 못했습니다."));
+    // 주소는 다시 내려주지 않는다 — 시트 주소 자체가 열쇠라서(검증관 2)
+    fetch("/api/admin/portal-sync").then((r) => r.json()).then((d: Data) => setData(d)).catch(() => toast.error("불러오지 못했습니다."));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -268,7 +283,7 @@ export default function PortalSyncPage() {
             <Input type="password" autoComplete="off" placeholder={data.connection.apikeySet ? "API 키 — 등록됨(바꿀 때만 입력)" : "API 키 (시트는 비워 두세요)"} value={conn.apikey} onChange={(e) => setConn({ ...conn, apikey: e.target.value })} />
             <Input type="password" autoComplete="off" placeholder={data.connection.tokenSet ? "읽기 전용 토큰 — 등록됨(바꿀 때만 입력)" : "읽기 전용 토큰 (시트는 비워 두세요)"} value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
             <div className="flex gap-2">
-              <Button className="flex-1" disabled={busy === "save" || !conn.url} onClick={saveConn}>저장</Button>
+              <Button className="flex-1" disabled={busy === "save" || (!conn.url && !conn.leaversUrl)} onClick={saveConn}>저장</Button>
               <Button variant="outline" className="flex-1" disabled={busy === "test" || !data.configured} onClick={testConn}>연결 확인</Button>
             </div>
           </div>

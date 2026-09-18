@@ -145,7 +145,7 @@ export function mapPosition(position: string): string | null {
 
 type PState = "ACTIVE" | "LEAVE" | "RESIGNED" | "OTHER";
 function portalState(r: PortalRow): PState {
-  // 인사 원장의 "본사발령"은 큰브티 관리 대상이 아니다(본사 인원은 계정 체계가 따로다) — OTHER 로 두어 손대지 않는다
+  // 인사 원장의 "본사발령"은 큐브티 관리 대상이 아니다(본사 인원은 계정 체계가 따로다) — OTHER 로 두어 손대지 않는다
   if (r.status === "퇴사" || r.status === "퇴직") return "RESIGNED";
   if (r.status === "휴직") return "LEAVE";
   if (r.status === "재직") return r.leaveDate ? "RESIGNED" : "ACTIVE";
@@ -183,15 +183,27 @@ export type PlanResult = {
  * 재입사자는 재입사일로도 맞춰 본다. 줄이 여럿이어도 퇴사일이 하나로 모이면 쓰고, 갈리면 쓰지 않는다.
  */
 type LeaveHit = { date: string; branch: string } | { reason: string };
-function findLeaveDate(leavers: Map<string, LeaverRow[]>, name: string, hireDates: string[]): LeaveHit {
+function findLeaveDate(leavers: Map<string, LeaverRow[]>, name: string, hireDates: string[], branch: string | null, known: Set<string>): LeaveHit {
   const cands = leavers.get(normName(name)) ?? [];
   if (!cands.length) return { reason: "퇴사자 탭에 아직 없습니다" };
   const near = (a: string, b: string) => !!a && !!b && Math.abs(Date.parse(a) - Date.parse(b)) <= 86_400_000;
-  const hits = cands.filter((l) => hireDates.some((h) => near(l.joinDate, h) || near(l.rejoinDate, h)) && (!l.joinDate || l.leaveDate >= l.joinDate));
-  if (!hits.length) return { reason: "퇴사자 탭에 같은 이름은 있지만 입사일이 맞는 사람이 없습니다(동명이인)" };
-  const dates = [...new Set(hits.map((h) => h.leaveDate))];
+  // 줄마다 **맞은 날짜**(입사일 또는 재입사일)를 기억하고, 퇴사일이 그 날짜 **뒤**인 줄만 쓴다.
+  // 재입사일로 맞은 줄의 퇴사일이 첫 재직 때 것(재입사보다 앞)이면 지금 재직자를 옛 날짜로 퇴사시킨다(검증관 D1 — 실데이터 3줄).
+  const hits = cands.filter((l) => {
+    const start = [l.joinDate, l.rejoinDate].find((x) => hireDates.some((h) => near(x, h)));
+    return !!start && l.leaveDate > start;
+  });
+  if (!hits.length) return { reason: "퇴사자 탭에 같은 이름은 있지만 입사일이 맞는 줄이 없습니다(동명이인이거나 입사일이 다르게 적힘)" };
+  // 지점도 맞아야 한다 — 지점 이동이 퇴사로 적힌 줄이 있다(검증관 D2: 재직 중인 사람이 이전 지점 "퇴사" 줄에 맞음).
+  // 퇴사자 탭의 지점은 마지막 근무지이므로 지금 큐브티 지점과 같아야 정상이다.
+  const sameBranch = branch ? hits.filter((l) => (mapBranch(l.branch, known).value ?? l.branch) === branch) : [];
+  if (!sameBranch.length) {
+    const other = [...new Set(hits.map((h) => h.branch || "-"))].join(", ");
+    return { reason: `퇴사자 탭에 이름·입사일이 맞는 줄은 있지만 지점이 다릅니다(탭 ${other} / 큐브티 ${branch ?? "-"}) — 지점 이동이 퇴사로 적힌 줄일 수 있습니다` };
+  }
+  const dates = [...new Set(sameBranch.map((h) => h.leaveDate))];
   if (dates.length > 1) return { reason: `퇴사자 탭에 같은 이름·입사일로 퇴사일이 여럿입니다(${dates.join(", ")})` };
-  return { date: dates[0], branch: hits[0].branch };
+  return { date: dates[0], branch: sameBranch[0].branch };
 }
 
 export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] = []): Promise<PlanResult> {
@@ -214,6 +226,11 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
   const seen = new Set<string>();
   const unmatched: PortalRow[] = [];
   const skip = (r: PortalRow, reason: string) => skipped.push({ portalId: r.portalId, name: r.name, reason });
+
+  // 명부에 사번이 한 번이라도 나온 큐브티 직원 — 그 줄이 건너뛰어졌어도(본사발령·사번 중복·이름 충돌) "명부에서 사라진"
+  // 사람이 아니다. 이들을 퇴사자 탭으로 퇴사 추정하면 안 된다(검증관 D4).
+  const inRoster = new Set<string>();
+  for (const r of rows) { const uu = r.empNo ? byEmp.get(r.empNo) : undefined; if (uu) inRoster.add(uu.id); }
 
   for (const r of rows) {
     if (!r.empNo) { skip(r, r.portalId ? `사번 형식이 숫자가 아님: ${r.portalId}` : "사번 없음"); continue; }
@@ -265,7 +282,7 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
       let leaveDate = r.leaveDate;
       let from = "명부";
       if (!leaveDate) {
-        const hit = findLeaveDate(leavers, u.name, [dstr(u.hireDate), r.joinDate].filter(Boolean));
+        const hit = findLeaveDate(leavers, u.name, [dstr(u.hireDate), r.joinDate].filter(Boolean), u.branch, known);
         if ("reason" in hit) { skip(r, `명부에서 퇴사로 바뀌었지만 퇴사일을 알 수 없습니다 — ${hit.reason}. 직원 관리에서 퇴사일을 직접 넣어주세요`); continue; }
         leaveDate = hit.date; from = "퇴사자 탭";
       }
@@ -353,8 +370,9 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
   const missingInPortal: PlanResult["missingInPortal"] = [];
   for (const u of free) {
     if (taken.has(u.id) || (u.branch && notCounted.has(u.branch))) continue;
+    if (inRoster.has(u.id)) { missingInPortal.push({ empNo: u.empNo, name: u.name, branch: u.branch }); continue; }
     const hire = dstr(u.hireDate);
-    const hit = u.empNo != null && hire ? findLeaveDate(leavers, u.name, [hire]) : null;
+    const hit = u.empNo != null && hire ? findLeaveDate(leavers, u.name, [hire], u.branch, known) : null;
     if (hit && "date" in hit && dstr(u.resignDate) !== hit.date) {
       plans.push({
         empNo: u.empNo as number, portalId: `퇴사자탭:${u.name}`, name: u.name, userId: u.id, kind: "RESIGN",
@@ -589,12 +607,15 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
     }
     // 이번에 다시 나오지 않은 확인 대기는 포털 값이 바뀌었거나 이미 맞춰진 것 — 치운다
     const open = await prisma.portalSyncChange.findMany({ where: { status: "PENDING" }, select: { id: true, empNo: true, kind: true } });
-    const stale = open.filter((c) => !keep.has(`${c.empNo}|${c.kind}`)).map((c) => c.id);
+    // 퇴사자 탭을 못 읽은 날은 퇴사 건이 계획에서 빠진다 — 그걸 "사라졌다"로 보고 대기·무시를 정리하면
+    // 다음 날 같은 건이 새로 떠 알림이 다시 간다(검증관 D6). 그날은 퇴사 건을 건드리지 않는다.
+    const keepResign = !!leaversError;
+    const stale = open.filter((c) => !keep.has(`${c.empNo}|${c.kind}`) && !(keepResign && c.kind === "RESIGN")).map((c) => c.id);
     if (stale.length) await prisma.portalSyncChange.updateMany({ where: { id: { in: stale }, status: "PENDING" }, data: { status: "SUPERSEDED" } });
     // [무시]는 그 상황이 이어지는 동안만 — (사번, 종류)가 이번에 안 나오면 만료시켜, 다음에 다시 휴직·복직하면 새로 올라오게(검증관 4차 낮음 4)
     const planned = new Set(plan.plans.map((p) => `${p.empNo}|${p.kind}`));
     const dismissed = await prisma.portalSyncChange.findMany({ where: { status: "DISMISSED" }, select: { id: true, empNo: true, kind: true } });
-    const expire = dismissed.filter((c) => !planned.has(`${c.empNo}|${c.kind}`)).map((c) => c.id);
+    const expire = dismissed.filter((c) => !planned.has(`${c.empNo}|${c.kind}`) && !(keepResign && c.kind === "RESIGN")).map((c) => c.id);
     if (expire.length) await prisma.portalSyncChange.updateMany({ where: { id: { in: expire }, status: "DISMISSED" }, data: { status: "EXPIRED" } });
 
     await prisma.portalSyncRun.update({

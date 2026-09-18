@@ -94,14 +94,17 @@ export async function POST(request: NextRequest) {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const leaversUrl = typeof body.leaversUrl === "string" ? body.leaversUrl.trim() : "";
     if (leaversUrl && !isSheetUrl(leaversUrl)) return NextResponse.json({ error: "퇴사자 탭 주소는 구글 시트 주소(https://docs.google.com/spreadsheets/d/…)여야 합니다." }, { status: 400 });
-    if (!validRosterUrl(url)) return NextResponse.json({ error: "주소는 인사 원장(https://docs.google.com/spreadsheets/d/…) 또는 포털 읽기 전용 뷰(https://…supabase.co/rest/v1/…) 주소여야 합니다." }, { status: 400 });
+    // 원장 주소는 화면에 다시 보여주지 않으므로, 퇴사자 탭만 바꿀 때는 원장 주소를 비워 둬도 된다(검증관 D7)
+    if (!url && !leaversUrl) return NextResponse.json({ error: "바꿀 주소를 입력해주세요." }, { status: 400 });
+    if (url && !validRosterUrl(url)) return NextResponse.json({ error: "주소는 인사 원장(https://docs.google.com/spreadsheets/d/…) 또는 포털 읽기 전용 뷰(https://…supabase.co/rest/v1/…) 주소여야 합니다." }, { status: 400 });
     const put = (key: string, value: string) => prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-    await put(PORTAL_SETTING.url, url);
+    if (url) await put(PORTAL_SETTING.url, url);
     // 비워 두면 기존 키를 유지한다(화면에 키를 다시 보여주지 않으므로)
     if (apikey) await put(PORTAL_SETTING.apikey, apikey);
     if (token) await put(PORTAL_SETTING.token, token);
     if (leaversUrl) await put(PORTAL_SETTING.leaversUrl, leaversUrl);
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 연결 정보 저장 (${new URL(url).host}${apikey ? " · API 키 교체" : ""}${token ? " · 토큰 교체" : ""})` });
+    const parts = [url ? `원장 ${new URL(url).host}` : "", leaversUrl ? "퇴사자 탭 교체" : "", apikey ? "API 키 교체" : "", token ? "토큰 교체" : ""].filter(Boolean);
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 연결 정보 저장 (${parts.join(" · ")})` });
     return NextResponse.json({ ok: true });
   }
 
