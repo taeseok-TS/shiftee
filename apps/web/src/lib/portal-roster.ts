@@ -189,9 +189,12 @@ function findLeaveDate(leavers: Map<string, LeaverRow[]>, name: string, hireDate
   const near = (a: string, b: string) => !!a && !!b && Math.abs(Date.parse(a) - Date.parse(b)) <= 86_400_000;
   // 줄마다 **맞은 날짜**(입사일 또는 재입사일)를 기억하고, 퇴사일이 그 날짜 **뒤**인 줄만 쓴다.
   // 재입사일로 맞은 줄의 퇴사일이 첫 재직 때 것(재입사보다 앞)이면 지금 재직자를 옛 날짜로 퇴사시킨다(검증관 D1 — 실데이터 3줄).
+  // ⚠ 퇴사일은 입사일·재입사일 **둘 다보다 뒤**여야 그 줄의 "마지막 퇴사"다. 맞은 날짜 하나만 보면
+  //   재입사 줄(입사 2004 · 재입사 2019 · 퇴사 2005)이 최초 입사일 2004로 맞아 2005년 퇴사일을 돌려줬다(검증관 D1-잔존).
   const hits = cands.filter((l) => {
-    const start = [l.joinDate, l.rejoinDate].find((x) => hireDates.some((h) => near(x, h)));
-    return !!start && l.leaveDate > start;
+    const matched = [l.joinDate, l.rejoinDate].some((x) => hireDates.some((h) => near(x, h)));
+    const lastStart = [l.joinDate, l.rejoinDate].filter(Boolean).sort().pop() ?? "";
+    return matched && l.leaveDate > lastStart;
   });
   if (!hits.length) return { reason: "퇴사자 탭에 같은 이름은 있지만 입사일이 맞는 줄이 없습니다(동명이인이거나 입사일이 다르게 적힘)" };
   // 지점도 맞아야 한다 — 지점 이동이 퇴사로 적힌 줄이 있다(검증관 D2: 재직 중인 사람이 이전 지점 "퇴사" 줄에 맞음).
@@ -570,7 +573,12 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
     let leavers: LeaverRow[] = [];
     let leaversError = "";
     if (cfg.leaversUrl) {
-      try { leavers = await fetchSheetLeavers(cfg.leaversUrl); }
+      try {
+        leavers = await fetchSheetLeavers(cfg.leaversUrl);
+        // 읽기는 됐는데 쓸 줄이 0개면(퇴사일 표기가 통째로 바뀐 경우 등) 실패로 본다 — 안 그러면 퇴사 대기·무시가
+        // 전부 정리되고 다음 날 다시 떠 알림이 또 간다(검증관 D6)
+        if (!leavers.length) leaversError = "퇴사일을 읽을 수 있는 줄이 하나도 없습니다(퇴사일 표기를 확인해주세요)";
+      }
       catch (e) { leaversError = (e as Error)?.message || String(e); }
     }
     const plan = await planPortalSync(rows, leavers);
