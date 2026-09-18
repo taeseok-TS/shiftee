@@ -38,12 +38,13 @@ export async function POST(request: NextRequest) {
     //   기간 하나로 거는 편이 빠진 종류가 있어도 막힌다. 그 뒤의 정리는 퇴사일(또는 휴지통 삭제)로 한다.
     if (Date.now() - user.createdAt.getTime() > BULK_DELETE_WINDOW_MS) {
       failed++;
-      errors.push(`${user.name}: 등록한 지 7일이 지난 직원은 여기서 삭제할 수 없습니다. 퇴사는 직원 정보에서 퇴사일을 넣어 처리해주세요.`);
+      // 잘못 올린 사람을 퇴사 처리하면 퇴직자 집계에 가짜로 영구히 잡힌다 — 그 경우는 휴지통 삭제로 안내한다(검증관 B)
+      errors.push(`${user.name}: 등록한 지 7일이 지난 직원은 여기서 삭제할 수 없습니다. 실제 직원의 퇴사는 직원 정보에서 퇴사일로 처리하고, 잘못 올린 직원이면 메인 관리자에게 휴지통 삭제를 요청해주세요.`);
       continue;
     }
     if (await prisma.userDevice.count({ where: { userId: id } })) {
-      failed++; // 앱에 로그인한 적이 있으면 잘못 올린 직원이 아니다
-      errors.push(`${user.name}: 앱에 로그인한 기록이 있어 삭제할 수 없습니다. 퇴사일로 처리해주세요.`);
+      failed++; // 앱에 기기가 등록돼 있으면 실제로 쓴 직원이다
+      errors.push(`${user.name}: 앱에 등록된 기기가 있어 삭제할 수 없습니다. 퇴사일로 처리해주세요.`);
       continue;
     }
     // ⚠ 메신저 기록(메시지·반응·북마크·리마인더·예약 메시지)은 스키마가 **연쇄 삭제(Cascade)** 라 아래 FK 실패에
