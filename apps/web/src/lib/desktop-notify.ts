@@ -15,9 +15,13 @@ export type DesktopNotifyState =
   | "off"         // 직원이 직접 끔
   | "on";
 
-/** 저장된 선택 — "on" | "off" | null(아직 고른 적 없거나 지워짐). 접근이 막힌 환경은 null. */
+// 저장공간이 막힌 브라우저(모든 쿠키 차단 등)에서도 이 창이 떠 있는 동안은 선택이 먹게 — 안 그러면
+// "끄기"를 눌러도 허용이 살아 있어 다시 켜짐으로 읽힌다(검증 notify1 #3).
+let memoryChoice: string | null = null;
+
+/** 저장된 선택 — "on" | "off" | null(아직 고른 적 없거나 지워짐). */
 export function readDesktopNotifyChoice(): string | null {
-  try { return localStorage.getItem(DESKTOP_NOTIFY_KEY); } catch { return null; }
+  try { return localStorage.getItem(DESKTOP_NOTIFY_KEY) ?? memoryChoice; } catch { return memoryChoice; }
 }
 
 export function readDesktopNotifyState(): DesktopNotifyState {
@@ -30,7 +34,8 @@ export function readDesktopNotifyState(): DesktopNotifyState {
 }
 
 export function saveDesktopNotifyChoice(on: boolean) {
-  try { localStorage.setItem(DESKTOP_NOTIFY_KEY, on ? "on" : "off"); } catch { /* 저장 불가 — 허용만으로 동작 */ }
+  memoryChoice = on ? "on" : "off";
+  try { localStorage.setItem(DESKTOP_NOTIFY_KEY, memoryChoice); } catch { /* 저장 불가 — 이 창에서만 기억 */ }
   window.dispatchEvent(new Event(DESKTOP_NOTIFY_EVENT));
 }
 
@@ -38,10 +43,16 @@ export function saveDesktopNotifyChoice(on: boolean) {
 export async function enableDesktopNotify(): Promise<DesktopNotifyState> {
   if (typeof Notification === "undefined") return "unsupported";
   const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  if (perm === "denied") {
+    // 브라우저 창에서 직접 [차단]을 눌렀다 — 끈 것으로 저장해 "허용으로 바꿔 주세요" 안내가
+    // 켤 때마다 따라다니지 않게 한다(검증 notify1 #1). 다시 받으려면 사이트 설정을 풀고 종을 켜면 된다.
+    saveDesktopNotifyChoice(false);
+    return "denied";
+  }
   if (perm !== "granted") {
     // 창을 그냥 닫았으면(default) 선택은 건드리지 않는다 — 다음에 켤 때 다시 안내한다
     window.dispatchEvent(new Event(DESKTOP_NOTIFY_EVENT));
-    return perm === "denied" ? "denied" : "ask";
+    return "ask";
   }
   saveDesktopNotifyChoice(true);
   return "on";

@@ -49,6 +49,8 @@ export default function SettingsPage() {
   // 켜짐 규칙은 lib/desktop-notify 하나 — 직접 끈 경우만 꺼짐(허용이 있으면 기록이 비어도 켜짐).
   // "ask"(허용이 아직 없음)는 스위치에선 꺼짐으로 보이고, 켜면 브라우저가 허용을 묻는다.
   const readBrowser = useCallback((): BrowserState => {
+    // 브라우저가 막고 있으면 끈 기록보다 먼저 알려 준다 — 켜려면 사이트 설정부터 풀어야 하니까
+    if (typeof Notification !== "undefined" && Notification.permission === "denied") return "denied";
     const st = readDesktopNotifyState();
     return st === "ask" ? "off" : st;
   }, []);

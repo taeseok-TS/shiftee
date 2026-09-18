@@ -8,6 +8,7 @@
 // 탭이 여러 개 열려 있으면 메시지별 Web Lock을 선점한 탭 1개만 알림을 생성한다.
 // (여러 탭이 같은 tag로 동시에 생성하면 크롬이 배너 없이 조용히 교체해 알림이 안 보이는 문제 방지)
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { openWorkStream } from "@/lib/work-stream";
 import {
   DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyChoice, readDesktopNotifyState,
@@ -39,10 +40,20 @@ function promptFor(): "ask" | "denied" | null {
   return null;
 }
 
+// 로그인 전 화면 — 여기로 오면 로그아웃된 것이므로 구독·안내를 멈춘다.
+// (로그아웃은 router.push("/login") 이라 루트 레이아웃이 다시 그려지지 않는다 — 검증 notify1 #2)
+const SIGNED_OUT_PATHS = ["/login", "/forgot-password", "/reset-password"];
+// 로그인한 직원이 열 수도 있는 공개 화면(외부 서명·진위 확인 등) — 알림은 두되 켜기 안내는 띄우지 않는다
+const NO_PROMPT_PATHS = [...SIGNED_OUT_PATHS, "/sign/", "/sms-relay/", "/privacy", "/verify/", "/contract-open", "/docs/viewer"];
+const under = (path: string, list: string[]) => list.some((p) => path === p || path.startsWith(p.endsWith("/") ? p : p + "/"));
+
 export default function WorkDesktopNotifier() {
+  const pathname = usePathname() || "/";
   const [prompt, setPrompt] = useState<"ask" | "denied" | null>(null);
   const [busy, setBusy] = useState(false);
   const loggedInRef = useRef(false);
+  const startRef = useRef<(() => void) | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
   const enabledRef = useRef(false);
   const myIdRef = useRef("");
   const myNameRef = useRef("");
@@ -51,6 +62,7 @@ export default function WorkDesktopNotifier() {
   useEffect(() => {
     let closeStream: (() => void) | null = null;
     let alive = true;
+    let gen = 0; // 로그인 확인 도중 로그아웃되면 늦게 온 응답을 버린다
 
     // 직원이 직접 끈 경우만 꺼짐 — 브라우저 허용이 있으면 기록이 비어도 켜짐(lib/desktop-notify)
     const readEnabled = () => {
@@ -67,7 +79,12 @@ export default function WorkDesktopNotifier() {
     // 브라우저 사이트 설정에서 허용·차단을 바꾸면 바로 따라간다(지원 브라우저만)
     let permStatus: PermissionStatus | null = null;
     navigator.permissions?.query({ name: "notifications" as PermissionName })
-      .then((st) => { if (!alive) return; permStatus = st; st.onchange = onChanged; })
+      .then((st) => {
+        if (!alive) return;
+        permStatus = st;
+        // 공용 이벤트로 알려 채팅 종·환경설정 스위치도 함께 따라가게 한다(검증 notify1 #4)
+        st.onchange = () => window.dispatchEvent(new Event(DESKTOP_NOTIFY_EVENT));
+      })
       .catch(() => {});
 
     const show = async (channelId: string) => {
@@ -128,26 +145,41 @@ export default function WorkDesktopNotifier() {
       } catch { /* 조용히 무시 */ }
     };
 
-    // 로그인 상태에서만 구독 (로그인·공개 페이지에서는 조용히 비활성)
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!alive || !d?.user) return;
-        loggedInRef.current = true;
-        setPrompt(promptFor());
-        myIdRef.current = d.user.id || "";
-        myNameRef.current = d.user.name || "";
-        fetch("/api/me/notify").then((r) => (r.ok ? r.json() : null)).then((n) => {
-          if (n) muteAllRef.current = !!n.workMuteAll;
-        }).catch(() => {});
-        closeStream = openWorkStream((ev) => {
-          try {
-            const e = JSON.parse(ev.data);
-            if (e.type === "message") notify(e.channelId, e.senderId, e.msgId);
-          } catch { /* noop */ }
-        });
-      })
-      .catch(() => {});
+    // 로그인 상태에서만 구독 (로그인·공개 페이지에서는 조용히 비활성).
+    // 로그인 화면에서 로그인하면 화면 이동만 일어나므로, 경로가 바뀔 때 다시 불러 붙인다.
+    const start = () => {
+      if (loggedInRef.current) return;
+      const my = ++gen;
+      fetch("/api/auth/me")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!alive || my !== gen || !d?.user || loggedInRef.current) return;
+          loggedInRef.current = true;
+          setPrompt(promptFor());
+          myIdRef.current = d.user.id || "";
+          myNameRef.current = d.user.name || "";
+          fetch("/api/me/notify").then((r) => (r.ok ? r.json() : null)).then((n) => {
+            if (n) muteAllRef.current = !!n.workMuteAll;
+          }).catch(() => {});
+          closeStream = openWorkStream((ev) => {
+            try {
+              const e = JSON.parse(ev.data);
+              if (e.type === "message") notify(e.channelId, e.senderId, e.msgId);
+            } catch { /* noop */ }
+          });
+        })
+        .catch(() => {});
+    };
+    const stop = () => {
+      gen++;
+      loggedInRef.current = false;
+      closeStream?.();
+      closeStream = null;
+      setPrompt(null);
+    };
+    // 첫 구독은 아래 경로 effect 가 건다(같은 커밋 순서로 바로 뒤에 돈다) — 여기서도 부르면 로그인 확인이 두 번 나간다
+    startRef.current = start;
+    stopRef.current = stop;
 
     return () => {
       alive = false;
@@ -155,10 +187,18 @@ export default function WorkDesktopNotifier() {
       window.removeEventListener(DESKTOP_NOTIFY_EVENT, onChanged);
       window.removeEventListener("storage", onChanged);
       if (permStatus) permStatus.onchange = null;
+      startRef.current = null;
+      stopRef.current = null;
     };
   }, []);
 
-  if (!prompt) return null;
+  // 로그아웃(로그인 화면으로 이동)이면 멈추고, 로그인 뒤 다른 화면으로 오면 다시 붙인다
+  useEffect(() => {
+    if (under(pathname, SIGNED_OUT_PATHS)) stopRef.current?.();
+    else startRef.current?.();
+  }, [pathname]);
+
+  if (!prompt || under(pathname, NO_PROMPT_PATHS)) return null;
   const turnOn = async () => {
     setBusy(true);
     try { await enableDesktopNotify(); } finally { setBusy(false); }
