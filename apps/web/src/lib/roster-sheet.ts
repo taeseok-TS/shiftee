@@ -86,7 +86,8 @@ const dateOnly = (s: string) => {
   return `${y}-${mo}-${d}`;
 };
 
-export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
+/** 시트 한 탭을 CSV 로 받아 행 배열로. 공유가 끊겨 로그인 화면이 오면 오류로 세운다. */
+async function fetchSheetRows(url: string, label: string): Promise<string[][]> {
   if (!isSheetUrl(url)) throw new Error("연결 주소가 올바르지 않습니다(https://docs.google.com/spreadsheets/d/… 형식이어야 합니다).");
   const res = await fetch(sheetCsvUrl(url), {
     headers: { Accept: "text/csv" },
@@ -94,15 +95,45 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
     redirect: "follow", // 구글은 내려받기 주소로 한 번 넘긴다(같은 구글 도메인 안)
     signal: AbortSignal.timeout(30_000),
   });
-  if (!res.ok) throw new Error(`인사 원장 응답 ${res.status} — 시트 공유 설정을 확인해주세요.`);
+  if (!res.ok) throw new Error(`${label} 응답 ${res.status} — 시트 공유 설정을 확인해주세요.`);
   const text = await res.text();
   // 공유가 끊기면 CSV 대신 로그인 화면(HTML)이 온다 — 그걸 0명으로 읽으면 전원 퇴사로 보일 수 있다
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("csv") || /^\s*<(!doctype|html)/i.test(text))
-    throw new Error("시트를 읽지 못했습니다(로그인 화면이 돌아왔습니다). 공유 설정을 확인해주세요.");
-
+    throw new Error(`${label}을 읽지 못했습니다(로그인 화면이 돌아왔습니다). 공유 설정을 확인해주세요.`); // 두 이름 모두 받침으로 끝난다
   const rows = parseCsv(text);
-  if (rows.length < 2) throw new Error("인사 원장이 비어 있습니다.");
+  if (rows.length < 2) throw new Error(`${label}이 비어 있습니다.`);
+  return rows;
+}
+
+// ── 퇴사자 탭 ─────────────────────────────────────────────
+// 같은 파일의 「퇴사자 (RAW)」 탭(2026-09-18 디렉터 지시). 인사 원장에 퇴사일 칸이 없어서,
+// 원장에서 퇴사로 바뀌었거나 원장에서 사라진 큐브티 재직자의 **퇴사일을 여기서 찾는다.**
+// ⚠ 이 탭에는 **사번이 없다.** 그리고 같은 이름이 2줄 이상인 경우가 350명이다(동명이인·중복 줄).
+//   이름만으로 찾으면 2006년에 퇴사한 동명이인의 퇴사일로 지금 직원을 퇴사시킨다(실측: 이지영).
+//   그래서 이름 + **입사일**이 모두 맞을 때만 쓴다(portal-roster 의 findLeaveDate).
+export type LeaverRow = { name: string; branch: string; joinDate: string; rejoinDate: string; leaveDate: string };
+
+export async function fetchSheetLeavers(url: string): Promise<LeaverRow[]> {
+  const rows = await fetchSheetRows(url, "퇴사자 탭");
+  const hdr = rows[0].map((h) => h.trim());
+  const at = (n: string) => hdr.indexOf(n);
+  const col = { name: at("이름"), branch: at("지점"), join: at("입사일"), rejoin: at("재입사일"), leave: at("퇴사일") };
+  const need = (["name", "join", "leave"] as const).filter((k) => col[k] < 0);
+  if (need.length) throw new Error(`퇴사자 탭에서 열을 찾지 못했습니다: ${need.map((k) => ({ name: "이름", join: "입사일", leave: "퇴사일" })[k]).join(", ")}.`);
+  const cell = (r: string[], i: number) => (i >= 0 && i < r.length ? r[i].trim() : "");
+  const out: LeaverRow[] = [];
+  for (const r of rows.slice(1)) {
+    const leaveDate = dateOnly(cell(r, col.leave));
+    const name = cell(r, col.name);
+    if (!name || !leaveDate) continue; // 퇴사일이 비었거나 못 읽는 줄은 쓰지 않는다
+    out.push({ name, branch: cell(r, col.branch), joinDate: dateOnly(cell(r, col.join)), rejoinDate: dateOnly(cell(r, col.rejoin)), leaveDate });
+  }
+  return out;
+}
+
+export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
+  const rows = await fetchSheetRows(url, "인사 원장");
   const hdr = rows[0].map((h) => h.trim());
   const pick = (names: readonly string[]) => {
     for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; }

@@ -3,6 +3,7 @@ import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { PORTAL_SETTING, decideChange, fetchPortalRoster, isAutoApply, portalConfig, runPortalSync, validRosterUrl } from "@/lib/portal-roster";
+import { isSheetUrl } from "@/lib/roster-sheet";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
   if (new URL(request.url).searchParams.get("brief") === "1") return NextResponse.json({ configured: !!cfg, autoApply });
 
   const [settings, runs, pending, recent, superAdmin] = await Promise.all([
-    prisma.appSetting.findMany({ where: { key: { in: [PORTAL_SETTING.url, PORTAL_SETTING.apikey, PORTAL_SETTING.token] } } }),
+    prisma.appSetting.findMany({ where: { key: { in: [PORTAL_SETTING.url, PORTAL_SETTING.leaversUrl, PORTAL_SETTING.apikey, PORTAL_SETTING.token] } } }),
     prisma.portalSyncRun.findMany({ orderBy: { startedAt: "desc" }, take: 10 }),
     prisma.portalSyncChange.findMany({ where: { status: { in: ["PENDING", "APPLYING"] } }, orderBy: [{ kind: "asc" }, { name: "asc" }], take: 500 }),
     prisma.portalSyncChange.findMany({ where: { status: { in: ["APPLIED", "DONE", "DISMISSED"] } }, orderBy: { updatedAt: "desc" }, take: 60 }),
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     configured: !!cfg,
     canEditConnection: superAdmin,
-    connection: { urlLabel, urlSet: !!val(PORTAL_SETTING.url), apikeySet: !!val(PORTAL_SETTING.apikey), tokenSet: !!val(PORTAL_SETTING.token) },
+    connection: { urlLabel, urlSet: !!val(PORTAL_SETTING.url), leaversSet: !!val(PORTAL_SETTING.leaversUrl), apikeySet: !!val(PORTAL_SETTING.apikey), tokenSet: !!val(PORTAL_SETTING.token) },
     autoApply,
     // 요약(skipped·missingInPortal 목록)은 가장 최근 실행 것만 싣는다
     runs: runs.map((r, i) => ({ ...r, summary: i === 0 ? r.summary : null })),
@@ -91,12 +92,15 @@ export async function POST(request: NextRequest) {
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const apikey = typeof body.apikey === "string" ? body.apikey.trim() : "";
     const token = typeof body.token === "string" ? body.token.trim() : "";
+    const leaversUrl = typeof body.leaversUrl === "string" ? body.leaversUrl.trim() : "";
+    if (leaversUrl && !isSheetUrl(leaversUrl)) return NextResponse.json({ error: "퇴사자 탭 주소는 구글 시트 주소(https://docs.google.com/spreadsheets/d/…)여야 합니다." }, { status: 400 });
     if (!validRosterUrl(url)) return NextResponse.json({ error: "주소는 인사 원장(https://docs.google.com/spreadsheets/d/…) 또는 포털 읽기 전용 뷰(https://…supabase.co/rest/v1/…) 주소여야 합니다." }, { status: 400 });
     const put = (key: string, value: string) => prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     await put(PORTAL_SETTING.url, url);
     // 비워 두면 기존 키를 유지한다(화면에 키를 다시 보여주지 않으므로)
     if (apikey) await put(PORTAL_SETTING.apikey, apikey);
     if (token) await put(PORTAL_SETTING.token, token);
+    if (leaversUrl) await put(PORTAL_SETTING.leaversUrl, leaversUrl);
     await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 연결 정보 저장 (${new URL(url).host}${apikey ? " · API 키 교체" : ""}${token ? " · 토큰 교체" : ""})` });
     return NextResponse.json({ ok: true });
   }

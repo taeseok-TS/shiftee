@@ -18,7 +18,7 @@ type Summary = {
   missingInPortal?: { empNo: number | null; name: string; branch: string | null }[];
 };
 type Run = { id: string; trigger: string; startedAt: string; finishedAt: string | null; ok: boolean; error: string | null; fetched: number; matched: number; applied: number; pending: number; skipped: number; actorName: string | null; summary: Summary | null };
-type Data = { configured: boolean; canEditConnection: boolean; connection: { urlLabel: string; urlSet: boolean; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
+type Data = { configured: boolean; canEditConnection: boolean; connection: { urlLabel: string; urlSet: boolean; leaversSet?: boolean; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
 
 const KIND_LABEL: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직·재입사", LINK: "사번 연결" };
 const KIND_TONE: Record<string, string> = {
@@ -100,7 +100,7 @@ function Detail({ c }: { c: Change }) {
 export default function PortalSyncPage() {
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [conn, setConn] = useState({ url: "", apikey: "", token: "" });
+  const [conn, setConn] = useState({ url: "", leaversUrl: "", apikey: "", token: "" });
   const load = useCallback(() => {
     fetch("/api/admin/portal-sync").then((r) => r.json()).then((d: Data) => setData(d)) // 주소는 다시 내려주지 않는다 — 시트 주소 자체가 열쇠라서(검증관 2).catch(() => toast.error("불러오지 못했습니다."));
   }, []);
@@ -146,7 +146,7 @@ export default function PortalSyncPage() {
     } finally { setBusy(null); }
   }
   async function saveConn() {
-    if (await post({ action: "saveConnection", ...conn }, "save")) { toast.success("연결 정보를 저장했습니다."); setConn((c) => ({ ...c, apikey: "", token: "" })); load(); }
+    if (await post({ action: "saveConnection", ...conn }, "save")) { toast.success("연결 정보를 저장했습니다."); setConn((c) => ({ ...c, apikey: "", token: "", leaversUrl: "" })); load(); }
   }
   async function testConn() {
     const d = await post({ action: "testConnection" }, "test");
@@ -264,6 +264,7 @@ export default function PortalSyncPage() {
         {data.canEditConnection ? (
           <div className="grid md:grid-cols-3 gap-2">
             <Input placeholder={data.connection.urlSet ? `주소 — 등록됨(${data.connection.urlLabel}). 바꿀 때만 입력` : "https://docs.google.com/spreadsheets/d/… (인사 원장 주소)"} value={conn.url} onChange={(e) => setConn({ ...conn, url: e.target.value })} className="md:col-span-3" />
+            <Input placeholder={data.connection.leaversSet ? "퇴사자 탭 — 등록됨. 바꿀 때만 입력" : "퇴사자 탭 주소(선택) — 같은 파일의 「퇴사자 (RAW)」 탭을 연 주소. 퇴사일을 여기서 찾습니다"} value={conn.leaversUrl} onChange={(e) => setConn({ ...conn, leaversUrl: e.target.value })} className="md:col-span-3" />
             <Input type="password" autoComplete="off" placeholder={data.connection.apikeySet ? "API 키 — 등록됨(바꿀 때만 입력)" : "API 키 (시트는 비워 두세요)"} value={conn.apikey} onChange={(e) => setConn({ ...conn, apikey: e.target.value })} />
             <Input type="password" autoComplete="off" placeholder={data.connection.tokenSet ? "읽기 전용 토큰 — 등록됨(바꿀 때만 입력)" : "읽기 전용 토큰 (시트는 비워 두세요)"} value={conn.token} onChange={(e) => setConn({ ...conn, token: e.target.value })} />
             <div className="flex gap-2">

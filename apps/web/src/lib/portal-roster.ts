@@ -15,9 +15,9 @@ import { syncMainManagerFor } from "@/lib/manager-branches";
 import { logAudit } from "@/lib/audit";
 import { isResigned, kstTodayMidnight } from "@/lib/resign";
 import { currentLeaveYear } from "@/lib/leave-calc";
-import { isSheetUrl, fetchSheetRoster } from "@/lib/roster-sheet";
+import { isSheetUrl, fetchSheetRoster, fetchSheetLeavers, type LeaverRow } from "@/lib/roster-sheet";
 
-export const PORTAL_SETTING = { url: "portalRosterUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
+export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
 // 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 값·같은 규칙(24시간 뒤 봇이 변경 요청)
 const TEMP_PASSWORD = "12345678";
@@ -30,17 +30,18 @@ type FieldKey = "name" | "branch" | "jobGroup" | "position" | "hireDate";
 export type Fields = Partial<Record<FieldKey, [string | null, string]>>;
 
 // ── 연결 설정 ───────────────────────────────────────────────
-type Cfg = { url: string; apikey: string; token: string };
+type Cfg = { url: string; apikey: string; token: string; leaversUrl: string };
 async function setting(key: string): Promise<string> {
   const r = await prisma.appSetting.findUnique({ where: { key } });
   return r?.value ?? "";
 }
 export async function portalConfig(): Promise<Cfg | null> {
-  const [url, apikey, token] = await Promise.all([setting(PORTAL_SETTING.url), setting(PORTAL_SETTING.apikey), setting(PORTAL_SETTING.token)]);
+  const [url, apikey, token, leaversUrl] = await Promise.all([setting(PORTAL_SETTING.url), setting(PORTAL_SETTING.apikey), setting(PORTAL_SETTING.token), setting(PORTAL_SETTING.leaversUrl)]);
   if (!url) return null;
   // 구글 시트(인사 원장)은 공유 주소만으로 읽는다 — 열쇠가 없어도 설정된 것으로 본다
   if (!apikey && !isSheetUrl(url)) return null;
-  return { url, apikey, token: token || apikey };
+  // 퇴사자 탭은 선택 — 없으면 퇴사일을 못 찾아 퇴사는 종전처럼 건너뜀으로만 알린다
+  return { url, apikey, token: token || apikey, leaversUrl: isSheetUrl(leaversUrl) ? leaversUrl : "" };
 }
 export async function isAutoApply(): Promise<boolean> {
   return (await setting(PORTAL_SETTING.auto)) === "1";
@@ -176,7 +177,26 @@ export type PlanResult = {
   fetched: number; matched: number;
 };
 
-export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
+/**
+ * 퇴사자 탭에서 이 직원의 퇴사일을 찾는다 — **이름 + 입사일**(하루 차까지)이 모두 맞는 줄만.
+ * 퇴사자 탭에는 사번이 없고 같은 이름이 350명이라, 이름만 보면 2006년 동명이인의 퇴사일을 쓰게 된다(실측).
+ * 재입사자는 재입사일로도 맞춰 본다. 줄이 여럿이어도 퇴사일이 하나로 모이면 쓰고, 갈리면 쓰지 않는다.
+ */
+type LeaveHit = { date: string; branch: string } | { reason: string };
+function findLeaveDate(leavers: Map<string, LeaverRow[]>, name: string, hireDates: string[]): LeaveHit {
+  const cands = leavers.get(normName(name)) ?? [];
+  if (!cands.length) return { reason: "퇴사자 탭에 아직 없습니다" };
+  const near = (a: string, b: string) => !!a && !!b && Math.abs(Date.parse(a) - Date.parse(b)) <= 86_400_000;
+  const hits = cands.filter((l) => hireDates.some((h) => near(l.joinDate, h) || near(l.rejoinDate, h)) && (!l.joinDate || l.leaveDate >= l.joinDate));
+  if (!hits.length) return { reason: "퇴사자 탭에 같은 이름은 있지만 입사일이 맞는 사람이 없습니다(동명이인)" };
+  const dates = [...new Set(hits.map((h) => h.leaveDate))];
+  if (dates.length > 1) return { reason: `퇴사자 탭에 같은 이름·입사일로 퇴사일이 여럿입니다(${dates.join(", ")})` };
+  return { date: dates[0], branch: hits[0].branch };
+}
+
+export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] = []): Promise<PlanResult> {
+  const leavers = new Map<string, LeaverRow[]>();
+  for (const l of leaverRows) { const k = normName(l.name); leavers.set(k, [...(leavers.get(k) ?? []), l]); }
   const [users, branchRows] = await Promise.all([
     prisma.user.findMany({ where: { deletedAt: null, role: { not: "ADMIN" }, email: { notIn: BOT_EMAILS } }, select: userSelect }),
     prisma.branch.findMany({ select: { name: true, countInStats: true } }),
@@ -241,8 +261,15 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     }
     if (ps === "RESIGNED") {
       // 퇴사일이 비어 있으면 "오늘"로 채우지 않는다 — 날마다 내용이 달라져 [무시]가 안 먹고 실제 퇴사일도 틀린다(M2)
-      if (!r.leaveDate) skip(r, "명부에서 퇴사로 바뀌었지만 퇴사일을 알 수 없습니다(명부에 퇴사일 칸이 없습니다) — 직원 관리에서 퇴사일을 직접 넣어주세요");
-      else if (dstr(u.resignDate) !== r.leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: r.leaveDate, portalStatus: r.status, ...idf } });
+      // 인사 원장에는 퇴사일 칸이 없다 → 퇴사자 탭에서 이름+입사일로 찾는다(2026-09-18 디렉터 지시)
+      let leaveDate = r.leaveDate;
+      let from = "명부";
+      if (!leaveDate) {
+        const hit = findLeaveDate(leavers, u.name, [dstr(u.hireDate), r.joinDate].filter(Boolean));
+        if ("reason" in hit) { skip(r, `명부에서 퇴사로 바뀌었지만 퇴사일을 알 수 없습니다 — ${hit.reason}. 직원 관리에서 퇴사일을 직접 넣어주세요`); continue; }
+        leaveDate = hit.date; from = "퇴사자 탭";
+      }
+      if (dstr(u.resignDate) !== leaveDate) plans.push({ ...base, kind: "RESIGN", diff: { resignDate: leaveDate, portalStatus: r.status, leaveDateFrom: from, ...idf } });
       continue;
     }
     if (ps === "LEAVE" && cs === "ACTIVE") plans.push({ ...base, kind: "LEAVE", diff: { portalStatus: r.status, ...idf } });
@@ -321,9 +348,23 @@ export async function planPortalSync(rows: PortalRow[]): Promise<PlanResult> {
     });
   }
 
-  const missingInPortal = free
-    .filter((u) => !taken.has(u.id) && !(u.branch && notCounted.has(u.branch)))
-    .map((u) => ({ empNo: u.empNo, name: u.name, branch: u.branch }));
+  // 큐브티엔 재직인데 명부에 아예 없는 사람 → 퇴사자 탭에 이름+입사일로 있으면 퇴사 확인으로 올린다
+  // (디렉터: "원래 있었는데 인사명부에 없다면 퇴사명부를 찾아보고"). 없으면 종전처럼 목록으로만 알린다.
+  const missingInPortal: PlanResult["missingInPortal"] = [];
+  for (const u of free) {
+    if (taken.has(u.id) || (u.branch && notCounted.has(u.branch))) continue;
+    const hire = dstr(u.hireDate);
+    const hit = u.empNo != null && hire ? findLeaveDate(leavers, u.name, [hire]) : null;
+    if (hit && "date" in hit && dstr(u.resignDate) !== hit.date) {
+      plans.push({
+        empNo: u.empNo as number, portalId: `퇴사자탭:${u.name}`, name: u.name, userId: u.id, kind: "RESIGN",
+        diff: { resignDate: hit.date, portalStatus: "명부에 없음", leaveDateFrom: "퇴사자 탭",
+          target: { name: u.name, branch: u.branch, empNo: u.empNo, hireDate: hire }, portal: { branch: hit.branch || null, joinDate: hire } },
+      });
+      continue;
+    }
+    missingInPortal.push({ empNo: u.empNo, name: u.name, branch: u.branch });
+  }
   return { plans, skipped, roleMismatch, missingInPortal, fetched: rows.length, matched: seen.size };
 }
 
@@ -506,8 +547,16 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
     if (!cfg) throw new Error("인사명부 연결 정보가 없습니다.");
     const rows = await fetchPortalRoster(cfg);
     // 0명이면 큐브티 재직자 전원이 "명부에 없음"이 된다 — 설정 사고로 보고 멈춘다
-    if (!rows.length) throw new Error("포털에서 0명을 받았습니다. 뷰·권한 설정을 확인해주세요.");
-    const plan = await planPortalSync(rows);
+    if (!rows.length) throw new Error("인사명부에서 0명을 받았습니다. 공유·권한 설정을 확인해주세요.");
+    // 퇴사자 탭은 못 읽어도 나머지 동기화는 한다 — 대신 퇴사 건은 "퇴사일 모름"으로 건너뛰고 사유를 남긴다
+    let leavers: LeaverRow[] = [];
+    let leaversError = "";
+    if (cfg.leaversUrl) {
+      try { leavers = await fetchSheetLeavers(cfg.leaversUrl); }
+      catch (e) { leaversError = (e as Error)?.message || String(e); }
+    }
+    const plan = await planPortalSync(rows, leavers);
+    if (leaversError) plan.skipped.unshift({ portalId: "-", name: "퇴사자 탭", reason: `읽지 못했습니다 — ${leaversError}` });
     const auto = await isAutoApply();
     let applied = 0, pending = 0, newPending = 0;
     const keep = new Set<string>();
