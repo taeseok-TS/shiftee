@@ -28,6 +28,29 @@ async function logLoginFail(input: {
   }
 }
 
+/**
+ * 이메일로 사람 찾기 — 대소문자와 앞뒤 공백을 너그럽게 본다(2026-09-23).
+ * ① 입력 그대로 ② 소문자로 ③ 그래도 없으면 저장된 주소를 소문자로 맞춰 비교한다
+ *    (운영에 대문자가 섞인 주소가 실제로 있다).
+ * ⚠ Prisma 의 `mode: "insensitive"` 는 PostgreSQL 에서 **ILIKE** 로 번역돼 `%`·`_` 가 와일드카드가 된다.
+ *    로그인은 인증 없이 누구나 부르는 길목이라, `%` 하나로 임의의 사람을 골라 비밀번호를 맞춰 보는
+ *    길이 열린다(검증 loginhint2 A). 그래서 LIKE 를 쓰지 않고 값은 반드시 바인딩으로 넘긴다.
+ *    운영 주소 137개 중 127개가 `_` 를 포함한다 — 와일드카드였다면 매칭이 통째로 어긋났다.
+ */
+async function findUserByEmailLoose(email: string) {
+  const lower = email.toLowerCase();
+  const exact =
+    (await prisma.user.findUnique({ where: { email } })) ??
+    (lower === email ? null : await prisma.user.findUnique({ where: { email: lower } }));
+  if (exact) return exact;
+  // 저장된 쪽이 대문자인 경우 — 두 사람이 걸리면(대소문자만 다른 두 계정) 누구인지 확정할 수 없으니 실패로 둔다
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "User" WHERE lower("email") = ${lower} LIMIT 2
+  `;
+  if (rows.length !== 1) return null;
+  return prisma.user.findUnique({ where: { id: rows[0].id } });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { email: rawEmail, password, deviceId, deviceName, platform } = await request.json();
@@ -37,16 +60,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 앞뒤 공백·대소문자 때문에 못 들어오는 일을 없앤다(2026-09-23 진단 — 안드로이드 자판이
-    // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다).
-    // ⚠ Prisma 의 `mode: "insensitive"` 는 PostgreSQL 에서 **ILIKE** 로 번역되고 `%`·`_` 를
-    //   그대로 와일드카드로 쓴다. 로그인은 인증 없이 누구나 부르는 길목이라, `%` 하나로
-    //   "아무 사람이나" 골라 비밀번호를 맞춰 보는 길이 열린다(검증 loginhint2 A).
-    //   그래서 **정확히 일치하는 조회만** 두 번 한다 — 원문, 그리고 소문자.
+    // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다). 규칙은 findUserByEmailLoose 참고.
     const email = String(rawEmail).trim();
-    const lower = email.toLowerCase();
-    const user =
-      (await prisma.user.findUnique({ where: { email } })) ??
-      (lower === email ? null : await prisma.user.findUnique({ where: { email: lower } }));
+    const user = await findUserByEmailLoose(email);
     if (!user || !user.isActive) {
       await logLoginFail({
         email: String(rawEmail), userId: user?.id, userName: user?.name,
@@ -64,7 +80,7 @@ export async function POST(request: NextRequest) {
     // 퇴사자 차단 — 퇴사일 '당일'은 마지막 근무일이라 로그인이 되어야 한다(출퇴근 기록).
     // 날짜 필드는 UTC 자정 저장이므로 기준도 KST 오늘의 자정으로 맞춘다.
     if (isResigned(user.resignDate)) {
-      await logLoginFail({ email, userId: user.id, userName: user.name, reason: "RESIGNED", deviceName, platform });
+      await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "RESIGNED", deviceName, platform });
       return NextResponse.json(
         { error: "퇴사 처리된 계정입니다. 잘못된 경우 관리자에게 문의해주세요." },
         { status: 403 }

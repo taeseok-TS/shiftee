@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const name = str(row.name);
-        const email = str(row.email);
+        const email = str(row.email).toLowerCase(); // 소문자로 맞춰 저장(로그인 실패 원인 제거, 2026-09-23)
         const password = str(row.password);
 
         // 이메일은 매칭·생성 공통 필수

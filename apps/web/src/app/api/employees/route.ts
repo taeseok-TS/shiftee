@@ -90,7 +90,10 @@ export async function POST(request: NextRequest) {
   if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const body = await request.json();
-  const { name, email, password, role, department, jobGroup, position, branch, phone, hireDate, birthDate, empNo: empNoInput } = body;
+  const { name, email: emailRaw, password, role, department, jobGroup, position, branch, phone, hireDate, birthDate, empNo: empNoInput } = body;
+
+  // 주소는 소문자로 맞춰 저장한다 — 대문자로 들어오면 나중에 본인이 소문자로 치고 못 들어온다(2026-09-23)
+  const email = String(emailRaw || "").trim().toLowerCase();
 
   // 디버깅: 받은 branch 값 확인
   console.log("[POST /api/employees] 받은 branch 값:", branch, "| 타입:", typeof branch, "| 전체 body:", body);

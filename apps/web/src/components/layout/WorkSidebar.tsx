@@ -21,7 +21,7 @@ const workNavItems = [
 // 포털을 매니저까지 전체 공유하기로 해서, 큐브티워크 안에서 바로 들어갈 수 있게 한다. 외부 사이트라 새 탭으로 연다.
 const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 // 직영 포털은 큐브티(cubetee.co.kr) 전용이다 — 판매용 고객사 인스턴스도 같은 화면을 쓰므로 거기서는 숨긴다(검증관 3).
-// 판별은 lib/direct-host 하나로 모았다(로그인 화면의 EMS 안내도 같은 규칙을 쓴다 — 규칙이 두 벌이면 갈라진다).
+// 판별 규칙은 lib/is-direct-host 하나뿐이다(로그인 화면의 EMS 안내도 같은 규칙을 쓴다).
 const useShowPortalLink = useIsDirectHost;
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),

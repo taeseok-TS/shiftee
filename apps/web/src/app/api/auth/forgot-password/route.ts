@@ -14,9 +14,14 @@ export async function POST(request: NextRequest) {
   // ILIKE 가 되는 `mode: "insensitive"` 는 쓰지 않는다(`%` 로 남의 재설정을 건드릴 수 있다 — 검증 A).
   const addr = String(email).trim();
   const lowerAddr = addr.toLowerCase();
-  const user =
+  const found =
     (await prisma.user.findUnique({ where: { email: addr } })) ??
     (lowerAddr === addr ? null : await prisma.user.findUnique({ where: { email: lowerAddr } }));
+  // 저장된 주소가 대문자인 경우까지 — LIKE 없이(바인딩) 소문자끼리 맞춰 본다. 둘이면 확정 불가라 실패.
+  const loose = found
+    ? null
+    : await prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "User" WHERE lower("email") = ${lowerAddr} LIMIT 2`;
+  const user = found ?? (loose && loose.length === 1 ? await prisma.user.findUnique({ where: { id: loose[0].id } }) : null);
 
   // 디렉터 확정 문구 — 계정을 못 찾으면 관리자 문의 안내 (사내 시스템이라 존재 여부 숨기지 않음)
   if (!user || !user.isActive || user.deletedAt)
