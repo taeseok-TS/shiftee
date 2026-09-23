@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useIsDirectHost } from "@/lib/direct-host";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +14,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // 직영 전용 안내 — 판매용 고객사 인스턴스에는 EMS·eduplex 문구가 뜨면 안 된다(검증관 1)
+  const direct = useIsDirectHost();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,18 +69,24 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">이메일 (EMS 계정)</Label>
+              <Label htmlFor="email">{direct ? "이메일 (EMS 계정)" : "이메일"}</Label>
               {/* 로그인 실패의 상당수가 주소 오타였다(2026-09-23 진단: .net 을 .com 으로, 아이디만 입력).
-                  회색 안내로 어떤 주소인지 바로 알려 준다 — 직원 대부분이 @eduplex.net 이다. */}
+                  안내는 칸 안이 아니라 **칸 아래 회색 줄**에 둔다 — placeholder 는 폰 폭에서 잘리고,
+                  타이핑을 시작하면 사라져 정작 필요할 때 안 보인다(검증관 2). */}
               <Input
                 id="email"
                 type="email"
-                placeholder="EMS 이메일을 입력하세요 (예: gildong_hong@eduplex.net)"
+                placeholder={direct ? "EMS 이메일을 입력하세요" : "이메일을 입력하세요"}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoFocus
               />
+              {direct && (
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  아이디는 EMS 회사 이메일입니다. 예: gildong_hong@eduplex.net (본부 일부는 @nexcubecorp.com)
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">비밀번호</Label>

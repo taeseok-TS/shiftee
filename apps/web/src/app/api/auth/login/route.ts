@@ -30,13 +30,19 @@ async function logLoginFail(input: {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, deviceId, deviceName, platform } = await request.json();
+    const { email: rawEmail, password, deviceId, deviceName, platform } = await request.json();
 
-    if (!email || !password) {
+    if (!rawEmail || !password) {
       return NextResponse.json({ error: "이메일과 비밀번호를 입력해주세요." }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // 앞뒤 공백·대소문자 때문에 못 들어오는 일을 없앤다(2026-09-23 진단 — 안드로이드 자판이
+    // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다).
+    // 저장된 주소 자체가 대문자일 수도 있어, 정확히 일치가 없으면 대소문자 무시로 한 번 더 찾는다.
+    const email = String(rawEmail).trim();
+    const user =
+      (await prisma.user.findUnique({ where: { email } })) ??
+      (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } }));
     if (!user || !user.isActive) {
       await logLoginFail({
         email, userId: user?.id, userName: user?.name,

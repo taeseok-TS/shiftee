@@ -7,9 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useIsDirectHost } from "@/lib/direct-host";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const direct = useIsDirectHost(); // 고객사 인스턴스에는 EMS 문구를 띄우지 않는다
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -49,9 +51,14 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">이메일 (EMS 계정 — 로그인 아이디)</Label>
-                <Input id="email" type="email" placeholder="EMS 이메일을 입력하세요 (예: gildong_hong@eduplex.net)"
+                <Label htmlFor="email">{direct ? "이메일 (EMS 계정 — 로그인 아이디)" : "이메일 (로그인 아이디)"}</Label>
+                <Input id="email" type="email" placeholder={direct ? "EMS 이메일을 입력하세요" : "가입된 이메일을 입력하세요"}
                   value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+                {direct && (
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    아이디는 EMS 회사 이메일입니다. 예: gildong_hong@eduplex.net (본부 일부는 @nexcubecorp.com)
+                  </p>
+                )}
               </div>
               {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded p-2">{error}</p>}
               <Button type="submit" className="w-full" disabled={loading}>

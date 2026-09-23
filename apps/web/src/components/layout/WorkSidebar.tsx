@@ -1,11 +1,12 @@
 "use client";
 
 import { isSessionExpired } from "@/lib/session-expiry";
-import { useState, useEffect, useRef, useSyncExternalStore } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink } from "lucide-react";
+import { useIsDirectHost } from "@/lib/direct-host";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
@@ -20,12 +21,8 @@ const workNavItems = [
 // 포털을 매니저까지 전체 공유하기로 해서, 큐브티워크 안에서 바로 들어갈 수 있게 한다. 외부 사이트라 새 탭으로 연다.
 const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 // 직영 포털은 큐브티(cubetee.co.kr) 전용이다 — 판매용 고객사 인스턴스도 같은 화면을 쓰므로 거기서는 숨긴다(검증관 3).
-// 주소창의 호스트로 판단한다. 서버 렌더 때는 숨김(false)으로 시작해 화면이 뜬 뒤 보이므로 불일치가 없다.
-const noopSubscribe = () => () => {};
-function useShowPortalLink() {
-  // ⚠ 하위 주소 전체(*.cubetee.co.kr)로 보면 안 된다 — 고객사 기본 주소가 "회사명.cubetee.co.kr" 이다(검증관 1).
-  return useSyncExternalStore(noopSubscribe, () => /^(www\.)?cubetee\.co\.kr$/.test(window.location.hostname), () => false);
-}
+// 판별은 lib/direct-host 하나로 모았다(로그인 화면의 EMS 안내도 같은 규칙을 쓴다 — 규칙이 두 벌이면 갈라진다).
+const useShowPortalLink = useIsDirectHost;
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
 // 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수

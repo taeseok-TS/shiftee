@@ -52,16 +52,19 @@ export default function LoginScreen() {
         {/* 로그인 실패의 상당수가 주소 오타였다(2026-09-23 진단: .net 을 .com 으로, 아이디만 입력).
             회색 안내로 어떤 주소인지 알려 준다 — 직원 대부분이 @eduplex.net 이다. */}
         <TextInput
-          style={styles.inputNoGap}
+          style={[styles.input, styles.inputNoGap]}
           placeholder="EMS 이메일을 입력하세요"
           placeholderTextColor="#999"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          textContentType="username"
           keyboardType="email-address"
           editable={!isLoading}
         />
-        <Text style={styles.hint}>아이디는 EMS 회사 이메일입니다 (예: gildong_hong@eduplex.net)</Text>
+        <Text style={styles.hint}>아이디는 EMS 회사 이메일입니다 (예: gildong_hong@eduplex.net, 본부 일부는 @nexcubecorp.com)</Text>
 
         <TextInput
           style={styles.input}
@@ -124,15 +127,9 @@ const styles = StyleSheet.create({
   form: {
     width: "100%",
   },
-  inputNoGap: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: "#1f2937",
-  },
+  // 아래 안내 줄이 간격을 대신하므로 이 칸만 아래 여백을 없앤다(styles.input 과 겹쳐 쓴다 —
+  // 통째로 복제하면 나중에 input 을 고쳤을 때 이메일 칸만 조용히 달라진다)
+  inputNoGap: { marginBottom: 0 },
   hint: { color: "#9ca3af", fontSize: 12, marginTop: 6, marginBottom: 16, marginLeft: 2 },
   input: {
     backgroundColor: "#fff",
