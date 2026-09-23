@@ -141,14 +141,12 @@ export async function POST(request: NextRequest) {
           empNoProvided = n;
         }
 
-        // 대소문자를 무시하고 찾는다 — 저장된 주소가 대문자면 갱신이 아니라 새 계정이 생겼다(검증 loginhint4)
-        const existingId = await findUserIdByEmailCI(email);
-        const existing = existingId
-          ? await prisma.user.findUnique({
-              where: { id: existingId },
-              select: { id: true, empNo: true, branch: true, role: true },
-            })
-          : null;
+        // 정확히 같은 주소가 먼저다 — 대소문자만 다른 계정이 둘이면 어느 쪽이 잡힐지 모르기 때문이다(검증 loginhint5).
+        // 정확일치가 없을 때만 대소문자를 무시하고 찾는다(저장된 주소가 대문자인 경우 — 검증 loginhint4)
+        const pick = { id: true, empNo: true, branch: true, role: true };
+        const exact = await prisma.user.findUnique({ where: { email }, select: pick });
+        const looseId = exact ? null : await findUserIdByEmailCI(email);
+        const existing = exact ?? (looseId ? await prisma.user.findUnique({ where: { id: looseId }, select: pick }) : null);
 
         // 원장은 **담당 지점 직원만** 건드릴 수 있다. 개별 수정에는 있던 검사가 여기만 없어서,
         // 이메일만 알면 전사 아무 직원이나 고칠 수 있었다 (2026-09-07 점검).
