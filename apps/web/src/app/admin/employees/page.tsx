@@ -13,6 +13,7 @@ import { Plus, Search, Trash2, PenLine, Users, UserCheck, UserX, Building2, Uplo
 import { format } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { useIsDirectHost } from "@/lib/direct-host";
 
 type Employee = {
   id: string;
@@ -62,6 +63,7 @@ const roleColor: Record<string, string> = {
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const directHost = useIsDirectHost(); // 잘못된 주소가 처음 들어오는 지점 — 직영에서만 EMS 예시를 보여 준다
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
   const [filterRole, setFilterRole] = useState<string>("ALL");
@@ -604,12 +606,12 @@ export default function EmployeesPage() {
                     />
                   </div>
                   <div>
-                    <Label>이메일</Label>
+                    <Label>이메일{directHost ? " (EMS 계정 — 로그인 아이디)" : " (로그인 아이디)"}</Label>
                     <Input
                       type="email"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      placeholder="이메일"
+                      placeholder={directHost ? "EMS 이메일 (예: gildong_hong@eduplex.net)" : "이메일"}
                     />
                   </div>
                   <div>
