@@ -49,8 +49,8 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={submit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">이메일 (로그인 아이디)</Label>
-                <Input id="email" type="email" placeholder="가입된 이메일을 입력하세요"
+                <Label htmlFor="email">이메일 (EMS 계정 — 로그인 아이디)</Label>
+                <Input id="email" type="email" placeholder="EMS 이메일을 입력하세요 (예: gildong_hong@eduplex.net)"
                   value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
               </div>
               {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded p-2">{error}</p>}

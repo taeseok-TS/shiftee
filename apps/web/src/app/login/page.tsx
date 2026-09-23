@@ -66,11 +66,13 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">이메일</Label>
+              <Label htmlFor="email">이메일 (EMS 계정)</Label>
+              {/* 로그인 실패의 상당수가 주소 오타였다(2026-09-23 진단: .net 을 .com 으로, 아이디만 입력).
+                  회색 안내로 어떤 주소인지 바로 알려 준다 — 직원 대부분이 @eduplex.net 이다. */}
               <Input
                 id="email"
                 type="email"
-                placeholder="example@company.com"
+                placeholder="EMS 이메일을 입력하세요 (예: gildong_hong@eduplex.net)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
