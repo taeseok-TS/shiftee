@@ -5,6 +5,7 @@ import bcryptjs from "bcryptjs";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches, syncMainManagerFor } from "@/lib/manager-branches";
+import { findUserIdByEmailCI } from "@/lib/user-email";
 
 // 엑셀 셀 값은 숫자/날짜 등 아무 타입이나 올 수 있음 (예: 비밀번호 12345678 → number)
 interface BulkEmployee {
@@ -140,10 +141,14 @@ export async function POST(request: NextRequest) {
           empNoProvided = n;
         }
 
-        const existing = await prisma.user.findUnique({
-          where: { email },
-          select: { id: true, empNo: true, branch: true, role: true },
-        });
+        // 대소문자를 무시하고 찾는다 — 저장된 주소가 대문자면 갱신이 아니라 새 계정이 생겼다(검증 loginhint4)
+        const existingId = await findUserIdByEmailCI(email);
+        const existing = existingId
+          ? await prisma.user.findUnique({
+              where: { id: existingId },
+              select: { id: true, empNo: true, branch: true, role: true },
+            })
+          : null;
 
         // 원장은 **담당 지점 직원만** 건드릴 수 있다. 개별 수정에는 있던 검사가 여기만 없어서,
         // 이메일만 알면 전사 아무 직원이나 고칠 수 있었다 (2026-09-07 점검).

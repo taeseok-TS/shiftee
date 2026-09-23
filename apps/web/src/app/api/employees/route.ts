@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
+import { findUserIdByEmailCI } from "@/lib/user-email";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -107,8 +108,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "관리자 계정 생성은 메인 관리자만 가능합니다." }, { status: 403 });
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
+  // 대소문자를 무시하고 본다 — 저장된 주소가 대문자면 같은 사람 계정이 하나 더 생긴다(검증 loginhint4)
+  if (await findUserIdByEmailCI(email)) return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
 
   // 지점명 - UI에서 이미 데이터베이스 실제 이름을 선택했으므로 그대로 사용
   const finalBranch = branch || null;

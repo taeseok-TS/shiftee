@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
           registered.deviceName === deviceName;
 
         if (!sameDevice) {
-          await logLoginFail({ email, userId: user.id, userName: user.name, reason: "DEVICE_BLOCKED", deviceName, platform });
+          await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "DEVICE_BLOCKED", deviceName, platform });
           return NextResponse.json(
             { error: "등록되지 않은 기기입니다. 등록된 본인 휴대폰에서만 로그인할 수 있습니다. 기기를 변경했다면 관리자에게 기기 초기화를 요청해주세요." },
             { status: 403 }

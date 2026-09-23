@@ -16,6 +16,7 @@ import { logAudit } from "@/lib/audit";
 import { isResigned, kstTodayMidnight } from "@/lib/resign";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { isSheetUrl, fetchSheetRoster, fetchSheetLeavers, type LeaverRow } from "@/lib/roster-sheet";
+import { findUserIdByEmailCI } from "@/lib/user-email";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
@@ -452,9 +453,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     if (missing.length) throw new Error(`${missing.join("·")}이(가) 없어 계정을 만들 수 없습니다. 명부에서 채운 뒤 다음 가져오기를 기다리거나 직원 관리에서 직접 등록해주세요.`);
     const email = s(d.email).toLowerCase();
     if (!EMAIL_RE.test(email)) throw new Error("회사 이메일 형식이 올바르지 않습니다.");
-    // 위에서 소문자로 맞춘 값이라 정확 일치로 충분하다. `mode: "insensitive"` 는 ILIKE 라
-    // 명부에 `%`·`_` 가 섞이면 엉뚱한 계정이 걸려 입사 처리가 영구히 막힌다(검증 loginhint3 ⑥).
-    if (await prisma.user.findUnique({ where: { email }, select: { id: true } }))
+    // 대소문자는 무시하되 LIKE 는 쓰지 않는다 — `mode: "insensitive"` 는 ILIKE 라 명부에 `%`·`_` 가
+    // 섞이면 엉뚱한 계정이 걸려 입사 처리가 영구히 막힌다(검증 loginhint3 ⑥·loginhint4 ⓧ).
+    if (await findUserIdByEmailCI(email))
       throw new Error(`이미 ${email} 계정이 있습니다. 사번이 다르게 들어간 같은 사람인지 직원 관리에서 확인해주세요.`);
     if (await prisma.user.findUnique({ where: { empNo: c.empNo }, select: { id: true } })) throw new Error(`사번 ${c.empNo} 을(를) 이미 다른 직원이 쓰고 있습니다.`);
     // 휴직자는 지점 없이 만든다(디렉터 확정 2026-09-18) — 그 외에는 큐브티에 있는 지점이어야 한다
