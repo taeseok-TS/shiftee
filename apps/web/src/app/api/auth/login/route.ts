@@ -38,14 +38,18 @@ export async function POST(request: NextRequest) {
 
     // 앞뒤 공백·대소문자 때문에 못 들어오는 일을 없앤다(2026-09-23 진단 — 안드로이드 자판이
     // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다).
-    // 저장된 주소 자체가 대문자일 수도 있어, 정확히 일치가 없으면 대소문자 무시로 한 번 더 찾는다.
+    // ⚠ Prisma 의 `mode: "insensitive"` 는 PostgreSQL 에서 **ILIKE** 로 번역되고 `%`·`_` 를
+    //   그대로 와일드카드로 쓴다. 로그인은 인증 없이 누구나 부르는 길목이라, `%` 하나로
+    //   "아무 사람이나" 골라 비밀번호를 맞춰 보는 길이 열린다(검증 loginhint2 A).
+    //   그래서 **정확히 일치하는 조회만** 두 번 한다 — 원문, 그리고 소문자.
     const email = String(rawEmail).trim();
+    const lower = email.toLowerCase();
     const user =
       (await prisma.user.findUnique({ where: { email } })) ??
-      (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } }));
+      (lower === email ? null : await prisma.user.findUnique({ where: { email: lower } }));
     if (!user || !user.isActive) {
       await logLoginFail({
-        email, userId: user?.id, userName: user?.name,
+        email: String(rawEmail), userId: user?.id, userName: user?.name,
         reason: user ? "INACTIVE" : "UNKNOWN_EMAIL", deviceName, platform,
       });
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
@@ -53,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      await logLoginFail({ email, userId: user.id, userName: user.name, reason: "BAD_PASSWORD", deviceName, platform });
+      await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "BAD_PASSWORD", deviceName, platform });
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
 

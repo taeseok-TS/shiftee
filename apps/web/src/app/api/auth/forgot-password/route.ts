@@ -10,11 +10,13 @@ export async function POST(request: NextRequest) {
   if (!email?.trim())
     return NextResponse.json({ error: "이메일을 입력해주세요." }, { status: 400 });
 
-  // 로그인과 같은 규칙 — 공백·대소문자로 메일을 못 받는 일이 없게(2026-09-23)
+  // 로그인과 같은 규칙 — 공백·대소문자로 메일을 못 받는 일이 없게(2026-09-23).
+  // ILIKE 가 되는 `mode: "insensitive"` 는 쓰지 않는다(`%` 로 남의 재설정을 건드릴 수 있다 — 검증 A).
   const addr = String(email).trim();
+  const lowerAddr = addr.toLowerCase();
   const user =
     (await prisma.user.findUnique({ where: { email: addr } })) ??
-    (await prisma.user.findFirst({ where: { email: { equals: addr, mode: "insensitive" } } }));
+    (lowerAddr === addr ? null : await prisma.user.findUnique({ where: { email: lowerAddr } }));
 
   // 디렉터 확정 문구 — 계정을 못 찾으면 관리자 문의 안내 (사내 시스템이라 존재 여부 숨기지 않음)
   if (!user || !user.isActive || user.deletedAt)
