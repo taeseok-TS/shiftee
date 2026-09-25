@@ -211,7 +211,8 @@ export async function PATCH(
   // 미래 퇴사일은 그날 아침 쓸이(runResignChatCleanupDaily)가 처리한다.
   if (resignChanged && resignVal && resignVal < todayMidnight) {
     const { cleanupResignedUserChannels } = await import("@/lib/resign-chat-cleanup");
-    await cleanupResignedUserChannels(id).catch(() => { /* 정리 실패가 퇴사 처리를 막으면 안 된다 */ });
+    // 정리 실패가 퇴사 처리를 막으면 안 되지만, 조용히 사라지면 안 된다 — 로그는 남긴다
+    await cleanupResignedUserChannels(id).catch((e) => console.error("[퇴사 채팅 정리] 실패:", id, e));
   }
 
   await logAudit({

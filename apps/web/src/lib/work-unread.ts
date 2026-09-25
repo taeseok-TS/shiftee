@@ -12,13 +12,22 @@ export async function getWorkUnreadTotal(userId: string, userName: string): Prom
     },
     select: {
       id: true,
+      type: true,
       members: { where: { userId }, select: { lastReadAt: true, notify: true, hiddenAt: true } },
+      // 숨긴 DM 판정용 — 채널 목록과 같은 규칙(숨긴 뒤 새 메시지가 오면 다시 센다)
+      messages: { where: { parentId: null }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
     },
   });
 
   let total = 0;
   for (const c of channels) {
     const me = c.members[0];
+    // 목록에서 안 보이는 DM 은 배지에서도 빼야 한다. 퇴사자 정리로 숨긴 DM 은 상대가 새 메시지를
+    // 보낼 수 없어, 안 그러면 읽지 못한 개수가 배지에 영원히 박힌다(검증 resignchat1 [7]).
+    if (c.type === "DM" && me?.hiddenAt) {
+      const last = c.messages[0];
+      if (!last || last.createdAt <= me.hiddenAt) continue;
+    }
     const notify = me?.notify ?? "ALL";
     if (notify === "MUTE") continue;
     const afterRead = me?.lastReadAt ? { createdAt: { gt: me.lastReadAt } } : {};

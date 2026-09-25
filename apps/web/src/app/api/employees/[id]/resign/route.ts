@@ -3,6 +3,7 @@ import { syncMainManagerFor } from "@/lib/manager-branches";
 import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { kstTodayMidnight } from "@/lib/resign";
 
 export async function PATCH(
   request: NextRequest,
@@ -62,13 +63,15 @@ export async function PATCH(
 
     // 퇴사 처리
     const resignDateObj = new Date(resignDate);
+    // 퇴사일 '당일'은 아직 재직이다(마지막 근무일에 출퇴근을 찍어야 한다) — 직원 수정 PATCH 와 같은 기준.
+    // 종전에는 미래 퇴사일에도 바로 퇴직으로 박아 그날부터 로그인이 막혔다(2026-09-23 검증에서 적발).
+    const pastResign = resignDateObj < kstTodayMidnight();
     const updated = await prisma.user.update({
       where: { id },
       data: {
-        employmentStatus: "RESIGNED",
         resignDate: resignDateObj,
         resignReason: resignReason || null,
-        isActive: false, // soft delete 호환성
+        ...(pastResign ? { employmentStatus: "RESIGNED" as const, isActive: false } : {}),
       },
       select: {
         id: true,
@@ -91,6 +94,13 @@ export async function PATCH(
 
     // 메인 원장 지정을 정리한다 — 떠난 사람이 못박힌 채 남으면 그 지점 결재가 멈춘다
     await syncMainManagerFor(id);
+
+    // 퇴사일이 지났으면 큐브티워크 채팅방에서도 바로 내보낸다(2026-09-23 디렉터 지시).
+    // 미래 퇴사일은 그날 아침 쓸이가 처리한다.
+    if (pastResign) {
+      const { cleanupResignedUserChannels } = await import("@/lib/resign-chat-cleanup");
+      await cleanupResignedUserChannels(id).catch((e) => console.error("[퇴사 채팅 정리] 실패:", id, e));
+    }
 
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_RESIGN",

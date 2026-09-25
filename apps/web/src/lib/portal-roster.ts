@@ -505,7 +505,8 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     // 퇴사일이 지났으면 채팅방에서도 바로 내보낸다(미래 퇴사일은 그날 아침 쓸이가 처리한다)
     if (past) {
       const { cleanupResignedUserChannels } = await import("@/lib/resign-chat-cleanup");
-      await cleanupResignedUserChannels(u.id).catch(() => { /* 정리 실패가 퇴사 처리를 막으면 안 된다 */ });
+      // 정리 실패가 퇴사 반영을 막으면 안 되지만, 조용히 사라지면 안 된다 — 로그는 남긴다
+      await cleanupResignedUserChannels(u.id).catch((e) => console.error("[퇴사 채팅 정리] 실패:", u.id, e));
     }
     await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_RESIGN", targetType: "USER", targetId: u.id, targetName: u.name, detail: `인사명부 퇴사 반영 (${rd})` });
     return;
