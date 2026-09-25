@@ -63,15 +63,18 @@ export async function PATCH(
 
     // 퇴사 처리
     const resignDateObj = new Date(resignDate);
-    // 퇴사일 '당일'은 아직 재직이다(마지막 근무일에 출퇴근을 찍어야 한다) — 직원 수정 PATCH 와 같은 기준.
-    // 종전에는 미래 퇴사일에도 바로 퇴직으로 박아 그날부터 로그인이 막혔다(2026-09-23 검증에서 적발).
+    // ⚠ 이 라우트는 서브 관리자 계정을 **즉시 잠그는** 화면(관리자 계정 관리) 전용이다.
+    //   "퇴사일 당일은 재직" 규칙을 여기에 적용했더니 업무시간(KST)에는 아무 일도 안 일어났다
+    //   — 화면은 "비활성화됩니다"라고 안내하는데 그 관리자가 바로 다시 로그인했다(검증 resignchat1 R3).
+    //   그래서 이 화면은 종전대로 즉시 비활성으로 둔다. 일반 직원 퇴사는 직원 수정(PATCH)에서 한다.
     const pastResign = resignDateObj < kstTodayMidnight();
     const updated = await prisma.user.update({
       where: { id },
       data: {
+        employmentStatus: "RESIGNED",
         resignDate: resignDateObj,
         resignReason: resignReason || null,
-        ...(pastResign ? { employmentStatus: "RESIGNED" as const, isActive: false } : {}),
+        isActive: false,
       },
       select: {
         id: true,

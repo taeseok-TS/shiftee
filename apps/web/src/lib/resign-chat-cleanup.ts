@@ -18,8 +18,9 @@ import { isResigned, kstTodayMidnight } from "@/lib/resign";
  *  - **전체 채널(isDefault)은 건드리지 않는다.** 전체 채널은 멤버행이 없어도 모두에게 보이므로 내보내도
  *    막히는 게 없고, 멤버행을 지우면 그 사람의 `lastReadAt` 이 사라져 **복귀했을 때 안읽음이 전체 기록으로
  *    계산된다**. 화면에서도 같은 이유로 "전체 채널은 나갈 수 없다"고 막아 두었다.
- *  - **남은 사람이 아무도 없는 방은 그대로 둔다.** 멤버가 0명이 되면 그 방은 어떤 화면에서도 열 수 없다
- *    (목록·검색·휴지통이 전부 멤버행이나 deletedAt 기준). 기록을 잃지 않으려면 마지막 한 명은 남겨야 한다.
+ *  - **넘길 사람이 아무도 없는 방은 휴지통으로 보낸다.** 멤버가 0명이면 그 방은 목록·검색 어디에도
+ *    안 떠 기록을 영영 못 연다. 휴지통은 관리자·원장이 전부 볼 수 있고 복구도 된다(자동 영구삭제 없음).
+ *    퇴사자 멤버행을 남겨 두는 방식은 그 사람이 매일 쓸이 대상으로 다시 잡혀 신규 퇴사자를 굶긴다([R1]).
  *  - 메시지는 지우지 않는다.
  *
  * 되돌릴 수 있어야 한다(퇴사일 오입력) — 지운 멤버행의 값(방장·알림 설정·읽은 시각·고정·열람 범위)까지
@@ -39,15 +40,21 @@ type RemovedRow = {
   j: string; // joinedAt
 };
 
-/** 방장을 넘길 사람 — ① 남은 다른 방장 ② 원장(먼저 들어온 순) ③ 먼저 들어온 멤버. 재직 중인 사람만. */
-function pickSuccessor(
-  members: { userId: string; isManager: boolean; user: { role: string } }[],
-): { id: string; alreadyManager: boolean } | null {
+type Candidate = { userId: string; isManager: boolean; user: { role: string; employmentStatus: string } };
+
+/**
+ * 방장을 넘길 사람 — ① 이미 방장인 재직자 ② 재직 중인 원장 ③ 재직 중인 멤버
+ * ④ 재직자가 아무도 없으면 휴직·임시휴무 멤버(언젠가 돌아온다 — 방을 잃는 것보다 낫다).
+ * 넘어온 목록은 이미 joinedAt·id 순으로 정렬돼 있다.
+ */
+function pickSuccessor(members: Candidate[]): { id: string; alreadyManager: boolean } | null {
   if (!members.length) return null;
-  const other = members.find((m) => m.isManager);
+  const active = members.filter((m) => m.user.employmentStatus === "ACTIVE");
+  const pool = active.length ? active : members;
+  const other = pool.find((m) => m.isManager);
   if (other) return { id: other.userId, alreadyManager: true };
-  const manager = members.find((m) => m.user.role === "MANAGER");
-  return { id: (manager ?? members[0]).userId, alreadyManager: false };
+  const manager = pool.find((m) => m.user.role === "MANAGER");
+  return { id: (manager ?? pool[0]).userId, alreadyManager: false };
 }
 
 /**
@@ -57,7 +64,7 @@ function pickSuccessor(
 export async function cleanupResignedUserChannels(userId: string): Promise<{
   name: string;
   removed: number;
-  keptAlone: number;
+  trashed: number;
   hiddenDms: number;
   handovers: Handover[];
 }> {
@@ -81,13 +88,24 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   const handovers: Handover[] = [];
   const removedRows: RemovedRow[] = [];
   const hiddenDmIds: string[] = [];
-  let keptAlone = 0;
+  const trashed: string[] = [];
+  const ownerMoves: { channelId: string; toUserId: string }[] = [];
 
   const writeAudit = async () => {
-    if (!removedRows.length && !hiddenDmIds.length && !handovers.length) return;
-    // 되돌리기용 원본 값 — 너무 길면 잘라 둔다(핵심은 앞쪽 채널 id 들)
-    let snapshot = JSON.stringify({ removed: removedRows, dmHidden: hiddenDmIds, handovers });
-    if (snapshot.length > 3800) snapshot = snapshot.slice(0, 3800) + "…(생략)";
+    if (!removedRows.length && !hiddenDmIds.length && !handovers.length && !trashed.length) return;
+    // 되돌리기용 원본 값. 너무 길면 **행 단위로** 덜어낸다 — 문자열을 중간에서 자르면 JSON 이 깨져
+    // 복구에 쓸 수 없다(검증 resignchat1 [R4]).
+    const pack = (rows: RemovedRow[]) =>
+      JSON.stringify({
+        removed: rows, dmHidden: hiddenDmIds, handovers, ownerMoves, trashed,
+        omitted: removedRows.length - rows.length,
+      });
+    let keep = removedRows.length;
+    let snapshot = pack(removedRows);
+    while (snapshot.length > 3800 && keep > 0) {
+      keep = Math.max(0, keep - Math.max(1, Math.ceil(keep / 4)));
+      snapshot = pack(removedRows.slice(0, keep));
+    }
     await logAudit({
       ...SYSTEM_ACTOR,
       action: "RESIGN_CHAT_CLEANUP",
@@ -97,7 +115,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       detail:
         `퇴사 정리: 채널 ${removedRows.length}곳에서 내보냄` +
         (handovers.length ? `, 방장 넘김 ${handovers.length}곳` : "") +
-        (keptAlone ? `, 남은 사람이 없어 유지 ${keptAlone}곳` : "") +
+        (trashed.length ? `, 남은 사람이 없어 휴지통으로 ${trashed.length}곳` : "") +
         (hiddenDmIds.length ? `, DM ${hiddenDmIds.length}건 숨김` : "") +
         ` ${snapshot}`,
     }).catch(() => { /* 기록 실패가 정리를 되돌리지는 못한다 */ });
@@ -109,47 +127,66 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       let successor: { id: string; alreadyManager: boolean } | null = null;
 
       if (needsSuccessor) {
-        // 넘길 사람은 **재직 중인 사람만** — 휴직자에게 넘기면(명부로 만든 휴직 계정은 본인도 모르는
-        // 비밀번호라 로그인조차 못 한다) 사실상 방장 없는 방이 된다.
+        // 퇴사자·삭제 계정만 뺀다. 재직자가 우선이지만 휴직자뿐이라면 그 사람에게 넘긴다 —
+        // 아무에게도 못 넘기면 그 방은 아무도 열 수 없는 방이 된다.
         const others = await prisma.workChannelMember.findMany({
           where: {
             channelId: row.channelId,
             userId: { not: userId },
-            user: { isActive: true, deletedAt: null, employmentStatus: "ACTIVE" },
+            user: { deletedAt: null, employmentStatus: { not: "RESIGNED" } },
           },
-          select: { userId: true, isManager: true, user: { select: { role: true, resignDate: true } } },
+          select: {
+            userId: true, isManager: true,
+            user: { select: { role: true, employmentStatus: true, resignDate: true } },
+          },
           // 같은 트랜잭션에서 만들어진 멤버행은 joinedAt 이 모두 같다 — id 로 순서를 확정한다
           orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
         });
         successor = pickSuccessor(others.filter((m) => !isResigned(m.user.resignDate)));
-        if (!successor) {
-          // 남은 사람이 없다 — 내보내면 아무도 못 여는 방이 된다. 그대로 둔다.
-          keptAlone++;
-          continue;
-        }
       }
 
       const pickId = successor?.id;
       const takesOwner = !!pickId && row.channel.createdBy === userId;
-      // 한 방의 승계·생성자 이전·내보내기는 한 덩어리로 — 중간에 끊기면 방장 없는 방이 남는다
-      await prisma.$transaction(async (tx: typeof prisma) => {
-        if (pickId && successor && !successor.alreadyManager) {
-          await tx.workChannelMember.updateMany({
-            where: { channelId: row.channelId, userId: pickId },
-            data: { isManager: true },
-          });
-        }
-        if (takesOwner && pickId) {
-          await tx.workChannel.update({ where: { id: row.channelId }, data: { createdBy: pickId } });
-        }
-        await tx.workChannelMember.deleteMany({ where: { channelId: row.channelId, userId } });
-      });
+      // 넘길 사람이 아무도 없는 방(살아 있는 멤버가 퇴사자뿐) — 방을 휴지통으로 보낸다.
+      // 그냥 내보내면 멤버 0명이라 목록·검색·휴지통 어디에도 안 떠 기록을 영영 못 연다.
+      // 휴지통은 관리자·원장이 전부 볼 수 있고 복구도 된다(자동 영구삭제 없음).
+      const toTrash = needsSuccessor && !pickId;
+      let skipped = false;
 
-      if (pickId && successor) {
+      // 한 방의 승계·생성자 이전·내보내기는 한 덩어리로 — 중간에 끊기면 방장 없는 방이 남는다
+      try {
+        await prisma.$transaction(async (tx) => {
+          if (pickId && successor && !successor.alreadyManager) {
+            const r = await tx.workChannelMember.updateMany({
+              where: { channelId: row.channelId, userId: pickId },
+              data: { isManager: true },
+            });
+            // 고른 뒤 그 사람이 방을 나갔다면 방장 없는 방이 된다 — 이 방은 건너뛰고 다음 쓸이에 맡긴다
+            if (!r.count) throw new Error("승계 대상이 사라졌다");
+          }
+          if (takesOwner && pickId) {
+            await tx.workChannel.update({ where: { id: row.channelId }, data: { createdBy: pickId } });
+          }
+          if (toTrash) {
+            await tx.workChannel.update({ where: { id: row.channelId }, data: { deletedAt: new Date() } });
+          }
+          await tx.workChannelMember.deleteMany({ where: { channelId: row.channelId, userId } });
+        });
+      } catch (e) {
+        skipped = true;
+        console.error("[퇴사 채팅 정리] 채널 건너뜀:", row.channelId, e);
+      }
+      if (skipped) continue;
+      if (toTrash) trashed.push(row.channelId);
+
+      // 알림·기록은 **방장이 실제로 바뀐 경우만** — 이미 방장이던 사람에게 "맡게 되셨습니다"는 틀린 말이다
+      if (pickId && successor && !successor.alreadyManager) {
         handovers.push({
           channelId: row.channelId, channelName: row.channel.name,
           successorId: pickId, tookOwner: takesOwner,
         });
+      } else if (takesOwner && pickId) {
+        ownerMoves.push({ channelId: row.channelId, toUserId: pickId });
       }
       removedRows.push({
         c: row.channelId,
@@ -179,8 +216,8 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   }
 
   // 새 방장에게 알림 — 사람별로 묶어 한 번만 보낸다(여러 방을 한꺼번에 넘겨받을 수 있다).
-  // 이미 방장이던 사람이 생성자 자리만 넘겨받은 경우는 알리지 않는다(바뀐 게 없다).
-  const notifiable = handovers.filter((h) => removedRows.some((r) => r.c === h.channelId) && h.successorId);
+  // handovers 에는 **방장이 실제로 바뀐 방만** 들어 있다(이미 방장이던 사람에게는 알리지 않는다).
+  const notifiable = handovers;
   if (notifiable.length) {
     const { botSendDM } = await import("@/lib/bot");
     const byUser = new Map<string, string[]>();
@@ -195,7 +232,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
     }
   }
 
-  return { name, removed: removedRows.length, keptAlone, hiddenDms: hiddenDmIds.length, handovers };
+  return { name, removed: removedRows.length, trashed: trashed.length, hiddenDms: hiddenDmIds.length, handovers };
 }
 
 /**
