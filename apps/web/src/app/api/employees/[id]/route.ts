@@ -207,6 +207,13 @@ export async function PATCH(
   // 지점.권한.재직이 바뀌면 메인 원장 지정을 정리한다(떠난 사람이 못박힌 채 남지 않게)
   await syncMainManagerFor(id);
 
+  // 퇴사일이 지난 값으로 바뀌었으면 큐브티워크 채팅방에서도 바로 내보낸다(2026-09-23 디렉터 지시).
+  // 미래 퇴사일은 그날 아침 쓸이(runResignChatCleanupDaily)가 처리한다.
+  if (resignChanged && resignVal && resignVal < todayMidnight) {
+    const { cleanupResignedUserChannels } = await import("@/lib/resign-chat-cleanup");
+    await cleanupResignedUserChannels(id).catch(() => { /* 정리 실패가 퇴사 처리를 막으면 안 된다 */ });
+  }
+
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
     targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),

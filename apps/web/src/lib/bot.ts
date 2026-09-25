@@ -589,7 +589,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string; __botResignChat?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -673,6 +673,17 @@ export function startBotScheduler() {
         const { runPortalSyncDaily } = await import("@/lib/portal-roster");
         await runPortalSyncDaily();
       } catch (e) { console.error("[bot] 인사명부 연동 오류:", e); }
+    }
+
+    // 퇴사자 채팅방 정리 — 매일 KST 07:00경 1회 (2026-09-23 디렉터 지시).
+    // 인사명부 연동(06:30) 뒤에 돈다 — 명부가 퇴사로 바꾼 사람도 같은 날 아침에 함께 정리되도록.
+    if (k.getUTCHours() === 7 && k.getUTCMinutes() < 30 && g.__botResignChat !== today) {
+      g.__botResignChat = today;
+      try {
+        const { runResignChatCleanupDaily } = await import("@/lib/resign-chat-cleanup");
+        const r = await runResignChatCleanupDaily();
+        if (r.users) console.log(`[bot] 퇴사자 채팅 정리 — ${r.users}명 / 채널 ${r.channels}곳`);
+      } catch (e) { console.error("[bot] 퇴사자 채팅 정리 오류:", e); }
     }
 
     // 예약 전송 + 메시지 리마인더 (매분)
