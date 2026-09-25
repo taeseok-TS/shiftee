@@ -110,7 +110,9 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   const hiddenDmIds: string[] = [];
   const trashed: string[] = [];
   const ownerMoves: { channelId: string; toUserId: string }[] = [];
-  const trashKeeps: { channelId: string; keeperId: string; keeperWasManager: boolean | null }[] = [];
+  const trashKeeps: { channelId: string; keeperId: string }[] = [];
+  // 휴지통으로 보내며 함께 지운 다른 퇴사자들의 멤버행 — 그들 몫의 정리는 돌지 않으므로 여기 남긴다
+  const alsoRemoved: { channelId: string; userId: string; row: Omit<RemovedRow, "c"> }[] = [];
   let keeperId: string | null | undefined; // 사람당 한 번만 구한다(undefined = 아직 안 구함)
 
   const writeAudit = async () => {
@@ -119,7 +121,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
     // 복구에 쓸 수 없다(검증 resignchat1 [R4]).
     const pack = (rows: RemovedRow[]) =>
       JSON.stringify({
-        removed: rows, dmHidden: hiddenDmIds, handovers, ownerMoves, trashed, trashKeeps,
+        removed: rows, dmHidden: hiddenDmIds, handovers, ownerMoves, trashed, trashKeeps, alsoRemoved,
         omitted: removedRows.length - rows.length,
       });
     let keep = removedRows.length;
@@ -176,6 +178,9 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       // 그냥 내보내면 멤버 0명이라 목록·검색·휴지통 어디에도 안 떠 기록을 영영 못 연다.
       // 휴지통은 관리자·원장이 전부 볼 수 있고 복구도 된다(자동 영구삭제 없음).
       const toTrash = needsSuccessor && !pickId;
+      // 트랜잭션이 **커밋된 뒤에만** 기록에 남긴다 — 롤백된 방을 "했다"고 적으면 되돌릴 때 어긋난다
+      let keptBy: string | null = null;
+      let swept: { channelId: string; userId: string; row: Omit<RemovedRow, "c"> }[] = [];
       // 기록을 열 수 있어야 한다 — 멤버가 0명인 방은 복구해도 목록·검색 어디에도 안 뜬다.
       // 휴지통으로 보낼 때 메인 관리자를 방장으로 남겨 둔다(평소에는 휴지통에 있으니 목록을 어지럽히지 않는다).
       if (toTrash && keeperId === undefined) {
@@ -204,12 +209,9 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
             // (채널을 실제로 영구 삭제하는 잡은 없다 — 표시용이다)
             const permanentlyDeletedAt = new Date();
             permanentlyDeletedAt.setDate(permanentlyDeletedAt.getDate() + 30);
-            let prev: { isManager: boolean } | null = null;
             if (keeper) {
-              prev = await tx.workChannelMember.findUnique({
-                where: { channelId_userId: { channelId: row.channelId, userId: keeper } },
-                select: { isManager: true },
-              });
+              // keeper 가 이미 그 방 멤버였다면 애초에 승계자로 뽑혀 이 자리에 오지 않는다
+              // (승계 후보 조건과 keeper 조건이 role 만 빼고 같다) — 그래서 기존 값 조회는 두지 않는다.
               await tx.workChannelMember.upsert({
                 where: { channelId_userId: { channelId: row.channelId, userId: keeper } },
                 // 읽은 것으로 표시하고 음소거한다 — 안 그러면 복구하는 순간 그 방의 모든 메시지가
@@ -217,10 +219,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
                 create: { channelId: row.channelId, userId: keeper, isManager: true, lastReadAt: new Date(), notify: "MUTE" },
                 update: { isManager: true },
               });
-              trashKeeps.push({
-                channelId: row.channelId, keeperId: keeper,
-                keeperWasManager: prev ? prev.isManager : null, // null = 원래 멤버가 아니었음
-              });
+              keptBy = keeper;
             }
             await tx.workChannel.update({
               where: { id: row.channelId },
@@ -228,12 +227,33 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
             });
             // 이 방에 남은 **다른 퇴사자** 행도 함께 정리한다 — 휴지통에 들어간 뒤에는 그 사람들의
             // 쓸이가 이 방을 더는 보지 못해 인원 목록에 영원히 남는다([U4]).
-            await tx.workChannelMember.deleteMany({
+            const leftovers = await tx.workChannelMember.findMany({
               where: {
                 channelId: row.channelId,
                 userId: { not: keeper ?? "" },
                 user: { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
               },
+              select: {
+                userId: true, isManager: true, notify: true, pinned: true,
+                lastReadAt: true, historyFrom: true, joinedAt: true,
+              },
+            });
+            swept = leftovers
+              .filter((m) => m.userId !== userId) // 본인 행은 아래에서 따로 기록한다
+              .map((m) => ({
+                channelId: row.channelId,
+                userId: m.userId,
+                row: {
+                  ...(m.isManager ? { m: 1 as const } : {}),
+                  ...(m.notify !== "ALL" ? { n: m.notify } : {}),
+                  ...(m.pinned ? { p: 1 as const } : {}),
+                  ...(m.lastReadAt ? { r: m.lastReadAt.toISOString() } : {}),
+                  ...(m.historyFrom ? { h: m.historyFrom.toISOString() } : {}),
+                  j: m.joinedAt.toISOString(),
+                },
+              }));
+            await tx.workChannelMember.deleteMany({
+              where: { channelId: row.channelId, userId: { in: leftovers.map((m) => m.userId) } },
             });
           }
           await tx.workChannelMember.deleteMany({ where: { channelId: row.channelId, userId } });
@@ -244,6 +264,8 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       }
       if (skipped) continue;
       if (toTrash) trashed.push(row.channelId);
+      if (keptBy) trashKeeps.push({ channelId: row.channelId, keeperId: keptBy });
+      if (swept.length) alsoRemoved.push(...swept);
 
       // 알림·기록은 **방장이 실제로 바뀐 경우만** — 이미 방장이던 사람에게 "맡게 되셨습니다"는 틀린 말이다
       if (pickId && successor && !successor.alreadyManager) {
