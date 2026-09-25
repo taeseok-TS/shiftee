@@ -57,18 +57,23 @@ function pickSuccessor(members: Candidate[]): { id: string; alreadyManager: bool
   return { id: (manager ?? pool[0]).userId, alreadyManager: false };
 }
 
-/** 기록을 맡아 둘 관리자 — 메인 관리자 우선, 없으면 아무 관리자. 봇 계정은 제외(isActive=false). */
-async function findKeeperAdmin(): Promise<string | null> {
+/**
+ * 기록을 맡아 둘 관리자 — 메인 관리자 우선, 없으면 가장 오래된 관리자. 봇 계정은 isActive=false 라 빠진다.
+ * ⚠ 정리 대상 본인과 퇴사(예정)한 관리자는 제외한다. 본인을 고르면 방금 넣은 멤버행을 이어지는
+ *   삭제가 그대로 지워 **0명짜리 휴지통 방**이 된다(검증 resignchat1 [U1]).
+ */
+async function findKeeperAdmin(excludeId: string): Promise<string | null> {
+  const guard = {
+    role: "ADMIN" as const,
+    isActive: true,
+    deletedAt: null,
+    id: { not: excludeId },
+    employmentStatus: { not: "RESIGNED" as const },
+    OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }],
+  };
   const admin =
-    (await prisma.user.findFirst({
-      where: { role: "ADMIN", isSuperAdmin: true, isActive: true, deletedAt: null },
-      select: { id: true },
-    })) ??
-    (await prisma.user.findFirst({
-      where: { role: "ADMIN", isActive: true, deletedAt: null },
-      select: { id: true },
-      orderBy: { createdAt: "asc" },
-    }));
+    (await prisma.user.findFirst({ where: { ...guard, isSuperAdmin: true }, select: { id: true } })) ??
+    (await prisma.user.findFirst({ where: guard, select: { id: true }, orderBy: { createdAt: "asc" } }));
   return admin?.id ?? null;
 }
 
@@ -105,6 +110,8 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   const hiddenDmIds: string[] = [];
   const trashed: string[] = [];
   const ownerMoves: { channelId: string; toUserId: string }[] = [];
+  const trashKeeps: { channelId: string; keeperId: string; keeperWasManager: boolean | null }[] = [];
+  let keeperId: string | null | undefined; // 사람당 한 번만 구한다(undefined = 아직 안 구함)
 
   const writeAudit = async () => {
     if (!removedRows.length && !hiddenDmIds.length && !handovers.length && !trashed.length) return;
@@ -112,7 +119,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
     // 복구에 쓸 수 없다(검증 resignchat1 [R4]).
     const pack = (rows: RemovedRow[]) =>
       JSON.stringify({
-        removed: rows, dmHidden: hiddenDmIds, handovers, ownerMoves, trashed,
+        removed: rows, dmHidden: hiddenDmIds, handovers, ownerMoves, trashed, trashKeeps,
         omitted: removedRows.length - rows.length,
       });
     let keep = removedRows.length;
@@ -171,7 +178,11 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       const toTrash = needsSuccessor && !pickId;
       // 기록을 열 수 있어야 한다 — 멤버가 0명인 방은 복구해도 목록·검색 어디에도 안 뜬다.
       // 휴지통으로 보낼 때 메인 관리자를 방장으로 남겨 둔다(평소에는 휴지통에 있으니 목록을 어지럽히지 않는다).
-      const keeper = toTrash ? await findKeeperAdmin() : null;
+      if (toTrash && keeperId === undefined) {
+        keeperId = await findKeeperAdmin(userId);
+        if (!keeperId) console.error("[퇴사 채팅 정리] 기록을 맡을 관리자를 찾지 못했다 — 0명 방이 생긴다:", userId);
+      }
+      const keeper = toTrash ? keeperId ?? null : null;
       let skipped = false;
 
       // 한 방의 승계·생성자 이전·내보내기는 한 덩어리로 — 중간에 끊기면 방장 없는 방이 남는다
@@ -193,18 +204,37 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
             // (채널을 실제로 영구 삭제하는 잡은 없다 — 표시용이다)
             const permanentlyDeletedAt = new Date();
             permanentlyDeletedAt.setDate(permanentlyDeletedAt.getDate() + 30);
-            await tx.workChannel.update({
-              where: { id: row.channelId },
-              data: { deletedAt: new Date(), permanentlyDeletedAt },
-            });
+            let prev: { isManager: boolean } | null = null;
             if (keeper) {
+              prev = await tx.workChannelMember.findUnique({
+                where: { channelId_userId: { channelId: row.channelId, userId: keeper } },
+                select: { isManager: true },
+              });
               await tx.workChannelMember.upsert({
                 where: { channelId_userId: { channelId: row.channelId, userId: keeper } },
-                create: { channelId: row.channelId, userId: keeper, isManager: true },
+                // 읽은 것으로 표시하고 음소거한다 — 안 그러면 복구하는 순간 그 방의 모든 메시지가
+                // 관리자 안읽음·앱 배지로 쏟아진다(검증 resignchat1 [U2]).
+                create: { channelId: row.channelId, userId: keeper, isManager: true, lastReadAt: new Date(), notify: "MUTE" },
                 update: { isManager: true },
               });
-              await tx.workChannel.update({ where: { id: row.channelId }, data: { createdBy: keeper } });
+              trashKeeps.push({
+                channelId: row.channelId, keeperId: keeper,
+                keeperWasManager: prev ? prev.isManager : null, // null = 원래 멤버가 아니었음
+              });
             }
+            await tx.workChannel.update({
+              where: { id: row.channelId },
+              data: { deletedAt: new Date(), permanentlyDeletedAt, ...(keeper ? { createdBy: keeper } : {}) },
+            });
+            // 이 방에 남은 **다른 퇴사자** 행도 함께 정리한다 — 휴지통에 들어간 뒤에는 그 사람들의
+            // 쓸이가 이 방을 더는 보지 못해 인원 목록에 영원히 남는다([U4]).
+            await tx.workChannelMember.deleteMany({
+              where: {
+                channelId: row.channelId,
+                userId: { not: keeper ?? "" },
+                user: { OR: [{ employmentStatus: "RESIGNED" }, { resignDate: { lt: kstTodayMidnight() } }] },
+              },
+            });
           }
           await tx.workChannelMember.deleteMany({ where: { channelId: row.channelId, userId } });
         });
