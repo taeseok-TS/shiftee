@@ -227,6 +227,10 @@ else
   cat > "$CADDY_DIR/${CODE}.caddy" <<CADDYEOF
 # $CODE — new-customer.sh 가 생성 ($(date '+%Y-%m-%d %H:%M'))
 $DOMAIN {
+    # TRACE·TRACK 은 입구에서 405 — 스캐너가 보내면 앱이 500 을 내 가짜 "서버 오류" 알림이 된다(2026-09-27).
+    # respond 는 Caddy 기본 순서상 reverse_proxy 보다 먼저 돈다.
+    @trace method TRACE TRACK
+    respond @trace 405
     # 무중단 배포 - 컨테이너 교체 사이 약 2초의 연결 거부 구간에서 502 를 내지 않고 기다렸다 붙는다.
     # dial 실패는 메서드 불문, 그 밖의 전송 오류는 GET 만 재시도된다(2026-09-03 확인).
     reverse_proxy localhost:$PORT {
