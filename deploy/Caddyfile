@@ -29,8 +29,10 @@ cubetee.co.kr, www.cubetee.co.kr {
     # (9/26 14:32 해외 IP 1건). 실제 장애가 아닌 알림이 섞이면 진짜 장애를 놓친다.
     # 입구에서 405(지원하지 않는 메서드)로 끝낸다 - 앱까지 가지 않는다.
     # ⚠ handle 은 서로 배타적이고 매처 없는 handle 이 맨 뒤로 정렬되므로, 아래 전체 handle 보다 먼저 걸린다.
-    @trace method TRACE TRACK
+    # CONNECT 도 같은 부류다 — Node 의 fetch 가 TRACE·TRACK·CONNECT 를 금지 메서드로 거부해 앱이 500 을 낸다(검증관 확인).
+    @trace method TRACE TRACK CONNECT
     handle @trace {
+        header Allow "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
         respond 405
     }
     handle /downloads/* {
