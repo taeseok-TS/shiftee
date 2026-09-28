@@ -553,6 +553,13 @@ export default function WorkChatScreen() {
   const [renaming, setRenaming] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberList, setMemberList] = useState<ChannelMemberInfo[]>([]);
+  // 멤버 관리 검색 — 인원이 많은 방에서 내보낼 사람을 찾기 쉽게(2026-09-28 디렉터). 멤버 추가와 같은 기준(이름·지점)
+  const [memberListSearch, setMemberListSearch] = useState("");
+  const shownMemberList = useMemo(() => {
+    const q = memberListSearch.trim().toLowerCase();
+    if (!q) return memberList;
+    return memberList.filter((m) => m.name.toLowerCase().includes(q) || (m.branch ?? "").toLowerCase().includes(q));
+  }, [memberList, memberListSearch]);
   const [myId, setMyId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string>("");
   const [myName, setMyName] = useState<string>("");
@@ -603,6 +610,7 @@ export default function WorkChatScreen() {
 
   // 멤버 관리(목록 + 내보내기)
   const openMembers = async () => {
+    setMemberListSearch("");
     setMembersOpen(true);
     try {
       setMemberList(await getChannelMembersList(channelId));
@@ -1919,10 +1927,21 @@ export default function WorkChatScreen() {
         <View style={styles.addBg}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMembersOpen(false)} />
           <View style={styles.addCard}>
-            <Text style={styles.addTitle}>멤버 {memberList.length}명</Text>
+            <Text style={styles.addTitle}>
+              멤버 {memberList.length}명
+              {memberListSearch.trim() ? <Text style={styles.memberBranch}>  (검색 {shownMemberList.length}명)</Text> : null}
+            </Text>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color="#9ca3af" />
+              <TextInput style={styles.searchInput} placeholder="이름·지점 검색" value={memberListSearch} onChangeText={setMemberListSearch} />
+            </View>
             <FlatList
-              style={{ maxHeight: 380 }}
-              data={memberList}
+              style={{ maxHeight: 340 }}
+              data={shownMemberList}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                memberListSearch.trim() ? <Text style={styles.addEmpty}>맞는 멤버가 없습니다.</Text> : null
+              }
               keyExtractor={(m) => m.userId}
               renderItem={({ item }) => (
                 <View style={styles.memberRow}>

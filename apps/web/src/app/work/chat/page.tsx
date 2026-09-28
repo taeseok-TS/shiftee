@@ -179,6 +179,8 @@ export default function WorkChatPage() {
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addSearch, setAddSearch] = useState("");
+  // 채널 관리 — 현재 멤버 검색(2026-09-28 디렉터: 인원이 20명을 넘는 방에서 내보낼 사람을 찾기 힘들다)
+  const [memberSearch, setMemberSearch] = useState("");
   const [labelTextVal, setLabelTextVal] = useState("");
   const [labelColorVal, setLabelColorVal] = useState(LABEL_COLORS[0]);
   const [addHistory, setAddHistory] = useState<"all" | "90days" | "none">("all");
@@ -662,7 +664,7 @@ export default function WorkChatPage() {
     setRenameVal(active.name);
     setLabelTextVal(active.labelText || "");
     setLabelColorVal(active.labelColor || LABEL_COLORS[0]);
-    setAddIds([]); setAddSearch(""); setAddHistory("all");
+    setAddIds([]); setAddSearch(""); setAddHistory("all"); setMemberSearch("");
     setManageOpen(true);
     const res = await fetch(`/api/work/channels/${activeId}/members`);
     if (res.ok) { const d = await res.json(); setChannelMembers(d.members || []); }
@@ -1073,6 +1075,9 @@ export default function WorkChatPage() {
   const filteredEmps = employees.filter((e) => empSearch ? matchEmp(e, empSearch) : e.role !== "ADMIN");
   const memberIdSet = new Set(channelMembers.map((m) => m.userId));
   const addCandidates = employees.filter((e) => !memberIdSet.has(e.id) && (addSearch ? matchEmp(e, addSearch) : e.role !== "ADMIN"));
+  // 현재 멤버 검색 — 멤버 추가와 같은 기준(이름·지점), 앞뒤 공백은 무시
+  const memberQ = memberSearch.trim();
+  const shownMembers = memberQ ? channelMembers.filter((m) => matchEmp(m, memberQ)) : channelMembers;
 
   // 브라우저가 자체 표시 못 하는 오피스 문서(PPT/엑셀/워드)는 MS Office 온라인 뷰어로 열기
   const openHref = (fileUrl: string, fileName: string | null) => {
@@ -1878,11 +1883,22 @@ export default function WorkChatPage() {
 
             {/* 현재 멤버 */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">멤버 {channelMembers.length}명</label>
+              <label className="text-sm font-medium">
+                멤버 {channelMembers.length}명
+                {memberQ && <span className="ml-1 text-xs font-normal text-gray-400">(검색 {shownMembers.length}명)</span>}
+              </label>
+              {channelMembers.length > 0 && (
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                  <Input className="pl-9" placeholder="멤버 검색 (이름·지점)" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
+                </div>
+              )}
               <div className="max-h-40 overflow-y-auto border rounded-lg divide-y">
                 {channelMembers.length === 0 ? (
                   <div className="px-3 py-3 text-xs text-gray-400">멤버 정보를 불러오는 중…</div>
-                ) : channelMembers.map((m) => (
+                ) : shownMembers.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-gray-400">「{memberQ}」에 맞는 멤버가 없습니다.</div>
+                ) : shownMembers.map((m) => (
                   <div key={m.userId} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                     <span className="flex items-center gap-1 truncate">
                       {m.name}
