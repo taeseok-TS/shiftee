@@ -1075,9 +1075,9 @@ export default function WorkChatPage() {
     const k = q.trim().toLowerCase();
     return e.name.toLowerCase().includes(k) || (e.branch ?? "").toLowerCase().includes(k);
   };
-  const filteredEmps = employees.filter((e) => empSearch ? matchEmp(e, empSearch) : e.role !== "ADMIN");
+  const filteredEmps = employees.filter((e) => empSearch.trim() ? matchEmp(e, empSearch) : e.role !== "ADMIN");
   const memberIdSet = new Set(channelMembers.map((m) => m.userId));
-  const addCandidates = employees.filter((e) => !memberIdSet.has(e.id) && (addSearch ? matchEmp(e, addSearch) : e.role !== "ADMIN"));
+  const addCandidates = employees.filter((e) => !memberIdSet.has(e.id) && (addSearch.trim() ? matchEmp(e, addSearch) : e.role !== "ADMIN"));
   // 현재 멤버 검색 — 멤버 추가와 같은 기준(이름·지점), 앞뒤 공백은 무시
   const memberQ = memberSearch.trim();
   const shownMembers = memberQ ? channelMembers.filter((m) => matchEmp(m, memberQ)) : channelMembers;
