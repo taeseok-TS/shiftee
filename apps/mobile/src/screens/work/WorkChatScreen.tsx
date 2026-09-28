@@ -1923,24 +1923,29 @@ export default function WorkChatScreen() {
 
       {/* 멤버 관리 (목록 + 내보내기) — 바깥 탭으로도 닫힘 */}
       <Modal visible={membersOpen} transparent animationType="slide" onRequestClose={() => setMembersOpen(false)}>
-        {/* 백드롭은 카드의 부모가 아니라 형제로 — Pressable이 부모면 목록 터치를 선점해 스크롤이 막힘(안드로이드) */}
-        <View style={styles.addBg}>
+        {/* 백드롭은 카드의 부모가 아니라 형제로 — Pressable이 부모면 목록 터치를 선점해 스크롤이 막힘(안드로이드).
+            검색창이 생겨 키보드가 뜨므로 다른 시트 모달과 같이 KeyboardAvoidingView — 아니면 iOS 에서
+            키보드가 검색 결과와 검색창까지 가리고, 한글 키보드엔 내림 키가 없어 빠져나올 수도 없다. */}
+        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMembersOpen(false)} />
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>
               멤버 {memberList.length}명
               {memberListSearch.trim() ? <Text style={styles.memberBranch}>  (검색 {shownMemberList.length}명)</Text> : null}
             </Text>
-            <View style={styles.searchBox}>
-              <Ionicons name="search" size={16} color="#9ca3af" />
-              <TextInput style={styles.searchInput} placeholder="이름·지점 검색" value={memberListSearch} onChangeText={setMemberListSearch} />
-            </View>
+            {memberList.length > 0 && (
+              <View style={styles.searchBox}>
+                <Ionicons name="search" size={16} color="#9ca3af" />
+                <TextInput style={styles.searchInput} placeholder="이름·지점 검색" value={memberListSearch} onChangeText={setMemberListSearch} />
+              </View>
+            )}
             <FlatList
               style={{ maxHeight: 340 }}
               data={shownMemberList}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               ListEmptyComponent={
-                memberListSearch.trim() ? <Text style={styles.addEmpty}>맞는 멤버가 없습니다.</Text> : null
+                <Text style={styles.addEmpty}>{memberList.length === 0 ? "멤버 정보를 불러오는 중…" : "맞는 멤버가 없습니다."}</Text>
               }
               keyExtractor={(m) => m.userId}
               renderItem={({ item }) => (
@@ -1963,7 +1968,7 @@ export default function WorkChatScreen() {
               <Text style={styles.addCancelText}>닫기</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* 메시지 전달 — 채널 선택 */}

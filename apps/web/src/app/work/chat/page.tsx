@@ -1070,8 +1070,11 @@ export default function WorkChatPage() {
   // 기본 목록엔 관리자(ADMIN) 숨김, 검색하면 전체(관리자 포함) 노출
   // 이름과 **지점명** 둘 다로 찾는다 (디렉터 지시). 종전에는 이름만 맞춰봐서
   // "목동" 을 쳐도 목동 직원이 하나도 안 나왔다.
-  const matchEmp = (e: { name: string; branch?: string | null }, q: string) =>
-    e.name.includes(q) || (e.branch ?? "").includes(q);
+  // 대소문자·앞뒤 공백 무시 — 앱 검색과 같은 결과가 나오게(영문 이름 "kim" 등)
+  const matchEmp = (e: { name: string; branch?: string | null }, q: string) => {
+    const k = q.trim().toLowerCase();
+    return e.name.toLowerCase().includes(k) || (e.branch ?? "").toLowerCase().includes(k);
+  };
   const filteredEmps = employees.filter((e) => empSearch ? matchEmp(e, empSearch) : e.role !== "ADMIN");
   const memberIdSet = new Set(channelMembers.map((m) => m.userId));
   const addCandidates = employees.filter((e) => !memberIdSet.has(e.id) && (addSearch ? matchEmp(e, addSearch) : e.role !== "ADMIN"));
