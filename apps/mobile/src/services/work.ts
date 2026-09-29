@@ -229,6 +229,21 @@ export async function sendFileMessage(
   return res.data?.message;
 }
 
+// 이모티콘(스티커) — 켜진 세트 목록 / 보내기(2026-09-29). 서버가 등록된 이모티콘 주소만 받는다.
+export type EmoticonSet = { id: string; name: string; items: { id: string; name: string; url: string; animated: boolean }[] };
+export async function getEmoticonSets(): Promise<EmoticonSet[]> {
+  const res = await axios.get(`${API_URL}/work/emoticons`, { headers: await authHeaders() });
+  return (res.data?.sets as EmoticonSet[]) || [];
+}
+export async function sendStickerMessage(channelId: string, url: string, replyToId?: string) {
+  const res = await axios.post(
+    `${API_URL}/work/channels/${channelId}/messages`,
+    { fileType: "sticker", fileUrl: url, replyToId: replyToId ?? null },
+    { headers: await authHeaders() }
+  );
+  return res.data?.message;
+}
+
 // 리액션 토글 (같은 이모지 다시 누르면 제거)
 export async function toggleReaction(messageId: string, emoji: string) {
   await axios.post(`${API_URL}/work/messages/${messageId}/reactions`, { emoji }, { headers: await authHeaders() });

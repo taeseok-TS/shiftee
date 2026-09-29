@@ -38,7 +38,7 @@ import VoiceBubble from "../../components/VoiceBubble";
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri } from "../../services/work";
+import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri, getEmoticonSets, sendStickerMessage, EmoticonSet } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, hideChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
 
@@ -147,6 +147,11 @@ export default function WorkChatScreen() {
   const [emojiMore, setEmojiMore] = useState(false); // 리액션 이모지 전체 그리드 펼침
   useEffect(() => { if (!reactionTarget) setEmojiMore(false); }, [reactionTarget]);
   const [replyTarget, setReplyTarget] = useState<WorkMessage | null>(null);
+  // 이모티콘(스티커) 고르는 창 — 처음 열 때 한 번 불러온다(2026-09-29)
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [stickerSets, setStickerSets] = useState<EmoticonSet[] | null>(null);
+  const [stickerTab, setStickerTab] = useState(0);
+  const stickerSendingRef = useRef(false);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
   // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
@@ -830,6 +835,32 @@ export default function WorkChatScreen() {
   // "@전체" = 방 전체 멘션 (서버가 전원 멘션으로 처리)
   const mentionShowAll = mentionQuery !== null && "전체".includes(mentionQuery);
 
+  const openStickers = async () => {
+    setStickerOpen(true);
+    if (stickerSets === null) {
+      try {
+        setStickerSets(await getEmoticonSets());
+      } catch {
+        setStickerSets([]);
+      }
+    }
+  };
+  // 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
+  const sendSticker = async (url: string) => {
+    if (stickerSendingRef.current) return;
+    stickerSendingRef.current = true;
+    try {
+      await sendStickerMessage(channelId, url, replyTarget?.id);
+      setStickerOpen(false);
+      setReplyTarget(null);
+      await load();
+    } catch (e: any) {
+      Alert.alert("전송 실패", e?.response?.data?.error || "이모티콘을 보내지 못했습니다.");
+    } finally {
+      stickerSendingRef.current = false;
+    }
+  };
+
   const handleSend = async () => {
     const content = text.trim();
     const editing = editTarget;
@@ -1171,6 +1202,8 @@ export default function WorkChatScreen() {
             !item.deleted && item.fileType === "image" && styles.bubbleImage,
             // 이모지 단독 메시지는 배경 투명 (bubbleMine/Other 배경을 마지막에 덮어씀)
             !item.deleted && !item.poll && !item.fileUrl && !(item.albumUrls && item.albumUrls.length) && !item.replyTo && !!item.content && isEmojiOnly(item.content) && styles.bubbleEmoji,
+            // 이모티콘(스티커)도 그림만 — 답장 인용이 붙으면 말풍선 유지
+            !item.deleted && item.fileType === "sticker" && !item.replyTo && styles.bubbleEmoji,
           ]}
         >
           {item.deleted ? (
@@ -1269,7 +1302,12 @@ export default function WorkChatScreen() {
                       })}
                     </View>
                   ) : item.fileUrl ? (
-                    item.fileType === "image" ? (
+                    item.fileType === "sticker" ? (
+                      // 움직이는 GIF 도 그대로 재생된다(Expo 기본 설정에 GIF 지원 포함)
+                      <Pressable onLongPress={() => setReactionTarget(item.id)}>
+                        <Image source={{ uri: fileUri(item.fileUrl) }} style={styles.stickerImg} resizeMode="contain" accessibilityLabel={item.fileName || "이모티콘"} />
+                      </Pressable>
+                    ) : item.fileType === "image" ? (
                       <BubbleImage
                         uri={fileUri(item.fileUrl)}
                         onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}
@@ -1612,6 +1650,9 @@ export default function WorkChatScreen() {
         <TouchableOpacity style={styles.attachBtn} onPress={() => setPollOpen(true)}>
           <Ionicons name="stats-chart-outline" size={22} color="#4f46e5" />
         </TouchableOpacity>
+        <TouchableOpacity style={styles.attachBtn} onPress={openStickers} accessibilityLabel="이모티콘">
+          <Ionicons name="happy-outline" size={24} color="#4f46e5" />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="메시지 입력... (@로 멘션)"
@@ -1921,6 +1962,47 @@ export default function WorkChatScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* 이모티콘 고르는 창 — 바깥 탭으로 닫힘 */}
+      <Modal visible={stickerOpen} transparent animationType="slide" onRequestClose={() => setStickerOpen(false)}>
+        <View style={styles.addBg}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setStickerOpen(false)} />
+          <View style={styles.addCard}>
+            <Text style={styles.addTitle}>이모티콘</Text>
+            {stickerSets === null ? (
+              <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
+            ) : stickerSets.length === 0 ? (
+              <Text style={styles.addEmpty}>아직 등록된 이모티콘이 없습니다.</Text>
+            ) : (
+              <>
+                {stickerSets.length > 1 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.stickerTabs}>
+                    {stickerSets.map((st, i) => {
+                      const on = i === Math.min(stickerTab, stickerSets.length - 1);
+                      return (
+                        <TouchableOpacity key={st.id} onPress={() => setStickerTab(i)} style={[styles.stickerTab, on && styles.stickerTabOn]}>
+                          <Text style={[styles.stickerTabText, on && styles.stickerTabTextOn]}>{st.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+                <FlatList
+                  style={{ maxHeight: 340 }}
+                  data={stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items}
+                  keyExtractor={(e) => e.id}
+                  numColumns={4}
+                  renderItem={({ item: e }) => (
+                    <TouchableOpacity style={styles.stickerCell} onPress={() => sendSticker(e.url)} accessibilityLabel={e.name}>
+                      <Image source={{ uri: fileUri(e.url) }} style={styles.stickerCellImg} resizeMode="contain" />
+                    </TouchableOpacity>
+                  )}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* 멤버 관리 (목록 + 내보내기) — 바깥 탭으로도 닫힘 */}
       <Modal visible={membersOpen} transparent animationType="slide" onRequestClose={() => setMembersOpen(false)}>
         {/* 백드롭은 카드의 부모가 아니라 형제로 — Pressable이 부모면 목록 터치를 선점해 스크롤이 막힘(안드로이드).
@@ -1978,7 +2060,7 @@ export default function WorkChatScreen() {
             <Text style={styles.addTitle}>메시지 전달</Text>
             <Text style={styles.forwardPreview} numberOfLines={2}>
               {forwardFor?.content ||
-                (forwardFor?.albumUrls?.length ? `🖼️ 사진 ${forwardFor.albumUrls.length}장` : forwardFor?.fileType === "image" ? "🖼️ 사진" : forwardFor?.fileType === "video" ? "🎬 동영상" : `📎 ${forwardFor?.fileName || "파일"}`)}
+                (forwardFor?.albumUrls?.length ? `🖼️ 사진 ${forwardFor.albumUrls.length}장` : forwardFor?.fileType === "image" ? "🖼️ 사진" : forwardFor?.fileType === "sticker" ? "(이모티콘)" : forwardFor?.fileType === "video" ? "🎬 동영상" : `📎 ${forwardFor?.fileName || "파일"}`)}
             </Text>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={16} color="#9ca3af" />
@@ -2239,6 +2321,14 @@ const styles = StyleSheet.create({
   bubbleImage: { padding: 4 },
   // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
   bubbleEmoji: { backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 2 },
+  stickerImg: { width: 130, height: 130 },
+  stickerTabs: { flexGrow: 0, marginBottom: 8 },
+  stickerTab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6", marginRight: 6 },
+  stickerTabOn: { backgroundColor: "#4f46e5" },
+  stickerTabText: { fontSize: 13, color: "#4b5563" },
+  stickerTabTextOn: { color: "#fff", fontWeight: "600" },
+  stickerCell: { width: "25%", aspectRatio: 1, padding: 4 },
+  stickerCellImg: { width: "100%", height: "100%" },
   bubbleMine: { backgroundColor: "#4f46e5", borderBottomRightRadius: 4 },
   bubbleOther: { backgroundColor: "#fff", borderBottomLeftRadius: 4 },
   msgText: { fontSize: 15, color: "#111827", lineHeight: 20 },

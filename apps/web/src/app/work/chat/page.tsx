@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut, MoreHorizontal } from "lucide-react";
+import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, BellOff, AtSign, Download, Link as LinkIcon, ExternalLink, Pin, Settings, UserPlus, Trash2, EyeOff, Reply, Pencil, Megaphone, BarChart3, Star, Share2, Clock, AlarmClock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, ZoomIn, ZoomOut, MoreHorizontal, Sticker } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { openWorkStream } from "@/lib/work-stream";
@@ -144,6 +144,11 @@ export default function WorkChatPage() {
   const [pickerMore, setPickerMore] = useState(false); // 리액션 이모지 전체 그리드 펼침
   useEffect(() => { setPickerMore(false); }, [pickerFor]);
   const [inputEmojiOpen, setInputEmojiOpen] = useState(false); // 입력창 이모지 선택기
+  // 이모티콘(스티커) 고르는 창 — 2026-09-29. 세트는 처음 열 때 한 번 불러온다(관리자가 바꾸면 새로고침 뒤 반영)
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [stickerSets, setStickerSets] = useState<{ id: string; name: string; items: { id: string; name: string; url: string; animated: boolean }[] }[] | null>(null);
+  const [stickerTab, setStickerTab] = useState(0);
+  const stickerSendingRef = useRef(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ parent: Message; replies: Message[] } | null>(null);
   const [threadInput, setThreadInput] = useState("");
@@ -503,6 +508,36 @@ export default function WorkChatPage() {
     const res = await fetch(`/api/work/messages/${m.id}`, { method: "DELETE" });
     if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "삭제 실패"); return; }
     if (activeId) fetchMessages(activeId);
+  }
+
+  async function openStickers() {
+    setInputEmojiOpen(false);
+    setStickerOpen((v) => !v);
+    if (stickerSets === null) {
+      const res = await fetch("/api/work/emoticons").catch(() => null);
+      const d = res && res.ok ? await res.json().catch(() => null) : null;
+      setStickerSets(d?.sets ?? []);
+    }
+  }
+  // 이모티콘은 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
+  async function sendSticker(e: { url: string; name: string }) {
+    if (!activeId || stickerSendingRef.current) return;
+    stickerSendingRef.current = true;
+    try {
+      const res = await fetch(`/api/work/channels/${activeId}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileType: "sticker", fileUrl: e.url, replyToId: replyTo?.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "이모티콘을 보내지 못했습니다."); return; }
+      setStickerOpen(false);
+      setReplyTo(null);
+      fetchMessages(activeId); fetchChannels();
+    } catch {
+      toast.error("이모티콘을 보내지 못했습니다.");
+    } finally {
+      stickerSendingRef.current = false;
+    }
   }
 
   async function send() {
@@ -1214,6 +1249,13 @@ export default function WorkChatPage() {
       );
     }
     if (!m.fileUrl) return null;
+    if (m.fileType === "sticker") {
+      // 이모티콘 — 다운로드·링크 줄 없이 그림만(움직이는 GIF 는 그대로 재생된다)
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={m.fileUrl} alt={m.fileName || "이모티콘"} title={m.fileName || "이모티콘"} className="block w-[140px] h-[140px] object-contain" draggable={false} />
+      );
+    }
     const isImg = m.fileType === "image";
     return (
       <div className="mt-1">
@@ -1492,7 +1534,9 @@ export default function WorkChatPage() {
                             onContextMenu={(e) => { if (m.deleted) return; e.preventDefault(); toggleMenu(m.id, e.currentTarget); }}
                             className={
                             // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
-                            !m.deleted && !m.poll && !m.fileUrl && !m.albumUrls?.length && !m.replyTo && !!m.content && isEmojiOnly(m.content)
+                            (!m.deleted && !m.poll && !m.fileUrl && !m.albumUrls?.length && !m.replyTo && !!m.content && isEmojiOnly(m.content))
+                            // 이모티콘(스티커)도 말풍선 없이 그림만 — 답장 인용이 붙으면 인용을 보이게 말풍선 유지
+                            || (!m.deleted && m.fileType === "sticker" && !m.replyTo)
                               ? "text-sm"
                               : `rounded-2xl px-4 py-2 text-sm ${m.mine ? "bg-indigo-500 text-white" : "bg-white border"}`
                           }>
@@ -1763,7 +1807,7 @@ export default function WorkChatPage() {
               <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0 hidden md:inline-flex"><BarChart3 size={16} /></Button>
               <Button variant="ghost" size="sm" onClick={openSchedule} disabled={sending} title="예약 전송" className="shrink-0 hidden md:inline-flex"><Clock size={16} /></Button>
               <div className="relative shrink-0">
-                <Button variant="ghost" size="sm" onClick={() => setInputEmojiOpen((v) => !v)} title="이모지" className="shrink-0"><Smile size={16} /></Button>
+                <Button variant="ghost" size="sm" onClick={() => { setStickerOpen(false); setInputEmojiOpen((v) => !v); }} title="이모지" className="shrink-0"><Smile size={16} /></Button>
                 {inputEmojiOpen && (
                   <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow p-2 grid grid-cols-6 gap-1 w-60">
                     {EMOJIS_ALL.map((e) => (
@@ -1777,6 +1821,40 @@ export default function WorkChatPage() {
                           setTimeout(() => { ta?.focus(); ta?.setSelectionRange(pos + e.length, pos + e.length); }, 0);
                         }}>{e}</button>
                     ))}
+                  </div>
+                )}
+              </div>
+              <div className="relative shrink-0">
+                <Button variant="ghost" size="sm" onClick={openStickers} title="이모티콘" className="shrink-0"><Sticker size={16} /></Button>
+                {stickerOpen && (
+                  <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow-lg w-[min(360px,calc(100vw-24px))]">
+                    {stickerSets === null ? (
+                      <div className="p-4 text-xs text-gray-400">불러오는 중…</div>
+                    ) : stickerSets.length === 0 ? (
+                      <div className="p-4 text-xs text-gray-400">아직 등록된 이모티콘이 없습니다.</div>
+                    ) : (
+                      <>
+                        {stickerSets.length > 1 && (
+                          <div className="flex gap-1 px-2 pt-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            {stickerSets.map((st, i) => (
+                              <button key={st.id} onClick={() => setStickerTab(i)}
+                                className={`shrink-0 text-xs px-2.5 py-1 rounded-full ${i === Math.min(stickerTab, stickerSets.length - 1) ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                                {st.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-4 gap-1 p-2 max-h-72 overflow-y-auto">
+                          {stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items.map((e) => (
+                            <button key={e.id} onClick={() => sendSticker(e)} title={e.name}
+                              className="rounded-lg hover:bg-indigo-50 p-1 aspect-square flex items-center justify-center">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={e.url} alt={e.name} loading="lazy" className="w-full h-full object-contain" draggable={false} />
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -2117,7 +2195,7 @@ export default function WorkChatPage() {
           {forwardFor && (
             <div className="space-y-3">
               <div className="rounded-lg bg-gray-50 border px-3 py-2 text-sm text-gray-700 max-h-24 overflow-y-auto whitespace-pre-wrap">
-                {forwardFor.content || (forwardFor.albumUrls?.length ? `🖼️ 사진 ${forwardFor.albumUrls.length}장` : forwardFor.fileType === "image" ? "🖼️ 사진" : forwardFor.fileType === "video" ? "🎬 동영상" : forwardFor.fileType === "audio" ? "🎤 음성 메시지" : `📎 ${forwardFor.fileName || "파일"}`)}
+                {forwardFor.content || (forwardFor.albumUrls?.length ? `🖼️ 사진 ${forwardFor.albumUrls.length}장` : forwardFor.fileType === "image" ? "🖼️ 사진" : forwardFor.fileType === "sticker" ? "(이모티콘)" : forwardFor.fileType === "video" ? "🎬 동영상" : forwardFor.fileType === "audio" ? "🎤 음성 메시지" : `📎 ${forwardFor.fileName || "파일"}`)}
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
@@ -2167,7 +2245,7 @@ export default function WorkChatPage() {
                   className="w-full text-left py-2.5 px-1 hover:bg-gray-50 rounded">
                   <div className="text-[11px] text-gray-400">{it.channelName} · {it.userName} · {format(new Date(it.createdAt), "MM/dd HH:mm")}</div>
                   <div className="text-sm text-gray-800 mt-0.5 line-clamp-2 whitespace-pre-wrap">
-                    {it.content || (it.fileType === "image" ? "🖼️ 사진" : it.fileType === "video" ? "🎬 동영상" : it.fileType === "audio" ? "🎤 음성 메시지" : `📎 ${it.fileName || "파일"}`)}
+                    {it.content || (it.fileType === "image" ? "🖼️ 사진" : it.fileType === "sticker" ? "(이모티콘)" : it.fileType === "video" ? "🎬 동영상" : it.fileType === "audio" ? "🎤 음성 메시지" : `📎 ${it.fileName || "파일"}`)}
                   </div>
                 </button>
               ))}

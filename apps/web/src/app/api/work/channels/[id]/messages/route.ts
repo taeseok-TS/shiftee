@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
 import { isMentioned } from "@/lib/mention";
+import { findSendableEmoticon } from "@/lib/emoticons";
+import type { Prisma } from "@prisma/client";
 
 async function assertAccess(channelId: string, userId: string) {
   const channel = await prisma.workChannel.findUnique({
@@ -57,6 +59,8 @@ async function notifyNewMessage(
     ? `사진 ${albumCount}장을 보냈습니다.`
     : (message as { fileType?: string | null }).fileType === "audio"
     ? "음성 메시지를 보냈습니다."
+    : (message as { fileType?: string | null }).fileType === "sticker"
+    ? "이모티콘을 보냈습니다."
     : message.fileUrl
     ? "사진/파일을 보냈습니다."
     : "";
@@ -199,6 +203,26 @@ export async function POST(
   if ("error" in acc) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const { content, fileUrl, fileName, fileType, parentId, replyToId, albumUrls, attachFirst } = await request.json();
+  // 이모티콘(스티커) — 첨부와 경로가 다르다(/api/uploads/emoticons/). 등록·사용 중인 이모티콘만 받는다.
+  // 글·앨범은 함께 받지 않는다(스티커는 그림 하나가 한 메시지).
+  if (fileType === "sticker") {
+    const emo = await findSendableEmoticon(fileUrl);
+    if (!emo) return NextResponse.json({ error: "보낼 수 없는 이모티콘입니다." }, { status: 400 });
+    const message = await prisma.workMessage.create({
+      data: {
+        channelId: id,
+        userId: session.userId,
+        content: "",
+        fileUrl: fileUrl as string,
+        fileName: emo.name,
+        fileType: "sticker",
+        parentId: parentId ?? null,
+        replyToId: replyToId ?? null,
+      },
+      include: SENT_INCLUDE,
+    });
+    return finishSend(id, acc.channel, message, session.userId);
+  }
   // 첨부 주소는 클라이언트가 주는 값이라 그대로 믿으면 안 된다 —
   // 계약서·서명·직인 경로를 넣어두고 첨부 다운로드로 빼내는 우회가 가능했다 (2026-09-02).
   // 채팅 첨부는 work 군만 허용한다.
@@ -237,26 +261,39 @@ export async function POST(
       parentId: parentId ?? null,
       replyToId: replyToId ?? null,
     },
-    include: {
-      user: { select: { id: true, name: true, avatarUrl: true, branch: true } },
-      replyTo: { select: { id: true, content: true, deletedAt: true, user: { select: { name: true } } } },
-    },
+    include: SENT_INCLUDE,
   });
 
-  emitWork({ type: "message", channelId: id, senderId: session.userId, msgId: message.id });
+  return finishSend(id, acc.channel, message, session.userId);
+}
+
+const SENT_INCLUDE = {
+  user: { select: { id: true, name: true, avatarUrl: true, branch: true } },
+  replyTo: { select: { id: true, content: true, deletedAt: true, user: { select: { name: true } } } },
+} as const;
+type SentMessage = Prisma.WorkMessageGetPayload<{ include: typeof SENT_INCLUDE }>;
+
+// 보낸 뒤 공통 마무리 — 실시간 알림·안읽음 수·푸시·응답(일반 메시지와 스티커가 같이 쓴다)
+async function finishSend(
+  id: string,
+  channel: { id: string; name: string; type: string },
+  message: SentMessage,
+  senderId: string,
+) {
+  emitWork({ type: "message", channelId: id, senderId: senderId, msgId: message.id });
 
   // 전송 직후에도 안읽음 "1"이 바로 보이게 응답에 unreadBy 포함 (개선 제안 2026-08-24)
   // GET 의 계산식과 동일: 발신자 제외, lastReadAt 이 메시지 시각보다 이전이면 안 읽음
   const unreadBy = await prisma.workChannelMember.count({
     where: {
       channelId: id,
-      userId: { not: session.userId },
+      userId: { not: senderId },
       OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
     },
   });
 
   // 푸시 알림(발신자 제외, MUTE 제외, MENTION이면 멘션 시만). 응답을 막지 않게 비동기 발송.
-  notifyNewMessage(acc.channel, message, session.userId).catch((e) =>
+  notifyNewMessage(channel, message, senderId).catch((e) =>
     console.error("[push] notify 오류:", e)
   );
 

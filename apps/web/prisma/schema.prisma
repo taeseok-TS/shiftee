@@ -1126,3 +1126,33 @@ model WorkMeetingRecording {
 
   @@index([createdAt])
 }
+
+// ─── 큐브티워크 이모티콘(스티커) ─────────────────────────────
+// 2026-09-29 디렉터 지시: 채팅에서 큰 그림 스티커를 메시지로 보낸다(카톡 이모티콘처럼).
+// 세트는 관리자가 올린다. 메시지는 WorkMessage.fileType = "sticker", fileUrl = 이 표의 url 을 쓴다.
+// ⚠ 운영 DB 에는 deploy/ddl_emoticons.sql 을 먼저 넣는다(prisma db push 금지).
+model EmoticonSet {
+  id        String     @id @default(cuid())
+  name      String
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true) // 끄면 고르는 창에서만 빠진다 — 이미 보낸 스티커는 그대로 보인다
+  createdBy String?
+  createdAt DateTime   @default(now())
+  items     Emoticon[]
+
+  @@index([sortOrder])
+}
+
+model Emoticon {
+  id        String      @id @default(cuid())
+  setId     String
+  set       EmoticonSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  name      String // 알림·접근성용 이름 (예: "오케이")
+  url       String      @unique // /api/uploads/emoticons/… — 메시지가 이 주소를 그대로 가진다
+  animated  Boolean     @default(false) // 움직이는 그림(GIF)
+  sortOrder Int         @default(0)
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  @@index([setId, sortOrder])
+}

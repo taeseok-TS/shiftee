@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
+  Sticker,
   LayoutDashboard,
   Users,
   Building2,
@@ -39,6 +40,7 @@ const adminNavItems = [
   { href: "/admin/branches", label: "지점 관리", icon: Building2 },
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
   { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
+  { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
   { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
   { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
   { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },

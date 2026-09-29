@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
+
+// 이모티콘 세트 관리(관리자) — 2026-09-29. 목록(꺼진 것 포함) + 세트 만들기.
+export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 볼 수 있습니다." }, { status: 403 });
+
+  const sets = await prisma.emoticonSet.findMany({
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true, name: true, isActive: true, sortOrder: true, createdAt: true,
+      items: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true, name: true, url: true, animated: true, isActive: true, sortOrder: true },
+      },
+    },
+  });
+  // 이미 보낸 적 있는 이모티콘은 지울 수 없다(보낸 메시지의 그림이 깨진다) — 화면이 [삭제] 대신 [숨기기]만 보이게
+  const urls = sets.flatMap((s) => s.items.map((i) => i.url));
+  const used = urls.length
+    ? await prisma.workMessage.groupBy({ by: ["fileUrl"], where: { fileType: "sticker", fileUrl: { in: urls } }, _count: { _all: true } })
+    : [];
+  const usedMap = new Map(used.map((u) => [u.fileUrl, u._count._all]));
+  return NextResponse.json({
+    sets: sets.map((s) => ({
+      ...s,
+      items: s.items.map((i) => ({ ...i, sentCount: usedMap.get(i.url) ?? 0 })),
+    })),
+  });
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 할 수 있습니다." }, { status: 403 });
+
+  const { name } = (await request.json().catch(() => ({}))) as { name?: unknown };
+  const n = typeof name === "string" ? name.trim().slice(0, 30) : "";
+  if (!n) return NextResponse.json({ error: "세트 이름을 입력해주세요." }, { status: 400 });
+
+  const last = await prisma.emoticonSet.findFirst({ orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
+  const set = await prisma.emoticonSet.create({
+    data: { name: n, sortOrder: (last?.sortOrder ?? 0) + 1, createdBy: session.userId },
+  });
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "EMOTICON_SET_CREATE",
+    targetType: "EMOTICON_SET", targetId: set.id, targetName: n, detail: "이모티콘 세트 만들기",
+  });
+  return NextResponse.json({ set });
+}

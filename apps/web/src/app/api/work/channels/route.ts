@@ -108,6 +108,8 @@ export async function GET() {
                 ? `🖼️ 사진 ${(last.albumUrls as unknown[]).length}장`
                 : last.fileType === "audio" && !last.content
                 ? "🎤 음성 메시지"
+                : last.fileType === "sticker"
+                ? "(이모티콘)"
                 : last.fileUrl && !last.content
                 ? "📎 첨부파일"
                 : last.content,
