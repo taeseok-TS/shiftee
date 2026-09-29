@@ -88,7 +88,8 @@ export async function collectStorageStats(): Promise<{
   channels: ChannelStorage[];
 }> {
   const messages = await prisma.workMessage.findMany({
-    where: { deletedAt: null, OR: [{ fileUrl: { not: null } }, { albumUrls: { not: { equals: null } } }] },
+    // 이모티콘(스티커)은 공용 그림이라 방의 첨부 용량이 아니다(2026-09-29)
+    where: { deletedAt: null, OR: [{ fileUrl: { not: null } }, { albumUrls: { not: { equals: null } } }], AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] },
     select: {
       channelId: true,
       fileUrl: true,
@@ -142,6 +143,8 @@ export async function cleanupChannelAttachments(channelId: string, olderThanDays
       channelId,
       createdAt: { lt: cutoff },
       OR: [{ fileUrl: { not: null } }, { NOT: { albumUrls: { equals: Prisma.AnyNull } } }],
+      // 이모티콘 메시지는 정리 대상이 아니다 — "첨부파일이 정리되었습니다"로 바뀌어 버렸다(2026-09-29)
+      AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }],
     },
     select: { id: true, content: true, fileUrl: true, albumUrls: true },
   });

@@ -148,7 +148,24 @@ export default function WorkChatPage() {
   const [stickerOpen, setStickerOpen] = useState(false);
   const [stickerSets, setStickerSets] = useState<{ id: string; name: string; items: { id: string; name: string; url: string; animated: boolean }[] }[] | null>(null);
   const [stickerTab, setStickerTab] = useState(0);
+  const [stickerError, setStickerError] = useState(false);
   const stickerSendingRef = useRef(false);
+  // 입력창 팝업(이모지·이모티콘)도 바깥을 누르거나 Esc 면 닫는다 — 화면 규칙(검증관 3)
+  useEffect(() => {
+    if (!stickerOpen && !inputEmojiOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-composer-popover]")) return;
+      setStickerOpen(false);
+      setInputEmojiOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setStickerOpen(false); setInputEmojiOpen(false); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [stickerOpen, inputEmojiOpen]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ parent: Message; replies: Message[] } | null>(null);
   const [threadInput, setThreadInput] = useState("");
@@ -510,14 +527,18 @@ export default function WorkChatPage() {
     if (activeId) fetchMessages(activeId);
   }
 
+  // 목록은 열 때마다 새로 받는다 — 관리자가 숨긴 이모티콘이 남아 눌러도 안 가던 것(검증관 7)
+  async function loadStickers() {
+    const res = await fetch("/api/work/emoticons").catch(() => null);
+    const d = res && res.ok ? await res.json().catch(() => null) : null;
+    if (d?.sets) { setStickerSets(d.sets); setStickerError(false); }
+    else setStickerError(true);
+  }
   async function openStickers() {
     setInputEmojiOpen(false);
-    setStickerOpen((v) => !v);
-    if (stickerSets === null) {
-      const res = await fetch("/api/work/emoticons").catch(() => null);
-      const d = res && res.ok ? await res.json().catch(() => null) : null;
-      setStickerSets(d?.sets ?? []);
-    }
+    if (stickerOpen) { setStickerOpen(false); return; }
+    setStickerOpen(true);
+    await loadStickers();
   }
   // 이모티콘은 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
   async function sendSticker(e: { url: string; name: string }) {
@@ -529,7 +550,11 @@ export default function WorkChatPage() {
         body: JSON.stringify({ fileType: "sticker", fileUrl: e.url, replyToId: replyTo?.id }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d.error || "이모티콘을 보내지 못했습니다."); return; }
+      if (!res.ok) {
+        toast.error(d.error || "이모티콘을 보내지 못했습니다.");
+        if (res.status === 400) loadStickers(); // 그사이 숨겨졌을 수 있다 — 목록을 새로 받는다
+        return;
+      }
       setStickerOpen(false);
       setReplyTo(null);
       fetchMessages(activeId); fetchChannels();
@@ -1806,7 +1831,7 @@ export default function WorkChatPage() {
               {/* 폰 폭에서는 입력창 확보를 위해 투표·예약은 숨김(데스크톱 전용) */}
               <Button variant="ghost" size="sm" onClick={() => setPollOpen(true)} title="투표 만들기" className="shrink-0 hidden md:inline-flex"><BarChart3 size={16} /></Button>
               <Button variant="ghost" size="sm" onClick={openSchedule} disabled={sending} title="예약 전송" className="shrink-0 hidden md:inline-flex"><Clock size={16} /></Button>
-              <div className="relative shrink-0">
+              <div className="relative shrink-0" data-composer-popover>
                 <Button variant="ghost" size="sm" onClick={() => { setStickerOpen(false); setInputEmojiOpen((v) => !v); }} title="이모지" className="shrink-0"><Smile size={16} /></Button>
                 {inputEmojiOpen && (
                   <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow p-2 grid grid-cols-6 gap-1 w-60">
@@ -1824,11 +1849,14 @@ export default function WorkChatPage() {
                   </div>
                 )}
               </div>
-              <div className="relative shrink-0">
+              <div className="relative shrink-0" data-composer-popover>
                 <Button variant="ghost" size="sm" onClick={openStickers} title="이모티콘" className="shrink-0"><Sticker size={16} /></Button>
                 {stickerOpen && (
-                  <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow-lg w-[min(360px,calc(100vw-24px))]">
-                    {stickerSets === null ? (
+                  // 폰 폭에서는 버튼 기준으로 열면 오른쪽으로 넘친다(검증관 2) — 입력창 위에 화면 폭으로 띄운다
+                  <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow-lg w-[360px] max-md:fixed max-md:left-3 max-md:right-3 max-md:bottom-20 max-md:w-auto">
+                    {stickerError && !stickerSets ? (
+                      <div className="p-4 text-xs text-gray-400">이모티콘을 불러오지 못했습니다. 버튼을 다시 눌러 주세요.</div>
+                    ) : stickerSets === null ? (
                       <div className="p-4 text-xs text-gray-400">불러오는 중…</div>
                     ) : stickerSets.length === 0 ? (
                       <div className="p-4 text-xs text-gray-400">아직 등록된 이모티콘이 없습니다.</div>

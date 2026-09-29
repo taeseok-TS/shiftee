@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
+  Keyboard,
   ActivityIndicator,
   Image,
   Linking,
@@ -835,15 +836,21 @@ export default function WorkChatScreen() {
   // "@전체" = 방 전체 멘션 (서버가 전원 멘션으로 처리)
   const mentionShowAll = mentionQuery !== null && "전체".includes(mentionQuery);
 
-  const openStickers = async () => {
-    setStickerOpen(true);
-    if (stickerSets === null) {
-      try {
-        setStickerSets(await getEmoticonSets());
-      } catch {
-        setStickerSets([]);
-      }
+  // 열 때마다 새로 받는다 — 관리자가 숨긴 이모티콘이 남아 눌러도 안 가던 것(검증관 7).
+  // 키보드가 떠 있으면 먼저 내린다 — 안드로이드에서 아래 시트가 키보드에 가려진다(검증관 8).
+  const [stickerError, setStickerError] = useState(false);
+  const loadStickers = async () => {
+    try {
+      setStickerSets(await getEmoticonSets());
+      setStickerError(false);
+    } catch {
+      setStickerError(true);
     }
+  };
+  const openStickers = async () => {
+    Keyboard.dismiss();
+    setStickerOpen(true);
+    await loadStickers();
   };
   // 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
   const sendSticker = async (url: string) => {
@@ -856,6 +863,7 @@ export default function WorkChatScreen() {
       await load();
     } catch (e: any) {
       Alert.alert("전송 실패", e?.response?.data?.error || "이모티콘을 보내지 못했습니다.");
+      if (e?.response?.status === 400) loadStickers(); // 그사이 숨겨졌을 수 있다
     } finally {
       stickerSendingRef.current = false;
     }
@@ -1968,7 +1976,9 @@ export default function WorkChatScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setStickerOpen(false)} />
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>이모티콘</Text>
-            {stickerSets === null ? (
+            {stickerError && !stickerSets ? (
+              <Text style={styles.addEmpty}>이모티콘을 불러오지 못했습니다. 닫고 다시 열어 주세요.</Text>
+            ) : stickerSets === null ? (
               <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
             ) : stickerSets.length === 0 ? (
               <Text style={styles.addEmpty}>아직 등록된 이모티콘이 없습니다.</Text>

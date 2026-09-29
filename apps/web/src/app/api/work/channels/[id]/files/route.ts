@@ -25,7 +25,7 @@ export async function GET(
   if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const msgs = await prisma.workMessage.findMany({
-    where: { channelId: id, fileUrl: { not: null } },
+    where: { channelId: id, fileUrl: { not: null }, AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] }, // 이모티콘은 첨부가 아니다(2026-09-29)
     include: { user: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -60,7 +60,7 @@ export async function DELETE(
     return NextResponse.json({ error: "파일을 정리할 권한이 없습니다." }, { status: 403 });
 
   const msgs = await prisma.workMessage.findMany({
-    where: { channelId: id, fileUrl: { not: null } },
+    where: { channelId: id, fileUrl: { not: null }, AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] }, // 이모티콘은 첨부가 아니다(2026-09-29)
     select: { id: true, fileUrl: true, content: true },
   });
 

@@ -34,11 +34,12 @@ export async function PATCH(
   const { content } = await request.json();
   if (!content?.trim()) return NextResponse.json({ error: "내용을 입력해주세요." }, { status: 400 });
 
-  const m = await prisma.workMessage.findUnique({ where: { id }, select: { userId: true, channelId: true, deletedAt: true } });
+  const m = await prisma.workMessage.findUnique({ where: { id }, select: { userId: true, channelId: true, deletedAt: true, fileType: true } });
   if (!m) return NextResponse.json({ error: "메시지를 찾을 수 없습니다." }, { status: 404 });
   if (m.userId !== session.userId)
     return NextResponse.json({ error: "본인 메시지만 수정할 수 있습니다." }, { status: 403 });
   if (m.deletedAt) return NextResponse.json({ error: "삭제된 메시지는 수정할 수 없습니다." }, { status: 400 });
+  if (m.fileType === "sticker") return NextResponse.json({ error: "이모티콘은 수정할 수 없습니다." }, { status: 400 });
 
   await prisma.workMessage.update({ where: { id }, data: { content: content.trim(), editedAt: new Date() } });
   emitWork({ type: "message", channelId: m.channelId });

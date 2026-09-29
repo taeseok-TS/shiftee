@@ -70,14 +70,13 @@ export default function AdminEmoticonsPage() {
     Array.from(files).forEach((f) => fd.append("files", f));
     await call(`/api/admin/emoticons/${setId}/items`, { method: "POST", body: fd }, `${files.length}개를 올렸습니다.`);
   }
-  // 순서 바꾸기 — 이웃과 sortOrder 를 맞바꾼다
-  async function swapSets(a: EmoSet, b: EmoSet) {
-    await call(`/api/admin/emoticons/${a.id}`, json("PATCH", { sortOrder: b.sortOrder }));
-    await call(`/api/admin/emoticons/${b.id}`, json("PATCH", { sortOrder: a.sortOrder }));
+  // 순서 바꾸기 — 바뀐 전체 순서를 한 번에 보낸다(번호가 같아도 확실히 바뀐다)
+  const moved = <T,>(arr: T[], i: number, j: number) => { const a = arr.slice(); [a[i], a[j]] = [a[j], a[i]]; return a; };
+  async function moveSet(i: number, j: number) {
+    await call("/api/admin/emoticons", json("PUT", { setIds: moved(sets, i, j).map((x) => x.id) }));
   }
-  async function swapItems(a: Item, b: Item) {
-    await call(`/api/admin/emoticons/items/${a.id}`, json("PATCH", { sortOrder: b.sortOrder }));
-    await call(`/api/admin/emoticons/items/${b.id}`, json("PATCH", { sortOrder: a.sortOrder }));
+  async function moveItem(st: EmoSet, i: number, j: number) {
+    await call(`/api/admin/emoticons/${st.id}/items`, json("PUT", { itemIds: moved(st.items, i, j).map((x) => x.id) }));
   }
   async function renameItem(it: Item) {
     const n = window.prompt("이모티콘 이름 (마우스를 올리면 보입니다)", it.name);
@@ -96,7 +95,8 @@ export default function AdminEmoticonsPage() {
         <h1 className="text-2xl font-bold">이모티콘 관리</h1>
         <p className="text-sm text-gray-500 mt-1">
           큐브티워크 채팅에서 보내는 이모티콘 세트입니다. 켜진 세트가 채팅 입력창의 이모티콘 창에 순서대로 나옵니다.
-          그림은 PNG·GIF·JPG·WebP(3MB 이하)를 올릴 수 있고, <b>움직이는 GIF</b>는 채팅에서도 움직입니다.
+          그림은 PNG·GIF·JPG·WebP(3MB 이하, 한 번에 30장)를 올릴 수 있습니다. <b>움직이는 이모티콘은 GIF로</b> 올려 주세요 —
+          움직이는 WebP·PNG 는 웹에서만 움직이고 휴대폰 앱에서는 멈춰 보입니다.
           정사각형·배경 투명 그림이 가장 보기 좋습니다.
         </p>
       </div>
@@ -120,8 +120,8 @@ export default function AdminEmoticonsPage() {
               <button className="font-semibold text-lg hover:underline" onClick={() => renameSet(st)} title="이름 바꾸기">{st.name}</button>
               <span className="text-xs text-gray-400">{st.items.length}개{st.isActive ? "" : " · 숨김"}</span>
               <div className="ml-auto flex items-center gap-1">
-                <Button size="sm" variant="ghost" disabled={busy || si === 0} onClick={() => swapSets(st, sets[si - 1])} title="위로"><ArrowUp size={14} /></Button>
-                <Button size="sm" variant="ghost" disabled={busy || si === sets.length - 1} onClick={() => swapSets(st, sets[si + 1])} title="아래로"><ArrowDown size={14} /></Button>
+                <Button size="sm" variant="ghost" disabled={busy || si === 0} onClick={() => moveSet(si, si - 1)} title="위로"><ArrowUp size={14} /></Button>
+                <Button size="sm" variant="ghost" disabled={busy || si === sets.length - 1} onClick={() => moveSet(si, si + 1)} title="아래로"><ArrowDown size={14} /></Button>
                 <Button size="sm" variant="outline" disabled={busy}
                   onClick={() => call(`/api/admin/emoticons/${st.id}`, json("PATCH", { isActive: !st.isActive }), st.isActive ? "세트를 숨겼습니다." : "세트를 켰습니다.")}>
                   {st.isActive ? <><EyeOff size={14} className="mr-1" />숨기기</> : <><Eye size={14} className="mr-1" />켜기</>}
@@ -147,12 +147,12 @@ export default function AdminEmoticonsPage() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={it.url} alt={it.name} className="w-20 h-20 object-contain" />
                     <button className="text-[11px] text-gray-700 truncate max-w-full hover:underline" title="이름 바꾸기" onClick={() => renameItem(it)}>
-                      {it.name}{it.animated ? " · 움직임" : ""}
+                      {it.name}{it.animated ? (it.url.endsWith(".gif") ? " · 움직임" : " · 움직임(웹만)") : ""}
                     </button>
                     <div className="text-[10px] text-gray-400">{it.sentCount ? `${it.sentCount}번 보냄` : "보낸 적 없음"}</div>
                     <div className="flex items-center">
-                      <button disabled={busy || ii === 0} onClick={() => swapItems(it, st.items[ii - 1])} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="앞으로"><ArrowUp size={12} className="-rotate-90" /></button>
-                      <button disabled={busy || ii === st.items.length - 1} onClick={() => swapItems(it, st.items[ii + 1])} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="뒤로"><ArrowDown size={12} className="-rotate-90" /></button>
+                      <button disabled={busy || ii === 0} onClick={() => moveItem(st, ii, ii - 1)} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="앞으로"><ArrowUp size={12} className="-rotate-90" /></button>
+                      <button disabled={busy || ii === st.items.length - 1} onClick={() => moveItem(st, ii, ii + 1)} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="뒤로"><ArrowDown size={12} className="-rotate-90" /></button>
                       <button disabled={busy} onClick={() => call(`/api/admin/emoticons/items/${it.id}`, json("PATCH", { isActive: !it.isActive }))}
                         className="p-1 text-gray-400 hover:text-gray-700" title={it.isActive ? "숨기기" : "켜기"}>
                         {it.isActive ? <EyeOff size={12} /> : <Eye size={12} />}

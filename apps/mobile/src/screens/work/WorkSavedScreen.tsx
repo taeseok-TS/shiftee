@@ -28,7 +28,7 @@ export default function WorkSavedScreen({ route }: any) {
 
   const preview = (it: SavedItem) =>
     it.content ||
-    (it.fileType === "image" ? "🖼️ 사진" : it.fileType === "video" ? "🎬 동영상" : `📎 ${it.fileName || "파일"}`);
+    (it.fileType === "image" ? "🖼️ 사진" : it.fileType === "sticker" ? "(이모티콘)" : it.fileType === "video" ? "🎬 동영상" : `📎 ${it.fileName || "파일"}`);
 
   if (!items) {
     return (

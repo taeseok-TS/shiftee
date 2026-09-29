@@ -52,3 +52,23 @@ export async function POST(request: NextRequest) {
   });
   return NextResponse.json({ set });
 }
+
+// 세트 순서 한 번에 — 화면이 원하는 순서대로 id 를 보내면 1,2,3… 으로 다시 매긴다.
+// (두 세트의 번호를 맞바꾸는 방식은 번호가 같으면 아무 일도 안 일어났다 — 검증관 5)
+export async function PUT(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 할 수 있습니다." }, { status: 403 });
+
+  const { setIds } = (await request.json().catch(() => ({}))) as { setIds?: unknown };
+  if (!Array.isArray(setIds) || !setIds.every((x) => typeof x === "string")) {
+    return NextResponse.json({ error: "순서가 올바르지 않습니다." }, { status: 400 });
+  }
+  const ids = setIds as string[];
+  const all = await prisma.emoticonSet.findMany({ select: { id: true } });
+  if (ids.length !== all.length || new Set(ids).size !== ids.length || !all.every((s) => ids.includes(s.id))) {
+    return NextResponse.json({ error: "세트 목록이 바뀌었습니다. 새로고침 후 다시 해주세요." }, { status: 409 });
+  }
+  await prisma.$transaction(ids.map((id, i) => prisma.emoticonSet.update({ where: { id }, data: { sortOrder: i + 1 } })));
+  return NextResponse.json({ success: true });
+}

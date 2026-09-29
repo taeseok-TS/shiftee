@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { EMOTICON_DIR, EMOTICON_MAX_BYTES, EMOTICON_URL_PREFIX } from "@/lib/emoticons";
 
-const MAX_FILES = 40;
+const MAX_FILES = 30; // 30 × 3MB = 90MB — 프록시 본문 한도(110mb) 안(넘으면 본문이 잘려 원인과 다른 오류가 난다)
 
 /**
  * 파일 앞부분(매직 바이트)으로 실제 형식을 본다 — 이름의 확장자는 믿지 않는다.
@@ -95,4 +95,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     detail: `이모티콘 ${created.length}개 올림(움직임 ${created.filter((c) => c.animated).length})`,
   });
   return NextResponse.json({ items: created });
+}
+
+// 세트 안 이모티콘 순서 한 번에 — 원하는 순서대로 id 를 보내면 1,2,3… 으로 다시 매긴다(검증관 5)
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ setId: string }> }) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 할 수 있습니다." }, { status: 403 });
+
+  const { setId } = await params;
+  const { itemIds } = (await request.json().catch(() => ({}))) as { itemIds?: unknown };
+  if (!Array.isArray(itemIds) || !itemIds.every((x) => typeof x === "string")) {
+    return NextResponse.json({ error: "순서가 올바르지 않습니다." }, { status: 400 });
+  }
+  const ids = itemIds as string[];
+  const all = await prisma.emoticon.findMany({ where: { setId }, select: { id: true } });
+  if (ids.length !== all.length || new Set(ids).size !== ids.length || !all.every((e) => ids.includes(e.id))) {
+    return NextResponse.json({ error: "이모티콘 목록이 바뀌었습니다. 새로고침 후 다시 해주세요." }, { status: 409 });
+  }
+  await prisma.$transaction(ids.map((id, i) => prisma.emoticon.update({ where: { id }, data: { sortOrder: i + 1 } })));
+  return NextResponse.json({ success: true });
 }

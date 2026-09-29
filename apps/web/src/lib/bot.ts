@@ -559,7 +559,7 @@ export async function runReminders() {
     const chName = r.message.channel.type === "DM" ? "1:1 대화" : r.message.channel.name;
     const preview = r.message.content
       ? r.message.content.slice(0, 120)
-      : r.message.fileType === "image" ? "🖼️ 사진" : `📎 ${r.message.fileName || "파일"}`;
+      : r.message.fileType === "image" ? "🖼️ 사진" : r.message.fileType === "sticker" ? "(이모티콘)" : `📎 ${r.message.fileName || "파일"}`;
     // 리마인더는 채팅 알림의 일종 — 전체 알림 끄기(workMuteAll) 사용자에겐 푸시 생략(DM 메시지는 남음)
     await botSendDM(r.userId, `⏰ 리마인더\n[${chName}] ${r.message.user.name}: ${preview}`, { respectWorkMute: true });
   }
