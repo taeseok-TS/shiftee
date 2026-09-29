@@ -461,10 +461,12 @@ export default function WorkChatPage() {
       const a = btn.getBoundingClientRect();
       const l = list.getBoundingClientRect();
       // 반으로 가르지 않고 남은 공간으로 — 목록이 낮은 화면에서 위로 펼치면 맨 위 [수정]이 잘렸다(3b).
-      // 메뉴 높이 약 300px: 아래가 모자라고 위가 더 넉넉할 때만 위로.
+      // 메뉴 높이 약 270px. 아래가 모자라고 **위에 통째로 들어갈 때만** 위로 연다. 양쪽 다 모자라면
+      // 아래로 — 그래야 맨 위 [수정]은 항상 보이고, 넘친 [삭제]는 목록을 내리면 보인다(1366×768 노트북).
+      const NEED = 280;
       const below = l.bottom - a.bottom;
       const above = a.top - l.top;
-      setMenuUp(below < 300 && above > below);
+      setMenuUp(below < NEED && above >= NEED);
     } else {
       setMenuUp(false);
     }
