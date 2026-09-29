@@ -149,7 +149,9 @@ export default function WorkChatPage() {
   const [stickerSets, setStickerSets] = useState<{ id: string; name: string; items: { id: string; name: string; url: string; animated: boolean }[] }[] | null>(null);
   const [stickerTab, setStickerTab] = useState(0);
   const [stickerError, setStickerError] = useState(false);
-  const stickerSendingRef = useRef(false);
+  // 고른 이모티콘 — 바로 보내지 않고 입력창 위에 올려 두었다가 [전송]으로 보낸다(2026-09-29 디렉터:
+  // "선택하니까 바로 발송되더라" — 카톡처럼 미리보기 후 전송)
+  const [pendingSticker, setPendingSticker] = useState<{ url: string; name: string } | null>(null);
   // 입력창 팝업(이모지·이모티콘)도 바깥을 누르거나 Esc 면 닫는다 — 화면 규칙(검증관 3)
   useEffect(() => {
     if (!stickerOpen && !inputEmojiOpen) return;
@@ -401,7 +403,7 @@ export default function WorkChatPage() {
     if (prev === activeId) return;
     if (prev) draftsRef.current[prev] = inputValRef.current;
     setInput(activeId ? draftsRef.current[activeId] ?? "" : "");
-    setReplyTo(null); setEditingId(null); setMentionQuery(null); setInputEmojiOpen(false);
+    setReplyTo(null); setEditingId(null); setMentionQuery(null); setInputEmojiOpen(false); setPendingSticker(null);
     setTimeout(() => { const ta = inputRef.current; if (ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; } }, 0);
   }, [activeId]);
   useEffect(() => {
@@ -518,7 +520,7 @@ export default function WorkChatPage() {
     };
   }, [menuFor, pickerFor]);
   function startReply(m: Message) { setReplyTo(m); setEditingId(null); }
-  function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); setMentionQuery(null); }
+  function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); setMentionQuery(null); setPendingSticker(null); }
   function cancelReplyEdit() { const wasEdit = !!editingId; setReplyTo(null); setEditingId(null); if (wasEdit) { setInput(""); setMentionQuery(null); } }
   async function deleteMsg(m: Message) {
     if (!confirm("이 메시지를 삭제할까요?")) return;
@@ -536,38 +538,41 @@ export default function WorkChatPage() {
   }
   async function openStickers() {
     setInputEmojiOpen(false);
+    setMentionQuery(null); // 멘션 드롭다운과 겹쳐 보이던 것
     inputRef.current?.blur(); // 모바일 웹 — 키보드가 떠 있으면 창이 키보드 뒤에 가린다(검증관 B)
     if (stickerOpen) { setStickerOpen(false); return; }
     setStickerOpen(true);
     await loadStickers();
   }
-  // 이모티콘은 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
-  async function sendSticker(e: { url: string; name: string }) {
-    if (!activeId || stickerSendingRef.current) return;
-    stickerSendingRef.current = true;
+  // 이모티콘을 고르면 입력창 위 미리보기에 올린다 — 보내기는 [전송](또는 Enter)
+  function pickSticker(e: { url: string; name: string }) {
+    setPendingSticker({ url: e.url, name: e.name });
+    setStickerOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+  // 이모티콘 한 건 보내기 — 성공 여부만 돌려준다(목록 갱신은 send() 가 한 번에)
+  async function postSticker(e: { url: string }, replyToId?: string): Promise<boolean> {
+    if (!activeId) return false;
     try {
       const res = await fetch(`/api/work/channels/${activeId}/messages`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileType: "sticker", fileUrl: e.url, replyToId: replyTo?.id }),
+        body: JSON.stringify({ fileType: "sticker", fileUrl: e.url, replyToId }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(d.error || "이모티콘을 보내지 못했습니다.");
-        if (res.status === 400) loadStickers(); // 그사이 숨겨졌을 수 있다 — 목록을 새로 받는다
-        return;
+        if (res.status === 400) { setPendingSticker(null); loadStickers(); } // 그사이 숨겨졌다 — 미리보기를 내리고 목록 새로
+        return false;
       }
-      setStickerOpen(false);
-      setReplyTo(null);
-      fetchMessages(activeId); fetchChannels();
+      return true;
     } catch {
       toast.error("이모티콘을 보내지 못했습니다.");
-    } finally {
-      stickerSendingRef.current = false;
+      return false;
     }
   }
 
   async function send() {
-    if ((!input.trim() && pendingFiles.length === 0) || !activeId) return;
+    if ((!input.trim() && pendingFiles.length === 0 && !pendingSticker) || !activeId) return;
     if (sendingRef.current) return; // 이미 보내는 중 — 전송 버튼은 disabled 지만 Enter 는 그냥 들어온다
     if (scheduling) return; // 예약이 돌고 있으면 같은 첨부가 두 번 나가고 진행률이 엉킨다(앱은 이미 이렇게 막는다)
     // ⚠ 잠금 획득도 try 안에서 한다 — 밖에 두면 여기서 무엇이든 던질 때 잠금이 영구히 굳어
@@ -577,6 +582,18 @@ export default function WorkChatPage() {
       setSending(true);
       // 전송 후 입력창 높이를 한 줄로 복귀
       if (inputRef.current) inputRef.current.style.height = "auto";
+      // 고른 이모티콘을 먼저 보낸다. 글·첨부가 없으면 답장은 이모티콘에 붙이고 여기서 끝낸다.
+      if (pendingSticker && !editingId) {
+        const onlySticker = !input.trim() && pendingFiles.length === 0;
+        const ok = await postSticker(pendingSticker, onlySticker ? replyTo?.id : undefined);
+        if (!ok) return; // 실패하면 미리보기를 그대로 둔다(다시 전송 가능)
+        setPendingSticker(null);
+        if (onlySticker) {
+          setReplyTo(null);
+          fetchMessages(activeId); fetchChannels();
+          return;
+        }
+      }
       if (editingId) {
         const res = await fetch(`/api/work/messages/${editingId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -1769,6 +1786,21 @@ export default function WorkChatPage() {
               </div>
             )}
 
+            {/* 고른 이모티콘 미리보기 — 전송을 눌러야 발송 */}
+            {pendingSticker && (
+              <div className="px-4 pt-2 pb-1 bg-white border-t flex items-center gap-3">
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={pendingSticker.url} alt={pendingSticker.name} className="w-16 h-16 object-contain" draggable={false} />
+                  <button onClick={() => setPendingSticker(null)} title="이모티콘 취소" disabled={sending}
+                    className="absolute -top-1.5 -right-1.5 bg-gray-600 hover:bg-red-500 disabled:opacity-40 text-white rounded-full p-0.5">
+                    <X size={10} />
+                  </button>
+                </div>
+                <span className="text-[11px] text-gray-400">전송을 누르면 이모티콘이 발송됩니다{input.trim() ? " (쓴 글은 이어서 따로 발송)" : ""}</span>
+              </div>
+            )}
+
             {/* 대기 첨부 미리보기 — 전송을 눌러야 발송 */}
             {pendingFiles.length > 0 && (
               <div className="px-4 pt-2 pb-1 bg-white border-t flex items-center gap-2 flex-wrap">
@@ -1876,7 +1908,7 @@ export default function WorkChatPage() {
                         )}
                         <div className="grid grid-cols-4 gap-1 p-2 max-h-72 overflow-y-auto">
                           {stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items.map((e) => (
-                            <button key={e.id} onClick={() => sendSticker(e)} title={e.name}
+                            <button key={e.id} onClick={() => pickSticker(e)} title={e.name}
                               className="rounded-lg hover:bg-indigo-50 p-1 aspect-square flex items-center justify-center">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={e.url} alt={e.name} loading="lazy" className="w-full h-full object-contain" draggable={false} />
@@ -1921,7 +1953,7 @@ export default function WorkChatPage() {
                   }
                 }}
                 placeholder="메시지를 입력하세요... (@로 멘션)" />
-              <Button onClick={send} disabled={sending || uploadProgress !== null || (!input.trim() && pendingFiles.length === 0)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Send size={16} /></Button>
+              <Button onClick={send} disabled={sending || uploadProgress !== null || (!input.trim() && pendingFiles.length === 0 && !pendingSticker)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Send size={16} /></Button>
             </div>
           </>
         ) : (

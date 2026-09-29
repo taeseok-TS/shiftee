@@ -152,7 +152,8 @@ export default function WorkChatScreen() {
   const [stickerOpen, setStickerOpen] = useState(false);
   const [stickerSets, setStickerSets] = useState<EmoticonSet[] | null>(null);
   const [stickerTab, setStickerTab] = useState(0);
-  const stickerSendingRef = useRef(false);
+  // 고른 이모티콘 — 바로 보내지 않고 입력바 위에 올려 두었다가 [전송]으로(2026-09-29 디렉터)
+  const [pendingSticker, setPendingSticker] = useState<{ url: string; name: string } | null>(null);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
   // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
@@ -852,26 +853,32 @@ export default function WorkChatScreen() {
     setStickerOpen(true);
     await loadStickers();
   };
-  // 누르는 즉시 한 메시지로 보낸다(글·첨부와 섞지 않는다). 답장 중이면 답장으로.
-  const sendSticker = async (url: string) => {
-    if (stickerSendingRef.current) return;
-    stickerSendingRef.current = true;
-    try {
-      await sendStickerMessage(channelId, url, replyTarget?.id);
-      setStickerOpen(false);
-      setReplyTarget(null);
-      await load();
-    } catch (e: any) {
-      Alert.alert("전송 실패", e?.response?.data?.error || "이모티콘을 보내지 못했습니다.");
-      if (e?.response?.status === 400) loadStickers(); // 그사이 숨겨졌을 수 있다
-    } finally {
-      stickerSendingRef.current = false;
-    }
+  // 이모티콘을 고르면 입력바 위 미리보기에 올린다 — 보내기는 [전송]
+  const pickSticker = (e: { url: string; name: string }) => {
+    setPendingSticker({ url: e.url, name: e.name });
+    setStickerOpen(false);
   };
 
   const handleSend = async () => {
     const content = text.trim();
     const editing = editTarget;
+    // 고른 이모티콘을 먼저 보낸다. 글·첨부가 없으면 답장은 이모티콘에 붙이고 여기서 끝낸다.
+    if (pendingSticker && !editing) {
+      if (sending) return;
+      const onlySticker = !content && pendingAtts.length === 0;
+      setSending(true);
+      try {
+        await sendStickerMessage(channelId, pendingSticker.url, onlySticker ? replyTarget?.id : undefined);
+        setPendingSticker(null);
+        if (onlySticker) { setReplyTarget(null); await load(); return; }
+      } catch (e: any) {
+        Alert.alert("전송 실패", e?.response?.data?.error || "이모티콘을 보내지 못했습니다.");
+        if (e?.response?.status === 400) { setPendingSticker(null); loadStickers(); } // 그사이 숨겨졌다
+        return;
+      } finally {
+        setSending(false);
+      }
+    }
     // 대기 첨부가 있으면 글 없이도 전송 가능 (수정 중에는 텍스트만)
     if (editing || pendingAtts.length === 0) {
       if (!content || sending) return;
@@ -964,7 +971,7 @@ export default function WorkChatScreen() {
       Alert.alert("알림", "첨부 대기 중에는 메시지를 수정할 수 없습니다.\n첨부를 먼저 보내거나 삭제해주세요.");
       return;
     }
-    setEditTarget(m); setReplyTarget(null); progTextRef.current = Date.now(); setText(m.content); setMentionQuery(null);
+    setEditTarget(m); setReplyTarget(null); progTextRef.current = Date.now(); setText(m.content); setMentionQuery(null); setPendingSticker(null);
   };
   const confirmDelete = (m: WorkMessage) => {
     setReactionTarget(null);
@@ -1601,6 +1608,20 @@ export default function WorkChatScreen() {
         </View>
       )}
 
+      {/* 고른 이모티콘 미리보기 — X로 취소, 전송 버튼으로 발송 */}
+      {pendingSticker && !recording && (
+        <View style={[styles.pendingBar, { flexDirection: "row", alignItems: "center" }]}>
+          <View style={styles.pendingItem}>
+            <Image source={{ uri: fileUri(pendingSticker.url) }} style={styles.stickerPreview} resizeMode="contain" />
+            <TouchableOpacity style={styles.pendingRemove} disabled={sending} onPress={() => setPendingSticker(null)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <Ionicons name="close" size={12} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.stickerPreviewHint}>전송을 누르면 이모티콘이 발송됩니다</Text>
+        </View>
+      )}
+
       {/* 대기 첨부 미리보기 — X로 제거, 전송 버튼으로 글과 함께 발송 */}
       {pendingAtts.length > 0 && !recording && (
         <View style={styles.pendingBar}>
@@ -1686,7 +1707,7 @@ export default function WorkChatScreen() {
           multiline
         />
         {/* 입력 내용/대기 첨부가 없으면 마이크(음성 메시지), 있으면 전송 */}
-        {text.trim() || pendingAtts.length > 0 ? (
+        {text.trim() || pendingAtts.length > 0 || pendingSticker ? (
           <TouchableOpacity
             style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
             onPress={handleSend}
@@ -2002,7 +2023,7 @@ export default function WorkChatScreen() {
                   keyExtractor={(e) => e.id}
                   numColumns={4}
                   renderItem={({ item: e }) => (
-                    <TouchableOpacity style={styles.stickerCell} onPress={() => sendSticker(e.url)} accessibilityLabel={e.name}>
+                    <TouchableOpacity style={styles.stickerCell} onPress={() => pickSticker(e)} accessibilityLabel={e.name}>
                       <Image source={{ uri: fileUri(e.url) }} style={styles.stickerCellImg} resizeMode="contain" />
                     </TouchableOpacity>
                   )}
@@ -2332,6 +2353,8 @@ const styles = StyleSheet.create({
   // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
   bubbleEmoji: { backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 2 },
   stickerImg: { width: 130, height: 130 },
+  stickerPreview: { width: 64, height: 64 },
+  stickerPreviewHint: { marginLeft: 10, fontSize: 12, color: "#9ca3af", flexShrink: 1 },
   stickerTabs: { flexGrow: 0, marginBottom: 8 },
   stickerTab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6", marginRight: 6 },
   stickerTabOn: { backgroundColor: "#4f46e5" },
