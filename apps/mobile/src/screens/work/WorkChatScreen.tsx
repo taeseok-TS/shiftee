@@ -154,6 +154,7 @@ export default function WorkChatScreen() {
   const [stickerTab, setStickerTab] = useState(0);
   // 고른 이모티콘 — 바로 보내지 않고 입력바 위에 올려 두었다가 [전송]으로(2026-09-29 디렉터)
   const [pendingSticker, setPendingSticker] = useState<{ url: string; name: string } | null>(null);
+  const stickerLockRef = useRef(false);
   const [editTarget, setEditTarget] = useState<WorkMessage | null>(null);
   // 인앱 사진 뷰어 — 카톡처럼 채팅방 안에서 열고 좌우 스와이프로 채팅방의 모든 사진을 넘겨 본다.
   // 같은 사진을 전달하면 URL이 중복되므로 위치 식별은 (메시지id#순번) 키로 한다.
@@ -855,6 +856,8 @@ export default function WorkChatScreen() {
   };
   // 이모티콘을 고르면 입력바 위 미리보기에 올린다 — 보내기는 [전송]
   const pickSticker = (e: { url: string; name: string }) => {
+    // 수정 중에는 받지 않는다 — 전송이 수정만 하고 이모티콘은 남았다(검증관 A)
+    if (editTarget) { setStickerOpen(false); Alert.alert("알림", "메시지 수정 중에는 이모티콘을 보낼 수 없습니다."); return; }
     setPendingSticker({ url: e.url, name: e.name });
     setStickerOpen(false);
   };
@@ -864,7 +867,9 @@ export default function WorkChatScreen() {
     const editing = editTarget;
     // 고른 이모티콘을 먼저 보낸다. 글·첨부가 없으면 답장은 이모티콘에 붙이고 여기서 끝낸다.
     if (pendingSticker && !editing) {
-      if (sending) return;
+      // 상태(sending)는 다시 그려진 뒤에야 바뀐다 — 빠른 연타 두 번이 둘 다 통과해 두 번 가지 않게 즉시 잠금(검증관 B)
+      if (sending || stickerLockRef.current) return;
+      stickerLockRef.current = true;
       const onlySticker = !content && pendingAtts.length === 0;
       setSending(true);
       try {
@@ -877,6 +882,7 @@ export default function WorkChatScreen() {
         return;
       } finally {
         setSending(false);
+        stickerLockRef.current = false;
       }
     }
     // 대기 첨부가 있으면 글 없이도 전송 가능 (수정 중에는 텍스트만)

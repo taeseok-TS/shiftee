@@ -546,6 +546,8 @@ export default function WorkChatPage() {
   }
   // 이모티콘을 고르면 입력창 위 미리보기에 올린다 — 보내기는 [전송](또는 Enter)
   function pickSticker(e: { url: string; name: string }) {
+    // 수정 중에는 받지 않는다 — [전송]이 수정만 하고 이모티콘은 남아 다음 전송 때 튀어나갔다(검증관 A)
+    if (editingId) { toast.error("메시지 수정 중에는 이모티콘을 보낼 수 없습니다."); setStickerOpen(false); return; }
     setPendingSticker({ url: e.url, name: e.name });
     setStickerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 0);
