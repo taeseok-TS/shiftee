@@ -448,6 +448,22 @@ export default function WorkChatPage() {
     fetchChannels();
   }
 
+  // 말풍선 메뉴가 **위로** 펼쳐질지 — 화면 아래쪽 말풍선에서 아래로 펼치면 맨 끝의 [수정]·[삭제]가
+  // 목록 밖으로 밀려 "수정 기능이 없다"로 보였다(2026-09-29 디렉터). 목록의 아래쪽 절반이면 위로 연다.
+  const [menuUp, setMenuUp] = useState(false);
+  function toggleMenu(id: string, anchor: Element | null) {
+    if (menuFor === id) { setMenuFor(null); return; }
+    const list = anchor?.closest(".overflow-y-auto");
+    if (anchor && list) {
+      const a = anchor.getBoundingClientRect();
+      const l = list.getBoundingClientRect();
+      setMenuUp(a.top > l.top + l.height / 2);
+    } else {
+      setMenuUp(false);
+    }
+    setPickerFor(null);
+    setMenuFor(id);
+  }
   function startReply(m: Message) { setReplyTo(m); setEditingId(null); }
   function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); setMentionQuery(null); }
   function cancelReplyEdit() { const wasEdit = !!editingId; setReplyTo(null); setEditingId(null); if (wasEdit) { setInput(""); setMentionQuery(null); } }
@@ -1442,7 +1458,7 @@ export default function WorkChatPage() {
                           )}
                           <div
                             // 말풍선 우클릭으로도 기능 메뉴를 연다(점3개 버튼과 동일 — 제안 16호)
-                            onContextMenu={(e) => { if (m.deleted) return; e.preventDefault(); setPickerFor(null); setMenuFor(menuFor === m.id ? null : m.id); }}
+                            onContextMenu={(e) => { if (m.deleted) return; e.preventDefault(); toggleMenu(m.id, e.currentTarget); }}
                             className={
                             // 이모지 단독 메시지는 말풍선 배경 없이 (카톡식)
                             !m.deleted && !m.poll && !m.fileUrl && !m.albumUrls?.length && !m.replyTo && !!m.content && isEmojiOnly(m.content)
@@ -1529,7 +1545,7 @@ export default function WorkChatPage() {
                             className={`hidden md:flex ${menuFor === m.id || pickerFor === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity items-center gap-0.5 relative`}
                           >
                             <button
-                              onClick={() => { setPickerFor(null); setMenuFor(menuFor === m.id ? null : m.id); }}
+                              onClick={(e) => toggleMenu(m.id, e.currentTarget)}
                               title="기능 더보기 (말풍선 우클릭도 가능)"
                               className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded p-0.5"
                             >
@@ -1544,7 +1560,13 @@ export default function WorkChatPage() {
                             </button>
 
                             {menuFor === m.id && (
-                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-20 bg-white border rounded-lg shadow-lg py-1 w-44 text-sm`}>
+                              <div className={`absolute ${menuUp ? "bottom-7" : "top-7"} ${m.mine ? "right-0" : "left-0"} z-20 bg-white border rounded-lg shadow-lg py-1 w-44 text-sm`}>
+                                {/* 내 메시지면 [수정]을 맨 위에 — 가장 자주 찾는 기능인데 맨 끝에 있어 못 찾았다(2026-09-29) */}
+                                {m.mine && !m.deleted && !m.fileUrl && !m.poll && (
+                                  <button onClick={() => { setMenuFor(null); startEdit(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
+                                    <Pencil size={14} className="text-gray-400" />수정
+                                  </button>
+                                )}
                                 {!m.deleted && (
                                   <button onClick={() => { setMenuFor(null); startReply(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
                                     <Reply size={14} className="text-gray-400" />답장
@@ -1573,11 +1595,6 @@ export default function WorkChatPage() {
                                 {!m.deleted && !m.poll && (m.content || m.fileType === "image") && (
                                   <button onClick={() => { setMenuFor(null); setNoticeImportantChk(false); setNoticeDlgFor(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
                                     <Megaphone size={14} className="text-gray-400" />공지로 등록
-                                  </button>
-                                )}
-                                {m.mine && !m.deleted && !m.fileUrl && !m.poll && (
-                                  <button onClick={() => { setMenuFor(null); startEdit(m); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50">
-                                    <Pencil size={14} className="text-gray-400" />수정
                                   </button>
                                 )}
                                 {m.mine && !m.deleted && (
