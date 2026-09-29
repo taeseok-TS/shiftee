@@ -113,6 +113,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (ids.length !== all.length || new Set(ids).size !== ids.length || !all.every((e) => ids.includes(e.id))) {
     return NextResponse.json({ error: "이모티콘 목록이 바뀌었습니다. 새로고침 후 다시 해주세요." }, { status: 409 });
   }
-  await prisma.$transaction(ids.map((id, i) => prisma.emoticon.update({ where: { id }, data: { sortOrder: i + 1 } })));
+  try {
+    await prisma.$transaction(ids.map((id, i) => prisma.emoticon.update({ where: { id }, data: { sortOrder: i + 1 } })));
+  } catch {
+    // 그사이 누가 지웠거나 다른 관리자와 동시에 바꿨다 — 데이터는 트랜잭션으로 그대로다
+    return NextResponse.json({ error: "그사이 목록이 바뀌었습니다. 새로고침 후 다시 해주세요." }, { status: 409 });
+  }
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "EMOTICON_REORDER",
+    targetType: "EMOTICON_SET", targetId: setId, targetName: null, detail: `이모티콘 순서 ${ids.length}개 재정렬`,
+  });
   return NextResponse.json({ success: true });
 }

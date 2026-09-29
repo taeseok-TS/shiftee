@@ -536,6 +536,7 @@ export default function WorkChatPage() {
   }
   async function openStickers() {
     setInputEmojiOpen(false);
+    inputRef.current?.blur(); // 모바일 웹 — 키보드가 떠 있으면 창이 키보드 뒤에 가린다(검증관 B)
     if (stickerOpen) { setStickerOpen(false); return; }
     setStickerOpen(true);
     await loadStickers();
@@ -1849,11 +1850,12 @@ export default function WorkChatPage() {
                   </div>
                 )}
               </div>
-              <div className="relative shrink-0" data-composer-popover>
+              {/* relative 를 두지 않는다 — 창이 버튼이 아니라 입력줄(relative) 기준으로 뜬다.
+                  버튼 기준이면 폰·노트북 폭에서 오른쪽으로 넘쳤다(검증관 2·A). 입력줄 너비 안에서 최대 360px. */}
+              <div className="shrink-0" data-composer-popover>
                 <Button variant="ghost" size="sm" onClick={openStickers} title="이모티콘" className="shrink-0"><Sticker size={16} /></Button>
                 {stickerOpen && (
-                  // 폰 폭에서는 버튼 기준으로 열면 오른쪽으로 넘친다(검증관 2) — 입력창 위에 화면 폭으로 띄운다
-                  <div className="absolute bottom-10 left-0 z-20 bg-white border rounded-xl shadow-lg w-[360px] max-md:fixed max-md:left-3 max-md:right-3 max-md:bottom-20 max-md:w-auto">
+                  <div className="absolute bottom-full left-4 mb-2 z-20 bg-white border rounded-xl shadow-lg w-[min(360px,calc(100%-2rem))]">
                     {stickerError && !stickerSets ? (
                       <div className="p-4 text-xs text-gray-400">이모티콘을 불러오지 못했습니다. 버튼을 다시 눌러 주세요.</div>
                     ) : stickerSets === null ? (
