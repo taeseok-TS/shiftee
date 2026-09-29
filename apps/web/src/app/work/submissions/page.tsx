@@ -60,9 +60,10 @@ const typeLabel: Record<string, string> = { word: "W", excel: "X", ppt: "P", pdf
 // 첨부 열기 — 워드·PPT·엑셀·PDF 는 변환 뷰어, 이미지는 그대로, 나머지(한글·ZIP)는 내려받기
 function openFile(f: SubmissionFile) {
   const ext = extOf(f.name);
-  if (PREVIEW_EXT.has(ext)) window.open(`/docs/viewer?src=${encodeURIComponent(f.url)}&title=${encodeURIComponent(f.name.replace(/\.[^.]+$/, ""))}`, "_blank");
+  const name = decodeFileName(f.name); // 옛 인코딩 이름(#210)도 뷰어 제목·내려받기 이름은 읽을 수 있게
+  if (PREVIEW_EXT.has(ext)) window.open(`/docs/viewer?src=${encodeURIComponent(f.url)}&title=${encodeURIComponent(name.replace(/\.[^.]+$/, ""))}`, "_blank");
   else if (IMAGE_EXT.has(ext)) window.open(f.url, "_blank");
-  else window.open(`${f.url}?download=1&name=${encodeURIComponent(f.name)}`, "_blank");
+  else window.open(`${f.url}?download=1&name=${encodeURIComponent(name)}`, "_blank");
 }
 function FileLink({ f }: { f: SubmissionFile }) {
   // 긴 이름은 한 줄에서 … 로 자른다(전체 이름은 마우스를 올리면) — min-w-0 이 없으면 글자가 줄지 않고 창을 옆으로 밀었다(개선 제안 #210)
