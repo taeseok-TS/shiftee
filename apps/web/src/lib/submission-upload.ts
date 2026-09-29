@@ -7,7 +7,7 @@ import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import type { NextRequest } from "next/server";
-import { ALLOWED_EXT, MAX_FILES, MAX_FILE_BYTES, extOf, fileTypeOf, magicMatches, type SubmissionFile } from "@/lib/submissions";
+import { ALLOWED_EXT, MAX_FILES, MAX_FILE_BYTES, decodeFileName, extOf, fileTypeOf, magicMatches, type SubmissionFile } from "@/lib/submissions";
 import { uploaderTag } from "@/lib/submission-access";
 
 export type MultipartResult = { fields: Record<string, string>; files: SubmissionFile[]; error?: string };
@@ -35,7 +35,7 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
     const fails = new Set<(msg: string) => void>(); // 전송 중 끊기면 진행 중인 파일을 전부 실패 처리(재검증관 1)
     bb.on("field", (name, val) => { if (typeof val === "string") fields[name] = val.slice(0, 4000); });
     bb.on("file", (_field, stream, info) => {
-      const fileName = (info.filename || "").trim();
+      const fileName = decodeFileName((info.filename || "").trim());
       const ext = extOf(fileName);
       if (!fileName || !ALLOWED_EXT.has(ext) || error) { stream.resume(); if (!error && fileName) error = `허용하지 않는 파일 형식입니다: ${fileName}`; return; }
       pending++;

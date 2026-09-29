@@ -13,8 +13,8 @@ import { FileUp, Plus, Bell, X, Paperclip, Eye, Trash2, Lock, Unlock, Share2, Ch
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { HEIC_EXT, HEIC_MARKETING_ONLY_MSG,
-  ALLOWED_EXT, CATEGORY_GROUP_LABEL, IMAGE_EXT, JOB_GROUPS, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, SHARE_ALL,
-  currentYearMonthKST, extOf, type SubmissionFile,
+  ALLOWED_EXT, CATEGORY_GROUP_LABEL, IMAGE_EXT, JOB_GROUPS, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, SHARE_ALL, SHARE_BRANCH_MANAGER, shareGroupLabel,
+  currentYearMonthKST, decodeFileName, extOf, type SubmissionFile,
 } from "@/lib/submissions";
 
 type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; branch: string | null; jobGroup: string | null; position: string | null };
@@ -65,11 +65,13 @@ function openFile(f: SubmissionFile) {
   else window.open(`${f.url}?download=1&name=${encodeURIComponent(f.name)}`, "_blank");
 }
 function FileLink({ f }: { f: SubmissionFile }) {
+  // 긴 이름은 한 줄에서 … 로 자른다(전체 이름은 마우스를 올리면) — min-w-0 이 없으면 글자가 줄지 않고 창을 옆으로 밀었다(개선 제안 #210)
+  const name = decodeFileName(f.name);
   return (
-    <button type="button" onClick={() => openFile(f)} className="inline-flex items-center gap-1.5 text-xs text-gray-700 hover:text-indigo-700 hover:underline max-w-full">
-      <span className={`text-[9px] font-bold text-white px-1 rounded ${typeBadge[f.type] || typeBadge.file}`}>{typeLabel[f.type] || "F"}</span>
-      <span className="truncate">{f.name}</span>
-      <span className="text-gray-400">{fmtBytes(f.size)}</span>
+    <button type="button" onClick={() => openFile(f)} title={name} className="inline-flex items-center gap-1.5 text-xs text-gray-700 hover:text-indigo-700 hover:underline max-w-full min-w-0">
+      <span className={`shrink-0 text-[9px] font-bold text-white px-1 rounded ${typeBadge[f.type] || typeBadge.file}`}>{typeLabel[f.type] || "F"}</span>
+      <span className="truncate min-w-0">{name}</span>
+      <span className="shrink-0 text-gray-400">{fmtBytes(f.size)}</span>
     </button>
   );
 }
@@ -80,7 +82,7 @@ function yearMonthOptions() {
   for (let i = -12; i <= 1; i++) { const d = new Date(now.getFullYear(), now.getMonth() + i, 1); out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }
   return out.reverse();
 }
-const groupLabel = (g: string) => (g === SHARE_ALL ? "전체" : g);
+const groupLabel = shareGroupLabel;
 
 export default function SubmissionsPage() {
   const [me, setMe] = useState<Me | null>(null);
@@ -271,7 +273,7 @@ function SubmissionCard({ s, me, onChanged, onEdit, compact }: { s: Sub; me: Me;
             {s.request && <> · 요청 「{s.request.title}」</>}
           </p>
           {s.memo && <p className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">{s.memo}</p>}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">{s.files.map((f) => <FileLink key={f.url} f={f} />)}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 min-w-0">{s.files.map((f) => <FileLink key={f.url} f={f} />)}</div>
         </div>
         <div className="shrink-0 flex flex-col items-end gap-1.5">
           <div className="flex gap-1 flex-wrap justify-end">
@@ -292,7 +294,7 @@ function SubmissionCard({ s, me, onChanged, onEdit, compact }: { s: Sub; me: Me;
           </div>
         </div>
       </div>
-      {share && <ShareDialog s={s} onClose={() => setShare(false)} onSave={async (b) => { const ok = await patch(b); if (ok) { toast.success(b.shared ? "공유했습니다. 대상 직군에게 알렸습니다." : "공유를 껐습니다."); setShare(false); } }} />}
+      {share && <ShareDialog s={s} onClose={() => setShare(false)} onSave={async (b) => { const ok = await patch(b); if (ok) { toast.success(b.shared ? "공유했습니다. 대상에게 알렸습니다." : "공유를 껐습니다."); setShare(false); } }} />}
     </div>
   );
 }
@@ -308,14 +310,14 @@ function ShareDialog({ s, onClose, onSave }: { s: Sub; onClose: () => void; onSa
         <DialogHeader><DialogTitle>공유 설정 — {s.userName}({s.userBranch ?? "-"}) 「{s.title}」</DialogTitle></DialogHeader>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> 공유 켜기</label>
         <div className={`flex flex-wrap gap-2 ${on ? "" : "opacity-40 pointer-events-none"}`}>
-          {[SHARE_ALL, ...JOB_GROUPS].map((g) => (
+          {[SHARE_ALL, SHARE_BRANCH_MANAGER, ...JOB_GROUPS].map((g) => (
             <button key={g} type="button" onClick={() => toggle(g)}
               className={`px-3 py-1 rounded-md border text-sm ${groups.includes(g) ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-300 bg-white text-gray-700"}`}>
               {groups.includes(g) ? "✓ " : ""}{groupLabel(g)}
             </button>
           ))}
         </div>
-        <p className="text-xs text-gray-500">켜면 대상 직군에게 봇 DM 으로 알리고 그분들의 「공유 자료」 탭에 나타납니다. 끄면 즉시 사라집니다. 본부는 언제나 전부 봅니다.</p>
+        <p className="text-xs text-gray-500">「해당 지점 원장」은 {s.userBranch ? `${s.userBranch} 지점` : "제출한 직원 지점"} 원장님에게만 공유합니다(「원장」은 전 지점 원장). 켜면 대상에게 봇 DM 으로 알리고 그분들의 「공유 자료」 탭에 나타납니다. 끄면 즉시 사라집니다. 본부는 언제나 전부 봅니다.</p>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>취소</Button>
           <Button disabled={saving || (on && !groups.length)} className="bg-indigo-600 hover:bg-indigo-700" onClick={async () => { setSaving(true); try { await onSave({ shared: on, shareJobGroups: on ? groups : [] }); } finally { setSaving(false); } }}>저장</Button>
@@ -709,7 +711,7 @@ function RequestDetail({ id, me, onClose, onChanged, onEdit, onClone }: { id: st
   }
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[90vh] overflow-y-auto grid-cols-[minmax(0,1fr)]">
         {!d ? <p className="text-sm text-gray-500">불러오는 중…</p> : (
           <>
             <DialogHeader>

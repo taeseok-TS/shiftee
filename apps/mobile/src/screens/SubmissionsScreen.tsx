@@ -44,12 +44,18 @@ function openFile(f: SubmissionFile) {
   }
 }
 
+// 안드로이드 파일 선택기가 %ED%95%9C… 처럼 인코딩된 이름을 줄 때가 있다 — 읽을 수 있게 푼다(개선 제안 #210)
+function readableName(name: string): string {
+  if (!/%[0-9a-f]{2}/i.test(name)) return name;
+  try { return decodeURIComponent(name); } catch { return name; }
+}
+
 function FileRow({ f, onRemove }: { f: SubmissionFile; onRemove?: () => void }) {
   return (
     <View style={styles.fileRow}>
       <View style={[styles.typeBadge, { backgroundColor: TYPE_BADGE[f.type] || TYPE_BADGE.file }]}><Text style={styles.typeBadgeText}>{TYPE_LABEL[f.type] || "F"}</Text></View>
       <TouchableOpacity style={{ flex: 1 }} onPress={() => openFile(f)} disabled={!!onRemove}>
-        <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
+        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{readableName(f.name)}</Text>
         <Text style={styles.fileSize}>{fmtBytes(f.size)}</Text>
       </TouchableOpacity>
       {onRemove ? (
@@ -149,7 +155,7 @@ export default function SubmissionsScreen() {
                 <Text style={styles.itemMeta}>{s.category ? `${CATEGORY_GROUP_LABEL[s.category.group] ?? ""} › ${s.category.name}` : ""} · {s.yearMonth.replace("-", "년 ")}월 · {new Date(s.createdAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })} 제출{s.request ? ` · 요청 「${s.request.title}」` : ""}</Text>
                 <View style={[styles.itemFoot, { marginBottom: 6 }]}>
                   <View style={[styles.badge, { backgroundColor: s.status === "CHECKED" ? "#dcfce7" : "#f3f4f6" }]}><Text style={[styles.badgeText, { color: s.status === "CHECKED" ? "#15803d" : "#4b5563" }]}>{s.status === "CHECKED" ? "본부 확인" : "제출됨"}</Text></View>
-                  {s.shared && <View style={[styles.badge, { backgroundColor: "#e0e7ff" }]}><Text style={[styles.badgeText, { color: "#4338ca" }]}>{s.shareJobGroups.map((g) => (g === "*" ? "전체" : g)).join("·")} 공유</Text></View>}
+                  {s.shared && <View style={[styles.badge, { backgroundColor: "#e0e7ff" }]}><Text style={[styles.badgeText, { color: "#4338ca" }]}>{s.shareJobGroups.map((g) => (g === "*" ? "전체" : g === "지점원장" ? "해당 지점 원장" : g)).join("·")} 공유</Text></View>}
                 </View>
                 {s.memo ? <Text style={styles.itemDesc}>{s.memo}</Text> : null}
                 {s.files.map((f) => <FileRow key={f.url} f={f} />)}

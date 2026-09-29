@@ -8,6 +8,14 @@ export const JOB_GROUPS = ["원장", "CM", "TM", "코디", "학습실장", "튜�
 export type JobGroup = (typeof JOB_GROUPS)[number];
 /** shareJobGroups 에 이 값이 있으면 전 직원 공유 */
 export const SHARE_ALL = "*";
+/** shareJobGroups 에 이 값이 있으면 **제출한 직원 지점의 원장**(대표+겸직)에게만 공유 — 알림도 그분들께만.
+ *  (개선 제안 #209, 2026-09-29: PLC 과제를 "원장" 직군에 공유했더니 원장 17명 전원에게 알림·열람이 갔다)
+ *  값을 사람이 읽을 수 있는 말로 둔 것은 옛 앱 번들이 공유 대상을 그대로 찍기 때문 */
+export const SHARE_BRANCH_MANAGER = "지점원장";
+/** 공유 대상 표기 — 웹·앱 공용 */
+export function shareGroupLabel(g: string): string {
+  return g === SHARE_ALL ? "전체" : g === SHARE_BRANCH_MANAGER ? "해당 지점 원장" : g;
+}
 
 export const CATEGORY_GROUPS = ["EDU", "PROMO", "EVENT", "MARKETING"] as const;
 export const CATEGORY_GROUP_LABEL: Record<(typeof CATEGORY_GROUPS)[number], string> = {
@@ -38,6 +46,15 @@ export function hasHeic(files: { name: string; url?: string }[]): boolean { retu
 export const HEIC_MARKETING_ONLY_MSG = "HEIC(아이폰 원본) 사진은 마케팅 자료에만 올릴 수 있습니다. 다른 자료는 JPG 로 바꿔 올려주세요.";
 
 export type SubmissionFile = { url: string; name: string; size: number; type: string; sha256?: string /* 올릴 때 계산(2026-09-14 ⑤) — 옛 파일은 없음 */ };
+
+/**
+ * 앱(안드로이드 파일 선택기)이 파일 이름을 %ED%95%9C… 처럼 인코딩된 채로 보내는 경우가 있다 — 사람이 읽는 이름으로 푼다.
+ * 풀 수 없는 이름은 그대로. (개선 제안 #210, 2026-09-29: "%5BPLC%201%ED…" 가 목록 폭을 밀어냈다)
+ */
+export function decodeFileName(name: string): string {
+  if (!/%[0-9a-f]{2}/i.test(name)) return name;
+  try { return decodeURIComponent(name); } catch { return name; }
+}
 
 export function extOf(name: string): string {
   const m = /\.[^./\\]+$/.exec(name || "");

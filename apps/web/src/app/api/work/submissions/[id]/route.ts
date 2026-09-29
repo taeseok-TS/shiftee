@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { canViewSubmission, fileBelongsTo, resolveSubmissionViewer, submissionDiskPath, submissionFileSha256 } from "@/lib/submission-access";
 import { pickJobGroups, serializeSubmission } from "@/lib/submission-server";
-import { HEIC_MARKETING_ONLY_MSG, SUBMISSION_STATUSES, dateStr, hasHeic, normalizeFiles, todayStrKST } from "@/lib/submissions";
+import { HEIC_MARKETING_ONLY_MSG, SUBMISSION_STATUSES, dateStr, hasHeic, normalizeFiles, shareGroupLabel, todayStrKST } from "@/lib/submissions";
 import fs from "fs/promises";
 import type { Prisma } from "@prisma/client";
 
@@ -98,7 +98,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         data.sharedBy = shared ? v.userId : null;
         data.sharedAt = shared ? new Date() : null;
         shareChanged = shared; // 켜지거나 대상이 바뀌면 알린다
-        changes.push(shared ? `공유 켬(${groups.map((g) => (g === "*" ? "전체" : g)).join("/")})` : "공유 끔");
+        changes.push(shared ? `공유 켬(${groups.map(shareGroupLabel).join("/")})` : "공유 끔");
       }
     }
   }

@@ -10,6 +10,8 @@ import { getAppUrl } from "@/lib/app-url";
 import { targetUsersFor, usersInJobGroups } from "@/lib/submission-targets";
 import { dateStr, todayStrKST } from "@/lib/submissions";
 import { kstTodayMidnight } from "@/lib/resign";
+import { branchManagers } from "@/lib/manager-branches";
+import { SHARE_BRANCH_MANAGER } from "@/lib/submissions";
 
 // ⚠ request.url 의 origin 은 컨테이너 내부 주소 — 링크는 반드시 getAppUrl() 로
 const pageUrl = () => `${getAppUrl()}/work/submissions`;
@@ -71,9 +73,11 @@ export async function notifyShared(submissionId: string) {
   try {
     const s = await prisma.submission.findUnique({ where: { id: submissionId }, include: { category: true } });
     if (!s || !s.shared || !s.shareJobGroups.length) return;
-    const users = await usersInJobGroups(s.shareJobGroups);
-    // 올린 본인에게는 보내지 않는다
-    const ids = users.map((u) => u.id).filter((id) => id !== s.userId);
+    const users = await usersInJobGroups(s.shareJobGroups.filter((g) => g !== SHARE_BRANCH_MANAGER));
+    // 해당 지점 원장 공유 — 제출한 직원 지점의 원장(대표+겸직)에게만(개선 제안 #209). 지점이 비어 있으면 아무에게도 안 간다.
+    if (s.shareJobGroups.includes(SHARE_BRANCH_MANAGER) && s.userBranch) users.push(...(await branchManagers(s.userBranch)));
+    // 올린 본인에게는 보내지 않는다 · 직군과 지점 원장이 겹치면 한 통만
+    const ids = [...new Set(users.map((u) => u.id))].filter((id) => id !== s.userId);
     const who = [s.userBranch, s.userJobGroup, s.userName].filter(Boolean).join(" ");
     const msg = `📎 본부가 자료를 공유했습니다\n「${s.title}」\n${s.category.name} · ${who}\n→ ${pageUrl()}`;
     await sendMany(ids, msg);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { resolveSubmissionViewer, submissionDiskPath } from "@/lib/submission-access";
-import type { SubmissionFile } from "@/lib/submissions";
+import { decodeFileName, type SubmissionFile } from "@/lib/submissions";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
@@ -58,7 +58,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       try { buf = await fs.readFile(p); } catch { continue; }
       const safe = (v: string) => path.basename(v).replace(/[\\/:*?"<>|]/g, "_").replace(/\.{2,}/g, ".");
       const folder = safe(s.userBranch || "지점없음");
-      let name = `${folder}/${safe(s.userName)}_${safe(f.name)}`;
+      let name = `${folder}/${safe(s.userName)}_${safe(decodeFileName(f.name))}`;
       if (used.has(name)) { const dot = name.lastIndexOf("."); name = dot > 0 ? `${name.slice(0, dot)}-${count}${name.slice(dot)}` : `${name}-${count}`; }
       used.add(name);
       zip.file(name, buf);

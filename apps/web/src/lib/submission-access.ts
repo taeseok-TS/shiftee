@@ -5,6 +5,8 @@
 //  - 본부(ADMIN)는 전부 본다
 //  - 원장(MANAGER)은 담당 지점(대표+겸직) 직원의 제출물을 본다 (승인 ①)
 //  - 공유가 켜진 제출물은 대상 직군("*" 는 전원)이 본다
+//  - "지점원장" 공유는 제출한 직원 지점의 원장만(개선 제안 #209) — 열람 자체는 위 원장 규칙이 이미 허용하고,
+//    공유는 그분들의 「공유 자료」 탭에 올리고 알리는 뜻
 // 판정에 필요한 직군은 토큰에 없어 DB 에서 읽는다. 세션이 없는 접근(앱 티켓 u:<userId>)도
 // 같은 주체로 판정한다 — 계약서 파일 접근과 같은 방식(2026-09-02 사고 이후 원칙).
 import { prisma } from "@/lib/db";
@@ -12,7 +14,7 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { isResigned } from "@/lib/resign";
 import path from "path";
 import crypto from "crypto";
-import { SHARE_ALL, isSubmissionFileUrl } from "@/lib/submissions";
+import { SHARE_ALL, SHARE_BRANCH_MANAGER, isSubmissionFileUrl } from "@/lib/submissions";
 import type { Prisma } from "@prisma/client";
 
 export type SubmissionViewer = {
@@ -85,7 +87,10 @@ export function visibleSubmissionWhere(v: SubmissionViewer): Prisma.SubmissionWh
 export function sharedSubmissionWhere(v: SubmissionViewer): Prisma.SubmissionWhereInput {
   if (v.role === "ADMIN") return { deletedAt: null, shared: true };
   const groups = v.jobGroup ? [SHARE_ALL, v.jobGroup] : [SHARE_ALL];
-  return { deletedAt: null, shared: true, shareJobGroups: { hasSome: groups } };
+  const or: Prisma.SubmissionWhereInput[] = [{ shareJobGroups: { hasSome: groups } }];
+  // 해당 지점 원장 공유 — 내가 담당하는 지점(대표+겸직) 직원의 제출물만
+  if (v.role === "MANAGER" && v.branches.length) or.push({ shareJobGroups: { has: SHARE_BRANCH_MANAGER }, userBranch: { in: v.branches } });
+  return { deletedAt: null, shared: true, OR: or };
 }
 
 /**

@@ -6,7 +6,7 @@ import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
-import { ALLOWED_EXT, MAX_FILE_BYTES, extOf, fileTypeOf, magicMatches } from "@/lib/submissions";
+import { ALLOWED_EXT, MAX_FILE_BYTES, decodeFileName, extOf, fileTypeOf, magicMatches } from "@/lib/submissions";
 import { uploaderTag } from "@/lib/submission-access";
 
 // 자료제출 첨부 업로드 — 채팅 업로드(api/work/upload)와 같은 디스크 스트리밍이지만
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     let failCurrent: ((msg: string, status: number) => void) | null = null;
     bb.on("file", (_field, stream, info) => {
       sawFile = true;
-      const fileName = (info.filename || "file").trim();
+      const fileName = decodeFileName((info.filename || "file").trim());
       const ext = extOf(fileName);
       if (!ALLOWED_EXT.has(ext)) {
         stream.resume(); // 본문은 버린다

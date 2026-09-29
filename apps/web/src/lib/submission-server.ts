@@ -1,6 +1,6 @@
 // 자료제출 서버 전용 공통 — 요청 본문 검증·직렬화 (2026-09-13)
 import { prisma } from "@/lib/db";
-import { CATEGORY_GROUPS, JOB_GROUPS, SHARE_ALL, dateStr, type SubmissionFile } from "@/lib/submissions";
+import { CATEGORY_GROUPS, JOB_GROUPS, SHARE_ALL, SHARE_BRANCH_MANAGER, dateStr, type SubmissionFile } from "@/lib/submissions";
 import type { Submission, SubmissionRequest, SubmissionCategory } from "@prisma/client";
 import { targetUsersFor, type TargetUser } from "@/lib/submission-targets";
 
@@ -17,7 +17,7 @@ export function pickJobGroups(v: unknown, allowAll = false): string[] | null {
   const out: string[] = [];
   for (const g of v) {
     if (typeof g !== "string") return null;
-    if (g === SHARE_ALL && allowAll) { if (!out.includes(g)) out.push(g); continue; }
+    if ((g === SHARE_ALL || g === SHARE_BRANCH_MANAGER) && allowAll) { if (!out.includes(g)) out.push(g); continue; }
     if (!(JOB_GROUPS as readonly string[]).includes(g)) return null;
     if (!out.includes(g)) out.push(g);
   }
