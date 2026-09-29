@@ -38,7 +38,7 @@ function openFile(f: SubmissionFile) {
   const ext = extOf(f.name);
   const url = fileUri(f.url);
   if (PREVIEW_EXT.includes(ext)) {
-    Linking.openURL(`${FILE_ORIGIN}/docs/viewer?src=${encodeURIComponent(url)}&title=${encodeURIComponent(f.name.replace(/\.[^.]+$/, ""))}`).catch(() => Alert.alert("열기 실패", "브라우저를 열 수 없습니다."));
+    Linking.openURL(`${FILE_ORIGIN}/docs/viewer?src=${encodeURIComponent(url)}&title=${encodeURIComponent(readableName(f.name).replace(/\.[^.]+$/, ""))}`).catch(() => Alert.alert("열기 실패", "브라우저를 열 수 없습니다."));
   } else {
     Linking.openURL(url + (url.includes("?") ? "&" : "?") + "download=1").catch(() => Alert.alert("열기 실패", "브라우저를 열 수 없습니다."));
   }

@@ -29,7 +29,7 @@ const FILE_ORIGIN_VIEWER = (url: string, name: string) => `${FILE_ORIGIN}/docs/v
 function openFile(f: SubmissionFile) {
   const ext = extOf(f.name);
   const url = fileUri(f.url);
-  const target = PREVIEW_EXT.includes(ext) ? FILE_ORIGIN_VIEWER(url, f.name) : IMAGE_EXT.includes(ext) ? url : url + (url.includes("?") ? "&" : "?") + "download=1";
+  const target = PREVIEW_EXT.includes(ext) ? FILE_ORIGIN_VIEWER(url, readableName(f.name)) : IMAGE_EXT.includes(ext) ? url : url + (url.includes("?") ? "&" : "?") + "download=1";
   Linking.openURL(target).catch(() => Alert.alert("열기 실패", "브라우저를 열 수 없습니다."));
 }
 
