@@ -451,28 +451,50 @@ export default function WorkChatPage() {
   // 말풍선 메뉴가 **위로** 펼쳐질지 — 화면 아래쪽 말풍선에서 아래로 펼치면 맨 끝의 [수정]·[삭제]가
   // 목록 밖으로 밀려 "수정 기능이 없다"로 보였다(2026-09-29 디렉터). 목록의 아래쪽 절반이면 위로 연다.
   const [menuUp, setMenuUp] = useState(false);
-  function toggleMenu(id: string, anchor: Element | null) {
-    if (menuFor === id) { setMenuFor(null); return; }
-    // 기준점은 메뉴가 실제로 붙는 점3개 버튼 — 우클릭은 말풍선에서 오는데, 키 큰 말풍선이면
-    // 윗변과 버튼 위치가 크게 달라 방향이 틀렸다(검증관 3a).
+  const [pickerUp, setPickerUp] = useState(false);
+  // 위로 펼칠지 — 반으로 가르지 않고 남은 공간으로. 목록이 낮은 화면에서 위로 펼치면 맨 위 항목이
+  // 잘렸다(검증관 3b). 아래가 모자라고 **위에 통째로 들어갈 때만** 위로, 양쪽 다 모자라면 아래로
+  // (넘친 끝부분은 목록을 내리면 보인다). 기준점은 팝업이 실제로 붙는 점3개 버튼 묶음 —
+  // 우클릭은 말풍선에서 오는데, 키 큰 말풍선이면 윗변과 버튼 위치가 크게 달라 방향이 틀렸다(3a).
+  function opensUp(anchor: Element | null, need: number) {
     const btn = anchor?.closest(".group")?.querySelector('button[title^="기능 더보기"]') ?? anchor;
     const list = btn?.closest(".overflow-y-auto");
-    if (btn && list) {
-      const a = btn.getBoundingClientRect();
-      const l = list.getBoundingClientRect();
-      // 반으로 가르지 않고 남은 공간으로 — 목록이 낮은 화면에서 위로 펼치면 맨 위 [수정]이 잘렸다(3b).
-      // 메뉴 높이 약 270px. 아래가 모자라고 **위에 통째로 들어갈 때만** 위로 연다. 양쪽 다 모자라면
-      // 아래로 — 그래야 맨 위 [수정]은 항상 보이고, 넘친 [삭제]는 목록을 내리면 보인다(1366×768 노트북).
-      const NEED = 280;
-      const below = l.bottom - a.bottom;
-      const above = a.top - l.top;
-      setMenuUp(below < NEED && above >= NEED);
-    } else {
-      setMenuUp(false);
-    }
+    if (!btn || !list) return false;
+    const a = btn.getBoundingClientRect();
+    const l = list.getBoundingClientRect();
+    const below = l.bottom - a.bottom;
+    const above = a.top - l.top;
+    return below < need && above >= need;
+  }
+  function toggleMenu(id: string, anchor: Element | null) {
+    if (menuFor === id) { setMenuFor(null); return; }
+    setMenuUp(opensUp(anchor, 280)); // 메뉴 약 270px([수정]~[삭제] 8항목)
     setPickerFor(null);
     setMenuFor(id);
   }
+  function togglePicker(id: string, anchor: Element | null) {
+    if (pickerFor === id) { setPickerFor(null); return; }
+    setPickerUp(opensUp(anchor, 150)); // [+]로 펼친 4줄 약 140px
+    setMenuFor(null);
+    setPickerFor(id);
+  }
+  // 바깥을 누르거나 Esc 면 닫는다 — 팝업은 바깥 클릭으로 닫는다는 화면 규칙(2026-09-29).
+  // 팝업·여는 버튼은 data-msg-popover 로 표시해 자기 자신을 누를 때는 닫히지 않게 한다.
+  useEffect(() => {
+    if (!menuFor && !pickerFor) return;
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-msg-popover]")) return;
+      setMenuFor(null);
+      setPickerFor(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setMenuFor(null); setPickerFor(null); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor, pickerFor]);
   function startReply(m: Message) { setReplyTo(m); setEditingId(null); }
   function startEdit(m: Message) { setEditingId(m.id); setReplyTo(null); setInput(m.content); setMentionQuery(null); }
   function cancelReplyEdit() { const wasEdit = !!editingId; setReplyTo(null); setEditingId(null); if (wasEdit) { setInput(""); setMentionQuery(null); } }
@@ -1551,6 +1573,7 @@ export default function WorkChatPage() {
                               아이콘을 늘어놓으면 그 폭만큼 말풍선이 밀려 짧은 말풍선과 줄이 어긋난다(제안 16호).
                               말풍선 우클릭으로도 같은 메뉴가 열린다. 폰은 앱의 롱프레스를 쓴다. */}
                           <div
+                            data-msg-popover
                             className={`hidden md:flex ${menuFor === m.id || pickerFor === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity items-center gap-0.5 relative`}
                           >
                             <button
@@ -1561,7 +1584,7 @@ export default function WorkChatPage() {
                               <MoreHorizontal size={16} />
                             </button>
                             <button
-                              onClick={() => { setMenuFor(null); setPickerFor(pickerFor === m.id ? null : m.id); }}
+                              onClick={(e) => togglePicker(m.id, e.currentTarget)}
                               title="이모지"
                               className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded p-0.5"
                             >
@@ -1615,7 +1638,7 @@ export default function WorkChatPage() {
                             )}
 
                             {pickerFor === m.id && (
-                              <div className={`absolute top-7 ${m.mine ? "right-0" : "left-0"} z-10 bg-white border shadow ${pickerMore ? "rounded-xl p-2 grid grid-cols-6 gap-1 w-56" : "rounded-full px-2 py-1 flex gap-1"}`}>
+                              <div className={`absolute ${pickerUp ? "bottom-7" : "top-7"} ${m.mine ? "right-0" : "left-0"} z-10 bg-white border shadow ${pickerMore ? "rounded-xl p-2 grid grid-cols-6 gap-1 w-56" : "rounded-full px-2 py-1 flex gap-1"}`}>
                                 {(pickerMore ? EMOJIS_ALL : EMOJIS).map((e) => (
                                   <button key={e} onClick={() => toggleReaction(m.id, e)} className="hover:scale-125 transition-transform text-center">{e}</button>
                                 ))}
