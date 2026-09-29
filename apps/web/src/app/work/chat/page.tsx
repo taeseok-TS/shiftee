@@ -453,11 +453,18 @@ export default function WorkChatPage() {
   const [menuUp, setMenuUp] = useState(false);
   function toggleMenu(id: string, anchor: Element | null) {
     if (menuFor === id) { setMenuFor(null); return; }
-    const list = anchor?.closest(".overflow-y-auto");
-    if (anchor && list) {
-      const a = anchor.getBoundingClientRect();
+    // 기준점은 메뉴가 실제로 붙는 점3개 버튼 — 우클릭은 말풍선에서 오는데, 키 큰 말풍선이면
+    // 윗변과 버튼 위치가 크게 달라 방향이 틀렸다(검증관 3a).
+    const btn = anchor?.closest(".group")?.querySelector('button[title^="기능 더보기"]') ?? anchor;
+    const list = btn?.closest(".overflow-y-auto");
+    if (btn && list) {
+      const a = btn.getBoundingClientRect();
       const l = list.getBoundingClientRect();
-      setMenuUp(a.top > l.top + l.height / 2);
+      // 반으로 가르지 않고 남은 공간으로 — 목록이 낮은 화면에서 위로 펼치면 맨 위 [수정]이 잘렸다(3b).
+      // 메뉴 높이 약 300px: 아래가 모자라고 위가 더 넉넉할 때만 위로.
+      const below = l.bottom - a.bottom;
+      const above = a.top - l.top;
+      setMenuUp(below < 300 && above > below);
     } else {
       setMenuUp(false);
     }
