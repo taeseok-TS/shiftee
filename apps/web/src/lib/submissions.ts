@@ -52,8 +52,10 @@ export type SubmissionFile = { url: string; name: string; size: number; type: st
  * 풀 수 없는 이름은 그대로. (개선 제안 #210, 2026-09-29: "%5BPLC%201%ED…" 가 목록 폭을 밀어냈다)
  */
 export function decodeFileName(name: string): string {
-  if (!/%[0-9a-f]{2}/i.test(name)) return name;
-  try { return decodeURIComponent(name); } catch { return name; }
+  let out = name;
+  if (/%[0-9a-f]{2}/i.test(out)) { try { out = decodeURIComponent(out); } catch { /* 그대로 */ } }
+  // 풀고 나면 %00·줄바꿈·글자 방향 뒤집기(U+202E)·경로 문자가 나올 수 있다 — DB(jsonb 는 \u0000 거부)·ZIP·표시를 위해 지운다(검증관 P4)
+  return out.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "").replace(/[\\/]/g, "_");
 }
 
 export function extOf(name: string): string {

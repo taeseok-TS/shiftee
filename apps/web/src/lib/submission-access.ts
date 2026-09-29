@@ -56,6 +56,12 @@ export async function resolveSubmissionViewer(
   return { userId: u.id, role, branches, branch: u.branch, jobGroup: u.jobGroup, name: u.name, position: u.position };
 }
 
+/** 공유 대상 판정에 쓰는 직군 — 공유 전용 표식("*"·"지점원장")과 같은 직군 값은 직군으로 치지 않는다.
+ *  직군은 자유 입력이라 누가 "지점원장"을 직군으로 저장하면 전 지점의 지점원장 공유가 열렸다(검증관 P1) */
+function shareMatchGroup(jobGroup: string | null): string | null {
+  return jobGroup && jobGroup !== SHARE_ALL && jobGroup !== SHARE_BRANCH_MANAGER ? jobGroup : null;
+}
+
 type SubmissionLike = {
   userId: string;
   userBranch: string | null;
@@ -69,7 +75,8 @@ export function canViewSubmission(s: SubmissionLike, v: SubmissionViewer): boole
   if (v.role === "ADMIN") return true;
   if (s.userId === v.userId) return true;
   if (v.role === "MANAGER" && s.userBranch && v.branches.includes(s.userBranch)) return true;
-  if (s.shared && (s.shareJobGroups.includes(SHARE_ALL) || (v.jobGroup && s.shareJobGroups.includes(v.jobGroup)))) return true;
+  const jg = shareMatchGroup(v.jobGroup);
+  if (s.shared && (s.shareJobGroups.includes(SHARE_ALL) || (jg && s.shareJobGroups.includes(jg)))) return true;
   return false;
 }
 
@@ -78,7 +85,8 @@ export function visibleSubmissionWhere(v: SubmissionViewer): Prisma.SubmissionWh
   if (v.role === "ADMIN") return {};
   const or: Prisma.SubmissionWhereInput[] = [{ userId: v.userId }];
   if (v.role === "MANAGER" && v.branches.length) or.push({ userBranch: { in: v.branches } });
-  const groups = v.jobGroup ? [SHARE_ALL, v.jobGroup] : [SHARE_ALL];
+  const jg = shareMatchGroup(v.jobGroup);
+  const groups = jg ? [SHARE_ALL, jg] : [SHARE_ALL];
   or.push({ shared: true, shareJobGroups: { hasSome: groups } });
   return { deletedAt: null, OR: or };
 }
@@ -86,11 +94,13 @@ export function visibleSubmissionWhere(v: SubmissionViewer): Prisma.SubmissionWh
 /** 공유 자료만 (본인 것·지점 것 제외하지 않음 — "공유 자료" 탭은 공유된 것 전부) */
 export function sharedSubmissionWhere(v: SubmissionViewer): Prisma.SubmissionWhereInput {
   if (v.role === "ADMIN") return { deletedAt: null, shared: true };
-  const groups = v.jobGroup ? [SHARE_ALL, v.jobGroup] : [SHARE_ALL];
+  const jg = shareMatchGroup(v.jobGroup);
+  const groups = jg ? [SHARE_ALL, jg] : [SHARE_ALL];
   const or: Prisma.SubmissionWhereInput[] = [{ shareJobGroups: { hasSome: groups } }];
   // 해당 지점 원장 공유 — 내가 담당하는 지점(대표+겸직) 직원의 제출물만
   if (v.role === "MANAGER" && v.branches.length) or.push({ shareJobGroups: { has: SHARE_BRANCH_MANAGER }, userBranch: { in: v.branches } });
-  return { deletedAt: null, shared: true, OR: or };
+  // ⚠ OR 을 최상위에 두면 목록 라우트의 검색어(where.OR = …)가 덮어써 공유 대상 조건이 통째로 사라진다(검증관 C1) — AND 로 감싼다
+  return { deletedAt: null, shared: true, AND: [{ OR: or }] };
 }
 
 /**

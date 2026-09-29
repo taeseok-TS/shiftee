@@ -217,7 +217,7 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
           const up = await uploadSubmissionFile({ uri: a.uri, name: a.name, mimeType: a.mimeType }, (pct) => setUploading({ name: a.name, pct }));
           setFiles((prev) => [...prev, up]);
           count++;
-          setTitle((t) => t || a.name.replace(/\.[^.]+$/, ""));
+          setTitle((t) => t || readableName(a.name).replace(/\.[^.]+$/, ""));
         } catch (e: any) {
           Alert.alert("업로드 실패", `${a.name}: ${e?.message || "올리지 못했습니다."}`);
         } finally { setUploading(null); }

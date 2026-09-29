@@ -357,7 +357,7 @@ function UploadDialog({ me, categories, request, editing, onClose, onDone }: {
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { toast.error(`${file.name}: ${d.error || "업로드 실패"}`); continue; }
         setFiles((cur) => [...cur, d as SubmissionFile]);
-        setTitle((t) => t || file.name.replace(/\.[^.]+$/, ""));
+        setTitle((t) => t || decodeFileName(file.name).replace(/\.[^.]+$/, ""));
       } finally { setUploading((n) => n - 1); }
     }
   }
@@ -378,7 +378,7 @@ function UploadDialog({ me, categories, request, editing, onClose, onDone }: {
   const auto = (v: string | null | undefined) => <div className="h-9 rounded-md border bg-gray-100 px-3 text-sm flex items-center justify-between text-gray-700"><span>{v || "-"}</span><span className="text-[10px] text-gray-400">자동</span></div>;
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto grid-cols-[minmax(0,1fr)]">
         <DialogHeader><DialogTitle>{editing ? "내 제출 수정" : request ? `제출 — ${request.title}` : "자료 올리기"}</DialogTitle></DialogHeader>
         <div
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
@@ -393,8 +393,8 @@ function UploadDialog({ me, categories, request, editing, onClose, onDone }: {
           <div className="space-y-1">
             {files.map((f) => (
               <div key={f.url} className="flex items-center gap-2 text-sm border rounded px-2 py-1">
-                <span className={`text-[9px] font-bold text-white px-1 rounded ${typeBadge[f.type] || typeBadge.file}`}>{typeLabel[f.type] || "F"}</span>
-                <span className="truncate flex-1">{f.name}</span><span className="text-xs text-gray-400">{fmtBytes(f.size)}</span>
+                <span className={`shrink-0 text-[9px] font-bold text-white px-1 rounded ${typeBadge[f.type] || typeBadge.file}`}>{typeLabel[f.type] || "F"}</span>
+                <span className="truncate flex-1 min-w-0" title={decodeFileName(f.name)}>{decodeFileName(f.name)}</span><span className="shrink-0 text-xs text-gray-400">{fmtBytes(f.size)}</span>
                 <button type="button" onClick={() => setFiles((cur) => cur.filter((x) => x.url !== f.url))} className="text-gray-400 hover:text-red-600"><X size={14} /></button>
               </div>
             ))}

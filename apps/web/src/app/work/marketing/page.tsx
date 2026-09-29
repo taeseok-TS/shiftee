@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Camera, Plus, X, Paperclip, Trash2, Loader2, ExternalLink, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { ALLOWED_EXT, IMAGE_EXT, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, extOf, type SubmissionFile } from "@/lib/submissions";
+import { ALLOWED_EXT, IMAGE_EXT, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, type SubmissionFile } from "@/lib/submissions";
 
 type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; branch: string | null; jobGroup: string | null };
 type Category = { id: string; group: string; name: string; active: boolean };
@@ -27,7 +27,7 @@ function openFile(f: SubmissionFile) {
   const ext = extOf(f.name);
   if (PREVIEW_EXT.has(ext)) window.open(`/docs/viewer?src=${encodeURIComponent(f.url)}&title=${encodeURIComponent(f.name.replace(/\.[^.]+$/, ""))}`, "_blank");
   else if (IMAGE_EXT.has(ext)) window.open(f.url, "_blank");
-  else window.open(`${f.url}?download=1&name=${encodeURIComponent(f.name)}`, "_blank");
+  else window.open(`${f.url}?download=1&name=${encodeURIComponent(decodeFileName(f.name))}`, "_blank");
 }
 
 export default function MarketingPage() {
@@ -131,10 +131,10 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
                 </div>
               )}
               {others.length > 0 && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 min-w-0">
                   {others.map((f) => (
-                    <button key={f.url} type="button" onClick={() => openFile(f)} className="inline-flex items-center gap-1.5 text-xs text-gray-700 hover:text-indigo-700 hover:underline">
-                      <Paperclip size={12} />{f.name} <span className="text-gray-400">{fmtBytes(f.size)}</span>
+                    <button key={f.url} type="button" onClick={() => openFile(f)} title={decodeFileName(f.name)} className="inline-flex items-center gap-1.5 text-xs text-gray-700 hover:text-indigo-700 hover:underline max-w-full min-w-0">
+                      <Paperclip size={12} className="shrink-0" /><span className="truncate min-w-0">{decodeFileName(f.name)}</span> <span className="shrink-0 text-gray-400">{fmtBytes(f.size)}</span>
                     </button>
                   ))}
                 </div>
@@ -171,7 +171,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { toast.error(`${file.name}: ${d.error || "업로드 실패"}`); continue; }
         setFiles((cur) => [...cur, d as SubmissionFile]); count++;
-        setTitle((t) => t || file.name.replace(/\.[^.]+$/, ""));
+        setTitle((t) => t || decodeFileName(file.name).replace(/\.[^.]+$/, ""));
       } finally { setUploading((n) => n - 1); }
     }
   }, [files.length]);
@@ -190,7 +190,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
   }
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !uploading && !saving) onClose(); }}>
-      <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto grid-cols-[minmax(0,1fr)]">
         <DialogHeader><DialogTitle>마케팅 자료 올리기</DialogTitle></DialogHeader>
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }} onClick={() => inputRef.current?.click()}
           className="border-2 border-dashed rounded-lg p-5 text-center text-sm cursor-pointer border-gray-300 text-gray-500 hover:bg-gray-50">
@@ -205,7 +205,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
                 {IMAGE_EXT.has(extOf(f.name))
                   // eslint-disable-next-line @next/next/no-img-element
                   ? <img src={f.url} alt={f.name} className="h-20 w-20 object-cover rounded border" />
-                  : <div className="h-20 w-40 rounded border bg-gray-50 p-2 text-xs overflow-hidden"><Paperclip size={12} className="inline mr-1" />{f.name}</div>}
+                  : <div className="h-20 w-40 rounded border bg-gray-50 p-2 text-xs overflow-hidden"><Paperclip size={12} className="inline mr-1" />{decodeFileName(f.name)}</div>}
                 <button type="button" onClick={() => setFiles((cur) => cur.filter((x) => x.url !== f.url))} className="absolute -top-2 -right-2 bg-gray-700 text-white rounded-full p-0.5"><X size={12} /></button>
               </div>
             ))}

@@ -33,6 +33,12 @@ function openFile(f: SubmissionFile) {
   Linking.openURL(target).catch(() => Alert.alert("열기 실패", "브라우저를 열 수 없습니다."));
 }
 
+// 안드로이드 파일 선택기가 %ED%95%9C… 처럼 인코딩된 이름을 줄 때가 있다 — 읽을 수 있게 푼다(개선 제안 #210)
+function readableName(name: string): string {
+  if (!/%[0-9a-f]{2}/i.test(name)) return name;
+  try { return decodeURIComponent(name); } catch { return name; }
+}
+
 function FileRow({ f, onRemove }: { f: SubmissionFile; onRemove?: () => void }) {
   const ext = extOf(f.name);
   const label = ext === ".heic" || ext === ".heif" ? "HEIC" : TYPE_LABEL[f.type] || "F";
@@ -40,7 +46,7 @@ function FileRow({ f, onRemove }: { f: SubmissionFile; onRemove?: () => void }) 
     <View style={styles.fileRow}>
       <View style={[styles.typeBadge, { backgroundColor: TYPE_BADGE[f.type] || TYPE_BADGE.file }]}><Text style={styles.typeBadgeText}>{label}</Text></View>
       <TouchableOpacity style={{ flex: 1 }} onPress={() => openFile(f)} disabled={!!onRemove}>
-        <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
+        <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{readableName(f.name)}</Text>
         <Text style={styles.fileSize}>{fmtBytes(f.size)}{label === "HEIC" ? " · 아이폰 원본(미리보기 없음)" : ""}</Text>
       </TouchableOpacity>
       {onRemove ? (
@@ -179,7 +185,7 @@ function UploadSheet({ categories, onClose, onDone }: { categories: Category[]; 
         const up = await uploadSubmissionFile({ uri: a.uri, name: a.name, mimeType: a.mimeType }, (pct) => setUploading({ name: a.name, pct }));
         setFiles((prev) => [...prev, up]);
         count++;
-        setTitle((t) => t || a.name.replace(/\.[^.]+$/, ""));
+        setTitle((t) => t || readableName(a.name).replace(/\.[^.]+$/, ""));
       } catch (e: any) {
         Alert.alert("업로드 실패", `${a.name}: ${e?.message || "올리지 못했습니다."}`);
       } finally { setUploading(null); }
