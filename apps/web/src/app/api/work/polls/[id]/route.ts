@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isChannelMember } from "@/lib/work-perms";
 import { emitWork } from "@/lib/work-events";
 
 // 투표하기 (토글). 단일선택은 기존 표를 교체, 복수선택은 켜고 끄기.
@@ -99,7 +100,10 @@ export async function PATCH(
   const poll = await prisma.workPoll.findUnique({ where: { id }, select: { creatorId: true, closedAt: true, channelId: true } });
   if (!poll) return NextResponse.json({ error: "투표를 찾을 수 없습니다." }, { status: 404 });
   if (poll.closedAt) return NextResponse.json({ error: "이미 마감된 투표입니다." }, { status: 400 });
-  if (poll.creatorId !== session.userId && session.role !== "ADMIN" && session.role !== "MANAGER")
+  // 원장은 자기가 속한 방의 투표만(lib/work-perms — 2026-09-30 디렉터: 원장 권한은 속한 방에만)
+  const canClose = poll.creatorId === session.userId || session.role === "ADMIN" ||
+    (session.role === "MANAGER" && (await isChannelMember(poll.channelId, session.userId)));
+  if (!canClose)
     return NextResponse.json({ error: "투표 마감은 만든 사람 또는 관리자만 가능합니다." }, { status: 403 });
 
   await prisma.workPoll.update({ where: { id }, data: { closedAt: new Date() } });

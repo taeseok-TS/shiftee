@@ -51,11 +51,15 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
 
-  // 관리 권한 이전에 **그 채널 사람인지** 부터 본다 — 원장은 채널 소속과 무관하게
-  // channelCanManage 를 통과하므로, 이 검사가 없으면 남의 DM 첨부까지 지울 수 있다.
+  // 관리 권한 이전에 **그 채널 사람인지** 부터 본다(남의 DM 첨부를 지우지 못하게).
   const { assertChannelAccess } = await import("@/lib/work-access");
   const acc = await assertChannelAccess(id, session.userId);
   if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+  // 전체(기본) 채널의 첨부를 통째로 지우는 것은 본부 관리자만 — 원장도 전체 채널의 멤버라 아래 검사를 통과한다
+  // (디스크에서 지워져 되돌릴 수 없다)
+  const def = await prisma.workChannel.findUnique({ where: { id }, select: { isDefault: true } });
+  if (def?.isDefault && session.role !== "ADMIN")
+    return NextResponse.json({ error: "전체 채널의 파일 정리는 본부 관리자만 할 수 있습니다." }, { status: 403 });
   if (!(await channelCanManage(id, session.userId, session.role)))
     return NextResponse.json({ error: "파일을 정리할 권한이 없습니다." }, { status: 403 });
 

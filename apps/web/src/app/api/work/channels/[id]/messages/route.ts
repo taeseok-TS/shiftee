@@ -112,7 +112,7 @@ export async function GET(
       user: { select: { id: true, name: true, avatarUrl: true, branch: true } },
       reactions: { select: { emoji: true, userId: true, user: { select: { name: true } } } },
       _count: { select: { replies: true } },
-      replyTo: { select: { id: true, content: true, deletedAt: true, user: { select: { name: true } } } },
+      replyTo: { select: { id: true, channelId: true, content: true, deletedAt: true, user: { select: { name: true } } } },
       poll: { include: { votes: { select: { userId: true, optionIndex: true } } } },
       bookmarks: { where: { userId: session.userId }, select: { id: true } },
     },
@@ -178,7 +178,8 @@ export async function GET(
       system: m.system,
       poll: shapePoll(m.poll),
       bookmarked: m.bookmarks.length > 0,
-      replyTo: m.replyTo
+      // 다른 방 메시지를 가리키는 인용은 내보내지 않는다(위 POST 검사가 생기기 전에 저장된 것 대비)
+      replyTo: m.replyTo && m.replyTo.channelId === m.channelId
         ? { id: m.replyTo.id, userName: m.replyTo.user.name, content: m.replyTo.deletedAt ? "삭제된 메시지" : m.replyTo.content, deleted: !!m.replyTo.deletedAt }
         : null,
       mine: m.userId === session.userId,
@@ -203,6 +204,18 @@ export async function POST(
   if ("error" in acc) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const { content, fileUrl, fileName, fileType, parentId, replyToId, albumUrls, attachFirst } = await request.json();
+  // 답장(replyToId)·스레드(parentId) 대상은 **이 방의 메시지**여야 한다. 검사가 없어서, 내 방에 글을 쓰면서 남의 방
+  // 메시지 id 를 답장 대상으로 넣으면 응답의 인용문으로 그 메시지 원문이 돌아왔다 — 로그인한 누구나 아무 방·DM 의
+  // 대화를 읽을 수 있는 길이었다(메시지 id 는 실시간 신호에 실려 온다). 2026-09-30 검증관 P0.
+  const refs = [parentId, replyToId].filter((v) => v !== undefined && v !== null);
+  if (refs.some((v) => typeof v !== "string"))
+    return NextResponse.json({ error: "답장 대상이 올바르지 않습니다." }, { status: 400 });
+  if (refs.length) {
+    const uniq = [...new Set(refs as string[])];
+    const found = await prisma.workMessage.count({ where: { id: { in: uniq }, channelId: id } });
+    if (found !== uniq.length)
+      return NextResponse.json({ error: "답장 대상 메시지를 이 방에서 찾을 수 없습니다." }, { status: 400 });
+  }
   // 이모티콘(스티커) — 첨부와 경로가 다르다(/api/uploads/emoticons/). 등록·사용 중인 이모티콘만 받는다.
   // 글·앨범은 함께 받지 않는다(스티커는 그림 하나가 한 메시지).
   if (fileType === "sticker") {
@@ -269,7 +282,7 @@ export async function POST(
 
 const SENT_INCLUDE = {
   user: { select: { id: true, name: true, avatarUrl: true, branch: true } },
-  replyTo: { select: { id: true, content: true, deletedAt: true, user: { select: { name: true } } } },
+  replyTo: { select: { id: true, channelId: true, content: true, deletedAt: true, user: { select: { name: true } } } },
 } as const;
 type SentMessage = Prisma.WorkMessageGetPayload<{ include: typeof SENT_INCLUDE }>;
 
@@ -314,7 +327,7 @@ async function finishSend(
       createdAt: message.createdAt,
       editedAt: null,
       deleted: false,
-      replyTo: message.replyTo
+      replyTo: message.replyTo && message.replyTo.channelId === message.channelId
         ? { id: message.replyTo.id, userName: message.replyTo.user.name, content: message.replyTo.deletedAt ? "삭제된 메시지" : message.replyTo.content, deleted: !!message.replyTo.deletedAt }
         : null,
       mine: true,

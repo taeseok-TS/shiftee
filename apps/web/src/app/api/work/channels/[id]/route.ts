@@ -19,6 +19,9 @@ export async function PATCH(
   const channel = await prisma.workChannel.findUnique({ where: { id }, select: { type: true, isDefault: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   if (channel.type === "DM") return NextResponse.json({ error: "DM은 변경할 수 없습니다." }, { status: 400 });
+  // 전체(기본) 채널은 본부 관리자만 — 원장도 전체 채널의 멤버라 아래 검사를 통과한다
+  if (channel.isDefault && session.role !== "ADMIN")
+    return NextResponse.json({ error: "전체 채널은 본부 관리자만 변경할 수 있습니다." }, { status: 403 });
   if (!(await channelCanManage(id, session.userId, session.role)))
     return NextResponse.json({ error: "채널을 관리할 권한이 없습니다." }, { status: 403 });
 

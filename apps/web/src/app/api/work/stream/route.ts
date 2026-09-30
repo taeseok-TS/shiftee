@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSession, isSessionStillValid } from "@/lib/auth";
 import { workBus, type WorkEvent } from "@/lib/work-events";
+import { canReceiveChannelEvent } from "@/lib/work-access";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,11 @@ export async function GET(request: NextRequest) {
       const onEvent = (e: WorkEvent) => {
         // 본인이 발생시킨 타이핑은 제외
         if (e.type === "typing" && e.userId === session.userId) return;
-        send(e);
+        // 그 방 사람에게만 보낸다(전체 채널은 모두) — 종전에는 모든 방의 신호가 전원에게 갔다(lib/work-access channelAudience).
+        // 판정에 실패하면(DB 오류) 보내지 않는다 — 신호일 뿐이라 놓쳐도 다음 신호나 새로고침으로 따라잡는다.
+        canReceiveChannelEvent(e.channelId, session.userId)
+          .then((ok) => { if (ok) send(e); })
+          .catch(() => { /* 보내지 않는다 */ });
       };
       workBus.on("event", onEvent);
 
