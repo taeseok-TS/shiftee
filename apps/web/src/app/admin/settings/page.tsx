@@ -17,6 +17,7 @@ const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   INACTIVE: { label: "비활성 계정", tip: "직원관리에서 계정 상태 확인" },
   RESIGNED: { label: "퇴사 계정", tip: "퇴사 처리된 계정 — 잘못이면 퇴사일 확인" },
   DEVICE_BLOCKED: { label: "미등록 기기", tip: "폰을 바꾼 경우 — 직원관리에서 기기 초기화" },
+  LOCKED: { label: "잠김(여러 번 틀림)", tip: "15분 안에 10번 틀려 15분 잠김 — 셀프 재설정 또는 직원관리 초기화 시 즉시 풀림" },
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -126,7 +127,8 @@ export default function AdminSettingsPage() {
   // 서브 관리자 퇴사 처리 (메인 관리자만 — 백엔드에서 권한 검증)
   const handleResignAdmin = async (a: AdminRow) => {
     if (!confirm(`${a.name} 서브 관리자를 퇴사 처리할까요?\n계정이 비활성화되고 변경 로그에 기록됩니다.`)) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // 한국 날짜로 — toISOString 은 UTC 라 오전 9시 전에 누르면 어제 날짜가 되어 즉시 퇴사(로그아웃) 처리됐다(2026-09-30)
+    const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
     try {
       const res = await fetch(`/api/employees/${a.id}/resign`, {
         method: "PATCH",

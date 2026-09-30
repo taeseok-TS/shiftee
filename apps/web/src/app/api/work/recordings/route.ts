@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, safeName), buffer);
 
-  const fileName = `${meetingTitle}_${new Date().toISOString().slice(0, 10)}.webm`;
+  const fileName = `${meetingTitle}_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)}.webm` /* 한국 날짜 */;
   const recording = await prisma.workMeetingRecording.create({
     data: {
       meetingTitle,

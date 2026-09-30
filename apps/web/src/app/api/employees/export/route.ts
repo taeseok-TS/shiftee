@@ -40,7 +40,7 @@ export async function GET() {
   XLSX.utils.book_append_sheet(wb, ws, "직원목록");
   const buf: Buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
-  const fname = `직원목록_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const fname = `직원목록_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)}.xlsx` /* 한국 날짜 */;
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -4,12 +4,13 @@ import { prisma } from "@/lib/db";
 import { setSession } from "@/lib/auth";
 import { isResigned } from "@/lib/resign";
 import { logAudit } from "@/lib/audit";
+import { ACCOUNT_LOCKED_MSG, IP_BLOCKED_MSG, accountLocked, clientIp, ipBlocked, recordIpFail } from "@/lib/login-throttle";
 
 // 로그인 실패 기록 — 문의("로그인이 안 돼요")가 오면 원인을 역추적하기 위한 것.
 // 기록 실패가 로그인 응답을 막으면 안 되므로 통째로 삼킨다.
 async function logLoginFail(input: {
   email: string; userId?: string; userName?: string;
-  reason: "UNKNOWN_EMAIL" | "BAD_PASSWORD" | "INACTIVE" | "RESIGNED" | "DEVICE_BLOCKED";
+  reason: "UNKNOWN_EMAIL" | "BAD_PASSWORD" | "INACTIVE" | "RESIGNED" | "DEVICE_BLOCKED" | "LOCKED";
   deviceName?: string | null; platform?: string | null;
 }) {
   try {
@@ -59,6 +60,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "이메일과 비밀번호를 입력해주세요." }, { status: 400 });
     }
 
+    // 시도 제한 ② — 한 주소에서 실패가 너무 많으면 계정을 찾아보지도 않는다(lib/login-throttle)
+    const ip = clientIp(request.headers);
+    if (ipBlocked(ip)) {
+      return NextResponse.json({ error: IP_BLOCKED_MSG }, { status: 429 });
+    }
+
     // 앞뒤 공백·대소문자 때문에 못 들어오는 일을 없앤다(2026-09-23 진단 — 안드로이드 자판이
     // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다). 규칙은 findUserByEmailLoose 참고.
     const email = String(rawEmail).trim();
@@ -68,12 +75,22 @@ export async function POST(request: NextRequest) {
         email: String(rawEmail), userId: user?.id, userName: user?.name,
         reason: user ? "INACTIVE" : "UNKNOWN_EMAIL", deviceName, platform,
       });
+      recordIpFail(ip);
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
+    }
+
+    // 시도 제한 ① — 비밀번호를 여러 번 틀린 계정은 잠시 잠근다. 맞는 비밀번호도 받지 않는다(맞히기 전에 막아야 뜻이 있다).
+    // 비밀번호 비교보다 먼저 본다. 잠긴 동안의 시도는 LOCKED 로 남기되 틀림 횟수로는 세지 않는다(잠금이 끝없이 늘어나지 않게).
+    if (await accountLocked(user.id)) {
+      await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "LOCKED", deviceName, platform });
+      recordIpFail(ip); // 잠긴 계정을 계속 두드리면 그 주소도 결국 막힌다(기록이 끝없이 쌓이지 않게)
+      return NextResponse.json({ error: ACCOUNT_LOCKED_MSG }, { status: 429 });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "BAD_PASSWORD", deviceName, platform });
+      recordIpFail(ip);
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
 

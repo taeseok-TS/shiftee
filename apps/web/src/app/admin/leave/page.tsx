@@ -825,7 +825,7 @@ export default function LeavePage() {
                               <Pencil size={12} />조정
                             </Button>
                             <Button variant="ghost" size="sm" className="h-7 gap-1 text-indigo-500 hover:text-indigo-700"
-                              onClick={() => { setAllowTarget(b); setAllowSalary(""); setAllowBaseDate(new Date().toISOString().slice(0,10)); }}>
+                              onClick={() => { setAllowTarget(b); setAllowSalary(""); setAllowBaseDate(new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)); /* 한국 날짜(UTC 면 오전 9시 전엔 어제) */ }}>
                               <Calculator size={12} />계산
                             </Button>
                             {/* 연차 대장 — 그 해 휴가 전부·결재 기록·잔여 조정 이력 + PDF(관리자만, 디렉터 9/11) */}
