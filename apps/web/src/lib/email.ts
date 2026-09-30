@@ -18,14 +18,15 @@ interface EmailOptions {
 }
 
 /**
- * Send email via SMTP
+ * Send email via SMTP — 보냈으면 true. 실패는 던지지 않고 false (본 작업을 막지 않게).
+ * (반환값은 2026-09-30 추가 — 임시 비밀번호 메일은 "갔는지"를 관리자에게 알려야 한다)
  */
-async function sendEmail(options: EmailOptions): Promise<void> {
+async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
       console.warn("⚠️ SMTP credentials not configured. Email not sent.");
       console.warn(`To: ${options.to}, Subject: ${options.subject}`);
-      return;
+      return false;
     }
 
     // FROM_* 가 비면 "undefined <undefined>" 로 나간다. 발신 계정으로 대체하되,
@@ -34,7 +35,7 @@ async function sendEmail(options: EmailOptions): Promise<void> {
     if (!fromEmail.includes("@")) {
       console.warn(`⚠️ SMTP_FROM_EMAIL 이 유효한 주소가 아닙니다 ("${fromEmail}"). Email not sent.`);
       console.warn(`To: ${options.to}, Subject: ${options.subject}`);
-      return;
+      return false;
     }
 
     const result = await transporter.sendMail({
@@ -43,10 +44,49 @@ async function sendEmail(options: EmailOptions): Promise<void> {
     });
 
     console.log(`✅ Email sent to ${options.to}: ${result.messageId}`);
+    return true;
   } catch (error) {
     console.error(`❌ Failed to send email to ${options.to}:`, error);
     // Don't throw - allow contract operations to continue even if email fails
+    return false;
   }
+}
+
+const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+/**
+ * 임시 비밀번호 안내 (2026-09-30) — 관리자 초기화(reset) / 새 계정 발급(new).
+ * 로그인하면 본인 비밀번호로 바꾸도록 안내한다(24시간 뒤부터 봇이 매일 변경을 요청한다).
+ * 보냈으면 true.
+ */
+export async function sendTempPassword(email: string, name: string, tempPassword: string, kind: "reset" | "new"): Promise<boolean> {
+  const base = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://cubetee.co.kr";
+  const title = kind === "new" ? "큐브티 계정이 만들어졌습니다" : "비밀번호가 초기화되었습니다";
+  const lead = kind === "new"
+    ? "큐브티 계정이 만들어졌습니다. 아래 이메일과 임시 비밀번호로 로그인해 주세요."
+    : "관리자가 비밀번호를 초기화했습니다. 아래 임시 비밀번호로 로그인해 주세요. 이전 비밀번호와 로그인되어 있던 기기는 모두 해제되었습니다.";
+  return sendEmail({
+    to: email,
+    subject: `[큐브티] ${title}`,
+    html: `
+      <div style="font-family: 'Malgun Gothic', sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="color: #4f46e5; margin-top: 0;">${title}</h2>
+        <p>${escapeHtml(name)} 님, 안녕하세요.</p>
+        <p>${lead}</p>
+        <table style="margin: 20px 0; border-collapse: collapse; font-size: 15px;">
+          <tr><td style="padding: 6px 14px 6px 0; color: #6b7280;">이메일(아이디)</td><td style="padding: 6px 0;"><b>${escapeHtml(email)}</b></td></tr>
+          <tr><td style="padding: 6px 14px 6px 0; color: #6b7280;">임시 비밀번호</td><td style="padding: 6px 0;"><b style="font-family: Consolas, monospace; font-size: 18px; letter-spacing: 1px; background: #eef2ff; padding: 4px 10px; border-radius: 6px;">${escapeHtml(tempPassword)}</b></td></tr>
+        </table>
+        <p>로그인한 뒤 <b>본인만 아는 비밀번호로 꼭 바꿔 주세요.</b><br/>
+          · 앱: 더보기 &gt; 설정 &gt; 비밀번호 변경<br/>
+          · 웹: 환경설정 &gt; 비밀번호 변경</p>
+        <p style="text-align: center; margin: 28px 0;">
+          <a href="${base}/login" style="background: #4f46e5; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: bold;">큐브티 로그인</a>
+        </p>
+        <p style="font-size: 13px; color: #6b7280;">임시 비밀번호는 다른 사람에게 알려 주지 마세요. 본인이 요청하지 않은 초기화라면 관리자에게 알려 주세요.</p>
+      </div>
+    `,
+  });
 }
 
 /**

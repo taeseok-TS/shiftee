@@ -106,7 +106,7 @@ export async function isAuthenticated(): Promise<boolean> {
 
 /**
  * 비밀번호 변경 (본인) — 서버 정책: 8자 이상 + 대문자 + 숫자 + 특수문자
- * 관리자가 임시 비번(1234)으로 초기화한 경우, 변경하면 봇의 변경 요청 알림이 멈춘다.
+ * 관리자 초기화·새 계정 발급으로 임시 비밀번호를 쓰는 경우, 변경하면 봇의 변경 요청 알림이 멈춘다.
  */
 export async function changePassword(
   currentPassword: string,

@@ -134,7 +134,7 @@ export async function PATCH(
       hireDate: hireDate ? new Date(hireDate) : undefined,
       birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null,
       password: hashedPassword,
-      // 관리자가 새 비번을 직접 지정하면 임시 비번(1234) 상태가 아니므로 알림 대상에서 해제
+      // 관리자가 새 비번을 직접 지정하면 임시 비밀번호 상태가 아니므로 알림 대상에서 해제
       passwordResetAt: hashedPassword ? null : undefined,
       empNo: empNoVal,
       resignDate: resignVal,

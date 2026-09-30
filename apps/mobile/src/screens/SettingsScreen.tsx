@@ -54,7 +54,7 @@ export default function SettingsScreen({ navigation }: any) {
     }
   };
 
-  // 비밀번호 변경 (임시 비번 1234로 초기화된 경우 여기서 변경)
+  // 비밀번호 변경 (관리자 초기화·새 계정의 임시 비밀번호를 여기서 변경)
   const [pwOpen, setPwOpen] = useState(false);
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew, setPwNew] = useState("");

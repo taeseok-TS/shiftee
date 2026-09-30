@@ -76,7 +76,7 @@ function Detail({ c }: { c: Change }) {
         {missing.length ? <p className="text-red-700">{missing.join("·")}이(가) 없어 지금은 반영할 수 없습니다.</p>
           : d.onLeave
             ? <p className="text-gray-500">휴직자라 지점 없이 휴직으로 만들고, 비밀번호는 알려진 값으로 열어 두지 않습니다. 복직하면 명부의 지점이 정보 변경으로 올라오니 먼저 반영하시고, 직원 관리에서 비밀번호 초기화(임시 비밀번호)를 해 주세요.</p>
-            : <p className="text-gray-500">반영하면 임시 비밀번호(12345678)로 계정을 만들고, 24시간 뒤 봇이 변경을 요청합니다.</p>}
+            : <p className="text-gray-500">반영하면 계정을 만들고 무작위 임시 비밀번호를 등록 이메일로 보냅니다. 24시간 안에 바꾸지 않으면 봇이 변경을 요청합니다.</p>}
         {portalOf(c) ? <p className="text-[11px] text-gray-500">명부: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
         {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
           <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 명부 사번으로 고쳐주세요.</p>

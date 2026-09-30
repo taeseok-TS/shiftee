@@ -17,11 +17,13 @@ import { isResigned, kstTodayMidnight } from "@/lib/resign";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { isSheetUrl, fetchSheetRoster, fetchSheetLeavers, type LeaverRow } from "@/lib/roster-sheet";
 import { findUserIdByEmailCI } from "@/lib/user-email";
+import { generateTempPassword } from "@/lib/temp-password";
+import { sendTempPassword } from "@/lib/email";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
 // 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 값·같은 규칙(24시간 뒤 봇이 변경 요청)
-const TEMP_PASSWORD = "12345678";
+// 새 계정의 임시 비밀번호는 계정마다 무작위로 만들어 등록 이메일로 보낸다(2026-09-30 디렉터 — 종전 고정값 12345678 폐지)
 // 봇 계정(비활성 EMPLOYEE)은 사람이 아니다 — 대조에서 뺀다
 const BOT_EMAILS = ["bot@cubetee.co.kr", "hr-bot@cubetee.co.kr"];
 
@@ -463,8 +465,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     if (branch !== null && !(await prisma.branch.findFirst({ where: { name: branch }, select: { id: true } }))) throw new Error(`큐브티에 없는 지점입니다: ${branch}`);
     // 휴직자 계정은 **아무도 모르는 무작위 비밀번호**로 만든다 — 모두가 아는 임시 비밀번호가 몇 달씩 열려 있으면
     // 남이 먼저 로그인해 기기를 묶을 수 있고, 봇이 휴직 내내 매일 "비밀번호 바꾸세요" DM 을 보낸다(검증관 [4]).
-    // 복직할 때 관리자가 직원 관리에서 비밀번호 초기화(임시 비밀번호)를 해 준다.
-    const hashed = await bcrypt.hash(d.onLeave ? randomBytes(24).toString("base64url") : TEMP_PASSWORD, 10);
+    // 복직할 때 관리자가 직원 관리에서 비밀번호 초기화(임시 비밀번호 메일 발송)를 해 준다.
+    const tempPassword = d.onLeave ? null : generateTempPassword();
+    const hashed = await bcrypt.hash(tempPassword ?? randomBytes(24).toString("base64url"), 10);
     // 계정과 연차 행을 함께 — 하나만 만들어지면 재시도가 "이미 계정 있음"으로 영구히 막힌다(L3)
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -479,7 +482,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: 15, used: 0, remaining: 15 } });
       return created;
     });
-    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, ${d.onLeave ? "비밀번호 미발급 — 복직 때 초기화" : "임시 비밀번호"})` });
+    // 계정이 만들어진 뒤에 보낸다(트랜잭션 밖) — 메일이 실패해도 계정은 남고, 관리자가 직원 관리에서 초기화하면 다시 간다
+    const emailed = tempPassword ? await sendTempPassword(email, c.name, tempPassword, "new") : false;
+    await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, ${d.onLeave ? "비밀번호 미발급 — 복직 때 초기화" : `임시 비밀번호 메일 ${emailed ? "발송" : "발송 실패 — 직원 관리에서 초기화해 다시 보내기"}`})` });
     return;
   }
   if (!c.userId) throw new Error("대상 직원이 없습니다.");

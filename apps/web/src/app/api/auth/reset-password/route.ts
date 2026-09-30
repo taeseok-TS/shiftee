@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   const hashed = await bcrypt.hash(password, 10);
   // 토큰 사용 처리와 비번 변경을 함께 — 재사용 레이스 방지
   await prisma.$transaction([
-    prisma.user.update({ where: { id: row.userId }, data: { password: hashed } }),
+    prisma.user.update({ where: { id: row.userId }, data: { password: hashed, passwordResetAt: null } }), // 본인이 정했으니 임시 비밀번호 변경 알림도 멈춘다
     prisma.passwordResetToken.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
   ]);
 

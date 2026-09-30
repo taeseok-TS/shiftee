@@ -71,6 +71,8 @@ export default function EmployeesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  // 방금 초기화한 임시 비밀번호 — 이 창에서 한 번만 보여 준다(서버는 다시 알려 주지 않는다, 2026-09-30)
+  const [tempPwShown, setTempPwShown] = useState<{ userId: string; password: string; emailed: boolean; email: string } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // 선택 삭제 — 잘못 업로드한 직원을 골라서 한 번에 삭제 (활동 기록 있으면 서버가 거부)
@@ -833,6 +835,7 @@ export default function EmployeesPage() {
                               onClick={() => {
                                 setEditEmployee(emp);
                                 setEditOpen(true);
+                                setTempPwShown(null); // 창을 다시 열면 지난번 임시 비밀번호는 보이지 않는다
                               }}
                             >
                               <PenLine size={16} />
@@ -1079,24 +1082,44 @@ export default function EmployeesPage() {
                                     </Button>
                                   )}
                                 </div>
-                                {/* 비밀번호 초기화 (직원이 비번을 잊었을 때 — 임시 비번 12345678) */}
-                                <div className="mt-2 p-3 bg-gray-50 rounded-lg flex items-center justify-between gap-2">
-                                  <div className="text-sm">
-                                    <div className="font-medium text-gray-700">비밀번호</div>
-                                    <div className="text-gray-500 text-xs mt-0.5">
-                                      초기화하면 임시 비번 <b>12345678</b>로 바뀝니다. 24시간 내 미변경 시 봇이 변경을 요청합니다.
+                                {/* 비밀번호 초기화 (직원이 비번을 잊었을 때) — 무작위 임시 비밀번호를 등록 이메일로 보내고 여기에도 한 번 보여 준다 */}
+                                <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-sm min-w-0">
+                                      <div className="font-medium text-gray-700">비밀번호</div>
+                                      <div className="text-gray-500 text-xs mt-0.5">
+                                        초기화하면 무작위 임시 비밀번호로 바뀌고 등록 이메일로 보내집니다. 24시간 내 미변경 시 봇이 변경을 요청합니다.
+                                        <br />본인이 직접 재설정할 수 있으면 로그인 화면 「비밀번호를 잊으셨나요?」를 먼저 안내해주세요.
+                                      </div>
                                     </div>
+                                    <Button variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50 shrink-0"
+                                      onClick={async () => {
+                                        if (!window.confirm(`${editEmployee.name}님의 비밀번호를 초기화합니다.\n무작위 임시 비밀번호가 ${editEmployee.email} 로 발송됩니다.\n본인 요청이 맞는지 확인하셨나요? 진행할까요?`)) return;
+                                        const res = await fetch(`/api/employees/${editEmployee.id}/reset-password`, { method: "PATCH" });
+                                        const d = await res.json().catch(() => ({}));
+                                        if (res.ok) {
+                                          if (d.tempPassword) setTempPwShown({ userId: editEmployee.id, password: d.tempPassword, emailed: !!d.emailed, email: editEmployee.email });
+                                          if (d.emailed) toast.success(d.message || "비밀번호를 초기화하고 메일로 보냈습니다.");
+                                          else toast.warning(d.message || "초기화했지만 메일을 보내지 못했습니다. 임시 비밀번호를 직접 전달해주세요.");
+                                        } else toast.error(d.error || "초기화에 실패했습니다.");
+                                      }}>
+                                      비밀번호 초기화
+                                    </Button>
                                   </div>
-                                  <Button variant="outline" size="sm" className="text-amber-600 border-amber-300 hover:bg-amber-50 shrink-0"
-                                    onClick={async () => {
-                                      if (!window.confirm(`${editEmployee.name}님의 비밀번호를 임시 비번(12345678)으로 초기화합니다.\n직원에게 12345678로 로그인 후 비밀번호를 변경하도록 안내해주세요.\n진행할까요?`)) return;
-                                      const res = await fetch(`/api/employees/${editEmployee.id}/reset-password`, { method: "PATCH" });
-                                      const d = await res.json().catch(() => ({}));
-                                      if (res.ok) toast.success(d.message || "비밀번호를 12345678로 초기화했습니다.");
-                                      else toast.error(d.error || "초기화에 실패했습니다.");
-                                    }}>
-                                    비밀번호 초기화
-                                  </Button>
+                                  {tempPwShown && tempPwShown.userId === editEmployee.id && (
+                                    <div className={`rounded-md border p-2.5 text-xs ${tempPwShown.emailed ? "border-indigo-200 bg-indigo-50" : "border-amber-300 bg-amber-50"}`}>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-gray-600">임시 비밀번호</span>
+                                        <b className="font-mono text-base tracking-wider select-all">{tempPwShown.password}</b>
+                                        <Button type="button" variant="outline" size="sm" className="h-6 text-[11px] px-2"
+                                          onClick={() => { navigator.clipboard?.writeText(tempPwShown.password).then(() => toast.success("복사했습니다."), () => {}); }}>복사</Button>
+                                      </div>
+                                      <p className="mt-1 text-gray-600">
+                                        {tempPwShown.emailed ? `${tempPwShown.email} 로 보냈습니다. ` : "메일 발송에 실패했습니다 — 직원에게 직접 전달해주세요. "}
+                                        이 창을 닫으면 다시 볼 수 없습니다.
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex gap-2 justify-end mt-4">
                                   <Button variant="outline" onClick={() => setEditOpen(false)}>

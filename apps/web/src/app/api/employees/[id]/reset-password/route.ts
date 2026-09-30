@@ -3,10 +3,15 @@ import { getSession, isSuperAdmin, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
+import { generateTempPassword } from "@/lib/temp-password";
+import { sendTempPassword } from "@/lib/email";
 
 /**
  * PATCH /api/employees/[id]/reset-password - 관리자가 직원의 비밀번호 초기화
- * 비밀번호를 "12345678"로 설정 (8자 규칙 안내와의 인지 충돌 제거 — 2026-08-25)
+ * 매번 **무작위 임시 비밀번호**로 바꾸고 등록 이메일로 보낸다. 관리자 화면에도 응답으로 한 번만 보여 준다
+ * (메일을 못 보는 직원은 관리자가 불러 준다). 2026-09-30 디렉터 지시 — 종전 고정값 12345678 은 누구나 알아서,
+ * 계정을 일부러 잠가 초기화를 유도한 뒤 그 값으로 들어오는 길이 열려 있었다.
+ * 임시 비밀번호는 감사 로그·서버 로그에 남기지 않는다.
  */
 export async function PATCH(
   _request: NextRequest,
@@ -40,8 +45,9 @@ export async function PATCH(
       return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
     }
 
-    // 비밀번호 해싱 (임시 비번 12345678)
-    const hashedPassword = await bcrypt.hash("12345678", 10);
+    // 무작위 임시 비밀번호
+    const tempPassword = generateTempPassword();
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     // 비밀번호 업데이트 + 초기화 시각 기록 (24시간 후에도 그대로면 봇이 변경 요청 알림)
     await prisma.user.update({
@@ -62,6 +68,9 @@ export async function PATCH(
       void notifyOrgKeysRevoked(orgKeys.map((k) => k.name), `${user.name} 님 비밀번호 초기화`);
     }
 
+    // 등록 이메일로 보낸다 — 성공 여부를 관리자에게 알린다(실패하면 화면의 비밀번호를 직접 전달)
+    const emailed = await sendTempPassword(user.email, user.name, tempPassword, "reset");
+
     await logAudit({
       actorId: session.userId,
       actorName: session.name,
@@ -69,12 +78,16 @@ export async function PATCH(
       targetType: "USER",
       targetId: id,
       targetName: user.name,
-      detail: "비밀번호를 임시 비번(12345678)으로 초기화",
+      detail: `비밀번호를 무작위 임시 비밀번호로 초기화 · 메일 ${emailed ? "발송" : "발송 실패"}`,
     });
 
     return NextResponse.json({
       success: true,
-      message: `${user.name}의 비밀번호가 초기화되었습니다. (기본 비밀번호: 12345678)`,
+      message: emailed
+        ? `${user.name} 님의 비밀번호를 초기화하고 임시 비밀번호를 ${user.email} 로 보냈습니다.`
+        : `${user.name} 님의 비밀번호를 초기화했지만 메일을 보내지 못했습니다. 아래 임시 비밀번호를 직접 전달해주세요.`,
+      tempPassword, // 이 응답에서 한 번만 — 다시 볼 수 없다
+      emailed,
       user: {
         id: user.id,
         name: user.name,
