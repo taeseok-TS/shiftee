@@ -91,11 +91,15 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
   const name = user?.name || "(이름 없음)";
 
+  // 회의 전용 방(숨김)은 그룹 채팅방이 아니다 — 멤버행만 조용히 지운다. 방장 승계·생성자 이전·봇 DM·휴지통 보관자는 하지 않는다.
+  // (2026-09-30 회의 참여자가 회의방 멤버가 되면서, 목록에도 없는 「회의: …」 방의 방장을 맡았다는 DM 이 나갈 수 있었다 — 검증관 C-1)
+  await prisma.workChannelMember.deleteMany({ where: { userId, channel: { type: "CHANNEL", hidden: true } } });
+
   const rows = await prisma.workChannelMember.findMany({
     where: {
       userId,
-      // 전체 채널은 제외 — 위 주석 참고
-      channel: { type: "CHANNEL", isDefault: false, deletedAt: null },
+      // 전체 채널은 제외 — 위 주석 참고. 회의 전용 방(숨김)은 위에서 따로 지웠다.
+      channel: { type: "CHANNEL", isDefault: false, deletedAt: null, hidden: false },
     },
     select: {
       channelId: true, isManager: true, notify: true, pinned: true,
@@ -346,7 +350,8 @@ export async function runResignChatCleanupDaily(): Promise<{ users: number; chan
       AND: [
         {
           OR: [
-            { workChannelMembers: { some: { channel: { type: "CHANNEL", isDefault: false, deletedAt: null } } } },
+            // 숨김(회의) 방만 남은 사람도 대상에 넣는다 — 그 멤버행은 cleanupResignedUserChannels 가 조용히 지운다
+            { workChannelMembers: { some: { channel: { type: "CHANNEL", isDefault: false, OR: [{ deletedAt: null }, { hidden: true }] } } } },
             { resignDate: { gte: recent, lt: today } },
           ],
         },

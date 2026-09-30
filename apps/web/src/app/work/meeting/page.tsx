@@ -143,9 +143,11 @@ export default function WorkMeetingPage() {
     const ping = () => fetch(`/api/work/meetings/${active.id}/heartbeat`, { method: "POST" }).catch(() => {});
     // 첫 입장 신호가 회의 채팅방 참여 등록도 한다 — 끝난 뒤에 채팅을 연다(먼저 열면 아직 멤버가 아니라 거절된다)
     const id = active.id;
-    ping().finally(() => setChatReadyFor(id));
+    // 회의를 빠르게 갈아타면 앞 회의의 늦은 응답이 뒤 회의의 준비 표시를 덮는다 — 정리할 때 무효로 한다(검증관 P-2)
+    let alive = true;
+    ping().finally(() => { if (alive) setChatReadyFor(id); });
     const t = setInterval(ping, 60000);
-    return () => clearInterval(t);
+    return () => { alive = false; clearInterval(t); };
   }, [active]);
 
   // 화상회의 화면에서 왼쪽 큐브티워크 사이드바 접기/펼치기 → 회의 영상 영역 확대
