@@ -45,7 +45,7 @@ export function downloadActiveEmployeesExcel(data: any, period: string, dateStr:
     { wch: 10 }, // 상태
   ];
 
-  const fileName = `재직자현황_${dateStr}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const fileName = `재직자현황_${dateStr}_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10) /* 한국 날짜 */}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }
 
@@ -86,7 +86,7 @@ export function downloadResignedEmployeesExcel(data: any, periodType: string, da
     { wch: 20 }, // 퇴사사유
   ];
 
-  const fileName = `퇴직자현황_${dateStr}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const fileName = `퇴직자현황_${dateStr}_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10) /* 한국 날짜 */}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }
 
@@ -123,6 +123,6 @@ export function downloadResignedSummaryExcel(data: any, year: string) {
     { wch: 10 }, // 코디
   ];
 
-  const fileName = `퇴직자현황요약_${year}년_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const fileName = `퇴직자현황요약_${year}년_${new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10) /* 한국 날짜 */}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }

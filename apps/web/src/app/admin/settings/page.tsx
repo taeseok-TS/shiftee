@@ -17,7 +17,7 @@ const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   INACTIVE: { label: "비활성 계정", tip: "직원관리에서 계정 상태 확인" },
   RESIGNED: { label: "퇴사 계정", tip: "퇴사 처리된 계정 — 잘못이면 퇴사일 확인" },
   DEVICE_BLOCKED: { label: "미등록 기기", tip: "폰을 바꾼 경우 — 직원관리에서 기기 초기화" },
-  LOCKED: { label: "잠김(여러 번 틀림)", tip: "15분 안에 10번 틀려 15분 잠김 — 셀프 재설정 또는 직원관리 초기화 시 즉시 풀림" },
+  LOCKED: { label: "잠김(여러 번 틀림)", tip: "15분 안에 10번 틀려 최대 15분 잠김 — 본인이 로그인 화면 「비밀번호를 잊으셨나요?」로 재설정하면 바로 풀림(관리자 초기화는 본인 확인 후에만: 남이 잠근 것일 수 있다)" },
 };
 
 const ACTION_LABEL: Record<string, string> = {

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { setSession } from "@/lib/auth";
 import { isResigned } from "@/lib/resign";
 import { logAudit } from "@/lib/audit";
-import { ACCOUNT_LOCKED_MSG, IP_BLOCKED_MSG, accountLocked, clientIp, ipBlocked, recordIpFail } from "@/lib/login-throttle";
+import { ACCOUNT_LOCKED_MSG, IP_BLOCKED_MSG, accountLockState, clientIp, releaseAccountAttempt, releaseIpAttempt, reserveAccountAttempt, reserveIpAttempt } from "@/lib/login-throttle";
 
 // 로그인 실패 기록 — 문의("로그인이 안 돼요")가 오면 원인을 역추적하기 위한 것.
 // 기록 실패가 로그인 응답을 막으면 안 되므로 통째로 삼킨다.
@@ -60,9 +60,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "이메일과 비밀번호를 입력해주세요." }, { status: 400 });
     }
 
-    // 시도 제한 ② — 한 주소에서 실패가 너무 많으면 계정을 찾아보지도 않는다(lib/login-throttle)
+    // 시도 제한 ② — 한 주소에서 실패가 너무 많으면 계정을 찾아보지도 않는다(lib/login-throttle).
+    // 확인과 동시에 **동기로 예약**한다(await 전에) — 성공하면 돌려준다. 실패로 끝나면 그대로 1회로 남는다.
     const ip = clientIp(request.headers);
-    if (ipBlocked(ip)) {
+    const ipTicket = reserveIpAttempt(ip);
+    if (ipTicket === null) {
       return NextResponse.json({ error: IP_BLOCKED_MSG }, { status: 429 });
     }
 
@@ -75,24 +77,29 @@ export async function POST(request: NextRequest) {
         email: String(rawEmail), userId: user?.id, userName: user?.name,
         reason: user ? "INACTIVE" : "UNKNOWN_EMAIL", deviceName, platform,
       });
-      recordIpFail(ip);
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
 
     // 시도 제한 ① — 비밀번호를 여러 번 틀린 계정은 잠시 잠근다. 맞는 비밀번호도 받지 않는다(맞히기 전에 막아야 뜻이 있다).
-    // 비밀번호 비교보다 먼저 본다. 잠긴 동안의 시도는 LOCKED 로 남기되 틀림 횟수로는 세지 않는다(잠금이 끝없이 늘어나지 않게).
-    if (await accountLocked(user.id)) {
+    // DB(재시작에도 유지) + 메모리 예약(동시 요청) 두 겹. 예약은 lockState await **뒤에 곧바로**, 비교 전에 동기로 한다.
+    // 잠긴 동안의 시도는 LOCKED 로 남기되 틀림 횟수로는 세지 않는다(잠금이 끝없이 늘어나지 않게). IP 예약은 남겨
+    // 잠긴 계정을 계속 두드리는 주소도 결국 막힌다.
+    const lockState = await accountLockState(user.id);
+    const acctTicket = lockState.locked ? null : reserveAccountAttempt(user.id, lockState.countFrom);
+    if (acctTicket === null) {
       await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "LOCKED", deviceName, platform });
-      recordIpFail(ip); // 잠긴 계정을 계속 두드리면 그 주소도 결국 막힌다(기록이 끝없이 쌓이지 않게)
       return NextResponse.json({ error: ACCOUNT_LOCKED_MSG }, { status: 429 });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "BAD_PASSWORD", deviceName, platform });
-      recordIpFail(ip);
       return NextResponse.json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
+
+    // 비밀번호는 맞았다 — 추측 시도가 아니므로 두 예약을 돌려준다(퇴사·기기 차단으로 끝나도 마찬가지)
+    releaseAccountAttempt(user.id, acctTicket);
+    releaseIpAttempt(ip, ipTicket);
 
     // 퇴사자 차단 — 퇴사일 '당일'은 마지막 근무일이라 로그인이 되어야 한다(출퇴근 기록).
     // 날짜 필드는 UTC 자정 저장이므로 기준도 KST 오늘의 자정으로 맞춘다.

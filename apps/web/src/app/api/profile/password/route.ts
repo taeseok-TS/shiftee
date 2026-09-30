@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession, bumpTokenVersion, issueSessionFor } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
+import { releaseAccountAttempt, reserveAccountAttempt } from "@/lib/login-throttle";
 
 /**
  * 비밀번호 강도 검증
@@ -72,10 +73,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "사용자를 찾을 수 없습니다." }, { status: 404 });
     }
 
+    // 현재 비밀번호 맞혀 보기 제한 — 로그인과 같은 한도(15분 10번). 가로챈 세션으로 진짜 비밀번호를
+    // 무한정 맞춰 볼 수 있었다(2026-09-30 검증관 P2). 비교 전에 동기로 예약하고, 맞으면 돌려준다.
+    const pwTicket = reserveAccountAttempt(`pw:${session.userId}`, 0);
+    if (pwTicket === null) {
+      return NextResponse.json({ error: "현재 비밀번호를 여러 번 틀렸습니다. 15분 뒤에 다시 시도해주세요." }, { status: 429 });
+    }
     const isPasswordCorrect = await bcrypt.compare(currentPassword, user.password);
     if (!isPasswordCorrect) {
       return NextResponse.json({ error: "현재 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
+    releaseAccountAttempt(`pw:${session.userId}`, pwTicket);
 
     // 새 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(newPassword, 10);

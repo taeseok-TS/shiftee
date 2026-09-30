@@ -598,7 +598,7 @@ model LoginFailLog {
   email      String // 입력된 이메일 원문 (존재하지 않는 계정 포함)
   userId     String? // 매칭된 계정이 있으면
   userName   String? // 이름 스냅샷
-  reason     String // UNKNOWN_EMAIL | BAD_PASSWORD | INACTIVE | RESIGNED | DEVICE_BLOCKED
+  reason     String // UNKNOWN_EMAIL | BAD_PASSWORD | INACTIVE | RESIGNED | DEVICE_BLOCKED | LOCKED(여러 번 틀려 잠김, 2026-09-30)
   deviceName String? // 앱 로그인 시 기기 이름 (웹이면 null)
   platform   String?
   createdAt  DateTime @default(now())
