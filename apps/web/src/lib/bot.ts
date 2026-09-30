@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
+import { kstTodayMidnight } from "@/lib/resign";
 import type { Prisma } from "@prisma/client";
 import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachments";
 
@@ -570,7 +571,12 @@ export async function runReminders() {
 export async function runPasswordResetReminders() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const targets = await prisma.user.findMany({
-    where: { isActive: true, passwordResetAt: { lt: cutoff } },
+    // 퇴사자는 뺀다 — 미래 퇴사일을 넣어 둔 사람은 그날이 지나도 isActive 가 true 로 남는다(로그인만 막힌다).
+    // 조건이 없으면 못 바꾸는 사람에게 매일 DM 이 쌓인다(2026-09-30 검증관 P1)
+    where: {
+      isActive: true, deletedAt: null, employmentStatus: { not: "RESIGNED" }, passwordResetAt: { lt: cutoff },
+      OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }],
+    },
     select: { id: true, name: true },
   });
   for (const u of targets) {
