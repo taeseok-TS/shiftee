@@ -37,7 +37,7 @@ model User {
   notifyApproval       Boolean   @default(true) // 결재 결과 푸시 수신 여부(꺼도 봇 DM 은 남는다) — 본인 설정 (관리자 강제발송 시 무시)
   workMuteAll          Boolean   @default(false) // 큐브티워크 채팅 알림 전체 끄기 — 메시지·투표·공지 푸시만 차단(결재 DM·중요공지 재알림은 유지)
   apiKeysAllowed       Boolean   @default(false) // 개인 API 키 발급 허용 — 관리자가 켜 준 사람만(2026-09-13 승인 ⑤). 끄면 그 사람 키가 즉시 안 통한다
-  passwordResetAt      DateTime? // 관리자가 임시 비번(1234)으로 초기화한 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
+  passwordResetAt      DateTime? // 관리자 초기화·새 계정 발급으로 임시 비밀번호가 설정된 시각. 본인이 비번을 바꾸면 null (24h 경과 시 봇이 변경 요청 알림)
   hireDate             DateTime?
   isActive             Boolean          @default(true)
   employmentStatus     EmploymentStatus @default(ACTIVE)

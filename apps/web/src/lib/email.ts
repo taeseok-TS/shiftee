@@ -9,6 +9,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  // 메일 서버가 응답하지 않을 때 요청이 몇 분씩 붙들리지 않게(기본값은 연결 2분·소켓 1시간).
+  // 비밀번호 초기화처럼 메일 결과를 기다려 화면에 알리는 곳이 있다(2026-09-30 검증관 P-2).
+  connectionTimeout: 15_000,
+  greetingTimeout: 15_000,
+  socketTimeout: 30_000,
 });
 
 interface EmailOptions {
@@ -77,6 +82,7 @@ export async function sendTempPassword(email: string, name: string, tempPassword
           <tr><td style="padding: 6px 14px 6px 0; color: #6b7280;">이메일(아이디)</td><td style="padding: 6px 0;"><b>${escapeHtml(email)}</b></td></tr>
           <tr><td style="padding: 6px 14px 6px 0; color: #6b7280;">임시 비밀번호</td><td style="padding: 6px 0;"><b style="font-family: Consolas, monospace; font-size: 18px; letter-spacing: 1px; background: #eef2ff; padding: 4px 10px; border-radius: 6px;">${escapeHtml(tempPassword)}</b></td></tr>
         </table>
+        <p style="font-size: 13px; color: #6b7280;">임시 비밀번호는 가운데 하이픈(-)까지 그대로, 모두 소문자로 입력해 주세요.</p>
         <p>로그인한 뒤 <b>본인만 아는 비밀번호로 꼭 바꿔 주세요.</b><br/>
           · 앱: 더보기 &gt; 설정 &gt; 비밀번호 변경<br/>
           · 웹: 환경설정 &gt; 비밀번호 변경</p>

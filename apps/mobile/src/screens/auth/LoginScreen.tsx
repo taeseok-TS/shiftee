@@ -73,6 +73,9 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          // 첫 글자 자동 대문자·자동 고침이 비밀번호를 바꿔 버린다(임시 비밀번호는 소문자, 2026-09-30)
+          autoCapitalize="none"
+          autoCorrect={false}
           editable={!isLoading}
         />
 

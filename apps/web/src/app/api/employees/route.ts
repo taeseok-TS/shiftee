@@ -96,8 +96,7 @@ export async function POST(request: NextRequest) {
   // 주소는 소문자로 맞춰 저장한다 — 대문자로 들어오면 나중에 본인이 소문자로 치고 못 들어온다(2026-09-23)
   const email = String(emailRaw || "").trim().toLowerCase();
 
-  // 디버깅: 받은 branch 값 확인
-  console.log("[POST /api/employees] 받은 branch 값:", branch, "| 타입:", typeof branch, "| 전체 body:", body);
+  // (요청 본문 전체를 로그에 찍던 디버깅 줄은 지웠다 — 초기 비밀번호가 평문으로 서버 로그에 남았다, 2026-09-30 검증관 N-1)
 
   if (!name || !email || !password) {
     return NextResponse.json({ error: "이름, 이메일, 비밀번호는 필수입니다." }, { status: 400 });

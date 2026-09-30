@@ -22,7 +22,7 @@ import { sendTempPassword } from "@/lib/email";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
-// 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 값·같은 규칙(24시간 뒤 봇이 변경 요청)
+// 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 규칙(24시간 뒤 봇이 변경 요청)
 // 새 계정의 임시 비밀번호는 계정마다 무작위로 만들어 등록 이메일로 보낸다(2026-09-30 디렉터 — 종전 고정값 12345678 폐지)
 // 봇 계정(비활성 EMPLOYEE)은 사람이 아니다 — 대조에서 뺀다
 const BOT_EMAILS = ["bot@cubetee.co.kr", "hr-bot@cubetee.co.kr"];
