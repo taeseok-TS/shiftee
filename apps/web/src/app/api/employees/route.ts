@@ -130,6 +130,8 @@ export async function POST(request: NextRequest) {
   const user = await prisma.user.create({
     data: {
       name, email, password: hashedPassword, empNo,
+      // 관리자가 정해 준 비밀번호는 관리자도 아는 임시 비밀번호다 — 본인이 바꿀 때까지 봇이 매일 변경을 요청한다(2026-09-30 디렉터)
+      passwordResetAt: new Date(),
       role: role || "EMPLOYEE",
       department, jobGroup: jobGroup || null, position, branch: finalBranch, phone,
       hireDate: hireDate ? new Date(hireDate) : null,

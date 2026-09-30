@@ -237,6 +237,8 @@ export async function POST(request: NextRequest) {
             name,
             email,
             password: hashedPassword,
+            // 엑셀로 정한 비밀번호도 임시 비밀번호다 — 본인이 바꿀 때까지 봇이 매일 변경을 요청한다(2026-09-30 디렉터)
+            passwordResetAt: new Date(),
             empNo,
             phone: str(row.phone),
             department: str(row.department),

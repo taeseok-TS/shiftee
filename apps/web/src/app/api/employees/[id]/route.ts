@@ -134,8 +134,9 @@ export async function PATCH(
       hireDate: hireDate ? new Date(hireDate) : undefined,
       birthDate: birthDate === undefined ? undefined : birthDate ? new Date(birthDate) : null,
       password: hashedPassword,
-      // 관리자가 새 비번을 직접 지정하면 임시 비밀번호 상태가 아니므로 알림 대상에서 해제
-      passwordResetAt: hashedPassword ? null : undefined,
+      // 관리자가 남의 비밀번호를 직접 정하면 관리자도 아는 임시 비밀번호다 — 본인이 바꿀 때까지 봇이 변경을 요청한다.
+      // 자기 비밀번호를 여기서 바꾼 경우만 해제(2026-09-30 디렉터: 직접 등록·지정도 변경 요청)
+      passwordResetAt: hashedPassword ? (id === session.userId ? null : new Date()) : undefined,
       empNo: empNoVal,
       resignDate: resignVal,
       resignReason: resignDate === undefined ? undefined : resignDate ? (resignReason ?? undefined) : null,
