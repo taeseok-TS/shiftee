@@ -22,6 +22,7 @@ export async function GET() {
       ],
       channel: {
         deletedAt: null,
+        hidden: false, // 회의 전용 방 제외(목록에 없는 방)
         OR: [{ isDefault: true }, { members: { some: { userId: session.userId } } }],
       },
     },

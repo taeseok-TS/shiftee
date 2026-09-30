@@ -88,6 +88,8 @@ export default function WorkMeetingPage() {
   const [me, setMe] = useState<{ id: string; name: string; role: string } | null>(null);
   const [recording, setRecording] = useState(false);
   const [showChat, setShowChat] = useState(true);
+  // 회의 채팅을 열어도 되는 회의 id — 첫 입장 신호(참여 등록)가 끝난 뒤에 채운다
+  const [chatReadyFor, setChatReadyFor] = useState<string | null>(null);
   const [isSecure, setIsSecure] = useState(true); // HTTPS(보안 컨텍스트) 여부 — 화상회의/녹화 필요
   // 직원 초대
   const [employees, setEmployees] = useState<{ id: string; name: string; branch?: string | null; position?: string | null }[]>([]);
@@ -139,7 +141,9 @@ export default function WorkMeetingPage() {
   useEffect(() => {
     if (!active) return;
     const ping = () => fetch(`/api/work/meetings/${active.id}/heartbeat`, { method: "POST" }).catch(() => {});
-    ping();
+    // 첫 입장 신호가 회의 채팅방 참여 등록도 한다 — 끝난 뒤에 채팅을 연다(먼저 열면 아직 멤버가 아니라 거절된다)
+    const id = active.id;
+    ping().finally(() => setChatReadyFor(id));
     const t = setInterval(ping, 60000);
     return () => clearInterval(t);
   }, [active]);
@@ -284,7 +288,7 @@ export default function WorkMeetingPage() {
               </p>
             </div>
           )}
-          {showChat && active.channelId && <MeetingChat channelId={active.channelId} />}
+          {showChat && active.channelId && chatReadyFor === active.id && <MeetingChat channelId={active.channelId} />}
         </div>
 
         {/* 직원 초대 */}

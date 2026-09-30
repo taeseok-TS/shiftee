@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   // 접근 가능한 채널: '전체' 기본 채널 + 내가 멤버인 그룹채널/DM
   const channels = await prisma.workChannel.findMany({
     where: {
+      hidden: false, // 회의 전용 방은 채널 목록에 없다 — 검색 결과로도 내지 않는다(2026-09-30 회의 참여자가 멤버가 되면서)
       OR: [
         { isDefault: true },
         { type: "CHANNEL", members: { some: { userId: session.userId } } },

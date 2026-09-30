@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { trashEndedMeetingChannels } from "@/lib/meeting-channel";
+import { addMeetingChatMembers, trashEndedMeetingChannels } from "@/lib/meeting-channel";
 
 // 진행 중인 회의 목록
 export async function GET() {
@@ -52,5 +52,7 @@ export async function POST(request: NextRequest) {
   const meeting = await prisma.workMeeting.create({
     data: { room, title: meetingTitle, channelId: channel.id, createdBy: session.userId },
   });
+  // 개설자가 회의 채팅을 쓸 수 있게 방 멤버로 넣는다(lib/meeting-channel)
+  await addMeetingChatMembers(channel.id, [session.userId]);
   return NextResponse.json({ meeting });
 }

@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl } from "@/lib/app-url";
 import { emitWork } from "@/lib/work-events";
+import { addMeetingChatMembers } from "@/lib/meeting-channel";
 
 // 화상회의 초대: 선택한 직원들에게 DM으로 참여 링크 발송
 export async function POST(
@@ -19,7 +20,7 @@ export async function POST(
 
   const meeting = await prisma.workMeeting.findUnique({
     where: { id },
-    select: { title: true, endedAt: true, createdBy: true, invites: { select: { userId: true } } },
+    select: { title: true, endedAt: true, createdBy: true, channelId: true, invites: { select: { userId: true } } },
   });
   if (!meeting) return NextResponse.json({ error: "회의를 찾을 수 없습니다." }, { status: 404 });
   if (meeting.endedAt) return NextResponse.json({ error: "이미 종료된 회의입니다." }, { status: 400 });
@@ -37,6 +38,8 @@ export async function POST(
     data: inviteIds.filter((uid) => uid !== session.userId).map((uid) => ({ meetingId: id, userId: uid })),
     skipDuplicates: true,
   });
+  // 초대받은 사람이 회의 채팅을 쓸 수 있게 방 멤버로 넣는다(초대한 사람 본인도 — 옛 회의는 개설자가 멤버가 아니다)
+  await addMeetingChatMembers(meeting.channelId, [session.userId, ...inviteIds]);
 
   const base = getAppUrl();
   // ?join=회의ID → 링크 클릭 시 해당 회의로 즉시 자동 입장

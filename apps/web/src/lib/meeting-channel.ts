@@ -28,3 +28,24 @@ export async function trashEndedMeetingChannels(): Promise<number> {
   });
   return r.count;
 }
+
+/**
+ * 회의 채팅방 참여자 등록 (2026-09-30 디렉터: 회의 채팅을 살린다).
+ *
+ * 회의방은 멤버 없이 만들어졌는데, 채팅 읽기·쓰기는 "멤버만"(2026-06-25 부터)이라 회의 화면의 채팅이
+ * 그날 이후 누구에게도 열리지 않았다(전원 403). 회의에 들어올 수 있는 사람 — 개설자·초대받은 사람·회의에
+ * 들어온 본부 관리자 — 을 그 방의 멤버로 넣는다. 다른 채팅 규칙(접근 검사·실시간 갱신)을 그대로 쓴다.
+ * 알림은 MUTE: 회의 중 대화에 푸시가 가지 않게. 방은 숨김이라 채널 목록·안읽음 수에는 잡히지 않는다.
+ * 이미 멤버면 건드리지 않는다(skipDuplicates).
+ */
+export async function addMeetingChatMembers(channelId: string | null | undefined, userIds: string[]): Promise<void> {
+  const wanted = [...new Set(userIds.filter((v) => typeof v === "string" && v))];
+  if (!channelId || !wanted.length) return;
+  // 실제로 있는 사람만 — 초대 명단은 사용자 표와 묶여 있지 않아 없는 id 가 섞여 올 수 있고, 멤버 행은 FK 라 통째로 실패한다
+  const ids = (await prisma.user.findMany({ where: { id: { in: wanted } }, select: { id: true } })).map((u) => u.id);
+  if (!ids.length) return;
+  await prisma.workChannelMember.createMany({
+    data: ids.map((userId) => ({ channelId, userId, notify: "MUTE" as const, lastReadAt: new Date() })),
+    skipDuplicates: true,
+  });
+}
