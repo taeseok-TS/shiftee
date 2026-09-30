@@ -433,7 +433,7 @@ export async function runScheduledMessages() {
     where: { sentAt: null, canceledAt: null, sendAt: { lte: new Date() } },
     take: 20,
     include: {
-      channel: { select: { name: true, deletedAt: true } },
+      channel: { select: { name: true, type: true, deletedAt: true } },
       user: { select: { name: true } },
     },
   });
@@ -447,9 +447,23 @@ export async function runScheduledMessages() {
     });
     if (claim.count === 0) continue; // 다른 틱이 이미 가져갔거나 그 사이 취소됐다
     const files = parseAttachments(s.attachments);
-    if (s.channel.deletedAt) {
-      // 채널이 삭제됐으면 조용히 소멸 — 올려둔 첨부 파일도 남기지 않는다
+    if (s.channel.deletedAt && s.channel.type === "DM") {
+      // 목록에서 지운 1:1 대화 — 새 메시지를 보내면 되살아나는 것과 같게 되살려서 보낸다
+      // (대화를 새로 열 때·회의 초대·봇 DM 이 모두 그렇게 한다)
+      await prisma.workChannel.update({ where: { id: s.channelId }, data: { deletedAt: null, permanentlyDeletedAt: null } }).catch(() => {});
+    } else if (s.channel.deletedAt) {
+      // 방이 휴지통에 있다 — 보내지 않는다. 종전에는 "보냄"으로 찍고 조용히 사라져 쓴 사람이 몰랐다(2026-09-30).
+      // 취소로 남기고, 올려 둔 첨부는 예약 취소와 같이 지우고, 쓴 사람에게 내용과 함께 알린다.
+      await prisma.workScheduledMessage.updateMany({ where: { id: s.id }, data: { sentAt: null, canceledAt: new Date() } }).catch(() => {});
       await deleteWorkAttachmentFiles(s.attachments, s.id, s.createdAt).catch(() => {});
+      const k = new Date(s.sendAt.getTime() + 9 * 3600 * 1000);
+      const when = `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`;
+      const body = s.content.trim() ? `\n\n내용:\n${s.content.length > 500 ? s.content.slice(0, 500) + "…" : s.content}` : "";
+      const att = files.length ? `\n(함께 올린 첨부 ${files.length}개는 지워졌습니다. 필요하면 다시 올려 주세요.)` : "";
+      await botSendDM(
+        s.userId,
+        `⏰ 예약 메시지를 보내지 못했습니다\n「${s.channel.name}」 방이 휴지통에 있어 ${when} 예약이 취소됐습니다.${body}${att}`,
+      );
       continue;
     }
     // 첨부는 즉시 전송과 같은 규칙으로 쪼갠다: 사진 2장 이상은 앨범 묶음, 나머지는 개별 메시지.

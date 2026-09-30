@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { trashEndedMeetingChannels } from "@/lib/meeting-channel";
 
 // 진행 중인 회의 목록
 export async function GET() {
@@ -17,6 +18,8 @@ export async function GET() {
     where: { endedAt: null, lastJoinedAt: null, createdAt: { lt: cutoff } },
     data: { endedAt: new Date() },
   });
+  // 끝난 회의의 채팅방은 휴지통으로(빈 방이 쌓이지 않게) — 실패해도 목록 조회는 계속한다
+  await trashEndedMeetingChannels().catch((e) => console.error("[meeting] 회의방 정리 실패:", e));
 
   // 개설자·초대받은 사람만 조회 (관리자는 전체 — 회의 종료 관리 권한과 동일)
   const meetings = await prisma.workMeeting.findMany({

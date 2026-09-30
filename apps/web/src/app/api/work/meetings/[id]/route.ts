@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { trashEndedMeetingChannels } from "@/lib/meeting-channel";
 
 // 회의 종료 (개설자 또는 관리자)
 export async function PATCH(
@@ -17,5 +18,7 @@ export async function PATCH(
     return NextResponse.json({ error: "종료 권한이 없습니다." }, { status: 403 });
 
   await prisma.workMeeting.update({ where: { id }, data: { endedAt: new Date() } });
+  // 회의 전용 채팅방도 휴지통으로 — 종료가 이것 때문에 실패하면 안 된다
+  await trashEndedMeetingChannels().catch((e) => console.error("[meeting] 회의방 정리 실패:", e));
   return NextResponse.json({ ok: true });
 }

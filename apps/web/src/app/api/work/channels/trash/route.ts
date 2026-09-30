@@ -12,6 +12,8 @@ export async function GET() {
     where: {
       deletedAt: { not: null },
       type: "CHANNEL",
+      // 대화가 한 건도 없는 회의 전용 방(숨김)은 되살릴 것이 없다 — 목록에 넣지 않는다(끝난 회의마다 하나씩 쌓인다, 2026-09-30)
+      NOT: { hidden: true, messages: { none: {} } },
       ...(isAdmin ? {} : { createdBy: session.userId }),
     },
     select: { id: true, name: true, deletedAt: true, permanentlyDeletedAt: true, labelText: true, labelColor: true },

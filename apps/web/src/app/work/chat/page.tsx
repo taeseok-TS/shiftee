@@ -984,6 +984,8 @@ export default function WorkChatPage() {
   };
   async function openSchedule() {
     if (!activeId) return;
+    // 이모티콘은 예약으로 보낼 수 없다(예약은 글·첨부만 저장) — 골라 둔 채로 예약하면 이모티콘만 조용히 빠졌다(2026-09-30)
+    if (pendingSticker) { toast.error("이모티콘은 예약 전송할 수 없습니다. 이모티콘을 먼저 보내거나 취소한 뒤 예약해 주세요."); return; }
     // 기본값: 1시간 후 (datetime-local 로컬 표기)
     const d = new Date(Date.now() + 60 * 60 * 1000);
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -1771,6 +1773,42 @@ export default function WorkChatPage() {
               {typingUser && <div className="text-xs text-gray-400 italic mt-1">{typingUser}님이 입력 중…</div>}
             </div>
 
+            {/* 입력 묶음 — 진행률·미리보기·답장 표시·입력줄을 한 덩어리로. 이모티콘 창은 이 묶음 **위**에 뜬다
+                (입력줄 기준으로 띄우면 답장 표시와 고른 이모티콘 미리보기를 덮었다, 2026-09-30) */}
+            <div className="relative shrink-0" data-composer-dock>
+              {stickerOpen && (
+                <div data-composer-popover className="absolute bottom-full left-4 mb-2 z-20 bg-white border rounded-xl shadow-lg w-[min(360px,calc(100%-2rem))]">
+                  {stickerError && !stickerSets ? (
+                    <div className="p-4 text-xs text-gray-400">이모티콘을 불러오지 못했습니다. 버튼을 다시 눌러 주세요.</div>
+                  ) : stickerSets === null ? (
+                    <div className="p-4 text-xs text-gray-400">불러오는 중…</div>
+                  ) : stickerSets.length === 0 ? (
+                    <div className="p-4 text-xs text-gray-400">아직 등록된 이모티콘이 없습니다.</div>
+                  ) : (
+                    <>
+                      {stickerSets.length > 1 && (
+                        <div className="flex gap-1 px-2 pt-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {stickerSets.map((st, i) => (
+                            <button key={st.id} onClick={() => setStickerTab(i)}
+                              className={`shrink-0 text-xs px-2.5 py-1 rounded-full ${i === Math.min(stickerTab, stickerSets.length - 1) ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                              {st.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="grid grid-cols-4 gap-1 p-2 max-h-72 overflow-y-auto">
+                        {stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items.map((e) => (
+                          <button key={e.id} onClick={() => pickSticker(e)} title={e.name}
+                            className="rounded-lg hover:bg-indigo-50 p-1 aspect-square flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={e.url} alt={e.name} loading="lazy" className="w-full h-full object-contain" draggable={false} />
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             {/* 파일 업로드 진행률 */}
             {uploadProgress !== null && (
               <div className="px-4 pt-2 bg-white border-t">
@@ -1884,43 +1922,9 @@ export default function WorkChatPage() {
                   </div>
                 )}
               </div>
-              {/* relative 를 두지 않는다 — 창이 버튼이 아니라 입력줄(relative) 기준으로 뜬다.
-                  버튼 기준이면 폰·노트북 폭에서 오른쪽으로 넘쳤다(검증관 2·A). 입력줄 너비 안에서 최대 360px. */}
+              {/* 이모티콘 창은 입력 묶음(아래 data-composer-dock) 맨 위에서 그린다 — 답장 표시·미리보기를 가리지 않게 */}
               <div className="shrink-0" data-composer-popover>
                 <Button variant="ghost" size="sm" onClick={openStickers} title="이모티콘" className="shrink-0"><Sticker size={16} /></Button>
-                {stickerOpen && (
-                  <div className="absolute bottom-full left-4 mb-2 z-20 bg-white border rounded-xl shadow-lg w-[min(360px,calc(100%-2rem))]">
-                    {stickerError && !stickerSets ? (
-                      <div className="p-4 text-xs text-gray-400">이모티콘을 불러오지 못했습니다. 버튼을 다시 눌러 주세요.</div>
-                    ) : stickerSets === null ? (
-                      <div className="p-4 text-xs text-gray-400">불러오는 중…</div>
-                    ) : stickerSets.length === 0 ? (
-                      <div className="p-4 text-xs text-gray-400">아직 등록된 이모티콘이 없습니다.</div>
-                    ) : (
-                      <>
-                        {stickerSets.length > 1 && (
-                          <div className="flex gap-1 px-2 pt-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                            {stickerSets.map((st, i) => (
-                              <button key={st.id} onClick={() => setStickerTab(i)}
-                                className={`shrink-0 text-xs px-2.5 py-1 rounded-full ${i === Math.min(stickerTab, stickerSets.length - 1) ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                                {st.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <div className="grid grid-cols-4 gap-1 p-2 max-h-72 overflow-y-auto">
-                          {stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items.map((e) => (
-                            <button key={e.id} onClick={() => pickSticker(e)} title={e.name}
-                              className="rounded-lg hover:bg-indigo-50 p-1 aspect-square flex items-center justify-center">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={e.url} alt={e.name} loading="lazy" className="w-full h-full object-contain" draggable={false} />
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
               <textarea ref={inputRef} value={input} rows={1}
                 className="flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring max-h-40 overflow-y-auto leading-5"
@@ -1956,6 +1960,7 @@ export default function WorkChatPage() {
                 }}
                 placeholder="메시지를 입력하세요... (@로 멘션)" />
               <Button onClick={send} disabled={sending || uploadProgress !== null || (!input.trim() && pendingFiles.length === 0 && !pendingSticker)} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Send size={16} /></Button>
+            </div>
             </div>
           </>
         ) : (

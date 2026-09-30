@@ -1717,7 +1717,11 @@ export default function WorkChatScreen() {
           <TouchableOpacity
             style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
             onPress={handleSend}
-            onLongPress={() => { if (text.trim() || pendingAtts.length > 0) openSchedule(); }}
+            onLongPress={() => {
+              // 이모티콘은 예약으로 보낼 수 없다(예약은 글·첨부만 저장) — 골라 둔 채로 예약하면 이모티콘만 조용히 빠졌다(2026-09-30)
+              if (pendingSticker) { Alert.alert("예약 전송", "이모티콘은 예약 전송할 수 없습니다.\n이모티콘을 먼저 보내거나 취소한 뒤 예약해 주세요."); return; }
+              if (text.trim() || pendingAtts.length > 0) openSchedule();
+            }}
             disabled={sending}
           >
             <Ionicons name="send" size={20} color="#fff" />
