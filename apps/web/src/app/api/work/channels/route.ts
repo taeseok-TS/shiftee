@@ -95,7 +95,8 @@ export async function GET() {
         unread,
         notify,
         pinned: myMember?.pinned ?? false,
-        canManage: session.role === "ADMIN" || session.role === "MANAGER" || c.createdBy === session.userId || !!myMember?.isManager,
+        // 원장은 자기가 속한 방만 관리한다(lib/work-perms channelCanManage 와 같은 규칙)
+        canManage: session.role === "ADMIN" || c.createdBy === session.userId || !!myMember?.isManager || (session.role === "MANAGER" && !!myMember),
         amCreator: c.createdBy === session.userId,
         labelText: c.labelText,
         labelColor: c.labelColor,

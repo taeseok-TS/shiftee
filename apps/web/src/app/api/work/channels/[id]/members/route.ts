@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { channelCanManage } from "@/lib/work-perms";
+import { channelCanManage, isChannelMember } from "@/lib/work-perms";
 
 // 내보내기(강퇴) 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
 async function canManageMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
@@ -9,14 +9,16 @@ async function canManageMembers(channelId: string, isDefault: boolean, userId: s
   return channelCanManage(channelId, userId, role);
 }
 
-// 멤버 초대 권한: 전체(기본) 채널은 관리자만, 그 외 그룹채널은 구성원 누구나 초대 가능
+// 멤버 초대 권한: 전체(기본) 채널은 관리자만, 그 외 그룹채널은 구성원 누구나 초대 가능.
+// 구성원이 아닌 사람은 본부 관리자만 — 원장도 속하지 않은 방에는 (자기 자신 포함) 아무도 넣을 수 없다(2026-09-30 디렉터).
 async function canInviteMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
   if (isDefault) return role === "ADMIN";
+  if (role === "ADMIN") return true;
   const me = await prisma.workChannelMember.findUnique({
     where: { channelId_userId: { channelId, userId } },
     select: { userId: true },
   });
-  return !!me || role === "ADMIN" || role === "MANAGER";
+  return !!me;
 }
 
 // 채널 멤버 목록 (참여자 누구나 조회 가능)
@@ -28,8 +30,11 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { id } = await params;
-  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { createdBy: true } });
+  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { createdBy: true, isDefault: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
+  // 누가 그 방에 있는지도 그 방 사람만 본다(전체 채널·본부 관리자는 예외) — 종전에는 로그인만 하면 아무 방이나 조회됐다
+  if (!channel.isDefault && session.role !== "ADMIN" && !(await isChannelMember(id, session.userId)))
+    return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
 
   const members = await prisma.workChannelMember.findMany({
     where: { channelId: id },

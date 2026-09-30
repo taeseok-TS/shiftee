@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isChannelMember } from "@/lib/work-perms";
 
-// 휴지통에서 채널 복구. 생성자/관리자만.
+// 휴지통에서 채널 복구. 본부 관리자·생성자·그 방에 속한 원장만.
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -17,7 +18,9 @@ export async function POST(
   });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
 
-  const canManage = session.role === "ADMIN" || session.role === "MANAGER" || channel.createdBy === session.userId;
+  // 원장은 자기가 속한 방만(lib/work-perms) — 속하지 않은 남의 방은 복구도 못 한다
+  const canManage = session.role === "ADMIN" || channel.createdBy === session.userId ||
+    (session.role === "MANAGER" && (await isChannelMember(id, session.userId)));
   if (!canManage) return NextResponse.json({ error: "복구할 권한이 없습니다." }, { status: 403 });
   // 휴지통에 있는 방만 — 진행 중인 회의의 채팅방에 이 길로 들어와 숨김을 풀거나 참여자를 비우지 못하게
   if (!channel.deletedAt) return NextResponse.json({ error: "휴지통에 있는 채널이 아닙니다." }, { status: 400 });
