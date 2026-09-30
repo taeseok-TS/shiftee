@@ -1796,7 +1796,7 @@ export default function WorkChatPage() {
                           ))}
                         </div>
                       )}
-                      <div className="grid grid-cols-4 gap-1 p-2 max-h-72 overflow-y-auto">
+                      <div className="grid grid-cols-4 gap-1 p-2 max-h-[min(18rem,35vh)] overflow-y-auto">
                         {stickerSets[Math.min(stickerTab, stickerSets.length - 1)].items.map((e) => (
                           <button key={e.id} onClick={() => pickSticker(e)} title={e.name}
                             className="rounded-lg hover:bg-indigo-50 p-1 aspect-square flex items-center justify-center">

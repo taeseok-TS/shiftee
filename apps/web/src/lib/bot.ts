@@ -458,7 +458,7 @@ export async function runScheduledMessages() {
       await deleteWorkAttachmentFiles(s.attachments, s.id, s.createdAt).catch(() => {});
       const k = new Date(s.sendAt.getTime() + 9 * 3600 * 1000);
       const when = `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`;
-      const body = s.content.trim() ? `\n\n내용:\n${s.content.length > 500 ? s.content.slice(0, 500) + "…" : s.content}` : "";
+      const body = s.content.trim() ? `\n\n내용:\n${Array.from(s.content).length > 500 ? Array.from(s.content).slice(0, 500).join("") + "…" : s.content}` : "";
       const att = files.length ? `\n(함께 올린 첨부 ${files.length}개는 지워졌습니다. 필요하면 다시 올려 주세요.)` : "";
       await botSendDM(
         s.userId,
