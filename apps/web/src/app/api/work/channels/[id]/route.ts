@@ -63,10 +63,13 @@ export async function DELETE(
   const { id } = await params;
   const channel = await prisma.workChannel.findUnique({
     where: { id },
-    select: { type: true, isDefault: true, members: { select: { userId: true } } },
+    select: { type: true, isDefault: true, hidden: true, members: { select: { userId: true } } },
   });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   if (channel.isDefault) return NextResponse.json({ error: "기본 채널은 삭제할 수 없습니다." }, { status: 400 });
+  // 회의 전용 방(숨김)은 회의를 종료하면 자동으로 휴지통에 간다 — 진행 중에 직접 지웠다가 되살리면
+  // 숨김이 풀린 방에 입장 신호가 참여자를 다시 넣어 전원에게 보였다(2026-09-30 검증관 C-1)
+  if (channel.hidden) return NextResponse.json({ error: "회의 채팅방은 회의를 종료하면 자동으로 정리됩니다." }, { status: 400 });
 
   if (channel.type === "DM") {
     // DM은 참여자 누구나 삭제 가능

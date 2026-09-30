@@ -32,12 +32,25 @@ export async function POST(
   // 멤버 없는 방을 원장이 되살리면 "복구됐다"고만 뜨고 어느 목록에도 안 나타났다(숨김 회의방은 곧 다시 휴지통으로) — 거절한다(검증관 C-1)
   if (special && !privileged)
     return NextResponse.json({ error: "회의 채팅방과 참여자가 없는 방은 본부 관리자나 방을 만든 사람만 복구할 수 있습니다." }, { status: 403 });
-  const joinAsViewer = special && channel.members.length === 0;
-  await prisma.$transaction([
-    ...(channel.hidden ? [prisma.workChannelMember.deleteMany({ where: { channelId: id, userId: { not: session.userId } } })] : []),
-    prisma.workChannel.update({ where: { id }, data: { deletedAt: null, permanentlyDeletedAt: null, ...(channel.hidden ? { hidden: false } : {}) } }),
-    // 동시에 두 번 눌러도 중복 키로 실패하지 않게 createMany + skipDuplicates
-    ...(joinAsViewer ? [prisma.workChannelMember.createMany({ data: [{ channelId: id, userId: session.userId, lastReadAt: new Date() }], skipDuplicates: true })] : []),
-  ]);
+  // 진행 중인 회의의 방은 복구하지 않는다(정상 흐름에서는 끝난 회의의 방만 휴지통에 있다)
+  if (channel.hidden && (await prisma.workMeeting.findFirst({ where: { channelId: id, endedAt: null }, select: { id: true } })))
+    return NextResponse.json({ error: "진행 중인 회의의 채팅방입니다. 회의를 종료한 뒤 복구해주세요." }, { status: 400 });
+  // 한 트랜잭션으로 — 먼저 "휴지통에 있을 때만" 되살리기를 찜한다. 두 사람이 동시에 눌러도 늦은 쪽은 아무것도 건드리지 않는다
+  // (각자 상대를 지워 멤버 0명 방이 되던 경합 — 검증관 P-1)
+  const restored = await prisma.$transaction(async (tx) => {
+    const claim = await tx.workChannel.updateMany({
+      where: { id, deletedAt: { not: null } },
+      data: { deletedAt: null, permanentlyDeletedAt: null, ...(channel.hidden ? { hidden: false } : {}) },
+    });
+    if (claim.count === 0) return false;
+    if (channel.hidden) await tx.workChannelMember.deleteMany({ where: { channelId: id, userId: { not: session.userId } } });
+    if (special) {
+      await tx.workChannelMember.createMany({ data: [{ channelId: id, userId: session.userId, lastReadAt: new Date() }], skipDuplicates: true });
+      // 회의 참여자였으면 멤버행이 알림 끔(MUTE)으로 남아 있다 — 이제 본인 방이므로 기본값으로
+      if (channel.hidden) await tx.workChannelMember.updateMany({ where: { channelId: id, userId: session.userId }, data: { notify: "ALL" } });
+    }
+    return true;
+  });
+  if (!restored) return NextResponse.json({ error: "이미 복구됐거나 휴지통에 없는 채널입니다." }, { status: 400 });
   return NextResponse.json({ success: true });
 }

@@ -41,6 +41,10 @@ export async function trashEndedMeetingChannels(): Promise<number> {
 export async function addMeetingChatMembers(channelId: string | null | undefined, userIds: string[]): Promise<void> {
   const wanted = [...new Set(userIds.filter((v) => typeof v === "string" && v))];
   if (!channelId || !wanted.length) return;
+  // 살아 있는 회의 전용 방(숨김)에만 넣는다 — 복구돼 숨김이 풀린 방이나 휴지통의 방에 참여자를 다시 넣지 않는다
+  // (복구한 방은 복구한 사람에게만 보여야 한다, 검증관 C-1)
+  const room = await prisma.workChannel.findFirst({ where: { id: channelId, hidden: true, deletedAt: null }, select: { id: true } });
+  if (!room) return;
   // 실제로 있는 사람만 — 초대 명단은 사용자 표와 묶여 있지 않아 없는 id 가 섞여 올 수 있고, 멤버 행은 FK 라 통째로 실패한다
   const ids = (await prisma.user.findMany({ where: { id: { in: wanted } }, select: { id: true } })).map((u) => u.id);
   if (!ids.length) return;
