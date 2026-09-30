@@ -13,7 +13,7 @@ export async function POST(
   const { id } = await params;
   const channel = await prisma.workChannel.findUnique({
     where: { id },
-    select: { createdBy: true, hidden: true, deletedAt: true, _count: { select: { members: true } }, members: { where: { userId: session.userId }, select: { userId: true } } },
+    select: { createdBy: true, hidden: true, deletedAt: true, _count: { select: { members: true } } },
   });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
 
@@ -46,8 +46,9 @@ export async function POST(
     if (channel.hidden) await tx.workChannelMember.deleteMany({ where: { channelId: id, userId: { not: session.userId } } });
     if (special) {
       await tx.workChannelMember.createMany({ data: [{ channelId: id, userId: session.userId, lastReadAt: new Date() }], skipDuplicates: true });
-      // 회의 참여자였으면 멤버행이 알림 끔(MUTE)으로 남아 있다 — 이제 본인 방이므로 기본값으로
-      if (channel.hidden) await tx.workChannelMember.updateMany({ where: { channelId: id, userId: session.userId }, data: { notify: "ALL" } });
+      // 회의 참여자였으면 멤버행이 알림 끔(MUTE)·읽은 시각=회의 입장 시각으로 남아 있다 — 이제 본인 방이므로 알림은 기본값으로,
+      // 읽은 시각은 지금으로(안 그러면 지난 회의 대화가 전부 안읽음 배지로 뜬다 — 재검증관 L-1)
+      if (channel.hidden) await tx.workChannelMember.updateMany({ where: { channelId: id, userId: session.userId }, data: { notify: "ALL", lastReadAt: new Date() } });
     }
     return true;
   });
