@@ -152,6 +152,15 @@ export default function WorkChatPage() {
   // 고른 이모티콘 — 바로 보내지 않고 입력창 위에 올려 두었다가 [전송]으로 보낸다(2026-09-29 디렉터:
   // "선택하니까 바로 발송되더라" — 카톡처럼 미리보기 후 전송)
   const [pendingSticker, setPendingSticker] = useState<{ url: string; name: string } | null>(null);
+  // 오피스 온라인 뷰어용 파일 티켓(12시간) — 6시간마다 새로 받는다(아래 openHref)
+  const [officeTicket, setOfficeTicket] = useState<string | null>(null);
+  useEffect(() => {
+    let stop = false;
+    const load = () => fetch("/api/uploads/ticket").then((r) => (r.ok ? r.json() : null)).then((d) => { if (!stop && d?.t) setOfficeTicket(d.t); }).catch(() => {});
+    load();
+    const iv = setInterval(load, 6 * 3600 * 1000);
+    return () => { stop = true; clearInterval(iv); };
+  }, []);
   // 입력창 팝업(이모지·이모티콘)도 바깥을 누르거나 Esc 면 닫는다 — 화면 규칙(검증관 3)
   useEffect(() => {
     if (!stickerOpen && !inputEmojiOpen) return;
@@ -1216,10 +1225,13 @@ export default function WorkChatPage() {
   const memberQ = memberSearch.trim();
   const shownMembers = memberQ ? channelMembers.filter((m) => matchEmp(m, memberQ)) : channelMembers;
 
-  // 브라우저가 자체 표시 못 하는 오피스 문서(PPT/엑셀/워드)는 MS Office 온라인 뷰어로 열기
+  // 브라우저가 자체 표시 못 하는 오피스 문서(PPT/엑셀/워드)는 MS Office 온라인 뷰어로 열기.
+  // 마이크로소프트 서버가 파일을 가져가므로 내 쿠키가 없다 — 채팅 첨부가 판정 대상이 되면서(2026-10-01) 티켓을 붙인다.
   const openHref = (fileUrl: string, fileName: string | null) => {
-    if (/\.(pptx?|xlsx?|docx?)$/i.test(fileName || fileUrl))
-      return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(window.location.origin + fileUrl)}`;
+    if (/\.(pptx?|xlsx?|docx?)$/i.test(fileName || fileUrl)) {
+      const src = window.location.origin + fileUrl + (officeTicket ? (fileUrl.includes("?") ? "&" : "?") + "t=" + officeTicket : "");
+      return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(src)}`;
+    }
     return fileUrl;
   };
 

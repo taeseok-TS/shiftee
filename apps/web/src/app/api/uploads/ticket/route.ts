@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { issueUploadTicket } from "@/lib/upload-ticket";
 import { uploadGateGroups } from "@/lib/upload-gate";
+import { workGateMode } from "@/lib/work-file-access";
 
 // 로그인한 사용자에게 업로드 파일 접근 티켓 발급 (12시간).
 // 티켓에 받는 사람 id 를 새겨, 받는 쪽에서 그 사람 권한으로 다시 판정한다 (2026-09-02).
@@ -17,6 +18,7 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   // submissions(자료제출 첨부)는 env 목록과 무관하게 코드에서 늘 잠겨 있다 — 앱이 티켓을 붙이도록 목록에 넣어 준다(2026-09-13)
-  const gate = [...new Set([...uploadGateGroups(), "submissions"])];
+  // work(채팅 첨부)도 판정 대상이 됐다(2026-10-01) — observe 동안에도 앱이 티켓을 붙여야 기록으로 "앱이 실제로 붙이는지"를 볼 수 있다
+  const gate = [...new Set([...uploadGateGroups(), "submissions", ...(workGateMode() !== "off" ? ["work"] : [])])];
   return NextResponse.json({ t: issueUploadTicket(`u:${session.userId}~${session.tv ?? 0}`), gate });
 }

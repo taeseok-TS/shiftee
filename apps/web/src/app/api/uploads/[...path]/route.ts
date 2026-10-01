@@ -70,6 +70,20 @@ export async function GET(
     if (!r.allowed) return NextResponse.json({ error: r.error }, { status: r.status });
   }
 
+  // 채팅 첨부(work) — 파일마다 "그 파일을 쓰는 기능에서 볼 수 있는 사람"인지 본다(lib/work-file-access, 2026-10-01).
+  // 지금은 observe(막지 않고 기록만) — 정상 사용이 막히지 않는 것을 확인한 뒤 UPLOADS_WORK_MODE=enforce 로 잠근다.
+  if (decoded[0] === "work" || pathParts[0] === "work") {
+    const { verifyUploadTicket } = await import("@/lib/upload-ticket");
+    const { judgeWorkFileRequest } = await import("@/lib/work-file-access");
+    const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
+    const session = await getSession();
+    const j = await judgeWorkFileRequest({
+      segments: decoded.slice(1), session, ticketSubject: tk?.subject ?? null,
+      userAgent: _request.headers.get("user-agent") || "", via: "uploads",
+    });
+    if (j.block) return NextResponse.json({ error: j.error }, { status: j.status });
+  }
+
   // 접근 게이트 (2026-08-24) — 세션(웹 쿠키/Bearer) 또는 접근 티켓(?t=) 필수.
   // 앱·게스트·MS 뷰어처럼 헤더를 못 싣는 경로는 티켓을 URL 에 부착한다(lib/upload-ticket).
   // 어떤 경로군을 막을지는 lib/upload-gate 한 곳에서 정하고, 앱도 같은 목록을 받아 쓴다.

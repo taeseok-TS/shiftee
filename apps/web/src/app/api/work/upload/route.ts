@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { workUploaderTag } from "@/lib/work-file-access";
 import Busboy from "busboy";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
@@ -40,7 +41,8 @@ export async function POST(request: NextRequest) {
     bb.on("file", (_field, stream, info) => {
       sawFile = true;
       const fileName = info.filename || "file";
-      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_")}`;
+      // 올린 사람 표식(w+태그) — 아직 어디에도 붙지 않은 파일(올린 직후 미리보기)을 올린 본인이 볼 수 있게(lib/work-file-access)
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-w${workUploaderTag(session.userId)}-${fileName.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_")}`;
       const full = path.join(dir, safeName);
       const dest = createWriteStream(full);
       // 한 번만 정산 + 실패 시 unpipe/resume, unlink 는 close 뒤 — 자료제출 업로드와 같은 방식(2026-09-13 검증관).

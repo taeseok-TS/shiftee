@@ -78,6 +78,15 @@ export async function GET(request: NextRequest) {
         if (r.viewOnly) viewOnly = true;
       }
     }
+    // 채팅 첨부(work)는 파일 서빙과 같은 판정(lib/work-file-access) — 2026-10-01. 지금은 observe(기록만)
+    if (group === "work") {
+      const { judgeWorkFileRequest } = await import("@/lib/work-file-access");
+      const j = await judgeWorkFileRequest({
+        segments: [filename], session, ticketSubject: tk?.subject ?? null,
+        userAgent: request.headers.get("user-agent") || "", via: "docs-pdf",
+      });
+      if (j.block) return NextResponse.json({ error: j.error }, { status: j.status });
+    }
     // 자료제출 첨부는 파일 서빙과 같은 판정(본인·본부·담당 원장·공유 대상) — 2026-09-13
     if (group === "submissions") {
       const { canAccessSubmissionFile } = await import("@/lib/submission-access");

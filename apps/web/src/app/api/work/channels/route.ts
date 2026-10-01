@@ -29,7 +29,8 @@ export async function GET() {
     },
     include: {
       members: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+      // 부모 글 시각 — 초대 전(과거 기록 범위 밖) 글에 달린 댓글도 미리보기로 보이지 않게(2026-10-01)
+      messages: { orderBy: { createdAt: "desc" }, take: 1, include: { parent: { select: { createdAt: true } } } },
       _count: { select: { messages: true } },
     },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -89,7 +90,9 @@ export async function GET() {
         });
       }
       // 초대 전(과거 기록 범위 밖) 마지막 글은 미리보기로도 보이지 않게 — 새 글이 오기 전까지 빈 미리보기(2026-10-01)
-      const last = c.messages[0] && !(myMember?.historyFrom && c.messages[0].createdAt < myMember.historyFrom) ? c.messages[0] : undefined;
+      const hfm = myMember?.historyFrom;
+      const raw = c.messages[0];
+      const last = raw && !(hfm && (raw.createdAt < hfm || (raw.parent && raw.parent.createdAt < hfm))) ? raw : undefined;
       return {
         id: c.id,
         name: displayName,
