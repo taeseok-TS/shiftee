@@ -179,14 +179,24 @@ export async function logWorkGate(entry: Record<string, unknown>, dedupeKey?: st
     if (dedupeKey) {
       const last = seen.get(dedupeKey);
       if (last && now - last < 3600_000) return;
+      // 넘치면 통째로 비운다 — 오래된 것만 골라 지우는 순회는 요청마다 맵 전체를 돌아 폭주 때 느려진다(재검증관)
+      if (seen.size >= 20_000) seen.clear();
       seen.set(dedupeKey, now);
-      if (seen.size > 20_000) for (const [k, v] of seen) if (now - v >= 3600_000) seen.delete(k);
     }
     const kst = new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
     const p = path.join(process.cwd(), "uploads", "private", `work-gate-${kst}.log`);
     const st = await fs.stat(p).catch(() => null);
     if (st && st.size > LOG_MAX_BYTES) return;
     await fs.mkdir(path.dirname(p), { recursive: true });
+    // 그날 첫 줄을 쓸 때 14일 지난 기록 파일을 지운다(하루 최대 5MB 가 계속 쌓이지 않게)
+    if (!st) {
+      const dir = path.dirname(p);
+      const cut = new Date(now + 9 * 3600_000 - 14 * 86400_000).toISOString().slice(0, 10);
+      for (const f of await fs.readdir(dir).catch(() => [] as string[])) {
+        const d = /^work-gate-(\d{4}-\d{2}-\d{2})\.log$/.exec(f)?.[1];
+        if (d && d < cut) await fs.unlink(path.join(dir, f)).catch(() => {});
+      }
+    }
     await fs.appendFile(p, JSON.stringify({ at: new Date(now).toISOString(), ...entry }) + "\n");
   } catch { /* 기록 실패는 파일 서빙을 막지 않는다 */ }
 }
@@ -227,7 +237,7 @@ export async function judgeWorkFileRequest(opts: {
     mode, via: opts.via, status, reason, file,
     user: viewer?.userId ?? null, hasSession: !!opts.session, hasTicket: !!opts.ticketSubject,
     ua: opts.userAgent.slice(0, 100),
-  }, `${viewer?.userId ?? "anon:" + opts.userAgent.slice(0, 40)}|${file}|${reason}`);
+  }, `${viewer?.userId ?? "anon"}|${file}|${reason}`); // 익명은 브라우저 문자열을 키에 넣지 않는다 — 바꿔 가며 키를 무한히 늘릴 수 있다
   if (mode !== "enforce") return { block: false, status: 200, error: "" };
   return { block: true, status, error: status === 401 ? "인증이 필요합니다." : "이 파일을 볼 권한이 없습니다." };
 }

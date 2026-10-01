@@ -19,11 +19,14 @@ function sign(subject: string, exp: number): string {
 export function issueUploadTicket(subject: string, ttlMs = 12 * 3600 * 1000): string {
   if (!secret()) throw new Error("JWT_SECRET 미설정 — 업로드 티켓을 발급할 수 없습니다.");
   if (!subject || subject.includes(".")) throw new Error("티켓 주체가 올바르지 않습니다.");
-  // 만료 시각을 3시간 단위로 올림 — 같은 사람이 3시간 안에 다시 받으면 **같은 티켓 문자열**이 나온다.
-  // 앱은 포그라운드로 돌아올 때마다 티켓을 다시 받는데, 문자열이 매번 바뀌면 티켓이 붙은 사진·영상 주소가 바뀌어
-  // 이미지 캐시가 무효화되고 재생 중인 영상·음성이 끊겼다(2026-10-01 검증관 C2). 수명은 ttl ~ ttl+3시간.
+  // 사용자용 긴 티켓(6시간 이상)만 만료 시각을 3시간 단위로 올린다 — 같은 사람이 3시간 안에 다시 받으면
+  // **같은 티켓 문자열**이 나온다. 앱은 포그라운드로 돌아올 때마다 티켓을 다시 받는데, 문자열이 매번 바뀌면 티켓이 붙은
+  // 사진·영상 주소가 바뀌어 이미지 캐시가 무효화되고 재생 중인 영상·음성이 끊겼다(2026-10-01 검증관 C2). 수명은 ttl ~ ttl+3시간.
+  // ⚠ 짧은 티켓(외부 계약자 2시간 등)은 올리지 않는다 — 수명이 그 문서를 열 수 있는 유일한 시간 한계라
+  //   2시간이 최대 5시간으로 늘었다(재검증관 C2-a).
   const BUCKET = 3 * 3600 * 1000;
-  const exp = Math.ceil((Date.now() + ttlMs) / BUCKET) * BUCKET;
+  const raw = Date.now() + ttlMs;
+  const exp = ttlMs >= 6 * 3600 * 1000 ? Math.ceil(raw / BUCKET) * BUCKET : raw;
   return `${exp}.${subject}.${sign(subject, exp)}`;
 }
 
