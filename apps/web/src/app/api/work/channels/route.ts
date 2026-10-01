@@ -56,6 +56,10 @@ export async function GET() {
       }
       const myMember = c.members.find((m) => m.userId === session.userId);
       const notify = myMember?.notify ?? "ALL";
+      // 안읽음은 마지막으로 읽은 때와 과거 기록 범위(초대 전 글은 못 본다) 중 늦은 쪽부터 센다(2026-10-01)
+      const hf = myMember?.historyFrom ?? null;
+      const lr = myMember?.lastReadAt ?? null;
+      const readFloor = hf && (!lr || hf > lr) ? hf : lr;
       let unread = 0;
       if (notify === "MENTION") {
         // 멘션만: '@내이름' 포함 후보를 가져와 정확 매칭(부분일치 제외)으로 카운트
@@ -64,7 +68,7 @@ export async function GET() {
             channelId: c.id,
             parentId: null,
             userId: { not: session.userId },
-            ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
+            ...(readFloor ? { createdAt: { gt: readFloor } } : {}),
             OR: [
               { content: { contains: `@${session.name}` } },
               { content: { contains: "@전체" } },
@@ -80,11 +84,12 @@ export async function GET() {
             channelId: c.id,
             parentId: null,
             userId: { not: session.userId },
-            ...(myMember?.lastReadAt ? { createdAt: { gt: myMember.lastReadAt } } : {}),
+            ...(readFloor ? { createdAt: { gt: readFloor } } : {}),
           },
         });
       }
-      const last = c.messages[0];
+      // 초대 전(과거 기록 범위 밖) 마지막 글은 미리보기로도 보이지 않게 — 새 글이 오기 전까지 빈 미리보기(2026-10-01)
+      const last = c.messages[0] && !(myMember?.historyFrom && c.messages[0].createdAt < myMember.historyFrom) ? c.messages[0] : undefined;
       return {
         id: c.id,
         name: displayName,

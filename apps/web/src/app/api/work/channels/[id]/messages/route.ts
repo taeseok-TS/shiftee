@@ -112,7 +112,7 @@ export async function GET(
       user: { select: { id: true, name: true, avatarUrl: true, branch: true } },
       reactions: { select: { emoji: true, userId: true, user: { select: { name: true } } } },
       _count: { select: { replies: true } },
-      replyTo: { select: { id: true, channelId: true, content: true, deletedAt: true, user: { select: { name: true } } } },
+      replyTo: { select: { id: true, channelId: true, createdAt: true, content: true, deletedAt: true, user: { select: { name: true } } } },
       poll: { include: { votes: { select: { userId: true, optionIndex: true } } } },
       bookmarks: { where: { userId: session.userId }, select: { id: true } },
     },
@@ -178,8 +178,9 @@ export async function GET(
       system: m.system,
       poll: shapePoll(m.poll),
       bookmarked: m.bookmarks.length > 0,
-      // 다른 방 메시지를 가리키는 인용은 내보내지 않는다(위 POST 검사가 생기기 전에 저장된 것 대비)
-      replyTo: m.replyTo && m.replyTo.channelId === m.channelId
+      // 다른 방 메시지를 가리키는 인용은 내보내지 않는다(위 POST 검사가 생기기 전에 저장된 것 대비).
+      // 내 과거 기록 범위 밖(초대 전) 글을 남이 인용한 경우도 원문은 숨긴다 — 인용이 초대 전 대화를 보여 주는 창이 된다(2026-10-01)
+      replyTo: m.replyTo && m.replyTo.channelId === m.channelId && !(myMember?.historyFrom && m.replyTo.createdAt < myMember.historyFrom)
         ? { id: m.replyTo.id, userName: m.replyTo.user.name, content: m.replyTo.deletedAt ? "삭제된 메시지" : m.replyTo.content, deleted: !!m.replyTo.deletedAt }
         : null,
       mine: m.userId === session.userId,

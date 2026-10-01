@@ -13,7 +13,7 @@ export async function getWorkUnreadTotal(userId: string, userName: string): Prom
     select: {
       id: true,
       type: true,
-      members: { where: { userId }, select: { lastReadAt: true, notify: true, hiddenAt: true } },
+      members: { where: { userId }, select: { lastReadAt: true, notify: true, hiddenAt: true, historyFrom: true } },
     },
   });
 
@@ -39,7 +39,11 @@ export async function getWorkUnreadTotal(userId: string, userName: string): Prom
     if (c.type === "DM" && me?.hiddenAt && !revived.has(c.id)) continue;
     const notify = me?.notify ?? "ALL";
     if (notify === "MUTE") continue;
-    const afterRead = me?.lastReadAt ? { createdAt: { gt: me.lastReadAt } } : {};
+    // 마지막으로 읽은 때와 과거 기록 범위(초대 전 글은 못 본다) 중 늦은 쪽부터 센다 — 채널 목록과 같은 규칙(2026-10-01)
+    const hf = me?.historyFrom ?? null;
+    const lr = me?.lastReadAt ?? null;
+    const floor = hf && (!lr || hf > lr) ? hf : lr;
+    const afterRead = floor ? { createdAt: { gt: floor } } : {};
     if (notify === "MENTION") {
       const cands = await prisma.workMessage.findMany({
         where: { channelId: c.id, parentId: null, userId: { not: userId }, ...afterRead, OR: [{ content: { contains: `@${userName}` } }, { content: { contains: "@전체" } }, { content: { contains: "@all" } }] },

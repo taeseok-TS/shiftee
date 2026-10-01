@@ -451,8 +451,16 @@ export async function runScheduledMessages() {
     // 취소로 남기고 올려 둔 첨부는 지운다. 방에서 빠진 사람에게는 알려 주고, 퇴사·비활성 계정에는 알리지 않는다.
     const { isResigned } = await import("@/lib/resign");
     const authorGone = !s.user.isActive || isResigned(s.user.resignDate);
-    const authorIn = !authorGone && (s.channel.isDefault ||
-      !!(await prisma.workChannelMember.findUnique({ where: { channelId_userId: { channelId: s.channelId, userId: s.userId } }, select: { userId: true } })));
+    let authorIn: boolean;
+    try {
+      authorIn = !authorGone && (s.channel.isDefault ||
+        !!(await prisma.workChannelMember.findUnique({ where: { channelId_userId: { channelId: s.channelId, userId: s.userId } }, select: { userId: true } })));
+    } catch (e) {
+      // 확인을 못 했다 — 찜을 풀어 다음 틱에 다시 본다(안 그러면 "보냄"으로 남고 영영 안 나간다, 재검증관 A)
+      console.error("[bot] 예약전송 작성자 확인 실패 — 다음 틱에 다시 시도:", e);
+      await prisma.workScheduledMessage.updateMany({ where: { id: s.id, canceledAt: null }, data: { sentAt: null } }).catch(() => {});
+      continue;
+    }
     if (!authorIn) {
       await prisma.workScheduledMessage.updateMany({ where: { id: s.id }, data: { sentAt: null, canceledAt: new Date() } }).catch(() => {});
       await deleteWorkAttachmentFiles(s.attachments, s.id, s.createdAt).catch(() => {});
