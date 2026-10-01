@@ -21,13 +21,15 @@ export async function GET(
   });
   if (!parent) return NextResponse.json({ error: "메시지를 찾을 수 없습니다." }, { status: 404 });
 
-  // 그 채널 사람인지 확인 — 종전에는 검사가 없어 메시지 id 만 알면 남의 DM 원문이 나왔다
-  const { assertChannelAccess } = await import("@/lib/work-access");
-  const acc = await assertChannelAccess(parent.channelId, session.userId);
+  // 그 채널 사람인지 + 과거 기록 범위 안인지 — 종전에는 검사가 없어 메시지 id 만 알면 남의 DM 원문이 나왔다
+  const { assertMessageAccess, myHistoryFrom } = await import("@/lib/work-access");
+  const acc = await assertMessageAccess(id, session.userId);
   if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+  const from = await myHistoryFrom(parent.channelId, session.userId);
 
   const replies = await prisma.workMessage.findMany({
-    where: { parentId: id },
+    // 같은 방의 댓글만(다른 방에서 이 메시지를 부모로 지정해 끼워 넣은 것 제외), 과거 기록 범위 안만
+    where: { parentId: id, channelId: parent.channelId, ...(from ? { createdAt: { gte: from } } : {}) },
     include: { user: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });

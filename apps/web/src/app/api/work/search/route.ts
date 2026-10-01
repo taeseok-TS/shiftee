@@ -26,9 +26,16 @@ export async function GET(request: NextRequest) {
   type Ch = (typeof channels)[number];
   const channelMap = new Map<string, Ch>(channels.map((c) => [c.id, c]));
 
+  // 과거 기록 범위 — 범위가 있는 방은 그 시각 이후 글만(2026-10-01)
+  const { myHistoryFromMap } = await import("@/lib/work-access");
+  const froms = await myHistoryFromMap(session.userId, channels.map((c) => c.id));
+  const openIds = channels.map((c) => c.id).filter((cid) => !froms.has(cid));
   const messages = await prisma.workMessage.findMany({
     where: {
-      channelId: { in: channels.map((c) => c.id) },
+      OR: [
+        { channelId: { in: openIds } },
+        ...[...froms].map(([cid, from]) => ({ channelId: cid, createdAt: { gte: from } })),
+      ],
       content: { contains: q, mode: "insensitive" },
       deletedAt: null, // 삭제된 메시지 원문 노출 방지
     },

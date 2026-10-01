@@ -24,8 +24,11 @@ export async function GET(
   const acc = await assertChannelAccess(id, session.userId);
   if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
+  // 과거 기록 범위(초대 전 글은 안 보이게) — 메시지 목록과 같은 규칙(2026-10-01)
+  const { myHistoryFrom } = await import("@/lib/work-access");
+  const from = await myHistoryFrom(id, session.userId);
   const msgs = await prisma.workMessage.findMany({
-    where: { channelId: id, fileUrl: { not: null }, AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] }, // 이모티콘은 첨부가 아니다(2026-09-29)
+    where: { channelId: id, fileUrl: { not: null }, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] }, // 이모티콘은 첨부가 아니다(2026-09-29)
     include: { user: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });

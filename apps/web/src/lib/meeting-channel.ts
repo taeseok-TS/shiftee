@@ -52,4 +52,7 @@ export async function addMeetingChatMembers(channelId: string | null | undefined
     data: ids.map((userId) => ({ channelId, userId, notify: "MUTE" as const, lastReadAt: new Date() })),
     skipDuplicates: true,
   });
+  // 방금 들어온 참여자가 회의 채팅 신호를 3초 동안 놓치지 않게
+  const { invalidateChannelAudience } = await import("@/lib/work-access");
+  invalidateChannelAudience(channelId);
 }

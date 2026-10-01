@@ -371,6 +371,9 @@ export default function WorkChatPage() {
           if (threadId) refreshThread(threadId);
         }
         fetchChannels(); // 데스크톱 알림은 전역 WorkDesktopNotifier가 처리
+      } else if (e.type === "members") {
+        // 누가 들어오거나 나갔다 — 내가 새로 초대된 방이 목록에 바로 뜨게
+        fetchChannels();
       } else if (e.type === "read") {
         if (e.channelId === cur) fetchMessages(cur);
       } else if (e.type === "typing") {
@@ -404,6 +407,8 @@ export default function WorkChatPage() {
     if (prev) draftsRef.current[prev] = inputValRef.current;
     setInput(activeId ? draftsRef.current[activeId] ?? "" : "");
     setReplyTo(null); setEditingId(null); setMentionQuery(null); setInputEmojiOpen(false); setPendingSticker(null);
+    // 방을 바꾸면 답글 창도 닫는다 — 열어 둔 채 다른 방에서 보내면 앞 방 메시지를 대상으로 보내 거절됐다(2026-10-01 검증관)
+    setThreadId(null); setThread(null); setThreadInput("");
     setTimeout(() => { const ta = inputRef.current; if (ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; } }, 0);
   }, [activeId]);
   useEffect(() => {

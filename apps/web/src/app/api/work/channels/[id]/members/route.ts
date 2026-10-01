@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { channelCanManage, isChannelMember } from "@/lib/work-perms";
+import { invalidateChannelAudience } from "@/lib/work-access";
+import { emitWork } from "@/lib/work-events";
 
 // 내보내기(강퇴) 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
 async function canManageMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
@@ -85,6 +87,9 @@ export async function POST(
     data: userIds.map((userId) => ({ channelId: id, userId, historyFrom })),
     skipDuplicates: true,
   });
+  // 실시간 신호 수신 대상을 바로 갱신하고(3초 기억을 지운다), 새로 들어온 사람의 목록이 갱신되게 신호를 낸다
+  invalidateChannelAudience(id);
+  emitWork({ type: "members", channelId: id });
 
   return NextResponse.json({ success: true });
 }
@@ -114,5 +119,8 @@ export async function DELETE(
     return NextResponse.json({ error: isSelfLeave ? "채널 생성자는 나갈 수 없습니다. 채널 삭제를 사용하세요." : "채널 생성자는 내보낼 수 없습니다." }, { status: 400 });
 
   await prisma.workChannelMember.deleteMany({ where: { channelId: id, userId } });
+  // 나간 사람에게 그 방 신호가 더 가지 않게 바로 갱신
+  invalidateChannelAudience(id);
+  emitWork({ type: "members", channelId: id });
   return NextResponse.json({ success: true });
 }

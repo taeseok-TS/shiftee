@@ -9,7 +9,9 @@ export type WorkEvent =
   | { type: "message"; channelId: string; senderId?: string; msgId?: string } // senderId: 웹 데스크톱 알림에서 본인 메시지 제외용, msgId: 다중 탭 알림 중복 방지 락 키(내용은 싣지 않음)
   | { type: "reaction"; channelId: string }
   | { type: "read"; channelId: string }
-  | { type: "typing"; channelId: string; userId: string; userName: string };
+  | { type: "typing"; channelId: string; userId: string; userName: string }
+  // 멤버를 넣거나 뺐다 — 새로 들어온 사람의 채널 목록이 바로 갱신되게(2026-10-01). 내용 없음
+  | { type: "members"; channelId: string };
 
 // 컨텐츠는 싣지 않고 신호만 보냄 (DM 내용 유출 방지 → 클라이언트가 재조회)
 export function emitWork(event: WorkEvent) {

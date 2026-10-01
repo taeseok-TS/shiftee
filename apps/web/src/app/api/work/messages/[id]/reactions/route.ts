@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
-import { assertChannelAccess } from "@/lib/work-access";
+import { assertMessageAccess } from "@/lib/work-access";
 
 // 이모지 반응 토글 (있으면 제거, 없으면 추가)
 export async function POST(
@@ -18,8 +18,8 @@ export async function POST(
 
   const message = await prisma.workMessage.findUnique({ where: { id }, select: { channelId: true } });
   if (!message) return NextResponse.json({ error: "메시지를 찾을 수 없습니다." }, { status: 404 });
-  // 그 방 사람만 — 없던 검사라 남의 방 메시지에 반응을 달 수 있었다(2026-09-30 검증관)
-  const acc = await assertChannelAccess(message.channelId, session.userId);
+  // 그 방 사람만 + 과거 기록 범위 안만 — 없던 검사라 남의 방 메시지에 반응을 달 수 있었다(2026-09-30 검증관)
+  const acc = await assertMessageAccess(id, session.userId);
   if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   const existing = await prisma.workMessageReaction.findUnique({

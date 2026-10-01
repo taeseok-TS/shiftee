@@ -38,7 +38,11 @@ export async function GET() {
     },
   });
 
+  // 과거 기록 범위 밖(초대 전) 글은 뺀다(2026-10-01)
+  const { myHistoryFromMap } = await import("@/lib/work-access");
+  const froms = await myHistoryFromMap(session.userId);
   const mentions = candidates
+    .filter((m) => { const f = froms.get(m.channelId); return !f || m.createdAt >= f; })
     .filter((m) => isMentioned(m.content, session.name))
     .slice(0, 50)
     .map((m) => ({

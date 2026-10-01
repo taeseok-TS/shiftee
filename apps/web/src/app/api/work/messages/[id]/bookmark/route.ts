@@ -16,6 +16,10 @@ export async function POST(
     select: { deletedAt: true, channel: { select: { isDefault: true, members: { select: { userId: true } } } } },
   });
   if (!message || message.deletedAt) return NextResponse.json({ error: "메시지를 찾을 수 없습니다." }, { status: 404 });
+  // 과거 기록 범위 밖 메시지는 없는 것으로(2026-10-01)
+  const { assertMessageAccess } = await import("@/lib/work-access");
+  const accMsg = await assertMessageAccess(id, session.userId);
+  if (!accMsg.ok) return NextResponse.json({ error: accMsg.error }, { status: accMsg.status });
   const isMember = message.channel.members.some((m) => m.userId === session.userId);
   if (!message.channel.isDefault && !isMember)
     return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });

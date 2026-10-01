@@ -56,5 +56,8 @@ export async function POST(
     return true;
   });
   if (!restored) return NextResponse.json({ error: "이미 복구됐거나 휴지통에 없는 채널입니다." }, { status: 400 });
+  // 멤버가 바뀌었을 수 있다(회의방은 복구한 사람만 남는다) — 실시간 신호 수신 대상을 바로 갱신
+  const { invalidateChannelAudience } = await import("@/lib/work-access");
+  invalidateChannelAudience(id);
   return NextResponse.json({ success: true });
 }

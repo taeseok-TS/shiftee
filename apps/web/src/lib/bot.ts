@@ -433,8 +433,8 @@ export async function runScheduledMessages() {
     where: { sentAt: null, canceledAt: null, sendAt: { lte: new Date() } },
     take: 20,
     include: {
-      channel: { select: { name: true, type: true, deletedAt: true } },
-      user: { select: { name: true } },
+      channel: { select: { name: true, type: true, isDefault: true, deletedAt: true } },
+      user: { select: { name: true, isActive: true, resignDate: true } },
     },
   });
   for (const s of due) {
@@ -447,6 +447,20 @@ export async function runScheduledMessages() {
     });
     if (claim.count === 0) continue; // 다른 틱이 이미 가져갔거나 그 사이 취소됐다
     const files = parseAttachments(s.attachments);
+    // 쓴 사람이 지금도 그 방 사람이어야 보낸다 — 내보내진(나간) 사람·퇴사자의 예약 글이 그대로 올라가던 것(2026-10-01 검증관 P4).
+    // 취소로 남기고 올려 둔 첨부는 지운다. 방에서 빠진 사람에게는 알려 주고, 퇴사·비활성 계정에는 알리지 않는다.
+    const { isResigned } = await import("@/lib/resign");
+    const authorGone = !s.user.isActive || isResigned(s.user.resignDate);
+    const authorIn = !authorGone && (s.channel.isDefault ||
+      !!(await prisma.workChannelMember.findUnique({ where: { channelId_userId: { channelId: s.channelId, userId: s.userId } }, select: { userId: true } })));
+    if (!authorIn) {
+      await prisma.workScheduledMessage.updateMany({ where: { id: s.id }, data: { sentAt: null, canceledAt: new Date() } }).catch(() => {});
+      await deleteWorkAttachmentFiles(s.attachments, s.id, s.createdAt).catch(() => {});
+      if (!authorGone) {
+        await botSendDM(s.userId, `⏰ 예약 메시지를 보내지 못했습니다\n「${s.channel.type === "DM" ? "1:1 대화" : s.channel.name}」 방에서 나가셔서 예약이 취소됐습니다.`);
+      }
+      continue;
+    }
     if (s.channel.deletedAt && s.channel.type === "DM") {
       // 목록에서 지운 1:1 대화 — 새 메시지를 보내면 되살아나는 것과 같게 되살려서 보낸다
       // (대화를 새로 열 때·회의 초대·봇 DM 이 모두 그렇게 한다)
@@ -571,6 +585,10 @@ export async function runReminders() {
     });
     if (claim.count === 0) continue; // 다른 틱이 이미 가져갔다
     if (r.message.deletedAt || r.message.channel.deletedAt) continue;
+    // 지금도 그 메시지를 볼 수 있어야 보낸다 — 방에서 나간 뒤 최대 90일 뒤에 미리보기가 오던 것(2026-10-01 검증관 P3)
+    const { assertMessageAccess } = await import("@/lib/work-access");
+    const accR = await assertMessageAccess(r.messageId, r.userId).catch(() => ({ ok: false as const }));
+    if (!accR.ok) continue;
     const chName = r.message.channel.type === "DM" ? "1:1 대화" : r.message.channel.name;
     const preview = r.message.content
       ? r.message.content.slice(0, 120)

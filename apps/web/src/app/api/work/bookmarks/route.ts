@@ -29,9 +29,26 @@ export async function GET() {
     },
   });
 
+  // 지금 볼 수 있는 것만 — 방에서 나간 뒤에도 보관해 둔 메시지의 현재 원문(이후 수정분 포함)이 계속 나왔다.
+  // 보관 기록은 지우지 않는다(방에 다시 들어오면 다시 보인다). 2026-10-01 검증관 P3
+  const chIds = [...new Set(bookmarks.map((b) => b.message.channelId))];
+  const visible = new Map(
+    (await prisma.workChannel.findMany({
+      where: { id: { in: chIds } },
+      select: { id: true, isDefault: true, members: { where: { userId: session.userId }, select: { historyFrom: true } } },
+    })).map((c) => [c.id, c]),
+  );
+  const canSee = (channelId: string, createdAt: Date) => {
+    const c = visible.get(channelId);
+    if (!c) return false;
+    const me = c.members[0];
+    if (!c.isDefault && !me) return false;
+    return !(me?.historyFrom && createdAt < me.historyFrom);
+  };
   return NextResponse.json({
     bookmarks: bookmarks
       .filter((b) => !b.message.deletedAt)
+      .filter((b) => canSee(b.message.channelId, b.message.createdAt))
       .map((b) => ({
         messageId: b.message.id,
         channelId: b.message.channelId,

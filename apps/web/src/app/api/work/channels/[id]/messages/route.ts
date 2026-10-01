@@ -212,7 +212,9 @@ export async function POST(
     return NextResponse.json({ error: "답장 대상이 올바르지 않습니다." }, { status: 400 });
   if (refs.length) {
     const uniq = [...new Set(refs as string[])];
-    const found = await prisma.workMessage.count({ where: { id: { in: uniq }, channelId: id } });
+    // 과거 기록 범위 밖(초대 전) 글을 인용해 원문을 꺼내지 못하게 범위도 함께 본다
+    const myFrom = await prisma.workChannelMember.findUnique({ where: { channelId_userId: { channelId: id, userId: session.userId } }, select: { historyFrom: true } });
+    const found = await prisma.workMessage.count({ where: { id: { in: uniq }, channelId: id, ...(myFrom?.historyFrom ? { createdAt: { gte: myFrom.historyFrom } } : {}) } });
     if (found !== uniq.length)
       return NextResponse.json({ error: "답장 대상 메시지를 이 방에서 찾을 수 없습니다." }, { status: 400 });
   }
