@@ -20,5 +20,5 @@ export async function GET() {
   // submissions(자료제출 첨부)는 env 목록과 무관하게 코드에서 늘 잠겨 있다 — 앱이 티켓을 붙이도록 목록에 넣어 준다(2026-09-13)
   // work(채팅 첨부)도 판정 대상이 됐다(2026-10-01) — observe 동안에도 앱이 티켓을 붙여야 기록으로 "앱이 실제로 붙이는지"를 볼 수 있다
   const gate = [...new Set([...uploadGateGroups(), "submissions", ...(workGateMode() !== "off" ? ["work"] : [])])];
-  return NextResponse.json({ t: issueUploadTicket(`u:${session.userId}~${session.tv ?? 0}`), gate });
+  return NextResponse.json({ t: issueUploadTicket(`u:${session.userId}~${session.tv ?? 0}`), gate, workMode: workGateMode() });
 }

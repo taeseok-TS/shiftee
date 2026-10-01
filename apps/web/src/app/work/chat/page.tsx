@@ -156,7 +156,8 @@ export default function WorkChatPage() {
   const [officeTicket, setOfficeTicket] = useState<string | null>(null);
   useEffect(() => {
     let stop = false;
-    const load = () => fetch("/api/uploads/ticket").then((r) => (r.ok ? r.json() : null)).then((d) => { if (!stop && d?.t) setOfficeTicket(d.t); }).catch(() => {});
+    // 잠금(enforce)일 때만 쓴다 — 그 전엔 마이크로소프트 서버·브라우저 기록에 내 티켓을 내보낼 이유가 없다
+    const load = () => fetch("/api/uploads/ticket").then((r) => (r.ok ? r.json() : null)).then((d) => { if (!stop) setOfficeTicket(d?.t && d?.workMode === "enforce" ? d.t : null); }).catch(() => {});
     load();
     const iv = setInterval(load, 6 * 3600 * 1000);
     return () => { stop = true; clearInterval(iv); };

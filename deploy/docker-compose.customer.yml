@@ -54,6 +54,8 @@ services:
       # work(채팅 첨부)를 넣기 전에 반드시 앱 확산 확인 + 채널 멤버십 판정을 먼저 할 것.
       # 2026-09-02 에 그냥 켰다가 앱 첨부가 전부 401 이 됐다. "off" 면 게이트 없음.
       UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
+      # 채팅 첨부(work) 파일별 판정 모드 — observe(기록만, 기본) | enforce(잠금) | off (2026-10-01, lib/work-file-access)
+      UPLOADS_WORK_MODE: ${UPLOADS_WORK_MODE:-observe}
       # 워드->PDF 변환기 주소. 이 서비스가 없으면 계약서 PDF 열람.다운로드가 전부 실패한다.
       GOTENBERG_URL: http://gotenberg:3000
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf

@@ -50,6 +50,8 @@ services:
       # 워치독을 안 깐 인스턴스(고객사 등)에서 매일 오탐이 나던 것을 막는다(2026-09-04).
       WATCHDOG_BEAT_PATH: ${WATCHDOG_BEAT_PATH:-}
       UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
+      # 채팅 첨부(work) 파일별 판정 모드 — observe(기록만, 기본) | enforce(잠금) | off (2026-10-01, lib/work-file-access)
+      UPLOADS_WORK_MODE: ${UPLOADS_WORK_MODE:-observe}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
       GOTENBERG_URL: http://gotenberg:3000
