@@ -187,13 +187,22 @@ export default function LeavePage() {
   const isAdmin = permissions.canManageEmployees;
 
   // 관리자(서브 포함) 포함 여부 — 관리자는 본부 소속이라 기본 미포함. 선택은 브라우저에 기억된다
-  const [inclAdmins, setInclAdmins] = useState(false);
+  // + 테스트 지점(지점 관리에서 「통계 포함」을 끈 지점) 포함 여부 — 기본 미포함(2026-10-06). 둘 다 브라우저에 기억
+  const [incl, setIncl] = useState({ admins: false, test: false });
   useEffect(() => {
-    setInclAdmins(localStorage.getItem("leaveBalanceInclAdmins") === "1");
+    setIncl({
+      admins: localStorage.getItem("leaveBalanceInclAdmins") === "1",
+      test: localStorage.getItem("leaveInclTest") === "1",
+    });
   }, []);
+  const inclAdmins = incl.admins, inclTest = incl.test;
   const toggleInclAdmins = (v: boolean) => {
-    setInclAdmins(v);
+    setIncl((x) => ({ ...x, admins: v }));
     localStorage.setItem("leaveBalanceInclAdmins", v ? "1" : "0");
+  };
+  const toggleInclTest = (v: boolean) => {
+    setIncl((x) => ({ ...x, test: v }));
+    localStorage.setItem("leaveInclTest", v ? "1" : "0");
   };
 
   /* ── 데이터 로드 ── */
@@ -202,16 +211,20 @@ export default function LeavePage() {
     if (filterStatus !== "all") p.set("status", filterStatus);
     p.set("year", filterYear);
     if (filterMonth !== "all") p.set("month", filterMonth);
+    if (inclTest) p.set("includeTest", "true");
     const data = await fetch(`/api/leave?${p}`).then(r => r.json());
     setRequests(data.requests || []);
-  }, [filterStatus, filterYear, filterMonth]);
+  }, [filterStatus, filterYear, filterMonth, inclTest]);
 
   const fetchBalance = useCallback(async () => {
-    const q = inclAdmins ? "?includeAdmins=true" : "";
+    const p = new URLSearchParams();
+    if (inclAdmins) p.set("includeAdmins", "true");
+    if (inclTest) p.set("includeTest", "true");
+    const q = p.toString() ? `?${p}` : "";
     const data = await fetch(`/api/leave/balance${q}`).then(r => r.json());
     if (data.balance)  setBalance(data.balance);
     if (data.balances) setEmpBalances(data.balances);
-  }, [inclAdmins]);
+  }, [inclAdmins, inclTest]);
 
   const fetchMySteps = useCallback(async () => {
     const data = await fetch("/api/leave/my-approvals").then(r => r.json());
@@ -567,6 +580,17 @@ export default function LeavePage() {
                 </button>
               ))}
             </div>
+            {isAdmin && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none px-1">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-indigo-600 cursor-pointer"
+                  checked={inclTest}
+                  onChange={e => toggleInclTest(e.target.checked)}
+                />
+                테스트 지점 포함
+              </label>
+            )}
           </div>
 
           <Card>
@@ -761,6 +785,15 @@ export default function LeavePage() {
                       onChange={e => toggleInclAdmins(e.target.checked)}
                     />
                     관리자 포함
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs font-normal text-gray-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-indigo-600 cursor-pointer"
+                      checked={inclTest}
+                      onChange={e => toggleInclTest(e.target.checked)}
+                    />
+                    테스트 지점 포함
                   </label>
                 </CardTitle>
                 <div className="flex gap-2 shrink-0">

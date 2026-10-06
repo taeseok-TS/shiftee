@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { isRealDate } from "@/lib/schedule-payload";
 import { prisma } from "@/lib/db";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { kstHour, kstMinute } from "@/lib/kst";
+
+// 출퇴근 시각은 한국 시각으로 — 서버는 UTC 라 format(…, "HH:mm") 이 9시간 이르게 보였다(2026-10-06 QA 조사)
+const kstHHmm = (d: Date) => `${String(kstHour(d)).padStart(2, "0")}:${String(kstMinute(d)).padStart(2, "0")}`;
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -84,8 +88,8 @@ export async function GET(request: NextRequest) {
       startTime:   sched?.startTime ?? null,
       endTime:     sched?.endTime   ?? null,
       note:        sched?.note      ?? null,
-      clockIn:     att?.clockIn  ? format(new Date(att.clockIn),  "HH:mm") : null,
-      clockOut:    att?.clockOut ? format(new Date(att.clockOut), "HH:mm") : null,
+      clockIn:     att?.clockIn  ? kstHHmm(new Date(att.clockIn))  : null,
+      clockOut:    att?.clockOut ? kstHHmm(new Date(att.clockOut)) : null,
       leaveType:   leave?.type   ?? null,
       status,
     };

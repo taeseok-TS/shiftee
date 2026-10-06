@@ -28,6 +28,7 @@ type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "ann
 type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
   status: string; minutes: number;
+  userName?: string;   // 지점 전체 조회 때 누구 기록인지(서버가 보내 줌)
 };
 type Stats = { total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number };
 type ChartItem = { date: string; hours: number; count?: number };
@@ -548,6 +549,8 @@ export default function AttendancePage() {
                       <thead>
                         <tr className="border-b text-left text-gray-500">
                           <th className="pb-3 font-medium">날짜</th>
+                          {/* 지점 전체 조회면 이름 열 — 종전엔 누구 기록인지 알 수 없었다(2026-10-06 QA 조사) */}
+                          {selectedBranch && <th className="pb-3 font-medium">이름</th>}
                           <th className="pb-3 font-medium">출근</th>
                           <th className="pb-3 font-medium">퇴근</th>
                           <th className="pb-3 font-medium">근무시간</th>
@@ -557,13 +560,14 @@ export default function AttendancePage() {
                       <tbody>
                         {statsData.records.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
+                            <td colSpan={selectedBranch ? 6 : 5} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
                           </tr>
                         ) : statsData.records.map(r => {
                           const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
                           return (
                             <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
                               <td className="py-3">{format(new Date(r.date), "MM월 dd일 (EEE)", { locale: ko })}</td>
+                              {selectedBranch && <td className="py-3 font-medium text-gray-800">{r.userName || "-"}</td>}
                               <td className="py-3">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
                               <td className="py-3">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
@@ -575,7 +579,7 @@ export default function AttendancePage() {
                       {statsData.records.length > 0 && (
                         <tfoot>
                           <tr className="border-t bg-gray-50">
-                            <td colSpan={3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">합계</td>
+                            <td colSpan={selectedBranch ? 4 : 3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">합계</td>
                             <td className="py-2.5 text-xs font-semibold text-blue-700">{fmtMin(c.totalMinutes)}</td>
                             <td className="py-2.5 text-xs text-gray-500">{c.total}일 출근</td>
                           </tr>

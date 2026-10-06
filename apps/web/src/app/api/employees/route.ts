@@ -88,7 +88,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 직원 계정 생성은 본부만 — 원장 화면엔 버튼이 없는데 서버는 원장에게 열려 있었고 지점 범위 검사도 없었다
+  // (2026-10-06 QA 조사, 시프티 설정 「원장 직원 추가 OFF」와 맞춤)
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "직원 등록은 본부(관리자)만 할 수 있습니다." }, { status: 403 });
 
   const body = await request.json();
   const { name, email: emailRaw, password, role, department, jobGroup, position, branch, phone, hireDate, birthDate, empNo: empNoInput } = body;

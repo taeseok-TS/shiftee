@@ -46,6 +46,11 @@ export async function GET(request: NextRequest) {
   // 관리자(서브 포함)는 본부 소속이라 기본적으로 명단에서 뺀다. 화면의 "관리자 포함" 체크 시에만 넣는다
   const includeAdmins =
     searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
+  // 지점 관리에서 「통계 포함」을 끈 지점(테스트지점 등)도 기본으로 뺀다 — 테스트 계정이 실제 인원에 섞여 보였다
+  // (2026-10-06 QA 조사). 화면의 「테스트 지점 포함」을 켜면 넣는다. 원장은 자기 지점만 보므로 손대지 않는다.
+  const includeTest = searchParams.get("includeTest") === "true";
+  const { excludedBranchNames } = await import("@/lib/employee-scope");
+  const excludedBranches = session.role === "ADMIN" && !includeTest ? await excludedBranchNames() : [];
 
   const [employees, balances] = await Promise.all([
     prisma.user.findMany({
@@ -54,6 +59,7 @@ export async function GET(request: NextRequest) {
         deletedAt: null,
         ...(includeAdmins ? {} : { role: { not: "ADMIN" as const } }),
         ...branchWhere,
+        ...(excludedBranches.length > 0 ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] } : {}),
       },
       select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],

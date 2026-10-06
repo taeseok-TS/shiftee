@@ -151,6 +151,12 @@ export async function POST(request: NextRequest) {
         // 원장은 **담당 지점 직원만** 건드릴 수 있다. 개별 수정에는 있던 검사가 여기만 없어서,
         // 이메일만 알면 전사 아무 직원이나 고칠 수 있었다 (2026-09-07 점검).
         if (session.role === "MANAGER") {
+          // 새 직원 등록은 본부만 — 시프티 설정 「원장 직원 추가 OFF」와 맞춤(2026-10-06 QA 조사). 담당 지점 직원 정보 수정은 그대로.
+          if (!existing) {
+            errors.push(`${rowNum}번 행: 새 직원 등록은 본부(관리자)만 할 수 있습니다. (${email})`);
+            failed++;
+            continue;
+          }
           const targetBranch = existing?.branch ?? branch;   // 신규 생성이면 엑셀에 적힌 지점
           if (!targetBranch || !myBranches.includes(targetBranch)) {
             errors.push(`${rowNum}번 행: 담당 지점 직원만 등록·수정할 수 있습니다. (${email})`);

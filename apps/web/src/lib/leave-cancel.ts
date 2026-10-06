@@ -35,7 +35,8 @@ export type CancelBlock =
   | "REJECTED"       // 반려건 — 덮어쓰기 금지
   | "STATE"          // 그 밖에 처리할 수 없는 상태(근무일정 승인건 등)
   | "PAST"           // 지난 건(종료일이 오늘 이전) — 휴가·근무일정
-  | "NEEDS_REQUEST"; // 승인된 휴가 — 본인의 취소 결재로만(9/11)
+  | "NEEDS_REQUEST"  // 승인된 휴가 — 본인의 취소 결재로만(9/11)
+  | "IN_REVIEW";     // 2단계 결재 중 앞 단계(원장)가 이미 승인 — 본인은 바로 취소 못 함(2026-10-06)
 
 export type CancelDenial = { status: number; error: string; block: CancelBlock };
 
@@ -97,6 +98,16 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
   }
   if (t.status !== "PENDING") {
     return { status: 409, error: "처리할 수 없는 상태의 신청입니다.", block: "STATE" };
+  }
+  // 원장이 승인한 뒤에는 **신청한 본인**이 바로 취소하지 못한다 — 본부 결재가 남아 아직 「대기」여도 마찬가지
+  // (2026-10-06 본부 QA 요청 #14: 「원장 승인 뒤엔 직원이 취소 못 함, 필요하면 원장·본부에 요청」).
+  // 결재자(원장·본부)는 자기 단계에서 반려하거나 지금처럼 취소할 수 있다.
+  if (t.userId === v.userId && t.approvalSteps.some((s) => s.status === "APPROVED")) {
+    return {
+      status: 409,
+      error: "원장이 이미 승인한 휴가라 바로 취소할 수 없습니다. 원장·본부에 반려를 요청해 주세요.",
+      block: "IN_REVIEW",
+    };
   }
 
   // 지나간 휴가는 누구도 취소하지 않는다 — 관리자 "잔여 조정"으로 정정한다(디렉터 확정).

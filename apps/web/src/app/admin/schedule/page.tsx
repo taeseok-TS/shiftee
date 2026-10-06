@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Plus, Download, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -53,6 +53,10 @@ export default function AdminSchedulePage() {
   const [filterBranch, setFilterBranch] = useState<string>("ALL");
   const [filterDepartment, setFilterDepartment] = useState<string>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
+  // 근무일정 추가 — 종전 창은 입력값을 어디에도 담지 않고 "추가되었습니다"만 띄워 실제로는 저장되지 않았다(2026-10-06 QA 조사에서 적발)
+  const emptyForm = () => ({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00", type: "WORK" as "WORK" | "OFF", note: "" });
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   // 주의 시작일과 끝일
@@ -140,6 +144,37 @@ export default function AdminSchedulePage() {
     return weekSchedules[key] || [];
   };
 
+  const handleCreate = async () => {
+    if (!form.userId) { toast.error("직원을 선택해주세요."); return; }
+    if (!form.date || !form.startTime || !form.endTime) { toast.error("날짜와 시간을 입력해주세요."); return; }
+    // 같은 사람·같은 날은 하나뿐이라 저장하면 덮어쓴다 — 이미 있으면 먼저 묻는다
+    try {
+      const chk = await fetch(`/api/schedule?start=${form.date}&end=${form.date}`);
+      if (chk.ok) {
+        const d = await chk.json();
+        const ex = (d.schedules || []).find((x: Schedule) => x.userId === form.userId && x.date === form.date);
+        if (ex && !window.confirm(`이미 ${ex.startTime}~${ex.endTime} 일정이 있습니다. 바꿀까요?`)) return;
+      }
+    } catch { /* 확인 실패는 저장을 막지 않는다 — 서버가 같은 날 하나만 남긴다 */ }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: form.userId, date: form.date, startTime: form.startTime, endTime: form.endTime, type: form.type, note: form.note.trim() || null }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "근무 일정을 저장하지 못했습니다."); return; }
+      toast.success("근무 일정이 추가되었습니다");
+      setCreateOpen(false);
+      fetchSchedules();
+    } catch {
+      toast.error("네트워크 오류로 저장하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleNextWeek = () => {
     setCurrentWeek(addWeeks(currentWeek, 1));
   };
@@ -158,7 +193,7 @@ export default function AdminSchedulePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">근무 일정</h1>
         <div className="flex gap-2">
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (o) setForm(emptyForm()); }}>
             <DialogTrigger className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
               <Plus size={16} /> 근무일정 추가하기
             </DialogTrigger>
@@ -170,14 +205,16 @@ export default function AdminSchedulePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>직원</Label>
-                    <Select>
+                    <Select value={form.userId} onValueChange={(v) => setForm((f) => ({ ...f, userId: v ?? "" }))}>
                       <SelectTrigger>
-                        <SelectValue placeholder="직원 선택" />
+                        <SelectValue placeholder="직원 선택">
+                          {(() => { const e = employees.find((x) => x.id === form.userId); return e ? `${e.name}${e.branch ? ` (${e.branch})` : ""}` : "직원 선택"; })()}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {employees.map(emp => (
+                        {[...employees].sort((x, y) => (x.branch || "").localeCompare(y.branch || "") || x.name.localeCompare(y.name)).map(emp => (
                           <SelectItem key={emp.id} value={emp.id}>
-                            {emp.name}
+                            {emp.name}{emp.branch ? ` (${emp.branch})` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -185,67 +222,46 @@ export default function AdminSchedulePage() {
                   </div>
                   <div>
                     <Label>날짜</Label>
-                    <Input type="date" />
+                    <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
                   </div>
                   <div>
                     <Label>시작 시간</Label>
-                    <Input type="time" />
+                    <Input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} />
                   </div>
                   <div>
                     <Label>종료 시간</Label>
-                    <Input type="time" />
-                  </div>
-                  <div>
-                    <Label>지점</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="지점 선택" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {branches.map(branch => (
-                          <SelectItem key={branch} value={branch}>
-                            {branch}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
                   </div>
                   <div>
                     <Label>유형</Label>
-                    <Select>
+                    <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: (v as "WORK" | "OFF") ?? "WORK" }))}>
                       <SelectTrigger>
-                        <SelectValue placeholder="유형 선택" />
+                        <SelectValue>{form.type === "OFF" ? "휴무" : "근무"}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="work">근무</SelectItem>
-                        <SelectItem value="leave">휴가</SelectItem>
-                        <SelectItem value="business_trip">출장</SelectItem>
+                        <SelectItem value="WORK">근무</SelectItem>
+                        <SelectItem value="OFF">휴무</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+                  <div>
+                    <Label>메모 (선택)</Label>
+                    <Input value={form.note} maxLength={200} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="예: 방학 특강" />
+                  </div>
                 </div>
+                <p className="text-xs text-gray-500">휴가는 근무일정이 아니라 휴가 신청으로 등록합니다. 지점은 직원의 소속 지점을 따릅니다.</p>
                 <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setCreateOpen(false)}>
+                  <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>
                     취소
                   </Button>
-                  <Button onClick={() => {
-                    toast.success("근무 일정이 추가되었습니다");
-                    setCreateOpen(false);
-                    fetchSchedules();
-                  }}>
-                    추가
+                  <Button onClick={handleCreate} disabled={saving}>
+                    {saving ? "저장 중…" : "추가"}
                   </Button>
                 </div>
               </div>
             </DialogContent>
           </Dialog>
-
-          <Button variant="outline" className="gap-2">
-            <Download size={16} /> 다운로드
-          </Button>
-          <Button variant="outline" className="gap-2">
-            <Upload size={16} /> 업로드
-          </Button>
+          {/* 다운로드·업로드는 근무일정 엑셀 업로드(#75)와 함께 만든다 — 연결 없는 버튼은 눌러도 아무 일이 없어 오해를 샀다(2026-10-06) */}
         </div>
       </div>
 

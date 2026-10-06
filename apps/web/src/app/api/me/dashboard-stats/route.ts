@@ -51,8 +51,15 @@ export async function GET() {
     return acc + Math.max(0, (new Date(r.clockOut).getTime() - new Date(r.clockIn).getTime()) / 60000);
   }, 0);
 
+  // 그해 잔여 기록이 없으면 휴가 화면·신청 검사와 **같은 함수**로 근속 기준 총연차를 낸다.
+  // 종전엔 기록이 없으면 15일로 보여 줘 화면마다 잔여가 달랐다(2026-10-06 QA 조사).
+  const { yearBalanceFor } = await import("@/lib/leave-balance");
+  const leaveRemaining = balance
+    ? balance.remaining
+    : ((await yearBalanceFor(prisma, session.userId, currentLeaveYear()))?.remaining ?? 0);
+
   return NextResponse.json({
-    leaveRemaining: balance?.remaining ?? 15,
+    leaveRemaining,
     pendingContracts,
     pendingApprovals: pendingLeave + pendingSchedule + pendingLeaveCancel,
     monthWorkHours: Math.round((monthMinutes / 60) * 10) / 10,

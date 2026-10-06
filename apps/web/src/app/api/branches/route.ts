@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+
+// 좌표 칸 검사 — 빈칸을 Number("") 로 바꾸면 **0, 0** 이 저장돼 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
+// undefined = 손대지 않음, null = 좌표 지우기(위치 검사 꺼짐 — 등록·수정 알림이 그 사실을 알린다), 그 밖엔 올바른 숫자만.
+function parseCoord(v: unknown, kind: "lat" | "lng"): number | null | undefined | "bad" {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string" && v.trim() === "") return "bad";
+  const n = Number(v);
+  const lim = kind === "lat" ? 90 : 180;
+  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > lim) return "bad";
+  return n;
+}
+
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -52,6 +65,10 @@ export async function POST(request: NextRequest) {
 
   const { name, address, latitude, longitude, radius } = await request.json();
   if (!name) return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
+  // 빈칸·잘못된 좌표는 받지 않는다(빈칸이 0,0 으로 저장되던 문제, 2026-10-06). 좌표 없이 등록은 그대로 된다(null).
+  const lat = parseCoord(latitude === "" ? null : latitude, "lat"), lng = parseCoord(longitude === "" ? null : longitude, "lng");
+  if (lat === "bad" || lng === "bad")
+    return NextResponse.json({ error: "위도·경도를 숫자로 입력해 주세요. (예: 37.4979, 127.0276)" }, { status: 400 });
 
   const existing = await prisma.branch.findUnique({ where: { name } });
   if (existing) return NextResponse.json({ error: "이미 존재하는 지점명입니다." }, { status: 409 });
@@ -60,8 +77,8 @@ export async function POST(request: NextRequest) {
     data: {
       name,
       address: address || null,
-      latitude: latitude != null ? Number(latitude) : null,
-      longitude: longitude != null ? Number(longitude) : null,
+      latitude: lat ?? null,
+      longitude: lng ?? null,
       radius: radius ? Number(radius) : 100,
     },
   });

@@ -3,6 +3,19 @@ import { getSession, bumpTokenVersionMany } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
+
+// 좌표 칸 검사 — 빈칸을 Number("") 로 바꾸면 **0, 0** 이 저장돼 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
+// undefined = 손대지 않음, null = 좌표 지우기(위치 검사 꺼짐 — 등록·수정 알림이 그 사실을 알린다), 그 밖엔 올바른 숫자만.
+function parseCoord(v: unknown, kind: "lat" | "lng"): number | null | undefined | "bad" {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string" && v.trim() === "") return "bad";
+  const n = Number(v);
+  const lim = kind === "lat" ? 90 : 180;
+  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > lim) return "bad";
+  return n;
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -20,13 +33,17 @@ export async function PATCH(
     if (!name) {
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
     }
+    const lat = parseCoord(latitude, "lat"), lng = parseCoord(longitude, "lng");
+    if (lat === "bad" || lng === "bad") {
+      return NextResponse.json({ error: "위도·경도를 숫자로 입력해 주세요. (예: 37.4979, 127.0276) 비워 두면 저장되지 않습니다." }, { status: 400 });
+    }
 
     const data = {
       name,
       address: address || null,
       radius: radius ? Number(radius) : 100,
-      latitude: latitude !== undefined ? Number(latitude) : undefined,
-      longitude: longitude !== undefined ? Number(longitude) : undefined,
+      latitude: lat,
+      longitude: lng,
       countInStats: countInStats === undefined ? undefined : !!countInStats, // 통계 포함 여부 (미전송 시 유지)
       // 메인 원장 — 빈 값이면 해제. 미전송이면 그대로 둔다.
       mainManagerId: mainManagerId === undefined ? undefined : (mainManagerId || null),
@@ -41,6 +58,12 @@ export async function PATCH(
       },
     });
     if (!before) return NextResponse.json({ error: "지점을 찾을 수 없습니다." }, { status: 404 });
+    // 좌표가 있던 지점의 좌표를 비우면(화면은 빈칸을 null 로 보낸다) 위치 검사가 통째로 꺼진다 — 실수로 비운 것으로 보고 막는다.
+    // 종전엔 null 이 Number(null)=0 으로 바뀌어 0,0 이 저장되고 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
+    // 좌표가 없던 지점은 지금처럼 null 그대로 둔다(통계 포함·메인 원장만 바꾸는 저장도 좌표를 같이 보낸다).
+    if ((lat === null && before.latitude != null) || (lng === null && before.longitude != null)) {
+      return NextResponse.json({ error: "위도·경도가 비어 있습니다. 좌표를 넣고 저장해 주세요. (좌표를 지우면 출퇴근 위치 검사가 꺼집니다)" }, { status: 400 });
+    }
 
     // 다른 지점과의 중복 체크
     if (name) {
