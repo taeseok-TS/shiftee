@@ -48,6 +48,13 @@ export async function POST(
   if (at.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000)
     return NextResponse.json({ error: "예약은 최대 90일 이내여야 합니다." }, { status: 400 });
 
+  // 예약하는 사람이 지금 볼 수 있는 파일만 — 예약 첨부도 판정 근거(대기 중 작성자)가 된다(2026-10-06)
+  if (files.length > 0) {
+    const { firstUnattachableWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    if (await firstUnattachableWorkUrl(files.map((f) => f.fileUrl), { userId: session.userId, role: session.role }))
+      return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
+
   // 이 예약이 데려온 새 파일만 소유로 표시한다 — 남의 파일 주소를 적어 보내고
   // 예약을 취소해 그 파일을 지우는 우회를 막는다(2026-09-16 검증관 C-1).
   const stored = files.length > 0 ? await markOwnedAttachments(files) : [];

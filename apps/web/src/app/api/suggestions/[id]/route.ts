@@ -56,6 +56,12 @@ export async function PUT(
   if (!before) return NextResponse.json({ error: "제안을 찾을 수 없습니다." }, { status: 404 });
   if (before.userId !== session.userId)
     return NextResponse.json({ error: "본인이 작성한 제안만 수정할 수 있습니다." }, { status: 403 });
+  // 새로 붙이는 스크린샷도 쓰는 사람이 볼 수 있는 파일만(이미 붙어 있던 것은 작성자 근거로 그대로 통과) — 2026-10-06
+  if (images?.length) {
+    const { firstUnattachableWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    if (await firstUnattachableWorkUrl(images, { userId: session.userId, role: session.role }))
+      return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
   if (before.status !== "RECEIVED") {
     // 글 수정은 접수 상태에서만. 단, 이미지'만' 추가/교체하는 경우는 검토중·반영예정에서도 허용 —
     // 담당자가 추가 캡처를 요청하는 경우 대응 (#138)

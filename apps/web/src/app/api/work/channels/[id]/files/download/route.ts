@@ -28,7 +28,8 @@ export async function GET(
   const { myHistoryFrom } = await import("@/lib/work-access");
   const from = await myHistoryFrom(id, session.userId);
   const msgs = await prisma.workMessage.findMany({
-    where: { channelId: id, fileUrl: { not: null }, ...(from ? { createdAt: { gte: from } } : {}) },
+    // 삭제된 메시지·이모티콘은 묶지 않는다 — 목록·판정과 같은 기준(2026-10-06 검증관: ZIP 은 판정을 안 거쳐 삭제된 파일까지 담겼다)
+    where: { channelId: id, fileUrl: { not: null }, deletedAt: null, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] },
     select: { fileUrl: true, fileName: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

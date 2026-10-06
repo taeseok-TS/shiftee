@@ -5,6 +5,7 @@
  */
 
 import axios from "axios";
+import { useSyncExternalStore } from "react";
 import { API_URL } from "../config";
 import { getToken } from "./storage";
 
@@ -25,14 +26,59 @@ let uploadsTicket = "";
 // 다시 배포할 필요가 없다. 구서버(gate 미응답)는 당시의 게이트가 이 둘이었다.
 let uploadsGate: string[] = ["signatures", "contracts"];
 
+// 티켓이 바뀌면(첫 도착·3시간 단위 갱신·로그아웃) 화면을 다시 그리게 알린다 (2026-10-06 검증관 P1).
+// fileUri 는 렌더할 때 한 번 계산된다 — 알림을 눌러 콜드 스타트로 채팅방에 바로 들어가면 티켓보다 첫 렌더가 빨라
+// 그 사진들이 다음 렌더까지 티켓 없이(잠금이면 401) 깨진 채였다. 티켓 문자열은 3시간 동안 같아 캐시는 유지된다.
+let ticketVersion = 0;
+const ticketListeners = new Set<() => void>();
+function bumpTicket() {
+  ticketVersion++;
+  ticketListeners.forEach((l) => { try { l(); } catch { /* 화면 쪽 오류는 무시 */ } });
+}
+function subscribeTicket(l: () => void) {
+  ticketListeners.add(l);
+  return () => { ticketListeners.delete(l); };
+}
+/** 첨부를 그리는 화면에서 부른다 — 티켓이 바뀌면 다시 그려진다 */
+export function useUploadsTicketVersion(): number {
+  return useSyncExternalStore(subscribeTicket, () => ticketVersion);
+}
+
+// 다음 갱신 예약 — 성공하면 3시간 뒤(티켓 12시간, 앱을 오래 켜 둔 기기도 만료 전에 바뀐다),
+// 실패하면 30초부터 늘려 가며 다시 시도한다(콜드 스타트 첫 요청이 실패하면 다음 포그라운드까지 티켓이 없었다).
+let ticketTimer: ReturnType<typeof setTimeout> | null = null;
+let ticketRetry = 0;
+function scheduleTicket(ms: number) {
+  if (ticketTimer) clearTimeout(ticketTimer);
+  ticketTimer = setTimeout(() => { ticketTimer = null; fetchUploadsTicket(); }, ms);
+}
+
 export async function fetchUploadsTicket(): Promise<void> {
   try {
-    const res = await axios.get(`${API_URL}/uploads/ticket`, { headers: await authHeaders() });
-    if (res.data?.t) uploadsTicket = res.data.t;
-    if (Array.isArray(res.data?.gate)) uploadsGate = res.data.gate;
-  } catch {
+    const headers = await authHeaders();
+    if (!("Authorization" in headers)) return; // 로그아웃 상태 — 받을 티켓이 없다
+    const res = await axios.get(`${API_URL}/uploads/ticket`, { headers });
+    let changed = false;
+    if (res.data?.t && res.data.t !== uploadsTicket) { uploadsTicket = res.data.t; changed = true; }
+    if (Array.isArray(res.data?.gate) && res.data.gate.join(",") !== uploadsGate.join(",")) { uploadsGate = res.data.gate; changed = true; }
+    ticketRetry = 0;
+    scheduleTicket(3 * 3600 * 1000);
+    if (changed) bumpTicket();
+  } catch (e: any) {
     // 구서버 등으로 실패해도 앱 동작은 유지 (게이트 없는 경로는 그대로 열린다)
+    if (e?.response?.status === 401) return; // 로그인이 끊긴 것 — 갱신 흐름이 로그아웃시킨다
+    ticketRetry = Math.min(ticketRetry + 1, 5);
+    scheduleTicket(30_000 * 2 ** (ticketRetry - 1)); // 30초·1분·2분·4분·8분
   }
+}
+
+/** 로그아웃 — 같은 기기에 다른 사람이 로그인할 때 앞사람 티켓이 붙지 않게 비운다(2026-10-06 검증관) */
+export function clearUploadsTicket(): void {
+  if (ticketTimer) { clearTimeout(ticketTimer); ticketTimer = null; }
+  ticketRetry = 0;
+  uploadsTicket = "";
+  uploadsGate = ["signatures", "contracts"];
+  bumpTicket();
 }
 
 // 업로드 파일 URI — 게이트가 켜진 경로도 열리도록 티켓을 붙인 절대 URL 을 만든다.

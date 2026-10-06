@@ -38,6 +38,12 @@ export async function POST(
   // 이미지 공지는 내부 업로드 경로만 허용 (외부 URL 주입 방지)
   if (imageUrl && !imageUrl.startsWith("/api/uploads/"))
     return NextResponse.json({ error: "잘못된 이미지 경로입니다." }, { status: 400 });
+  // 공지 이미지도 판정 근거(그 방 사람)가 된다 — 올리는 사람이 볼 수 있는 파일만(2026-10-06)
+  if (imageUrl) {
+    const { canAttachWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    if (!(await canAttachWorkUrl(imageUrl, { userId: session.userId, role: session.role })))
+      return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
 
   await prisma.workChannel.update({
     where: { id },

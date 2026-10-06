@@ -24,7 +24,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { Announcement } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { createAnnouncement, pinAnnouncement, deleteAnnouncement, uploadFile, fileUri } from "../../services/work";
+import { createAnnouncement, pinAnnouncement, deleteAnnouncement, uploadFile, fileUri, useUploadsTicketVersion } from "../../services/work";
 import { ImageViewerModal } from "../../components/ImageViewer";
 
 type Attachment = { url: string; name: string; type: string };
@@ -34,7 +34,7 @@ export function linkifyText(text: string) {
   const parts = text.split(/(https?:\/\/[^\s<>")\]]+)/g);
   return parts.map((p, i) =>
     /^https?:\/\//.test(p)
-      ? <Text key={i} style={{ color: "#4f46e5", textDecorationLine: "underline" }} onPress={() => Linking.openURL(p)}>{p}</Text>
+      ? <Text key={i} style={{ color: "#4f46e5", textDecorationLine: "underline" }} onPress={() => Linking.openURL(fileUri(p))}>{p}</Text>
       : <Text key={i}>{p}</Text>
   );
 }
@@ -71,6 +71,7 @@ export function renderAnnouncementBody(
 }
 
 export default function WorkAnnouncementsScreen() {
+  useUploadsTicketVersion(); // 티켓이 늦게 와도 첨부가 다시 그려지게(2026-10-06)
   const navigation = useNavigation<any>();
   const [items, setItems] = useState<Announcement[]>([]);
   // 공지 사진은 앱 안에서 확대해 본다(예전엔 브라우저로 나가서 다운로드해야 했다)

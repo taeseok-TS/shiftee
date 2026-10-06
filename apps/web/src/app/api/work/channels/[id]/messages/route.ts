@@ -263,6 +263,12 @@ export async function POST(
   const album: string[] | null = okAlbum.length >= 2 ? (okAlbum as string[]) : null;
   if (!content?.trim() && !fileUrl && (!album || album.length < 2))
     return NextResponse.json({ error: "메시지를 입력해주세요." }, { status: 400 });
+  // 보내는 사람이 지금 볼 수 있는 파일만 — 남의 방 파일 주소를 붙여 열 근거를 만드는 우회 차단(2026-10-06)
+  {
+    const { firstUnattachableWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    const bad = await firstUnattachableWorkUrl([fileUrl, ...(album ?? [])], { userId: session.userId, role: session.role });
+    if (bad) return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
 
   const message = await prisma.workMessage.create({
     data: {

@@ -80,11 +80,13 @@ export async function logout(): Promise<void> {
     ]);
     // 로컬 저장소 정리
     await storage.clearAuth();
+    import("./work").then((w) => w.clearUploadsTicket()).catch(() => {});
     console.log("✅ Logout successful");
   } catch (error) {
     console.error("❌ Logout failed:", error);
     // 로컬 저장소는 정리
     await storage.clearAuth();
+    import("./work").then((w) => w.clearUploadsTicket()).catch(() => {});
   }
 }
 
@@ -168,6 +170,9 @@ export async function refreshToken(): Promise<string | null> {
       return null;
     }
     // 네트워크 오류(오프라인)나 서버 재배포 순간 등은 기존 토큰 유지
+    // 티켓은 그래도 받아 본다 — 기존 토큰은 아직 유효할 수 있고, 안 받으면 콜드 스타트에서 첨부가
+    // 다음 포그라운드까지 티켓 없이 깨졌다(2026-10-06 검증관 P1). 실패하면 work.ts 가 알아서 다시 시도한다.
+    import("./work").then((w) => w.fetchUploadsTicket()).catch(() => {});
     return token;
   }
 }

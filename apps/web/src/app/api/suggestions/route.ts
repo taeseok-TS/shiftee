@@ -35,6 +35,13 @@ export async function POST(request: NextRequest) {
       ? (imageUrls as unknown[]).filter((u): u is string => typeof u === "string" && u.startsWith("/api/uploads/")).slice(0, 5)
       : [];
 
+  // 스크린샷도 판정 근거(작성자)가 된다 — 쓰는 사람이 볼 수 있는 파일만(2026-10-06)
+  {
+    const { firstUnattachableWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    if (await firstUnattachableWorkUrl(images, { userId: session.userId, role: session.role }))
+      return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
+
   // 작성 시점 이름·지점 스냅샷 (토큰 값은 오래됐을 수 있어 DB에서 조회)
   const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true, branch: true } });
 

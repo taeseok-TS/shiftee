@@ -132,6 +132,40 @@ export async function canAccessWorkFile(segments: string[], viewer: WorkViewer):
   return { allowed: false, reason: "no-link" };
 }
 
+// ─── 붙이기 검사 ─────────────────────────────
+// 판정은 "이 파일이 내가 볼 수 있는 곳(메시지·예약·제안·휴가 등)에 붙어 있나"로 허용한다. 그래서 붙이는 쪽이
+// 아무 work 주소나 받으면, 남의 방 파일 주소를 내 방 메시지(또는 내 예약·방 공지·제안·휴가)에 붙여 **스스로 열 근거를
+// 만들 수 있었다**(2026-10-06 검증관). 붙이는 사람이 지금 볼 수 있는 파일만 붙이게 한다 —
+// 방금 올린 파일(내 표식)·전달(이미 보이는 파일)은 그대로 된다. work 가 아닌 주소는 여기서 판단하지 않는다(각 경로의 기존 검사).
+// 모드(observe·enforce)와 상관없이 늘 본다 — 관찰 기간에 이 근거가 섞여 들어가면 잠금 뒤에 새는 길로 남는다.
+export async function canAttachWorkUrl(url: unknown, viewer: WorkViewer): Promise<boolean> {
+  if (typeof url !== "string") return false;
+  const bare = url.split("?")[0].split("#")[0];
+  const prefix = "/api/uploads/work/";
+  if (!bare.startsWith(prefix)) return true;
+  let segs: string[];
+  try {
+    segs = bare.slice(prefix.length).split("/").map((s) => decodeURIComponent(s));
+  } catch {
+    return false;
+  }
+  if (!segs.length || segs.some((s) => !s || s === "." || s === ".." || s.includes("/") || s.includes("\\"))) return false;
+  try {
+    return (await canAccessWorkFile(segs, viewer)).allowed;
+  } catch {
+    return false; // 판정이 안 되면 붙이지 않는다(나중에 다시 보내면 된다)
+  }
+}
+/** 여러 주소 중 붙일 수 없는 첫 주소(없으면 null) */
+export async function firstUnattachableWorkUrl(urls: unknown[], viewer: WorkViewer): Promise<string | null> {
+  for (const u of urls) {
+    if (u === null || u === undefined || u === "") continue;
+    if (!(await canAttachWorkUrl(u, viewer))) return typeof u === "string" ? u : "?";
+  }
+  return null;
+}
+export const UNATTACHABLE_MSG = "볼 수 없는 파일은 첨부할 수 없습니다. 파일을 다시 올려 주세요.";
+
 // ─── 판정 기억 — 채팅 화면은 같은 사진을 여러 번 부르고 영상은 조각(Range)으로 여러 번 부른다 ───
 // 허용·거부 모두 1분 기억한다(거부를 매번 다시 보면 거부되는 요청마다 조회가 반복된다 — 검증관 C3).
 const DECISION_TTL_MS = 60_000;

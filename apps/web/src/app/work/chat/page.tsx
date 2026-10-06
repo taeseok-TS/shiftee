@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -152,16 +152,6 @@ export default function WorkChatPage() {
   // 고른 이모티콘 — 바로 보내지 않고 입력창 위에 올려 두었다가 [전송]으로 보낸다(2026-09-29 디렉터:
   // "선택하니까 바로 발송되더라" — 카톡처럼 미리보기 후 전송)
   const [pendingSticker, setPendingSticker] = useState<{ url: string; name: string } | null>(null);
-  // 오피스 온라인 뷰어용 파일 티켓(12시간) — 6시간마다 새로 받는다(아래 openHref)
-  const [officeTicket, setOfficeTicket] = useState<string | null>(null);
-  useEffect(() => {
-    let stop = false;
-    // 잠금(enforce)일 때만 쓴다 — 그 전엔 마이크로소프트 서버·브라우저 기록에 내 티켓을 내보낼 이유가 없다
-    const load = () => fetch("/api/uploads/ticket").then((r) => (r.ok ? r.json() : null)).then((d) => { if (!stop) setOfficeTicket(d?.t && d?.workMode === "enforce" ? d.t : null); }).catch(() => {});
-    load();
-    const iv = setInterval(load, 6 * 3600 * 1000);
-    return () => { stop = true; clearInterval(iv); };
-  }, []);
   // 입력창 팝업(이모지·이모티콘)도 바깥을 누르거나 Esc 면 닫는다 — 화면 규칙(검증관 3)
   useEffect(() => {
     if (!stickerOpen && !inputEmojiOpen) return;
@@ -1228,12 +1218,30 @@ export default function WorkChatPage() {
 
   // 브라우저가 자체 표시 못 하는 오피스 문서(PPT/엑셀/워드)는 MS Office 온라인 뷰어로 열기.
   // 마이크로소프트 서버가 파일을 가져가므로 내 쿠키가 없다 — 채팅 첨부가 판정 대상이 되면서(2026-10-01) 티켓을 붙인다.
-  const openHref = (fileUrl: string, fileName: string | null) => {
-    if (/\.(pptx?|xlsx?|docx?)$/i.test(fileName || fileUrl)) {
-      const src = window.location.origin + fileUrl + (officeTicket ? (fileUrl.includes("?") ? "&" : "?") + "t=" + officeTicket : "");
-      return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(src)}`;
-    }
-    return fileUrl;
+  // 티켓은 [열기]를 누를 때마다 새로 받는다(2026-10-06 검증관 C1: 페이지를 열 때 한 번 받아 두던 방식은
+  // 잠금 전환 전에 열어 둔 탭·첫 요청 실패 탭에서 새로고침 전까지 최대 6시간 "열 수 없음"이었다).
+  // 잠금(enforce)일 때만 붙인다 — 그 전엔 마이크로소프트 서버·브라우저 기록에 내 티켓을 내보낼 이유가 없다.
+  const isOfficeDoc = (fileUrl: string, fileName: string | null) => /\.(pptx?|xlsx?|docx?)$/i.test(fileName || fileUrl);
+  const officeViewer = (fileUrl: string, ticket: string | null) => {
+    const src = window.location.origin + fileUrl + (ticket ? (fileUrl.includes("?") ? "&" : "?") + "t=" + ticket : "");
+    return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(src)}`;
+  };
+  const openHref = (fileUrl: string, fileName: string | null) => (isOfficeDoc(fileUrl, fileName) ? officeViewer(fileUrl, null) : fileUrl);
+  const openOffice = async (e: ReactMouseEvent, fileUrl: string, fileName: string | null) => {
+    if (!isOfficeDoc(fileUrl, fileName)) return; // 그 밖의 파일은 같은 출처라 쿠키로 열린다 — 기본 동작 그대로
+    e.preventDefault();
+    // 팝업 차단을 피하려고 창은 누른 순간 먼저 열고, 티켓을 받은 뒤 주소를 넣는다
+    const w = window.open("about:blank", "_blank");
+    if (w) w.opener = null;
+    let ticket: string | null = null;
+    try {
+      const r = await fetch("/api/uploads/ticket", { cache: "no-store" });
+      const d = r.ok ? await r.json() : null;
+      ticket = d?.t && d?.workMode === "enforce" ? d.t : null;
+      if (!r.ok && r.status === 401) { w?.close(); toast.error("로그인이 끊어졌습니다. 새로고침 후 다시 열어 주세요."); return; }
+    } catch { /* 티켓을 못 받아도 관찰 모드에선 그대로 열린다 — 잠금이면 뷰어가 실패를 보여 준다 */ }
+    const url = officeViewer(fileUrl, ticket);
+    if (w) w.location.href = url; else window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const copyLink = (url: string) => {
@@ -1347,7 +1355,7 @@ export default function WorkChatPage() {
           <button type="button" onClick={() => copyLink(m.fileUrl!)} className="flex items-center gap-1 hover:underline">
             <LinkIcon size={12} /> 링크 복사
           </button>
-          <a href={openHref(m.fileUrl, m.fileName)} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">
+          <a href={openHref(m.fileUrl, m.fileName)} onClick={(e) => openOffice(e, m.fileUrl!, m.fileName)} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">
             <ExternalLink size={12} /> 열기
           </a>
         </div>

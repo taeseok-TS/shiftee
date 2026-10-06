@@ -39,6 +39,7 @@ import VoiceBubble from "../../components/VoiceBubble";
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
+import { useUploadsTicketVersion } from "../../services/work";
 import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri, getEmoticonSets, sendStickerMessage, EmoticonSet } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, hideChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
@@ -114,7 +115,7 @@ function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
   }, [url]);
   if (!data) return null;
   return (
-    <TouchableOpacity onPress={() => Linking.openURL(data.url)} style={[styles.linkCard, mine ? styles.linkCardMine : styles.linkCardOther]}>
+    <TouchableOpacity onPress={() => Linking.openURL(fileUri(data.url))} style={[styles.linkCard, mine ? styles.linkCardMine : styles.linkCardOther]}>
       {data.image ? <Image source={{ uri: data.image }} style={styles.linkImage} resizeMode="cover" /> : null}
       <View style={styles.linkBody}>
         {data.siteName ? <Text style={[styles.linkSite, mine && styles.linkSiteMine]} numberOfLines={1}>{data.siteName}</Text> : null}
@@ -127,6 +128,7 @@ function LinkPreview({ url, mine }: { url: string; mine: boolean }) {
 
 
 export default function WorkChatScreen() {
+  useUploadsTicketVersion(); // 티켓이 늦게 와도 첨부가 다시 그려지게(2026-10-06)
   const route = useRoute<RouteProp<ParamList, "WorkChat">>();
   const { channelId } = route.params;
   const [messages, setMessages] = useState<WorkMessage[]>([]);
@@ -1290,7 +1292,7 @@ export default function WorkChatScreen() {
                           p.startsWith("@")
                             ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
                             : /^https?:\/\//.test(p)
-                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(p)}>{p}</Text>
+                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(fileUri(p))}>{p}</Text>
                             : p
                         )}
                         {item.editedAt ? <Text style={[styles.editedTag, item.mine && styles.editedTagMine]}> (수정됨)</Text> : null}
@@ -1365,7 +1367,7 @@ export default function WorkChatScreen() {
                           p.startsWith("@")
                             ? <Text key={i} style={[styles.mentionText, item.mine && styles.mentionTextMine]}>{p}</Text>
                             : /^https?:\/\//.test(p)
-                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(p)}>{p}</Text>
+                            ? <Text key={i} style={[styles.linkInText, item.mine && styles.linkInTextMine]} onPress={() => Linking.openURL(fileUri(p))}>{p}</Text>
                             : p
                         )}
                         {item.editedAt ? <Text style={[styles.editedTag, item.mine && styles.editedTagMine]}> (수정됨)</Text> : null}
@@ -2226,7 +2228,7 @@ export default function WorkChatScreen() {
                 keyExtractor={(_, i) => String(i)}
                 ListEmptyComponent={<Text style={styles.addEmpty}>공유된 링크가 없습니다.</Text>}
                 renderItem={({ item: l }) => (
-                  <TouchableOpacity style={styles.linkRow} onPress={() => Linking.openURL(l.url)}>
+                  <TouchableOpacity style={styles.linkRow} onPress={() => Linking.openURL(fileUri(l.url))}>
                     <Ionicons name="link-outline" size={16} color="#4f46e5" />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.linkUrl} numberOfLines={1}>{l.url}</Text>

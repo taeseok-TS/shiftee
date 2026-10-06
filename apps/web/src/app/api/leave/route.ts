@@ -153,6 +153,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `${label} 형식이 올바르지 않습니다.` }, { status: 400 });
     }
   }
+  // 증빙도 판정 근거(신청자·결재자)가 된다 — 신청하는 사람이 볼 수 있는 파일만(2026-10-06)
+  if (attachmentUrl) {
+    const { canAttachWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
+    if (!(await canAttachWorkUrl(attachmentUrl, { userId: session.userId, role: session.role })))
+      return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
+  }
   // 신청 사유 필수(모든 유형)
   if (typeof reason !== "string" || !reason.trim()) {
     return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
