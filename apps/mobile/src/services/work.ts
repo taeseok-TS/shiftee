@@ -56,8 +56,8 @@ function scheduleTicket(ms: number) {
 }
 
 export async function fetchUploadsTicket(): Promise<void> {
+  const gen = ticketGen;
   try {
-    const gen = ticketGen;
     const headers = await authHeaders();
     if (!("Authorization" in headers)) return; // 로그아웃 상태 — 받을 티켓이 없다
     const res = await axios.get(`${API_URL}/uploads/ticket`, { headers });
@@ -70,6 +70,7 @@ export async function fetchUploadsTicket(): Promise<void> {
     if (changed) bumpTicket();
   } catch (e: any) {
     // 구서버 등으로 실패해도 앱 동작은 유지 (게이트 없는 경로는 그대로 열린다)
+    if (gen !== ticketGen) return; // 로그아웃 전 요청의 실패 — 새 사람의 갱신 예약을 덮지 않는다
     if (e?.response?.status === 401) return; // 로그인이 끊긴 것 — 갱신 흐름이 로그아웃시킨다
     ticketRetry = Math.min(ticketRetry + 1, 5);
     scheduleTicket(30_000 * 2 ** (ticketRetry - 1)); // 30초·1분·2분·4분·8분
@@ -104,7 +105,9 @@ export function fileUri(path: string | null | undefined): string {
   if (!uploadsTicket) return full;
   if (isAbsolute && !full.startsWith(FILE_ORIGIN + "/")) return full; // 외부 호스트엔 안 붙인다
   const rel = full.slice(FILE_ORIGIN.length);
-  // 경로에 . / .. 조각(인코딩 포함)이 있으면 붙이지 않는다 — 게이트 경로처럼 보이고 다른 곳으로 가는 주소 방지
+  // 경로에 . / .. 조각(인코딩 포함)이 있으면 붙이지 않는다 — 게이트 경로처럼 보이고 다른 곳으로 가는 주소 방지.
+  // 백슬래시·탭·줄바꿈은 브라우저·안드로이드가 / 로 보거나 지워서 같은 우회가 되므로 아예 붙이지 않는다(2026-10-06 재검증 D1)
+  if (/[\\\t\n\r]|%5c|%09|%0a|%0d/i.test(rel)) return full;
   if (/(^|\/)(\.|%2e){1,2}(\/|$|\?|#)/i.test(rel)) return full;
   const m = /^\/api\/uploads\/([^/?#]+)\//.exec(rel);
   if (!m) return full;

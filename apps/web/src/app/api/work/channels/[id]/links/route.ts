@@ -34,6 +34,8 @@ export async function GET(
       deletedAt: null,
       content: { contains: "http" },
       ...(myMember?.historyFrom ? { createdAt: { gte: myMember.historyFrom } } : {}),
+      // 초대 전 글에 달린 답글도 뺀다 — 스레드 열람·첨부 목록과 같은 기준(2026-10-06 재검증 D2)
+      ...(myMember?.historyFrom ? { OR: [{ parentId: null }, { parent: { createdAt: { gte: myMember.historyFrom } } }] } : {}),
     },
     select: { content: true, createdAt: true, user: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
