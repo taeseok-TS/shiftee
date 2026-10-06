@@ -48,6 +48,8 @@ export function useUploadsTicketVersion(): number {
 // 실패하면 30초부터 늘려 가며 다시 시도한다(콜드 스타트 첫 요청이 실패하면 다음 포그라운드까지 티켓이 없었다).
 let ticketTimer: ReturnType<typeof setTimeout> | null = null;
 let ticketRetry = 0;
+// 로그아웃 세대 — 로그아웃 직전에 보낸 요청이 비운 뒤에 도착해 앞사람 티켓을 되살리지 않게(2026-10-06 재검증 4)
+let ticketGen = 0;
 function scheduleTicket(ms: number) {
   if (ticketTimer) clearTimeout(ticketTimer);
   ticketTimer = setTimeout(() => { ticketTimer = null; fetchUploadsTicket(); }, ms);
@@ -55,9 +57,11 @@ function scheduleTicket(ms: number) {
 
 export async function fetchUploadsTicket(): Promise<void> {
   try {
+    const gen = ticketGen;
     const headers = await authHeaders();
     if (!("Authorization" in headers)) return; // 로그아웃 상태 — 받을 티켓이 없다
     const res = await axios.get(`${API_URL}/uploads/ticket`, { headers });
+    if (gen !== ticketGen) return; // 그 사이 로그아웃했다 — 버린다
     let changed = false;
     if (res.data?.t && res.data.t !== uploadsTicket) { uploadsTicket = res.data.t; changed = true; }
     if (Array.isArray(res.data?.gate) && res.data.gate.join(",") !== uploadsGate.join(",")) { uploadsGate = res.data.gate; changed = true; }
@@ -76,6 +80,7 @@ export async function fetchUploadsTicket(): Promise<void> {
 export function clearUploadsTicket(): void {
   if (ticketTimer) { clearTimeout(ticketTimer); ticketTimer = null; }
   ticketRetry = 0;
+  ticketGen++;
   uploadsTicket = "";
   uploadsGate = ["signatures", "contracts"];
   bumpTicket();
@@ -92,10 +97,15 @@ export function clearUploadsTicket(): void {
 export function fileUri(path: string | null | undefined): string {
   if (!path) return "";
   const isAbsolute = /^https?:\/\//.test(path);
-  const full = isAbsolute ? path : FILE_ORIGIN + path;
+  let full = isAbsolute ? path : FILE_ORIGIN + path;
+  // www 로 접속한 사람이 복사한 링크도 우리 서버다 — 같은 주소로 맞춰야 티켓이 붙는다(2026-10-06 재검증 1)
+  const WWW_ORIGIN = FILE_ORIGIN.replace("://", "://www.");
+  if (full.startsWith(WWW_ORIGIN + "/")) full = FILE_ORIGIN + full.slice(WWW_ORIGIN.length);
   if (!uploadsTicket) return full;
   if (isAbsolute && !full.startsWith(FILE_ORIGIN + "/")) return full; // 외부 호스트엔 안 붙인다
   const rel = full.slice(FILE_ORIGIN.length);
+  // 경로에 . / .. 조각(인코딩 포함)이 있으면 붙이지 않는다 — 게이트 경로처럼 보이고 다른 곳으로 가는 주소 방지
+  if (/(^|\/)(\.|%2e){1,2}(\/|$|\?|#)/i.test(rel)) return full;
   const m = /^\/api\/uploads\/([^/?#]+)\//.exec(rel);
   if (!m) return full;
   // 공지 본문의 이미지 주소는 작성자가 자유 입력한 값이라 "/api/uploads/100%/a.png" 같은

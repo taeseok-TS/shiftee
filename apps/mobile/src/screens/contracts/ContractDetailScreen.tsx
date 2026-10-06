@@ -16,7 +16,7 @@ import { useRoute, RouteProp } from "@react-navigation/native";
 import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas";
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
-import { fileUri } from "../../services/work";
+import { fileUri, useUploadsTicketVersion } from "../../services/work";
 
 const STATUS: Record<string, { label: string; color: string }> = {
   DRAFT: { label: "작성중", color: "#6b7280" },
@@ -44,6 +44,7 @@ function fullUrl(path: string): string {
 type ParamList = { ContractDetail: { id: string } };
 
 export default function ContractDetailScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const route = useRoute<RouteProp<ParamList, "ContractDetail">>();
   const { id } = route.params;
   const [contract, setContract] = useState<Contract | null>(null);

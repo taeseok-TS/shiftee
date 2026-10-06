@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, fileUri } from "../services/work";
+import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, fileUri, useUploadsTicketVersion } from "../services/work";
 
 // 개선 제안함 — 작성자와 관리자만 보는 비공개 창구. 처리 상태는 봇 DM으로도 통지된다.
 
@@ -18,6 +18,7 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; fg: string }> = 
 };
 
 export default function SuggestionScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const [list, setList] = useState<SuggestionItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [title, setTitle] = useState("");

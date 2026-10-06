@@ -28,7 +28,8 @@ export async function GET(
   const { myHistoryFrom } = await import("@/lib/work-access");
   const from = await myHistoryFrom(id, session.userId);
   const msgs = await prisma.workMessage.findMany({
-    where: { channelId: id, fileUrl: { not: null }, deletedAt: null, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] }, // 이모티콘은 첨부가 아니다(2026-09-29)
+    // 이모티콘은 첨부가 아니다(2026-09-29). 초대 전 글에 달린 답글도 뺀다 — 판정·스레드 열람과 같은 기준(2026-10-06 재검증 3)
+    where: { channelId: id, fileUrl: { not: null }, deletedAt: null, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }, ...(from ? [{ OR: [{ parentId: null }, { parent: { createdAt: { gte: from } } }] }] : [])] },
     include: { user: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });

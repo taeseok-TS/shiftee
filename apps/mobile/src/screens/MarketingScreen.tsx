@@ -6,7 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { FILE_ORIGIN, fileUri } from "../services/work";
+import { FILE_ORIGIN, fileUri, useUploadsTicketVersion } from "../services/work";
 import { getUser } from "../services/storage";
 import { Category, Submission, SubmissionFile, createSubmission, deleteSubmission, getCategories, getMarketing, uploadSubmissionFile } from "../services/submissions";
 
@@ -63,6 +63,7 @@ function FileRow({ f, onRemove }: { f: SubmissionFile; onRemove?: () => void }) 
 type Scope = "mine" | "branch" | "all";
 
 export default function MarketingScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [scope, setScope] = useState<Scope>("mine");
   const [categories, setCategories] = useState<Category[]>([]);

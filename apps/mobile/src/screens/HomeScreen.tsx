@@ -19,7 +19,7 @@ import * as api from "../services/api";
 import * as storage from "../services/storage";
 import { renderAnnouncementBody } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
-import { fileUri } from "../services/work";
+import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
@@ -36,6 +36,7 @@ const TYPE_LABEL: Record<string, string> = {
 type ModalKind = "contract" | "approval" | "announcement";
 
 export default function HomeScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const navigation = useNavigation<any>();
   const [userName, setUserName] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);

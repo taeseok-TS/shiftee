@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
-import { FILE_ORIGIN, fileUri } from "../services/work";
+import { FILE_ORIGIN, fileUri, useUploadsTicketVersion } from "../services/work";
 import {
   CATEGORY_GROUP_LABEL, Category, Submission, SubmissionFile, SubmissionRequest,
   createSubmission, deleteSubmission, getCategories, getMyRequests, getSubmissions, uploadSubmissionFile,
@@ -70,6 +70,7 @@ function FileRow({ f, onRemove }: { f: SubmissionFile; onRemove?: () => void }) 
 }
 
 export default function SubmissionsScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const [tab, setTab] = useState<"todo" | "mine" | "shared">("todo");
   const [categories, setCategories] = useState<Category[]>([]);
   const [requests, setRequests] = useState<SubmissionRequest[] | null>(null);

@@ -20,7 +20,7 @@ import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { API_URL } from "../../config";
-import { fileUri } from "../../services/work";
+import { fileUri, useUploadsTicketVersion } from "../../services/work";
 
 // 상태 배지가 영문 그대로 나왔다. 다른 상태는 예전부터 그랬지만, 하필 **한국어 설명이 가장
 // 필요한 "반려"** 가 REJECTED 로 뜬다(2026-09-04 검증관 F5).
@@ -49,6 +49,7 @@ function viewerUrl(raw?: string | null): string | null {
 }
 
 export default function ContractListScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const navigation = useNavigation<any>();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<any[]>([]);

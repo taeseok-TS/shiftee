@@ -15,7 +15,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { fileUri } from "../../services/work";
+import { fileUri, useUploadsTicketVersion } from "../../services/work";
 import * as storage from "../../services/storage";
 import {
   getLeaveApprovals,
@@ -73,6 +73,7 @@ const CANCEL_BLOCK_LABEL: Record<string, string> = {
 type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel"; id: string } | null;
 
 export default function ApprovalsScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const [leave, setLeave] = useState<LeaveInboxStep[]>([]);
   const [schedule, setSchedule] = useState<ScheduleInboxStep[]>([]);
   const [cancelReqs, setCancelReqs] = useState<LeaveCancelInboxStep[]>([]);   // 휴가 취소 결재(9/11)

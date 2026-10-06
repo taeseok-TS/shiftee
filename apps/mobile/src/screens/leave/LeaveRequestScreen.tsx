@@ -23,7 +23,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { uploadFile, fileUri } from "../../services/work";
+import { uploadFile, fileUri, useUploadsTicketVersion } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -77,6 +77,7 @@ const STATUS: Record<string, { label: string; color: string }> = {
 };
 
 export default function LeaveRequestScreen() {
+  useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const headerHeight = useHeaderHeight();
   const [category, setCategory] = useState("ANNUAL");
   const [leaveType, setLeaveType] = useState<LeaveType>("ANNUAL");

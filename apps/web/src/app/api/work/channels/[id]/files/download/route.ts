@@ -29,7 +29,7 @@ export async function GET(
   const from = await myHistoryFrom(id, session.userId);
   const msgs = await prisma.workMessage.findMany({
     // 삭제된 메시지·이모티콘은 묶지 않는다 — 목록·판정과 같은 기준(2026-10-06 검증관: ZIP 은 판정을 안 거쳐 삭제된 파일까지 담겼다)
-    where: { channelId: id, fileUrl: { not: null }, deletedAt: null, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }] },
+    where: { channelId: id, fileUrl: { not: null }, deletedAt: null, ...(from ? { createdAt: { gte: from } } : {}), AND: [{ OR: [{ fileType: null }, { fileType: { not: "sticker" } }] }, ...(from ? [{ OR: [{ parentId: null }, { parent: { createdAt: { gte: from } } }] }] : [])] }, // 초대 전 글에 달린 답글도 뺀다 — 판정·스레드 열람과 같은 기준(2026-10-06 재검증 3)
     select: { fileUrl: true, fileName: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
