@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -86,8 +86,10 @@ export default function AttendanceScreen() {
     }
   };
 
+  const busy = useRef(false);   // 빠른 두 번 탭 방지(검증관 P4) — state 는 다음 렌더 전까지 바뀌지 않는다
   const handlePress = async () => {
-    if (phase === "DONE" || phase === "LOADING" || isLoading) return;
+    if (phase === "DONE" || phase === "LOADING" || busy.current) return;
+    busy.current = true;
     setIsLoading(true);
     try {
       const f = await measure();
@@ -110,6 +112,7 @@ export default function AttendanceScreen() {
       Alert.alert("처리 불가", error?.response?.data?.error || "출퇴근 기록 중 오류가 발생했습니다");
       loadStatus(); // 상태 동기화
     } finally {
+      busy.current = false;
       setIsLoading(false);
     }
   };

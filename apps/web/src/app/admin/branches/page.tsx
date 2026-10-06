@@ -35,6 +35,16 @@ type BranchManager = { id: string; name: string; branch: string | null; managerB
 
 const EMPTY_FORM = { name: "", address: "", latitude: "", longitude: "", radius: "100" };
 
+/** 좌표 입력 확인 — 둘 다 비었으면 null(좌표 없음), 숫자 둘이면 값, 그 밖엔 오류 문구 */
+function coordsOf(f: { latitude: string; longitude: string }): { latitude: number | null; longitude: number | null } | string {
+  const la = f.latitude.trim(), lo = f.longitude.trim();
+  if (la === "" && lo === "") return { latitude: null, longitude: null };
+  if (la === "" || lo === "") return "위도와 경도를 둘 다 입력해 주세요.";
+  const a = Number(la), b = Number(lo);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return "위도·경도는 숫자로 입력해 주세요. (예: 37.4979, 127.0276)";
+  return { latitude: a, longitude: b };
+}
+
 export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   // 메인 원장 후보 — 활성 원장 전원(대표.겸직 지점 정보 포함)
@@ -80,7 +90,6 @@ export default function BranchesPage() {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: b.name, address: b.address, radius: b.radius,
-        latitude: b.latitude, longitude: b.longitude,
         mainManagerId: userId || null,
       }),
     });
@@ -163,6 +172,8 @@ export default function BranchesPage() {
   /* ── 추가 ── */
   async function handleAdd(ev: React.FormEvent) {
     ev.preventDefault();
+    const co = coordsOf(form);
+    if (typeof co === "string") { toast.error(co); return; }
     const res  = await fetch("/api/branches", {
       method: "POST",
       credentials: "include",
@@ -170,8 +181,8 @@ export default function BranchesPage() {
       body: JSON.stringify({
         name: form.name,
         address: form.address || null,
-        latitude:  form.latitude  !== "" ? Number(form.latitude)  : null,
-        longitude: form.longitude !== "" ? Number(form.longitude) : null,
+        latitude:  co.latitude,
+        longitude: co.longitude,
         radius: Number(form.radius) || 100,
       }),
     });
@@ -198,6 +209,8 @@ export default function BranchesPage() {
   async function handleEdit(ev: React.FormEvent) {
     ev.preventDefault();
     if (!editTarget) return;
+    const co = coordsOf(editForm);
+    if (typeof co === "string") { toast.error(co); return; }
     const res = await fetch(`/api/branches/${editTarget.id}`, {
       method: "PATCH",
       credentials: "include",
@@ -205,8 +218,8 @@ export default function BranchesPage() {
       body: JSON.stringify({
         name:      editForm.name,
         address:   editForm.address || null,
-        latitude:  editForm.latitude  !== "" ? Number(editForm.latitude)  : null,
-        longitude: editForm.longitude !== "" ? Number(editForm.longitude) : null,
+        latitude:  co.latitude,
+        longitude: co.longitude,
         radius:    Number(editForm.radius) || 100,
       }),
     });
@@ -343,12 +356,11 @@ export default function BranchesPage() {
                               method: "PATCH", headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 name: b.name, address: b.address, radius: b.radius,
-                                latitude: b.latitude, longitude: b.longitude,
                                 countInStats: e.target.checked,
                               }),
                             });
                             if (res.ok) { toast.success(e.target.checked ? `${b.name} — 통계에 포함합니다.` : `${b.name} — 통계에서 제외합니다.`); fetchBranches(); }
-                            else toast.error("변경 실패");
+                            else { const d = await res.json().catch(() => ({})); toast.error(d.error || "변경 실패"); }
                           }} />
                         통계 포함
                       </label>

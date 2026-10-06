@@ -11,7 +11,8 @@ function parseCoord(v: unknown, kind: "lat" | "lng"): number | null | undefined 
   if (typeof v === "string" && v.trim() === "") return "bad";
   const n = Number(v);
   const lim = kind === "lat" ? 90 : 180;
-  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > lim) return "bad";
+  if (n === 0) return null; // 0 은 좌표가 아니다 — 옛 버그로 0,0 이 저장된 지점이 있어 「없음」으로 다룬다(검증관 C1)
+  if (!Number.isFinite(n) || Math.abs(n) > lim) return "bad";
   return n;
 }
 
@@ -67,8 +68,8 @@ export async function POST(request: NextRequest) {
   if (!name) return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
   // 빈칸·잘못된 좌표는 받지 않는다(빈칸이 0,0 으로 저장되던 문제, 2026-10-06). 좌표 없이 등록은 그대로 된다(null).
   const lat = parseCoord(latitude === "" ? null : latitude, "lat"), lng = parseCoord(longitude === "" ? null : longitude, "lng");
-  if (lat === "bad" || lng === "bad")
-    return NextResponse.json({ error: "위도·경도를 숫자로 입력해 주세요. (예: 37.4979, 127.0276)" }, { status: 400 });
+  if (lat === "bad" || lng === "bad" || (lat ?? null) === null !== ((lng ?? null) === null))
+    return NextResponse.json({ error: "위도·경도를 숫자로 둘 다 입력해 주세요. (예: 37.4979, 127.0276)" }, { status: 400 });
 
   const existing = await prisma.branch.findUnique({ where: { name } });
   if (existing) return NextResponse.json({ error: "이미 존재하는 지점명입니다." }, { status: 409 });

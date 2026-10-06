@@ -57,14 +57,11 @@ export async function GET(request: NextRequest) {
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   // 휴지통에 넣은 계정의 휴가는 목록에 내지 않는다(2026-10-06 QA 조사 — 지운 계정 휴가가 그대로 보였다).
-  // 관리자 화면은 통계 제외 지점(테스트지점 등)도 기본으로 뺀다 — 「테스트 지점 포함」을 켜면 넣는다.
-  const { excludedBranchNames } = await import("@/lib/employee-scope");
-  const excludedBranches =
-    session.role === "ADMIN" && searchParams.get("includeTest") !== "true" ? await excludedBranchNames() : [];
-  const userConds: object[] = [{ deletedAt: null }];
-  if (session.role === "MANAGER") userConds.push({ branch: { in: myBranches } });
-  if (excludedBranches.length > 0) userConds.push({ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] });
-  const branchFilter = { user: { AND: userConds } };
+  // 통계 제외 지점으로는 거르지 않는다 — 본부 소속 직원 휴가까지 사라지고, 앱 결재 탭도 이 목록을 쓴다(검증관 P1·P2).
+  // 시험 휴가는 이관 #3 에서 「취소」로 정리한다.
+  const branchFilter = {
+    user: session.role === "MANAGER" ? { deletedAt: null, branch: { in: myBranches } } : { deletedAt: null },
+  };
 
   // current=1 — **진행 중·앞으로의** 대기·승인 휴가만(종료일 ≥ KST 오늘). 원장·관리자 "휴가 내역"
   // 화면의 평상시 보기다(9/11 디렉터). 지난 기록은 지우지 않는다 — 연도 조회로 찾는다.

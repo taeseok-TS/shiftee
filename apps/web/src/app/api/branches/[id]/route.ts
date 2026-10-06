@@ -12,7 +12,8 @@ function parseCoord(v: unknown, kind: "lat" | "lng"): number | null | undefined 
   if (typeof v === "string" && v.trim() === "") return "bad";
   const n = Number(v);
   const lim = kind === "lat" ? 90 : 180;
-  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > lim) return "bad";
+  if (n === 0) return null; // 0 은 좌표가 아니다 — 옛 버그로 0,0 이 저장된 지점이 있어 「없음」으로 다룬다(검증관 C1)
+  if (!Number.isFinite(n) || Math.abs(n) > lim) return "bad";
   return n;
 }
 
@@ -34,7 +35,7 @@ export async function PATCH(
       return NextResponse.json({ error: "지점명은 필수입니다." }, { status: 400 });
     }
     const lat = parseCoord(latitude, "lat"), lng = parseCoord(longitude, "lng");
-    if (lat === "bad" || lng === "bad") {
+    if (lat === "bad" || lng === "bad" || (lat !== undefined && lng !== undefined && (lat === null) !== (lng === null))) {
       return NextResponse.json({ error: "위도·경도를 숫자로 입력해 주세요. (예: 37.4979, 127.0276) 비워 두면 저장되지 않습니다." }, { status: 400 });
     }
 
@@ -61,7 +62,8 @@ export async function PATCH(
     // 좌표가 있던 지점의 좌표를 비우면(화면은 빈칸을 null 로 보낸다) 위치 검사가 통째로 꺼진다 — 실수로 비운 것으로 보고 막는다.
     // 종전엔 null 이 Number(null)=0 으로 바뀌어 0,0 이 저장되고 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
     // 좌표가 없던 지점은 지금처럼 null 그대로 둔다(통계 포함·메인 원장만 바꾸는 저장도 좌표를 같이 보낸다).
-    if ((lat === null && before.latitude != null) || (lng === null && before.longitude != null)) {
+    const hadCoord = (v: number | null) => v != null && v !== 0;   // 0 은 옛 버그 값 — 좌표 없음으로 본다
+    if ((lat === null && hadCoord(before.latitude)) || (lng === null && hadCoord(before.longitude))) {
       return NextResponse.json({ error: "위도·경도가 비어 있습니다. 좌표를 넣고 저장해 주세요. (좌표를 지우면 출퇴근 위치 검사가 꺼집니다)" }, { status: 400 });
     }
 

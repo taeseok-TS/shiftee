@@ -211,10 +211,9 @@ export default function LeavePage() {
     if (filterStatus !== "all") p.set("status", filterStatus);
     p.set("year", filterYear);
     if (filterMonth !== "all") p.set("month", filterMonth);
-    if (inclTest) p.set("includeTest", "true");
     const data = await fetch(`/api/leave?${p}`).then(r => r.json());
     setRequests(data.requests || []);
-  }, [filterStatus, filterYear, filterMonth, inclTest]);
+  }, [filterStatus, filterYear, filterMonth]);
 
   const fetchBalance = useCallback(async () => {
     const p = new URLSearchParams();
@@ -580,17 +579,6 @@ export default function LeavePage() {
                 </button>
               ))}
             </div>
-            {isAdmin && (
-              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none px-1">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-indigo-600 cursor-pointer"
-                  checked={inclTest}
-                  onChange={e => toggleInclTest(e.target.checked)}
-                />
-                테스트 지점 포함
-              </label>
-            )}
           </div>
 
           <Card>
@@ -793,7 +781,7 @@ export default function LeavePage() {
                       checked={inclTest}
                       onChange={e => toggleInclTest(e.target.checked)}
                     />
-                    테스트 지점 포함
+                    통계 제외 지점(본부·테스트) 포함
                   </label>
                 </CardTitle>
                 <div className="flex gap-2 shrink-0">
