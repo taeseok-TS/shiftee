@@ -579,6 +579,10 @@ export default function LeaveRequestScreen() {
                       : <Text style={styles.histCancelText}>신청 취소</Text>}
                   </TouchableOpacity>
                 )}
+                {/* 원장이 승인해 본부 결재만 남은 건 — 취소 버튼 대신 이유를 보여 준다(2026-10-06) */}
+                {(r as { cancelBlock?: string | null }).cancelBlock === "IN_REVIEW" && (!myId || r.userId === myId) && (
+                  <Text style={[styles.histRejected, { color: "#6b7280" }]}>원장이 승인한 휴가라 바로 취소할 수 없어요. 취소가 필요하면 원장·본부에 요청해 주세요.</Text>
+                )}
                 {(r as { canRequestCancel?: boolean }).canRequestCancel && (
                   <TouchableOpacity
                     style={styles.histCancelBtn}

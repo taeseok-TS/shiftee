@@ -113,6 +113,7 @@ const LEAVE_TYPE_LABEL: Record<string, string> = {
 const CANCEL_BLOCK_LABEL: Record<string, string> = {
   PAST: "지난 휴가",
   NEEDS_REQUEST: "본인 취소 요청으로만",
+  IN_REVIEW: "원장 승인 후 — 본인 취소 불가",
   MAIN_ONLY: "메인 원장만 취소 가능",
 };
 

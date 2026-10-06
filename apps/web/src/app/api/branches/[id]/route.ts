@@ -63,6 +63,15 @@ export async function PATCH(
     // 종전엔 null 이 Number(null)=0 으로 바뀌어 0,0 이 저장되고 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
     // 좌표가 없던 지점은 지금처럼 null 그대로 둔다(통계 포함·메인 원장만 바꾸는 저장도 좌표를 같이 보낸다).
     const hadCoord = (v: number | null) => v != null && v !== 0;   // 0 은 옛 버그 값 — 좌표 없음으로 본다
+    // 저장될 결과로 본다 — 한쪽만 보내도 기존 값과 합쳐 위도·경도 중 하나만 남으면 거절(그 지점은 위치 검사가 꺼지거나 0 이 섞인다)
+    const nextLat = lat === undefined ? (hadCoord(before.latitude) ? before.latitude : null) : lat;
+    const nextLng = lng === undefined ? (hadCoord(before.longitude) ? before.longitude : null) : lng;
+    if ((nextLat === null) !== (nextLng === null)) {
+      return NextResponse.json({ error: "위도와 경도를 둘 다 입력해 주세요." }, { status: 400 });
+    }
+    // 옛 버그 값 0 이 남아 있으면 이번 저장에서 함께 비운다(통계 포함만 바꾸는 저장 등 좌표를 안 보낸 경우)
+    if (lat === undefined && before.latitude === 0) data.latitude = null;
+    if (lng === undefined && before.longitude === 0) data.longitude = null;
     if ((lat === null && hadCoord(before.latitude)) || (lng === null && hadCoord(before.longitude))) {
       return NextResponse.json({ error: "위도·경도가 비어 있습니다. 좌표를 넣고 저장해 주세요. (좌표를 지우면 출퇴근 위치 검사가 꺼집니다)" }, { status: 400 });
     }

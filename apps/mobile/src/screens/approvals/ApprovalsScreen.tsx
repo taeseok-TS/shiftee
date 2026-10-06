@@ -67,6 +67,7 @@ function fmtRange(start: string, end: string): string {
 const CANCEL_BLOCK_LABEL: Record<string, string> = {
   PAST: "지난 휴가 — 취소할 수 없습니다",
   NEEDS_REQUEST: "승인된 휴가 — 본인이 취소 요청을 올려야 합니다",
+  IN_REVIEW: "원장이 승인한 휴가 — 본인은 바로 취소할 수 없습니다",
   MAIN_ONLY: "다른 원장의 신청 — 메인 원장만 취소할 수 있습니다",
 };
 

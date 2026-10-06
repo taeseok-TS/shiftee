@@ -251,7 +251,9 @@ export default function BranchesPage() {
     return <div className="text-center text-gray-400 py-32">접근 권한이 없습니다.</div>;
   }
 
-  const configured = branches.filter(b => b.latitude != null && b.longitude != null).length;
+  // 0,0 은 옛 버그로 저장된 값이라 「설정됨」으로 세지 않는다 — 수정 창에서 실제 좌표를 넣어야 한다(2026-10-06)
+  const geoOk = (b: Branch) => b.latitude != null && b.longitude != null && !(b.latitude === 0 && b.longitude === 0);
+  const configured = branches.filter(geoOk).length;
 
   return (
     <div className="space-y-6">
@@ -271,7 +273,7 @@ export default function BranchesPage() {
       </div>
 
       {/* 안내 배너 */}
-      {isAdmin && branches.some(b => b.latitude == null) && (
+      {isAdmin && branches.some(b => !geoOk(b)) && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-2 text-sm text-amber-800">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <span>
@@ -286,7 +288,7 @@ export default function BranchesPage() {
       {/* 지점 목록 */}
       <div className="grid gap-3">
         {branches.map(b => {
-          const hasGeo = b.latitude != null && b.longitude != null;
+          const hasGeo = geoOk(b);
           return (
             <Card key={b.id} className="hover:shadow-md transition-shadow">
               <CardContent className="py-4 px-5">

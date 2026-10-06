@@ -36,6 +36,7 @@ type LeaveRequest = {
   approver: { name: string } | null;
   approvalSteps?: ApprovalStepInfo[];
   canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts)
+  cancelBlock?: string | null;   // 취소 못 하는 이유 코드(IN_REVIEW = 원장이 이미 승인 — 본인은 바로 취소 불가)
   canRequestCancel?: boolean;   // 취소 결재를 올릴 수 있나(본인·승인건·시작 전날까지 — 서버 판정)
   pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재
 };
@@ -547,6 +548,10 @@ export default function LeavePage() {
                               {r.canCancel && !(isAdmin && r.status === "PENDING") && (
                                 <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
                                   onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
+                              )}
+                              {/* 원장이 승인해 본부 결재만 남은 건 — 버튼이 이유 없이 사라지지 않게 알려 준다(2026-10-06) */}
+                              {r.cancelBlock === "IN_REVIEW" && (
+                                <span className="text-[11px] text-gray-400" title="취소가 필요하면 원장·본부에 반려를 요청해 주세요">원장 승인됨 · 취소는 원장·본부에 요청</span>
                               )}
                               {/* 승인된 휴가는 **취소 결재로만** — 버튼 표시 여부는 서버 판정(canRequestCancel) */}
                               {r.canRequestCancel && (
