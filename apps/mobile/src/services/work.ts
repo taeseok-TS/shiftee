@@ -106,8 +106,9 @@ export function fileUri(path: string | null | undefined): string {
   if (isAbsolute && !full.startsWith(FILE_ORIGIN + "/")) return full; // 외부 호스트엔 안 붙인다
   const rel = full.slice(FILE_ORIGIN.length);
   // 경로에 . / .. 조각(인코딩 포함)이 있으면 붙이지 않는다 — 게이트 경로처럼 보이고 다른 곳으로 가는 주소 방지.
-  // 백슬래시·탭·줄바꿈은 브라우저·안드로이드가 / 로 보거나 지워서 같은 우회가 되므로 아예 붙이지 않는다(2026-10-06 재검증 D1)
-  if (/[\\\t\n\r]|%5c|%09|%0a|%0d/i.test(rel)) return full;
+  // 백슬래시·제어문자(탭·줄바꿈·폼피드 등)는 브라우저·안드로이드(OkHttp)가 / 로 보거나 지워서 같은 우회가 되므로
+  // 하나씩 나열하지 않고 통째로 막는다(2026-10-06 재검증 D1 — 폼피드 로 다시 뚫림). 공백(0x20)은 인코딩될 뿐 지워지지 않아 둔다.
+  if (/[\x00-\x1f\x7f\\]|%5c|%[01][0-9a-f]|%7f/i.test(rel)) return full;
   if (/(^|\/)(\.|%2e){1,2}(\/|$|\?|#)/i.test(rel)) return full;
   const m = /^\/api\/uploads\/([^/?#]+)\//.exec(rel);
   if (!m) return full;
@@ -117,7 +118,11 @@ export function fileUri(path: string | null | undefined): string {
   let seg = m[1];
   try { seg = decodeURIComponent(seg); } catch { seg = m[1]; }
   if (!uploadsGate.includes(seg) && !uploadsGate.includes(m[1])) return full;
-  return full + (full.includes("?") ? "&" : "?") + "t=" + uploadsTicket;
+  // #조각이 있으면 티켓은 그 앞에 — 뒤에 붙으면 서버로 가지 않는다
+  const hashAt = full.indexOf("#");
+  const base = hashAt >= 0 ? full.slice(0, hashAt) : full;
+  const frag = hashAt >= 0 ? full.slice(hashAt) : "";
+  return base + (base.includes("?") ? "&" : "?") + "t=" + uploadsTicket + frag;
 }
 
 // 파일 업로드 → { fileUrl, fileName, fileType("image"|"file") }

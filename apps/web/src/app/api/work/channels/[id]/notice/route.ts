@@ -36,6 +36,9 @@ export async function POST(
   if (!content?.trim() && !imageUrl)
     return NextResponse.json({ error: "공지 내용을 입력해주세요." }, { status: 400 });
   // 이미지 공지는 내부 업로드 경로만 허용 (외부 URL 주입 방지)
+  // 제어문자·백슬래시가 섞인 주소는 받지 않는다 — 앱(OkHttp)이 지우거나 / 로 봐서 다른 경로로 해석된다(2026-10-06 재검증)
+  if (imageUrl && (typeof imageUrl !== "string" || /[\x00-\x1f\x7f\\]|%5c|%[01][0-9a-f]|%7f/i.test(imageUrl)))
+    return NextResponse.json({ error: "잘못된 이미지 경로입니다." }, { status: 400 });
   if (imageUrl && !imageUrl.startsWith("/api/uploads/"))
     return NextResponse.json({ error: "잘못된 이미지 경로입니다." }, { status: 400 });
   // 공지 이미지도 판정 근거(그 방 사람)가 된다 — 올리는 사람이 볼 수 있는 파일만(2026-10-06)
