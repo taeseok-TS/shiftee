@@ -159,12 +159,18 @@ export default function SchedulePage() {
   async function handleAddSave(e: React.FormEvent) {
     e.preventDefault();
     if (!addForm.userId || !addForm.date) { toast.error("직원과 날짜를 선택해주세요."); return; }
-    const res = await fetch("/api/schedule", {
+    let res = await fetch("/api/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(addForm),
     });
-    const data = await res.json();
+    let data = await res.json();
+    // 그날 일정이 이미 있으면 물어보고 덮어쓴다(조용히 덮어쓰지 않게)
+    if (res.status === 409 && data.exists) {
+      if (!window.confirm(data.error)) return;
+      res = await fetch("/api/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...addForm, overwrite: true }) });
+      data = await res.json();
+    }
     if (!res.ok) { toast.error(data.error); return; }
     toast.success("일정이 등록되었습니다.");
     showWeekWarnings(data.warnings);   // 주 49시간 초과 경고(#38)

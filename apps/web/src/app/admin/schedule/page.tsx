@@ -167,7 +167,7 @@ export default function AdminSchedulePage() {
       const res = await fetch("/api/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: form.userId, date: form.date, startTime: form.startTime, endTime: form.endTime, type: form.type, note: form.note.trim() || null }),
+        body: JSON.stringify({ userId: form.userId, date: form.date, startTime: form.startTime, endTime: form.endTime, type: form.type, note: form.note.trim() || null, overwrite: true }),   // 위에서 이미 덮어쓰기를 물었다
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "근무 일정을 저장하지 못했습니다."); return; }

@@ -14,13 +14,18 @@ import { showWeekWarnings } from "@/components/schedule/WeekHours";
  * 일괄 생성은 이미 일정이 있는 날·휴가인 날을 건너뛴다. 주 49시간을 넘으면 경고만.
  */
 export type Emp = { id: string; name: string; branch: string | null };
-export type EditTarget = { id?: string; userId: string; date: string; startTime: string; endTime: string } | null;
+export type EditTarget = { id?: string; userId: string; date: string; startTime: string; endTime: string; type?: string; note?: string | null } | null;
+const TYPES = [{ v: "WORK", l: "근무" }, { v: "OFF", l: "휴무" }, { v: "HOLIDAY", l: "공휴일" }];
 
 export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
   target: EditTarget; employees: Emp[]; onClose: () => void; onSaved: () => void;
 }) {
   // 부르는 쪽이 대상마다 key 를 바꿔 새로 띄운다 — 처음 값만 받으면 된다
-  const [form, setForm] = useState(() => ({ userId: target?.userId ?? "", date: target?.date ?? "", startTime: target?.startTime ?? "10:00", endTime: target?.endTime ?? "19:00" }));
+  // 유형·메모는 원래 값을 지킨다 — 시간만 고쳐도 휴무가 근무로 바뀌고 메모가 지워지던 것(5-나 검증)
+  const [form, setForm] = useState(() => ({
+    userId: target?.userId ?? "", date: target?.date ?? "", startTime: target?.startTime ?? "10:00", endTime: target?.endTime ?? "19:00",
+    type: (target?.type ?? "WORK").toUpperCase(), note: target?.note ?? null,
+  }));
   const [busy, setBusy] = useState(false);
   if (!target) return null;
   const editing = !!target.id;
@@ -30,10 +35,16 @@ export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
     if (!form.userId || !form.date) { toast.error("직원과 날짜를 골라 주세요."); return; }
     setBusy(true);
     try {
-      const res = editing
-        ? await fetch(`/api/schedule/${target.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: form.startTime, endTime: form.endTime, type: "WORK" }) })
-        : await fetch("/api/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, type: "WORK" }) });
-      const d = await res.json().catch(() => ({}));
+      let res = editing
+        ? await fetch(`/api/schedule/${target.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: form.startTime, endTime: form.endTime, type: form.type, note: form.note }) })
+        : await fetch("/api/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      let d = await res.json().catch(() => ({}));
+      // 그날 일정이 이미 있으면(화면에 안 보이던 일정 포함) 물어보고 덮어쓴다
+      if (!editing && res.status === 409 && d.exists) {
+        if (!window.confirm(d.error)) return;
+        res = await fetch("/api/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, overwrite: true }) });
+        d = await res.json().catch(() => ({}));
+      }
       if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return; }
       toast.success(editing ? "고쳤습니다." : "추가했습니다.");
       showWeekWarnings(d.warnings);
@@ -79,6 +90,12 @@ export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
             <label className="space-y-1"><span className="text-xs text-gray-500">시작</span><Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></label>
             <label className="space-y-1"><span className="text-xs text-gray-500">종료</span><Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></label>
           </div>
+          <label className="block space-y-1">
+            <span className="text-xs text-gray-500">유형</span>
+            <select className="w-full h-9 rounded-md border px-2" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              {TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+            </select>
+          </label>
           <div className="flex justify-between pt-1">
             {editing ? <Button variant="ghost" className="text-red-600" disabled={busy} onClick={remove}>지우기</Button> : <span />}
             <div className="flex gap-2">
@@ -97,6 +114,7 @@ const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
   open: boolean; employees: Emp[]; onClose: () => void; onSaved: () => void;
 }) {
+  // 닫았다 열면 새로 — 부르는 쪽이 열릴 때마다 key 를 바꿔 준다
   const [userIds, setUserIds] = useState<string[]>([]);
   const [range, setRange] = useState({ startDate: "", endDate: "" });
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
@@ -157,7 +175,7 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
             ))}
           </div>
           <div className="space-y-1">
-            <span className="text-xs text-gray-500">근무일정 템플릿 (범용형)</span>
+            <span className="text-xs text-gray-500">근무일정 템플릿 (담당 지점에서 쓸 수 있는 것 — 여러 직원·여러 날에 한 번에)</span>
             <TemplatePicker onPick={(st, et) => setTime({ startTime: st, endTime: et })} />
           </div>
           <div className="grid grid-cols-2 gap-2">

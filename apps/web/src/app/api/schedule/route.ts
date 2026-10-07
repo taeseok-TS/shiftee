@@ -155,13 +155,14 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  const { userId, date, startTime, endTime, type, note } = await request.json();
+  const body = await request.json().catch(() => ({}));
+  const { userId, date, startTime, endTime, type, note } = body;
 
   if (!userId || !date || !startTime || !endTime) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
   }
 
-  // 원장은 본인 일정을 직접 못 만들고(관리자 승인 필요), 담당 지점 직원만 다룬다.
+  // 원장은 본인·담당 지점 원장·직원 일정을 다룬다(lib/schedule-guard — 2026-10-07 본부 답변 #7).
   const { guardScheduleChange } = await import("@/lib/schedule-guard");
   const denied = await guardScheduleChange(session, userId);
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
@@ -190,6 +191,12 @@ export async function POST(request: NextRequest) {
   // 같은 사람.같은 날은 하나뿐이므로 **복합 유니크로 upsert** 한다.
   // 종전에는 findFirst 로 찾아 id 로 upsert 했는데, 두 요청이 동시에 오면 둘 다
   // "없음"을 보고 각자 생성해 중복이 생길 수 있었다(2026-09-08 검증에서 적발).
+  // 이미 그날 일정이 있으면 덮어쓰기 확인을 받는다 — 화면에 안 보이는 일정(휴직자·통계 제외 지점 등)을
+  // 「추가」로 조용히 덮어쓰지 않게(5-나 검증). 화면이 확인한 뒤 overwrite: true 로 다시 보낸다.
+  if (body.overwrite !== true) {
+    const ex = await prisma.schedule.findUnique({ where: { userId_date: { userId, date: dateUtc } }, select: { startTime: true, endTime: true, type: true } });
+    if (ex) return NextResponse.json({ error: `그날 이미 일정이 있습니다(${ex.startTime}~${ex.endTime}). 바꿀까요?`, exists: true, existing: ex }, { status: 409 });
+  }
   const schedule = await prisma.schedule.upsert({
     where: { userId_date: { userId, date: dateUtc } },
     create: { userId, date: dateUtc, startTime: st, endTime: et, type: kind, note: memo },

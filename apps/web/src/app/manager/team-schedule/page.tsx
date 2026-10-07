@@ -43,6 +43,7 @@ export default function ManagerSchedulePage() {
   // 일정 관리(2026-10-07 QA #18 #12) — 칸을 누르면 추가, 일정을 누르면 고치기·지우기
   const [edit, setEdit] = useState<EditTarget>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkKey, setBulkKey] = useState(0);   // 열 때마다 새 창(이전 선택이 남지 않게)
   const [me, setMe] = useState<{ id: string; name: string; branch: string | null } | null>(null);
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
@@ -132,7 +133,7 @@ export default function ManagerSchedulePage() {
           <Button variant="outline" className="gap-1" onClick={() => setEdit({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00" })}>
             <Plus size={15} />일정 추가
           </Button>
-          <Button className="gap-1" onClick={() => setBulkOpen(true)}>
+          <Button className="gap-1" onClick={() => { setBulkKey((k) => k + 1); setBulkOpen(true); }}>
             <CalendarRange size={15} />일괄 생성
           </Button>
         </div>
@@ -230,7 +231,9 @@ export default function ManagerSchedulePage() {
                                 <div className="space-y-2">
                                   {daySchedules.map(schedule => (
                                     <div key={schedule.id} className="p-2 bg-blue-100 rounded text-xs cursor-pointer hover:ring-2 hover:ring-blue-300"
-                                      onClick={() => setEdit({ id: schedule.id, userId: employee.id, date: dateStr, startTime: schedule.startTime, endTime: schedule.endTime })}>
+                                      role="button" tabIndex={0}
+                                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEdit({ id: schedule.id, userId: employee.id, date: dateStr, startTime: schedule.startTime, endTime: schedule.endTime, type: schedule.type, note: schedule.note ?? null }); } }}
+                                      onClick={() => setEdit({ id: schedule.id, userId: employee.id, date: dateStr, startTime: schedule.startTime, endTime: schedule.endTime, type: schedule.type, note: schedule.note ?? null })}>
                                       <div className="font-medium text-blue-900">
                                         {schedule.startTime} - {schedule.endTime}
                                       </div>
@@ -263,7 +266,7 @@ export default function ManagerSchedulePage() {
 
       <ScheduleEditDialog key={edit ? `${edit.id ?? "new"}-${edit.userId}-${edit.date}` : "none"} target={edit} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
         onClose={() => setEdit(null)} onSaved={fetchSchedules} />
-      <ScheduleBulkDialog open={bulkOpen} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
+      <ScheduleBulkDialog key={bulkKey} open={bulkOpen} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
         onClose={() => setBulkOpen(false)} onSaved={fetchSchedules} />
     </div>
   );

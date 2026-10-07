@@ -105,8 +105,9 @@ export async function POST(request: NextRequest) {
   // (userId, date) 유니크 — 동시에 다른 요청이 같은 날을 넣었으면 건너뛴다
   const made = rows.length ? await prisma.schedule.createMany({ data: rows, skipDuplicates: true }) : { count: 0 };
   const created = made.count;
-  await noteManagerSelfChange(session as { userId: string; role: string; name: string }, ids,
-    `일괄 등록 ${startDate}~${endDate} ${st}~${et} (${created}건)`);
+  // 실제로 만들어진 행의 사람만(전부 건너뛴 사람은 기록하지 않는다)
+  const madeFor = [...new Set(rows.map((r) => r.userId))];
+  if (created > 0) await noteManagerSelfChange(session, madeFor, `일괄 등록 ${startDate}~${endDate} ${st}~${et}`);
 
   // 주 49시간을 넘는 사람·주가 있으면 경고만(#38)
   const warnings = await over49Warnings(

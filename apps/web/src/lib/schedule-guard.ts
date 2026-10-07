@@ -3,7 +3,7 @@
 // 지금 규칙(10/7):
 //  · 원장은 **본인 일정**과 **담당 지점의 다른 원장·직원 일정**을 직접 넣고 고친다(시프티와 같게).
 //    원장이 넣은 주말 일정은 본부 승인 없이 바로 확정된다.
-//  · 대신 원장 **본인 일정** 변경은 감사 로그에 남기고 본부에 진행 알림을 보낸다(noteManagerSelfChange).
+//  · 대신 **원장(본인·다른 원장) 일정** 변경은 감사 로그에 남기고 본부에 진행 알림을 보낸다(noteManagerSelfChange).
 //  · 하루 12시간 상한 등 시간 검증은 그대로(등록·수정 라우트).
 //
 // 종전 규칙(9/7, 참고):
@@ -49,24 +49,32 @@ export async function guardScheduleChange(
 }
 
 /**
- * 원장이 **본인** 근무일정을 바꿨으면 감사 로그 + 본부 진행 알림(2026-10-07 디렉터 결정).
- * 주말 출근 제한·퇴근 상한이 일정에 걸려 있어, 스스로 바꾼 것은 본부가 알아야 한다.
+ * 원장이 **본인 또는 다른 원장**의 근무일정을 바꿨으면 감사 로그 + 본부 진행 알림(2026-10-07 디렉터 결정).
+ * 주말 출근 제한·퇴근 상한이 일정에 걸려 있어 원장 일정이 바뀐 것은 본부가 알아야 한다.
+ * 원장끼리 서로 넣어 주는 길로 본인 변경 알림을 피하지 못하게, 대상이 원장이면 다 남긴다(5-나 검증).
+ * 알림 발송은 기다리지 않는다(관리자 수만큼 응답이 늦어지지 않게).
  */
 export async function noteManagerSelfChange(
   session: { userId: string; role: string; name: string },
   targetUserIds: string[],
   detail: string,
 ) {
-  if (session.role !== "MANAGER" || !targetUserIds.includes(session.userId)) return;
+  if (session.role !== "MANAGER" || targetUserIds.length === 0) return;
   try {
+    const managers = await prisma.user.findMany({
+      where: { id: { in: [...new Set(targetUserIds)] }, role: "MANAGER" },
+      select: { id: true, name: true },
+    });
+    if (managers.length === 0) return;
+    const who = managers.map((m) => (m.id === session.userId ? `${m.name}(본인)` : m.name)).join(", ");
     const { logAudit } = await import("@/lib/audit");
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "SCHEDULE_SELF_CHANGE",
-      targetType: "USER", targetId: session.userId, targetName: session.name, detail: `원장 본인 근무일정 변경: ${detail}`,
+      targetType: "USER", targetId: managers[0].id, targetName: who, detail: `원장 근무일정 변경(${who}): ${detail}`,
     });
     const { botNotifyAdminsProgress } = await import("@/lib/bot");
-    await botNotifyAdminsProgress(`${session.name} 원장 · 본인 근무일정 변경 — ${detail}`);
+    botNotifyAdminsProgress(`${session.name} 원장 · 원장 근무일정 변경(${who}) — ${detail}`).catch(() => {});
   } catch (e) {
-    console.error("[schedule] 원장 본인 일정 변경 기록 실패:", e);
+    console.error("[schedule] 원장 일정 변경 기록 실패:", e);
   }
 }
