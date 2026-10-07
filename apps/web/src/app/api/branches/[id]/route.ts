@@ -140,6 +140,8 @@ export async function PATCH(
         prisma.user.updateMany({ where: { branch: before.name }, data: { branch: name } }),
         // 원장대행 지정도 지점명으로 묶여 있다 — 안 바꾸면 대행이 조용히 끊긴다(2026-10-07 검증 지적)
         prisma.approvalDelegate.updateMany({ where: { branch: before.name }, data: { branch: name } }),
+        // 근무일정 템플릿의 지점 목록도 — 안 바꾸면 그 지점 전용 템플릿이 신청 화면에서 사라진다(5-가 검증)
+        prisma.$executeRaw`UPDATE "ScheduleTemplate" SET "branches" = array_replace("branches", ${before.name}, ${name}), "updatedAt" = now() WHERE ${before.name} = ANY("branches")`,
       ]);
       // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지
       // 없어진 지점명으로 조회돼 근태.직원 목록이 빈 채로 보인다.

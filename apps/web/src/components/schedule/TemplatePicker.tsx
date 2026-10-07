@@ -12,15 +12,16 @@ type Tpl = { id: string; name: string; startTime: string; endTime: string; branc
 export function TemplatePicker({ branch, onPick }: { branch?: string | null; onPick: (start: string, end: string) => void }) {
   const [list, setList] = useState<Tpl[]>([]);
   const [value, setValue] = useState("");
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
     fetch(`/api/schedule-templates${branch ? `?branch=${encodeURIComponent(branch)}` : ""}`)
       .then((r) => (r.ok ? r.json() : { templates: [] }))
-      .then((d) => { if (alive) { setList(d.templates || []); setValue(""); } })
-      .catch(() => {});
+      .then((d) => { if (alive) { setList(d.templates || []); setValue(""); setLoaded(true); } })
+      .catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [branch]);
-  if (!list.length) return null;
+  if (!list.length) return <p className="text-xs text-gray-400">{loaded ? "쓸 수 있는 템플릿이 없습니다 — 시간을 직접 넣어 주세요." : "템플릿을 불러오는 중…"}</p>;
   return (
     <select
       className="w-full h-9 rounded-md border px-2 text-sm"

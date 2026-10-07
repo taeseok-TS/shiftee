@@ -130,6 +130,14 @@ export default function ScheduleTemplatesPage() {
               <div>
                 <span className="text-xs text-gray-500">지점 (비우면 전사 공통)</span>
                 <div className="mt-1 flex flex-wrap gap-1 max-h-32 overflow-auto border rounded p-2">
+                  {/* 지점 목록에 없는 이름(없어진·비활성 지점)도 보여서 뺄 수 있게 — 누르면 빠진다 */}
+                  {form.branches.filter((b) => !branches.includes(b)).map((b) => (
+                    <button key={`x-${b}`} type="button" title="지점 목록에 없는 이름 — 누르면 뺍니다"
+                      className="px-2 py-0.5 rounded border text-xs bg-amber-50 border-amber-300 text-amber-700"
+                      onClick={() => setForm({ ...form, branches: form.branches.filter((x) => x !== b) })}>
+                      {b} ✕
+                    </button>
+                  ))}
                   {branches.map((b) => (
                     <label key={b} className={`px-2 py-0.5 rounded border cursor-pointer text-xs ${form.branches.includes(b) ? "bg-blue-50 border-blue-300 text-blue-700" : "text-gray-600"}`}>
                       <input type="checkbox" className="hidden" checked={form.branches.includes(b)}

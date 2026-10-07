@@ -21,6 +21,12 @@ const FAIL_REASON: Record<string, { label: string; tip: string }> = {
 };
 
 const ACTION_LABEL: Record<string, string> = {
+  SCHEDULE_TEMPLATE_CREATE: "근무일정 템플릿 추가",
+  SCHEDULE_TEMPLATE_UPDATE: "근무일정 템플릿 수정",
+  SCHEDULE_SELF_CHANGE: "원장 본인 근무일정 변경",
+  ATTENDANCE_REQUEST_DECISION: "출퇴근 요청 처리",
+  APPROVAL_DELEGATE_CREATE: "원장대행 지정",
+  APPROVAL_DELEGATE_REVOKE: "원장대행 해제",
   LEAVE_BALANCE_UPDATE: "연차 수정",
   EMPLOYEE_UPDATE: "직원 정보 수정",
   EMPLOYEE_CREATE: "직원 생성",

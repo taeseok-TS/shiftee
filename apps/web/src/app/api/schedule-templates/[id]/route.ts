@@ -44,7 +44,12 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role !== "ADMIN") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   const { id } = await params;
-  const row = await prisma.scheduleTemplate.updateMany({ where: { id }, data: { isActive: false } });
-  if (row.count === 0) return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
+  const t = await prisma.scheduleTemplate.findUnique({ where: { id }, select: { name: true } });
+  if (!t) return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
+  await prisma.scheduleTemplate.update({ where: { id }, data: { isActive: false } });
+  await logAudit({
+    actorId: session.userId, actorName: session.name, action: "SCHEDULE_TEMPLATE_UPDATE",
+    targetType: "ScheduleTemplate", targetId: id, targetName: t.name, detail: `근무일정 템플릿 끔: ${t.name}`,
+  });
   return NextResponse.json({ success: true });
 }
