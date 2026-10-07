@@ -107,6 +107,8 @@ export default function ScheduleScreen() {
   const [reqEnd, setReqEnd] = useState("");
   const [reqDays, setReqDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5])); // 기본 월~금
   const [reqSubmitting, setReqSubmitting] = useState(false);
+  // 기존 일정 수정 요청이면 그 날짜(2026-10-07 #49) — 신청 창을 그 날 하루로 열고 kind=UPDATE 로 보낸다
+  const [updateDate, setUpdateDate] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState("");
   // 신청 기간의 공휴일 ("YYYY-MM-DD" → 이름). 위 holidays 는 달력 표시용으로 이번 달만 담겨 있어
   // 신청 기간 전체를 덮지 못한다 — 신청용으로 따로 조회한다(추석 연휴가 근무일로 잡히던 원인).
@@ -283,6 +285,7 @@ export default function ScheduleScreen() {
     setReqSubmitting(true);
     try {
       await createScheduleRequest({
+        kind: updateDate ? "UPDATE" : "CREATE",
         templateId: reqTemplate.id,
         templateName: reqTemplate.name,
         startDate: reqStart,
@@ -296,6 +299,7 @@ export default function ScheduleScreen() {
       setReqStart("");
       setReqEnd("");
       setReqDays(new Set([1, 2, 3, 4, 5]));
+      setUpdateDate(null);
       Alert.alert("완료", "근무일정 신청이 접수되었습니다. 결재 승인 후 일정에 반영됩니다.");
       load();
     } catch (e: any) {
@@ -303,6 +307,47 @@ export default function ScheduleScreen() {
     } finally {
       setReqSubmitting(false);
     }
+  };
+
+  // 기존 근무일정 누르기 → 수정·삭제 요청(2026-10-07 #49). 오늘 이후 일정만(지난 기록은 출퇴근기록 수정 요청)
+  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const onShiftPress = (s: ScheduleEntry) => {
+    const date = String(s.date).slice(0, 10);
+    Alert.alert(`${fmtDay(s.date)} 근무일정`, `${s.startTime} ~ ${s.endTime}\n바꾸거나 지우려면 요청을 보내 주세요. 결재 승인 후 반영됩니다.`, [
+      { text: "닫기", style: "cancel" },
+      {
+        text: "수정 요청",
+        onPress: () => {
+          const [y, m, d] = date.split("-").map(Number);
+          setUpdateDate(date);
+          setReqStart(date);
+          setReqEnd(date);
+          setReqDays(new Set([new Date(y, m - 1, d).getDay()]));
+          setReqOpen(true);
+        },
+      },
+      {
+        text: "삭제 요청",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await createScheduleRequest({
+              kind: "DELETE",
+              templateId: "DELETE",
+              templateName: "근무일정 삭제",
+              startDate: date,
+              endDate: date,
+              scheduleData: [{ date, startTime: s.startTime, endTime: s.endTime }],
+              totalHours: 0,
+            });
+            Alert.alert("완료", "삭제 요청을 보냈습니다. 결재 승인 후 일정에서 빠집니다.");
+            load();
+          } catch (e: any) {
+            Alert.alert("요청 실패", e?.response?.data?.error || "요청 중 오류가 발생했습니다.");
+          }
+        },
+      },
+    ]);
   };
 
   // 캘린더 일정 기간 표시 (같은 날이면 한 번만)
@@ -351,8 +396,9 @@ export default function ScheduleScreen() {
             ) : (
               shifts.map((s) => {
                 const t = TYPE_LABEL[s.type] || TYPE_LABEL.work;
+                const editable = s.type === "work" && String(s.date).slice(0, 10) >= todayStr;
                 return (
-                  <View key={s.id} style={styles.shiftItem}>
+                  <TouchableOpacity key={s.id} style={styles.shiftItem} disabled={!editable} onPress={() => onShiftPress(s)} activeOpacity={0.6}>
                     <Text style={styles.shiftDate}>{fmtDay(s.date)}</Text>
                     <View style={styles.shiftMid}>
                       {s.type === "work" ? (
@@ -366,9 +412,13 @@ export default function ScheduleScreen() {
                     <View style={[styles.badge, { backgroundColor: t.color }]}>
                       <Text style={styles.badgeText}>{t.label}</Text>
                     </View>
-                  </View>
+                    {editable && <Ionicons name="chevron-forward" size={16} color="#9ca3af" style={{ marginLeft: 4 }} />}
+                  </TouchableOpacity>
                 );
               })
+            )}
+            {shifts.some((s) => s.type === "work" && String(s.date).slice(0, 10) >= todayStr) && (
+              <Text style={styles.empty}>일정을 누르면 수정·삭제를 요청할 수 있습니다.</Text>
             )}
           </View>
 
@@ -485,10 +535,10 @@ export default function ScheduleScreen() {
       )}
 
       {/* 근무일정 신청 모달 */}
-      <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={() => setReqOpen(false)}>
+      <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={() => { setReqOpen(false); setUpdateDate(null); }}>
         <KeyboardAvoidingView style={styles.reqBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.reqCard}>
-            <Text style={styles.reqTitle2}>근무일정 신청</Text>
+            <Text style={styles.reqTitle2}>{updateDate ? `근무일정 수정 요청 (${updateDate})` : "근무일정 신청"}</Text>
             <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
               <Text style={styles.reqLabel}>근무 시간</Text>
               <View style={styles.tmplWrap}>
@@ -593,7 +643,7 @@ export default function ScheduleScreen() {
             </ScrollView>
 
             <View style={styles.reqBtns}>
-              <TouchableOpacity style={styles.reqCancel} onPress={() => setReqOpen(false)}>
+              <TouchableOpacity style={styles.reqCancel} onPress={() => { setReqOpen(false); setUpdateDate(null); }}>
                 <Text style={styles.reqCancelText}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity

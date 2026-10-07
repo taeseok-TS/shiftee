@@ -46,6 +46,7 @@ export async function getHolidays(year: number): Promise<Holiday[]> {
 
 // 근무일정 신청 (웹 신청 페이지와 동일한 서버 계약 — 결재라인은 서버 정책이 자동 구성)
 export async function createScheduleRequest(payload: {
+  kind?: "CREATE" | "UPDATE" | "DELETE";   // 2026-10-07 #49 — 기존 일정 수정·삭제 요청
   templateId: string;
   templateName: string;
   startDate: string;

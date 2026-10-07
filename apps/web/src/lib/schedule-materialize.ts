@@ -13,7 +13,7 @@ type ScheduleEntry = { date: string; startTime?: string; endTime?: string };
 export async function materializeSchedules(
   tx: Pick<typeof prisma, "schedule">,
   req: { id: string; userId: string; scheduleData: unknown; templateName: string | null;
-         startDate?: Date | null; endDate?: Date | null }
+         startDate?: Date | null; endDate?: Date | null; kind?: string | null }
 ) {
   const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
   const from = ymd(req.startDate);
@@ -21,6 +21,15 @@ export async function materializeSchedules(
 
   const entries = (Array.isArray(req.scheduleData) ? req.scheduleData : []) as ScheduleEntry[];
   const seen = new Set<string>();
+
+  // 삭제 요청(2026-10-07 #49) — 승인되면 그 날들의 근무일정을 지운다(결재자가 승인한 일정 변경)
+  if (req.kind === "DELETE") {
+    const dates = [...new Set(entries.map((e) => e?.date).filter((d): d is string => isRealDate(d)))]
+      .filter((d) => (!from || d >= from) && (!to || d <= to))
+      .map((d) => { const [y, m, dd] = d.split("-").map(Number); return new Date(Date.UTC(y, m - 1, dd)); });
+    if (dates.length) await tx.schedule.deleteMany({ where: { userId: req.userId, date: { in: dates }, type: "WORK" } });
+    return;
+  }
 
   for (const entry of entries) {
     const date = entry?.date;

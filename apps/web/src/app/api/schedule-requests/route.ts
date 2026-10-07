@@ -55,7 +55,11 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "요청 본문이 올바르지 않습니다." }, { status: 400 });
   }
-  const { templateId, templateName, startDate, endDate, scheduleData, totalHours, approvalLineId } = body;
+  const { startDate, endDate, scheduleData, totalHours, approvalLineId } = body;
+  let { templateId, templateName } = body;
+  // 신청 종류(2026-10-07 #49) — CREATE 새 일정 / UPDATE 기존 일정 수정 / DELETE 기존 일정 삭제
+  const kind: "CREATE" | "UPDATE" | "DELETE" = body.kind === "UPDATE" || body.kind === "DELETE" ? body.kind : "CREATE";
+  if (kind === "DELETE") { templateId = "DELETE"; templateName = "근무일정 삭제"; }
 
   if (!templateId || !startDate || !endDate || !scheduleData) {
     return NextResponse.json({ error: "필수 정보가 부족합니다." }, { status: 400 });
@@ -67,6 +71,22 @@ export async function POST(request: NextRequest) {
   const parsed = parseScheduleData(scheduleData, startDate, endDate);
   if (parsed.ok !== true) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const entries = parsed.entries;
+
+  // 수정·삭제는 **이미 근무일정이 있는 날**만, 그리고 오늘 이후만(지난 기록은 출퇴근기록 수정 요청으로)
+  if (kind !== "CREATE") {
+    const todayYmd = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+    if (entries.some((e) => e.date < todayYmd))
+      return NextResponse.json({ error: "지난 날짜의 근무일정은 수정·삭제를 요청할 수 없습니다." }, { status: 400 });
+    const dates = entries.map((e) => { const [y, m, d] = e.date.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); });
+    const have = await prisma.schedule.findMany({
+      where: { userId: session.userId, date: { in: dates }, type: "WORK" }, select: { date: true },
+    });
+    const haveSet = new Set(have.map((h) => h.date.toISOString().slice(0, 10)));
+    const missing = entries.filter((e) => !haveSet.has(e.date)).map((e) => e.date);
+    if (missing.length)
+      return NextResponse.json({ error: `근무일정이 없는 날이 있습니다: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? " 외" : ""} — 새 일정은 「일정 신청」으로 해 주세요.` }, { status: 400 });
+    if (kind === "UPDATE" && typeof templateName === "string" && !templateName.startsWith("수정 · ")) templateName = `수정 · ${templateName}`;
+  }
 
   // 승인된 휴가가 걸친 날은 그만큼 뺀다 — 신청 화면과 **같은 규칙**이어야 결재자가
   // 보는 숫자가 화면과 일치한다(반차 0.5, 반반차 0.25 는 그 비율만큼).
@@ -102,6 +122,8 @@ export async function POST(request: NextRequest) {
     // 휴가 조회 실패는 신청을 막지 않는다 — 차감 없이 간다(과소가 아니라 과대로 남는다)
     console.error("[schedule-requests] 휴가 차감 계산 실패:", e);
   }
+
+  if (kind === "DELETE") computedHours = 0;   // 삭제 요청은 근무시간이 늘지 않는다
 
   // ── 역할/지점 기반 자동 결재 정책 (근무일정) ──
   //  주말 근무 포함: 연차 2일+ 와 동일 → 직원: 지점원장→관리자, 원장: 관리자
@@ -181,6 +203,7 @@ export async function POST(request: NextRequest) {
       const scheduleRequest = await tx.scheduleRequest.create({
         data: {
           userId: session.userId,
+          kind,
           templateId,
           templateName,
           startDate: new Date(startDate),
@@ -216,7 +239,7 @@ export async function POST(request: NextRequest) {
       const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true } });
       botNotifyApprovalRequest(policySteps[0], {
         kind: "근무일정",
-        requesterName: me?.name ?? "직원",
+        requesterName: kind === "CREATE" ? (me?.name ?? "직원") : `${me?.name ?? "직원"} (${kind === "DELETE" ? "삭제 요청" : "수정 요청"})`,
         period: `${entries[0].date} ~ ${entries[entries.length - 1].date}`,
         requesterId: session.userId,
       }).catch(() => {});

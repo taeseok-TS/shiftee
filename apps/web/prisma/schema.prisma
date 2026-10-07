@@ -166,6 +166,7 @@ model ScheduleRequest {
   id            String                 @id @default(cuid())
   userId        String
   user          User                   @relation(fields: [userId], references: [id])
+  kind          String                 @default("CREATE") // CREATE | UPDATE(수정) | DELETE(삭제) — 2026-10-07 QA #49
   templateId    String? // 근무 템플릿 ID (예: "10-7")
   templateName  String? // 템플릿명 (예: "10AM-7PM")
   startDate     DateTime               @db.Date
