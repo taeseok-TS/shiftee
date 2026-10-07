@@ -93,6 +93,8 @@ export default function ContractListScreen() {
   const [signPw, setSignPw] = useState(""); // 근로자 본인 서명 비밀번호 재확인(#205-1)
   const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
   const sigRef = useRef<SignatureViewRef>(null);
+  // 휴대폰 서명 진행(#32, 본부 답변 #36 「크게 보기 + 다음 칸·남은 칸 수」) — 입력 칸을 이름으로 찾아 「다음 칸」에서 바로 옮겨 간다
+  const fieldRefs = useRef<Record<string, TextInput | null>>({});
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
   const consentKeys = signTarget?.extraFields && signTarget.userId === myId && !signTarget.externalName ? Object.keys(CONSENT_LABELS).filter(k => k in signTarget.extraFields) : [];
   // 서명 대상이 요구하는 프로필 필드 중 아직 비어 있는 것 — 본인(계약 대상 직원)이 서명할 때만
@@ -459,7 +461,7 @@ export default function ContractListScreen() {
                   <Text style={[styles.consentTitle, { color: "#1e40af" }]}>필요한 정보 입력 (프로필에 저장됩니다)</Text>
                   {missingProfile.includes("주소") && (
                     <View style={{ marginBottom: 6 }}><Text style={styles.consentLabel}>주소</Text>
-                      <TextInput style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
+                      <TextInput ref={r => { fieldRefs.current["p:주소"] = r; }} style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
                         value={profileInput.주소} onChangeText={t => setProfileInput(p => ({ ...p, 주소: t }))} /></View>
                   )}
                   {missingProfile.includes("생년월일") && (
@@ -482,18 +484,60 @@ export default function ContractListScreen() {
           {/* ── 서명 단계 (2단계 또는 동의 없는 문서) ── */}
           {!(isOwnSign && !unlocked) && (consentKeys.length === 0 || signStep === 2) && (
             <>
+              {/* 남은 칸·다음 칸·크게 보기(#32) */}
+              {(() => {
+                const left: { key: string; label: string; focus?: boolean }[] = [];
+                if (consentKeys.length === 0) {
+                  if (missingProfile.includes("주소") && !profileInput.주소.trim()) left.push({ key: "p:주소", label: "주소", focus: true });
+                  if (missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일)) left.push({ key: "p:생년월일", label: "생년월일", focus: true });
+                }
+                for (const f of empFields) {
+                  const type = empFieldType(f);
+                  if (type === "check") continue;
+                  if (type === "confirm") { if (empFieldInput[f] !== "☑") left.push({ key: `e:${f}`, label: `${empFieldLabel(f)} 확인 체크` }); continue; }
+                  if (!f.includes("기타") && !(empFieldInput[f] || "").trim()) left.push({ key: `e:${f}`, label: empFieldLabel(f), focus: true });
+                }
+                if (isOwnSign && !unlocked && !signPw) left.push({ key: "pw", label: "비밀번호", focus: true });
+                if (isOwnSign && !signAgree) left.push({ key: "agree", label: "전자서명 동의 체크" });
+                const goNext = () => {
+                  const next = left[0];
+                  if (!next) { Alert.alert("남은 칸 없음", "아래 칸에 서명한 뒤 [확인]을 누르세요."); return; }
+                  const r = fieldRefs.current[next.key];
+                  if (next.focus && r) r.focus();
+                  else Alert.alert("다음 칸", `「${next.label}」을(를) 해 주세요.`);
+                };
+                const doc = viewerUrl(signTarget?.fileUrl);
+                return (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 8 }}>
+                    <Text style={{ flex: 1, fontSize: 13, color: left.length ? "#b45309" : "#047857", fontWeight: "600" }}>
+                      {left.length ? `남은 칸 ${left.length}개 — 다음: ${left[0].label}` : "남은 칸 없음 — 서명만 하면 됩니다"}
+                    </Text>
+                    {left.length > 0 && (
+                      <TouchableOpacity onPress={goNext} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "#eef2ff" }}>
+                        <Text style={{ color: "#4338ca", fontWeight: "600", fontSize: 13 }}>다음 칸</Text>
+                      </TouchableOpacity>
+                    )}
+                    {!!doc && (
+                      <TouchableOpacity onPress={() => { if (signTarget) api.recordContractViewed(signTarget.id).catch(() => {}); Linking.openURL(doc).catch(() => Alert.alert("알림", "문서를 여는 중 오류가 발생했습니다.")); }}
+                        style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "#f3f4f6" }}>
+                        <Text style={{ color: "#374151", fontWeight: "600", fontSize: 13 }}>문서 크게 보기</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()}
               {/* 동의 없는 문서(비밀유지 등)의 프로필 미입력 항목 */}
               {consentKeys.length === 0 && missingProfile.length > 0 && (
                 <View style={[styles.consentBox, { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }]}>
                   <Text style={[styles.consentTitle, { color: "#1e40af" }]}>계약서에 필요한 정보 입력 (프로필에 저장됩니다)</Text>
                   {missingProfile.includes("주소") && (
                     <View style={{ marginBottom: 6 }}><Text style={styles.consentLabel}>주소</Text>
-                      <TextInput style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
+                      <TextInput ref={r => { fieldRefs.current["p:주소"] = r; }} style={styles.profileInput} placeholder="예: 서울시 강남구 테헤란로 123"
                         value={profileInput.주소} onChangeText={t => setProfileInput(p => ({ ...p, 주소: t }))} /></View>
                   )}
                   {missingProfile.includes("생년월일") && (
                     <View><Text style={styles.consentLabel}>생년월일 (YYYY-MM-DD)</Text>
-                      <TextInput style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
+                      <TextInput ref={r => { fieldRefs.current["p:생년월일"] = r; }} style={styles.profileInput} placeholder="예: 1995-03-15" keyboardType="numbers-and-punctuation"
                         value={profileInput.생년월일} onChangeText={t => setProfileInput(p => ({ ...p, 생년월일: t }))} /></View>
                   )}
                 </View>
@@ -521,7 +565,7 @@ export default function ContractListScreen() {
                     return (
                       <View key={f} style={{ marginBottom: 6 }}>
                         <Text style={styles.consentLabel}>{empFieldLabel(f)}{type === "date" ? " (YYYY-MM-DD)" : ""}</Text>
-                        <TextInput style={styles.profileInput}
+                        <TextInput ref={r => { fieldRefs.current[`e:${f}`] = r; }} style={styles.profileInput}
                           placeholder={type === "date" ? "예: 2026-09-15" : `${empFieldLabel(f)} 입력`}
                           keyboardType={type === "date" ? "numbers-and-punctuation" : "default"}
                           value={empFieldInput[f] || ""} onChangeText={t => setEmpFieldInput(p => ({ ...p, [f]: t }))} />
@@ -534,7 +578,7 @@ export default function ContractListScreen() {
               {isOwnSign && (
                 <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
                   {!unlocked && <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>}
-                  {!unlocked && <TextInput style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                  {!unlocked && <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
                     autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />}
                   {/* 전자서명 동의(#205-3) — 문구는 웹·서버 기록과 같게 */}
                   <TouchableOpacity style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 }} onPress={() => setSignAgree((v) => !v)}>
