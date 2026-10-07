@@ -149,7 +149,10 @@ export async function POST(request: NextRequest) {
         const existing = exact ?? (looseId ? await prisma.user.findUnique({ where: { id: looseId }, select: pick }) : null);
         // 휴지통 계정은 고치지 않는다(직원 수정과 같은 규칙 — 되살리려면 복구)
         if (existing?.deletedAt) {
-          errors.push(`${rowNum}번 행: 삭제(휴지통)된 직원이라 수정하지 않았습니다. (${email})`);
+          // 원장에게는 삭제 여부를 알리지 않는다(직원 수정과 같은 규칙) — 담당 지점 밖 문구로
+          errors.push(session.role === "MANAGER"
+            ? `${rowNum}번 행: 담당 지점 직원만 등록·수정할 수 있습니다. (${email})`
+            : `${rowNum}번 행: 삭제(휴지통)된 직원이라 수정하지 않았습니다. (${email})`);
           failed++;
           continue;
         }
