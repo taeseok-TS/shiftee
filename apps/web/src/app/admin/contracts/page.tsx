@@ -949,7 +949,7 @@ export default function ContractsPage() {
         u["일근무시간"] = work > 0 ? fmtH(work) : "";
       }
       if (week > 0) {
-        const weeklyRest = Math.min((week / 40) * 8, 8); // 주휴시간 (비례, 최대 8h)
+        const weeklyRest = week >= 15 ? Math.min((week / 40) * 8, 8) : 0; // 주휴시간 (비례, 최대 8h) — 주 15시간 미만은 주휴 없음(근로기준법 제18조 3항)
         u["월근로시간"] = String(Math.round((week + weeklyRest) * 4.345));
       } else if (!(extraFields["주근무시간"] || "").trim()) {
         // 주근무시간을 지우면 파생된 월근로시간도 비운다 — 옛 값이 계약서에 남는 것 방지

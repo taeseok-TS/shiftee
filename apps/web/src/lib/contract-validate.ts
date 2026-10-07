@@ -56,6 +56,11 @@ const num = (v: string | undefined | null): number | null => {
   const n = Number(m[0].replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
 };
+// 시간 칸은 적힌 숫자 중 **가장 큰 값** — 「1일 9시간」→9, 「주 5일 45시간」→45(첫 숫자만 읽으면 초과를 놓친다, 재검증 F7)
+const hoursNum = (v: string | undefined | null): number | null => {
+  const all = [...(v || "").matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter(Number.isFinite);
+  return all.length ? Math.max(...all) : null;
+};
 const won = (n: number) => `${Math.floor(n).toLocaleString()}원`;
 
 /** 치환값(mergeData)으로 검사 — 문제 목록(비면 통과) */
@@ -72,9 +77,9 @@ export async function validateContractMerge(
   if (sd && ed && sd > ed) errors.push(`계약 종료일(${ed})이 시작일(${sd})보다 빠릅니다.`);
 
   // 소정근로시간
-  const week = num(merge["주근무시간"]);
+  const week = hoursNum(merge["주근무시간"]);
   if (has("주근무시간") && week != null && week > 40) errors.push(`주 근무시간 ${week}시간 — 소정근로시간은 주 40시간을 넘을 수 없습니다.`);
-  const day = num(merge["일근무시간"]);
+  const day = hoursNum(merge["일근무시간"]);
   if (has("일근무시간") && day != null && day > 8) errors.push(`하루 근무시간 ${day}시간 — 소정근로시간은 하루 8시간을 넘을 수 없습니다.`);
 
   // 최저임금
@@ -84,8 +89,9 @@ export async function validateContractMerge(
   if (has("월급여액")) {
     const pay = num(merge["월급여액"]);
     // 월 근로시간 — 입력값과 주 근무시간으로 계산한 값((주+주휴)×4.345) 중 큰 쪽. 비우거나 손으로 낮춰 검사를 피하지 못하게(검증 F2)
-    const entered = num(merge["월근로시간"]);
-    const computed = week != null && week > 0 ? Math.round((week + Math.min((week / 40) * 8, 8)) * 4.345) : null;
+    const entered = hoursNum(merge["월근로시간"]);
+    // 주휴는 주 15시간 이상만(근로기준법 제18조 3항) — 15시간 미만에 주휴를 넣으면 합법 금액이 막힌다(재검증 F2)
+    const computed = week != null && week > 0 ? Math.round((week + (week >= 15 ? Math.min((week / 40) * 8, 8) : 0)) * 4.345) : null;
     const hours = Math.max(entered ?? 0, computed ?? 0) || null;
     if (!pay) errors.push("월 급여액을 입력해 주세요.");
     else if (!hours) errors.push("주 근무시간(또는 월 근로시간)을 입력해 주세요 — 최저임금을 확인할 수 없습니다.");
@@ -104,12 +110,16 @@ export async function validateContractMerge(
     if (!monthly) errors.push("연봉을 입력해 주세요.");
     else if (monthly / hours < mw.won) {
       errors.push(`최저임금 미만입니다 — 월 급여(기본급+식대) ${won(monthly)} ÷ 월 ${hours}시간 = 시급 ${won(monthly / hours)} (${mwLabel}). 연봉을 고쳐야 저장·발송할 수 있습니다.`);
-    } else if (has("실무지급률")) {
-      // 실무평가(수습) 단계는 월 급여의 N%(기본 85) — 수습 감액은 최저임금의 90%까지만 된다(최저임금법 제5조 2항, 검증 F6)
+    } else if (has("실무지급률") && merge["재계약"] !== "1") {
+      // 실무평가(수습) 단계는 월 급여의 N%(기본 85). 수습 조항은 신규입사 구간({#신규입사})에만 있다 — 재계약은 보지 않는다(재검증 N1).
+      // 수습 감액은 1년 이상 계약(기간 없는 계약 포함)에서만 최저임금의 90%까지 된다(최저임금법 제5조 2항) — 1년 미만이면 100%
       const rate = num(merge["실무지급률"]) ?? 85;
       const prob = (monthly * rate) / 100;
-      if (prob / hours < mw.won * 0.9) {
-        errors.push(`실무평가(수습) 단계 급여가 최저임금의 90% 미만입니다 — 월 급여의 ${rate}% ${won(prob)} ÷ 월 ${hours}시간 = 시급 ${won(prob / hours)} (하한 ${won(mw.won * 0.9)}, ${mwLabel}). 연봉이나 지급률을 고쳐야 저장·발송할 수 있습니다.`);
+      const oneYear = !opts.endDate || !sd ||
+        new Date(`${opts.endDate.slice(0, 10)}T00:00:00Z`).getTime() >= new Date(`${sd}T00:00:00Z`).getTime() + 364 * 86400000;
+      const floor = mw.won * (oneYear ? 0.9 : 1);
+      if (prob / hours < floor) {
+        errors.push(`실무평가(수습) 단계 급여가 ${oneYear ? "최저임금의 90%" : "최저임금(1년 미만 계약은 수습 감액 불가)"} 미만입니다 — 월 급여의 ${rate}% ${won(prob)} ÷ 월 ${hours}시간 = 시급 ${won(prob / hours)} (하한 ${won(floor)}, ${mwLabel}). 연봉이나 지급률을 고쳐야 저장·발송할 수 있습니다.`);
       }
     }
   }

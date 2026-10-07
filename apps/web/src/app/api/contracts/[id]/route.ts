@@ -246,7 +246,8 @@ export async function PATCH(
   // 값 검증(#24) — 발송·재발송(결재 초기화 포함)이면 **이번 요청으로 바뀔 값까지 반영한** 최종 값으로 본다.
   // 종전에는 요청에 값이 실리면 저장값 검사를 건너뛰고, 날짜만 고치면 수정 단계 검사도 타지 않았다(#24 검증 F1·F3).
   // 결재 초기화 확인보다 먼저 — 확인해 놓고 막히지 않게.
-  if (status === "SENT" || needsReset) {
+  // 진행 중(발송됨) 계약의 수정도 — 서명 전이면 결재 초기화가 없어 날짜만 고치면 검사 없이 저장됐다(재검증 잔여)
+  if (status === "SENT" || needsReset || (contentChanged && contract.status !== "DRAFT")) {
     const { validateStoredContract } = await import("@/lib/contract-validate");
     const verrs = await validateStoredContract({
       ...contract,
