@@ -54,7 +54,8 @@ export async function createScheduleRequest(payload: {
   scheduleData: { date: string; startTime: string; endTime: string }[];
   totalHours: number;
 }) {
-  await axios.post(`${API_URL}/schedule-requests`, payload, { headers: await authHeaders() });
+  const res = await axios.post(`${API_URL}/schedule-requests`, payload, { headers: await authHeaders() });
+  return { warnings: (res.data?.warnings ?? []) as string[] };   // 주 49시간 초과 경고(#38)
 }
 
 /**

@@ -297,7 +297,7 @@ export default function ScheduleScreen() {
     }
     setReqSubmitting(true);
     try {
-      await createScheduleRequest({
+      const { warnings } = await createScheduleRequest({
         kind: updateDate ? "UPDATE" : "CREATE",
         templateId: reqTemplate.id,
         templateName: reqTemplate.name,
@@ -313,7 +313,7 @@ export default function ScheduleScreen() {
       setReqEnd("");
       setReqDays(new Set([1, 2, 3, 4, 5]));
       setUpdateDate(null);
-      Alert.alert("완료", "근무일정 신청이 접수되었습니다. 결재 승인 후 일정에 반영됩니다.");
+      Alert.alert("완료", `근무일정 신청이 접수되었습니다. 결재 승인 후 일정에 반영됩니다.${warnings.length ? `\n\n⚠ ${warnings.join("\n⚠ ")}` : ""}`);
       load();
     } catch (e: any) {
       Alert.alert("신청 실패", e?.response?.data?.error || "신청 중 오류가 발생했습니다.");

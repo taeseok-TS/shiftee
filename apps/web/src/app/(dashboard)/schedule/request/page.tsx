@@ -327,9 +327,13 @@ export default function ScheduleRequestPage() {
 
       if (res.ok) {
         toast.success("근무일정 신청이 완료되었습니다");
+        // 승인되면 주 49시간을 넘는 주가 있으면 알려 준다(막지 않는다, #38) — 읽을 시간을 조금 더 준다
+        const ok = await res.json().catch(() => ({}));
+        const warns = (ok.warnings || []) as string[];
+        for (const w of warns) toast.warning(w, { duration: 8000 });
         setTimeout(() => {
           window.location.href = "/schedule";
-        }, 1500);
+        }, warns.length ? 4000 : 1500);
       } else {
         const data = await res.json();
         toast.error(data.error || "신청 중 오류가 발생했습니다");

@@ -19,7 +19,8 @@ type Cell = {
   leave?: string; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
 };
 type BoardUser = { id: string; name: string; empNo: number | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
-type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>>; truncated?: boolean };
+type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>>; truncated?: boolean;
+  over49?: Record<string, { monday: string; sched: number; actual: number }[]> };
 
 type Kind = "normal" | "late" | "missing" | "absent" | "leave" | "pending";
 const KIND_LABEL: Record<Kind, string> = { normal: "정상", late: "지각", missing: "누락", absent: "결근", leave: "휴가", pending: "승인 대기" };
@@ -271,6 +272,13 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                     <span className="font-medium">{u.name}</span>
                     <span className="text-gray-400"> · {u.branch ?? "-"}</span>
                     {u.resigned && <span className="ml-1 text-gray-400">(퇴사)</span>}
+                    {/* 주 49시간 초과(근무일정 또는 실제, #38) */}
+                    {board.over49?.[u.id]?.length ? (
+                      <span className="ml-1 text-red-600 font-semibold"
+                        title={board.over49[u.id].map((w) => `${w.monday.slice(5).replace("-", "/")} 주 — 일정 ${Math.round(w.sched / 6) / 10}h · 실제 ${Math.round(w.actual / 6) / 10}h`).join(" / ")}>
+                        ⚠49h
+                      </span>
+                    ) : null}
                   </td>
                   {board.days.map((d) => {
                     const c = board.cells[u.id]?.[d];

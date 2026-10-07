@@ -204,6 +204,7 @@ export default function SchedulePage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
       toast.success(`${data.count}개 일정 등록 완료 (${data.days}일 × ${bulk.userIds.length}명)`);
+      for (const w of (data.warnings || []) as string[]) toast.warning(w, { duration: 10000 });   // 주 49시간 초과 경고(#38)
       setBulkOpen(false);
       setBulk(defaultBulk);
       fetchMonth();

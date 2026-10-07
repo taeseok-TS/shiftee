@@ -1,3 +1,4 @@
+import { over49Warnings } from "@/lib/weekly-hours";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -109,9 +110,14 @@ export async function POST(request: NextRequest) {
     created = made.count; // skipDuplicates 로 건너뛴 것이 있으면 예상치보다 적다
   });
 
+  // 주 49시간을 넘는 사람·주가 있으면 경고만(#38)
+  const warnings = await over49Warnings(
+    ids.flatMap((userId) => dateList.map((d) => ({ userId, date: d.toISOString().slice(0, 10) }))),
+  ).catch(() => [] as string[]);
   return NextResponse.json({
     success: true,
     count: created,
     days: dateList.length,
+    warnings,
   });
 }

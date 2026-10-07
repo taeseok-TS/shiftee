@@ -1,3 +1,4 @@
+import { over49Warnings } from "@/lib/weekly-hours";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -58,5 +59,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     include: { user: { select: { name: true, department: true } } },
   });
 
-  return NextResponse.json({ success: true, schedule });
+  const warnings = await over49Warnings([{ userId: schedule.userId, date: schedule.date.toISOString().slice(0, 10) }]).catch(() => [] as string[]);
+  return NextResponse.json({ success: true, schedule, warnings });
 }

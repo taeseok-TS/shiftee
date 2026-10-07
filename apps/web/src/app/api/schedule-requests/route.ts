@@ -1,3 +1,4 @@
+import { over49Warnings } from "@/lib/weekly-hours";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -264,10 +265,14 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
     }
 
+    // 승인되면 주 49시간을 넘는지 미리 알린다(막지 않는다, #38)
+    const proposed = new Map([[session.userId, new Map(entries.map((e) => [e.date, kind === "DELETE" ? null : { start: e.startTime, end: e.endTime }]))]]);
+    const warnings = await over49Warnings(entries.map((e) => ({ userId: session.userId, date: e.date })), proposed).catch(() => [] as string[]);
     return NextResponse.json({
       success: true,
       request: newRequest,
       message: "근무일정 신청이 완료되었습니다.",
+      warnings,
     });
   } catch (error: any) {
     console.error("근무일정 신청 생성 오류:", error);

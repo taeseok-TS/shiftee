@@ -7,6 +7,7 @@ import { getHolidaySet } from "@/lib/holidays";
 import { breakHours, isRealDate } from "@/lib/schedule-payload";
 import { LEAVE_TYPE_LABEL } from "@/lib/leave-cancel-flow";
 import { kstTodayDateUTC } from "@/lib/kst";
+import { mondayOf, weeklyMinutes, WEEK_LIMIT_MIN } from "@/lib/weekly-hours";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +150,16 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 주 49시간 초과 주(근무일정 또는 실제, #38) — 사람별 월요일 목록. 달 경계의 주도 그 주 전체로 계산한다
+  const mondays = [...new Set(days.map(mondayOf))];
+  const weekMins = await weeklyMinutes(ids, mondays);
+  const over49: Record<string, { monday: string; sched: number; actual: number }[]> = {};
+  for (const [key, v] of weekMins) {
+    if (v.sched <= WEEK_LIMIT_MIN && v.actual <= WEEK_LIMIT_MIN) continue;
+    const [u, mon] = key.split("|");
+    (over49[u] ??= []).push({ monday: mon, sched: v.sched, actual: v.actual });
+  }
+
   const holidayMap: Record<string, true> = {};
   for (const h of holidays) holidayMap[h] = true;
 
@@ -160,6 +171,7 @@ export async function GET(request: NextRequest) {
       workDays: Object.values(cells[u.id] ?? {}).filter((c) => c.in).length,   // 출근일(출근 기록이 있는 날)
     })),
     cells,
+    over49,
     truncated,
     canEdit: session.role === "ADMIN",   // 원장은 보기만 — 수정은 출퇴근기록 수정 요청 승인으로(#53)
   });

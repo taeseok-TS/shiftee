@@ -1,3 +1,4 @@
+import { over49Warnings } from "@/lib/weekly-hours";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -195,5 +196,7 @@ export async function POST(request: NextRequest) {
     update: { startTime: st, endTime: et, type: kind, note: memo },
   });
 
-  return NextResponse.json({ success: true, schedule });
+  // 주 49시간을 넘으면 경고만(막지 않는다, #38)
+  const warnings = await over49Warnings([{ userId, date }]).catch(() => [] as string[]);
+  return NextResponse.json({ success: true, schedule, warnings });
 }
