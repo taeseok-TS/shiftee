@@ -31,6 +31,8 @@ export async function PATCH(
     const type = form.get("type") as string | null;
     const postSignAccess = form.get("postSignAccess") as string | null;
     const file = form.get("file") as File | null;
+    const labelsRaw = form.get("labels") as string | null;
+    if (labelsRaw != null) data.labels = cleanLabels(labelsRaw);
 
     if (name != null) data.name = name;
     if (description != null) data.description = description || null;
@@ -53,6 +55,8 @@ export async function PATCH(
     if (body.type != null) data.type = body.type;
     if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
     if (body.fileUrl) { data.fileUrl = body.fileUrl; data.version = existing.version + 1; }
+    if (body.labels !== undefined) data.labels = cleanLabels(body.labels);
+    if (typeof body.pinned === "boolean") data.pinned = body.pinned;
   }
 
   // 이름 변경 시 중복 검사
@@ -61,8 +65,22 @@ export async function PATCH(
     if (dup) return NextResponse.json({ error: "이미 존재하는 템플릿 이름입니다." }, { status: 400 });
   }
 
-  const template = await prisma.contractTemplate.update({ where: { id }, data });
+  // 파일을 바꾸면 바뀌기 전 파일·버전을 이력에 남긴다(#78) — 같은 트랜잭션에서
+  const template = await prisma.$transaction(async (tx) => {
+    if (data.fileUrl && data.fileUrl !== existing.fileUrl) {
+      await tx.contractTemplateVersion.create({
+        data: { templateId: id, version: existing.version, fileUrl: existing.fileUrl, replacedBy: session.userId },
+      });
+    }
+    return tx.contractTemplate.update({ where: { id }, data });
+  });
   return NextResponse.json({ success: true, template });
+}
+
+// 라벨(#78) — 쉼표 구분 글자 또는 배열 → 앞뒤 공백 제거·빈 값·중복 제거, 최대 10개·각 20자
+function cleanLabels(v: unknown): string[] {
+  const arr = Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : [];
+  return [...new Set(arr.filter((x): x is string => typeof x === "string").map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 10);
 }
 
 export async function DELETE(

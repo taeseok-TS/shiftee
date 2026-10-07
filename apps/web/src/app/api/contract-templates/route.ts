@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true, email: true }
         }
       },
-      orderBy: { createdAt: "desc" }
+      // 맨 위 고정(#78) 먼저, 그다음 최근 등록 순
+      orderBy: [{ pinned: "desc" }, { createdAt: "desc" }]
     });
 
     return NextResponse.json({ templates });

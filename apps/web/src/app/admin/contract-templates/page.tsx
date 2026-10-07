@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Edit2, Trash2, Upload } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -25,6 +25,8 @@ type ContractTemplate = {
   createdByUser: { id: string; name: string };
   approverIds: string[];
   postSignAccess: string; // 서명 완료 후 근로자 접근 (#129)
+  labels?: string[];       // 라벨(#78)
+  pinned?: boolean;        // 맨 위 고정(#78)
   createdAt: string;
   updatedAt: string;
 };
@@ -57,7 +59,30 @@ export default function ContractTemplatesPage() {
     type: "EMPLOYMENT",
     postSignAccess: "full",
     file: null as File | null,
+    labels: "",   // 쉼표 구분(#78)
   });
+  // 라벨 거르기·파일 이력(#78)
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ name: string; current: { version: number; fileUrl: string; sent: number }; past: { id: string; version: number; fileUrl: string; replacedAt: string; replacedBy: string | null; sent: number }[] } | null>(null);
+  const openHistory = async (t: ContractTemplate) => {
+    const res = await fetch(`/api/contract-templates/${t.id}/versions`);
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "이력을 불러오지 못했습니다."); return; }
+    setHistory(d);
+  };
+  const copyTemplate = async (t: ContractTemplate) => {
+    if (!confirm(`「${t.name}」의 사본을 만들까요?`)) return;
+    const res = await fetch(`/api/contract-templates/${t.id}/copy`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "사본을 만들지 못했습니다."); return; }
+    toast.success(`「${d.template?.name}」을(를) 만들었습니다.`);
+    fetchTemplates();
+  };
+  const togglePin = async (t: ContractTemplate) => {
+    const res = await fetch(`/api/contract-templates/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: !t.pinned }) });
+    if (!res.ok) { toast.error("고정을 바꾸지 못했습니다."); return; }
+    fetchTemplates();
+  };
 
   const [uploading, setUploading] = useState(false);
 
@@ -110,7 +135,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 생성되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null });
+      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" });
       setCreateOpen(false);
       fetchTemplates();
     } catch (error) {
@@ -137,6 +162,7 @@ export default function ContractTemplatesPage() {
       formData.append("description", form.description || "");
       formData.append("type", form.type);
       formData.append("postSignAccess", form.postSignAccess); // 서명 완료 후 근로자 접근 (#129)
+      formData.append("labels", form.labels); // 라벨(#78)
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
@@ -150,7 +176,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 수정되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null });
+      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" });
       setEditOpen(false);
       setEditTarget(null);
       fetchTemplates();
@@ -192,6 +218,7 @@ export default function ContractTemplatesPage() {
       type: template.type,
       postSignAccess: template.postSignAccess || "full",
       file: null,
+      labels: (template.labels || []).join(", "),
     });
     setEditOpen(true);
   };
@@ -208,11 +235,23 @@ export default function ContractTemplatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">계약서 템플릿</h1>
-        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null }); setCreateOpen(true); }} className="gap-2">
+        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" }); setCreateOpen(true); }} className="gap-2">
           <Plus size={16} />
           새 템플릿 만들기
         </Button>
       </div>
+
+      {/* 라벨로 거르기(#78) */}
+      {[...new Set(templates.flatMap(t => t.labels || []))].length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => setLabelFilter(null)}
+            className={`px-2.5 py-1 rounded-full text-xs border ${!labelFilter ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>전체</button>
+          {[...new Set(templates.flatMap(t => t.labels || []))].sort().map(l => (
+            <button key={l} type="button" onClick={() => setLabelFilter(labelFilter === l ? null : l)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${labelFilter === l ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>{l}</button>
+          ))}
+        </div>
+      )}
 
       {/* 템플릿 목록 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -223,12 +262,16 @@ export default function ContractTemplatesPage() {
             </CardContent>
           </Card>
         ) : (
-          templates.map(template => (
-            <Card key={template.id} className="hover:shadow-md transition-shadow">
+          templates.filter(t => !labelFilter || (t.labels || []).includes(labelFilter)).map(template => (
+            <Card key={template.id} className={`hover:shadow-md transition-shadow ${template.pinned ? "border-amber-300" : ""}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <CardTitle className="text-lg">{template.name}</CardTitle>
+                    <CardTitle className="text-lg flex items-center gap-1.5">
+                      <button type="button" onClick={() => togglePin(template)} title={template.pinned ? "고정 풀기" : "맨 위에 고정"}
+                        className={template.pinned ? "text-amber-500" : "text-gray-300 hover:text-amber-500"}><Pin size={15} /></button>
+                      {template.name}
+                    </CardTitle>
                     <p className="text-xs text-gray-500 mt-1">
                       {template.createdByUser.name} · {format(new Date(template.createdAt), "yyyy-MM-dd")}
                     </p>
@@ -240,9 +283,17 @@ export default function ContractTemplatesPage() {
                 {template.description && (
                   <p className="text-sm text-gray-600">{template.description}</p>
                 )}
+                {(template.labels || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1">{(template.labels || []).map(l => <Badge key={l} variant="secondary" className="text-[11px]">{l}</Badge>)}</div>
+                )}
                 <p className="text-xs text-gray-500">
                   v{template.version} · 서명 완료 후 근로자 접근: {postSignAccessLabel[template.postSignAccess] || postSignAccessLabel.full}
                 </p>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <a href={template.fileUrl} download className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Download size={12} />원본 내려받기</a>
+                  <button type="button" onClick={() => openHistory(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><History size={12} />버전 이력</button>
+                  <button type="button" onClick={() => copyTemplate(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Copy size={12} />사본 만들기</button>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -268,6 +319,29 @@ export default function ContractTemplatesPage() {
           ))
         )}
       </div>
+
+      {/* 버전 이력(#78) — 지금 파일 + 바뀌기 전 파일, 버전별 발송 건수 */}
+      <Dialog open={!!history} onOpenChange={o => { if (!o) setHistory(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>버전 이력{history ? ` — ${history.name}` : ""}</DialogTitle></DialogHeader>
+          {history && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2">
+                <span><b>v{history.current.version}</b> (지금) · 발송 {history.current.sent}건</span>
+                <a href={history.current.fileUrl} download className="text-blue-600 hover:underline text-xs">내려받기</a>
+              </div>
+              {history.past.length === 0 ? (
+                <p className="text-xs text-gray-400">이전 파일 기록이 없습니다(이 기능 이후 파일을 바꾸면 남습니다).</p>
+              ) : history.past.map(p => (
+                <div key={p.id} className="flex items-center justify-between rounded border px-3 py-2">
+                  <span>v{p.version} · 발송 {p.sent}건<span className="block text-[11px] text-gray-400">{format(new Date(p.replacedAt), "yyyy-MM-dd HH:mm")} 교체{p.replacedBy ? ` · ${p.replacedBy}` : ""}</span></span>
+                  <a href={p.fileUrl} download className="text-blue-600 hover:underline text-xs">내려받기</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* 생성 모달 */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -402,6 +476,10 @@ export default function ContractTemplatesPage() {
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label>라벨 <span className="text-gray-400 font-normal text-xs">(쉼표로 구분 · 예: 신규입사, 코디)</span></Label>
+                <Input value={form.labels} onChange={e => setForm(f => ({ ...f, labels: e.target.value }))} placeholder="신규입사, 퇴사, 코디" />
+              </div>
               <div className="space-y-2">
                 <Label>파일 교체 (선택사항)</Label>
                 <p className="text-xs text-gray-500 mb-2">새 PDF 또는 워드(.docx) 파일을 선택하면 기존 파일이 교체됩니다 (버전 증가)</p>

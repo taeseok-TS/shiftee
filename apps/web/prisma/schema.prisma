@@ -505,13 +505,30 @@ model ContractTemplate {
   approverIds   String       @default("[]") // JSON array: ["id1", "id2"]
   // 서명 완료 후 근로자(당사자) 접근 — "full"(열람+다운로드) | "view"(열람만) | "none"(접근 불가, 제출 완료만 표시) (#129)
   postSignAccess String      @default("full")
+  // 라벨·맨 위 고정(#78, 2026-10-07 QA76 묶음 7-다). deploy/ddl_contract_template_meta.sql
+  labels        String[]     @default([])
+  pinned        Boolean      @default(false)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   contracts Contract[] @relation("TemplateToContract")
+  versions  ContractTemplateVersion[]
 
   @@index([type])
   @@index([isActive, type])
+}
+
+// 템플릿(양식) 파일 이력(#78) — 파일을 바꿀 때 **바뀌기 전** 파일·버전을 남긴다. 옛 양식을 내려받아 대조할 수 있게
+model ContractTemplateVersion {
+  id         String           @id @default(cuid())
+  templateId String
+  template   ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version    Int
+  fileUrl    String
+  replacedBy String? // 파일을 바꾼 관리자 userId
+  createdAt  DateTime         @default(now()) // = 이 버전이 교체된 시각
+
+  @@index([templateId, version])
 }
 
 // ─── 계약 버전 관리 ───────────────────────────────────────────
