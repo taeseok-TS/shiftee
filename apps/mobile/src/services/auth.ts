@@ -17,11 +17,16 @@ const AUTH_API_URL = API_URL;
 /**
  * 로그인
  */
-export async function login(email: string, password: string): Promise<User | null> {
+export async function login(
+  email: string,
+  password: string,
+  opts?: { requestDeviceChange?: boolean },   // 미등록 기기에서 「기기 변경 요청」(2026-10-07 #15) — 비밀번호가 맞아야 접수된다
+): Promise<User | null> {
   try {
     const response = await axios.post(`${AUTH_API_URL}/auth/login`, {
       email,
       password,
+      ...(opts?.requestDeviceChange ? { requestDeviceChange: true } : {}),
       // 기기 잠금: 첫 로그인 시 이 기기가 자동 등록되고, 이후 다른 기기 로그인은 서버가 차단
       deviceId: await getDeviceId(),
       deviceName: getDeviceName(),
@@ -51,7 +56,13 @@ export async function login(email: string, password: string): Promise<User | nul
     const serverMsg = error.response?.data?.error;
     console.error("❌ Login failed:", serverMsg || error.message);
     // 기기 차단(403) 등 서버 메시지는 화면에 그대로 보여줘야 하므로 throw
-    if (serverMsg) throw new Error(serverMsg);
+    if (serverMsg) {
+      // 미등록 기기면 화면이 「기기 변경 요청」 버튼을 띄울 수 있게 표시를 실어 보낸다
+      const e = new Error(serverMsg) as Error & { deviceMismatch?: boolean; deviceChangePending?: boolean };
+      e.deviceMismatch = !!error.response?.data?.deviceMismatch;
+      e.deviceChangePending = !!error.response?.data?.deviceChangePending;
+      throw e;
+    }
     return null;
   }
 }

@@ -53,7 +53,8 @@ export default function HomeScreen() {
   const [approvalLines, setApprovalLines] = useState<string[] | null>(null); // null=로딩중
   // 결재할 수 있는 사람(원장·본부·원장대행)은 「대기 결재」 = **내가 결재할 건수**, 누르면 결재 화면(2026-10-07 #14·#17)
   // null 이면 결재자가 아니다 — 종전처럼 내 신청 중 건수를 보여 준다
-  const [inbox, setInbox] = useState<number | null>(null);
+  const [approver, setApprover] = useState(false);
+  const [inbox, setInbox] = useState<number | null>(null);   // 결재할 건수(모르면 null → 「…」)
 
   const load = useCallback(async () => {
     try {
@@ -84,11 +85,17 @@ export default function HomeScreen() {
   const refreshInbox = useCallback(() => {
     canApproveNow()
       .then(async (ok) => {
-        if (!ok) { setInbox(null); return; }
+        if (ok === null) return;            // 판정 실패 — 이전 상태 유지
+        setApprover(ok);
+        if (!ok) return;
         const n = await myInboxCount();
         if (n != null) setInbox(n);
       })
       .catch(() => {});
+  }, []);
+  // 원장·본부는 저장된 역할로 바로 결재자 모드 — 결재함 응답을 기다리는 동안 「내 신청」 카드가 잠깐 보이지 않게
+  useEffect(() => {
+    storage.getUser().then((u) => { if (u?.role === "ADMIN" || u?.role === "MANAGER") setApprover(true); }).catch(() => {});
   }, []);
   useFocusEffect(refreshInbox);
 
@@ -158,8 +165,8 @@ export default function HomeScreen() {
   const cards = [
     { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: undefined as undefined | (() => void) },
     { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
-    inbox !== null
-      ? { key: "approval", label: "대기 결재", value: `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",
+    approver
+      ? { key: "approval", label: "대기 결재", value: inbox === null ? "…" : `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",
           onPress: () => navigation.navigate("More", { screen: "Approvals", initial: false }) }
       : { key: "approval", label: "대기 결재", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#8b5cf6", onPress: openApproval },
     { key: "attendance", label: att.label, value: att.value, icon: att.icon, color: att.color, onPress: () => navigation.navigate("Attendance") },

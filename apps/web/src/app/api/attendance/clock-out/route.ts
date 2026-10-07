@@ -45,10 +45,17 @@ export async function POST(request: NextRequest) {
   const existing = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: today } },
   });
-  if (!existing?.clockIn) {
+  // 지점 밖·사진·본부 처리 **출근 요청이 승인 대기 중**이면 퇴근은 찍게 한다(2026-10-07 본부 답변 #10).
+  // 출근 시각은 승인될 때 요청의 누른 시각으로 들어간다. 상한·조퇴 판정은 그 누른 시각을 출근으로 본다.
+  const pendingIn = existing?.clockIn ? null : await prisma.attendanceRequest.findFirst({
+    where: { userId: session.userId, workDate: today, action: "IN", status: "PENDING" },
+    select: { requestedAt: true },
+  });
+  const clockInAt = existing?.clockIn ?? pendingIn?.requestedAt ?? null;
+  if (!clockInAt) {
     return NextResponse.json({ error: "출근 기록이 없습니다." }, { status: 400 });
   }
-  if (existing.clockOut) {
+  if (existing?.clockOut) {
     return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다." }, { status: 400 });
   }
 
@@ -56,8 +63,8 @@ export async function POST(request: NextRequest) {
   // 평일: 출근 후 10시간 30분까지.
   // 휴일(주말·공휴일): 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분까지.
   if (session.role !== "ADMIN") {
-    const elapsedMs = Date.now() - existing.clockIn.getTime();
-    const kstIn = new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000); // 출근 시각의 KST
+    const elapsedMs = Date.now() - clockInAt.getTime();
+    const kstIn = new Date(clockInAt.getTime() + 9 * 60 * 60 * 1000); // 출근 시각의 KST
     const kstDay = kstIn.getUTCDay(); // 0=일, 6=토
     // 공휴일 근무도 주말과 같은 규칙 — 평일 10.5h 캡을 씌우면 승인받은 연휴 근무가 막힌다
     const isHolidayIn = await isHoliday(kstIn.toISOString().slice(0, 10));
@@ -88,10 +95,14 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { latitude, longitude } = body;
 
+  // 퇴근 장소(#36) — 출근과 같은 규칙
+  let place: string | null = null;
+
   // ADMIN 외에는 지점 지오펜스 적용
   // 지점명은 세션(토큰 박제)이 아닌 DB 기준. 원장은 담당 지점(대표+겸직) 어디서든 퇴근 인정 (clock-in과 동일 규칙)
   if (session.role !== "ADMIN") {
     const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { branch: true } });
+    place = me?.branch ?? null;
     const names = session.role === "MANAGER"
       ? await getManagerBranches(session.userId)
       : me?.branch ? [me.branch] : [];
@@ -111,7 +122,7 @@ export async function POST(request: NextRequest) {
       let inside = false;
       for (const b of geoBranches) {
         const dist = haversineDistance(latitude, longitude, b.latitude!, b.longitude!);
-        if (dist <= b.radius) { inside = true; break; }
+        if (dist <= b.radius) { inside = true; place = b.name; break; }   // 장소 = 반경 안에 든 지점(#36)
         if (!nearest || dist < nearest.dist) nearest = { dist, radius: b.radius };
       }
       if (!inside && nearest) {
@@ -132,7 +143,7 @@ export async function POST(request: NextRequest) {
   // 조퇴 판정은 한국시간 기준 (UTC getHours를 쓰면 KST 새벽 3시까지 조퇴로 찍히던 버그).
   // 휴일에는 조퇴 판정 안 함 — 기준은 "퇴근일"이 아니라 **출근일**이다.
   // (공휴일 20시 출근 → 익일 01시 퇴근이면 퇴근일 기준으로는 평일이라 조퇴로 오기록됐다)
-  const workDayYmd = new Date(existing.clockIn.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const workDayYmd = new Date(clockInAt.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const holiday = await isHoliday(workDayYmd);
   // 조퇴 판정도 **본인이 승인받은 근무일정 종료 시각** 기준 (2026-09-07 디렉터 지시).
   // 종전에는 18:00 하드코딩이라 오후 10시 퇴근이 정상인 근무자도 판정이 어긋났다.
@@ -143,17 +154,14 @@ export async function POST(request: NextRequest) {
   //   퇴근하면 EARLY_LEAVE 가 되어 지각 기록이 지워졌는데, 관리자가 그 기록을 한 번만 열어
   //   저장하면 calcStatus(지각 우선)를 타고 LATE 로 뒤집혔다 — 두 경로가 서로 달랐다.
   //   lib/attendance-status.ts 와 같은 규칙(지각 우선)으로 맞춘다.
-  const status = existing.status === "LATE" ? "LATE" : (isEarlyLeave ? "EARLY_LEAVE" : "NORMAL");
+  const status: "LATE" | "EARLY_LEAVE" | "NORMAL" = existing?.status === "LATE" ? "LATE" : (isEarlyLeave ? "EARLY_LEAVE" : "NORMAL");
 
-  const attendance = await prisma.attendance.update({
-    where: { id: existing.id },
-    data: {
-      clockOut: now,
-      status,
-      latitude: latitude ?? existing.latitude,
-      longitude: longitude ?? existing.longitude,
-    },
-  });
+  // 퇴근 위치는 따로 남긴다 — 종전에는 출근 위치(latitude/longitude)를 덮어썼다(#36)
+  const outData = { clockOut: now, status, clockOutPlace: place, clockOutLat: latitude ?? null, clockOutLng: longitude ?? null };
+  const attendance = existing
+    ? await prisma.attendance.update({ where: { id: existing.id }, data: outData })
+    // 출근 요청 승인 대기 중 — 퇴근만 있는 기록을 만든다(승인되면 출근 시각이 채워진다)
+    : await prisma.attendance.create({ data: { userId: session.userId, date: today, ...outData } });
 
   return NextResponse.json({ success: true, attendance });
 }

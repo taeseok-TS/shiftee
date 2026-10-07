@@ -41,6 +41,8 @@ export async function GET() {
     status: r.status,
     clockIn: r.clockIn,
     clockOut: r.clockOut,
+    clockInPlace: r.clockInPlace,    // 출근·퇴근 장소(2026-10-07 #36)
+    clockOutPlace: r.clockOutPlace,
     minutes: r.clockIn && r.clockOut
       ? Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000)
       : 0,

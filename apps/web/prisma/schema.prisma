@@ -49,6 +49,7 @@ model User {
   updatedAt            DateTime         @updatedAt
 
   attendances           Attendance[]
+  attendanceRequests    AttendanceRequest[]
   schedules             Schedule[]
   leaveRequests         LeaveRequest[]
   leaveBalance          LeaveBalance[] // 연도별 1행 (@@unique([userId, year]))
@@ -112,8 +113,12 @@ model Attendance {
   clockOut  DateTime?
   status    AttendanceStatus @default(NORMAL)
   note      String?
-  latitude  Float?
+  latitude  Float?           // 출근 위치(종전 그대로 — 퇴근 때 덮어쓰지 않는다)
   longitude Float?
+  clockInPlace  String?      // 출근 장소: 지점명 또는 「지점 밖 · 사유 (원장 승인)」 (2026-10-07 #36)
+  clockOutPlace String?      // 퇴근 장소
+  clockOutLat   Float?       // 퇴근 위치
+  clockOutLng   Float?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
@@ -1173,4 +1178,38 @@ model ApprovalDelegate {
 
   @@index([delegateId])
   @@index([branch])
+}
+
+// 출퇴근 요청(2026-10-07 QA #9 #13 #15) — 지점 밖·사진·본부 처리·기록 수정·퇴근 누락·기기 변경.
+// 한 단계 결재: 원장(대행 포함) 또는 본부. 승인되면 lib/attendance-request.ts applyApproved 가 기록에 반영한다.
+model AttendanceRequest {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  kind         String    // OUTSIDE | PHOTO | HQ | CORRECTION | MISSED_OUT | DEVICE
+  action       String?   // IN | OUT (OUTSIDE·PHOTO·HQ)
+  workDate     DateTime  @db.Date
+  requestedAt  DateTime  // 누른 시각(OUTSIDE·PHOTO·HQ) — 승인되면 이 시각으로 기록
+  clockIn      DateTime? // CORRECTION 이 바라는 출근 시각
+  clockOut     DateTime? // CORRECTION·MISSED_OUT 이 바라는 퇴근 시각
+  reason       String?
+  memo         String?
+  latitude     Float?
+  longitude    Float?
+  photoPath    String?   // uploads/private/attendance-photos/<파일> — 전용 라우트로만 연다
+  deviceId     String?
+  deviceName   String?
+  platform     String?
+  approverRole String    // MANAGER | ADMIN
+  branch       String?
+  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  decidedBy    String?
+  decidedAt    DateTime?
+  rejectReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([branch, status])
+  @@index([status])
 }

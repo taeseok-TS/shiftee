@@ -184,7 +184,7 @@ ${opts.kind}: ${opts.requesterName}
     // 본부 진행 알림 — 결재 요청을 이미 받은 본부 사람은 빼고(같은 내용 두 번 방지)
     if (!list.some((id) => admins.includes(id)) || !adminTurn) {
       await botNotifyAdminsProgress(
-        `${opts.kind} ${opts.kind === "휴가 취소" ? "요청" : "신청"} — ${opts.requesterName} (${opts.period})\n원장 결재 대기 중입니다.`,
+        `${opts.kind === "출퇴근 요청" ? opts.kind : `${opts.kind} ${opts.kind === "휴가" || opts.kind === "근무일정" ? "신청" : "요청"}`} — ${opts.requesterName} (${opts.period})\n원장 결재 대기 중입니다.`,
         [opts.requesterId, ...list],
       );
     }

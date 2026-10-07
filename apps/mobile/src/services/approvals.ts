@@ -7,6 +7,7 @@
 
 import axios from "axios";
 import { API_URL } from "../config";
+import { getAttendanceRequestInbox } from "./attendance";
 import { getToken, getUser } from "./storage";
 
 async function authHeaders() {
@@ -198,16 +199,22 @@ export function stepLabel(s: InboxStepInfo): string {
 }
 
 /** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */
-export async function canApproveNow(): Promise<boolean> {
+export async function canApproveNow(): Promise<boolean | null> {
   const u = await getUser().catch(() => null);
   if (u?.role === "ADMIN" || u?.role === "MANAGER") return true;
   if (!u?.role) return false;
-  return (await getMyDelegateBranches()).length > 0;
+  // 원장대행 확인이 네트워크로 실패하면 null(모름) — 화면은 이전 판정을 그대로 둔다(일시 실패로 결재 메뉴가 사라지지 않게)
+  try {
+    const res = await axios.get(`${API_URL}/me/delegate`, { headers: await authHeaders() });
+    return Array.isArray(res.data?.branches) && res.data.branches.length > 0;
+  } catch {
+    return null;
+  }
 }
 
-/** 내가 지금 결재할 건수(휴가·근무일정·휴가 취소) — 홈 「대기 결재」 칸. 셋 다 못 받으면 null(모름) */
+/** 내가 지금 결재할 건수(휴가·근무일정·휴가 취소·출퇴근 요청) — 홈 「대기 결재」 칸, 결재 화면 합계와 같은 셈. 전부 못 받으면 null(모름) */
 export async function myInboxCount(): Promise<number | null> {
-  const r = await Promise.allSettled([getLeaveApprovals(), getScheduleApprovals(), getLeaveCancelApprovals()]);
+  const r = await Promise.allSettled([getLeaveApprovals(), getScheduleApprovals(), getLeaveCancelApprovals(), getAttendanceRequestInbox()]);
   if (r.every((x) => x.status === "rejected")) return null;
   return r.reduce((n, x) => n + (x.status === "fulfilled" ? x.value.length : 0), 0);
 }

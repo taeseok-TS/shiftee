@@ -22,7 +22,7 @@ export default function MoreMenuScreen() {
   // 「결재」는 맨 아래에 붙인다 — 맨 위에 늦게 끼어들면 줄이 밀려 다른 메뉴를 누르려다 잘못 누른다(검증 지적)
   useFocusEffect(
     useCallback(() => {
-      canApproveNow().then(setCanApprove).catch(() => {});
+      canApproveNow().then((ok) => { if (ok !== null) setCanApprove(ok); }).catch(() => {});   // 실패(null)면 이전 판정 유지
     }, [])
   );
   const items = canApprove ? [...MENU, APPROVAL_ITEM] : MENU;

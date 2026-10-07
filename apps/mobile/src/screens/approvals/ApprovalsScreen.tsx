@@ -13,10 +13,12 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { fileUri, useUploadsTicketVersion } from "../../services/work";
 import * as storage from "../../services/storage";
+import * as attendance from "../../services/attendance";
 import {
   getLeaveApprovals,
   getScheduleApprovals,
@@ -71,7 +73,7 @@ const CANCEL_BLOCK_LABEL: Record<string, string> = {
   MAIN_ONLY: "다른 원장의 신청 — 메인 원장만 취소할 수 있습니다",
 };
 
-type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel"; id: string } | null;
+type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel" | "attendance"; id: string } | null;
 
 export default function ApprovalsScreen() {
   useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
@@ -92,6 +94,8 @@ export default function ApprovalsScreen() {
   const [history, setHistory] = useState<TeamLeave[]>([]);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [myId, setMyId] = useState("");
+  const [attReqs, setAttReqs] = useState<attendance.AttendanceRequestRow[]>([]);
+  const [photoView, setPhotoView] = useState<{ uri: string; headers: Record<string, string> } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +105,8 @@ export default function ApprovalsScreen() {
         getTeamLeaves().catch(() => null),   // 내역 실패가 결재함까지 막지 않게
         getLeaveCancelApprovals().catch(() => [] as LeaveCancelInboxStep[]),
       ]);
+      // 출퇴근 요청(2026-10-07 #9 #13 #15) — 실패해도 휴가·근무일정 결재함은 보여 준다
+      attendance.getAttendanceRequestInbox().then(setAttReqs).catch(() => setAttReqs([]));
       setLeave(l);
       setSchedule(s);
       setCancelReqs(c);
@@ -129,11 +135,12 @@ export default function ApprovalsScreen() {
     load();
   }, [load]);
 
-  const approve = async (kind: "leave" | "schedule" | "leaveCancel", id: string) => {
+  const approve = async (kind: "leave" | "schedule" | "leaveCancel" | "attendance", id: string) => {
     setProcessingId(id);
     try {
       if (kind === "leave") await decideLeave(id, "approve");
       else if (kind === "leaveCancel") await decideLeaveCancel(id, "approve");
+      else if (kind === "attendance") await attendance.decideAttendanceRequest(id, "approve");
       else await decideSchedule(id, "approve");
       await load();
     } catch (error: any) {
@@ -192,6 +199,7 @@ export default function ApprovalsScreen() {
     try {
       if (kind === "leave") await decideLeave(id, "reject", reason);
       else if (kind === "leaveCancel") await decideLeaveCancel(id, "reject", reason);
+      else if (kind === "attendance") await attendance.decideAttendanceRequest(id, "reject", reason);
       else await decideSchedule(id, "reject", reason);
       await load();
     } catch (error: any) {
@@ -209,7 +217,7 @@ export default function ApprovalsScreen() {
     );
   }
 
-  const total = leave.length + schedule.length + cancelReqs.length;
+  const total = leave.length + schedule.length + cancelReqs.length + attReqs.length;
 
   const Actions = ({ kind, id, who, canCancel }: { kind: "leave" | "schedule"; id: string; who: string; canCancel?: boolean }) => (
     <View style={styles.actions}>
@@ -389,6 +397,59 @@ export default function ApprovalsScreen() {
           </View>
         )}
 
+        {tab === "inbox" && attReqs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>출퇴근 요청 ({attReqs.length})</Text>
+            {attReqs.map((r) => (
+              <View key={r.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.who}>{r.userBranch ? `[${r.userBranch}] ` : ""}{r.userName}</Text>
+                  <View style={[styles.badge, { backgroundColor: "#fffbeb" }]}>
+                    <Text style={[styles.badgeText, { color: "#b45309" }]}>{r.kindLabel}</Text>
+                  </View>
+                </View>
+                <Text style={styles.line}>{r.kind === "DEVICE" ? `새 기기: ${r.deviceName ?? "이름 없음"} (${r.platform ?? "-"})` : r.summary}</Text>
+                {(r.kind === "CORRECTION" || r.kind === "MISSED_OUT") && !!r.reason && <Text style={styles.reason}>사유: {r.reason}</Text>}
+                {!!r.memo && <Text style={styles.reason}>{r.memo}</Text>}
+                <Text style={styles.chain}>승인하면 요청한 시각으로 출퇴근 기록에 반영됩니다. 반려하면 기록되지 않습니다.</Text>
+                <View style={styles.actions}>
+                  {r.hasPhoto && (
+                    <TouchableOpacity
+                      style={[styles.btn, styles.cancelBtn]}
+                      onPress={async () => setPhotoView(await attendance.attendanceRequestPhotoSource(r.id))}
+                    >
+                      <Ionicons name="image-outline" size={15} color="#6b7280" />
+                      <Text style={[styles.btnText, { color: "#6b7280" }]}>사진</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.btn, styles.approveBtn]}
+                    disabled={processingId === r.id}
+                    onPress={() => approve("attendance", r.id)}
+                  >
+                    {processingId === r.id ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                        <Text style={styles.btnText}>승인</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.rejectBtn]}
+                    disabled={processingId === r.id}
+                    onPress={() => setRejectTarget({ kind: "attendance", id: r.id })}
+                  >
+                    <Ionicons name="close" size={16} color="#dc2626" />
+                    <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
         {tab === "history" && !delegateOnly && (
           <View style={styles.section}>
             {historyFailed && (
@@ -471,6 +532,12 @@ export default function ApprovalsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <Modal visible={!!photoView} transparent animationType="fade" onRequestClose={() => setPhotoView(null)}>
+        <TouchableOpacity style={styles.photoBackdrop} activeOpacity={1} onPress={() => setPhotoView(null)}>
+          {photoView && <Image source={photoView} style={styles.photoFull} resizeMode="contain" />}
+          <Text style={styles.photoClose}>눌러서 닫기</Text>
+        </TouchableOpacity>
+      </Modal>
     </>
   );
 }
@@ -513,4 +580,7 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },
   modalConfirm: { flex: 1, height: 44, borderRadius: 8, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
   modalConfirmText: { fontSize: 15, color: "#fff", fontWeight: "600" },
+  photoBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", alignItems: "center" },
+  photoFull: { width: "100%", height: "80%" },
+  photoClose: { color: "#fff", fontSize: 14, marginTop: 12 },
 });

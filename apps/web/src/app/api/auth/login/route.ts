@@ -54,7 +54,7 @@ async function findUserByEmailLoose(email: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email: rawEmail, password, deviceId, deviceName, platform } = await request.json();
+    const { email: rawEmail, password, deviceId, deviceName, platform, requestDeviceChange } = await request.json();
 
     if (!rawEmail || !password) {
       return NextResponse.json({ error: "이메일과 비밀번호를 입력해주세요." }, { status: 400 });
@@ -152,8 +152,48 @@ export async function POST(request: NextRequest) {
 
         if (!sameDevice) {
           await logLoginFail({ email: String(rawEmail), userId: user.id, userName: user.name, reason: "DEVICE_BLOCKED", deviceName, platform });
+          // 기기 변경 요청(2026-10-07 #15, 본부 승인 #6) — **비밀번호가 맞은 뒤에만** 여기 온다.
+          // 앱이 「기기 변경 요청」 버튼으로 같은 아이디·비밀번호를 requestDeviceChange: true 와 함께 다시 보낸다.
+          const pending = await prisma.attendanceRequest.findFirst({
+            where: { userId: user.id, kind: "DEVICE", status: "PENDING" },
+            select: { id: true, deviceId: true },
+          });
+          if (requestDeviceChange === true && typeof deviceId === "string" && deviceId.length <= 200) {
+            if (pending?.deviceId === deviceId) {
+              return NextResponse.json(
+                { error: "기기 변경 요청이 이미 본부 승인을 기다리고 있습니다. 승인되면 이 휴대폰으로 로그인할 수 있습니다.", deviceMismatch: true, deviceChangePending: true },
+                { status: 403 }
+              );
+            }
+            // 다른 새 기기로 다시 요청하면 앞의 대기 건은 거둔다(가장 최근 기기만 남긴다)
+            if (pending) await prisma.attendanceRequest.update({ where: { id: pending.id }, data: { status: "CANCELLED", decidedAt: new Date() } });
+            const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+            await prisma.attendanceRequest.create({
+              data: {
+                userId: user.id, kind: "DEVICE", workDate: new Date(`${today}T00:00:00.000Z`), requestedAt: new Date(),
+                deviceId, deviceName: typeof deviceName === "string" ? deviceName.slice(0, 100) : null,
+                platform: typeof platform === "string" ? platform.slice(0, 20) : null,
+                approverRole: "ADMIN", branch: user.branch ?? null,
+              },
+            });
+            const { botNotifyApprovalRequest } = await import("@/lib/bot");
+            botNotifyApprovalRequest(
+              { approverRole: "ADMIN", branch: user.branch ?? null, approverId: null },
+              { kind: "기기 변경", requesterName: user.name, period: `${typeof deviceName === "string" ? deviceName : "새 기기"} (${platform ?? "-"})`, requesterId: user.id },
+            ).catch(() => {});
+            return NextResponse.json(
+              { error: "기기 변경 요청을 보냈습니다. 본부가 승인하면 이 휴대폰으로 로그인할 수 있습니다.", deviceMismatch: true, deviceChangePending: true },
+              { status: 403 }
+            );
+          }
           return NextResponse.json(
-            { error: "등록되지 않은 기기입니다. 등록된 본인 휴대폰에서만 로그인할 수 있습니다. 기기를 변경했다면 관리자에게 기기 초기화를 요청해주세요." },
+            {
+              error: pending?.deviceId === deviceId
+                ? "기기 변경 요청이 본부 승인을 기다리고 있습니다. 승인되면 이 휴대폰으로 로그인할 수 있습니다."
+                : "등록되지 않은 기기입니다. 휴대폰을 바꿨다면 아래 「기기 변경 요청」을 눌러 본부 승인을 받아 주세요.",
+              deviceMismatch: true,
+              deviceChangePending: pending?.deviceId === deviceId,
+            },
             { status: 403 }
           );
         }

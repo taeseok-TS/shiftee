@@ -173,6 +173,8 @@ export async function GET(request: NextRequest) {
       date: r.date,
       clockIn: r.clockIn,
       clockOut: r.clockOut,
+      clockInPlace: r.clockInPlace,    // 출근·퇴근 장소(2026-10-07 #36)
+      clockOutPlace: r.clockOutPlace,
       status: r.status,
       userName: r.user.name,
       userBranch: r.user.branch,

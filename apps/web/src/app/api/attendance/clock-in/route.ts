@@ -52,10 +52,14 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { latitude, longitude } = body;
 
+  // 출근 장소(2026-10-07 #36) — 반경 안에 든 지점명. 위치 확인을 안 하는 경우(관리자·좌표 없는 지점)는 소속 지점명
+  let place: string | null = null;
+
   // ADMIN 외에는 지점 지오펜스 적용
   // 지점명은 세션(토큰 박제)이 아닌 DB 기준. 원장은 담당 지점(대표+겸직) 어디서든 출근 인정
   if (session.role !== "ADMIN") {
     const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { branch: true } });
+    place = me?.branch ?? null;
     const names = session.role === "MANAGER"
       ? await getManagerBranches(session.userId)
       : me?.branch ? [me.branch] : [];
@@ -77,7 +81,7 @@ export async function POST(request: NextRequest) {
       let inside = false;
       for (const b of geoBranches) {
         const dist = haversineDistance(latitude, longitude, b.latitude!, b.longitude!);
-        if (dist <= b.radius) { inside = true; break; }
+        if (dist <= b.radius) { inside = true; place = b.name; break; }   // 장소 = 반경 안에 든 지점(#36)
         if (!nearest || dist < nearest.dist) nearest = { dist, radius: b.radius };
       }
       if (!inside && nearest) {
@@ -112,12 +116,14 @@ export async function POST(request: NextRequest) {
       status: isLate ? "LATE" : "NORMAL",
       latitude,
       longitude,
+      clockInPlace: place,
     },
     update: {
       clockIn: now,
       status: isLate ? "LATE" : "NORMAL",
       latitude,
       longitude,
+      clockInPlace: place,
     },
   });
 

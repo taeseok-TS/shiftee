@@ -29,6 +29,7 @@ import {
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
+  clockInPlace?: string | null; clockOutPlace?: string | null;
   status: string; minutes: number; userName?: string; userBranch?: string | null;
 };
 type Stats = { total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number };
@@ -40,10 +41,13 @@ type StatsResponse = {
   records: AttendanceRecord[];
 };
 type Employee = { id: string; name: string; department: string | null; branch?: string | null };
+// 장소 칸 — 지점 밖·사진·본부 처리·수정처럼 결재로 남은 기록은 눈에 띄게(2026-10-07 #36)
+const placeCls = (p?: string | null) => (p && /지점 밖|사진|본부|수정/.test(p) ? "text-amber-700 font-medium" : "text-gray-500");
 type TodayAttendee = {
   id: string; userId: string; name: string; branch: string | null;
   jobGroup: string | null; position: string | null;
   status: string; clockIn: string | null; clockOut: string | null; minutes: number;
+  clockInPlace?: string | null; clockOutPlace?: string | null;
 };
 
 /* ── 상수 ── */
@@ -570,7 +574,9 @@ export default function AttendancePage() {
                           <th className="pb-2 font-medium">직원</th>
                           <th className="pb-2 font-medium">지점</th>
                           <th className="pb-2 font-medium">출근</th>
+                          <th className="pb-2 font-medium">출근 장소</th>
                           <th className="pb-2 font-medium">퇴근</th>
+                          <th className="pb-2 font-medium">퇴근 장소</th>
                           <th className="pb-2 font-medium">상태</th>
                           <th className="pb-2 font-medium text-right">근무시간</th>
                         </tr>
@@ -588,7 +594,9 @@ export default function AttendancePage() {
                               </td>
                               <td className="py-2.5 text-gray-500">{r.branch || "-"}</td>
                               <td className="py-2.5">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
+                              <td className={`py-2.5 text-xs ${placeCls(r.clockInPlace)}`}>{r.clockInPlace || "-"}</td>
                               <td className="py-2.5">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : <span className="text-gray-400">근무 중</span>}</td>
+                              <td className={`py-2.5 text-xs ${placeCls(r.clockOutPlace)}`}>{r.clockOut ? r.clockOutPlace || "-" : ""}</td>
                               <td className="py-2.5"><Badge variant={s.variant}>{s.label}</Badge></td>
                               <td className="py-2.5 text-right">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
                             </tr>
@@ -856,7 +864,9 @@ export default function AttendancePage() {
                           <th className="pb-3 font-medium">날짜</th>
                           {multiPerson && <th className="pb-3 font-medium">이름</th>}
                           <th className="pb-3 font-medium">출근</th>
+                          <th className="pb-3 font-medium">출근 장소</th>
                           <th className="pb-3 font-medium">퇴근</th>
+                          <th className="pb-3 font-medium">퇴근 장소</th>
                           <th className="pb-3 font-medium">근무시간</th>
                           <th className="pb-3 font-medium">상태</th>
                           {myRole === "ADMIN" && <th className="pb-3 font-medium text-right">수정</th>}
@@ -865,7 +875,7 @@ export default function AttendancePage() {
                       <tbody>
                         {visibleRecords.length === 0 ? (
                           <tr>
-                            <td colSpan={multiPerson ? 7 : 6} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
+                            <td colSpan={multiPerson ? 9 : 8} className="py-8 text-center text-gray-400">해당 기간에 기록이 없습니다.</td>
                           </tr>
                         ) : visibleRecords.map(r => {
                           const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
@@ -881,7 +891,9 @@ export default function AttendancePage() {
                                 </td>
                               )}
                               <td className="py-3">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
+                              <td className={`py-3 text-xs ${placeCls(r.clockInPlace)}`}>{r.clockInPlace || "-"}</td>
                               <td className="py-3">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "-"}</td>
+                              <td className={`py-3 text-xs ${placeCls(r.clockOutPlace)}`}>{r.clockOutPlace || "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
                               <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
                               {myRole === "ADMIN" && (
@@ -898,7 +910,7 @@ export default function AttendancePage() {
                       {visibleRecords.length > 0 && (
                         <tfoot>
                           <tr className="border-t bg-gray-50">
-                            <td colSpan={multiPerson ? 4 : 3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">
+                            <td colSpan={multiPerson ? 6 : 5} className="py-2.5 px-0 text-xs font-semibold text-gray-600">
                               합계{empFilter !== "all" ? ` (${empFilter})` : ""}
                             </td>
                             <td className="py-2.5 text-xs font-semibold text-blue-700">{fmtMin(visibleTotals.minutes)}</td>

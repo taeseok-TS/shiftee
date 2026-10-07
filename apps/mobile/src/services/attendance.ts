@@ -25,6 +25,8 @@ export type TodayStatus = {
   clockedOut: boolean;
   clockInAt: string | null;
   clockOutAt: string | null;
+  pendingIn?: boolean;    // 지점 밖·사진·본부 처리 출근 요청이 승인 대기 중(2026-10-07)
+  pendingOut?: boolean;
 };
 
 export async function getTodayStatus(): Promise<TodayStatus> {
@@ -48,4 +50,68 @@ export async function clockOut(latitude: number, longitude: number) {
     { headers: await clockHeaders() }
   );
   return res.data;
+}
+
+// ─── 출퇴근 요청(2026-10-07 QA #9 #13 #15) ────────────────────────────
+// 지점 밖·사진·본부 처리·기록 수정·퇴근 누락. 결재는 원장(원장 본인은 본부), 본부 처리는 본부.
+
+export type RequestKind = "OUTSIDE" | "PHOTO" | "HQ" | "CORRECTION" | "MISSED_OUT" | "DEVICE";
+
+export type AttendanceRequestRow = {
+  id: string; userId: string; userName: string; userBranch: string | null; userPosition: string | null;
+  kind: RequestKind; kindLabel: string; action: "IN" | "OUT" | null; workDate: string; summary: string;
+  reason: string | null; memo: string | null; hasPhoto: boolean; deviceName: string | null; platform: string | null;
+  approverLabel: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; decidedByName: string | null;
+  rejectReason: string | null; createdAt: string;
+};
+
+/** 지점 밖·본부 처리·기록 수정·퇴근 누락 요청(JSON). 출퇴근 대신인 것은 기기 헤더를 붙인다 */
+export async function createAttendanceRequest(body: Record<string, unknown>) {
+  const res = await axios.post(`${API_URL}/attendance-requests`, body, { headers: await clockHeaders() });
+  return res.data as { success: true; id: string; approverLabel: string };
+}
+
+/** 사진 출퇴근 요청 — 지점 사진 + 칸들(multipart) */
+export async function createPhotoRequest(
+  photo: { uri: string; name: string; mimeType?: string | null },
+  fields: Record<string, string>,
+) {
+  const form = new FormData();
+  form.append("file", { uri: photo.uri, name: photo.name, type: photo.mimeType || "image/jpeg" } as any);
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  const res = await axios.post(`${API_URL}/attendance-requests`, form, {
+    headers: { ...(await clockHeaders()), "Content-Type": "multipart/form-data" },
+    timeout: 120000,
+  });
+  return res.data as { success: true; id: string; approverLabel: string };
+}
+
+export async function getMyAttendanceRequests(): Promise<AttendanceRequestRow[]> {
+  const res = await axios.get(`${API_URL}/attendance-requests?scope=mine`, { headers: await authHeaders() });
+  return res.data?.requests || [];
+}
+
+export async function cancelAttendanceRequest(id: string) {
+  await axios.delete(`${API_URL}/attendance-requests/${id}`, { headers: await authHeaders() });
+}
+
+/** 결재함 — 내가 처리할 출퇴근 요청 */
+export async function getAttendanceRequestInbox(): Promise<AttendanceRequestRow[]> {
+  const res = await axios.get(`${API_URL}/attendance-requests?scope=inbox`, { headers: await authHeaders() });
+  return res.data?.requests || [];
+}
+
+export async function decideAttendanceRequest(id: string, action: "approve" | "reject", reason?: string) {
+  await axios.post(`${API_URL}/attendance-requests/${id}`, { action, reason }, { headers: await authHeaders() });
+}
+
+/** 사진 요청의 지점 사진 주소 — 이미지에 Authorization 헤더를 붙여 연다 */
+export async function attendanceRequestPhotoSource(id: string) {
+  return { uri: `${API_URL}/attendance-requests/${id}/photo`, headers: (await authHeaders()) as Record<string, string> };
+}
+
+/** 퇴근 누락 안내 — 최근 7일 중 출근만 있고 퇴근이 없는 날 */
+export async function getMissedOut(): Promise<{ date: string; clockIn: string } | null> {
+  const res = await axios.get(`${API_URL}/attendance-requests/missed-out`, { headers: await authHeaders() });
+  return res.data?.missed ?? null;
 }

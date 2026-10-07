@@ -34,8 +34,29 @@ export default function LoginScreen() {
         Alert.alert("로그인 실패", "이메일 또는 비밀번호를 확인해주세요");
       }
     } catch (error: any) {
-      // 서버가 보낸 사유(미등록 기기 차단 등)를 그대로 표시
-      Alert.alert("로그인 실패", error?.message || "로그인 중 오류가 발생했습니다");
+      // 미등록 기기 — 휴대폰을 바꿨으면 여기서 바로 본부에 기기 변경을 요청한다(2026-10-07 #15, 본부 승인)
+      if (error?.deviceMismatch && !error?.deviceChangePending) {
+        Alert.alert("등록되지 않은 기기", error.message, [
+          { text: "닫기", style: "cancel" },
+          { text: "기기 변경 요청", onPress: requestDeviceChange },
+        ]);
+      } else {
+        // 서버가 보낸 사유(미등록 기기 차단 등)를 그대로 표시
+        Alert.alert("로그인 실패", error?.message || "로그인 중 오류가 발생했습니다");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const requestDeviceChange = async () => {
+    setIsLoading(true);
+    try {
+      const u = await auth.login(email, password, { requestDeviceChange: true });
+      if (u) signIn();   // 이미 승인돼 있었다면 그대로 들어간다
+      else Alert.alert("요청 실패", "네트워크를 확인하고 다시 시도해 주세요.");
+    } catch (error: any) {
+      Alert.alert(error?.deviceChangePending ? "기기 변경 요청" : "요청 실패", error?.message || "잠시 후 다시 시도해 주세요.");
     } finally {
       setIsLoading(false);
     }

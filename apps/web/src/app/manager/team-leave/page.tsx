@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
+import AttendanceRequestInbox from "@/components/attendance/AttendanceRequestInbox";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -144,10 +145,18 @@ export default function ManagerApprovalsPage() {
   const [activeTab, setActiveTab] = useState("leave");
   // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
   const [cancelCount, setCancelCount] = useState(0);
+  // 출퇴근 요청 건수(2026-10-07 #9 #13 #15) — 휴가 취소와 같은 방식으로 숫자만 먼저 받는다(내용·처리는 AttendanceRequestInbox)
+  const [attReqCount, setAttReqCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/attendance-requests?scope=inbox")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAttReqCount(d?.requests?.length ?? 0))
+      .catch(() => {});
+  }, []);
   // 대시보드·알림에서 ?tab=cancel 처럼 들어오면 그 탭을 연다(관리자 대시보드 "휴가 취소 승인 대기" 줄)
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t && ["leave", "schedule", "history", "cancel"].includes(t)) setActiveTab(t);
+    if (t && ["leave", "schedule", "history", "cancel", "attendance"].includes(t)) setActiveTab(t);
   }, []);
   useEffect(() => {
     fetch("/api/leave/cancel-requests/my-approvals")
@@ -386,14 +395,14 @@ export default function ManagerApprovalsPage() {
     }
   };
 
-  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount;
+  const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount + attReqCount;
 
   return (
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">결재 (휴가, 근무일정)</h1>
+          <h1 className="text-3xl font-bold text-gray-900">결재 (휴가, 근무일정, 출퇴근)</h1>
           <p className="text-gray-600 mt-2">{delegateOnly ? "원장대행 — 지정된 지점의 휴가 및 근무일정 신청 결재" : `${branch} - 팀의 휴가 및 근무일정 신청 결재`}</p>
         </div>
         <div className="flex items-center gap-4">
@@ -444,7 +453,7 @@ export default function ManagerApprovalsPage() {
 
       {/* 탭 */}
       <Tabs value={delegateOnly && activeTab === "history" ? "leave" : activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${delegateOnly ? "grid-cols-3" : "grid-cols-4"}`}>
+        <TabsList className={`grid w-full ${delegateOnly ? "grid-cols-4" : "grid-cols-5"}`}>
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 ({filteredLeaveSteps.length})
@@ -461,6 +470,9 @@ export default function ManagerApprovalsPage() {
           )}
           <TabsTrigger value="cancel" className="flex items-center gap-2">
             휴가 취소 ({cancelCount})
+          </TabsTrigger>
+          <TabsTrigger value="attendance" className="flex items-center gap-2">
+            출퇴근 요청 ({attReqCount})
           </TabsTrigger>
         </TabsList>
 
@@ -822,6 +834,10 @@ export default function ManagerApprovalsPage() {
         {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
         <TabsContent value="cancel" className="space-y-4 mt-6">
           <LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} />
+        </TabsContent>
+        {/* 출퇴근 요청 — 관리자·원장(대행) 결재함이 **같은 컴포넌트**를 쓴다 */}
+        <TabsContent value="attendance" className="space-y-4 mt-6">
+          <AttendanceRequestInbox onCount={setAttReqCount} searchName={searchName} />
         </TabsContent>
       </Tabs>
 
