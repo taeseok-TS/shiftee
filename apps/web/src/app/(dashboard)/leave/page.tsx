@@ -1,5 +1,6 @@
 "use client";
 
+import { LEAVE_CATALOG, LEAVE_LABELS, LEAVE_GROUPS, leaveInfo } from "@/lib/leave-catalog";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,20 +57,12 @@ type MyStep   = {
 };
 
 /* ── 상수 ── */
-const TYPE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  SICK: "병가", SPECIAL: "특별휴가",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", FAMILY_EVENT: "경조사",
-  FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
-const SINGLE_DAY_TYPES = new Set(["HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM","COMPENSATORY_HALF","CIVIL_DEFENSE"]);
-const FIXED_DAYS: Record<string, number> = {
-  HALF_AM: 0.5, HALF_PM: 0.5, QUARTER_AM: 0.25, QUARTER_PM: 0.25, COMPENSATORY_HALF: 0.5, CIVIL_DEFENSE: 0.5,
-};
+// 휴가 유형 — 기준표(lib/leave-catalog.ts, 본부 답변 #19)에서
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;
+const SINGLE_DAY_TYPES = new Set(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => t.code));
+const FIXED_DAYS: Record<string, number> = Object.fromEntries(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => [t.code, t.unit === "HALF" ? 0.5 : 0.25]));
 // 연차 미차감 유형 (승인되어도 잔여 연차에서 차감되지 않음)
-const NON_DEDUCT_TYPES = new Set(["COMPENSATORY","COMPENSATORY_HALF","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES","FAMILY_EVENT","FAMILY_MARRIAGE","FAMILY_BIRTH","FAMILY_BEREAVEMENT"]);
+const NON_DEDUCT_TYPES = new Set(LEAVE_CATALOG.filter((t) => !t.deducts).map((t) => t.code));
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "대기중",  badge: "bg-amber-100 text-amber-700 border-amber-200" },
   APPROVED:  { label: "승인",    badge: "bg-green-100 text-green-700 border-green-200" },
@@ -244,7 +237,7 @@ export default function LeavePage() {
     e.preventDefault();
     if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
     if (!form.reason.trim()) { toast.error("신청 사유를 입력해주세요."); return; }
-    if (form.type === "COMPENSATORY" && !form.attachmentUrl) { toast.error("대체휴무는 대체휴무 동의서 첨부가 필요합니다."); return; }
+    { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
     const res  = await fetch("/api/leave", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
@@ -716,27 +709,26 @@ export default function LeavePage() {
               }>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <div className="px-2 py-1 text-xs text-gray-400 font-medium">연차 계열</div>
-                  {(["ANNUAL","HALF_AM","HALF_PM","QUARTER_AM","QUARTER_PM"] as const).map(k => (
-                    <SelectItem key={k} value={k}>
-                      <span className="flex items-center justify-between w-full gap-8">
-                        <span>{TYPE_LABEL[k]}</span>
-                        {FIXED_DAYS[k] && <span className="text-xs text-gray-400">{FIXED_DAYS[k]}일</span>}
-                      </span>
-                    </SelectItem>
-                  ))}
-                  <div className="px-2 py-1 text-xs text-gray-400 font-medium border-t mt-1 pt-2">기타</div>
-                  {(["COMPENSATORY","COMPENSATORY_HALF","SICK","SPECIAL","CIVIL_DEFENSE","RESERVE_FORCES","FAMILY_EVENT"] as const).map(k => (
-                    <SelectItem key={k} value={k}>
-                      <span className="flex items-center justify-between w-full gap-8">
-                        <span>{TYPE_LABEL[k]}</span>
-                        <span className="text-xs text-gray-400">
-                          {FIXED_DAYS[k] && `${FIXED_DAYS[k]}일 `}
-                          {NON_DEDUCT_TYPES.has(k) && "· 연차 미차감"}
-                        </span>
-                      </span>
-                    </SelectItem>
-                  ))}
+                  {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
+                  {LEAVE_GROUPS.map((g, gi) => {
+                    const items = LEAVE_CATALOG.filter((t) => t.selectable && t.group === g);
+                    if (!items.length) return null;
+                    return (
+                      <div key={g}>
+                        <div className={`px-2 py-1 text-xs text-gray-400 font-medium ${gi ? "border-t mt-1 pt-2" : ""}`}>{g}</div>
+                        {items.map((t) => (
+                          <SelectItem key={t.code} value={t.code}>
+                            <span className="flex items-center justify-between w-full gap-8">
+                              <span>{t.label}</span>
+                              <span className="text-xs text-gray-400">
+                                {FIXED_DAYS[t.code] ? `${FIXED_DAYS[t.code]}일 ` : ""}{t.paidHours ? `유급 ${t.paidHours}h` : "무급"}{!t.deducts && " · 연차 미차감"}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -782,10 +774,11 @@ export default function LeavePage() {
             </div>
             <div className="space-y-2">
               <Label>
-                첨부파일{form.type === "COMPENSATORY"
-                  ? <span className="text-red-500"> (대체휴무 동의서 필수)</span>
+                첨부파일{leaveInfo(form.type)?.attachRequired
+                  ? <span className="text-red-500"> ({leaveInfo(form.type)?.attachRequired} 필수)</span>
                   : <span className="text-gray-400 font-normal text-xs"> (선택)</span>}
               </Label>
+              {leaveInfo(form.type)?.notice && <p className="text-xs text-gray-500">{leaveInfo(form.type)?.notice}</p>}
               {form.attachmentUrl ? (
                 <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm">
                   <span className="flex-1 truncate text-gray-700">{form.attachmentName}</span>

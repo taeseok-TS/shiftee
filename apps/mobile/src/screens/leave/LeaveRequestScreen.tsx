@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance } from "../../services/approvals";
+import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance, getLeaveTypes, type LeaveTypeItem } from "../../services/approvals";
 import type { MyLedger } from "../../services/approvals";
 import {
   View,
@@ -27,7 +27,10 @@ import * as storage from "../../services/storage";
 import { uploadFile, fileUri, useUploadsTicketVersion } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
+// 이름 — 서버 기준표를 받으면 그걸로 덮는다(아래 labels). 이건 받기 전·실패 때 쓰는 기본값
 const TYPE_LABEL: Record<string, string> = {
+  COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)", PRENATAL_CHECKUP: "태아검진휴가", REWARD: "포상휴가",
+  SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",
   ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
   QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
   SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
@@ -37,8 +40,11 @@ const TYPE_LABEL: Record<string, string> = {
   FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
 };
 
-// 휴가 유형 — 3개 카테고리(탭) + 각 드롭다운
-const CATEGORIES: { key: string; label: string; options: { value: LeaveType; label: string }[] }[] = [
+// 휴가 유형 — 3개 카테고리(탭) + 각 드롭다운. 서버 기준표(GET /leave/types)를 받으면 그걸로 만든다(아래 buildCategories).
+// 이 목록은 받기 전·실패 때 쓰는 기본값 — 본부 답변 #19 표대로(병가·옛 경조 세부 유형 없음)
+type LeaveOpt = { value: LeaveType; label: string; unit?: "FULL" | "HALF" | "QUARTER"; attachRequired?: string | null; notice?: string | null };
+type Category = { key: string; label: string; options: LeaveOpt[] };
+const FALLBACK_CATEGORIES: Category[] = [
   {
     key: "ANNUAL", label: "연차", options: [
       { value: "ANNUAL", label: "연차" },
@@ -49,26 +55,42 @@ const CATEGORIES: { key: string; label: string; options: { value: LeaveType; lab
     ],
   },
   {
-    key: "FAMILY", label: "경조사", options: [
-      { value: "FAMILY_MARRIAGE", label: "결혼" },
-      { value: "FAMILY_BIRTH", label: "출산" },
-      { value: "FAMILY_BEREAVEMENT", label: "사망(조사)" },
-      { value: "FAMILY_EVENT", label: "기타 경조사" },
+    key: "FAMILY", label: "경조·보상·대체", options: [
+      { value: "FAMILY_EVENT", label: "경조휴가", attachRequired: "증빙 서류" },
+      { value: "COMP_LEAVE" as LeaveType, label: "보상휴가", attachRequired: "보상휴가제 동의서" },
+      { value: "COMP_LEAVE_HALF" as LeaveType, label: "보상휴가(반차)", unit: "HALF", attachRequired: "보상휴가제 동의서" },
+      { value: "COMPENSATORY", label: "대체휴일", attachRequired: "휴일대체 동의서" },
+      { value: "COMPENSATORY_HALF", label: "대체휴일(반차)", unit: "HALF", attachRequired: "휴일대체 동의서" },
     ],
   },
   {
     key: "ETC", label: "기타", options: [
-      { value: "SICK", label: "병가" },
-      { value: "SPECIAL", label: "특별휴가" },
-      { value: "COMPENSATORY", label: "대체휴무" },
-      { value: "CIVIL_DEFENSE", label: "민방위" },
-      { value: "RESERVE_FORCES", label: "예비군훈련" },
+      { value: "PRENATAL_CHECKUP" as LeaveType, label: "태아검진휴가", unit: "HALF" },
+      { value: "REWARD" as LeaveType, label: "포상휴가" },
+      { value: "MATERNITY" as LeaveType, label: "출산휴가", attachRequired: "출산휴가 신청서·증명서" },
+      { value: "SPOUSE_BIRTH" as LeaveType, label: "배우자출산휴가" },
+      { value: "FAMILY_CARE" as LeaveType, label: "가족돌봄휴가" },
+      { value: "CIVIL_DEFENSE", label: "민방위 휴가", unit: "HALF", attachRequired: "민방위 참여 증빙" },
+      { value: "RESERVE_FORCES", label: "예비군 휴가", attachRequired: "예비군 훈련 참여 확인증" },
+      { value: "OTHER_PAID" as LeaveType, label: "기타휴가(유급)" },
+      { value: "OTHER_UNPAID" as LeaveType, label: "기타휴가(무급)" },
     ],
   },
 ];
 
-// 하루짜리 유형(반차·반반차·민방위) — 시작일만 받고 종료일=시작일
-const SINGLE_DAY = new Set<LeaveType>(["HALF_AM", "HALF_PM", "QUARTER_AM", "QUARTER_PM", "CIVIL_DEFENSE"]);
+// 서버 기준표 → 탭 3개(연차 / 경조·보상·대체 / 기타)
+const TAB_OF: Record<string, string> = { 연차휴가: "ANNUAL", 경조휴가: "FAMILY", 보상휴가: "FAMILY", 대체휴일: "FAMILY", 보건휴가: "ETC", 기타휴가: "ETC" };
+function buildCategories(types: LeaveTypeItem[]): Category[] {
+  const out = FALLBACK_CATEGORIES.map((c) => ({ ...c, options: [] as LeaveOpt[] }));
+  for (const t of types) {
+    const cat = out.find((c) => c.key === (TAB_OF[t.group] ?? "ETC"));
+    cat?.options.push({ value: t.code as LeaveType, label: t.label, unit: t.unit, attachRequired: t.attachRequired, notice: t.notice });
+  }
+  return out.every((c) => c.options.length) ? out : FALLBACK_CATEGORIES;
+}
+
+// 하루짜리 유형(반차·반반차·4시간 휴가) — 시작일만 받고 종료일=시작일
+const SINGLE_DAY = new Set<LeaveType>(["HALF_AM", "HALF_PM", "QUARTER_AM", "QUARTER_PM"]);
 
 const STATUS: Record<string, { label: string; color: string }> = {
   PENDING: { label: "대기중", color: "#f59e0b" },
@@ -81,6 +103,13 @@ export default function LeaveRequestScreen() {
   useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const headerHeight = useHeaderHeight();
   const [category, setCategory] = useState("ANNUAL");
+  const [CATEGORIES, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
+  useEffect(() => {
+    getLeaveTypes().then((d) => {
+      if (d.types.length) setCategories(buildCategories(d.types));
+      Object.assign(TYPE_LABEL, d.labels);   // 기록 표시 이름도 기준표로
+    }).catch(() => {});
+  }, []);
   const [leaveType, setLeaveType] = useState<LeaveType>("ANNUAL");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [startDate, setStartDate] = useState("");
@@ -129,8 +158,8 @@ export default function LeaveRequestScreen() {
 
   const activeCategory = CATEGORIES.find((c) => c.key === category)!;
   const activeOption = activeCategory.options.find((o) => o.value === leaveType) ?? activeCategory.options[0];
-  const isSingleDay = SINGLE_DAY.has(leaveType);
-  const isCompensatory = leaveType === "COMPENSATORY";
+  const isSingleDay = SINGLE_DAY.has(leaveType) || (activeOption.value === leaveType && !!activeOption.unit && activeOption.unit !== "FULL");
+  const attachRequired = activeOption.value === leaveType ? activeOption.attachRequired ?? null : null;   // 동의서·증빙 필수(기준표)
 
   const doUpload = async (file: { uri: string; name: string; mimeType?: string | null }) => {
     setAttaching(true);
@@ -298,8 +327,8 @@ export default function LeaveRequestScreen() {
       Alert.alert("오류", "신청 사유를 입력해주세요");
       return;
     }
-    if (isCompensatory && !attachmentUrl) {
-      Alert.alert("오류", "대체휴무는 대체휴무 동의서 첨부가 필요합니다");
+    if (attachRequired && !attachmentUrl) {
+      Alert.alert("오류", `${activeOption.label}은(는) ${attachRequired} 첨부가 필요합니다`);
       return;
     }
     const finalEnd = isSingleDay ? startDate : endDate;
@@ -498,10 +527,11 @@ export default function LeaveRequestScreen() {
           editable={!isLoading}
         />
 
-        {/* 첨부 (대체휴무는 동의서 필수) */}
+        {/* 첨부 — 동의서·증빙 필수 유형은 기준표(attachRequired)대로 */}
         <Text style={styles.label}>
-          첨부파일{isCompensatory ? " (대체휴무 동의서 필수)" : " (선택)"}
+          첨부파일{attachRequired ? ` (${attachRequired} 필수)` : " (선택)"}
         </Text>
+        {!!activeOption.notice && activeOption.value === leaveType && <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>{activeOption.notice}</Text>}
         {attachmentUrl ? (
           <View style={styles.attachRow}>
             <Ionicons name="document-attach-outline" size={18} color="#2563eb" />

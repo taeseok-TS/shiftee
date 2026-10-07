@@ -250,6 +250,16 @@ enum LeaveType {
   FAMILY_MARRIAGE // 경조사-결혼 (연차 미차감)
   FAMILY_BIRTH // 경조사-출산 (연차 미차감)
   FAMILY_BEREAVEMENT // 경조사-사망(조사) (연차 미차감)
+  // 2026-10-07 QA #30(본부 답변 #19) — 시프티 휴가 유형 그대로. 성질은 lib/leave-catalog.ts
+  COMP_LEAVE // 보상휴가
+  COMP_LEAVE_HALF // 보상휴가(반차)
+  PRENATAL_CHECKUP // 태아검진휴가(4시간)
+  REWARD // 포상휴가
+  MATERNITY // 출산휴가
+  SPOUSE_BIRTH // 배우자출산휴가
+  FAMILY_CARE // 가족돌봄휴가
+  OTHER_PAID // 기타휴가(유급)
+  OTHER_UNPAID // 기타휴가(무급)
 }
 
 enum LeaveStatus {

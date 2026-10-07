@@ -1,4 +1,5 @@
 import { myStepOr, type ApproverScope } from "@/lib/approval-delegate";
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import type { Prisma } from "@prisma/client";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOfLeave } from "@/lib/leave-calc";
@@ -87,15 +88,8 @@ export function cancelStepWhere(
   };
 }
 
-export const LEAVE_TYPE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
-  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
-  MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
-  FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+// 휴가 유형 이름 — 기준표(lib/leave-catalog.ts)에서
+export const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;
 
 export const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
 

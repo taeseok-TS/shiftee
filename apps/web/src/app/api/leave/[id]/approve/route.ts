@@ -1,3 +1,4 @@
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { NextRequest, NextResponse } from "next/server";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
@@ -186,15 +187,7 @@ export async function POST(
     // 같은 내용이 두 경로로 나가면 한쪽만 실패했을 때 무엇이 갔는지 알 수 없다.
     const requesterName = leaveRequest.user.name;
     const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
-    const leaveTypeLabel: Record<string, string> = {
-      ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-      QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-      SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
-      COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-      CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
-      MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
-      FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-    };
+    const leaveTypeLabel: Record<string, string> = { ...LEAVE_LABELS };
     const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
     const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
     const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
@@ -310,15 +303,7 @@ async function adminOverride(
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   const approverName = approver?.name || "관리자";
   const requesterName = leaveRequest.user.name;
-  const leaveTypeLabel: Record<string, string> = {
-    ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-    QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-    SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
-    COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-    CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
-    MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
-    FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-  };
+  const leaveTypeLabel: Record<string, string> = { ...LEAVE_LABELS };
   const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
   const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
   const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';

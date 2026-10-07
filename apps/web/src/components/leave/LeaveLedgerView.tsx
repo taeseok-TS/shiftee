@@ -1,5 +1,6 @@
 "use client";
 
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,12 +29,7 @@ type Ledger = {
   summary: { approvedDeductibleDays: number; balanceUsed: number | null; match: boolean | null };
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차", QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가", COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
-  FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
 const STATUS: Record<string, { label: string; cls: string }> = {
   PENDING: { label: "대기", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   APPROVED: { label: "승인", cls: "bg-green-50 text-green-700 border-green-200" },

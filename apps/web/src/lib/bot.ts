@@ -1,3 +1,4 @@
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
@@ -14,15 +15,7 @@ import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachme
 const BOT_ID = "cubetee-bot";
 const KST_MS = 9 * 60 * 60 * 1000;
 
-const LEAVE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
-  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
-  MATERNITY: "출산휴가", BEREAVEMENT: "경조사",
-  FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+const LEAVE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
 
 // 인사봇 — 전자계약(발송·서명·결재·완료) 안내 전담. 관리자용 알림(제안·시스템·브리핑)과
 // 채팅방이 분리되어 계약 건을 놓치지 않는다 (개선 제안 #81, 디렉터 확정 2026-08-26)

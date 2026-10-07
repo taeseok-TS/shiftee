@@ -152,6 +152,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "휴가 유형이 올바르지 않습니다." }, { status: 400 });
   }
   const leaveType = type as LeaveTypeValue;
+  // 새 신청은 기준표의 신청 목록에 있는 유형만(병가·옛 경조 세부 유형은 기록만 남는다, 본부 답변 #19)
+  const { leaveInfo } = await import("@/lib/leave-catalog");
+  const info = leaveInfo(type);
+  if (!info || !info.selectable) {
+    return NextResponse.json({ error: "지금은 신청할 수 없는 휴가 유형입니다." }, { status: 400 });
+  }
   for (const [label, v] of [["첨부 경로", attachmentUrl], ["첨부 파일명", attachmentName]] as const) {
     if (v !== undefined && v !== null && typeof v !== "string") {
       return NextResponse.json({ error: `${label} 형식이 올바르지 않습니다.` }, { status: 400 });
@@ -167,9 +173,9 @@ export async function POST(request: NextRequest) {
   if (typeof reason !== "string" || !reason.trim()) {
     return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
   }
-  // 대체휴무는 동의서 첨부 필수
-  if (type === "COMPENSATORY" && !attachmentUrl) {
-    return NextResponse.json({ error: "대체휴무는 대체휴무 동의서 첨부가 필요합니다." }, { status: 400 });
+  // 필수 첨부(동의서·증빙) — 기준표 attachRequired
+  if (info.attachRequired && !attachmentUrl) {
+    return NextResponse.json({ error: `${info.label}은(는) ${info.attachRequired} 첨부가 필요합니다.` }, { status: 400 });
   }
 
   const start = new Date(startDate);
@@ -187,9 +193,9 @@ export async function POST(request: NextRequest) {
 
   // 근무일(평일)만 계산 — 주말과 공휴일(Holiday 테이블) 제외
   let days: number;
-  if (type === "HALF_AM" || type === "HALF_PM" || type === "COMPENSATORY_HALF" || type === "CIVIL_DEFENSE") {
+  if (info.unit === "HALF") {
     days = 0.5;
-  } else if (type === "QUARTER_AM" || type === "QUARTER_PM") {
+  } else if (info.unit === "QUARTER") {
     days = 0.25;
   } else {
     const allDays = eachDayOfInterval({ start, end });

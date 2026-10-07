@@ -1,3 +1,4 @@
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -89,13 +90,7 @@ export async function GET() {
   const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
   const absent = Math.max(totalEmployees - present - onLeave, 0);
 
-  const LEAVE_TYPE_LABEL: Record<string, string> = {
-    ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-    QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-    COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차", SICK: "병가", SPECIAL: "특별휴가",
-    CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", FAMILY_EVENT: "경조사",
-    FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-  };
+  const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 
   // 휴가 취소 결재 — 결재함(/api/leave/cancel-requests/my-approvals)과 같은 기준(본인 요청 제외)

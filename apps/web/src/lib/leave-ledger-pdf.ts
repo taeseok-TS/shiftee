@@ -1,13 +1,9 @@
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { PDFDocument, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
 import { embedKoreanFont } from "@/lib/pdf-korean-font";
 import type { Ledger } from "@/lib/leave-ledger";
 
-const TYPE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차", QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가", COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련", MATERNITY: "출산휴가", BEREAVEMENT: "상주휴가",
-  FAMILY_EVENT: "경조사", FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
 const STATUS_LABEL: Record<string, string> = {
   PENDING: "대기", APPROVED: "승인", REJECTED: "반려", CANCELLED: "취소", WAITING: "대기 전",
 };

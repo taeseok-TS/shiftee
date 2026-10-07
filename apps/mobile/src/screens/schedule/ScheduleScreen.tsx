@@ -50,6 +50,7 @@ function shiftHalfHour(t: string, delta: number) {
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
 const LEAVE_TYPE_LABEL: Record<string, string> = {
+  COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)", PRENATAL_CHECKUP: "태아검진휴가", REWARD: "포상휴가", SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",   // 2026-10-07 QA #30
   ANNUAL: "연차",
   SICK: "병가",
   PERSONAL: "개인휴가",

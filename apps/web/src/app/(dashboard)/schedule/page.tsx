@@ -1,5 +1,6 @@
 "use client";
 
+import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -53,10 +54,7 @@ const STATUS_CFG: Record<string, { label: string; badge: string; dot: string }> 
   NO_SCHEDULE: { label: "일정없음", badge: "bg-gray-50 text-gray-400 border-gray-100",      dot: "bg-gray-300" },
 };
 
-const LEAVE_LABEL: Record<string, string> = {
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차", SICK: "병가", SPECIAL: "특별휴가",
-  FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+const LEAVE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 

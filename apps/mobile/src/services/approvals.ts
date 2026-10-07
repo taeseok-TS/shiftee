@@ -199,6 +199,13 @@ export function stepLabel(s: InboxStepInfo): string {
   return "결재자";
 }
 
+/** 휴가 유형 기준표(2026-10-07 QA #30) — 서버 lib/leave-catalog 가 원천. 신청 목록(types)과 전 유형 이름(labels) */
+export type LeaveTypeItem = { code: string; label: string; group: string; unit: "FULL" | "HALF" | "QUARTER"; paidHours: number; deducts: boolean; attachRequired: string | null; notice: string | null };
+export async function getLeaveTypes(): Promise<{ types: LeaveTypeItem[]; labels: Record<string, string> }> {
+  const res = await axios.get(`${API_URL}/leave/types`, { headers: await authHeaders() });
+  return { types: res.data?.types ?? [], labels: res.data?.labels ?? {} };
+}
+
 /** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */
 export async function canApproveNow(): Promise<boolean | null> {
   const u = await getUser().catch(() => null);
