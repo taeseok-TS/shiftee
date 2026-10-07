@@ -29,7 +29,9 @@ const statusChip: Record<Key["status"], [string, string]> = {
   revoked: ["꺼짐", "bg-gray-100 text-gray-500 border-gray-200"],
 };
 
-export function ApiKeysPanel() {
+// adminMode: 관리자 API 키 화면에서 쓸 때(개선 제안 #211) — 관리자 키의 자료제출 읽기는 전 직원 자료가 열리므로
+//            기본 체크를 채팅으로 바꾸고 경고를 띄운다. onChanged: 바깥 목록(관리자 화면의 직원 개인 키 표)도 새로
+export function ApiKeysPanel({ adminMode = false, onChanged }: { adminMode?: boolean; onChanged?: () => void } = {}) {
   const [keys, setKeys] = useState<Key[] | null>(null);
   const [create, setCreate] = useState(false);
   const [secret, setSecret] = useState<{ raw: string; name: string } | null>(null);
@@ -42,13 +44,13 @@ export function ApiKeysPanel() {
     if (!confirm(`「${k.name}」 키를 끌까요? 이 키를 쓰던 AI·프로그램은 즉시 멈추고, 되돌릴 수 없습니다.`)) return;
     const res = await fetch(`/api/me/api-keys/${k.id}`, { method: "DELETE" });
     if (!res.ok) { toast.error("끄지 못했습니다."); return; }
-    toast.success("껐습니다."); load();
+    toast.success("껐습니다."); load(); onChanged?.();
   }
   async function resume(k: Key) {
     const res = await fetch(`/api/me/api-keys/${k.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resume: true }) });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(d.error || "다시 켜지 못했습니다."); return; }
-    toast.success("다시 켰습니다."); load();
+    toast.success("다시 켰습니다."); load(); onChanged?.();
   }
 
   return (
@@ -95,14 +97,14 @@ export function ApiKeysPanel() {
           );
         })}
       <p className="text-[11px] text-gray-400">키가 새면 즉시 끄고 새로 만드세요. 키는 10개까지, 기본 90일(최대 1년)이며 비밀번호가 초기화되면 전부 꺼집니다.</p>
-      {create && <CreateDialog onClose={() => setCreate(false)} onCreated={(raw, name) => { setCreate(false); setSecret({ raw, name }); load(); }} />}
+      {create && <CreateDialog adminMode={adminMode} onClose={() => setCreate(false)} onCreated={(raw, name) => { setCreate(false); setSecret({ raw, name }); load(); onChanged?.(); }} />}
     </div>
   );
 }
 
-function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (raw: string, name: string) => void }) {
+function CreateDialog({ adminMode, onClose, onCreated }: { adminMode: boolean; onClose: () => void; onCreated: (raw: string, name: string) => void }) {
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<string[]>(["submissions:read", "submissions:write"]);
+  const [scopes, setScopes] = useState<string[]>(adminMode ? ["chat:read", "chat:write"] : ["submissions:read", "submissions:write"]);
   const [ttl, setTtl] = useState("90");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -129,6 +131,9 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <div><label className="text-xs text-gray-500">용도 (필수)</label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 과제 자동 제출 (Claude)" maxLength={60} /></div>
           <div>
             <label className="text-xs text-gray-500">권한</label>
+            {adminMode && scopes.some((x) => x.startsWith("submissions:")) && (
+              <p className="text-xs text-amber-700">관리자 키의 자료제출 권한은 전 직원 자료가 열립니다. 꼭 필요할 때만 체크해 주세요.</p>
+            )}
             <div className="space-y-1.5 mt-1">
               {SCOPES.map((s) => (
                 <label key={s.id} className="flex items-start gap-2 cursor-pointer">

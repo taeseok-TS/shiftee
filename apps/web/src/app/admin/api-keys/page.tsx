@@ -86,8 +86,10 @@ export default function AdminApiKeysPage() {
           <p className="font-medium text-sm">내 개인 키 — 채팅 읽기·쓰기(chat:read·chat:write)·자료제출</p>
           <p className="text-xs text-gray-500 mt-1">회사 연동 키(위)는 마케팅 권한만 고를 수 있습니다. 채팅·자료제출 권한은 이 「내 개인 키」로 만듭니다 — 키는 내 권한 이하로만 움직이고, 채팅은 고른 방에만 씁니다.</p>
         </div>
-        {myId && allowed.some((a) => a.id === myId)
-          ? <ApiKeysPanel />
+        {myId === null
+          ? null
+          : allowed.some((a) => a.id === myId)
+          ? <ApiKeysPanel adminMode onChanged={load} />
           : <p className="text-xs text-amber-700">개인 키를 만들려면 위 「허용」 목록에 본인을 먼저 추가해 주세요.</p>}
       </CardContent></Card>
 
