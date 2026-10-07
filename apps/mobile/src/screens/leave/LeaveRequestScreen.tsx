@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
@@ -267,9 +268,13 @@ export default function LeaveRequestScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 하단 탭이 됐다(2026-10-07 #17) — 탭은 한 번 뜨면 남아 있어서, 들어올 때마다 다시 불러와야
+  // 승인 결과·잔여 연차가 최신이 된다(쓰다 만 입력값은 그대로 둔다)
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   useEffect(() => {
     storage.getUser().then((u) => setMyId(u?.id || "")).catch(() => {});

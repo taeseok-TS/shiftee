@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { canApproveNow } from "../services/approvals";
 
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
@@ -18,10 +18,14 @@ const APPROVAL_ITEM = { route: "Approvals", label: "결재", icon: "checkmark-do
 export default function MoreMenuScreen() {
   const navigation = useNavigation<any>();
   const [canApprove, setCanApprove] = useState(false);
-  useEffect(() => {
-    canApproveNow().then(setCanApprove).catch(() => {});
-  }, []);
-  const items = canApprove ? [APPROVAL_ITEM, ...MENU] : MENU;
+  // 대행 기간이 시작·끝날 수 있어 메뉴에 들어올 때마다 다시 판정한다.
+  // 「결재」는 맨 아래에 붙인다 — 맨 위에 늦게 끼어들면 줄이 밀려 다른 메뉴를 누르려다 잘못 누른다(검증 지적)
+  useFocusEffect(
+    useCallback(() => {
+      canApproveNow().then(setCanApprove).catch(() => {});
+    }, [])
+  );
+  const items = canApprove ? [...MENU, APPROVAL_ITEM] : MENU;
   return (
     <ScrollView style={styles.container}>
       <View style={styles.group}>

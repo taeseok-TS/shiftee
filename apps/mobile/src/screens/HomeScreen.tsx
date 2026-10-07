@@ -13,7 +13,7 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { DashboardStats, Announcement } from "@shiftee/api";
 import * as api from "../services/api";
 import * as storage from "../services/storage";
@@ -67,8 +67,6 @@ export default function HomeScreen() {
       setStats(s);
       setAnnouncements(anns.slice(0, 5));
       setTodayStatus(ts);
-      const approver = await canApproveNow().catch(() => false);
-      setInbox(approver ? await myInboxCount().catch(() => 0) : null);
     } catch (error) {
       console.error("❌ Failed to load home:", error);
     } finally {
@@ -81,10 +79,24 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
+  // 결재 건수 — 홈 로딩(스피너)과 떼어 따로 부른다. 결재 화면에서 처리하고 돌아오면 줄어 있어야 해서
+  // 홈에 들어올 때마다 다시 센다. 못 세면 이전 값을 그대로 둔다(0건으로 속이지 않게)
+  const refreshInbox = useCallback(() => {
+    canApproveNow()
+      .then(async (ok) => {
+        if (!ok) { setInbox(null); return; }
+        const n = await myInboxCount();
+        if (n != null) setInbox(n);
+      })
+      .catch(() => {});
+  }, []);
+  useFocusEffect(refreshInbox);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     load();
-  }, [load]);
+    refreshInbox();
+  }, [load, refreshInbox]);
 
   // 대기 결재(내 신청 중) 월·유형별 집계
   const openApproval = useCallback(async () => {
