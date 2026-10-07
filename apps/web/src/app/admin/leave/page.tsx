@@ -246,16 +246,26 @@ export default function LeavePage() {
   useEffect(() => { fetchApprovalLines();}, [fetchApprovalLines]);
 
   /* ── 휴가 신청 ── */
+  const [submitting, setSubmitting] = useState(false);   // 두 번 눌러 두 건이 생기지 않게(대리 등록은 바로 승인·차감)
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
     { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl && !form.targetUserId) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
-    const res  = await fetch("/api/leave", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const data = await res.json();
-    if (!res.ok) { toast.error(data.error); return; }
+    setSubmitting(true);
+    let res: Response, data: { error?: string; days?: number; proxy?: boolean };
+    try {
+      res  = await fetch("/api/leave", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      data = await res.json().catch(() => ({}));
+    } catch {
+      toast.error("네트워크 오류로 신청하지 못했습니다."); return;
+    } finally {
+      setSubmitting(false);
+    }
+    if (!res.ok) { toast.error(data.error || "신청하지 못했습니다."); return; }
     toast.success(data.proxy ? `${data.days}일 휴가를 등록·승인했습니다. 직원에게 알림을 보냈습니다.` : `${data.days}일 휴가 신청이 완료되었습니다.`);
     setAddOpen(false);
     setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
@@ -905,7 +915,11 @@ export default function LeavePage() {
       </Tabs>
 
       {/* ═══ 휴가 신청 다이얼로그 ═══ */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog open={addOpen} onOpenChange={o => {
+        setAddOpen(o);
+        // 닫으면 비운다 — 다시 열었을 때 앞서 고른 대상 직원이 남아 있지 않게(검증 #6)
+        if (!o) setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
+      }}>
         <DialogContent className="max-w-xl sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><CalendarDays size={18} />휴가 신청</DialogTitle>
@@ -1003,7 +1017,9 @@ export default function LeavePage() {
             <div className="space-y-2">
               <Label>
                 첨부파일{leaveInfo(form.type)?.attachRequired
-                  ? <span className="text-red-500"> ({leaveInfo(form.type)?.attachRequired} 필수)</span>
+                  ? (form.targetUserId
+                    ? <span className="text-gray-400 font-normal text-xs"> ({leaveInfo(form.type)?.attachRequired} — 대리 등록은 선택)</span>
+                    : <span className="text-red-500"> ({leaveInfo(form.type)?.attachRequired} 필수)</span>)
                   : <span className="text-gray-400 font-normal text-xs"> (선택)</span>}
               </Label>
               {leaveInfo(form.type)?.notice && <p className="text-xs text-gray-500">{leaveInfo(form.type)?.notice}</p>}
@@ -1019,7 +1035,7 @@ export default function LeavePage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>취소</Button>
-              <Button type="submit" disabled={previewDays <= 0}>신청</Button>
+              <Button type="submit" disabled={previewDays <= 0 || submitting}>{submitting ? "처리 중..." : form.targetUserId ? "등록·승인" : "신청"}</Button>
             </div>
           </form>
         </DialogContent>

@@ -4,7 +4,7 @@ import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } fro
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { kstTodayMidnight } from "@/lib/resign";
-import { botNotifyApprovalRequest, botSendDM } from "@/lib/bot";
+import { botNotifyApprovalRequest, botNotifyDecision } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -143,6 +143,7 @@ export async function POST(request: NextRequest) {
   // 바로 승인·차감한다. 결재선은 타지 않는다(본부가 곧 최종 결재). 등록자는 감사 로그로 남기고 직원에게 알린다.
   let subject = { id: session.userId, name: session.name };
   let proxy = false;
+  let subjectResignYmd: string | null = null;
   if (targetUserId !== undefined && targetUserId !== null && targetUserId !== "" && targetUserId !== session.userId) {
     if (session.role !== "ADMIN") {
       return NextResponse.json({ error: "휴가 대리 등록은 본부(관리자)만 할 수 있습니다." }, { status: 403 });
@@ -150,11 +151,16 @@ export async function POST(request: NextRequest) {
     if (typeof targetUserId !== "string") {
       return NextResponse.json({ error: "대상 직원이 올바르지 않습니다." }, { status: 400 });
     }
-    const t = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, name: true, deletedAt: true } });
-    if (!t || t.deletedAt) {
-      return NextResponse.json({ error: "대상 직원을 찾을 수 없습니다." }, { status: 404 });
+    // 재직 중인 사람만 — 휴지통·비활성(봇 계정 포함)·퇴사 처리된 계정은 대상이 될 수 없다(검증 #3)
+    const t = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, name: true, deletedAt: true, isActive: true, employmentStatus: true, resignDate: true },
+    });
+    if (!t || t.deletedAt || !t.isActive || t.employmentStatus === "RESIGNED") {
+      return NextResponse.json({ error: "대상 직원을 찾을 수 없습니다(재직 중인 직원만 등록할 수 있습니다)." }, { status: 404 });
     }
     subject = { id: t.id, name: t.name };
+    subjectResignYmd = t.resignDate ? ymdUTC(t.resignDate) : null;
     proxy = true;
   }
 
@@ -203,6 +209,10 @@ export async function POST(request: NextRequest) {
 
   if (start > end) {
     return NextResponse.json({ error: "종료일이 시작일보다 빠릅니다." }, { status: 400 });
+  }
+  // 퇴사일이 정해진 직원은 퇴사일 뒤로 등록할 수 없다(대리 등록, 검증 #3)
+  if (proxy && subjectResignYmd && endDate > subjectResignYmd) {
+    return NextResponse.json({ error: `${subject.name}님의 퇴사일(${subjectResignYmd}) 뒤로는 휴가를 등록할 수 없습니다.` }, { status: 400 });
   }
   // 반차·반반차처럼 일수가 고정된 유형은 하루만 — 기간을 길게 넣으면 0.5일로 저장되고 달력·주간 합계에는 그 기간 전체가 휴가로 잡혔다(검증 P2)
   if (info.unit !== "FULL" && startDate !== endDate) {
@@ -264,6 +274,17 @@ export async function POST(request: NextRequest) {
     //   **결재선 없는 대기 신청**이 남아 관리자의 "결재라인 없음" 목록으로 흘러가
     //   원장 단계를 건너뛰었다(2026-09-09 검증에서 적발).
     const leaveRequest = await prisma.$transaction(async (tx) => {
+      if (proxy) {
+        // 대리 등록은 곧바로 승인·차감이라 두 번 누르면 피해가 바로 확정된다(검증 #1) — 같은 직원 등록을 줄 세우고,
+        // 그 직원의 대기·승인 휴가와 기간이 겹치면 막는다. 반차끼리(오전+오후 등 하루 미만 유형끼리)는 겹쳐도 된다.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-proxy:" + subject.id}))`;
+        const overlap = await tx.leaveRequest.findMany({
+          where: { userId: subject.id, status: { in: ["PENDING", "APPROVED"] }, startDate: { lte: end }, endDate: { gte: start } },
+          select: { type: true, startDate: true, endDate: true },
+        });
+        const clash = overlap.find((o) => !(info.unit !== "FULL" && leaveInfo(o.type)?.unit !== "FULL" && o.type !== leaveType));
+        if (clash) throw new ProxyOverlap(`${subject.name}님은 이미 ${leaveInfo(clash.type)?.label ?? clash.type} ${ymdUTC(clash.startDate)}${ymdUTC(clash.startDate) === ymdUTC(clash.endDate) ? "" : ` ~ ${ymdUTC(clash.endDate)}`} 휴가가 있습니다.`);
+      }
       const created = await tx.leaveRequest.create({
         data: {
           userId: subject.id,
@@ -290,9 +311,17 @@ export async function POST(request: NextRequest) {
             status: idx === 0 ? "PENDING" : "WAITING",
           })),
         });
-      } else if (isLeaveDeductible(leaveType)) {
-        // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
-        await deductLeaveBalance(tx, subject.id, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
+      } else {
+        // 대리 등록은 본부 승인 단계 하나를 남긴다 — 목록·연차 대장에 「관리자 승인(본부 대리 등록)」으로 보이게(검증 #4)
+        if (proxy) {
+          await tx.leaveApprovalStep.create({
+            data: { leaveRequestId: created.id, order: 1, approverRole: "ADMIN", approverId: session.userId, status: "APPROVED", comment: "본부 대리 등록", decidedAt: new Date() },
+          });
+        }
+        if (isLeaveDeductible(leaveType)) {
+          // 결재 단계 없음(관리자 본인 + 다른 관리자 없음, 또는 본부 대리 등록) → 자동 승인 + 즉시 차감
+          await deductLeaveBalance(tx, subject.id, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
+        }
       }
 
       return created;
@@ -315,16 +344,21 @@ export async function POST(request: NextRequest) {
       const period = ymd(leaveRequest.startDate) === ymd(leaveRequest.endDate) ? ymd(leaveRequest.startDate) : `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`;
       await logAudit({
         actorId: session.userId, actorName: session.name, action: "LEAVE_PROXY_CREATE",
-        targetType: "LeaveRequest", targetId: leaveRequest.id, targetName: subject.name,
+        targetType: "LEAVE", targetId: leaveRequest.id, targetName: subject.name,
         detail: `${info.label} ${period} (${days}일) 대리 등록·승인`,
       });
-      botSendDM(subject.id, `[휴가 등록] 본부에서 ${subject.name}님의 휴가를 등록했습니다.\n${info.label} · ${period} (${days}일)`).catch(() => {});
+      // 직원에게는 결재 결과 알림과 같은 길로(본인 알림 끄기 설정을 따른다), 다른 관리자에게는 진행 알림(본부 답변 #8)
+      botNotifyDecision(subject.id, `${info.label} (${period}) — 본부 대리 등록`, true, session.name, null,
+        { actorId: session.userId, actorRole: session.role }).catch(() => {});
     }
 
     return NextResponse.json({ success: true, leaveRequest, days, proxy });
   } catch (error) {
+    if (error instanceof ProxyOverlap) return NextResponse.json({ error: error.message }, { status: 409 });
     console.error("휴가 신청 생성 오류:", error);
     return NextResponse.json({ error: "휴가 신청 중 오류가 발생했습니다." }, { status: 500 });
   }
 }
+
+class ProxyOverlap extends Error {}
 
