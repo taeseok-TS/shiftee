@@ -1497,6 +1497,7 @@ ${url}`;
   const [exporting, setExporting] = useState(false);
   async function exportPicked(kind: "zip" | "xlsx") {
     if (!pickedAll.length || exporting) return;
+    if (pickedAll.length > 200) { toast.error(`한 번에 200건까지 받을 수 있습니다(고른 ${pickedAll.length}건). 나눠서 받아 주세요.`); return; }
     setExporting(true);
     try {
       const res = await fetch("/api/contracts/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: pickedAll.map(x => x.id), kind }) });

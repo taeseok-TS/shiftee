@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
 
     // 기간 기준(#79) — 작성일(기본)·완료일(체결일)·마지막 활동일. from/to 를 주면 연·월 대신 이것으로 거른다(KST 날짜)
     const from = searchParams.get("from"), to = searchParams.get("to");
-    const ymdOk = (v: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    // 형식 + 실제 있는 날짜만(2026-13-01·2026-02-31 은 무시 — Prisma 500·다른 날로 넘어가기 방지)
+    const ymdOk = (v: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v && v >= "2000-01-01";
     if (ymdOk(from) || ymdOk(to)) {
       const field = searchParams.get("dateField") === "signed" ? "signedAt" : searchParams.get("dateField") === "activity" ? "updatedAt" : "createdAt";
       const kstStart = (v: string) => new Date(new Date(`${v}T00:00:00Z`).getTime() - 9 * 3600 * 1000);
@@ -72,11 +73,17 @@ export async function GET(request: NextRequest) {
     if (status) {
       whereBase.status = status;
     }
-    // 오래된 대기(#79) — 발송·결재 중인데 N일(기본 7) 넘게 아무 움직임이 없는 계약
+    // 오래된 대기(#79) — 발송·결재 중인데 N일(기본 7) 넘게 아무 움직임이 없는 계약.
+    //  · 작성 연·월로는 거르지 않는다(작년에 보낸 건도 보여야 한다) — 기간(from/to)을 넣었으면 그 기간은 지킨다
+    //  · 상태를 고른 경우 그 상태와 「진행 중」을 둘 다 만족해야 한다(완료를 고르면 비어야 맞다)
+    //  · 기간 상한(to)과 7일 전 중 더 이른 쪽
     const stale = Number(searchParams.get("stale"));
     if (Number.isFinite(stale) && stale > 0) {
-      whereBase.status = status && ["SENT", "APPROVED"].includes(status) ? status : { in: ["SENT", "APPROVED"] };
-      whereBase.updatedAt = { ...(whereBase.updatedAt || {}), lt: new Date(Date.now() - Math.min(365, stale) * 86400000) };
+      if (!(ymdOk(from) || ymdOk(to))) delete whereBase.createdAt;
+      whereBase.AND = [...(whereBase.AND || []), { status: { in: ["SENT", "APPROVED"] } }];
+      const cutoff = new Date(Date.now() - Math.min(365, stale) * 86400000);
+      const prevLt = whereBase.updatedAt?.lt as Date | undefined;
+      whereBase.updatedAt = { ...(whereBase.updatedAt || {}), lt: prevLt && prevLt < cutoff ? prevLt : cutoff };
     }
 
     if (userId && !selfOnly) {
@@ -84,8 +91,11 @@ export async function GET(request: NextRequest) {
     }
 
     // 지점 필터 — 계약 당사자(직원)의 소속 지점 기준. 외부 계약은 소유자가 관리자라 제외됨
+    // ⚠ 원장은 **담당 지점 안에서만** 고를 수 있다 — 종전에는 ?branch=다른지점 이 담당 지점 조건(in: myBranches)을
+    //   덮어써 다른 지점 계약 목록이 보였다(2026-10-08 #79 검증에서 발견). 담당이 아닌 지점이면 빈 결과
     if (branch && !selfOnly) {
-      whereBase.user = { ...(whereBase.user || {}), branch };
+      if (session.role === "MANAGER" && !myBranches.includes(branch)) whereBase.user = { ...(whereBase.user || {}), branch: { in: [] } };
+      else whereBase.user = { ...(whereBase.user || {}), branch };
     }
 
     if (searchText && searchText.trim()) {
