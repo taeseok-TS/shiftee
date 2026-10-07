@@ -311,13 +311,27 @@ export default function ContractsPage() {
   const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
   // 근로자 본인 서명 — 비밀번호 재확인 + 매번 직접 서명(#205-1·#205-2, 2026-09-11 디렉터). 결재자 서명은 지금처럼.
   const [signPassword, setSignPassword] = useState("");
+  // 문서 열기 전 본인 확인(#20) — 확인하면 30분 동안 서명 때 비밀번호를 다시 묻지 않는다(서버가 기록으로 확인)
+  const [unlocked, setUnlocked] = useState(false);
+  const [unlockPw, setUnlockPw] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  async function unlockDoc() {
+    if (!signTarget || !unlockPw) return;
+    setUnlocking(true);
+    try {
+      const res = await fetch(`/api/contracts/${signTarget.id}/unlock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: unlockPw }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "본인 확인에 실패했습니다."); return; }
+      setUnlocked(true); setUnlockPw("");
+    } finally { setUnlocking(false); }
+  }
   // 전자서명 동의(#205-3) + 문서를 끝까지 내려 봤는가(뷰어가 알려준다) — 서명 때 함께 기록된다
   const [signAgree, setSignAgree] = useState(false);
   const [docReadToEnd, setDocReadToEnd] = useState(false);
   // 외부 계약은 소유자가 작성 관리자라 userId 만 보면 본인 서명으로 오판된다 — 서버 sign 라우트와 같은 기준(검증관 F1)
   const isEmpSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
   // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
-  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); } }, [signOpen]);
+  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
   useEffect(() => {
     if (!signOpen || !signTarget) return;
@@ -331,7 +345,7 @@ export default function ContractsPage() {
     // 근로자 본인 서명은 저장 서명을 쓰지 않는다(#205-2 — 서버도 막는다)
     const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
     if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
-    if (isEmpSign && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    if (isEmpSign && !unlocked && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
     if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
@@ -373,7 +387,7 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { password: signPassword, agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { ...(signPassword ? { password: signPassword } : {}), agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
@@ -618,7 +632,21 @@ export default function ContractsPage() {
             높이를 화면 안으로 묶고 본문만 스크롤시킨다. */}
         <DialogContent className="max-w-2xl h-[92vh] flex flex-col overflow-hidden">
           <DialogHeader className="shrink-0"><DialogTitle>{consentKeys.length > 0 ? (signStep === 1 ? "개인정보 동의 확인" : "서명") : "서명"}</DialogTitle></DialogHeader>
-          {signTarget && (
+          {/* 문서 열기 전 본인 확인(#20) — 근로자 본인 서명 차례면 비밀번호부터 */}
+          {signTarget && isEmpSign && !unlocked && (
+            <div className="space-y-3 flex-1">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm font-medium">{signTarget.title}</p>
+                <p className="text-xs text-gray-500 mt-1">본인 확인을 위해 큐브티 로그인 비밀번호를 입력하면 문서가 열립니다.</p>
+              </div>
+              <form onSubmit={e => { e.preventDefault(); unlockDoc(); }} className="space-y-2">
+                <Input type="password" autoComplete="current-password" autoFocus value={unlockPw} onChange={e => setUnlockPw(e.target.value)} placeholder="로그인 비밀번호" />
+                <Button type="submit" className="w-full" disabled={!unlockPw || unlocking}>{unlocking ? "확인 중…" : "확인하고 문서 열기"}</Button>
+                <p className="text-[11px] text-gray-400">확인 기록(시각)은 전자서명 완료 증명서에 남습니다. 비밀번호는 저장되지 않습니다.</p>
+              </form>
+            </div>
+          )}
+          {signTarget && (!isEmpSign || unlocked) && (
             <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
@@ -811,8 +839,8 @@ export default function ContractsPage() {
                     </label>
                   </div>
                   )}
-                  {/* 본인 확인 — 근로자 본인 서명만(#205-1). 결재자 서명은 지금처럼 */}
-                  {isEmpSign && (
+                  {/* 본인 확인 — 근로자 본인 서명만(#205-1). 문서 열기 전에 확인했으면(#20) 다시 묻지 않는다 */}
+                  {isEmpSign && !unlocked && (
                     <div className="space-y-1">
                       <Label>본인 확인 — 비밀번호 *</Label>
                       <Input type="password" autoComplete="current-password" value={signPassword}

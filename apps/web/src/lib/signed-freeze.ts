@@ -143,10 +143,14 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     const name = st.approver?.name || st.externalName || c.externalName || "외부 서명자";
     const signed = lastOf("SIGNED", st);
     const consent = lastOf("CONSENT", st);
+    // 본인 확인 방법·시각(#20, 본부 답변 #30 「증명서에는 본인 확인 방법·시각을 적어 주세요」)
+    const verified = lastOf("VERIFY_OK", st);
+    const via = (verified?.meta as { via?: string } | null)?.via;
+    const at = verified ? ` (${kst(verified.createdAt)})` : "";
     const method = external
-      ? (lastOf("VERIFY_OK", st) ? "서명 링크 + 연락처 뒷자리 확인" : "서명 링크")
+      ? (verified ? `서명 링크 + 휴대폰 뒷자리 확인${at}` : "서명 링크")
       : employee
-        ? (signed ? "로그인 + 비밀번호 재확인" : "로그인 계정")
+        ? (verified ? `로그인 + 비밀번호 확인 — ${via === "문서 열기 전 비밀번호" ? "문서 열기 전" : "서명 때"}${at}` : signed ? "로그인 + 비밀번호 재확인" : "로그인 계정")
         : "로그인 계정";
     w.text(`${st.order}. ${role}  ${name}   서명 ${kst(st.decidedAt)}`, 10, dark);
     w.text(`본인 확인: ${method}`, 9, gray, 14);

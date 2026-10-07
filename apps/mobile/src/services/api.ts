@@ -205,6 +205,13 @@ export async function signContractWithConsent(id: string, signatureData: string,
 
 // 근로자 본인 서명 — 비밀번호 재확인 필수, 매번 직접 그린 서명(#205-1·#205-2, 2026-09-11 디렉터).
 // 서버가 근로자 본인 서명 단계에서 password 를 확인하고 저장 서명(useSaved)을 거절한다.
+// 문서 열기 전 본인 확인(#20, 본부 답변 #30) — 근로자 본인 서명 차례인 계약을 열기 전에 로그인 비밀번호를 확인한다.
+// 확인하면 30분 동안 서명 때 비밀번호를 다시 묻지 않는다(서명할 때 password 를 빈 값으로 보내면 서버가 이 기록으로 본다)
+export async function unlockContract(id: string, password: string) {
+  const token = await getToken();
+  return axios.post(`${API_URL}/contracts/${id}/unlock`, { password }, { headers: await signHeaders(token) });
+}
+
 export async function signContractAsEmployee(
   id: string, signatureData: string, password: string,
   extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string>; agree?: boolean },

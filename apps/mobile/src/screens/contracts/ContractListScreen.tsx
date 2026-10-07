@@ -109,6 +109,20 @@ export default function ContractListScreen() {
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
   // 근로자 본인 서명(내 계약의 내 차례) — 비밀번호 재확인·직접 서명(#205-1·#205-2). 외부 계약은 소유자가 작성 관리자라 제외
   const isOwnSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
+  // 문서 열기 전 본인 확인(#20) — 근로자 본인 서명이면 창에서 비밀번호부터. 확인하면 서명 때 다시 묻지 않는다
+  const [unlocked, setUnlocked] = useState(false);
+  const [unlockPw, setUnlockPw] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const unlockDoc = async () => {
+    if (!signTarget || !unlockPw) return;
+    setUnlocking(true);
+    try {
+      await api.unlockContract(signTarget.id, unlockPw);
+      setUnlocked(true); setUnlockPw("");
+    } catch (e: any) {
+      Alert.alert("본인 확인", e?.response?.data?.error || "본인 확인에 실패했습니다.");
+    } finally { setUnlocking(false); }
+  };
   // 결재자로 서명하는 경우 — 본인 서명의 여집합이다(외부 계약은 소유자가 결재하는 관리자라 이쪽)
   const isApproverSign = !!signTarget && !isOwnSign;
 
@@ -177,9 +191,9 @@ export default function ContractListScreen() {
     }
     // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
     const own = isOwnSign;
-    if (own && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    if (own && !unlocked && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     if (own && !signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
-    const ownPw = signPw;
+    const ownPw = unlocked ? "" : signPw;   // 문서 열기 전에 확인했으면 비워 보낸다(서버가 확인 기록으로 본다)
     setSignTarget(null);
     setSigning(true);
     try {
@@ -201,6 +215,7 @@ export default function ContractListScreen() {
       Alert.alert("완료", own ? "서명을 제출했습니다." : "결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
+      if (error?.response?.data?.code === "PASSWORD_REQUIRED") setUnlocked(false);   // 확인 시간이 지났다 — 다시 확인
       Alert.alert("오류", error?.response?.data?.error || "결재 처리에 실패했습니다.");
     } finally {
       setSigning(false);
@@ -290,7 +305,7 @@ export default function ContractListScreen() {
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setUnlocked(false); setUnlockPw(""); setSignTarget(c); }} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
                     <>
                       <Ionicons name="create-outline" size={16} color="#fff" />
@@ -383,6 +398,18 @@ export default function ContractListScreen() {
           <Text style={styles.modalHint}>
             '{signTarget?.title}'{consentKeys.length > 0 && signStep === 1 ? " — 동의 항목을 확인하고 선택하세요." : " — 승인하면 다음 결재자에게 전달됩니다."}
           </Text>
+          {/* 문서 열기 전 본인 확인(#20) — 근로자 본인 서명이면 비밀번호를 넣어야 아래(문서·동의·서명)가 열린다 */}
+          {isOwnSign && !unlocked && (
+            <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+              <Text style={{ fontSize: 14, color: "#374151", marginBottom: 6 }}>본인 확인을 위해 큐브티 로그인 비밀번호를 입력하면 계약서가 열립니다.</Text>
+              <TextInput style={styles.profileInput} value={unlockPw} onChangeText={setUnlockPw} secureTextEntry autoCapitalize="none" autoCorrect={false}
+                placeholder="로그인 비밀번호" onSubmitEditing={unlockDoc} />
+              <TouchableOpacity style={[styles.viewDocBtn, { marginTop: 10, opacity: !unlockPw || unlocking ? 0.5 : 1 }]} onPress={unlockDoc} disabled={!unlockPw || unlocking}>
+                {unlocking ? <ActivityIndicator color="#4338ca" /> : <Text style={{ color: "#4338ca", fontWeight: "600" }}>확인하고 문서 열기</Text>}
+              </TouchableOpacity>
+              <Text style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>확인 시각은 전자서명 완료 증명서에 남습니다.</Text>
+            </View>
+          )}
           {/* 본부 발송 메시지(#65) */}
           {!!signTarget?.sendMessage && (
             <Text style={{ fontSize: 13, color: "#3730a3", backgroundColor: "#eef2ff", borderRadius: 8, padding: 8, marginBottom: 8 }}>💬 본부 메시지 · {signTarget.sendMessage}</Text>
@@ -501,12 +528,12 @@ export default function ContractListScreen() {
                   })}
                 </View>
               )}
-              {/* 본인 확인 — 근로자 본인 서명만(#205-1). 결재자 서명은 지금처럼 */}
+              {/* 본인 확인 — 근로자 본인 서명만(#205-1). 문서 열기 전에 확인했으면(#20) 비밀번호 칸은 숨긴다 */}
               {isOwnSign && (
                 <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
-                  <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>
-                  <TextInput style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
-                    autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />
+                  {!unlocked && <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>}
+                  {!unlocked && <TextInput style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                    autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />}
                   {/* 전자서명 동의(#205-3) — 문구는 웹·서버 기록과 같게 */}
                   <TouchableOpacity style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 }} onPress={() => setSignAgree((v) => !v)}>
                     <Ionicons name={signAgree ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
