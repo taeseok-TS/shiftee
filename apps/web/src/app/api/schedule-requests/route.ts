@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
-import { branchHasManager, branchHasOtherManager, getManagerBranches, branchMainManager } from "@/lib/manager-branches";
+import { branchHasApprover } from "@/lib/approval-delegate";
+import { branchHasOtherManager, getManagerBranches, branchMainManager } from "@/lib/manager-branches";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
   const adminStep = { approverRole: "ADMIN", branch: null as string | null };
   const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
   const hasBranchManager = submitter?.branch
-    ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
+    ? await branchHasApprover(submitter.branch) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
     : false;
 
   let policySteps: { approverRole: string; branch: string | null; approverId?: string }[] = [];

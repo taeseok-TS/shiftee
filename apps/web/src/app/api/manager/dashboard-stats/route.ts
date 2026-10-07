@@ -30,16 +30,17 @@ export async function GET() {
   //   대시보드 전체가 500 이 된다(2026-09-09 검증에서 지적).
   //   · 원장대행 중인 지점도 결재함처럼 센다(lib/approval-delegate.ts myStepOr)
   const scope = await approverScopeFor(session);
-  const stepOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope);
+  const scheduleOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope, "scheduleRequest");
+  const leaveOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope, "leaveRequest");
   const scheduleStepWhere = {
     status: "PENDING" as const,
     scheduleRequest: { userId: { not: session.userId } },
-    ...(stepOr ? { OR: stepOr } : {}),
+    ...(scheduleOr ? { OR: scheduleOr } : {}),
   };
   const leaveStepWhere = {
     status: "PENDING" as const,
     leaveRequest: { userId: { not: session.userId } },
-    ...(stepOr ? { OR: stepOr } : {}),
+    ...(leaveOr ? { OR: leaveOr } : {}),
   };
   // 휴가 취소 결재도 **결재함과 같은 함수**로 센다(lib/leave-cancel-flow.ts cancelStepWhere)
   const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, scope) });

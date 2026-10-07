@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { getManagerBranches, branchHasManager } from "@/lib/manager-branches";
+import { isResigned } from "@/lib/resign";
 
 // ─── 원장대행(2026-10-07 본부 답변 #3) ───────────────────────────
 // 본부가 지점·대행자·기간을 정해 지정한다. 기간 안에는 그 지점의 **원장 결재**(휴가·근무일정·휴가 취소)를
@@ -28,9 +29,15 @@ export async function branchDelegates(branch: string): Promise<string[]> {
   if (rows.length === 0) return [];
   const users = await prisma.user.findMany({
     where: { id: { in: rows.map((r) => r.delegateId) }, isActive: true, deletedAt: null },
-    select: { id: true },
+    select: { id: true, resignDate: true },
   });
-  return users.map((u) => u.id);
+  return users.filter((u) => !isResigned(u.resignDate)).map((u) => u.id);
+}
+
+/** 이 지점에 원장 단계를 둘지 — 원장이 있거나, 오늘 대행자가 있으면(원장 공석 때 대행을 세운 경우) */
+export async function branchHasApprover(branch: string): Promise<boolean> {
+  if (await branchHasManager(branch)) return true;
+  return (await branchDelegates(branch)).length > 0;
 }
 
 /**
@@ -53,27 +60,42 @@ type StepLike = { status: string; approverRole: string | null; branch: string | 
 
 /**
  * 이 단계가 지금 내 결재 차례인가 — 휴가·근무일정·휴가 취소 결재 라우트가 같이 쓴다.
- *  · 사람을 못박은 단계(메인 원장 등)는 그 사람만. 단, 그 지점 **대행자**는 원장 대신이므로 처리할 수 있다
- *    (원장이 자리를 비워 대행을 세운 건데 못박힌 건만 멈추면 대행의 뜻이 없다).
+ *  · 사람을 못박은 단계(메인 원장 등)는 그 사람만.
  *  · 관리자 단계는 관리자만.
- *  · 못박지 않은 원장 단계는 담당 지점 원장 + 그 지점 대행자.
+ *  · 못박지 않은 원장 단계는 담당 지점 원장.
+ *  · **대행자**는 그 지점의 원장 단계(못박힌 것 포함)를 처리한다 — 원장이 자리를 비워 대행을 세운 건데
+ *    못박힌 건만 멈추면 대행의 뜻이 없다. 단 **원장이 올린 건은 대행하지 않는다**(코디·매니저가 상급자 건을
+ *    결재하지 않게 — 2026-10-07 검증 지적). 그 건은 못박힌 원장이나 본부가 처리한다.
+ * requesterRole 은 신청자의 역할. 결재함 조건(myStepOr)과 반드시 같은 규칙이어야 한다.
  */
-export function isMyStep(s: StepLike, session: { userId: string; role: string }, scope: ApproverScope): boolean {
+export function isMyStep(
+  s: StepLike,
+  session: { userId: string; role: string },
+  scope: ApproverScope,
+  requesterRole: string | null | undefined,
+): boolean {
   if (s.status !== "PENDING") return false;
-  if (s.approverId) {
-    if (s.approverId === session.userId) return true;
-    return s.approverRole === "MANAGER" && !!s.branch && scope.delegated.includes(s.branch);
-  }
-  if (s.approverRole === "ADMIN") return session.role === "ADMIN";
-  if (s.approverRole === "MANAGER") return session.role !== "ADMIN" && !!s.branch && scope.all.includes(s.branch);
-  return false;
+  if (s.approverId === session.userId) return true;
+  if (s.approverRole === "ADMIN") return !s.approverId && session.role === "ADMIN";
+  if (s.approverRole !== "MANAGER" || !s.branch || session.role === "ADMIN") return false;
+  if (!s.approverId && scope.own.includes(s.branch)) return true;
+  return scope.delegated.includes(s.branch) && requesterRole !== "MANAGER";
 }
 
-/** 결재함·대시보드 숫자용 조건(관리자가 아닌 사람). isMyStep 과 같은 규칙을 Prisma where 로 옮긴 것 */
-export function myStepOr(session: { userId: string }, scope: ApproverScope) {
+/**
+ * 결재함·대시보드 숫자용 조건(관리자가 아닌 사람). isMyStep 과 같은 규칙을 Prisma where 로 옮긴 것.
+ * rel 은 단계에서 신청 건으로 가는 관계 이름(신청자 역할을 보려고) — 휴가 leaveRequest, 근무일정 scheduleRequest, 취소 cancelRequest.
+ */
+export function myStepOr(
+  session: { userId: string },
+  scope: ApproverScope,
+  rel: "leaveRequest" | "scheduleRequest" | "cancelRequest",
+) {
   return [
     { approverId: session.userId },
-    ...(scope.all.length ? [{ approverRole: "MANAGER", branch: { in: scope.all }, approverId: null }] : []),
-    ...(scope.delegated.length ? [{ approverRole: "MANAGER", branch: { in: scope.delegated }, approverId: { not: null } }] : []),
+    ...(scope.own.length ? [{ approverRole: "MANAGER", branch: { in: scope.own }, approverId: null }] : []),
+    ...(scope.delegated.length
+      ? [{ approverRole: "MANAGER", branch: { in: scope.delegated }, [rel]: { user: { role: { not: "MANAGER" as const } } } }]
+      : []),
   ];
 }

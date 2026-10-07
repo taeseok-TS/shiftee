@@ -443,7 +443,7 @@ export default function ManagerApprovalsPage() {
       </Card>
 
       {/* 탭 */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={delegateOnly && activeTab === "history" ? "leave" : activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`grid w-full ${delegateOnly ? "grid-cols-3" : "grid-cols-4"}`}>
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />

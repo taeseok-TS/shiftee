@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { isRealDate } from "@/lib/schedule-payload";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { logAudit } from "@/lib/audit";
+import { isResigned } from "@/lib/resign";
 
 export const dynamic = "force-dynamic";
 
@@ -66,15 +67,23 @@ export async function POST(request: NextRequest) {
   if (!isRealDate(start) || !isRealDate(end)) return NextResponse.json({ error: "기간을 YYYY-MM-DD 로 입력해 주세요." }, { status: 400 });
   if (end < start) return NextResponse.json({ error: "종료일이 시작일보다 빠릅니다." }, { status: 400 });
   if (dateUtc(end).getTime() < kstTodayDateUTC().getTime()) return NextResponse.json({ error: "이미 지난 기간입니다." }, { status: 400 });
-  if (dateUtc(end).getTime() - dateUtc(start).getTime() > 366 * 86400_000)
+  // 종료일 포함 366일까지(시작일~종료일 차이 365일)
+  if (dateUtc(end).getTime() - dateUtc(start).getTime() > 365 * 86400_000)
     return NextResponse.json({ error: "대행 기간은 1년을 넘을 수 없습니다." }, { status: 400 });
 
   const br = await prisma.branch.findFirst({ where: { name: branch, isActive: true }, select: { id: true } });
   if (!br) return NextResponse.json({ error: "등록된 지점이 아닙니다." }, { status: 400 });
-  const who = await prisma.user.findUnique({ where: { id: delegateId }, select: { id: true, name: true, role: true, isActive: true, deletedAt: true } });
-  if (!who || !who.isActive || who.deletedAt) return NextResponse.json({ error: "대행자를 찾을 수 없습니다." }, { status: 400 });
+  const who = await prisma.user.findUnique({ where: { id: delegateId }, select: { id: true, name: true, role: true, isActive: true, deletedAt: true, resignDate: true } });
+  if (!who || !who.isActive || who.deletedAt || isResigned(who.resignDate)) return NextResponse.json({ error: "대행자를 찾을 수 없습니다." }, { status: 400 });
   // 관리자는 이미 모든 결재를 할 수 있어 대행이 필요 없다
   if (who.role === "ADMIN") return NextResponse.json({ error: "관리자는 대행자로 지정할 필요가 없습니다." }, { status: 400 });
+
+  // 같은 지점·같은 사람의 기간이 겹치면 받지 않는다 — 하나를 해제해도 다른 행으로 권한이 남는다
+  const overlap = await prisma.approvalDelegate.findFirst({
+    where: { branch, delegateId, revokedAt: null, startDate: { lte: dateUtc(end) }, endDate: { gte: dateUtc(start) } },
+    select: { id: true },
+  });
+  if (overlap) return NextResponse.json({ error: "같은 지점·같은 대행자의 기간이 이미 겹쳐 있습니다. 기존 지정을 해제한 뒤 다시 지정해 주세요." }, { status: 409 });
 
   const row = await prisma.approvalDelegate.create({
     data: { branch, delegateId, startDate: dateUtc(start), endDate: dateUtc(end), note, createdBy: session.userId },
@@ -115,6 +124,13 @@ export async function DELETE(request: NextRequest) {
       targetType: "USER", targetId: row.delegateId, targetName: who?.name ?? null,
       detail: `원장대행 해제: ${row.branch} · ${who?.name ?? ""} · ${ymd(row.startDate)} ~ ${ymd(row.endDate)}`,
     });
+    const { botSendDM } = await import("@/lib/bot");
+    botSendDM(row.delegateId, `🗂 원장대행이 해제되었습니다.
+
+지점: ${row.branch}
+기간: ${ymd(row.startDate)} ~ ${ymd(row.endDate)}
+
+이제 이 지점의 결재는 결재함에 들어오지 않습니다.`).catch(() => {});
   }
   return NextResponse.json({ success: true });
 }

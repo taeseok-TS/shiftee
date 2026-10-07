@@ -83,7 +83,7 @@ export function cancelStepWhere(
     },
     ...(session.role === "ADMIN"
       ? {}
-      : { OR: myStepOr(session, scope) }),   // 휴가·근무일정 결재함과 같은 규칙(원장대행 포함)
+      : { OR: myStepOr(session, scope, "cancelRequest") }),   // 휴가·근무일정 결재함과 같은 규칙(원장대행 포함)
   };
 }
 

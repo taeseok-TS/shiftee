@@ -148,8 +148,12 @@ export async function botNotifyApprovalRequest(step: {
     }
     // 원장 단계면 그 지점 원장대행에게도(못박힌 단계 포함 — 결재 라우트 isMyStep 과 같은 규칙, 2026-10-07 #3)
     if (step.approverRole === "MANAGER" && step.branch) {
-      const { branchDelegates } = await import("@/lib/approval-delegate");
-      stepTargets.push(...(await branchDelegates(step.branch)));
+      try {   // 대행자 조회가 깨져도 원장 결재 요청·본부 진행 알림은 나가야 한다
+        const { branchDelegates } = await import("@/lib/approval-delegate");
+        stepTargets.push(...(await branchDelegates(step.branch)));
+      } catch (e) {
+        console.error("[bot] 원장대행 조회 오류:", e);
+      }
     }
     const admins = (await prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
@@ -168,7 +172,7 @@ export async function botNotifyApprovalRequest(step: {
     const text = `📋 결재 요청이 도착했습니다
 
 ${opts.kind}: ${opts.requesterName}
-기간: ${opts.period}${opts.prevApprover ? `\n원장 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
+기간: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
 
 결재함에서 확인해주세요.`;
     for (const id of list) {

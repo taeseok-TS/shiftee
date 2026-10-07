@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { branchHasManager } from "@/lib/manager-branches";
+import { branchHasApprover } from "@/lib/approval-delegate";
 
 export type PolicyStep = { approverRole: string; branch: string | null; approverId?: string };
 
@@ -24,7 +24,7 @@ export async function leavePolicySteps(
   const adminStep = { approverRole: "ADMIN", branch: null as string | null };
   const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
   const hasBranchManager = submitter?.branch
-    ? await branchHasManager(submitter.branch) // 대표/겸직 모두 인정
+    ? await branchHasApprover(submitter.branch) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
     : false;
 
   let policySteps: PolicyStep[] = [];

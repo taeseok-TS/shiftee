@@ -11,6 +11,7 @@
 //   확인하고 enforce 로 바꾼다. 모드는 env UPLOADS_WORK_MODE: observe(기본) | enforce | off
 //   (docker-compose 에 명시돼 있어 .env 로 바꾸고 컨테이너만 다시 올리면 된다).
 // ⚠ 판정이 실패해도(DB 흔들림) 파일 서빙이 깨지면 안 된다 — observe 에서는 기록하고 그대로 내준다(검증관 C1).
+import { activeDelegateBranches } from "@/lib/approval-delegate";
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
@@ -107,12 +108,13 @@ export async function canAccessWorkFile(segments: string[], viewer: WorkViewer):
     select: {
       userId: true, approverId: true,
       user: { select: { branch: true } },
-      approvalSteps: { select: { approverId: true, branch: true } },
+      approvalSteps: { select: { approverId: true, branch: true, approverRole: true } },
     },
     take: 5,
   });
   if (leaves.length) {
     let myBranches: string[] | null = null;
+    let delegated: string[] | null = null;
     for (const l of leaves) {
       if (l.userId === viewer.userId || l.approverId === viewer.userId) return { allowed: true, reason: "leave" };
       if (l.approvalSteps.some((s) => s.approverId === viewer.userId)) return { allowed: true, reason: "leave" };
@@ -120,6 +122,12 @@ export async function canAccessWorkFile(segments: string[], viewer: WorkViewer):
         myBranches ??= await getManagerBranches(viewer.userId);
         const branches = [l.user.branch, ...l.approvalSteps.map((s) => s.branch)].filter((b): b is string => !!b);
         if (branches.some((b) => myBranches!.includes(b))) return { allowed: true, reason: "leave" };
+      }
+      // 원장대행 — 대행 중인 지점의 원장 단계가 있는 건(결재 전에 증빙을 봐야 한다, 2026-10-07 검증 지적)
+      if (viewer.role !== "ADMIN") {
+        delegated ??= await activeDelegateBranches(viewer.userId);
+        if (l.approvalSteps.some((s) => s.approverRole === "MANAGER" && !!s.branch && delegated!.includes(s.branch)))
+          return { allowed: true, reason: "leave" };
       }
     }
   }

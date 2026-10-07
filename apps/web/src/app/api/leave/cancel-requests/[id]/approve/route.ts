@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const cr = await prisma.leaveCancelRequest.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true, role: true } },
       leaveRequest: {
         select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true },
       },
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const steps = cr.approvalSteps;
   // 못박은 단계는 그 사람만(+그 지점 대행자) — lib/approval-delegate.ts isMyStep
-  const myStep = steps.find((s) => isMyStep(s, session, scope));
+  const myStep = steps.find((s) => isMyStep(s, session, scope, cr.user.role));
   if (!myStep && session.role !== "ADMIN") {
     return NextResponse.json({ error: "결재 차례가 아닙니다." }, { status: 403 });
   }

@@ -138,6 +138,8 @@ export async function PATCH(
       const [branch, synced] = await prisma.$transaction([
         prisma.branch.update({ where: { id }, data }),
         prisma.user.updateMany({ where: { branch: before.name }, data: { branch: name } }),
+        // 원장대행 지정도 지점명으로 묶여 있다 — 안 바꾸면 대행이 조용히 끊긴다(2026-10-07 검증 지적)
+        prisma.approvalDelegate.updateMany({ where: { branch: before.name }, data: { branch: name } }),
       ]);
       // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지
       // 없어진 지점명으로 조회돼 근태.직원 목록이 빈 채로 보인다.

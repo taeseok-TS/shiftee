@@ -30,7 +30,7 @@ export async function GET() {
         : {
             // 못박힌 건은 그 사람 결재함에만(같은 지점 두 번째 원장에게 보이면 누를 때 403),
             // 못박지 않은 원장 단계는 담당·대행 지점, 대행자는 그 지점의 못박힌 건도 — 결재 라우트 isMyStep 과 같은 규칙
-            OR: myStepOr(session, scope),
+            OR: myStepOr(session, scope, "leaveRequest"),
           }),
     },
     include: {

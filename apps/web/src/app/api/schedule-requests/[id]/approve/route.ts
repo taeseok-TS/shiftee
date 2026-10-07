@@ -40,7 +40,7 @@ export async function POST(
   const scheduleRequest = await prisma.scheduleRequest.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true, email: true, branch: true } },
+      user: { select: { id: true, name: true, email: true, branch: true, role: true } },
       approvalSteps: {
         orderBy: { order: "asc" },
         include: { approver: { select: { id: true, name: true, email: true } } },
@@ -67,7 +67,7 @@ export async function POST(
   if (steps.length > 0) {
     // 내가 결재해야 할 PENDING 스텝 찾기 (역할/지점 기반)
     // ⚠ 사람을 못박은 단계(메인 원장 지정 등)는 **그 사람만**(+그 지점 대행자) 결재한다 — lib/approval-delegate.ts isMyStep
-    const myStep = steps.find((s) => isMyStep(s, session, scope));
+    const myStep = steps.find((s) => isMyStep(s, session, scope, scheduleRequest.user.role));
 
     // ⚠ **원장은 자기 신청을 스스로 결재할 수 없다** (2026-09-08 디렉터 지시).
     //   원장 신청의 결재선은 [관리자] 한 단계인데, 종전에는 아래 우회 경로로 빠져

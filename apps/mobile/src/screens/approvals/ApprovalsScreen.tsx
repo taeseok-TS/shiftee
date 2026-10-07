@@ -86,6 +86,9 @@ export default function ApprovalsScreen() {
   // 결재함 | 휴가 내역 — 휴가 내역은 결재함에서 빠진 건(내가 승인해 넘긴 건, 원장 선 최종승인건)을
   // 취소하는 자리다(웹 원장 화면 "휴가 내역" 탭과 짝, 2026-09-10 디렉터 지시)
   const [tab, setTab] = useState<"inbox" | "history">("inbox");
+  // 원장대행 직원은 결재만 한다 — 「휴가 내역」은 원장 팀 화면이라 직원에겐 본인 휴가만 나와 숨긴다(웹과 같게)
+  const [myRole, setMyRole] = useState("");
+  const delegateOnly = myRole === "EMPLOYEE";
   const [history, setHistory] = useState<TeamLeave[]>([]);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [myId, setMyId] = useState("");
@@ -118,7 +121,7 @@ export default function ApprovalsScreen() {
   }, [load]);
 
   useEffect(() => {
-    storage.getUser().then((u) => setMyId(u?.id || "")).catch(() => {});
+    storage.getUser().then((u) => { setMyId(u?.id || ""); setMyRole(u?.role || ""); }).catch(() => {});
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -249,7 +252,7 @@ export default function ApprovalsScreen() {
   return (
     <>
       <View style={styles.tabs}>
-        {(["inbox", "history"] as const).map((t) => (
+        {(delegateOnly ? (["inbox"] as const) : (["inbox", "history"] as const)).map((t) => (
           <TouchableOpacity key={t} style={[styles.tabBtn, tab === t && styles.tabBtnOn]} onPress={() => setTab(t)}>
             <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>
               {t === "inbox" ? `결재함 (${total})` : `휴가 내역 (${history.length})`}
@@ -386,7 +389,7 @@ export default function ApprovalsScreen() {
           </View>
         )}
 
-        {tab === "history" && (
+        {tab === "history" && !delegateOnly && (
           <View style={styles.section}>
             {historyFailed && (
               <Text style={styles.empty}>휴가 내역을 불러오지 못했습니다. 아래로 당겨 다시 시도해주세요.</Text>
