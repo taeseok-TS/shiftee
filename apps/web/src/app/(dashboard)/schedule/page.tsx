@@ -1,6 +1,6 @@
 "use client";
 
-import { useWeekHours, WeekHoursLine, showWeekWarnings } from "@/components/schedule/WeekHours";
+import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
