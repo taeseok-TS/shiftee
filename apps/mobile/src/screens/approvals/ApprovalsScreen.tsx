@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { LEAVE_LABELS } from "../../services/leaveLabels";
 import {
   View,
   Text,
@@ -36,27 +37,7 @@ import {
   TeamLeave,
 } from "../../services/approvals";
 
-const LEAVE_TYPE_LABEL: Record<string, string> = {
-  COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)", PRENATAL_CHECKUP: "태아검진휴가", REWARD: "포상휴가", SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",   // 2026-10-07 QA #30
-  ANNUAL: "연차",
-  HALF_AM: "오전반차",
-  HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차",
-  QUARTER_PM: "오후반반차",
-  COMPENSATORY: "대체휴무",
-  COMPENSATORY_HALF: "대체휴무반차",
-  SICK: "병가",
-  PERSONAL: "개인휴가",
-  SPECIAL: "특별휴가",
-  MATERNITY: "출산휴가",
-  CIVIL_DEFENSE: "민방위",
-  RESERVE_FORCES: "예비군훈련",
-  FAMILY_EVENT: "경조사",
-  BEREAVEMENT: "경조사",
-  FAMILY_MARRIAGE: "결혼",
-  FAMILY_BIRTH: "출산",
-  FAMILY_BEREAVEMENT: "사망(조사)",
-};
+const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };   // 서버 기준표와 같은 이름(services/leaveLabels)
 
 function fmtRange(start: string, end: string): string {
   const f = (s: string) => {

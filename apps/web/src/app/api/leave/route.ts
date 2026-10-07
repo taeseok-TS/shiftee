@@ -184,6 +184,10 @@ export async function POST(request: NextRequest) {
   if (start > end) {
     return NextResponse.json({ error: "종료일이 시작일보다 빠릅니다." }, { status: 400 });
   }
+  // 반차·반반차처럼 일수가 고정된 유형은 하루만 — 기간을 길게 넣으면 0.5일로 저장되고 달력·주간 합계에는 그 기간 전체가 휴가로 잡혔다(검증 P2)
+  if (info.unit !== "FULL" && startDate !== endDate) {
+    return NextResponse.json({ error: `${info.label}은(는) 하루만 신청할 수 있습니다.` }, { status: 400 });
+  }
   // 기간 상한 — 근무일정 신청과 같은 366일. 종전에는 상한이 없어서, 연차를 차감하지 않는
   // 유형(특별휴가.경조사 등)은 잔여 검사도 안 받으므로 수십 년짜리 신청이 통과했다.
   // 그런 행이 하나 생기면 달력.집계.일자 루프에 영구히 얹힌다(2026-09-09 검증에서 적발).

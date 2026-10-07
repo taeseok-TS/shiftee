@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { LEAVE_LABELS } from "../../services/leaveLabels";
 import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance, getLeaveTypes, type LeaveTypeItem } from "../../services/approvals";
 import type { MyLedger } from "../../services/approvals";
 import {
@@ -27,18 +28,8 @@ import * as storage from "../../services/storage";
 import { uploadFile, fileUri, useUploadsTicketVersion } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 
-// 이름 — 서버 기준표를 받으면 그걸로 덮는다(아래 labels). 이건 받기 전·실패 때 쓰는 기본값
-const TYPE_LABEL: Record<string, string> = {
-  COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)", PRENATAL_CHECKUP: "태아검진휴가", REWARD: "포상휴가",
-  SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",
-  ANNUAL: "연차", HALF_AM: "오전반차", HALF_PM: "오후반차",
-  QUARTER_AM: "오전반반차", QUARTER_PM: "오후반반차",
-  SICK: "병가", PERSONAL: "개인휴가", SPECIAL: "특별휴가",
-  COMPENSATORY: "대체휴무", COMPENSATORY_HALF: "대체휴무반차",
-  CIVIL_DEFENSE: "민방위", RESERVE_FORCES: "예비군훈련",
-  FAMILY_EVENT: "기타 경조사", BEREAVEMENT: "경조사", MATERNITY: "출산휴가",
-  FAMILY_MARRIAGE: "결혼", FAMILY_BIRTH: "출산", FAMILY_BEREAVEMENT: "사망(조사)",
-};
+// 이름 — 기본값도 기준표(services/leaveLabels), 서버 labels 를 받으면 그걸로 덮는다
+const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };   // 서버 기준표와 같은 이름(services/leaveLabels)
 
 // 휴가 유형 — 3개 카테고리(탭) + 각 드롭다운. 서버 기준표(GET /leave/types)를 받으면 그걸로 만든다(아래 buildCategories).
 // 이 목록은 받기 전·실패 때 쓰는 기본값 — 본부 답변 #19 표대로(병가·옛 경조 세부 유형 없음)
