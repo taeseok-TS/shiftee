@@ -18,7 +18,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true, sendMessage: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -97,6 +97,8 @@ export async function GET(
     version: contract.version,
     title: contract.title,
     externalName: step.externalName,
+    // 본부 발송 메시지(#65) — 본인 확인 뒤에만
+    sendMessage: open ? contract.sendMessage ?? null : null,
     fileUrl: open ? firstFileUrl(contract.fileUrl) : null,
     documents,
     // 게스트는 로그인이 없다 — 이 계약 파일에만 통하는 티켓을 준다 (2026-09-02)

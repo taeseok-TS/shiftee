@@ -41,6 +41,8 @@ type Contract = {
   endDate?: string | null;
   hideRevoked?: boolean;              // 회수된 결재 숨김
   revocationLog?: { at?: string; by?: string; reason?: string }[] | null; // 회수 이력
+  templateVersion?: number | null; // 발송 당시 양식 버전(#48)
+  sendMessage?: string | null;     // 본부 발송 메시지(#65)
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
     steps: Array<{
@@ -54,7 +56,13 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null; email?: string | null; resignDate?: string | null };
+
+// 휴대폰 일부만(#26) — 010-****-1234
+const maskPhone = (p?: string | null) => {
+  const d = (p || "").replace(/[^0-9]/g, "");
+  return d.length >= 8 ? `${d.slice(0, 3)}-****-${d.slice(-4)}` : "";
+};
 
 type ContractTemplate = {
   id: string;
@@ -209,6 +217,25 @@ export default function ContractsPage() {
   const [uploading, setUploading] = useState(false);
 
   const [sendOpen, setSendOpen] = useState(false);
+  // 발송 메시지(#65) — 발송 창을 열 때 본부 기본 문구로 채운다. 「기본으로 저장」하면 다음 발송부터 이 문구
+  const [sendMsg, setSendMsg] = useState("");
+  const [savingMsg, setSavingMsg] = useState(false);
+  async function openSendDialog(c: Contract) {
+    setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendMsg(""); setSendOpen(true);
+    try {
+      const d = await fetch("/api/admin/contract-message").then(r => (r.ok ? r.json() : null));
+      if (d?.message) setSendMsg(m => (m ? m : d.message));
+    } catch { /* 기본 문구를 못 받아도 발송은 된다 */ }
+  }
+  async function saveDefaultMsg() {
+    setSavingMsg(true);
+    try {
+      const res = await fetch("/api/admin/contract-message", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: sendMsg }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return; }
+      toast.success(sendMsg.trim() ? "기본 메시지로 저장했습니다." : "기본 메시지를 비웠습니다.");
+    } finally { setSavingMsg(false); }
+  }
   const [sendTarget, setSendTarget] = useState<Contract | null>(null);
   // 승인자는 3칸 고정 슬롯 — 1단계 본부 / 2단계 원장 / 3단계 근로자 (#158·#159).
   // 서버 계약은 그대로라 발송 시 null 을 뺀 배열(approverIds)로 변환해 보낸다.
@@ -1386,13 +1413,28 @@ ${url}`;
 
     // 패키지(묶음)면 3종을 함께 발송 — 근로계약서는 결재라인 전체, 나머지는 직원 서명만
     // 반려된 문서는 **그 문서만** 다시 보낸다(#206-4) — 패키지 발송은 반려 문서를 일부러 건너뛴다
+    // 중복 발송 경고(#47) — 서버가 409 DUPLICATE 로 알려 주면 목록을 보여 주고, 확인하면 다시 보낸다
+    const askDup = (data: { duplicates?: { title: string; status: string; lastSentAt: string | null }[] }) => {
+      const st: Record<string, string> = { SENT: "진행 중", APPROVED: "진행 중", SIGNED: "완료", REJECTED: "반려", EXPIRED: "만료" };
+      const lines = (data.duplicates || []).slice(0, 5).map(d => `· ${d.title} — ${st[d.status] ?? d.status}${d.lastSentAt ? ` (발송 ${d.lastSentAt.slice(0, 10)})` : ""}`);
+      return confirm(`같은 직원에게 같은 양식이 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다.\n\n${lines.join("\n")}\n\n그래도 발송할까요?`);
+    };
+    const post = async (url: string, method: string, payload: Record<string, unknown>) => {
+      let res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      let data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.code === "DUPLICATE") {
+        if (!askDup(data)) return null;
+        res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, confirmDuplicate: true }) });
+        data = await res.json().catch(() => ({}));
+      }
+      return { res, data };
+    };
+
     const bundleId = sendTarget?.bundleId;
     if (bundleId && sendTarget?.status !== "REJECTED") {
-      const res = await fetch(`/api/contracts/bundle/${bundleId}/send`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approverIds }),
-      });
-      const data = await res.json();
+      const r = await post(`/api/contracts/bundle/${bundleId}/send`, "POST", { approverIds, sendMessage: sendMsg });
+      if (!r) return;
+      const { res, data } = r;
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
       if (sendTarget?.externalName) {
         toast.success(`패키지 ${data.sent}종 발송됨 — 링크 하나로 전 문서를 함께 서명합니다.`);
@@ -1413,13 +1455,10 @@ ${url}`;
       return;
     }
 
-    const res = await fetch(`/api/contracts/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "SENT", approverIds }),
-    });
-    const data = await res.json();
-    if (!res.ok) { toast.error(data.error); return; }
+    const r = await post(`/api/contracts/${id}`, "PATCH", { status: "SENT", approverIds, sendMessage: sendMsg });
+    if (!r) return;
+    const { res, data } = r;
+    if (!res.ok) { toast.error(data.error || "발송하지 못했습니다."); return; }
     // 재발송 시 결재라인이 새로 만들어져 외부 서명 링크도 재생성됨 — 기존 링크는 무효
     if (sendTarget?.externalName) {
       toast.success("계약서 발송됨 — 서명 링크가 새로 생성되었습니다(기존 링크는 무효).");
@@ -2968,7 +3007,7 @@ ${url}`;
                                 <Send size={12} />다시 보내기
                               </Button>
                             ) : (
-                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => { setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendOpen(true); }}>
+                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => openSendDialog(c)}>
                               <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
                             </Button>
                             )}
@@ -3036,6 +3075,42 @@ ${url}`;
                                           )}
                                         </div>
                                       ))}
+                                    </div>
+                                    {/* 받는 사람 확인(#26) — 순서·이름·지점·이메일·휴대폰 일부, 다른 지점 원장·퇴사 예정 경고 */}
+                                    {approverSlots.some(Boolean) && (
+                                      <div className="rounded-md border bg-gray-50 p-2 space-y-1">
+                                        <p className="text-[11px] font-semibold text-gray-500">받는 사람 확인 (이 순서로 알림이 갑니다)</p>
+                                        {approverSlots.map((sid, i) => {
+                                          if (!sid) return null;
+                                          if (sid === "EXTERNAL") return (
+                                            <p key={i} className="text-xs text-gray-700">{i + 1}. {sendTarget.externalName || "외부 서명자"} · 외부 · {maskPhone(sendTarget.externalPhone)}</p>
+                                          );
+                                          const party = sid === sendTarget.userId && !sendTarget.externalName;
+                                          const e = employees.find(x => x.id === sid);
+                                          const partyEmp = employees.find(x => x.id === sendTarget.userId);
+                                          const warns: string[] = [];
+                                          if (e?.role === "MANAGER" && !party && partyEmp?.branch && !sendTarget.externalName
+                                            && e.branch !== partyEmp.branch && !(e.managerBranches || []).includes(partyEmp.branch)) warns.push(`다른 지점 원장(${e.branch ?? "지점 없음"})`);
+                                          if (e?.resignDate) warns.push(`퇴사 예정 ${e.resignDate.slice(0, 10)}`);
+                                          return (
+                                            <div key={i} className="text-xs text-gray-700">
+                                              {i + 1}. {party ? `${sendTarget.user?.name || e?.name || "직원"} (당사자)` : e?.name || "?"}
+                                              {e?.branch && ` · ${e.branch}`}{e?.email && ` · ${e.email}`}{e?.phone && ` · ${maskPhone(e.phone)}`}
+                                              {warns.map(w => <span key={w} className="ml-1.5 rounded bg-amber-100 px-1 text-amber-700">⚠ {w}</span>)}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {/* 발송 메시지(#65) — 알림·메일·서명 화면에 함께 보인다 */}
+                                    <div className="space-y-1">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-medium text-gray-600">발송 메시지 <span className="font-normal text-gray-400">(선택 · 알림·메일·서명 화면에 표시)</span></span>
+                                        <button type="button" className="text-[11px] text-indigo-600 hover:underline disabled:text-gray-300" disabled={savingMsg} onClick={saveDefaultMsg}>기본 메시지로 저장</button>
+                                      </div>
+                                      <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} maxLength={500} rows={2}
+                                        placeholder="예) 계약 내용을 확인하신 뒤 이번 주 안에 서명 부탁드립니다."
+                                        className="w-full rounded-md border px-2 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                     </div>
                                     {/* 승인자 검색 + 후보 리스트 */}
                                     {(approverSlots.some(x => !x) || activeSlot !== null) && (
@@ -3121,6 +3196,9 @@ ${url}`;
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : `${signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}${signTarget.user.name}`}</p>
+                {signTarget.sendMessage && (
+                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 whitespace-pre-wrap">💬 본부 메시지 · {signTarget.sendMessage}</p>
+                )}
                 <button type="button" className="text-xs text-blue-600 underline text-left"
                   onClick={() => openBigDoc(`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(signTarget.fileUrl))}&title=${encodeURIComponent(signTarget.title)}`, signTarget.title)}>
                   문서 보기 (PDF)
@@ -3232,6 +3310,10 @@ ${url}`;
           <DialogHeader><DialogTitle>버전 히스토리</DialogTitle></DialogHeader>
           {versionsTarget && (
             <div className="space-y-3 max-h-96 overflow-y-auto">
+              {/* 발송 당시 양식 버전(#48) — 그 뒤 양식을 고쳐도 이 계약은 이 버전으로 보냈다 */}
+              {versionsTarget.templateVersion != null && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1.5">발송 당시 양식 버전: <b>v{versionsTarget.templateVersion}</b></p>
+              )}
               {versions.length === 0 ? (
                 <p className="text-sm text-gray-500 py-4">버전 정보가 없습니다.</p>
               ) : (

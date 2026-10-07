@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
+import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
@@ -381,7 +382,8 @@ export async function POST(
           finalContract.externalName || finalContract.user.name, // 계약 당사자
           nextStep.order,
           appUrl,
-          finalContract.user.id // 본인 확인 관문(#140)
+          finalContract.user.id, // 본인 확인 관문(#140)
+          contract.sendMessage
         );
       } else if (nextStep.approver?.email) {
         // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
@@ -392,7 +394,8 @@ export async function POST(
           finalContract.externalName || finalContract.user.name, // 계약 당사자
           nextStep.order,
           appUrl,
-          nextStep.approverId || undefined // 본인 확인 관문(#140)
+          nextStep.approverId || undefined, // 본인 확인 관문(#140)
+          contract.sendMessage
         );
       }
     } else if (!nextStep && finalContract.user.email) {
@@ -413,7 +416,7 @@ export async function POST(
         const dm = nextStep.approverId === finalContract.userId && !contract.externalName
           ? `📝 전자계약 서명 요청\n「${finalContract.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
           : `🖋 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
-        hrBotSendDM(nextStep.approverId, dm).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+        hrBotSendDM(nextStep.approverId, dm + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
       }
       // 중간 단계 결재 완료 → 작성자(createdBy)에게 진행 알림 (#136)
       // 마지막 단계는 아래 완료 알림이 대신한다. 작성자가 이 단계 결재자 본인이면 헬퍼가 생략.

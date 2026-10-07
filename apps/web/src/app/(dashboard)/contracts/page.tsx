@@ -37,6 +37,7 @@ type Contract = {
   fileUrl: string;
   status: string;
   extraFields?: Record<string, string> | null; // 개인정보동의서 선택 동의 등
+  sendMessage?: string | null; // 본부 발송 메시지(#65)
   profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
   employeeFields?: string[] | null; // 직원이 서명 시 직접 입력하는 필드 (퇴사일자/퇴사사유 등)
   employeeSignedAt?: string | null;
@@ -622,6 +623,9 @@ export default function ContractsPage() {
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : `${signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}${signTarget.user.name}`}</p>
+                {signTarget.sendMessage && (
+                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 mt-1 whitespace-pre-wrap">💬 본부 메시지 · {signTarget.sendMessage}</p>
+                )}
               </div>
 
               {/* ── 1단계: 개인정보동의서 동의 확인 ── */}

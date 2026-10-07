@@ -7,6 +7,7 @@ import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields"
 import { preserveDecidedSteps, lockSteps } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { recordContractEvent } from "@/lib/contract-events";
+import { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } from "@/lib/contract-send-meta";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
 // employeeOnly 문서(비밀유지·개인정보동의서)는 '직원 서명만' 단일 단계로 동시 발송한다.
@@ -21,16 +22,27 @@ export async function POST(
     return NextResponse.json({ error: "패키지 발송은 관리자만 가능합니다." }, { status: 403 });
 
   const { bundleId } = await params;
-  const { approverIds } = (await request.json()) as { approverIds?: string[] };
+  const body = (await request.json().catch(() => ({}))) as { approverIds?: string[]; sendMessage?: unknown; confirmDuplicate?: boolean };
+  const { approverIds } = body;
   if (!Array.isArray(approverIds) || approverIds.length === 0)
     return NextResponse.json({ error: "승인자를 선택해주세요." }, { status: 400 });
+  // 발송 메시지(#65) — 패키지 문서 모두에 같은 문구
+  const sendMessage = normalizeSendMessage(body.sendMessage);
+  if (sendMessage === "TOO_LONG") return NextResponse.json({ error: `발송 메시지는 ${SEND_MESSAGE_MAX}자까지 쓸 수 있습니다.` }, { status: 400 });
 
   const contracts = await prisma.contract.findMany({
     where: { bundleId },
-    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true },
+    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true, type: true, bundleId: true },
   });
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
+
+  // 중복 발송 경고(#47) — 보낼 문서마다 같은 직원·같은 양식의 진행 중·30일 안 발송을 모아 먼저 묻는다
+  if (body.confirmDuplicate !== true) {
+    const dups = (await Promise.all(contracts.filter((c) => c.status !== "SIGNED" && c.status !== "REJECTED").map((c) => findDuplicateSends(c)))).flat();
+    const uniq = [...new Map(dups.map((d) => [d.id, d])).values()];
+    if (uniq.length) return NextResponse.json({ code: "DUPLICATE", duplicates: uniq, error: "같은 직원에게 같은 양식을 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다." }, { status: 409 });
+  }
 
   // 외부 서명 단계는 외부 계약 패키지에서만 허용 (일반 패키지에 유입 시 User FK 500 방지)
   const isExternalBundle = contracts.some((c) => c.externalName);
@@ -101,9 +113,11 @@ export async function POST(
     // 발송 시 최신 템플릿으로 문서 재생성 (#163) — 양식 수정이 발송 문서에 반드시 반영되게.
     // 입력값은 그대로 쓰므로 내용은 바뀌지 않는다. 실패해도 발송은 막지 않는다.
     let reRendered: string | null = null;
+    let templateVersion: number | null = null;   // 발송 당시 양식 버전(#48)
     if (c.templateId) {
       try {
-        const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true } });
+        const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true, version: true } });
+        templateVersion = tmpl?.version ?? null;
         if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
           const extra = (c.extraFields as Record<string, string>) || {};
           const mergeData = await buildContractMergeData(c.userId, {
@@ -123,6 +137,7 @@ export async function POST(
     await prisma.contract.update({
       where: { id: c.id },
       data: { status: "SENT", ...(reRendered ? { fileUrl: JSON.stringify([reRendered]) } : {}),
+          templateVersion, sendMessage: sendMessage ?? null,   // #48 #65
           // 재발송이면 결재선이 새로 만들어져 서명이 전부 사라진다. 저장된 완료본과 서명 시각을
           // 남기면 옛 완료본이 되살아나고 직원 화면이 "서명했다"로 오판한다.
           // 단건 재발송(PATCH)에는 넣었는데 패키지만 빠져 있었다 (2026-09-04).
@@ -131,7 +146,7 @@ export async function POST(
         },
     });
     // 감사 기록(#205-4)
-    await recordContractEvent({ contractId: c.id, type: c.status === "DRAFT" ? "SENT" : "RESEND", actorId: session.userId, actorName: session.name, request, meta: { bundleId } });
+    await recordContractEvent({ contractId: c.id, type: c.status === "DRAFT" ? "SENT" : "RESEND", actorId: session.userId, actorName: session.name, request, meta: { bundleId, templateVersion, ...(body.confirmDuplicate === true ? { duplicateConfirmed: true } : {}) } });
     sent++;
 
     // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
@@ -187,7 +202,7 @@ export async function POST(
     const dm = info.isEmployee
       ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contracts`
       : `\ud83d\udd8b 전자계약 결재 요청\n${head}\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(dmRoles.get(uid))}`;
-    hrBotSendDM(uid, dm).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
+    hrBotSendDM(uid, dm + messageDmLine(sendMessage)).catch((e) => console.error("[bundle] 발송 DM 오류:", e));
   }
 
   return NextResponse.json({ success: true, sent, externalSignToken });

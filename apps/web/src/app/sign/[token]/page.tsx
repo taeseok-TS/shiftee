@@ -10,6 +10,7 @@ type Doc = { title: string; fileUrl: string | null };
 type Info = {
   title: string;
   externalName: string | null;
+  sendMessage?: string | null; // 본부 발송 메시지(#65)
   fileUrl: string | null;
   documents: Doc[];
   consentDoc: boolean;
@@ -123,6 +124,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
           <p className="text-xs text-gray-400">큐브티 전자계약</p>
           <h1 className="text-lg font-bold mt-0.5">{info?.title || "전자계약 서명"}</h1>
           {info?.externalName && <p className="text-sm text-gray-500 mt-0.5">서명자: {info.externalName}</p>}
+          {info?.sendMessage && (
+            <p className="text-sm text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 mt-2 whitespace-pre-wrap">💬 {info.sendMessage}</p>
+          )}
           {docs.length > 1 && (
             <p className="text-xs text-violet-600 mt-1">총 {docs.length}건의 문서를 확인 후 한 번의 서명으로 함께 서명합니다.</p>
           )}

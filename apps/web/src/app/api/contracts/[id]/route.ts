@@ -87,6 +87,9 @@ export async function PATCH(
   let status, title, type, startDate, endDate, approverIds, hideRevoked;
   // 서명이 초기화되는 수정은 화면이 경고를 보여 준 뒤 이 표시를 달아 다시 보낸다(#206-1) — 서버가 경고를 강제한다
   let confirmReset = false;
+  // 발송 메시지(#65)·중복 발송 확인(#47) — JSON 발송 요청만 보낸다
+  let sendMessageRaw: unknown = undefined;
+  let confirmDuplicate = false;
   let salary: string | null = null;
   let extraFieldsRaw: string | null = null;
   let newFileUrl: string | undefined;
@@ -150,6 +153,8 @@ export async function PATCH(
       approverIds = body.approverIds;
       hideRevoked = body.hideRevoked;
       confirmReset = body.confirmReset === true;
+      sendMessageRaw = body.sendMessage;
+      confirmDuplicate = body.confirmDuplicate === true;
       salary = body.salary ?? null;
       extraFieldsRaw = body.extraFields ? JSON.stringify(body.extraFields) : null;
     } catch (parseError) {
@@ -163,10 +168,20 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true, bundleId: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+
+  // 발송 메시지(#65) — 발송 요청에 실려 오면 계약에 남긴다(빈 값이면 지운다). 수정 요청에는 손대지 않는다
+  const { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } = await import("@/lib/contract-send-meta");
+  const sendMessage = normalizeSendMessage(sendMessageRaw);
+  if (sendMessage === "TOO_LONG") return NextResponse.json({ error: `발송 메시지는 ${SEND_MESSAGE_MAX}자까지 쓸 수 있습니다.` }, { status: 400 });
+  // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
+  if (status === "SENT" && !confirmDuplicate) {
+    const dups = await findDuplicateSends({ id, ...contract });
+    if (dups.length) return NextResponse.json({ code: "DUPLICATE", duplicates: dups, error: "같은 직원에게 같은 양식을 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다." }, { status: 409 });
+  }
 
   // ⚠ status 를 검증 없이 받으면 `PATCH {status:"SENT"}` 한 번으로 반려가 풀린다. 같은 파일이
   //   type 은 asContractType 으로 검증하면서 status 는 안 했다(2026-09-04 검증관 F3).
@@ -370,11 +385,13 @@ export async function PATCH(
   // 다시 렌더한다. 입력값(extraFields·기간·연봉)은 그대로 쓰므로 내용은 바뀌지 않는다.
   // 이미 발송된 건의 재발송에도 적용된다(결재선이 초기화되어 처음부터 다시 받으므로 동일 기준).
   let sendRenderUrl: string | null = null;
+  let sendTemplateVersion: number | null = null;   // 발송 당시 양식 버전(#48)
   if (status === "SENT" && contract.templateId && !newFileUrl) {
     try {
       const tmpl = await prisma.contractTemplate.findUnique({
-        where: { id: contract.templateId }, select: { fileUrl: true },
+        where: { id: contract.templateId }, select: { fileUrl: true, version: true },
       });
+      sendTemplateVersion = tmpl?.version ?? null;
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
         const mergeData = await buildContractMergeData(contract.userId, {
@@ -434,6 +451,8 @@ export async function PATCH(
       // ② 직원 화면이 "서명했다"로 판단해 완료본 링크를 열었다가 400 오류를 본다 (2026-09-04).
       ...(sentNow ? { signedUrl: null, signedAt: null, employeeSignedAt: null, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, tsaToken: null, tsaAt: null, tsaUrl: null } : {}),
       ...(fieldSummary ? { extraFields: fieldSummary } : {}),
+      // 발송이면 발송 당시 양식 버전·메시지를 남긴다(#48 #65). 파일을 직접 바꿔 보낸 건은 양식 버전이 없다
+      ...(status === "SENT" ? { templateVersion: sendTemplateVersion, sendMessage: sendMessage ?? null } : {}),
     },
     include: {
       user: { select: { id: true, name: true, email: true, department: true } },
@@ -458,7 +477,7 @@ export async function PATCH(
   const evActor = { contractId: id, actorId: session.userId, actorName: session.name, request };
   if (contentChanged) await recordContractEvent({ ...evActor, type: "EDITED", meta: { fields: versionChanges.map((c) => c.field) } });
   if (needsReset) await recordContractEvent({ ...evActor, type: "RESET", meta: { signers: resetSigners.map((x) => x.name) } });
-  if (status === "SENT") await recordContractEvent({ ...evActor, type: contract.status === "DRAFT" ? "SENT" : "RESEND" });
+  if (status === "SENT") await recordContractEvent({ ...evActor, type: contract.status === "DRAFT" ? "SENT" : "RESEND", meta: { templateVersion: sendTemplateVersion, ...(confirmDuplicate ? { duplicateConfirmed: true } : {}) } });
 
   // 외부 계약 발송 → 결재선의 내부 결재자들에게 큐브티워크 봇 DM 으로 서명 링크 전달.
   // 발송자는 PC 앞이어도, 문자를 실제로 보낼 현장 관리자는 폰을 들고 있다 —
@@ -505,7 +524,8 @@ export async function PATCH(
           updated.user.name,
           updated.title,
           appUrl,
-          updated.user.id // 본인 확인 관문(#140) — 빠뜨리면 옛 링크(/contracts)로 나가 남의 세션으로 열린다
+          updated.user.id, // 본인 확인 관문(#140) — 빠뜨리면 옛 링크(/contracts)로 나가 남의 세션으로 열린다
+          updated.sendMessage
         );
       } else if (firstPendingStep.approver?.email) {
         // 직원이 아닌 다른 승인자가 첫 번째인 경우 - 승인 요청 이메일
@@ -517,7 +537,8 @@ export async function PATCH(
           updated.externalName || updated.user.name, // 계약 당사자 — 외부 계약은 게스트 이름
           firstPendingStep.order,
           appUrl,
-          firstPendingStep.approverId || undefined
+          firstPendingStep.approverId || undefined,
+          updated.sendMessage
         );
       }
     }
@@ -530,7 +551,7 @@ export async function PATCH(
       const dm = isEmployee
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
         : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((firstPendingStep as { approver?: { role?: string } }).approver?.role)}`;
-      hrBotSendDM(firstPendingStep.approverId, dm).catch((e) => console.error("[contract] 발송 DM 오류:", e));
+      hrBotSendDM(firstPendingStep.approverId, dm + messageDmLine(updated.sendMessage)).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }
   }
 

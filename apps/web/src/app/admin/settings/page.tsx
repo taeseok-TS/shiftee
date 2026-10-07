@@ -47,6 +47,7 @@ const ACTION_LABEL: Record<string, string> = {
   LEAVE_CANCEL_REQUEST: "휴가 취소 요청",
   LEAVE_CANCEL_DECISION: "휴가 취소 결재",
   LEAVE_PROXY_CREATE: "휴가 대리 등록",
+  CONTRACT_MESSAGE_UPDATE: "전자계약 기본 메시지 변경",
   LEAVE_CANCEL_WITHDRAW: "휴가 취소 요청 철회",
   LEAVE_CANCEL_EXPIRE: "휴가 취소 요청 기한 만료",
   LEAVE_LEDGER_PDF: "연차 대장 PDF 내려받기",

@@ -125,8 +125,10 @@ export async function sendContractNotification(
   employeeName: string,
   contractTitle: string,
   appUrl: string,
-  recipientId?: string // 본인 확인 관문용 (#140) — 남의 세션으로 열리는 것 방지
+  recipientId?: string, // 본인 확인 관문용 (#140) — 남의 세션으로 열리는 것 방지
+  message?: string | null // 본부 발송 메시지(#65)
 ): Promise<void> {
+  const { messageEmailHtml } = await import("@/lib/contract-send-meta");
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>계약서 발송 안내</h2>
@@ -137,6 +139,7 @@ export async function sendContractNotification(
         <p><strong>계약서명:</strong> ${contractTitle}</p>
         <p><strong>상태:</strong> 직원 서명 대기</p>
       </div>
+      ${messageEmailHtml(message)}
 
       <p>
         <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
@@ -169,8 +172,10 @@ export async function sendApprovalRequest(
   stepOrder: number,
   appUrl: string,
   // 본인 확인 관문용 (#140) — 링크 수신자
-  recipientId?: string
+  recipientId?: string,
+  message?: string | null // 본부 발송 메시지(#65)
 ): Promise<void> {
+  const { messageEmailHtml } = await import("@/lib/contract-send-meta");
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>계약서 승인 요청</h2>
@@ -183,6 +188,7 @@ export async function sendApprovalRequest(
         <p><strong>승인 단계:</strong> ${stepOrder}단계</p>
         <p><strong>상태:</strong> 승인 대기 중</p>
       </div>
+      ${messageEmailHtml(message)}
 
       <p>
         <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">

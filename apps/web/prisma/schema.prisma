@@ -308,6 +308,9 @@ model Contract {
   externalName     String? // 외부(미가입) 계약자 이름 — 있으면 외부 계약(userId는 작성 관리자)
   externalPhone    String? // 외부 계약자 연락처(링크 전달 참고용)
   createdBy        String? // 작성자(발송 관리자) userId — 단계·완료 알림 대상 (#136). 기존 계약은 null(작성자 알림 생략)
+  // 발송 당시 양식 버전(#48)·발송 메시지(#65) — 2026-10-07 QA76 묶음 7-가. deploy/ddl_contract_send_meta.sql
+  templateVersion  Int?
+  sendMessage      String?
   employeeSignedAt DateTime?
   signedAt         DateTime?
   // 완료본 고정(#205-5, 2026-09-11) — 완료 시점에 PDF 를 한 번 만들어 고정하고 SHA-256·문서번호를 남긴다(검증 페이지 대조용)
