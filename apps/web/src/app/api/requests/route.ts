@@ -11,8 +11,8 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const sp = new URL(request.url).searchParams;
   const who = sp.get("who") === "decided" ? "decided" : "mine";
-  const items = await requestFeed(session.userId, who, {
+  const { items, limited } = await requestFeed(session.userId, who, {
     from: sp.get("from"), to: sp.get("to"), status: sp.get("status"), kind: sp.get("kind"), q: sp.get("q"),
   });
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, limited });
 }

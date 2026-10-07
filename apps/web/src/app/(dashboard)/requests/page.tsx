@@ -3,7 +3,7 @@
 // 내 요청(2026-10-07 QA76 #51 #43 #76) — 휴가·휴가 취소·근무일정·출퇴근 요청을 한 목록으로.
 // 「내 요청」은 누구나, 「내가 처리한 것」은 결재한 적이 있는 사람(원장·본부·원장대행)에게 의미가 있다.
 // 결재하기는 각 결재함에서 — 여기는 보기·찾기 전용이다.
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Inbox } from "lucide-react";
@@ -13,6 +13,7 @@ type Item = {
   id: string; title: string; period: string; requester: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   createdAt: string;
+  reason: string | null;
   progress: { done: number; total: number } | null;
   lastComment: { by: string; text: string } | null;
   rejectReason: string | null;
@@ -33,16 +34,22 @@ const STATUS: Record<Item["status"], { label: string; cls: string }> = {
 };
 const kst = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
 
-export default function RequestsPage() {
-  const [who, setWho] = useState<"mine" | "decided">("mine");
+export default function RequestsPage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
+  // 본부·원장 메뉴 「처리한 요청」은 ?who=decided 로 들어온다
+  const initialWho = use(searchParams).who === "decided" ? "decided" : "mine";
+  const [who, setWho] = useState<"mine" | "decided">(initialWho);
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[] | null>(null);
+  const [limited, setLimited] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const seq = useRef(0);   // 조건을 빨리 바꾸면 늦게 온 옛 응답이 새 목록을 덮지 않게
 
   const load = useCallback(async () => {
+    const my = ++seq.current;
     const p = new URLSearchParams({ who });
     if (status) p.set("status", status);
     if (kind) p.set("kind", kind);
@@ -52,8 +59,9 @@ export default function RequestsPage() {
     try {
       const res = await fetch(`/api/requests?${p}`);
       const d = await res.json().catch(() => ({}));
-      setItems(res.ok ? d.items || [] : []);
-    } catch { setItems([]); }
+      if (my !== seq.current) return;
+      setItems(res.ok ? d.items || [] : []); setLimited(res.ok && !!d.limited); setFailed(!res.ok);
+    } catch { if (my === seq.current) { setItems([]); setLimited(false); setFailed(true); } }
   }, [who, status, kind, from, to, q]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
 
@@ -80,12 +88,14 @@ export default function RequestsPage() {
           <span>~</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 rounded border px-1" />
         </div>
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목·이름·의견 검색" className="h-8 w-52 text-sm" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목·이름·사유·의견 검색" className="h-8 w-52 text-sm" />
       </div>
       <Card>
         <CardContent className="p-0">
           {items === null ? (
             <div className="p-8 text-center text-sm text-gray-400">불러오는 중…</div>
+          ) : failed ? (
+            <div className="p-8 text-center text-sm text-red-500">불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.</div>
           ) : items.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-400">{who === "mine" ? "올린 요청이 없습니다." : "처리한 요청이 없습니다."}</div>
           ) : (
@@ -103,6 +113,7 @@ export default function RequestsPage() {
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
                     올린 시각 {kst(i.createdAt)}
+                    {i.reason && <span className="ml-2">· 사유: {i.reason}</span>}
                     {i.lastComment && <span className="ml-2">· 💬 {i.lastComment.by}: {i.lastComment.text}</span>}
                     {i.status === "REJECTED" && i.rejectReason && !i.lastComment && <span className="ml-2 text-red-600">· 반려 사유: {i.rejectReason}</span>}
                   </div>
@@ -112,7 +123,8 @@ export default function RequestsPage() {
           )}
         </CardContent>
       </Card>
-      <p className="text-xs text-gray-400">결재하기는 각 결재함에서 합니다. 이 화면은 보기·찾기 전용입니다. 최근 500건까지 보입니다.</p>
+      {limited && <p className="text-xs text-amber-600">요청이 많아 최근 것까지만 보입니다. 올린 날 기간이나 검색어로 좁혀 주세요.</p>}
+      <p className="text-xs text-gray-400">결재하기는 각 결재함에서 합니다. 이 화면은 보기·찾기 전용입니다.</p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, RefreshControl } from "react-native";
 import { getRequestFeed, type FeedItem } from "../services/approvals";
 
@@ -22,10 +22,18 @@ export default function RequestsScreen() {
   const [status, setStatus] = useState<"" | FeedItem["status"]>("");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<FeedItem[] | null>(null);
+  const [limited, setLimited] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const seq = useRef(0);   // 탭·검색을 빨리 바꾸면 늦게 온 옛 응답이 새 목록을 덮지 않게
 
   const load = useCallback(async () => {
-    try { setItems(await getRequestFeed(who, { status, q: q.trim() })); } catch { setItems([]); }
+    const my = ++seq.current;
+    try {
+      const r = await getRequestFeed(who, { status, q: q.trim() });
+      if (my !== seq.current) return;
+      setItems(r.items); setLimited(r.limited); setFailed(false);
+    } catch { if (my === seq.current) { setItems([]); setLimited(false); setFailed(true); } }
   }, [who, status, q]);
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
 
@@ -43,12 +51,13 @@ export default function RequestsScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <TextInput value={q} onChangeText={setQ} placeholder="제목·이름·의견 검색" style={styles.search} placeholderTextColor="#9ca3af" />
+      <TextInput value={q} onChangeText={setQ} placeholder="제목·이름·사유·의견 검색" style={styles.search} placeholderTextColor="#9ca3af" />
       <FlatList
         data={items ?? []}
         keyExtractor={(i) => `${i.kind}:${i.id}`}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
-        ListEmptyComponent={<Text style={styles.empty}>{items === null ? "불러오는 중…" : who === "mine" ? "올린 요청이 없습니다." : "처리한 요청이 없습니다."}</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>{items === null ? "불러오는 중…" : failed ? "불러오지 못했습니다. 아래로 당겨 다시 시도해 주세요." : who === "mine" ? "올린 요청이 없습니다." : "처리한 요청이 없습니다."}</Text>}
+        ListFooterComponent={limited ? <Text style={styles.empty}>최근 요청까지만 보입니다. 검색어로 좁혀 주세요.</Text> : null}
         renderItem={({ item: i }) => (
           <View style={styles.card}>
             <View style={styles.row}>
@@ -60,6 +69,7 @@ export default function RequestsScreen() {
               {i.period}{who === "decided" ? ` · ${i.requester}` : ""}{i.progress && i.progress.total > 1 ? ` · 결재 ${i.progress.done}/${i.progress.total}` : ""}{i.myDecision ? ` · 내가 ${i.myDecision === "APPROVED" ? "승인" : "반려"}` : ""}
             </Text>
             <Text style={styles.sub}>올린 시각 {kst(i.createdAt)}</Text>
+            {!!i.reason && <Text style={styles.sub} numberOfLines={2}>사유: {i.reason}</Text>}
             {!!i.lastComment && <Text style={styles.comment}>💬 {i.lastComment.by}: {i.lastComment.text}</Text>}
             {i.status === "REJECTED" && !!i.rejectReason && !i.lastComment && <Text style={[styles.comment, { color: "#b91c1c" }]}>반려 사유: {i.rejectReason}</Text>}
           </View>

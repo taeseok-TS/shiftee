@@ -23,6 +23,7 @@ import {
   CalendarDays,
   Bot,
   RefreshCw,
+  Inbox,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -32,6 +33,7 @@ const adminNavItems = [
   { href: "/admin/schedule", label: "근무일정", icon: Calendar },
   { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
   { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
+  { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
   { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
   { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
   { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },

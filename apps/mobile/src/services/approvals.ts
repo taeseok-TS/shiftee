@@ -212,17 +212,19 @@ export type FeedItem = {
   id: string; title: string; period: string; requester: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   createdAt: string;
+  reason: string | null;
   progress: { done: number; total: number } | null;
   lastComment: { by: string; text: string } | null;
   rejectReason: string | null;
   myDecision?: "APPROVED" | "REJECTED";
 };
-export async function getRequestFeed(who: "mine" | "decided", f: { status?: string; q?: string } = {}): Promise<FeedItem[]> {
+/** limited=true 면 종류별 최근 300건(또는 전체 500건)에서 잘렸다 */
+export async function getRequestFeed(who: "mine" | "decided", f: { status?: string; q?: string } = {}): Promise<{ items: FeedItem[]; limited: boolean }> {
   const p = new URLSearchParams({ who });
   if (f.status) p.set("status", f.status);
   if (f.q) p.set("q", f.q);
   const res = await axios.get(`${API_URL}/requests?${p}`, { headers: await authHeaders() });
-  return res.data?.items ?? [];
+  return { items: res.data?.items ?? [], limited: !!res.data?.limited };
 }
 
 /** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */

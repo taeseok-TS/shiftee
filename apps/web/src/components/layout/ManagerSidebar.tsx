@@ -12,6 +12,7 @@ import {
   Calendar,
   Settings,
   LogOut,
+  Inbox,
 } from "lucide-react";
 
 const managerNavItems = [
@@ -21,6 +22,7 @@ const managerNavItems = [
   { href: "/manager/team-contracts", label: "팀 계약서", icon: FileSignature },
   { href: "/manager/team-schedule", label: "팀 일정", icon: Calendar },
   { href: "/manager/team-attendance", label: "팀 출퇴근기록", icon: Calendar },
+  { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
 ];
 
 export function ManagerSidebar({ role }: { role?: string }) {
