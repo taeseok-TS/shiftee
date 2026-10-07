@@ -144,7 +144,8 @@ export async function GET(request: NextRequest) {
       const hasIn = !!c.in, hasOut = !!c.out;
       if (hasIn !== hasOut) c.missing = true;
       else if (!hasIn && !hasOut && c.sched && !c.leave && !holidays.has(d)
-        && u.employmentStatus === "ACTIVE" && (!hire || d >= hire) && (!resign || d <= resign)) c.absent = true;
+        && u.employmentStatus !== "ON_LEAVE" && u.employmentStatus !== "TEMPORARY"
+        && (!hire || d >= hire) && (!resign || d <= resign)) c.absent = true;
     }
   }
 

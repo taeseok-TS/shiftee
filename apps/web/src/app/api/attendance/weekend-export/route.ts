@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 //  · 열: 사원번호 / 직원 / 조직 / 직무 / 날짜 / 출근·퇴근(실제 기록) / 출근·퇴근(근무 일정) / 휴게시간(근무일정) / 근무인정시간(근무일정)
 //  · 주말 = 토·일 + 공휴일(양식 예시에 8/17 대체공휴일이 들어 있다). 원장 포함, 관리자·통계 제외 지점 제외
 //  · 근무인정시간 = 근무일정 시간 − 휴게(근무일정 신청과 같은 규칙: 4.5시간↑ 30분, 9시간↑ 60분)
+//  · **실제 출근 기록이 있는 날만** 넣는다 — 일정만 있고 나오지 않은 날(결근·휴가)이 급여 자료에 들어가면 과지급이 된다(검증 A1)
 //  · 기본 기간 = 전월 20일 ~ 당월 19일(화면이 정해 보낸다)
 // 급여 자료라 본부만 받는다.
 
@@ -75,10 +76,10 @@ export async function GET(request: NextRequest) {
       .map((u) => [u.id, u]),
   );
   const rows = [...rowsMap.values()]
-    .filter((r) => users.has(r.userId))
+    .filter((r) => users.has(r.userId) && !!r.att?.in)
     .sort((a, b) => {
       const ua = users.get(a.userId)!, ub = users.get(b.userId)!;
-      return (ua.branch ?? "").localeCompare(ub.branch ?? "") || ua.name.localeCompare(ub.name) || a.date.getTime() - b.date.getTime();
+      return ua.name.localeCompare(ub.name, "ko") || a.date.getTime() - b.date.getTime();   // 양식처럼 이름순
     });
 
   // ── 양식 그대로: 1행 비움, 2행 제목, 3행 산출기간, 4행 머리글, 5행부터 자료 ──

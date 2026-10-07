@@ -21,11 +21,12 @@ type Cell = {
 type BoardUser = { id: string; name: string; empNo: number | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
 type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>>; truncated?: boolean };
 
-type Kind = "normal" | "late" | "missing" | "absent" | "leave";
-const KIND_LABEL: Record<Kind, string> = { normal: "정상", late: "지각", missing: "누락", absent: "결근", leave: "휴가" };
+type Kind = "normal" | "late" | "missing" | "absent" | "leave" | "pending";
+const KIND_LABEL: Record<Kind, string> = { normal: "정상", late: "지각", missing: "누락", absent: "결근", leave: "휴가", pending: "승인 대기" };
 const kindsOf = (c: Cell): Kind[] => {
   const k: Kind[] = [];
   if (c.leave) k.push("leave");
+  if (c.pending) k.push("pending");
   if (c.absent) k.push("absent");
   if (c.missing) k.push("missing");
   if (c.late) k.push("late");
@@ -66,17 +67,19 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   const [picked, setPicked] = useState<string[]>([]);
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [branchOpen, setBranchOpen] = useState(false);
-  const [kinds, setKinds] = useState<Set<Kind>>(new Set(["normal", "late", "missing", "absent", "leave"]));
+  const [kinds, setKinds] = useState<Set<Kind>>(new Set(["normal", "late", "missing", "absent", "leave", "pending"]));
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const branchBox = useRef<HTMLDivElement>(null);
   // 주말 근무 엑셀(본부, #86) — 기본 기간 전월 20일 ~ 당월 19일(KST)
+  // 기본은 **이미 끝난** 정산 기간 — 20일부터는 전월 20일~당월 19일, 그 전엔 전전월 20일~전월 19일
   const [wk, setWk] = useState(() => {
     const k = new Date(Date.now() + 9 * 3600_000);
-    const y = k.getUTCFullYear(), m = k.getUTCMonth();
-    const prev = new Date(Date.UTC(y, m - 1, 20));
-    return { from: prev.toISOString().slice(0, 10), to: `${y}-${pad(m + 1)}-19` };
+    const shift = k.getUTCDate() >= 20 ? 0 : -1;
+    const start = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() - 1 + shift, 20));
+    const end = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() + shift, 19));
+    return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
   });
 
   // 지점 선택 상자는 바깥을 누르면 닫힌다(UI 드롭다운 규칙)
@@ -130,7 +133,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
       const row = board.cells[u.id] || {};
       for (const d of board.days) {
         const c = row[d];
-        if (!c || !(c.sched || c.in || c.out || c.leave)) continue;
+        if (!c || !(c.sched || c.in || c.out || c.leave || c.pending)) continue;
         if (!kindsOf(c).some((k) => kinds.has(k))) continue;
         out.push({ u, d, c });
       }
@@ -216,7 +219,12 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
           <span>~</span>
           <input type="date" className="h-8 rounded border px-2" value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
           <a className="inline-flex items-center h-8 px-3 rounded-md border text-sm hover:bg-gray-50"
-            href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}>
+            href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}
+            onClick={(e) => {
+              const days = (new Date(wk.to).getTime() - new Date(wk.from).getTime()) / 86400_000;
+              if (!wk.from || !wk.to || days < 0) { e.preventDefault(); toast.error("기간을 확인해 주세요."); }
+              else if (days > 93) { e.preventDefault(); toast.error("한 번에 3개월까지 받을 수 있습니다."); }
+            }}>
             <Download size={14} className="mr-1" />받기
           </a>
           <span className="text-xs text-gray-400">토·일·공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)</span>
