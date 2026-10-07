@@ -20,6 +20,7 @@ const managerNavItems = [
   { href: "/manager/team-leave", label: "팀 휴가", icon: UmbrellaOff },
   { href: "/manager/team-contracts", label: "팀 계약서", icon: FileSignature },
   { href: "/manager/team-schedule", label: "팀 일정", icon: Calendar },
+  { href: "/manager/team-attendance", label: "팀 출퇴근기록", icon: Calendar },
 ];
 
 export function ManagerSidebar({ role }: { role?: string }) {
