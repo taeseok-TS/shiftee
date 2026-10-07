@@ -72,7 +72,8 @@ export async function POST(request: NextRequest) {
     // 제안을 넣으면 뒤에 공백이 붙고, 아이폰은 첫 글자를 대문자로 만든다). 규칙은 findUserByEmailLoose 참고.
     const email = String(rawEmail).trim();
     const user = await findUserByEmailLoose(email);
-    if (!user || !user.isActive) {
+    // 휴지통(삭제)된 계정도 막는다 — 삭제가 isActive 도 끄지만, 다른 경로로 켜져도 들어오지 못하게 한 겹 더(2026-10-07)
+    if (!user || !user.isActive || user.deletedAt) {
       await logLoginFail({
         email: String(rawEmail), userId: user?.id, userName: user?.name,
         reason: user ? "INACTIVE" : "UNKNOWN_EMAIL", deviceName, platform,

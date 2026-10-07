@@ -53,7 +53,10 @@ export async function PATCH(
   const todayMidnight = kstTodayMidnight();
 
   // 변경 전 값(감사 로그용)
-  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true, employmentStatus: true } });
+  const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true, employmentStatus: true, deletedAt: true } });
+  // 휴지통 계정은 수정하지 않는다 — 퇴사일을 지우는 수정이 isActive 를 되살려 삭제한 계정이 다시 켜질 수 있었다.
+  // 되살리려면 휴지통의 「복구」를 쓴다(2026-10-07)
+  if (before?.deletedAt) return NextResponse.json({ error: "삭제된 직원입니다. 휴지통에서 복구한 뒤 수정해 주세요." }, { status: 409 });
 
   // MANAGER는 담당 지점(대표+겸직) 구성원만 수정 가능
   if (session.role === "MANAGER") {

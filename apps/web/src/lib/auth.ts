@@ -79,7 +79,7 @@ async function currentUserState(userId: string): Promise<TvEntry | null | typeof
   try {
     const u = await prisma.user.findUnique({
       where: { id: userId },
-      select: { tokenVersion: true, isActive: true, resignDate: true },
+      select: { tokenVersion: true, isActive: true, resignDate: true, deletedAt: true },
     });
     if (!u) return NO_USER;
     // 퇴사.비활성이면 토큰이 뭐든 통과시키지 않는다. 무효화(bump)를 거치지 않는 경로가
@@ -87,7 +87,7 @@ async function currentUserState(userId: string): Promise<TvEntry | null | typeof
     const entry: TvEntry = {
       v: u.tokenVersion,
       at: Date.now(),
-      blocked: !u.isActive || isResigned(u.resignDate),
+      blocked: !u.isActive || isResigned(u.resignDate) || !!u.deletedAt,   // 휴지통 계정도(2026-10-07)
     };
     // 읽는 사이에 무효화가 일어났으면 이 값은 이미 낡았다 — 캐시에 넣지 않는다.
     if (epoch === ep()) tvCache.set(userId, entry);
@@ -223,9 +223,9 @@ export async function issueSessionFor(
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, role: true, name: true, branch: true,
-              isActive: true, resignDate: true, tokenVersion: true },
+              isActive: true, resignDate: true, tokenVersion: true, deletedAt: true },
   });
-  if (!u || !u.isActive || isResigned(u.resignDate)) return null;
+  if (!u || !u.isActive || isResigned(u.resignDate) || u.deletedAt) return null;
   // 옛 토큰의 값을 복사하지 않는다 — 그 사이 바뀐 이름.지점.권한이 낡은 채로 7일 더 연장된다.
   const payload = {
     userId: u.id, email: u.email, role: u.role, name: u.name,
