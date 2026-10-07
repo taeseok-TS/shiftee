@@ -23,6 +23,7 @@ import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 import DelegateManager from "@/components/leave/DelegateManager";
+import LeaveReport from "@/components/leave/LeaveReport";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -42,7 +43,7 @@ type LeaveRequest = {
   id: string; type: string; startDate: string; endDate: string;
   days: number; reason: string | null; status: string;
   rejectedReason: string | null;
-  user: { name: string; department: string | null };
+  user: { name: string; department: string | null; branch?: string | null };
   approver: { name: string } | null;
   approvalSteps?: ApprovalStepInfo[];
   canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts)
@@ -137,6 +138,8 @@ export default function LeavePage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterYear, setFilterYear]     = useState(String(CURRENT_YEAR));
   const [filterMonth, setFilterMonth]   = useState("all");
+  // 목록 검색(#85) — 이름·지점·유형·사유. 불러온 목록 안에서 거른다
+  const [listQuery, setListQuery]       = useState("");
 
   /* 잔여 현황 */
   const [balance, setBalance]       = useState<Balance | null>(null);
@@ -483,6 +486,10 @@ export default function LeavePage() {
     });
   }
 
+  const shownRequests = listQuery.trim()
+    ? requests.filter(r => [r.user?.name ?? "", r.user?.branch ?? "", TYPE_LABEL[r.type] ?? r.type, r.reason ?? ""].some(v => v.includes(listQuery.trim())))
+    : requests;
+
   const filteredUsers = allUsers.filter(u =>
     u.id !== lineEditTarget?.id &&
     (u.name.includes(userSearch) || (u.department ?? "").includes(userSearch) || (u.position ?? "").includes(userSearch))
@@ -551,6 +558,9 @@ export default function LeavePage() {
               <TabsTrigger value="balance" className="gap-1.5">
                 <Users size={14} />직원별 잔여 현황
               </TabsTrigger>
+              <TabsTrigger value="report" className="gap-1.5">
+                <Download size={14} />휴가 리포트
+              </TabsTrigger>
             </>
           )}
         </TabsList>
@@ -586,6 +596,10 @@ export default function LeavePage() {
                 </button>
               ))}
             </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-2 text-gray-400" />
+              <Input value={listQuery} onChange={e => setListQuery(e.target.value)} placeholder="이름·지점·유형·사유 검색" className="h-8 w-52 pl-8 text-sm bg-white" />
+            </div>
           </div>
 
           <Card>
@@ -604,11 +618,11 @@ export default function LeavePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {requests.length === 0 ? (
+                    {shownRequests.length === 0 ? (
                       <tr><td colSpan={7} className="py-16 text-center text-gray-400">
-                        <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />신청 내역이 없습니다.
+                        <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />{requests.length ? "검색에 맞는 신청이 없습니다." : "신청 내역이 없습니다."}
                       </td></tr>
-                    ) : requests.map(r => {
+                    ) : shownRequests.map(r => {
                       const s = STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED;
                       return (
                         <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50/70 transition-colors">
@@ -772,6 +786,13 @@ export default function LeavePage() {
             </Card>
             {/* 원장대행 지정(2026-10-07 본부 답변 #3) */}
             <div className="mt-4"><DelegateManager /></div>
+          </TabsContent>
+        )}
+
+        {/* ═══ 휴가 리포트(#29 #84 #85) — 기간·지점·재직 조건, 사용 내역·유형별·월별, 엑셀 ═══ */}
+        {isAdmin && (
+          <TabsContent value="report" className="mt-4">
+            <LeaveReport />
           </TabsContent>
         )}
 
