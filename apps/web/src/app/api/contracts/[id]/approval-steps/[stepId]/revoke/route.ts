@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
+import { lockSteps } from "@/lib/contract-reset";
 
 export async function POST(
   request: NextRequest,
@@ -66,6 +67,8 @@ export async function POST(
   const fresh = deadlineFromDays(14);
   const revokeDeadline = contract.signDeadline && contract.signDeadline > fresh ? contract.signDeadline : fresh;
   const result = await prisma.$transaction(async (tx) => {
+    // 단계 행을 먼저(order 순) 잠근다 — 서명 확정·수정·초기화와 같은 순서라 교착이 생기지 않게(#45 재검증)
+    await lockSteps(tx, id);
     await tx.contractApprovalStep.updateMany({ where: { approvalLine: { contractId: id }, approverId: null }, data: { tokenExpiresAt: revokeDeadline } });
     // revocationLog JSON 배열로 관리
     const newLog = {
