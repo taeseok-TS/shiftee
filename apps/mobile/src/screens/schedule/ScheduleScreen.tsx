@@ -240,6 +240,7 @@ export default function ScheduleScreen() {
 
   // 기간 안에서 실제로 빠진 공휴일 (사용자에게 왜 줄었는지 알려준다)
   const reqExcludedHolidays = useMemo(() => {
+    if (updateDate) return [] as string[];   // 수정 요청은 그 하루를 그대로 보낸다(공휴일도 빼지 않는다)
     if (!reqStart || !reqEnd || reqStart > reqEnd) return [] as string[];
     return Object.keys(reqHolidays)
       .filter((d) => d >= reqStart && d <= reqEnd)
@@ -248,7 +249,7 @@ export default function ScheduleScreen() {
         return reqDays.has(new Date(y, m - 1, dd).getDay());
       })
       .sort();
-  }, [reqStart, reqEnd, reqDays, reqHolidays]);
+  }, [reqStart, reqEnd, reqDays, reqHolidays, updateDate]);
 
   const reqNetDaily = reqTemplate ? Math.max(reqTemplate.hours - breakHours(reqTemplate.hours), 0) : 0;
   const reqTotalHours = Math.round(reqDates.length * reqNetDaily * 10) / 10;
