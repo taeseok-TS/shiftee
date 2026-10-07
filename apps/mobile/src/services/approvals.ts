@@ -206,6 +206,25 @@ export async function getLeaveTypes(): Promise<{ types: LeaveTypeItem[]; labels:
   return { types: res.data?.types ?? [], labels: res.data?.labels ?? {} };
 }
 
+// 요청 한눈에(#51 #43 #76) — 서버 lib/request-feed 와 같은 모양
+export type FeedItem = {
+  kind: "LEAVE" | "LEAVE_CANCEL" | "SCHEDULE" | "ATTENDANCE";
+  id: string; title: string; period: string; requester: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  createdAt: string;
+  progress: { done: number; total: number } | null;
+  lastComment: { by: string; text: string } | null;
+  rejectReason: string | null;
+  myDecision?: "APPROVED" | "REJECTED";
+};
+export async function getRequestFeed(who: "mine" | "decided", f: { status?: string; q?: string } = {}): Promise<FeedItem[]> {
+  const p = new URLSearchParams({ who });
+  if (f.status) p.set("status", f.status);
+  if (f.q) p.set("q", f.q);
+  const res = await axios.get(`${API_URL}/requests?${p}`, { headers: await authHeaders() });
+  return res.data?.items ?? [];
+}
+
 /** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */
 export async function canApproveNow(): Promise<boolean | null> {
   const u = await getUser().catch(() => null);

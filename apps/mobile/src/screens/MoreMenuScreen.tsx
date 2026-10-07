@@ -6,6 +6,7 @@ import { canApproveNow } from "../services/approvals";
 
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { route: "Contracts", label: "계약서", icon: "document-text-outline", color: "#2563eb" },
+  { route: "Requests", label: "내 요청", icon: "list-outline", color: "#0891b2" }, // 휴가·일정·출퇴근 요청 한눈에(2026-10-07 #51)
   { route: "Submissions", label: "자료제출", icon: "cloud-upload-outline", color: "#4f46e5" }, // 2026-09-13 3단계
   { route: "Marketing", label: "마케팅 자료", icon: "camera-outline", color: "#db2777" }, // 2026-09-14 큐브마케팅 연동 ②
   { route: "Suggestions", label: "개선 제안", icon: "bulb-outline", color: "#f59e0b" },

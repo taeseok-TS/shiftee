@@ -16,6 +16,7 @@ import {
   User,
   Settings,
   LogOut,
+  Inbox,
 } from "lucide-react";
 
 const sharedNavItems = [
@@ -24,6 +25,7 @@ const sharedNavItems = [
   { href: "/attendance", label: "출퇴근 관리", icon: Clock, adminOnly: true },
   { href: "/schedule", label: "근무일정", icon: Calendar },
   { href: "/leave", label: "휴가 관리", icon: UmbrellaOff },
+  { href: "/requests", label: "내 요청", icon: Inbox },   // 휴가·일정·출퇴근 요청 한눈에(2026-10-07 #51)
   { href: "/contracts", label: "내 계약서", icon: FileSignature },
   { href: "/suggestions", label: "개선 제안", icon: Lightbulb },
 ];
