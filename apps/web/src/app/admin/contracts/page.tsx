@@ -1,7 +1,7 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
-import BulkValuesTable, { bulkColumns, deriveHours, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
+import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -220,6 +220,7 @@ export default function ContractsPage() {
   // 목록에서 초안 여러 건 골라 한꺼번에 발송(#34)
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   const [bulkSendOpen, setBulkSendOpen] = useState(false);
+  const [bulkSendKey, setBulkSendKey] = useState(0);   // 열 때마다 새 창(앞 묶음의 본부·메시지가 남지 않게)
   const [previewing, setPreviewing] = useState(false); // 발송 전 미리보기 생성 중 (개선 제안 #76)
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -1121,16 +1122,33 @@ export default function ContractsPage() {
       if (bundleMode && empTemplate && selectedTemplate !== empTemplate.id) {
         toast.error("신규입사 패키지는 에듀플렉스 근로계약서로만 발송할 수 있습니다."); setUploading(false); return;
       }
-      // 계약시작일과 입사일이 다른 직원이 섞이면 평가 단계(공통 계산)와 어긋난다 — 확인 후 진행
-      if (createForm.startDate) {
+      // 개인별 날짜(#19) — 못 읽는 날짜가 있으면 만들기 전에 멈춘다
+      const rowDate = (uid: string, k: "계약시작일" | "계약종료일", fallback: string) => {
+        const raw = bulkValues[uid]?.[k] || "";
+        return raw.trim() ? normDate(raw) : fallback;
+      };
+      const badDates = bulkUserIds.flatMap(uid => (["계약시작일", "계약종료일"] as const)
+        .filter(k => rowDate(uid, k, "") === null).map(k => `${employees.find(x => x.id === uid)?.name ?? "?"} ${k}`));
+      if (badDates.length) { toast.error(`날짜를 읽지 못했습니다: ${badDates.join(", ")} — 2026-10-01 형식으로 고쳐 주세요.`); setUploading(false); return; }
+      // 계약시작일(사람별)과 입사일이 다르면 확인 — 신규입사 평가 단계는 각자 시작일로 다시 계산한다
+      {
         const mismatch = bulkUserIds
-          .map(uid => employees.find(x => x.id === uid))
-          .filter(x => x?.hireDate && String(x.hireDate).slice(0, 10) !== createForm.startDate)
-          .map(x => x!.name);
-        if (mismatch.length && !confirm(`입사일이 계약시작일(${createForm.startDate})과 다른 직원이 있습니다: ${mismatch.join(", ")}\n교육·실무평가 기간은 계약시작일 기준으로 전원 동일하게 들어갑니다. 계속할까요?`)) {
+          .map(uid => ({ e: employees.find(x => x.id === uid), start: rowDate(uid, "계약시작일", createForm.startDate) }))
+          .filter(x => x.e?.hireDate && x.start && String(x.e.hireDate).slice(0, 10) !== x.start)
+          .map(x => `${x.e!.name}(입사 ${String(x.e!.hireDate).slice(0, 10)} / 시작 ${x.start})`);
+        if (mismatch.length && !confirm(`입사일과 계약시작일이 다른 직원이 있습니다: ${mismatch.join(", ")}\n계속할까요?`)) {
           setUploading(false); return;
         }
       }
+      // 사람별 시작일이 공통과 다르면 평가 단계를 그 사람 시작일로 다시 센다 — 그해·다음 해 공휴일을 먼저 받는다(#19 검증 F1)
+      const evalHolidays = new Set<string>(holidaySet);
+      if (templateFields.includes("교육평가시작")) {
+        const years = new Set<number>();
+        for (const uid of bulkUserIds) { const st = rowDate(uid, "계약시작일", createForm.startDate) || ""; const y = Number(st.slice(0, 4)); if (y > 2000) { years.add(y); years.add(y + 1); } }
+        const got = await Promise.all([...years].map(y => fetch(`/api/holidays?year=${y}`).then(r => r.json()).catch(() => ({ holidays: [] }))));
+        for (const d of got) for (const h of (d.holidays || []) as { date: string }[]) evalHolidays.add(h.date);
+      }
+      const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f)));
       const common: Record<string, string> = {};
       for (const [k, v] of Object.entries(extraFields)) {
         if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
@@ -1139,7 +1157,7 @@ export default function ContractsPage() {
       for (const f of templateFields) if (f.startsWith("체크_") && !(f in common)) common[f] = f.includes("기타") ? "□" : "☑";
       for (const f of templateFields) if (f.startsWith("선택_") && !(f in common)) common[f] = "□";
       if (templateConditions.includes("신규입사")) common["계약구분"] = contractKind;
-      let ok = 0; const failed: string[] = [];
+      let ok = 0; const failed: string[] = []; const failedIds: string[] = [];
       for (const uid of bulkUserIds) {
         const emp = employees.find(x => x.id === uid);
         if (!emp) continue;
@@ -1155,17 +1173,23 @@ export default function ContractsPage() {
           const mgr = employees.find(x => x.role === "MANAGER" && (x.branch === emp.branch || (x.managerBranches || []).includes(emp.branch!)));
           per["원장명"] = mgr?.name || "";
         }
-        // 개인별 값(#19) — 표에 넣은 칸만 덮는다. 날짜는 2026.10.01·2026/10/01 도 받는다
+        // 개인별 값(#19) — 표에 넣은 칸만, **지금 양식의 열**만 덮는다(양식을 바꾸기 전 값·다른 계약 구분 전용 칸은 넣지 않는다)
         const row = bulkValues[uid] || {};
-        const normDate = (v: string) => v.trim().replace(/[./]/g, "-").replace(/^(\d{4})-(\d{1,2})-(\d{1,2})$/, (_m, y, mo, d) => `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`);
         for (const [k, v] of Object.entries(row)) {
-          if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일") continue;
+          if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일" || !cols.includes(k)) continue;
+          if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
           per[k] = v.trim();
         }
-        Object.assign(per, deriveHours(per));   // 출퇴근·휴게·주근무시간이 사람마다 다르면 일·월 근로시간도 그 사람 값으로
-        const rowSalary = (row["연봉"] || "").replace(/[^0-9]/g, "") || createForm.salary;
-        const rowStart = row["계약시작일"]?.trim() ? normDate(row["계약시작일"]) : createForm.startDate;
-        const rowEnd = row["계약종료일"]?.trim() ? normDate(row["계약종료일"]) : createForm.endDate;
+        // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
+        if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
+        const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || createForm.salary;
+        const rowStart = rowDate(uid, "계약시작일", createForm.startDate) || "";
+        const rowEnd = rowDate(uid, "계약종료일", createForm.endDate) || "";
+        // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
+        if (templateFields.includes("교육평가시작")) {
+          const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
+          if (base && base !== evalBaseDate) { const ev = evalPeriods(base, evalHolidays); if (ev) Object.assign(per, ev); }
+        }
         const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
         try {
           let res: Response;
@@ -1196,15 +1220,15 @@ export default function ContractsPage() {
             res = await fetch("/api/contracts", { method: "POST", body: fd });
           }
           // 실패 이유(최저임금 미만 등)도 함께 보여 준다 — 이름만으로는 무엇을 고칠지 모른다
-          if (res.ok) ok++; else { const d = await res.json().catch(() => ({})); failed.push(d.error ? `${emp.name}(${d.error})` : emp.name); }
-        } catch { failed.push(emp.name); }
+          if (res.ok) ok++; else { const d = await res.json().catch(() => ({})); failed.push(d.error ? `${emp.name}(${d.error})` : emp.name); failedIds.push(uid); }
+        } catch { failed.push(emp.name); failedIds.push(uid); }
       }
       setUploading(false);
       if (failed.length) toast.error(`${ok}명 작성 완료, 실패: ${failed.join(", ")}`);
       else toast.success(`${ok}명에게 ${bundleMode ? "신규입사 패키지 3종이" : "계약서가"} 작성되었습니다. 목록에서 각각 발송해주세요.`);
       // 실패한 사람이 있으면 창을 닫지 않는다 — 개인별 값을 고쳐 그 사람만 다시 작성할 수 있게
       if (failed.length) {
-        setBulkUserIds(ids => ids.filter(id => { const e = employees.find(x => x.id === id); return !!e && failed.some(f => f.startsWith(e.name)); }));
+        setBulkUserIds(ids => ids.filter(id => failedIds.includes(id)));   // 실패한 사람만(이름이 아니라 id 로 — 김철/김철수 혼동 방지)
         fetchContracts();
         return;
       }
@@ -1451,6 +1475,9 @@ ${name}님, 계약서가 도착했습니다.
 아래 링크에서 내용 확인 후 서명해 주세요.
 ${url}`;
   }
+
+  // 한꺼번에 발송 대상 — 고른 것 중 지금도 초안인 것만(그 사이 단건으로 발송된 건 다시 보내 결재를 초기화하지 않게, #34 검증 F2)
+  const pickedDrafts = contracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT");
 
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
@@ -2940,16 +2967,16 @@ ${url}`;
           </div>
 
           {/* 선택 발송(#34) — 초안만 고를 수 있다 */}
-          {pickedIds.size > 0 && (
+          {pickedDrafts.length > 0 && (
             <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
-              <span className="text-indigo-800">초안 {pickedIds.size}건 선택</span>
-              <Button size="sm" className="h-7 gap-1" onClick={() => setBulkSendOpen(true)}><Send size={12} />한꺼번에 발송</Button>
+              <span className="text-indigo-800">초안 {pickedDrafts.length}건 선택</span>
+              <Button size="sm" className="h-7 gap-1" onClick={() => { setBulkSendKey(k => k + 1); setBulkSendOpen(true); }}><Send size={12} />한꺼번에 발송</Button>
               <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => setPickedIds(new Set())}>선택 해제</button>
             </div>
           )}
-          <BulkSendDialog open={bulkSendOpen} onClose={() => setBulkSendOpen(false)}
-            contracts={contracts.filter(x => pickedIds.has(x.id))} employees={employees}
-            onDone={() => { setPickedIds(new Set()); fetchContracts(); }} />
+          <BulkSendDialog key={bulkSendKey} open={bulkSendOpen} onClose={() => setBulkSendOpen(false)}
+            contracts={pickedDrafts} employees={employees}
+            onDone={(keep) => { setPickedIds(new Set(keep)); fetchContracts(); }} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

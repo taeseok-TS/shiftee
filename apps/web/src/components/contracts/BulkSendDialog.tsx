@@ -18,7 +18,7 @@ type C = {
 type E = { id: string; name: string; role?: string; branch?: string | null; managerBranches?: string[] };
 
 export default function BulkSendDialog({ open, onClose, contracts, employees, onDone }: {
-  open: boolean; onClose: () => void; contracts: C[]; employees: E[]; onDone: () => void;
+  open: boolean; onClose: () => void; contracts: C[]; employees: E[]; onDone: (keepIds: string[]) => void;   // keepIds = 못 보낸 것(다시 고른 채로 둔다)
 }) {
   const admins = employees.filter((e) => e.role === "ADMIN" && (e as { isContractApprover?: boolean }).isContractApprover !== false);
   const [hq, setHq] = useState("");
@@ -55,10 +55,11 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
   const run = async () => {
     if (!hq) { toast.error("1단계 본부 결재자를 골라 주세요."); return; }
     setBusy(true);
-    const ok: string[] = [], fail: string[] = [], dupUnits: typeof units = [];
+    const ok: string[] = [], fail: string[] = [], dupUnits: typeof units = [], keep: string[] = [];
     const send = async (u: (typeof units)[number], confirmDuplicate: boolean) => {
-      const steps = u.c.employeeOnly && !u.bundle ? [u.c.userId] : [hq, mgrOf(u.c)?.id, u.c.userId].filter((x): x is string => !!x && x !== "");
-      const ids = [...new Set(steps)];
+      // 본부 결재자가 계약 당사자 본인이면 1단계를 비운다 — 단건 발송 창과 같은 규칙(#34 검증 F13: 근로자 서명이 1단계로 당겨졌다)
+      const ids = u.c.employeeOnly && !u.bundle ? [u.c.userId]
+        : [hq !== u.c.userId ? hq : null, mgrOf(u.c)?.id ?? null, u.c.userId].filter((x): x is string => !!x);
       const res = u.bundle
         ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approverIds: ids, sendMessage: msg, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) })
         : await fetch(`/api/contracts/${u.c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "SENT", approverIds: ids, sendMessage: msg, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) });
@@ -66,24 +67,29 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
       return { res, d };
     };
     try {
+      const failOf = (u: (typeof units)[number], why: string) => { fail.push(`${u.c.user.name}(${why})`); keep.push(u.c.id); };
       for (const u of units) {
-        const { res, d } = await send(u, false);
-        if (res.ok) ok.push(u.c.user.name);
-        else if (res.status === 409 && d.code === "DUPLICATE") dupUnits.push(u);
-        else fail.push(`${u.c.user.name}(${d.error || "실패"})`);
+        try {
+          const { res, d } = await send(u, false);
+          if (res.ok) ok.push(u.c.user.name);
+          else if (res.status === 409 && d.code === "DUPLICATE") dupUnits.push(u);
+          else failOf(u, d.error || "실패");
+        } catch { failOf(u, "네트워크 오류"); }   // 한 건이 끊겨도 나머지는 계속 보내고 결과를 알린다
       }
       if (dupUnits.length && confirm(`같은 양식이 진행 중이거나 30일 안에 보낸 직원이 있습니다:\n${dupUnits.map((u) => `· ${u.c.user.name} — ${u.c.title}`).join("\n")}\n\n이 ${dupUnits.length}건도 발송할까요?`)) {
         for (const u of dupUnits) {
-          const { res, d } = await send(u, true);
-          if (res.ok) ok.push(u.c.user.name); else fail.push(`${u.c.user.name}(${d.error || "실패"})`);
+          try {
+            const { res, d } = await send(u, true);
+            if (res.ok) ok.push(u.c.user.name); else failOf(u, d.error || "실패");
+          } catch { failOf(u, "네트워크 오류"); }
         }
-      } else if (dupUnits.length) fail.push(...dupUnits.map((u) => `${u.c.user.name}(중복 — 보내지 않음)`));
+      } else if (dupUnits.length) for (const u of dupUnits) failOf(u, "중복 — 보내지 않음");
     } finally {
       setBusy(false);
     }
     if (fail.length) toast.error(`${ok.length}건 발송, ${fail.length}건 못 보냄: ${fail.join(", ")}`, { duration: 15000 });
     else toast.success(`${ok.length}건 발송했습니다.`);
-    onDone();
+    onDone(keep);
     if (!fail.length) onClose();
   };
 
