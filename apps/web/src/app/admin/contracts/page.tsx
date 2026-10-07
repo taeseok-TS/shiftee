@@ -624,7 +624,7 @@ export default function ContractsPage() {
         d = await res.json().catch(() => ({}));
       }
       if (!res.ok) { toast.error(d.error || "다시 보내지 못했습니다."); return; }
-      toast.success("직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
+      toast.success(c.status === "EXPIRED" ? "직원에게 다시 보냈습니다 — 서명 기한을 새로 정했습니다." : "직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
       fetchContracts();
     } finally {
       sendingRef.current = false;

@@ -61,9 +61,10 @@ export async function POST(
     const fresh = deadlineFromDays(14);
     const revokeDeadline = contract.signDeadline && contract.signDeadline > fresh ? contract.signDeadline : fresh;
     const result = await prisma.$transaction(async (tx) => {
-    await tx.contractApprovalStep.updateMany({ where: { approvalLine: { contractId: id }, approverId: null }, data: { tokenExpiresAt: revokeDeadline } });
       // 단계 행을 먼저 잠근다 — 다른 쓰기 경로(수정·서명 확정·반려·초기화)와 같은 순서(단계 → 계약)로 교착을 막는다(#205 검증 A3)
       await lockSteps(tx, id);
+      // 외부 서명 링크 만료도 새 기한으로 — 단계 잠금 **뒤에**(잠금 순서: 단계 행 먼저, order 순, #45 재검증)
+      await tx.contractApprovalStep.updateMany({ where: { approvalLine: { contractId: id }, approverId: null }, data: { tokenExpiresAt: revokeDeadline } });
       // revocationLog JSON 배열로 관리
       const newLog = {
         type: "employee",

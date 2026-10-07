@@ -41,7 +41,9 @@ export async function recentUnlock(contractId: string, userId: string, stepOrder
   });
   const meta = ok?.meta as { via?: string; sid?: number | null } | null;
   if (!ok || meta?.via !== UNLOCK_VIA) return false;
-  if ((meta?.sid ?? null) !== sid) return false;
+  // 로그인 세션 맞춤은 **웹(기기 번호 없음)만** — 앱은 기기 번호로 이미 묶여 있고, 앱으로 돌아올 때마다 토큰이 갱신돼
+  // (AuthContext) 세션까지 보면 문서를 보고 돌아올 때마다 다시 확인을 받게 된다(#20 재검증 R1)
+  if (!ok?.deviceId && !req.deviceId && (meta?.sid ?? null) !== sid) return false;
   if (ok.deviceId || req.deviceId) return ok.deviceId === req.deviceId;
   return !!ok.userAgent && ok.userAgent === req.userAgent;
 }
