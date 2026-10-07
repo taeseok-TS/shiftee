@@ -56,8 +56,27 @@ export async function GET(request: NextRequest) {
       whereBase.createdAt = { gte: startOfMonth, lt: endOfMonth };
     }
 
+    // 기간 기준(#79) — 작성일(기본)·완료일(체결일)·마지막 활동일. from/to 를 주면 연·월 대신 이것으로 거른다(KST 날짜)
+    const from = searchParams.get("from"), to = searchParams.get("to");
+    const ymdOk = (v: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    if (ymdOk(from) || ymdOk(to)) {
+      const field = searchParams.get("dateField") === "signed" ? "signedAt" : searchParams.get("dateField") === "activity" ? "updatedAt" : "createdAt";
+      const kstStart = (v: string) => new Date(new Date(`${v}T00:00:00Z`).getTime() - 9 * 3600 * 1000);
+      const range: Record<string, Date> = {};
+      if (ymdOk(from)) range.gte = kstStart(from!);
+      if (ymdOk(to)) range.lt = new Date(kstStart(to!).getTime() + 86400000);
+      delete whereBase.createdAt;
+      whereBase[field] = range;
+    }
+
     if (status) {
       whereBase.status = status;
+    }
+    // 오래된 대기(#79) — 발송·결재 중인데 N일(기본 7) 넘게 아무 움직임이 없는 계약
+    const stale = Number(searchParams.get("stale"));
+    if (Number.isFinite(stale) && stale > 0) {
+      whereBase.status = status && ["SENT", "APPROVED"].includes(status) ? status : { in: ["SENT", "APPROVED"] };
+      whereBase.updatedAt = { ...(whereBase.updatedAt || {}), lt: new Date(Date.now() - Math.min(365, stale) * 86400000) };
     }
 
     if (userId && !selfOnly) {

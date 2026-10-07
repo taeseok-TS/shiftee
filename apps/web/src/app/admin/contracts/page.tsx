@@ -376,6 +376,11 @@ export default function ContractsPage() {
   const [filterBranch, setFilterBranch] = useState("");
   const [filterSearchText, setFilterSearchText] = useState("");
   const [showHiddenRevoked, setShowHiddenRevoked] = useState(false);
+  // 문서함 검색(#79) — 기간 기준(작성일·완료일·마지막 활동일)·오래된 대기(7일 넘게 움직임 없음)
+  const [filterDateField, setFilterDateField] = useState("created");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [filterStale, setFilterStale] = useState(false);
 
   const fetchContracts = useCallback(async (filters?: any) => {
     const params = new URLSearchParams();
@@ -389,6 +394,7 @@ export default function ContractsPage() {
       showHiddenRevoked: showHiddenRevoked,
       templateId: filterTemplateId,
       pkg: filterPkg,
+      dateField: filterDateField, from: filterFrom, to: filterTo, stale: filterStale,
     };
 
     if (useFilters.year) params.append("year", useFilters.year);
@@ -400,6 +406,12 @@ export default function ContractsPage() {
     if (useFilters.showHiddenRevoked) params.append("showHiddenRevoked", "true");
     if (useFilters.templateId) params.append("templateId", useFilters.templateId);
     if (useFilters.pkg) params.append("pkg", useFilters.pkg);
+    if (useFilters.from || useFilters.to) {
+      params.append("dateField", useFilters.dateField || "created");
+      if (useFilters.from) params.append("from", useFilters.from);
+      if (useFilters.to) params.append("to", useFilters.to);
+    }
+    if (useFilters.stale) params.append("stale", "7");
 
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
@@ -410,7 +422,7 @@ export default function ContractsPage() {
       const approvalData = await approvalRes.json();
       setMyApprovals(approvalData.contracts || []);
     }
-  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked, filterTemplateId, filterPkg]);
+  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked, filterTemplateId, filterPkg, filterDateField, filterFrom, filterTo, filterStale]);
 
   const fetchTemplates = useCallback(async () => {
     if (role === "EMPLOYEE") return;
@@ -1480,6 +1492,27 @@ ${url}`;
 
   // 한꺼번에 발송 대상 — 고른 것 중 지금도 초안인 것만(그 사이 단건으로 발송된 건 다시 보내 결재를 초기화하지 않게, #34 검증 F2)
   const pickedDrafts = contracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT");
+  // 고른 것 전부(#46) — 지금 목록에 보이는 것만
+  const pickedAll = contracts.filter(x => pickedIds.has(x.id));
+  const [exporting, setExporting] = useState(false);
+  async function exportPicked(kind: "zip" | "xlsx") {
+    if (!pickedAll.length || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/contracts/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: pickedAll.map(x => x.id), kind }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "내려받지 못했습니다."); return; }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = m ? decodeURIComponent(m[1]) : kind === "zip" ? "계약_완료본.zip" : "계약_입력값.xlsx";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch {
+      toast.error("네트워크 오류로 내려받지 못했습니다.");
+    } finally { setExporting(false); }
+  }
 
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
@@ -2946,6 +2979,22 @@ ${url}`;
             <Label htmlFor="showHiddenRevoked" className="text-xs cursor-pointer">
               숨겨진 결재 포함
             </Label>
+            {/* 오래된 대기(#79) */}
+            <label className="ml-4 flex items-center gap-1.5 text-xs cursor-pointer">
+              <input type="checkbox" checked={filterStale} onChange={e => setFilterStale(e.target.checked)} />
+              오래된 대기만(7일 넘게 움직임 없음)
+            </label>
+            {/* 기간 기준(#79) — 날짜를 넣으면 위 연·월 대신 이 기간으로 거른다 */}
+            <div className="ml-4 flex items-center gap-1 text-xs">
+              <select value={filterDateField} onChange={e => setFilterDateField(e.target.value)} className="h-7 rounded border px-1">
+                <option value="created">작성일</option>
+                <option value="signed">완료일(체결)</option>
+                <option value="activity">마지막 활동일</option>
+              </select>
+              <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="h-7 rounded border px-1" />
+              <span>~</span>
+              <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="h-7 rounded border px-1" />
+            </div>
           </div>
 
           {/* 버튼 */}
@@ -2961,6 +3010,7 @@ ${url}`;
                 setFilterBranch("");
                 setFilterSearchText("");
                 setShowHiddenRevoked(false);
+                setFilterDateField("created"); setFilterFrom(""); setFilterTo(""); setFilterStale(false);
                 fetchContracts({ year: new Date().getFullYear().toString(), month: "", status: "", userId: "", branch: "", searchText: "", showHiddenRevoked: false });
               }}
             >
@@ -2968,11 +3018,15 @@ ${url}`;
             </Button>
           </div>
 
-          {/* 선택 발송(#34) — 초안만 고를 수 있다 */}
-          {pickedDrafts.length > 0 && (
-            <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
-              <span className="text-indigo-800">초안 {pickedDrafts.length}건 선택</span>
-              <Button size="sm" className="h-7 gap-1" onClick={() => { setBulkSendKey(k => k + 1); setBulkSendOpen(true); }}><Send size={12} />한꺼번에 발송</Button>
+          {/* 고른 계약(#34 #46) — 초안은 한꺼번에 발송, 고른 것 전부는 완료본 ZIP·입력값 엑셀 */}
+          {pickedAll.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
+              <span className="text-indigo-800">{pickedAll.length}건 선택{pickedDrafts.length ? ` (초안 ${pickedDrafts.length})` : ""}</span>
+              {pickedDrafts.length > 0 && (
+                <Button size="sm" className="h-7 gap-1" onClick={() => { setBulkSendKey(k => k + 1); setBulkSendOpen(true); }}><Send size={12} />초안 {pickedDrafts.length}건 한꺼번에 발송</Button>
+              )}
+              <Button size="sm" variant="outline" className="h-7 gap-1" disabled={exporting} onClick={() => exportPicked("zip")}><Download size={12} />완료본 ZIP</Button>
+              <Button size="sm" variant="outline" className="h-7 gap-1" disabled={exporting} onClick={() => exportPicked("xlsx")}><Download size={12} />입력값 엑셀</Button>
               <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => setPickedIds(new Set())}>선택 해제</button>
             </div>
           )}
@@ -2985,9 +3039,9 @@ ${url}`;
                 <tr className="border-b text-left text-gray-500">
                   {role === "ADMIN" && (
                     <th className="pb-3 w-8">
-                      <input type="checkbox" title="초안 모두 선택"
-                        checked={contracts.some(x => x.status === "DRAFT") && contracts.filter(x => x.status === "DRAFT").every(x => pickedIds.has(x.id))}
-                        onChange={e => setPickedIds(e.target.checked ? new Set(contracts.filter(x => x.status === "DRAFT").map(x => x.id)) : new Set())} />
+                      <input type="checkbox" title="목록 모두 선택"
+                        checked={contracts.length > 0 && contracts.every(x => pickedIds.has(x.id))}
+                        onChange={e => setPickedIds(e.target.checked ? new Set(contracts.map(x => x.id)) : new Set())} />
                     </th>
                   )}
                   {role !== "EMPLOYEE" && <th className="pb-3">직원</th>}
@@ -3006,10 +3060,8 @@ ${url}`;
                     <tr key={c.id} className="border-b hover:bg-gray-50">
                       {role === "ADMIN" && (
                         <td className="py-3">
-                          {c.status === "DRAFT" && (
-                            <input type="checkbox" checked={pickedIds.has(c.id)}
-                              onChange={e => setPickedIds(prev => { const n = new Set(prev); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
-                          )}
+                          <input type="checkbox" checked={pickedIds.has(c.id)}
+                            onChange={e => setPickedIds(prev => { const n = new Set(prev); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
                         </td>
                       )}
                       {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : `${c.user.branch ? `[${c.user.branch}] ` : ""}${c.user.name}`}</p></td>}
