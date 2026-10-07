@@ -302,8 +302,8 @@ export async function POST(
         contract.sendMessage
       );
     } else if (!nextStep && updated.user.email) {
-      // 계약 완료
-      await sendContractCompletion(
+      // 계약 완료 — 메일이 실제로 나갔을 때만 교부 기록(#21)
+      const mailed = await sendContractCompletion(
         updated.user.email,
         updated.user.name,
         updated.title,
@@ -311,6 +311,7 @@ export async function POST(
         appUrl,
         updated.user.id // 본인 확인 관문(#140)
       );
+      if (mailed && !updated.externalName) await recordContractEvent({ contractId: id, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: updated.user.name, means: ["메일"] } });
     }
 
     // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 완료 알림 (#136 재정리)
@@ -396,8 +397,8 @@ export async function POST(
         );
       }
     } else if (!nextStep && finalContract.user.email) {
-      // 계약 완료
-      await sendContractCompletion(
+      // 계약 완료 — 메일이 실제로 나갔을 때만 교부 기록(#21)
+      const mailed = await sendContractCompletion(
         finalContract.user.email,
         finalContract.user.name,
         finalContract.title,
@@ -405,6 +406,7 @@ export async function POST(
         appUrl,
         finalContract.user.id // 본인 확인 관문(#140)
       );
+      if (mailed && !finalContract.externalName) await recordContractEvent({ contractId: id, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: finalContract.user.name, means: ["메일"] } });
     }
 
     // 봇 DM (개선 제안 2026-08-24): 다음 단계 담당자에게 알림, 없으면 완료 알림 (#136 재정리)

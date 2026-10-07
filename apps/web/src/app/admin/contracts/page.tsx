@@ -3055,7 +3055,7 @@ ${url}`;
                         {/* 완료본은 PDF로(수정 방지, 파일명=제목_서명완료.pdf) — 변환 실패 시 서버가 워드로 폴백.
                             미완료 원본은 워드 그대로, 파일명만 제목으로 (개선 제안 2026-08-24) */}
                         {/* 원본도 PDF로 — 워드 파일 그대로 나가면 수정 가능 (개선 제안 #67~#71) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" onClick={() => { fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }} title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }} title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -3076,7 +3076,7 @@ ${url}`;
                             삭제는 초안만 (직원전용 패키지 문서 제외) */}
                         {/* 패키지 직원전용 문서도 **반려**되면 [수정]·[다시 보내기] — 종전엔 버튼이 없어 패키지를 새로 만들어야 했다
                             (#206 검증 F5, 9/12 디렉터). 외부 계약자는 게스트 화면에 반려가 없어 해당 없음 */}
-                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || (c.status === "REJECTED" && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED") && (
+                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || (c.status === "REJECTED" && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
                           <>
                             <Button
                               size="sm"

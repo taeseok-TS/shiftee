@@ -248,6 +248,7 @@ export default function ContractListScreen() {
         SIGNED: "#3b82f6",
         APPROVED: "#10b981",
         REJECTED: "#ef4444",
+        EXPIRED: "#9ca3af",
       }[item.status] || "#6b7280";
 
     return (

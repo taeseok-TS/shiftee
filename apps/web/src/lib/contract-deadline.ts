@@ -10,13 +10,13 @@ export function deadlineFromDays(days: unknown): Date {
   return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() + n, 23, 59, 59, 999) - 9 * 3600 * 1000);
 }
 
-/** "YYYY-MM-DD"(KST 날짜) → 그날 KST 23:59:59.999. 형식이 틀리거나 오늘보다 앞이면 null */
+/** "YYYY-MM-DD"(KST 날짜) → 그날 KST 23:59:59.999. 형식이 틀리거나, 오늘보다 앞이거나, 오늘부터 90일 뒤보다 늦으면 null(발송 때와 같은 상한) */
 export function deadlineFromYmd(ymd: unknown): Date | null {
   if (typeof ymd !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
   const [y, m, d] = ymd.split("-").map(Number);
   const t = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999) - 9 * 3600 * 1000);
   if (Number.isNaN(t.getTime()) || new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) !== ymd) return null;
-  return t.getTime() < Date.now() ? null : t;
+  return t.getTime() < Date.now() || t.getTime() > deadlineFromDays(90).getTime() ? null : t;
 }
 
 /** 기한 → KST 날짜 글자 */

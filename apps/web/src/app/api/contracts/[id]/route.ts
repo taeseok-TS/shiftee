@@ -183,7 +183,7 @@ export async function PATCH(
     if (contract.status !== "SENT" && contract.status !== "APPROVED")
       return NextResponse.json({ error: "진행 중인 계약만 기한을 바꿀 수 있습니다(만료된 계약은 재발송)." }, { status: 400 });
     const next = deadlineFromYmd(signDeadlineRaw);
-    if (!next) return NextResponse.json({ error: "기한은 오늘 이후 날짜(YYYY-MM-DD)로 넣어 주세요." }, { status: 400 });
+    if (!next) return NextResponse.json({ error: "기한은 오늘부터 90일 안의 날짜(YYYY-MM-DD)로 넣어 주세요." }, { status: 400 });
     const prev = await prisma.contract.findUnique({ where: { id }, select: { signDeadline: true } });
     await prisma.$transaction([
       prisma.contract.update({ where: { id }, data: { signDeadline: next } }),
@@ -348,6 +348,10 @@ export async function PATCH(
         reason: needsReset ? (contract.status === "REJECTED" ? "반려 후 수정 — 결재 처음부터" : "서명 후 수정 — 서명 초기화") : null,
   } : null;
 
+  // 서명 기한(#45) — 발송·재발송·결재 초기화 재발송 때마다 새로(기본 14일). **한 번만** 계산해 계약 기한과 외부 서명 링크 만료를 맞춘다
+  const { deadlineFromDays } = await import("@/lib/contract-deadline");
+  const sendDeadline = deadlineFromDays(deadlineDays);
+
   // 발송은 결재선과 함께만 — 결재선 없이 SENT 만 보내면 값 검증(#24)·중복 확인(#47)을 건너뛰고,
   // 초안이면 아무도 서명할 수 없는 SENT 계약이 생겼다(7-가 재검증 R1). 화면은 늘 결재선을 함께 보낸다.
   if (status === "SENT" && !(Array.isArray(approverIds) && approverIds.length > 0))
@@ -387,9 +391,6 @@ export async function PATCH(
     // 기록·삭제·새 결재선을 **결재 단계 잠금 + 한 트랜잭션**으로(D7) — 따로 돌면 ① 기록과 삭제 사이에 들어온 서명이 기록 없이
     // 지워지고 ② 새 결재선 생성이 실패하면 결재선 없는 계약이 남고 ③ 방금 마지막 서명으로 완료된 계약의 결재선을 다시 만들었다
     // (위 SIGNED 검사는 옛 값이라 못 막는다). 잠금 순서는 서명·초기화와 같다(단계 → 계약).
-    // 서명 기한(#45) — 발송·재발송 때마다 새로(기본 14일). 외부 서명 링크도 같은 시각에 만료
-    const { deadlineFromDays } = await import("@/lib/contract-deadline");
-    const sendDeadline = deadlineFromDays(deadlineDays);
     const resend = await prisma.$transaction(async (tx) => {
       await lockSteps(tx, id);
       const cur = await tx.contract.findUnique({ where: { id }, select: { status: true } });
@@ -487,13 +488,15 @@ export async function PATCH(
     // 버전 스냅숏 — 재판정을 통과한 뒤, 내용 갱신과 같은 트랜잭션에서(#206 검증 D4)
     if (versionSnapshot) await tx.contractVersion.create({ data: versionSnapshot });
     if (needsReset) {
-      resetSigners = (await resetApprovalInPlace(tx, id, session.userId,
+      resetSigners = (await resetApprovalInPlace(tx, id, session.userId, sendDeadline,
         contract.status === "REJECTED" ? "반려된 계약을 수정해 다시 발송" : "서명 후 내용 수정")).signers;
     }
     return tx.contract.update({
     where: { id },
     data: {
       ...(status ? { status } : needsReset ? { status: "SENT" as const } : {}),
+      // 서명·반려 뒤 내용을 고쳐 처음부터 다시 받으면 기한도 새로(#45 검증 B3 — 옛 기한이 남아 모든 서명이 막혔다)
+      ...(needsReset && status !== "SENT" ? { signDeadline: sendDeadline } : {}),
       ...(versionSnapshot ? { version: { increment: 1 } } : {}),
       ...(title ? { title } : {}),
       ...(type ? { type } : {}),
@@ -509,7 +512,7 @@ export async function PATCH(
       // 발송이면 발송 당시 양식 버전·메시지를 남긴다(#48 #65). 파일을 직접 바꿔 보낸 건은 양식 버전이 없다
       ...(status === "SENT"
         ? { templateVersion: sendTemplateVersion ?? editTemplateVersion, ...(sendMessageRaw !== undefined ? { sendMessage: sendMessage ?? null } : {}),
-            signDeadline: (await import("@/lib/contract-deadline")).deadlineFromDays(deadlineDays) }
+            signDeadline: sendDeadline }
         // 서명·반려 뒤 내용 수정은 현재 양식으로 다시 만들어 처음부터 받는다 — 사실상 재발송이라 양식 버전도 맞춘다(검증 F4)
         : editTemplateVersion != null && contract.status !== "DRAFT" ? { templateVersion: editTemplateVersion } : {}),
     },

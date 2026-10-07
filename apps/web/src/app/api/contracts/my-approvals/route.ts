@@ -11,6 +11,8 @@ export async function GET(_request: NextRequest) {
     where: {
       approverId: session.userId,
       status: "PENDING",
+      // 기한이 지나 만료된 계약은 결재함에 남기지 않는다(#45 검증 M1) — 재발송되면 다시 나온다
+      approvalLine: { contract: { status: { not: "EXPIRED" } } },
     },
     include: {
       approvalLine: {

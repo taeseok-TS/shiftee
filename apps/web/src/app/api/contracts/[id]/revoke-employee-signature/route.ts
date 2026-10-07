@@ -76,6 +76,7 @@ export async function POST(
         data: {
           employeeSignedAt: null,
           status: "SENT", // 상태를 다시 SENT로 변경
+          signDeadline: (await import("@/lib/contract-deadline")).deadlineFromDays(14),   // 다시 서명받는 기한도 새로(#45 검증 B2)
           // 저장된 완료본도 지운다 — 남으면 미리보기 폴백이 회수 전 문서를 되살린다
           signedUrl: null,
           signedAt: null,

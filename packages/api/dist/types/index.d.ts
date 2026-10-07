@@ -25,7 +25,7 @@ export interface LoginResponse {
     token: string;
     user: User;
 }
-export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "APPROVED" | "REJECTED";
+export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "APPROVED" | "REJECTED" | "EXPIRED";
 export type ContractType = string;
 export interface Contract {
     id: string;

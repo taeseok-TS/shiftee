@@ -34,7 +34,7 @@ export interface LoginResponse {
 
 // ============== 계약서 ==============
 
-export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "APPROVED" | "REJECTED";
+export type ContractStatus = "DRAFT" | "SENT" | "SIGNED" | "APPROVED" | "REJECTED" | "EXPIRED"; // EXPIRED — 서명 기한 만료(#45)
 export type ContractType = string; // "근로계약서", "계약서" 등
 
 export interface Contract {

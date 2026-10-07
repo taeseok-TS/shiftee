@@ -24,6 +24,7 @@ const STATUS: Record<string, { label: string; color: string }> = {
   SIGNED: { label: "서명 완료", color: "#3b82f6" },
   APPROVED: { label: "승인 완료", color: "#10b981" },
   REJECTED: { label: "반려", color: "#ef4444" },
+  EXPIRED: { label: "만료", color: "#9ca3af" },   // 서명 기한이 지남(#45)
 };
 
 function firstUrl(raw?: string | null): string | null {
@@ -166,7 +167,8 @@ export default function ContractDetailScreen() {
   // 본인 서명은 결재 순서상 자기 차례(내 단계가 PENDING)일 때만 — 결재라인 없는 구계약은 기존 SENT 기준
   const steps: any[] = (contract as any).approvalLine?.steps || [];
   const myTurn = steps.some((s) => s.approverId === (contract as any).userId && s.status === "PENDING");
-  const canSign = steps.length > 0 ? myTurn : contract.status === "SENT";
+  // 기한이 지나 만료된 계약은 서명할 수 없다(#45) — 담당자가 재발송해야 한다
+  const canSign = contract.status !== "EXPIRED" && (steps.length > 0 ? myTurn : contract.status === "SENT");
   // 서명 완료 후 근로자 접근 (#129) — 템플릿 설정. 관리자는 무제한 현행
   const postSignAccess = contract.postSignAccess || "full";
   // 진행 중 계약 — 내 서명이 반영된 진행본 열람 (#110). 완료되면 완료본 버튼이 대신 뜬다
@@ -178,7 +180,8 @@ export default function ContractDetailScreen() {
   // 서명 진행본/완료본 열기 — 계약 1건짜리 단기 링크(PDF, 최신 서명 배치)
   const openSignedDoc = async () => {
     try {
-      const url = await api.getSignedDocLink(contract.id);
+      // 완료본을 받을 수 있는 문서만 「내려받기」로, 진행본·열람만 허용 문서는 「열람」으로 기록(#21 #66)
+      const url = await api.getSignedDocLink(contract.id, contract.status === "SIGNED" && postSignAccess !== "view" ? "DOWNLOADED" : "VIEWED");
       if (url) Linking.openURL(url);
       else Alert.alert("오류", "문서 링크를 만들지 못했습니다.");
     } catch (e: any) {

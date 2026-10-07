@@ -237,12 +237,12 @@ export async function getMyProfile(): Promise<any> {
 }
 
 // 완료본 열람 링크(계약 1건·30분 티켓) — 외부 브라우저에서 PDF 로 열람 (2026-08-25)
-export async function getSignedDocLink(id: string): Promise<string> {
+export async function getSignedDocLink(id: string, record: "VIEWED" | "DOWNLOADED" = "VIEWED"): Promise<string> {
   const token = await getToken();
   const res = await axios.get(`${API_URL}/contracts/${id}/signed-link`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   // 내려받기 기록(#21 #66, 본부 답변 #31) — 실패해도 무시. 서버가 10분 안 중복은 하나로 친다
-  axios.post(`${API_URL}/contracts/${id}/events`, { type: "DOWNLOADED" }, { headers: await signHeaders(token) }).catch(() => {});
+  axios.post(`${API_URL}/contracts/${id}/events`, { type: record }, { headers: await signHeaders(token) }).catch(() => {});
   return res.data?.url;
 }
 

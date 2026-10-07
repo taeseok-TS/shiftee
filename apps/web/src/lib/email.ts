@@ -221,7 +221,7 @@ export async function sendContractCompletion(
   appUrl: string,
   // 본인 확인 관문용 (#140) — 링크 수신자
   recipientId?: string
-): Promise<void> {
+): Promise<boolean> {   // 실제로 보냈는가 — 교부 기록(#21)에 쓴다
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
       <h2>계약서 완료</h2>
@@ -247,7 +247,7 @@ export async function sendContractCompletion(
     </div>
   `;
 
-  await sendEmail({
+  return sendEmail({
     to: recipientEmail,
     subject: `[완료] ${contractTitle} - 모든 승인이 완료되었습니다`,
     html,

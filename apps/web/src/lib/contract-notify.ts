@@ -89,11 +89,9 @@ export async function notifyContractCompleted(contractId: string) {
     const sent = new Set<string>();
 
     // 교부 기록(#21, 본부 답변 #31 「메일 링크·앱 알림 + 열람·다운로드로 충분, 교부 일시만 남겨 달라」) —
-    // 근로자에게 완료 메일(서명 라우트가 보냄)과 앱 알림(아래 DM, 근로자가 마지막 서명자면 앱에서 직접 확인)으로 교부한다
-    if (employeeId) {
-      const emp = await prisma.user.findUnique({ where: { id: employeeId }, select: { email: true } });
-      const means = [emp?.email ? "메일" : null, employeeWasLast ? "앱 서명 화면" : "앱 알림"].filter(Boolean);
-      await recordContractEvent({ contractId, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: contract.user.name, means } });
+    // 메일은 서명 라우트가 실제로 보냈을 때 따로 남긴다. 여기서는 앱 알림(보낸 뒤에)·근로자가 마지막 서명자면 앱 서명 화면
+    if (employeeId && employeeWasLast) {
+      await recordContractEvent({ contractId, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: contract.user.name, means: ["앱 서명 화면(본인이 마지막 서명)"] } });
     }
 
     // 근로자 완료 DM — 근로자가 마지막 스텝이었으면 생략 (#136)
@@ -102,7 +100,9 @@ export async function notifyContractCompleted(contractId: string) {
       hrBotSendDM(
         employeeId,
         `✅ 전자계약 완료\n「${contract.title}」 결재가 모두 완료되었습니다.\n완료: ${doneAt} (KST)\n확인: ${appUrl}/contracts`
-      ).catch((e) => console.error("[contract] 완료 DM 오류:", e));
+      )
+        .then(() => recordContractEvent({ contractId, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: contract.user.name, means: ["앱 알림"] } }))
+        .catch((e) => console.error("[contract] 완료 DM 오류:", e));
     }
 
     const adminMsg = (role?: string | null) =>
@@ -139,7 +139,7 @@ export async function notifyContractCompleted(contractId: string) {
 // 그 뒤로 3일마다(remindedAt 기준). 먼저 기한이 지난 계약을 만료 처리한다(만료된 건은 알림을 보내지 않는다).
 const REMIND_EVERY_MS = 3 * 24 * 60 * 60 * 1000;
 export async function runContractReminders() {
-  await expireOverdueContracts();
+  await expireOverdueContracts().catch((e) => console.error("[contract] 만료 점검 오류:", e));
   const now = new Date();
   const cutoff = new Date(now.getTime() - REMIND_EVERY_MS);
   // 하루 한 번 도는 점검이라 3일째 같은 시각에 걸리도록 여유 6시간
@@ -161,6 +161,7 @@ export async function runContractReminders() {
             select: {
               id: true, title: true, createdBy: true, userId: true, externalName: true, signDeadline: true,
               user: { select: { name: true } },
+              events: { where: { type: { in: ["SENT", "RESEND", "RESET"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
             },
           },
         },
@@ -175,7 +176,13 @@ export async function runContractReminders() {
   for (const step of steps) {
     try {
       const contract = step.approvalLine.contract;
-      const days = Math.max(1, Math.floor((now.getTime() - step.updatedAt.getTime()) / (24 * 60 * 60 * 1000)));
+      // 며칠째 — 이 단계가 차례가 된 때(앞 단계 결재 또는 발송)부터. updatedAt 은 알림 기록만으로도 바뀌어 늘 3일째로 보였다(#45 검증 M3)
+      const prevDecided = await prisma.contractApprovalStep.findFirst({
+        where: { approvalLineId: step.approvalLineId, order: { lt: step.order }, decidedAt: { not: null } },
+        orderBy: { decidedAt: "desc" }, select: { decidedAt: true },
+      });
+      const since = [prevDecided?.decidedAt, contract.events[0]?.createdAt].filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? step.updatedAt;
+      const days = Math.max(1, Math.floor((now.getTime() - since.getTime()) / (24 * 60 * 60 * 1000)));
       const isEmployeeStep = !!step.approverId && step.approverId === contract.userId && !contract.externalName;
       const due = contract.signDeadline ? ` (기한 ${new Date(contract.signDeadline.getTime() + KST_MS).toISOString().slice(5, 10).replace("-", "/")})` : "";
 
@@ -208,7 +215,8 @@ export async function runContractReminders() {
         data: { remindedAt: now },
       });
       // 감사 기록(#66) — 누구에게 몇 일째 알렸는지
-      await recordContractEvent({ contractId: contract.id, type: "REMINDED", actorName: "큐브티 봇", stepOrder: step.order, meta: { to: step.approver?.name ?? step.externalName ?? null, days } });
+      await recordContractEvent({ contractId: contract.id, type: "REMINDED", actorName: "큐브티 봇", stepOrder: step.order,
+        meta: { to: step.approverId ? step.approver?.name ?? null : `작성자 통지(외부 ${step.externalName || contract.externalName || "계약자"} 미서명)`, days } });
       sentCount++;
     } catch (e) {
       console.error("[contract] 리마인더 발송 오류:", step.id, e);
@@ -229,6 +237,7 @@ export async function expireOverdueContracts() {
   });
   if (!due.length) return;
   const { botNotifyAdminsProgress } = await import("@/lib/bot");
+  const expired: string[] = [];
   for (const c of due) {
     try {
       // 그 사이 서명이 끝났으면 건드리지 않는다
@@ -238,7 +247,7 @@ export async function expireOverdueContracts() {
       await recordContractEvent({ contractId: c.id, type: "EXPIRED", actorName: "큐브티 봇", meta: { deadline: ymd } });
       const who = c.externalName || c.user.name;
       const msg = `⌛ 서명 기한 만료 — 「${c.title}」 (${who})\n기한 ${ymd} 까지 서명이 끝나지 않아 만료됐습니다. 다시 받으려면 계약 목록에서 재발송해 주세요.`;
-      botNotifyAdminsProgress(msg, []).catch(() => {});
+      expired.push(`· 「${c.title}」 (${who}) — 기한 ${ymd}`);
       if (c.createdBy) {
         const creator = await prisma.user.findUnique({ where: { id: c.createdBy }, select: { role: true } });
         if (creator && creator.role !== "ADMIN") hrBotSendDM(c.createdBy, msg).catch(() => {});   // 관리자는 위 진행 알림으로 받는다
@@ -246,5 +255,9 @@ export async function expireOverdueContracts() {
     } catch (e) {
       console.error("[contract] 만료 처리 오류:", c.id, e);
     }
+  }
+  // 본부에는 하루치를 한 통으로(#45 검증 M7 — 한꺼번에 보낸 30건이 같은 날 만료되면 30통이었다)
+  if (expired.length) {
+    botNotifyAdminsProgress(`⌛ 서명 기한 만료 ${expired.length}건 — 다시 받으려면 계약 목록에서 재발송해 주세요.\n${expired.slice(0, 30).join("\n")}${expired.length > 30 ? `\n외 ${expired.length - 30}건` : ""}`, []).catch(() => {});
   }
 }

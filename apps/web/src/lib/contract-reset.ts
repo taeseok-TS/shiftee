@@ -85,7 +85,7 @@ export async function preserveDecidedSteps(
  * 옛 서명·반려는 지우기 전에 이력으로 남긴다. 계약 쪽 상태(SENT·완료본·서명 시각)는 호출부가 같은 트랜잭션에서 바꾼다.
  * 서명·결정했던 사람들을 돌려준다(알림용).
  */
-export async function resetApprovalInPlace(tx: Tx, contractId: string, by: string, reason: string): Promise<{ signers: ResetSigner[] }> {
+export async function resetApprovalInPlace(tx: Tx, contractId: string, by: string, expires: Date, reason: string): Promise<{ signers: ResetSigner[] }> {
   // 단계 행을 **먼저 잠근다** — 스냅숏과 일괄 초기화 사이에 들어온 서명이 이력 없이 지워지지 않게(#206 검증 F2).
   // 서명 확정도 같은 잠금을 잡고 그 안에서 문서 버전을 다시 본다(D1) — 초기화 뒤 같은 id 로 다시 대기가 된 1단계에
   // 옛 화면의 서명이 들어오는 것은 버전(수정 저장 트랜잭션 안에서 올라감)으로 막는다.
@@ -99,7 +99,7 @@ export async function resetApprovalInPlace(tx: Tx, contractId: string, by: strin
     where: { approvalLineId: line.id },
     data: { status: "WAITING", decidedAt: null, comment: null, signatureUrl: null, remindedAt: null },
   });
-  const expires = new Date(Date.now() + 14 * 24 * 3600 * 1000);
+  // 외부 서명 링크 만료 = 계약 서명 기한(#45) — 둘이 어긋나면 링크는 살아 있는데 내부 결재자는 막혔다
   for (const s of line.steps) {
     if (!s.approverId && s.signToken) {
       await tx.contractApprovalStep.update({

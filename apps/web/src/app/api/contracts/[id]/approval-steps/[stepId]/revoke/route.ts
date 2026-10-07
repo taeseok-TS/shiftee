@@ -110,6 +110,8 @@ export async function POST(
       where: { id },
       data: {
         status: "APPROVED",
+        // 회수하면 다시 서명을 받는다 — 서명 기한도 새로 14일(#45 검증 B2: 옛 기한이 지나 있으면 다시 서명할 수 없었다)
+        signDeadline: (await import("@/lib/contract-deadline")).deadlineFromDays(14),
         // 저장된 완료본도 지운다. 남겨 두면 미리보기 폴백이 **회수 전 완료본**을 되살린다
         // (bundle-preview 는 signedUrl 이 있으면 그것부터 쓴다). 되돌린 서명이 찍힌 문서다.
         signedUrl: null,
