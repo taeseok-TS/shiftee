@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { KeyRound, Power, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { ApiKeysPanel } from "@/components/profile/ApiKeysPanel";
 
 type AllowedUser = { id: string; name: string; branch: string | null; jobGroup: string | null; role: string; isActive: boolean };
 type KeyRow = { id: string; kind?: string; name: string; prefix: string; scopes: string[]; channelIds: string[]; expiresAt: string; lastUsedAt: string | null; lastUsedIp: string | null; suspendedAt: string | null; suspendReason: string | null; revokedAt: string | null; createdAt: string; status: string; userId: string; userName: string; userBranch: string | null };
@@ -20,6 +21,9 @@ export default function AdminApiKeysPage() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [employees, setEmployees] = useState<Employee[] | null>(null); // null = 아직 못 받음(실패 포함)
   const [q, setQ] = useState("");
+  // 관리자 본인 개인 키(채팅·자료제출) — 관리자는 「내 정보」로 가는 길이 없어 여기서 바로 만든다(개선 제안 #211)
+  const [myId, setMyId] = useState<string | null>(null);
+  useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((d) => setMyId(d.user?.id ?? null)).catch(() => {}); }, []);
   const load = useCallback(() => {
     fetch("/api/admin/api-keys").then((r) => r.json()).then((d) => { setAllowed(d.allowed || []); setKeys(d.keys || []); }).catch(() => {});
   }, []);
@@ -78,6 +82,16 @@ export default function AdminApiKeysPage() {
       <OrgKeyCard keys={keys.filter((k) => k.kind === "ORG")} onChanged={load} onRevoke={revoke} />
 
       <Card><CardContent className="pt-6 space-y-3">
+        <div>
+          <p className="font-medium text-sm">내 개인 키 — 채팅 읽기·쓰기(chat:read·chat:write)·자료제출</p>
+          <p className="text-xs text-gray-500 mt-1">회사 연동 키(위)는 마케팅 권한만 고를 수 있습니다. 채팅·자료제출 권한은 이 「내 개인 키」로 만듭니다 — 키는 내 권한 이하로만 움직이고, 채팅은 고른 방에만 씁니다.</p>
+        </div>
+        {myId && allowed.some((a) => a.id === myId)
+          ? <ApiKeysPanel />
+          : <p className="text-xs text-amber-700">개인 키를 만들려면 위 「허용」 목록에 본인을 먼저 추가해 주세요.</p>}
+      </CardContent></Card>
+
+      <Card><CardContent className="pt-6 space-y-3">
         <p className="font-medium text-sm">직원 개인 키 ({keys.filter((k) => k.kind !== "ORG").length}개)</p>
         <div className="overflow-x-auto border rounded">
           <table className="w-full text-xs min-w-[720px]">
@@ -128,7 +142,7 @@ function OrgKeyCard({ keys, onChanged, onRevoke }: { keys: KeyRow[]; onChanged: 
     <Card><CardContent className="pt-6 space-y-3">
       <div className="flex items-center gap-2">
         <p className="font-medium text-sm">회사 연동 키 ({keys.length}개)</p>
-        <span className="text-xs text-gray-500">큐브마케팅 등 외부 프로그램이 마케팅 자료를 가져가고 발행 결과를 돌려주는 용도. 발급한 관리자가 강등·퇴사하거나 비밀번호가 초기화되면 키가 꺼지고 본부에 봇 DM 이 갑니다.</span>
+        <span className="text-xs text-gray-500">큐브마케팅 등 외부 프로그램이 마케팅 자료를 가져가고 발행 결과를 돌려주는 용도(채팅 권한은 아래 「내 개인 키」). 발급한 관리자가 강등·퇴사하거나 비밀번호가 초기화되면 키가 꺼지고 본부에 봇 DM 이 갑니다.</span>
         <Button size="sm" className="ml-auto gap-1 bg-indigo-600 hover:bg-indigo-700" onClick={() => setOpen(true)}><KeyRound size={14} />연동 키 발급</Button>
       </div>
       {secret && (
