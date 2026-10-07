@@ -54,6 +54,13 @@ export async function POST(request: NextRequest) {
   if (pendingIn?.clockOut) {
     return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다. (출근 요청 승인 대기 중)" }, { status: 400 });
   }
+  // 지점 밖·사진·본부 퇴근 요청이 이미 대기 중이면 버튼 퇴근을 또 받지 않는다(퇴근이 두 갈래로 겹치지 않게)
+  const pendingOut = await prisma.attendanceRequest.findFirst({
+    where: { userId: session.userId, workDate: today, action: "OUT", status: "PENDING" }, select: { id: true },
+  });
+  if (pendingOut) {
+    return NextResponse.json({ error: "퇴근 요청이 승인을 기다리고 있습니다. 바로 퇴근하려면 출퇴근 화면에서 요청을 취소한 뒤 다시 눌러 주세요." }, { status: 409 });
+  }
   const clockInAt = existing?.clockIn ?? pendingIn?.requestedAt ?? null;
   if (!clockInAt) {
     return NextResponse.json({ error: "출근 기록이 없습니다." }, { status: 400 });

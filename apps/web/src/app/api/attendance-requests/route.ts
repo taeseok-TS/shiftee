@@ -184,8 +184,10 @@ export async function POST(request: NextRequest) {
       if (att?.clockOut) return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다." }, { status: 400 });
       // 출근 승인 대기 중이면 퇴근 요청도 받는다(#10)
       const pendingIn = await prisma.attendanceRequest.findFirst({
-        where: { userId: session.userId, workDate: data.workDate, action: "IN", status: "PENDING" }, select: { id: true },
+        where: { userId: session.userId, workDate: data.workDate, action: "IN", status: "PENDING" }, select: { id: true, clockOut: true },
       });
+      // 퇴근 버튼으로 이미 출근 요청에 퇴근을 담았으면 퇴근 요청을 또 받지 않는다(퇴근이 두 갈래로 겹치지 않게)
+      if (pendingIn?.clockOut) return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다. (출근 요청 승인 대기 중)" }, { status: 400 });
       // 출근 요청 대기 중이어도 받는다 — 외근이면 퇴근도 지점 밖이다. 승인은 출근이 먼저 반영돼야 되고(applyApproved),
       // 출근 요청이 반려·취소되면 이 퇴근 요청도 함께 취소된다([id]/route.ts)
       if (!att?.clockIn && !pendingIn) return NextResponse.json({ error: "출근 기록이 없습니다. 출근부터 처리해 주세요." }, { status: 400 });
