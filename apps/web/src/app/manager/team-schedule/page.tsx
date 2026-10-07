@@ -96,7 +96,6 @@ export default function ManagerSchedulePage() {
         const data = await res.json();
         setSchedules(data.schedules || []);
       }
-      setWeekReload((n) => n + 1);
     } catch {
       toast.error("근무 일정을 불러올 수 없습니다");
     } finally {
@@ -129,6 +128,7 @@ export default function ManagerSchedulePage() {
   }, [schedules]);
 
   const getSchedules = (employeeId: string, date: string) => weekSchedules[`${employeeId}-${date}`] || [];
+  const onSaved = () => { fetchSchedules(); setWeekReload((n) => n + 1); };
 
   return (
     <div className="space-y-6">
@@ -286,9 +286,9 @@ export default function ManagerSchedulePage() {
       </div>
 
       <ScheduleEditDialog key={edit ? `${edit.id ?? "new"}-${edit.userId}-${edit.date}` : "none"} target={edit} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
-        onClose={() => setEdit(null)} onSaved={fetchSchedules} />
+        onClose={() => setEdit(null)} onSaved={onSaved} />
       <ScheduleBulkDialog key={bulkKey} open={bulkOpen} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
-        onClose={() => setBulkOpen(false)} onSaved={fetchSchedules} />
+        onClose={() => setBulkOpen(false)} onSaved={onSaved} />
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 /**
  * 근무일정 주간 표 공용(2026-10-07 QA 묶음 5-다) — 관리자 근무일정 표와 원장 팀 일정 표가 같이 쓴다.
  *  · #61 useWeekLeaves / <LeaveChips>: 그 주 승인된 휴가를 칸에 함께. 「휴가 표시」 켜기·끄기는 이 브라우저에 기억
- *  · #74 useBranchColors: 지점마다 색 — 지점이 만들어진 순서로 고정 배정(새 지점은 다음 색, 이름을 바꿔도 그대로)
+ *  · #74 useBranchColors: 지점마다 색 — 지점이 만들어진 순서로 배정(새 지점은 다음 색, 이름을 바꿔도 그대로.
+ *    지점을 비활성화하면 그 뒤에 만든 지점 색이 한 칸씩 당겨진다)
  *  · #40 empNoText: 사번 5자리
  */
 
@@ -63,9 +64,10 @@ export function LeaveChips({ data, userId, date }: { data: WeekLeaves | null; us
 }
 
 // ── #74 지점 색 ──
+// 회색 바탕 위 작은 글씨로도 읽히게 진한 색만(WCAG AA 4.5:1 이상)
 const PALETTE = [
-  "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#65a30d", "#ea580c", "#4f46e5",
-  "#0d9488", "#be123c", "#ca8a04", "#9333ea", "#0284c7", "#c2410c", "#15803d", "#a21caf", "#475569", "#b45309",
+  "#1d4ed8", "#b91c1c", "#15803d", "#b45309", "#6d28d9", "#0e7490", "#be185d", "#4d7c0f", "#c2410c", "#4338ca",
+  "#0f766e", "#9f1239", "#854d0e", "#7e22ce", "#0369a1", "#065f46", "#a21caf", "#475569", "#57534e", "#1e3a8a",
 ];
 
 /** 지점명 → 색. 지점이 만들어진 순서대로 팔레트를 돌린다(20개 넘으면 다시 처음부터) */
@@ -93,7 +95,9 @@ type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sch
 export function WeekTotalCell({ data, userId }: { data: WeekHours | null; userId: string }) {
   const wh = data?.hours[userId];
   const h = (m: number) => `${Math.round(m / 6) / 10}h`;
-  const over = !!data && !!wh && (wh.sched > data.limitMin || wh.actual > data.limitMin);
+  // 불러오는 중·실패면 0h 로 보이지 않게 비워 둔다
+  if (!data) return <div className="w-28 flex-shrink-0 p-3 text-xs bg-gray-50 text-gray-300">—</div>;
+  const over = !!wh && (wh.sched > data.limitMin || wh.actual > data.limitMin);
   return (
     <div className={`w-28 flex-shrink-0 p-3 text-xs ${over ? "bg-red-50 text-red-700 font-semibold" : "bg-gray-50 text-gray-700"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
