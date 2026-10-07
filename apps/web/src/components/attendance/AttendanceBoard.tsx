@@ -18,7 +18,7 @@ type Cell = {
   sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null;
   leave?: string; late?: boolean; missing?: boolean; absent?: boolean; workMin?: number; breakMin?: number;
 };
-type BoardUser = { id: string; name: string; empNo: string | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
+type BoardUser = { id: string; name: string; empNo: number | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
 type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>> };
 
 type Kind = "normal" | "late" | "missing" | "absent" | "leave";
@@ -68,6 +68,13 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   const [loading, setLoading] = useState(true);
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const branchBox = useRef<HTMLDivElement>(null);
+  // 주말 근무 엑셀(본부, #86) — 기본 기간 전월 20일 ~ 당월 19일(KST)
+  const [wk, setWk] = useState(() => {
+    const k = new Date(Date.now() + 9 * 3600_000);
+    const y = k.getUTCFullYear(), m = k.getUTCMonth();
+    const prev = new Date(Date.UTC(y, m - 1, 20));
+    return { from: prev.toISOString().slice(0, 10), to: `${y}-${pad(m + 1)}-19` };
+  });
 
   // 지점 선택 상자는 바깥을 누르면 닫힌다(UI 드롭다운 규칙)
   useEffect(() => {
@@ -129,7 +136,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   }, [board, kinds]);
 
   const COLS: { key: string; label: string; get: (r: { u: BoardUser; d: string; c: Cell }) => string }[] = [
-    { key: "empNo", label: "사번", get: (r) => r.u.empNo ?? "" },
+    { key: "empNo", label: "사번", get: (r) => (r.u.empNo == null ? "" : String(r.u.empNo)) },
     { key: "name", label: "직원", get: (r) => r.u.name },
     { key: "date", label: "날짜", get: (r) => `${r.d.slice(5).replace("-", "/")}(${WEEK[dow(r.d)]})` },
     { key: "sched", label: "근무일정", get: (r) => r.c.sched?.replace("-", " - ") ?? "" },
@@ -197,6 +204,20 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
         </select>
         <Button size="sm" variant="outline" onClick={exportExcel}><Download size={14} className="mr-1" />엑셀</Button>
       </div>
+
+      {scope === "admin" && (
+        <div className="flex flex-wrap items-center gap-2 text-sm rounded-md border bg-white px-3 py-2">
+          <span className="font-medium text-gray-700">주말 근무 엑셀</span>
+          <input type="date" className="h-8 rounded border px-2" value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
+          <span>~</span>
+          <input type="date" className="h-8 rounded border px-2" value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
+          <a className="inline-flex items-center h-8 px-3 rounded-md border text-sm hover:bg-gray-50"
+            href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}>
+            <Download size={14} className="mr-1" />받기
+          </a>
+          <span className="text-xs text-gray-400">토·일·공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)</span>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 text-xs">
         {(Object.keys(KIND_LABEL) as Kind[]).map((k) => (
