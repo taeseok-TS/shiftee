@@ -57,8 +57,12 @@ const num = (v: string | undefined | null): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 // 시간 칸은 적힌 숫자 중 **가장 큰 값** — 「1일 9시간」→9, 「주 5일 45시간」→45(첫 숫자만 읽으면 초과를 놓친다, 재검증 F7)
+// 「7시간 30분」→7.5 처럼 시간·분 표기는 합쳐 읽고, 연도 같은 4자리 이상 숫자는 무시한다(재검증 N2)
 const hoursNum = (v: string | undefined | null): number | null => {
-  const all = [...(v || "").matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter(Number.isFinite);
+  const t = v || "";
+  const hm = [...t.matchAll(/(\d+(?:\.\d+)?)\s*시간(?:\s*(\d+)\s*분)?/g)].map((m) => Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0));
+  if (hm.length) return Math.max(...hm);
+  const all = [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter((n) => Number.isFinite(n) && n < 1000);
   return all.length ? Math.max(...all) : null;
 };
 const won = (n: number) => `${Math.floor(n).toLocaleString()}원`;
@@ -115,8 +119,9 @@ export async function validateContractMerge(
       // 수습 감액은 1년 이상 계약(기간 없는 계약 포함)에서만 최저임금의 90%까지 된다(최저임금법 제5조 2항) — 1년 미만이면 100%
       const rate = num(merge["실무지급률"]) ?? 85;
       const prob = (monthly * rate) / 100;
-      const oneYear = !opts.endDate || !sd ||
-        new Date(`${opts.endDate.slice(0, 10)}T00:00:00Z`).getTime() >= new Date(`${sd}T00:00:00Z`).getTime() + 364 * 86400000;
+      // 1년 = 시작일의 1년 뒤 같은 날 − 1일까지(윤년도 정확히, 재검증 N3)
+      const yearEnd = (() => { const d = new Date(`${sd}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() + 1); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })();
+      const oneYear = !opts.endDate || !sd || opts.endDate.slice(0, 10) >= yearEnd;
       const floor = mw.won * (oneYear ? 0.9 : 1);
       if (prob / hours < floor) {
         errors.push(`실무평가(수습) 단계 급여가 ${oneYear ? "최저임금의 90%" : "최저임금(1년 미만 계약은 수습 감액 불가)"} 미만입니다 — 월 급여의 ${rate}% ${won(prob)} ÷ 월 ${hours}시간 = 시급 ${won(prob / hours)} (하한 ${won(floor)}, ${mwLabel}). 연봉이나 지급률을 고쳐야 저장·발송할 수 있습니다.`);
