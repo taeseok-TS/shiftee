@@ -495,7 +495,9 @@ export default function ContractListScreen() {
                   const type = empFieldType(f);
                   if (type === "check") continue;
                   if (type === "confirm") { if (empFieldInput[f] !== "☑") left.push({ key: `e:${f}`, label: `${empFieldLabel(f)} 확인 체크` }); continue; }
-                  if (!f.includes("기타") && !(empFieldInput[f] || "").trim()) left.push({ key: `e:${f}`, label: empFieldLabel(f), focus: true });
+                  // 비었거나(「기타」 칸은 빼고) 날짜 형식이 틀리면 — 제출 검사와 같은 기준(#32 검증 F1)
+                  const v = (empFieldInput[f] || "").trim();
+                  if ((!v && !f.includes("기타")) || (v && type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(v))) left.push({ key: `e:${f}`, label: v ? `${empFieldLabel(f)}(YYYY-MM-DD)` : empFieldLabel(f), focus: true });
                 }
                 if (isOwnSign && !unlocked && !signPw) left.push({ key: "pw", label: "비밀번호", focus: true });
                 if (isOwnSign && !signAgree) left.push({ key: "agree", label: "전자서명 동의 체크" });
@@ -509,8 +511,9 @@ export default function ContractListScreen() {
                 const doc = viewerUrl(signTarget?.fileUrl);
                 return (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 8 }}>
+                    {/* 남은 칸은 근로자 본인 서명에만(결재자는 입력 칸이 없다, #32 검증 F3) */}
                     <Text style={{ flex: 1, fontSize: 13, color: left.length ? "#b45309" : "#047857", fontWeight: "600" }}>
-                      {left.length ? `남은 칸 ${left.length}개 — 다음: ${left[0].label}` : "남은 칸 없음 — 서명만 하면 됩니다"}
+                      {!isOwnSign ? "" : left.length ? `남은 칸 ${left.length}개 — 다음: ${left[0].label}` : "남은 칸 없음 — 서명만 하면 됩니다"}
                     </Text>
                     {left.length > 0 && (
                       <TouchableOpacity onPress={goNext} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "#eef2ff" }}>
