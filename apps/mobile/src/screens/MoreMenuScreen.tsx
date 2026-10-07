@@ -1,23 +1,31 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { canApproveNow } from "../services/approvals";
 
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { route: "Contracts", label: "계약서", icon: "document-text-outline", color: "#2563eb" },
-  { route: "Leave", label: "휴가", icon: "umbrella-outline", color: "#10b981" },
   { route: "Submissions", label: "자료제출", icon: "cloud-upload-outline", color: "#4f46e5" }, // 2026-09-13 3단계
   { route: "Marketing", label: "마케팅 자료", icon: "camera-outline", color: "#db2777" }, // 2026-09-14 큐브마케팅 연동 ②
   { route: "Suggestions", label: "개선 제안", icon: "bulb-outline", color: "#f59e0b" },
   { route: "Settings", label: "설정", icon: "settings-outline", color: "#6b7280" },
 ];
 
+// 결재 — 원장·본부·원장대행만 본다(하단 탭에서 옮겨 왔다, 2026-10-07 #17)
+const APPROVAL_ITEM = { route: "Approvals", label: "결재", icon: "checkmark-done-circle-outline" as const, color: "#8b5cf6" };
+
 export default function MoreMenuScreen() {
   const navigation = useNavigation<any>();
+  const [canApprove, setCanApprove] = useState(false);
+  useEffect(() => {
+    canApproveNow().then(setCanApprove).catch(() => {});
+  }, []);
+  const items = canApprove ? [APPROVAL_ITEM, ...MENU] : MENU;
   return (
     <ScrollView style={styles.container}>
       <View style={styles.group}>
-        {MENU.map((m) => (
+        {items.map((m) => (
           <TouchableOpacity key={m.route} style={styles.row} onPress={() => navigation.navigate(m.route)}>
             <Ionicons name={m.icon} size={22} color={m.color} />
             <Text style={styles.label}>{m.label}</Text>

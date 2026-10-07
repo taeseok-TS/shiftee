@@ -19,6 +19,7 @@ import * as api from "../services/api";
 import * as storage from "../services/storage";
 import { renderAnnouncementBody } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
+import { canApproveNow, myInboxCount } from "../services/approvals";
 import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 
@@ -50,6 +51,9 @@ export default function HomeScreen() {
   // 공지 사진은 앱 안에서 확대해 본다(예전엔 브라우저로 나가서 다운로드해야 했다)
   const [photoViewer, setPhotoViewer] = useState<{ urls: string[]; index: number } | null>(null);
   const [approvalLines, setApprovalLines] = useState<string[] | null>(null); // null=로딩중
+  // 결재할 수 있는 사람(원장·본부·원장대행)은 「대기 결재」 = **내가 결재할 건수**, 누르면 결재 화면(2026-10-07 #14·#17)
+  // null 이면 결재자가 아니다 — 종전처럼 내 신청 중 건수를 보여 준다
+  const [inbox, setInbox] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +67,8 @@ export default function HomeScreen() {
       setStats(s);
       setAnnouncements(anns.slice(0, 5));
       setTodayStatus(ts);
+      const approver = await canApproveNow().catch(() => false);
+      setInbox(approver ? await myInboxCount().catch(() => 0) : null);
     } catch (error) {
       console.error("❌ Failed to load home:", error);
     } finally {
@@ -140,7 +146,10 @@ export default function HomeScreen() {
   const cards = [
     { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: undefined as undefined | (() => void) },
     { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
-    { key: "approval", label: "대기 결재", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#8b5cf6", onPress: openApproval },
+    inbox !== null
+      ? { key: "approval", label: "대기 결재", value: `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",
+          onPress: () => navigation.navigate("More", { screen: "Approvals", initial: false }) }
+      : { key: "approval", label: "대기 결재", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#8b5cf6", onPress: openApproval },
     { key: "attendance", label: att.label, value: att.value, icon: att.icon, color: att.color, onPress: () => navigation.navigate("Attendance") },
   ] as const;
 

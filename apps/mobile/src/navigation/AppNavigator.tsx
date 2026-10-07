@@ -10,30 +10,19 @@ import WorkNavigator from "./WorkNavigator";
 import ScheduleScreen from "../screens/schedule/ScheduleScreen";
 import AttendanceScreen from "../screens/attendance/AttendanceScreen";
 import MoreNavigator from "./MoreNavigator";
-import ApprovalsScreen from "../screens/approvals/ApprovalsScreen";
-import * as storage from "../services/storage";
+import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
 import { getUnreadCount } from "../services/channels";
 
 const Tab = createBottomTabNavigator();
 
 /**
  * 인증 후 메인 앱 네비게이터 (탭 네비게이션)
- * 홈 · 메신저 · 일정 · 출퇴근 · 더보기(계약서/휴가/설정)
+ * 홈 · 휴가 · 메신저 · 출퇴근 · 일정 · 더보기(결재/계약서/설정) — 2026-10-07 본부 확정(#17)
+ * 결재는 폰에서 쓸 일이 적어 더보기로 옮기고, 홈 「대기 결재」 칸에서 바로 들어간다.
  */
 export default function AppNavigator() {
-  const [role, setRole] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
 
-  // 원장대행으로 지정된 직원도 결재 탭을 본다(2026-10-07 본부 답변 #3) — 앱을 켤 때 한 번 확인
-  const [isDelegate, setIsDelegate] = useState(false);
-  useEffect(() => {
-    storage.getUser().then((u) => {
-      setRole(u?.role ?? null);
-      if (u?.role && u.role !== "ADMIN" && u.role !== "MANAGER") {
-        import("../services/approvals").then((a) => a.getMyDelegateBranches()).then((b) => setIsDelegate(b.length > 0)).catch(() => {});
-      }
-    }).catch(() => {});
-  }, []);
 
   // 메신저 탭 배지: 미확인 메시지 수를 주기적으로 조회.
   // 앱 아이콘 뱃지(카톡식)도 같은 값으로 동기화 — 메시지를 읽으면 아이콘 숫자도 내려간다.
@@ -83,8 +72,6 @@ export default function AppNavigator() {
     return () => sub.remove();
   }, [navigation]);
 
-  const canApprove = role === "ADMIN" || role === "MANAGER" || isDelegate;
-
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -93,8 +80,8 @@ export default function AppNavigator() {
 
           if (route.name === "Home") {
             iconName = focused ? "home" : "home-outline";
-          } else if (route.name === "Approvals") {
-            iconName = focused ? "checkmark-done-circle" : "checkmark-done-circle-outline";
+          } else if (route.name === "Leave") {
+            iconName = focused ? "umbrella" : "umbrella-outline";
           } else if (route.name === "Work") {
             iconName = focused ? "chatbubbles" : "chatbubbles-outline";
           } else if (route.name === "Schedule") {
@@ -113,9 +100,7 @@ export default function AppNavigator() {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: "홈" }} />
-      {canApprove && (
-        <Tab.Screen name="Approvals" component={ApprovalsScreen} options={{ title: "결재" }} />
-      )}
+      <Tab.Screen name="Leave" component={LeaveRequestScreen} options={{ title: "휴가" }} />
       <Tab.Screen
         name="Work"
         component={WorkNavigator}
@@ -131,8 +116,8 @@ export default function AppNavigator() {
           },
         })}
       />
-      <Tab.Screen name="Schedule" component={ScheduleScreen} options={{ title: "일정" }} />
       <Tab.Screen name="Attendance" component={AttendanceScreen} options={{ title: "출퇴근" }} />
+      <Tab.Screen name="Schedule" component={ScheduleScreen} options={{ title: "일정" }} />
       <Tab.Screen name="More" component={MoreNavigator} options={{ title: "더보기", headerShown: false }} />
     </Tab.Navigator>
   );

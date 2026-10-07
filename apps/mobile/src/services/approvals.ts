@@ -7,7 +7,7 @@
 
 import axios from "axios";
 import { API_URL } from "../config";
-import { getToken } from "./storage";
+import { getToken, getUser } from "./storage";
 
 async function authHeaders() {
   const token = await getToken();
@@ -198,6 +198,24 @@ export function stepLabel(s: InboxStepInfo): string {
 }
 
 /** 오늘 원장대행 중인 지점 — 직원이 대행자로 지정되면 결재 탭을 보여 준다(2026-10-07). 실패하면 빈 배열 */
+/** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */
+export async function canApproveNow(): Promise<boolean> {
+  const u = await getUser().catch(() => null);
+  if (u?.role === "ADMIN" || u?.role === "MANAGER") return true;
+  if (!u?.role) return false;
+  return (await getMyDelegateBranches()).length > 0;
+}
+
+/** 내가 지금 결재할 건수(휴가·근무일정·휴가 취소) — 홈 「대기 결재」 칸 */
+export async function myInboxCount(): Promise<number> {
+  const [l, s, c] = await Promise.all([
+    getLeaveApprovals().catch(() => []),
+    getScheduleApprovals().catch(() => []),
+    getLeaveCancelApprovals().catch(() => []),
+  ]);
+  return l.length + s.length + c.length;
+}
+
 export async function getMyDelegateBranches(): Promise<string[]> {
   try {
     const res = await axios.get(`${API_URL}/me/delegate`, { headers: await authHeaders() });
