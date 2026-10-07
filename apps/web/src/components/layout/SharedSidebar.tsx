@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
@@ -11,6 +12,7 @@ import {
   UmbrellaOff,
   FileSignature,
   Lightbulb,
+  ClipboardCheck,
   User,
   Settings,
   LogOut,
@@ -29,9 +31,22 @@ const sharedNavItems = [
 export function SharedSidebar({ role }: { role?: string }) {
   const pathname = usePathname();
   const router = useRouter();
-  const navItems = sharedNavItems.filter(
-    (it) => !it.adminOnly || role === "ADMIN" || role === "MANAGER"
-  );
+  // 원장대행으로 지정된 직원에게만 「결재」 메뉴 — 원장·관리자는 각자 모드의 결재 화면을 쓴다(2026-10-07)
+  const [delegateBranches, setDelegateBranches] = useState<string[]>([]);
+  useEffect(() => {
+    if (role === "ADMIN" || role === "MANAGER") return;
+    let alive = true;
+    fetch("/api/me/delegate").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (alive) setDelegateBranches(Array.isArray(d?.branches) ? d.branches : []);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [role]);
+  const navItems = [
+    ...sharedNavItems.filter((it) => !it.adminOnly || role === "ADMIN" || role === "MANAGER"),
+    ...(delegateBranches.length > 0
+      ? [{ href: "/approvals", label: `결재 (원장대행 · ${delegateBranches.join(", ")})`, icon: ClipboardCheck }]
+      : []),
+  ];
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });

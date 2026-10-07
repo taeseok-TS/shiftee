@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
@@ -27,15 +28,9 @@ export async function GET() {
   // ⚠ 관계명이 달라 **두 개를 따로 만든다.** 하나를 만들어 `scheduleRequest: undefined`
   //   로 덮어쓰는 방식은 tsc 가 잡지 못하고, Prisma 가 undefined 처리를 바꾸는 순간
   //   대시보드 전체가 500 이 된다(2026-09-09 검증에서 지적).
-  const stepOr =
-    session.role === "ADMIN"
-      ? undefined
-      : [
-          { approverId: session.userId },
-          ...(session.role === "MANAGER"
-            ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
-            : []),
-        ];
+  //   · 원장대행 중인 지점도 결재함처럼 센다(lib/approval-delegate.ts myStepOr)
+  const scope = await approverScopeFor(session);
+  const stepOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope);
   const scheduleStepWhere = {
     status: "PENDING" as const,
     scheduleRequest: { userId: { not: session.userId } },
@@ -47,7 +42,7 @@ export async function GET() {
     ...(stepOr ? { OR: stepOr } : {}),
   };
   // 휴가 취소 결재도 **결재함과 같은 함수**로 센다(lib/leave-cancel-flow.ts cancelStepWhere)
-  const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, myBranches) });
+  const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, scope) });
 
   const memberWhere = await countableEmployeeWhere(
     session.role === "MANAGER" ? { branches: myBranches } : {}

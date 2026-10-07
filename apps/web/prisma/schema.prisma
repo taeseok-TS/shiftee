@@ -1156,3 +1156,21 @@ model Emoticon {
 
   @@index([setId, sortOrder])
 }
+
+// 원장대행 지정(2026-10-07 본부 답변 #3) — 본부가 지점·대행자·기간을 정한다. 기간 안에는 그 지점 원장 결재를 대신한다(계약서 서명 제외).
+// 운영 표는 deploy/ddl_approval_delegate.sql 로 만든다(db push 금지). 관계(FK) 없이 id 만 둔다 — 계정이 지워져도 기록은 남게.
+model ApprovalDelegate {
+  id         String    @id @default(cuid())
+  branch     String
+  delegateId String
+  startDate  DateTime  @db.Date
+  endDate    DateTime  @db.Date
+  note       String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  revokedBy  String?
+
+  @@index([delegateId])
+  @@index([branch])
+}

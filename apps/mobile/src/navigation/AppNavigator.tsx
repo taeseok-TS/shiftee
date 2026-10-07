@@ -24,8 +24,15 @@ export default function AppNavigator() {
   const [role, setRole] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
 
+  // 원장대행으로 지정된 직원도 결재 탭을 본다(2026-10-07 본부 답변 #3) — 앱을 켤 때 한 번 확인
+  const [isDelegate, setIsDelegate] = useState(false);
   useEffect(() => {
-    storage.getUser().then((u) => setRole(u?.role ?? null)).catch(() => {});
+    storage.getUser().then((u) => {
+      setRole(u?.role ?? null);
+      if (u?.role && u.role !== "ADMIN" && u.role !== "MANAGER") {
+        import("../services/approvals").then((a) => a.getMyDelegateBranches()).then((b) => setIsDelegate(b.length > 0)).catch(() => {});
+      }
+    }).catch(() => {});
   }, []);
 
   // 메신저 탭 배지: 미확인 메시지 수를 주기적으로 조회.
@@ -76,7 +83,7 @@ export default function AppNavigator() {
     return () => sub.remove();
   }, [navigation]);
 
-  const canApprove = role === "ADMIN" || role === "MANAGER";
+  const canApprove = role === "ADMIN" || role === "MANAGER" || isDelegate;
 
   return (
     <Tab.Navigator

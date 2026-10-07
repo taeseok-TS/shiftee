@@ -158,6 +158,9 @@ export default function ManagerApprovalsPage() {
   const [history, setHistory] = useState<HistoryLeave[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [myId, setMyId] = useState("");
+  // 원장대행으로 들어온 직원(/approvals) — 결재만 하고, 팀 휴가 내역은 원장 화면 몫이라 숨긴다(2026-10-07 #3)
+  const [myRole, setMyRole] = useState("");
+  const delegateOnly = myRole === "EMPLOYEE";
 
   // 세션에서 지점 정보 가져오기
   useEffect(() => {
@@ -169,6 +172,7 @@ export default function ManagerApprovalsPage() {
           // 응답은 { user: {...} } 다 — 종전 data.branch 는 늘 undefined 라 머리글 지점명이 비어 있었다
           setBranch(data.user?.branch || "");
           setMyId(data.user?.id || "");
+          setMyRole(data.user?.role || "");
         }
       } catch (error) {
         console.error("세션 조회 오류:", error);
@@ -390,7 +394,7 @@ export default function ManagerApprovalsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">결재 (휴가, 근무일정)</h1>
-          <p className="text-gray-600 mt-2">{branch} - 팀의 휴가 및 근무일정 신청 결재</p>
+          <p className="text-gray-600 mt-2">{delegateOnly ? "원장대행 — 지정된 지점의 휴가 및 근무일정 신청 결재" : `${branch} - 팀의 휴가 및 근무일정 신청 결재`}</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-sm text-gray-600">
@@ -440,7 +444,7 @@ export default function ManagerApprovalsPage() {
 
       {/* 탭 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className={`grid w-full ${delegateOnly ? "grid-cols-3" : "grid-cols-4"}`}>
           <TabsTrigger value="leave" className="flex items-center gap-2">
             <UmbrellaOff size={16} />
             휴가 ({filteredLeaveSteps.length})
@@ -449,10 +453,12 @@ export default function ManagerApprovalsPage() {
             <Calendar size={16} />
             근무일정 ({filteredScheduleSteps.length})
           </TabsTrigger>
-          <TabsTrigger value="history" className="flex items-center gap-2">
-            <UmbrellaOff size={16} />
-            휴가 내역 ({filteredHistory.length})
-          </TabsTrigger>
+          {!delegateOnly && (
+            <TabsTrigger value="history" className="flex items-center gap-2">
+              <UmbrellaOff size={16} />
+              휴가 내역 ({filteredHistory.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="cancel" className="flex items-center gap-2">
             휴가 취소 ({cancelCount})
           </TabsTrigger>
@@ -717,7 +723,7 @@ export default function ManagerApprovalsPage() {
         </TabsContent>
         {/* 휴가 내역 탭 — 진행 중·예정 휴가. 결재함에서 빠진 대기 건(내가 승인해 넘긴 건)을 여기서 거둔다.
             승인된 휴가는 본인의 취소 결재로만(9/11). 버튼은 서버 판정(canCancel)으로만 */}
-        <TabsContent value="history" className="space-y-6 mt-6">
+        {!delegateOnly && <TabsContent value="history" className="space-y-6 mt-6">
           {historyLoading ? (
             <Card>
               <CardContent className="pt-6 text-center text-gray-500">
@@ -812,7 +818,7 @@ export default function ManagerApprovalsPage() {
               </div>
             </Card>
           )}
-        </TabsContent>
+        </TabsContent>}
         {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
         <TabsContent value="cancel" className="space-y-4 mt-6">
           <LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} />

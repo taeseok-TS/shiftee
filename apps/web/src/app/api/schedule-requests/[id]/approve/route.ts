@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
 import { logAudit } from "@/lib/audit";
 import { botNotifyDecision, botNotifyApprovalRequest } from "@/lib/bot";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
 
 function fmtRange(s: Date, e: Date) {
   const f = (d: Date) => d.toISOString().split("T")[0];
@@ -18,7 +18,8 @@ export async function POST(
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
+  const scope = await approverScopeFor(session);
   const { id } = await params;
   // ⚠ try 밖이라 여기서 던지면 미처리 500 이 된다 — 본문 없이 부르면 누구나 오류 로그를
   //   하나씩 만들 수 있었다(2026-09-09 검증에서 실측).
@@ -65,22 +66,15 @@ export async function POST(
 
   if (steps.length > 0) {
     // 내가 결재해야 할 PENDING 스텝 찾기 (역할/지점 기반)
-    const myStep = steps.find((s) => {
-      if (s.status !== "PENDING") return false;
-      // ⚠ 사람을 못박은 단계(메인 원장 지정 등)는 **그 사람만** 결재한다.
-      //   이 검사가 아래 역할.지점 검사보다 먼저 와야 한다 — 안 그러면 같은 지점
-      //   원장이면 아무나 통과해 못박은 의미가 사라진다.
-      if (s.approverId) return s.approverId === session.userId;
-      if (s.approverRole === "ADMIN") return session.role === "ADMIN";
-      if (s.approverRole === "MANAGER") return session.role === "MANAGER" && !!s.branch && myBranches.includes(s.branch);
-      return s.approverId === session.userId;
-    });
+    // ⚠ 사람을 못박은 단계(메인 원장 지정 등)는 **그 사람만**(+그 지점 대행자) 결재한다 — lib/approval-delegate.ts isMyStep
+    const myStep = steps.find((s) => isMyStep(s, session, scope));
 
     // ⚠ **원장은 자기 신청을 스스로 결재할 수 없다** (2026-09-08 디렉터 지시).
     //   원장 신청의 결재선은 [관리자] 한 단계인데, 종전에는 아래 우회 경로로 빠져
     //   **본인이 본인 것을 최종 승인**할 수 있었다. 원장끼리 품앗이도 가능했다
     //   (한 지점에 원장이 2명인 곳이 실재한다).
-    if (session.role === "MANAGER" && scheduleRequest.userId === session.userId) {
+    //   원장대행(직원)도 같다 — 자기 지점 대행 중이어도 자기 신청은 결재하지 못한다.
+    if (session.role !== "ADMIN" && scheduleRequest.userId === session.userId) {
       return NextResponse.json(
         { error: "본인 근무일정 신청은 직접 결재할 수 없습니다. 관리자 승인이 필요합니다." },
         { status: 403 }

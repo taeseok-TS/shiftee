@@ -196,3 +196,13 @@ export function stepLabel(s: InboxStepInfo): string {
   if (s.approverRole === "ADMIN") return "관리자";
   return "결재자";
 }
+
+/** 오늘 원장대행 중인 지점 — 직원이 대행자로 지정되면 결재 탭을 보여 준다(2026-10-07). 실패하면 빈 배열 */
+export async function getMyDelegateBranches(): Promise<string[]> {
+  try {
+    const res = await axios.get(`${API_URL}/me/delegate`, { headers: await authHeaders() });
+    return Array.isArray(res.data?.branches) ? res.data.branches : [];
+  } catch {
+    return [];
+  }
+}

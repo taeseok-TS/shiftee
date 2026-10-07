@@ -1,3 +1,4 @@
+import { myStepOr, type ApproverScope } from "@/lib/approval-delegate";
 import type { Prisma } from "@prisma/client";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOfLeave } from "@/lib/leave-calc";
@@ -68,7 +69,7 @@ export async function applyLeaveCancel(
  */
 export function cancelStepWhere(
   session: { userId: string; role: string },
-  myBranches: string[],
+  scope: ApproverScope,
   today: Date = kstTodayMidnight()
 ) {
   return {
@@ -82,14 +83,7 @@ export function cancelStepWhere(
     },
     ...(session.role === "ADMIN"
       ? {}
-      : {
-          OR: [
-            { approverId: session.userId },
-            ...(session.role === "MANAGER"
-              ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
-              : []),
-          ],
-        }),
+      : { OR: myStepOr(session, scope) }),   // 휴가·근무일정 결재함과 같은 규칙(원장대행 포함)
   };
 }
 

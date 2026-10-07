@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
 import { kstTodayMidnight } from "@/lib/resign";
 import { botNotifyApprovalRequest, botNotifyDecision } from "@/lib/bot";
 import { applyLeaveCancel, CancelConflict, LEAVE_TYPE_LABEL, ymdOf } from "@/lib/leave-cancel-flow";
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const action: "approve" | "reject" = rawAction;
   const reason = typeof rawReason === "string" && rawReason.trim() ? rawReason.trim().slice(0, 500) : undefined;
 
-  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
+  const scope = await approverScopeFor(session);
   const cr = await prisma.leaveCancelRequest.findUnique({
     where: { id },
     include: {
@@ -52,7 +53,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { status: 409 }
     );
   }
-  if (session.role === "MANAGER" && cr.userId === session.userId) {
+  // 원장대행(직원)도 자기 휴가의 취소 요청은 결재하지 못한다
+  if (session.role !== "ADMIN" && cr.userId === session.userId) {
     return NextResponse.json(
       { error: "본인 휴가의 취소 요청은 직접 결재할 수 없습니다. 관리자 승인이 필요합니다." },
       { status: 403 }
@@ -60,13 +62,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const steps = cr.approvalSteps;
-  const myStep = steps.find((s) => {
-    if (s.status !== "PENDING") return false;
-    if (s.approverId) return s.approverId === session.userId;   // 못박은 단계는 그 사람만
-    if (s.approverRole === "ADMIN") return session.role === "ADMIN";
-    if (s.approverRole === "MANAGER") return session.role === "MANAGER" && !!s.branch && myBranches.includes(s.branch);
-    return false;
-  });
+  // 못박은 단계는 그 사람만(+그 지점 대행자) — lib/approval-delegate.ts isMyStep
+  const myStep = steps.find((s) => isMyStep(s, session, scope));
   if (!myStep && session.role !== "ADMIN") {
     return NextResponse.json({ error: "결재 차례가 아닙니다." }, { status: 403 });
   }

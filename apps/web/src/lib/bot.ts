@@ -146,6 +146,11 @@ export async function botNotifyApprovalRequest(step: {
       const { branchManagers } = await import("@/lib/manager-branches");
       stepTargets.push(...(await branchManagers(step.branch)).map((m) => m.id));
     }
+    // 원장 단계면 그 지점 원장대행에게도(못박힌 단계 포함 — 결재 라우트 isMyStep 과 같은 규칙, 2026-10-07 #3)
+    if (step.approverRole === "MANAGER" && step.branch) {
+      const { branchDelegates } = await import("@/lib/approval-delegate");
+      stepTargets.push(...(await branchDelegates(step.branch)));
+    }
     const admins = (await prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
       select: { id: true },

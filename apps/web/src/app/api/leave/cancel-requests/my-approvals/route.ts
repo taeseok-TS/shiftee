@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { approverScopeFor } from "@/lib/approval-delegate";
 import { cancelStepWhere } from "@/lib/leave-cancel-flow";
 
 // 내가 결재해야 하는 **휴가 취소 결재** 목록. 조건은 lib/leave-cancel-flow.ts cancelStepWhere 한 곳
@@ -10,9 +10,10 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
+  const scope = await approverScopeFor(session);
   const steps = await prisma.leaveCancelStep.findMany({
-    where: cancelStepWhere(session, myBranches),
+    where: cancelStepWhere(session, scope),
     include: {
       cancelRequest: {
         include: {

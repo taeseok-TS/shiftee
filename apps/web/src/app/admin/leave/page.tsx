@@ -21,6 +21,7 @@ import { format, eachDayOfInterval, getDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
+import DelegateManager from "@/components/leave/DelegateManager";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -753,7 +754,7 @@ export default function LeavePage() {
                   <p className="font-semibold text-gray-800 mb-2">알림</p>
                   <ul className="space-y-1 text-gray-600">
                     <li>· 결재 요청은 <b>결재할 차례인 사람</b>에게만 갑니다.</li>
-                    <li>· 관리자는 모든 신청의 <b>진행 상황</b>(신청·원장 승인·반려·취소)을 「진행 알림」으로 받습니다.</li>
+                    <li>· 관리자는 모든 신청의 <b>진행 상황</b>(신청·원장 승인·본부 최종 승인·반려·취소·기한 만료)을 「진행 알림」으로 받습니다.</li>
                   </ul>
                 </div>
                 <p className="text-xs text-gray-400 leading-relaxed">
@@ -763,6 +764,8 @@ export default function LeavePage() {
                 </p>
               </CardContent>
             </Card>
+            {/* 원장대행 지정(2026-10-07 본부 답변 #3) */}
+            <div className="mt-4"><DelegateManager /></div>
           </TabsContent>
         )}
 

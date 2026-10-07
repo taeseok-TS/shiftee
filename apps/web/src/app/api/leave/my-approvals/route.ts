@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getManagerBranches } from "@/lib/manager-branches";
+import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { leaveCancelDenial, cancelFlags, type CancelViewer } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 
@@ -10,7 +10,8 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
-  const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
+  // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
+  const scope = await approverScopeFor(session);
   const viewer = await cancelViewerFor(session);
   const steps = await prisma.leaveApprovalStep.findMany({
     where: {
@@ -27,15 +28,9 @@ export async function GET() {
       ...(session.role === "ADMIN"
         ? {}
         : {
-            OR: [
-              { approverId: session.userId }, // 레거시 고정 결재자
-              // 사람을 못박지 않은 지점 단계만 — 메인 원장에게 못박힌 건은 그 사람
-              // 결재함에만 뜬다(위 approverId 절이 잡는다). 안 그러면 같은 지점
-              // 두 번째 원장에게도 보이는데 누르면 403 이다.
-              ...(session.role === "MANAGER"
-                ? [{ approverRole: "MANAGER", branch: { in: myBranches }, approverId: null }]
-                : []),
-            ],
+            // 못박힌 건은 그 사람 결재함에만(같은 지점 두 번째 원장에게 보이면 누를 때 403),
+            // 못박지 않은 원장 단계는 담당·대행 지점, 대행자는 그 지점의 못박힌 건도 — 결재 라우트 isMyStep 과 같은 규칙
+            OR: myStepOr(session, scope),
           }),
     },
     include: {
