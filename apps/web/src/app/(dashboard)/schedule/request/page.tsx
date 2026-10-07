@@ -330,10 +330,15 @@ export default function ScheduleRequestPage() {
         // 승인되면 주 49시간을 넘는 주가 있으면 알려 준다(막지 않는다, #38) — 읽을 시간을 조금 더 준다
         const ok = await res.json().catch(() => ({}));
         const warns = (ok.warnings || []) as string[];
-        for (const w of warns) toast.warning(w, { duration: 8000 });
-        setTimeout(() => {
+        if (warns.length) {
+          // 경고는 읽을 때까지 둔다 — 「확인」을 누르면 일정 화면으로
+          window.alert(`신청은 접수되었습니다.\n\n${warns.slice(0, 5).map((w) => `⚠ ${w}`).join("\n")}${warns.length > 5 ? `\n그 밖에 ${warns.length - 5}건` : ""}`);
           window.location.href = "/schedule";
-        }, warns.length ? 4000 : 1500);
+        } else {
+          setTimeout(() => {
+            window.location.href = "/schedule";
+          }, 1500);
+        }
       } else {
         const data = await res.json();
         toast.error(data.error || "신청 중 오류가 발생했습니다");

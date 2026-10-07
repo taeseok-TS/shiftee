@@ -1,5 +1,6 @@
 "use client";
 
+import { useWeekHours, WeekHoursLine, showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,8 +42,9 @@ export default function AdminSchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38)
-  const [weekHours, setWeekHours] = useState<{ limitMin: number; hours: Record<string, { sched: number; actual: number }> } | null>(null);
+  // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38). 저장하면 다시 센다
+  const [weekReload, setWeekReload] = useState(0);
+  const weekHours = useWeekHours(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"), weekReload);
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
@@ -101,7 +103,7 @@ export default function AdminSchedulePage() {
         const data = await res.json();
         setSchedules(data.schedules || []);
       }
-      fetch(`/api/schedule/weekly-hours?week=${start}`).then((r) => (r.ok ? r.json() : null)).then(setWeekHours).catch(() => {});
+      setWeekReload((n) => n + 1);
     } catch (error) {
       toast.error("근무 일정을 불러올 수 없습니다");
     } finally {
@@ -170,7 +172,7 @@ export default function AdminSchedulePage() {
       if (!res.ok) { toast.error(d.error || "근무 일정을 저장하지 못했습니다."); return; }
       toast.success("근무 일정이 추가되었습니다");
       // 주 49시간을 넘으면 경고만(막지 않는다, #38)
-      for (const w of (d.warnings || []) as string[]) toast.warning(w, { duration: 10000 });
+      showWeekWarnings(d.warnings);
       setCreateOpen(false);
       fetchSchedules();
     } catch {
@@ -379,19 +381,7 @@ export default function AdminSchedulePage() {
                     <div key={employee.id} className="flex border-b">
                       <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50">
                         <div className="font-medium text-gray-900">{employee.name}</div>
-                        {(() => {
-                          const wh = weekHours?.hours[employee.id];
-                          if (!wh || (!wh.sched && !wh.actual)) return null;
-                          const lim = weekHours!.limitMin;
-                          const h = (m: number) => `${Math.round(m / 6) / 10}h`;
-                          const over = wh.sched > lim || wh.actual > lim;
-                          return (
-                            <div className={`text-[11px] mt-0.5 ${over ? "text-red-600 font-semibold" : "text-gray-500"}`}
-                              title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
-                              주 일정 {h(wh.sched)} · 실제 {h(wh.actual)}{over ? " ⚠49h 초과" : ""}
-                            </div>
-                          );
-                        })()}
+                        <WeekHoursLine data={weekHours} userId={employee.id} />
                         <div className="text-xs text-gray-600">
                           {employee.position}
                           {employee.branch && (

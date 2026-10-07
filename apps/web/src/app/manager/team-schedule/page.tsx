@@ -1,5 +1,6 @@
 "use client";
 
+import { useWeekHours, WeekHoursLine } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,9 @@ export default function ManagerSchedulePage() {
       toast.error("직원 목록을 불러올 수 없습니다");
     }
   }, []);
+
+  // 주 근로시간 — 49시간을 넘으면 빨간 표시(#38, 담당 지점만)
+  const weekHours = useWeekHours(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"));
 
   // 근무 일정 (현재 주 기준)
   const fetchSchedules = useCallback(async () => {
@@ -184,6 +188,7 @@ export default function ManagerSchedulePage() {
                     <div key={employee.id} className="flex border-b">
                       <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50">
                         <div className="font-medium text-gray-900">{employee.name}</div>
+                        <WeekHoursLine data={weekHours} userId={employee.id} />
                         <div className="text-xs text-gray-600">
                           {employee.jobGroup || employee.position}
                           {employee.branch && <span className="text-blue-600"> · {employee.branch}</span>}

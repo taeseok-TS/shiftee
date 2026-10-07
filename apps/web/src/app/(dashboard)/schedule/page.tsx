@@ -1,5 +1,6 @@
 "use client";
 
+import { useWeekHours, WeekHoursLine, showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,7 @@ export default function SchedulePage() {
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
     toast.success("일정이 등록되었습니다.");
+    showWeekWarnings(data.warnings);   // 주 49시간 초과 경고(#38)
     setAddOpen(false);
     setAddForm(defaultForm);
     fetchMonth();
@@ -204,7 +206,7 @@ export default function SchedulePage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
       toast.success(`${data.count}개 일정 등록 완료 (${data.days}일 × ${bulk.userIds.length}명)`);
-      for (const w of (data.warnings || []) as string[]) toast.warning(w, { duration: 10000 });   // 주 49시간 초과 경고(#38)
+      showWeekWarnings(data.warnings);   // 주 49시간 초과 경고(#38) — 많으면 앞 3건만
       setBulkOpen(false);
       setBulk(defaultBulk);
       fetchMonth();

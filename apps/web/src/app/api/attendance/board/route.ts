@@ -152,7 +152,8 @@ export async function GET(request: NextRequest) {
 
   // 주 49시간 초과 주(근무일정 또는 실제, #38) — 사람별 월요일 목록. 달 경계의 주도 그 주 전체로 계산한다
   const mondays = [...new Set(days.map(mondayOf))];
-  const weekMins = await weeklyMinutes(ids, mondays);
+  // 실패해도 보드는 연다(49시간 표시만 빠진다)
+  const weekMins = await weeklyMinutes(ids, mondays).catch(() => new Map<string, { sched: number; actual: number }>());
   const over49: Record<string, { monday: string; sched: number; actual: number }[]> = {};
   for (const [key, v] of weekMins) {
     if (v.sched <= WEEK_LIMIT_MIN && v.actual <= WEEK_LIMIT_MIN) continue;
