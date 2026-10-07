@@ -1,6 +1,8 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
+import BulkValuesTable, { bulkColumns, deriveHours, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
+import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -213,6 +215,11 @@ export default function ContractsPage() {
   // 일괄 발송 (개선 제안 #80, 김가산·디렉터 확정 2026-08-26): 같은 조건의 신입 여러 명에게 동시 작성
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkUserIds, setBulkUserIds] = useState<string[]>([]);
+  // 여러 명 작성 — 개인별 값(#19 #34). 비우면 공통 입력값
+  const [bulkValues, setBulkValues] = useState<BulkRowValues>({});
+  // 목록에서 초안 여러 건 골라 한꺼번에 발송(#34)
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
+  const [bulkSendOpen, setBulkSendOpen] = useState(false);
   const [previewing, setPreviewing] = useState(false); // 발송 전 미리보기 생성 중 (개선 제안 #76)
   const [createForm, setCreateForm] = useState({
     userId: "",
@@ -1096,7 +1103,9 @@ export default function ContractsPage() {
     if (!createForm.title) { toast.error("제목을 입력해주세요."); return; }
     // 임금(연봉)은 기본급·월급여합계·연봉총액·연봉한글이 모두 여기서 계산된다 — 비우면 문서에 빈칸이 박힌다(2026-09-16 디렉터 지시)
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
-    if (needsSalary && !String(createForm.salary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    // 여러 명 작성이면 개인별 표에 모두 연봉을 넣었을 때도 통과(#19)
+    const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, ""));
+    if (needsSalary && !String(createForm.salary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
 
     setUploading(true);
 
@@ -1146,13 +1155,24 @@ export default function ContractsPage() {
           const mgr = employees.find(x => x.role === "MANAGER" && (x.branch === emp.branch || (x.managerBranches || []).includes(emp.branch!)));
           per["원장명"] = mgr?.name || "";
         }
+        // 개인별 값(#19) — 표에 넣은 칸만 덮는다. 날짜는 2026.10.01·2026/10/01 도 받는다
+        const row = bulkValues[uid] || {};
+        const normDate = (v: string) => v.trim().replace(/[./]/g, "-").replace(/^(\d{4})-(\d{1,2})-(\d{1,2})$/, (_m, y, mo, d) => `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`);
+        for (const [k, v] of Object.entries(row)) {
+          if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일") continue;
+          per[k] = v.trim();
+        }
+        Object.assign(per, deriveHours(per));   // 출퇴근·휴게·주근무시간이 사람마다 다르면 일·월 근로시간도 그 사람 값으로
+        const rowSalary = (row["연봉"] || "").replace(/[^0-9]/g, "") || createForm.salary;
+        const rowStart = row["계약시작일"]?.trim() ? normDate(row["계약시작일"]) : createForm.startDate;
+        const rowEnd = row["계약종료일"]?.trim() ? normDate(row["계약종료일"]) : createForm.endDate;
         const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
         try {
           let res: Response;
           if (bundleMode && ndaTemplate && privacyTemplate) {
             const items = [
               { templateId: selectedTemplate, title, type: "EMPLOYMENT",
-                startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+                startDate: rowStart, endDate: rowEnd, salary: rowSalary,
                 extraFields: per, employeeOnly: false },
               { templateId: ndaTemplate.id, title: `${titlePrefix(emp.id)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
                 extraFields: per, employeeOnly: true },
@@ -1169,20 +1189,27 @@ export default function ContractsPage() {
             fd.append("userId", uid);
             fd.append("title", title);
             fd.append("type", createForm.type);
-            fd.append("startDate", createForm.startDate);
-            fd.append("endDate", createForm.endDate);
-            fd.append("salary", createForm.salary);
+            fd.append("startDate", rowStart);
+            fd.append("endDate", rowEnd);
+            fd.append("salary", rowSalary);
             fd.append("extraFields", JSON.stringify(per));
             res = await fetch("/api/contracts", { method: "POST", body: fd });
           }
-          if (res.ok) ok++; else failed.push(emp.name);
+          // 실패 이유(최저임금 미만 등)도 함께 보여 준다 — 이름만으로는 무엇을 고칠지 모른다
+          if (res.ok) ok++; else { const d = await res.json().catch(() => ({})); failed.push(d.error ? `${emp.name}(${d.error})` : emp.name); }
         } catch { failed.push(emp.name); }
       }
       setUploading(false);
       if (failed.length) toast.error(`${ok}명 작성 완료, 실패: ${failed.join(", ")}`);
       else toast.success(`${ok}명에게 ${bundleMode ? "신규입사 패키지 3종이" : "계약서가"} 작성되었습니다. 목록에서 각각 발송해주세요.`);
+      // 실패한 사람이 있으면 창을 닫지 않는다 — 개인별 값을 고쳐 그 사람만 다시 작성할 수 있게
+      if (failed.length) {
+        setBulkUserIds(ids => ids.filter(id => { const e = employees.find(x => x.id === id); return !!e && failed.some(f => f.startsWith(e.name)); }));
+        fetchContracts();
+        return;
+      }
       setCreateOpen(false);
-      setBulkMode(false); setBulkUserIds([]);
+      setBulkMode(false); setBulkUserIds([]); setBulkValues({});
       setUseTemplate(false); setSelectedTemplate(""); setBundleMode(false); setEmployeeSearchText("");
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
       setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
@@ -2317,6 +2344,17 @@ ${url}`;
                   );
                 })()}
 
+                {/* 여러 명 작성 — 개인별 값 표(#19 #34) */}
+                {bulkMode && !externalMode && useTemplate && selectedTemplate && bulkUserIds.length > 0 && (
+                  <BulkValuesTable
+                    userIds={bulkUserIds}
+                    employees={employees}
+                    columns={bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f)))}
+                    values={bulkValues}
+                    onChange={setBulkValues}
+                    common={{ ...extraFields, 연봉: createForm.salary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
+                  />
+                )}
                 <div className="flex gap-2 justify-end">
                   {/* 발송 전 입력값이 치환된 실물(PDF) 확인 (개선 제안 #76) */}
                   {useTemplate && selectedTemplate && (
@@ -2901,10 +2939,28 @@ ${url}`;
             </Button>
           </div>
 
+          {/* 선택 발송(#34) — 초안만 고를 수 있다 */}
+          {pickedIds.size > 0 && (
+            <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
+              <span className="text-indigo-800">초안 {pickedIds.size}건 선택</span>
+              <Button size="sm" className="h-7 gap-1" onClick={() => setBulkSendOpen(true)}><Send size={12} />한꺼번에 발송</Button>
+              <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => setPickedIds(new Set())}>선택 해제</button>
+            </div>
+          )}
+          <BulkSendDialog open={bulkSendOpen} onClose={() => setBulkSendOpen(false)}
+            contracts={contracts.filter(x => pickedIds.has(x.id))} employees={employees}
+            onDone={() => { setPickedIds(new Set()); fetchContracts(); }} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-gray-500">
+                  {role === "ADMIN" && (
+                    <th className="pb-3 w-8">
+                      <input type="checkbox" title="초안 모두 선택"
+                        checked={contracts.some(x => x.status === "DRAFT") && contracts.filter(x => x.status === "DRAFT").every(x => pickedIds.has(x.id))}
+                        onChange={e => setPickedIds(e.target.checked ? new Set(contracts.filter(x => x.status === "DRAFT").map(x => x.id)) : new Set())} />
+                    </th>
+                  )}
                   {role !== "EMPLOYEE" && <th className="pb-3">직원</th>}
                   <th className="pb-3">제목</th>
                   <th className="pb-3">상태</th>
@@ -2914,11 +2970,19 @@ ${url}`;
               </thead>
               <tbody>
                 {contracts.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-gray-400">없음</td></tr>
+                  <tr><td colSpan={6} className="py-8 text-center text-gray-400">없음</td></tr>
                 ) : contracts.map(c => {
                   const s = statusConfig[c.status] || { label: "미정", variant: "default" };
                   return (
                     <tr key={c.id} className="border-b hover:bg-gray-50">
+                      {role === "ADMIN" && (
+                        <td className="py-3">
+                          {c.status === "DRAFT" && (
+                            <input type="checkbox" checked={pickedIds.has(c.id)}
+                              onChange={e => setPickedIds(prev => { const n = new Set(prev); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
+                          )}
+                        </td>
+                      )}
                       {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : `${c.user.branch ? `[${c.user.branch}] ` : ""}${c.user.name}`}</p></td>}
                       <td className="py-3 font-medium">
                         {c.title}
