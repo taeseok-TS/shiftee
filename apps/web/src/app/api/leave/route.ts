@@ -4,7 +4,8 @@ import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } fro
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { kstTodayMidnight } from "@/lib/resign";
-import { botNotifyApprovalRequest } from "@/lib/bot";
+import { botNotifyApprovalRequest, botSendDM } from "@/lib/bot";
+import { logAudit } from "@/lib/audit";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay } from "date-fns";
@@ -136,7 +137,26 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "요청 본문이 올바르지 않습니다." }, { status: 400 });
   }
-  const { type, startDate, endDate, reason, attachmentUrl, attachmentName } = body;
+  const { type, startDate, endDate, reason, attachmentUrl, attachmentName, targetUserId } = body;
+
+  // 본부 대리 등록(2026-10-07 QA #37, 본부 답변 #28 「대리 등록은 본부만」) — 관리자가 직원을 골라 그 직원 이름으로
+  // 바로 승인·차감한다. 결재선은 타지 않는다(본부가 곧 최종 결재). 등록자는 감사 로그로 남기고 직원에게 알린다.
+  let subject = { id: session.userId, name: session.name };
+  let proxy = false;
+  if (targetUserId !== undefined && targetUserId !== null && targetUserId !== "" && targetUserId !== session.userId) {
+    if (session.role !== "ADMIN") {
+      return NextResponse.json({ error: "휴가 대리 등록은 본부(관리자)만 할 수 있습니다." }, { status: 403 });
+    }
+    if (typeof targetUserId !== "string") {
+      return NextResponse.json({ error: "대상 직원이 올바르지 않습니다." }, { status: 400 });
+    }
+    const t = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, name: true, deletedAt: true } });
+    if (!t || t.deletedAt) {
+      return NextResponse.json({ error: "대상 직원을 찾을 수 없습니다." }, { status: 404 });
+    }
+    subject = { id: t.id, name: t.name };
+    proxy = true;
+  }
 
   if (!type || !startDate || !endDate) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
@@ -173,8 +193,8 @@ export async function POST(request: NextRequest) {
   if (typeof reason !== "string" || !reason.trim()) {
     return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
   }
-  // 필수 첨부(동의서·증빙) — 기준표 attachRequired
-  if (info.attachRequired && !attachmentUrl) {
+  // 필수 첨부(동의서·증빙) — 기준표 attachRequired. 본부 대리 등록은 본부가 서류를 받아 확인하고 넣으므로 첨부를 강제하지 않는다
+  if (info.attachRequired && !attachmentUrl && !proxy) {
     return NextResponse.json({ error: `${info.label}은(는) ${info.attachRequired} 첨부가 필요합니다.` }, { status: 400 });
   }
 
@@ -225,16 +245,16 @@ export async function POST(request: NextRequest) {
     const year = leaveYearOfLeave(start);
     // 신청 화면의 "N년 잔여"와 **같은 함수**(lib/leave-balance.ts yearBalanceFor). 행이 없으면 올해·내년은 근속 기준
     // 총연차로 검사하고(9/11 검증 D2), 지난 해는 종전처럼 검사하지 않는다(null).
-    const remaining = (await yearBalanceFor(prisma, session.userId, year))?.remaining ?? null;
+    const remaining = (await yearBalanceFor(prisma, subject.id, year))?.remaining ?? null;
     if (remaining !== null && remaining < days) {
       return NextResponse.json({
-        error: `잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,
+        error: `${proxy ? `${subject.name}님의 ` : ""}잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,
       }, { status: 400 });
     }
   }
 
   // 결재선 — 취소 결재와 **같은 함수**(lib/leave-policy.ts). 정책 설명도 거기에 있다.
-  const policySteps = await leavePolicySteps(session.userId, { days });
+  const policySteps = proxy ? [] : await leavePolicySteps(session.userId, { days });
 
   // ⚠ 트랜잭션이 던지면 미처리 500 이 된다 — 근무일정에는 try/catch 가 있는데
   //   휴가만 빠져 있었다(2026-09-09 검증에서 적발).
@@ -246,7 +266,7 @@ export async function POST(request: NextRequest) {
     const leaveRequest = await prisma.$transaction(async (tx) => {
       const created = await tx.leaveRequest.create({
         data: {
-          userId: session.userId,
+          userId: subject.id,
           type: leaveType,   // 위에서 enum 값임을 확인한 것만 넣는다
           startDate: start,
           endDate:   end,
@@ -272,7 +292,7 @@ export async function POST(request: NextRequest) {
         });
       } else if (isLeaveDeductible(leaveType)) {
         // 결재 단계 없음(관리자 본인 + 다른 관리자 없음) → 자동 승인 + 즉시 차감
-        await deductLeaveBalance(tx, session.userId, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
+        await deductLeaveBalance(tx, subject.id, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
       }
 
       return created;
@@ -290,7 +310,18 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
     }
 
-    return NextResponse.json({ success: true, leaveRequest, days });
+    if (proxy) {
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      const period = ymd(leaveRequest.startDate) === ymd(leaveRequest.endDate) ? ymd(leaveRequest.startDate) : `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`;
+      await logAudit({
+        actorId: session.userId, actorName: session.name, action: "LEAVE_PROXY_CREATE",
+        targetType: "LeaveRequest", targetId: leaveRequest.id, targetName: subject.name,
+        detail: `${info.label} ${period} (${days}일) 대리 등록·승인`,
+      });
+      botSendDM(subject.id, `[휴가 등록] 본부에서 ${subject.name}님의 휴가를 등록했습니다.\n${info.label} · ${period} (${days}일)`).catch(() => {});
+    }
+
+    return NextResponse.json({ success: true, leaveRequest, days, proxy });
   } catch (error) {
     console.error("휴가 신청 생성 오류:", error);
     return NextResponse.json({ error: "휴가 신청 중 오류가 발생했습니다." }, { status: 500 });

@@ -156,7 +156,8 @@ export default function LeavePage() {
 
   /* 휴가 신청 */
   const [addOpen, setAddOpen]   = useState(false);
-  const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
+  // targetUserId — 본부 대리 등록(#37). 비우면 본인 신청
+  const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
   const previewDays = useMemo(() => calcWorkdays(form.startDate, form.endDate, form.type), [form]);
 
   /* 반려 다이얼로그 */
@@ -245,16 +246,16 @@ export default function LeavePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
-    { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
+    { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl && !form.targetUserId) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
     const res  = await fetch("/api/leave", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
-    toast.success(`${data.days}일 휴가 신청이 완료되었습니다.`);
+    toast.success(data.proxy ? `${data.days}일 휴가를 등록·승인했습니다. 직원에게 알림을 보냈습니다.` : `${data.days}일 휴가 신청이 완료되었습니다.`);
     setAddOpen(false);
-    setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
+    setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
     fetchRequests(); fetchBalance(); fetchMySteps();
   }
 
@@ -889,6 +890,28 @@ export default function LeavePage() {
             <DialogTitle className="flex items-center gap-2"><CalendarDays size={18} />휴가 신청</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 본부 대리 등록(#37, 본부 답변 #28) — 관리자만. 고르면 그 직원 이름으로 바로 승인·차감 */}
+            {role === "ADMIN" && (
+              <div className="space-y-2">
+                <Label>대상 직원</Label>
+                <Select value={form.targetUserId || "SELF"} onValueChange={v => v && setForm(f => ({ ...f, targetUserId: v === "SELF" ? "" : v }))}>
+                  <SelectTrigger>
+                    <SelectValue>
+                      {(() => { if (!form.targetUserId) return "본인 신청"; const u = allUsers.find(x => x.id === form.targetUserId); return u ? `${u.name}${u.branch ? ` · ${u.branch}` : ""}` : "직원 선택"; })()}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SELF">본인 신청</SelectItem>
+                    {allUsers.filter(u => u.id !== myId).map(u => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}{u.branch ? ` · ${u.branch}` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {form.targetUserId && (
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">본부 대리 등록 — 결재 없이 바로 승인되고 연차 차감 유형은 바로 차감됩니다. 직원에게 알림이 갑니다.</p>
+                )}
+              </div>
+            )}
             {!isAdmin && balance && (
               <div className="flex items-center justify-between bg-blue-50 rounded-lg px-4 py-2.5">
                 <span className="text-sm text-blue-700">잔여 연차</span>
