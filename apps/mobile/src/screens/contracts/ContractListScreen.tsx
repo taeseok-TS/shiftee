@@ -300,7 +300,8 @@ export default function ContractListScreen() {
                 <Text key={k} style={styles.cardDate}>{k} {v}</Text>
               ))}
               <View style={styles.approvalBtns}>
-                {view && (
+                {/* 본인 서명 차례 문서는 서명 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 「계약서 보기」는 두지 않는다 */}
+                {view && !(c.userId === myId && !c.externalName) && (
                   <TouchableOpacity style={styles.viewBtn} onPress={() => { api.recordContractViewed(c.id).catch(() => {}); Linking.openURL(view); }}>
                     <Ionicons name="eye-outline" size={16} color="#374151" />
                     <Text style={styles.viewBtnText}>계약서 보기</Text>
@@ -417,7 +418,7 @@ export default function ContractListScreen() {
           )}
 
           {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
-          {consentKeys.length > 0 && signStep === 1 && (
+          {!(isOwnSign && !unlocked) && consentKeys.length > 0 && signStep === 1 && (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
               <TouchableOpacity style={styles.viewDocBtn}
                 onPress={() => {
@@ -479,7 +480,7 @@ export default function ContractListScreen() {
           )}
 
           {/* ── 서명 단계 (2단계 또는 동의 없는 문서) ── */}
-          {(consentKeys.length === 0 || signStep === 2) && (
+          {!(isOwnSign && !unlocked) && (consentKeys.length === 0 || signStep === 2) && (
             <>
               {/* 동의 없는 문서(비밀유지 등)의 프로필 미입력 항목 */}
               {consentKeys.length === 0 && missingProfile.length > 0 && (

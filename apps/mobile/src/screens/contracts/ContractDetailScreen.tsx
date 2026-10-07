@@ -213,7 +213,7 @@ export default function ContractDetailScreen() {
       </View>
 
       {/* 문서 열기 전 본인 확인(#20) — 근로자 본인 서명 차례면 비밀번호를 넣어야 문서·서명이 열린다 */}
-      {canSign && !isAdmin && !unlocked ? (
+      {canSign && !isAdmin && !unlocked && steps.length > 0 ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>본인 확인</Text>
           <Text style={styles.signHint}>큐브티 로그인 비밀번호를 입력하면 계약서가 열립니다. 확인 시각은 전자서명 완료 증명서에 남습니다.</Text>
@@ -226,7 +226,7 @@ export default function ContractDetailScreen() {
         </View>
       ) : null}
 
-      {!(canSign && !isAdmin && !unlocked) && (
+      {!(canSign && !isAdmin && !unlocked && steps.length > 0) && (
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>문서</Text>
         {/* 직원은 완료된 계약에서 원본(서명 전 워드) 대신 완료본만 — 워드 파일 유출 방지 (디렉터 확정 2026-08-25).
@@ -280,7 +280,7 @@ export default function ContractDetailScreen() {
 
       )}
 
-      {canSign && (isAdmin || unlocked) ? (
+      {canSign && (isAdmin || unlocked || steps.length === 0) ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>전자 서명</Text>
           <Text style={styles.signHint}>아래 버튼을 눌러 서명하면 계약이 진행됩니다.</Text>

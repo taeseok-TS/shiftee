@@ -315,6 +315,8 @@ export default function ContractsPage() {
   const [unlocked, setUnlocked] = useState(false);
   const [unlockPw, setUnlockPw] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  // 확인 뒤 30분이 지나 서버가 비밀번호를 다시 요구하면 — 창(그린 서명·입력값)은 그대로 두고 비밀번호 칸만 다시 보인다(#20 검증 D3)
+  const [needPw, setNeedPw] = useState(false);
   async function unlockDoc() {
     if (!signTarget || !unlockPw) return;
     setUnlocking(true);
@@ -331,21 +333,22 @@ export default function ContractsPage() {
   // 외부 계약은 소유자가 작성 관리자라 userId 만 보면 본인 서명으로 오판된다 — 서버 sign 라우트와 같은 기준(검증관 F1)
   const isEmpSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
   // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
-  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); } }, [signOpen]);
+  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); setNeedPw(false); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
   useEffect(() => {
-    if (!signOpen || !signTarget) return;
+    // 본인 서명이면 비밀번호 확인 뒤에 문서가 열리므로 그때 남긴다(#20 검증 D5)
+    if (!signOpen || !signTarget || (isEmpSign && !unlocked)) return;
     fetch(`/api/contracts/${signTarget.id}/events`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "VIEWED" }),
     }).catch(() => {});
-  }, [signOpen, signTarget]);
+  }, [signOpen, signTarget, isEmpSign, unlocked]);
   async function handleSign(id: string, isApprover = false) {
     if (signSubmitting) return;
     // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1).
     // 근로자 본인 서명은 저장 서명을 쓰지 않는다(#205-2 — 서버도 막는다)
     const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
     if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
-    if (isEmpSign && !unlocked && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    if (isEmpSign && (!unlocked || needPw) && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
     if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
@@ -390,7 +393,10 @@ export default function ContractsPage() {
         body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { ...(signPassword ? { password: signPassword } : {}), agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error); return; }
+      if (!res.ok) {
+        if (data.code === "PASSWORD_REQUIRED") { setNeedPw(true); toast.error("확인한 지 30분이 지났습니다. 아래 비밀번호 칸에 다시 입력하고 서명해 주세요."); return; }
+        toast.error(data.error); return;
+      }
       // 입력한 프로필을 로컬에도 반영 (다음 계약서에서 다시 안 묻도록)
       if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
       toast.success(isApprover ? "계약 승인됨" : "서명 완료");
@@ -454,9 +460,12 @@ export default function ContractsPage() {
                   <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
                 </div>
                 <div className="flex gap-2">
-                  <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
-                    <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
-                  </a>
+                  {/* 본인 서명 차례 문서는 [서명] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다 */}
+                  {!(c.userId === myId && !c.externalName) && (
+                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
+                    </a>
+                  )}
                   <Button size="sm" onClick={() => { setApproverMode(false); setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
@@ -601,6 +610,9 @@ export default function ContractsPage() {
                         {/* 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129) */}
                         {c.status === "SIGNED" && c.postSignAccess === "none" ? (
                           <span className="text-[11px] text-gray-400 px-1" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
+                        ) : c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
+                            && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING") ? (
+                          <span className="text-[11px] text-gray-400 px-1" title="[서명]에서 비밀번호를 넣으면 열립니다">서명에서 열기</span>
                         ) : (
                         <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         )}
@@ -840,7 +852,7 @@ export default function ContractsPage() {
                   </div>
                   )}
                   {/* 본인 확인 — 근로자 본인 서명만(#205-1). 문서 열기 전에 확인했으면(#20) 다시 묻지 않는다 */}
-                  {isEmpSign && !unlocked && (
+                  {isEmpSign && (!unlocked || needPw) && (
                     <div className="space-y-1">
                       <Label>본인 확인 — 비밀번호 *</Label>
                       <Input type="password" autoComplete="current-password" value={signPassword}

@@ -12,7 +12,7 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import type { Prisma } from "@prisma/client";
 import { lockSteps } from "@/lib/contract-reset";
-import { recordContractEvent } from "@/lib/contract-events";
+import { recordContractEvent, requestInfo } from "@/lib/contract-events";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { pwTakeAttempt, pwFails, recentUnlock } from "@/lib/contract-pw";
 
@@ -108,6 +108,7 @@ export async function POST(
   //   응답은 401 이 아니라 400/429 — 앱은 401 을 "로그인 만료"로 보고 로그아웃시킨다.
   const pendingMine = contract.approvalLine?.steps.find((st) => st.approverId === session.userId && st.status === "PENDING");
   const isEmployeeSignStep = !!pendingMine && pendingMine.approverId === contract.userId && !contract.externalName;
+  let pwCheckedAtSign = false;   // 서명 때 비밀번호로 확인했는가 — 서명이 확정된 뒤 기록한다(#20 검증 D9)
   if (isEmployeeSignStep) {
     // 안내 문구에 "어디서 서명하면 되는지"를 넣는다 — 원장·관리자 결재 화면은 본인 계약에 비밀번호 칸이 없고(#205 검증 A2),
     // 앱 업데이트 전 옛 앱도 칸이 없다(과도기, A6). 옛 앱은 이 문구를 그대로 띄운다.
@@ -120,7 +121,7 @@ export async function POST(
         error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
     // 문서 열기 전에 비밀번호를 확인했으면(#20, 30분 안·이번 회차) 서명 때 다시 묻지 않는다
-    const unlocked = !(typeof password === "string" && password) && (await recentUnlock(id, session.userId, pendingMine!.order));
+    const unlocked = !(typeof password === "string" && password) && (await recentUnlock(id, session.userId, pendingMine!.order, requestInfo(request)));
     if (!unlocked && (typeof password !== "string" || !password))
       return NextResponse.json({
         code: "PASSWORD_REQUIRED",
@@ -134,8 +135,7 @@ export async function POST(
       if (!me?.password || !(await bcrypt.compare(password, me.password)))
         return NextResponse.json({ code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." }, { status: 400 });
       pwFails.delete(session.userId);
-      // 증명서에 확인 방법·시각을 남긴다(#20 본부 답변 #30)
-      await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: pendingMine!.order, request, meta: { via: "서명 때 비밀번호" } });
+      pwCheckedAtSign = true;   // 증명서에 확인 방법·시각을 남긴다(#20 본부 답변 #30) — 서명 확정 뒤에
     }
   }
 
@@ -268,6 +268,7 @@ export async function POST(
     // 감사 기록(#205-4) — 동의(#205-3)·서명·완료. 트랜잭션 밖, 실패해도 서명은 그대로
     await recordContractEvent({ contractId: id, type: "CONSENT", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
       meta: { text: SIGN_CONSENT_TEXT, readToEnd: typeof readToEnd === "boolean" ? readToEnd : null } });
+    if (pwCheckedAtSign) await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request, meta: { via: "서명 때 비밀번호" } });
     await recordContractEvent({ contractId: id, type: "SIGNED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
       meta: { role: "근로자 본인", docVersion: contract.version } });
     if (!nextStep) await recordContractEvent({ contractId: id, type: "COMPLETED", actorId: session.userId, actorName: session.name, request });
@@ -348,6 +349,7 @@ export async function POST(
     if (!r.ok) return NextResponse.json({ code: r.code, error: SIGN_FAIL[r.code] }, { status: 409 });
     const finalContract = r.contract;
     // 감사 기록(#205-4) — 결재 서명·완료
+    if (pwCheckedAtSign) await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request, meta: { via: "서명 때 비밀번호" } });
     await recordContractEvent({ contractId: id, type: "SIGNED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
       meta: { role: "결재자", savedSignature: !!useSaved, docVersion: contract.version } });
     if (!nextStep) await recordContractEvent({ contractId: id, type: "COMPLETED", actorId: session.userId, actorName: session.name, request });
