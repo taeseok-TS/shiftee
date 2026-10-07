@@ -24,6 +24,7 @@ type Step = {
 type Contract = {
   id: string;
   title: string;
+  sendMessage?: string | null; // 본부 발송 메시지(#65)
   type: string;
   status: string;
   fileUrl: string;
@@ -324,6 +325,9 @@ export default function ManagerContractsPage() {
             {signTarget && (
               <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                 <p className="font-medium">{signTarget.title}</p>
+                {signTarget.sendMessage && (
+                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 whitespace-pre-wrap">💬 본부 메시지 · {signTarget.sendMessage}</p>
+                )}
                 <p className="text-gray-500 text-xs">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
                 <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.externalName ? undefined : signTarget.userId} />
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}

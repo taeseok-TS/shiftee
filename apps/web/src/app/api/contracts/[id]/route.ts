@@ -173,21 +173,10 @@ export async function PATCH(
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  // 발송 메시지(#65) — 발송 요청에 실려 오면 계약에 남긴다(빈 값이면 지운다). 수정 요청에는 손대지 않는다
+  // 발송 메시지(#65) — 발송 요청에 실려 오면 계약에 남긴다(빈 값이면 지운다). 요청에 아예 없으면(직원전용 [다시 보내기] 등) 그대로 둔다
   const { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } = await import("@/lib/contract-send-meta");
   const sendMessage = normalizeSendMessage(sendMessageRaw);
   if (sendMessage === "TOO_LONG") return NextResponse.json({ error: `발송 메시지는 ${SEND_MESSAGE_MAX}자까지 쓸 수 있습니다.` }, { status: 400 });
-  // 값 검증(#24) — 저장된 값으로 발송 전에 본다(이 기능 전에 만든 초안도). 같은 요청에서 내용을 고치면 아래 수정 단계가 새 값으로 본다
-  if (status === "SENT" && !extraFieldsRaw && salary === null) {
-    const { validateStoredContract } = await import("@/lib/contract-validate");
-    const verrs = await validateStoredContract(contract);
-    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
-  }
-  // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
-  if (status === "SENT" && !confirmDuplicate) {
-    const dups = await findDuplicateSends({ id, ...contract });
-    if (dups.length) return NextResponse.json({ code: "DUPLICATE", duplicates: dups, error: "같은 직원에게 같은 양식을 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다." }, { status: 409 });
-  }
 
   // ⚠ status 를 검증 없이 받으면 `PATCH {status:"SENT"}` 한 번으로 반려가 풀린다. 같은 파일이
   //   type 은 asContractType 으로 검증하면서 status 는 안 했다(2026-09-04 검증관 F3).
@@ -268,11 +257,12 @@ export async function PATCH(
   if ((status === "SENT" || needsReset) && contract.externalName && !isValidMobile(contract.externalPhone))
     return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
 
+  let editTemplateVersion: number | null = null;   // 내용 수정으로 다시 만든 문서의 양식 버전(#48)
   if (fieldSummary && contentChanged) {
     if (contract.templateId && !newFileUrl) {
       const tmpl = await prisma.contractTemplate.findUnique({
         where: { id: contract.templateId },
-        select: { fileUrl: true },
+        select: { fileUrl: true, version: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         try {
@@ -294,6 +284,7 @@ export async function PATCH(
           });
           if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
           newFileUrl = JSON.stringify([await fillDocxTemplate(tmpl.fileUrl, mergeData)]);
+          editTemplateVersion = tmpl.version;
         } catch (e) {
           console.error("계약서 재생성 오류:", e);
         }
@@ -342,6 +333,17 @@ export async function PATCH(
       const only = contract.externalName ? "EXTERNAL" : contract.userId;
       if (approverIds.length !== 1 || approverIds[0] !== only)
         return NextResponse.json({ error: "직원전용 문서는 서명자 본인 한 단계로만 보낼 수 있습니다." }, { status: 400 });
+    }
+    // 값 검증(#24) — 저장된 값으로 발송 전에 본다(이 기능 전에 만든 초안도). 같은 요청에서 내용을 고치면 아래 수정 단계가 새 값으로 본다
+    if (status === "SENT" && !extraFieldsRaw && salary === null) {
+      const { validateStoredContract } = await import("@/lib/contract-validate");
+      const verrs = await validateStoredContract(contract);
+      if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+    }
+    // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
+    if (status === "SENT" && !confirmDuplicate) {
+      const dups = await findDuplicateSends({ id, ...contract });
+      if (dups.length) return NextResponse.json({ code: "DUPLICATE", duplicates: dups, error: "같은 직원에게 같은 양식을 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다." }, { status: 409 });
     }
 
     // 기존 승인라인 제거 — **지우기 전에** 서명·반려 기록을 이력에 남긴다. 종전에는 재발송하면
@@ -466,7 +468,10 @@ export async function PATCH(
       ...(sentNow ? { signedUrl: null, signedAt: null, employeeSignedAt: null, docNo: null, signedPdfUrl: null, signedSha256: null, signedPdfAt: null, tsaToken: null, tsaAt: null, tsaUrl: null } : {}),
       ...(fieldSummary ? { extraFields: fieldSummary } : {}),
       // 발송이면 발송 당시 양식 버전·메시지를 남긴다(#48 #65). 파일을 직접 바꿔 보낸 건은 양식 버전이 없다
-      ...(status === "SENT" ? { templateVersion: sendTemplateVersion, sendMessage: sendMessage ?? null } : {}),
+      ...(status === "SENT"
+        ? { templateVersion: sendTemplateVersion ?? editTemplateVersion, ...(sendMessageRaw !== undefined ? { sendMessage: sendMessage ?? null } : {}) }
+        // 서명·반려 뒤 내용 수정은 현재 양식으로 다시 만들어 처음부터 받는다 — 사실상 재발송이라 양식 버전도 맞춘다(검증 F4)
+        : editTemplateVersion != null && contract.status !== "DRAFT" ? { templateVersion: editTemplateVersion } : {}),
     },
     include: {
       user: { select: { id: true, name: true, email: true, department: true } },

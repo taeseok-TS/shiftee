@@ -58,11 +58,19 @@ type Contract = {
 
 type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null; email?: string | null; resignDate?: string | null };
 
-// 휴대폰 일부만(#26) — 010-****-1234
+// 휴대폰 일부만(#26) — 010-****-1234, 서울 02-****-4567
 const maskPhone = (p?: string | null) => {
   const d = (p || "").replace(/[^0-9]/g, "");
-  return d.length >= 8 ? `${d.slice(0, 3)}-****-${d.slice(-4)}` : "";
+  return d.length >= 8 ? `${d.slice(0, d.startsWith("02") ? 2 : 3)}-****-${d.slice(-4)}` : "";
 };
+
+// 중복 발송 경고(#47) 확인창 — 발송 창·[다시 보내기]가 같이 쓴다. 날짜는 KST
+function askDuplicate(data: { duplicates?: { title: string; status: string; lastSentAt: string | null }[] }): boolean {
+  const st: Record<string, string> = { SENT: "진행 중", APPROVED: "진행 중", SIGNED: "완료", EXPIRED: "만료" };
+  const kst = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const lines = (data.duplicates || []).slice(0, 5).map(d => `· ${d.title} — ${st[d.status] ?? d.status}${d.lastSentAt ? ` (발송 ${kst(d.lastSentAt)})` : ""}`);
+  return confirm(`같은 직원에게 같은 양식이 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다.\n\n${lines.join("\n")}\n\n그래도 발송할까요?`);
+}
 
 type ContractTemplate = {
   id: string;
@@ -591,12 +599,19 @@ export default function ContractsPage() {
     sendingRef.current = true;
     setSending(true);
     try {
-      const res = await fetch(`/api/contracts/${c.id}`, {
+      const send = (confirmDuplicate: boolean) => fetch(`/api/contracts/${c.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "SENT", approverIds: [c.userId] }),
+        body: JSON.stringify({ status: "SENT", approverIds: [c.userId], ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }),
       });
-      const d = await res.json().catch(() => ({}));
+      let res = await send(false);
+      let d = await res.json().catch(() => ({}));
+      // 중복 발송 경고(#47) — 발송 창과 같은 확인을 거쳐 다시 보낸다(검증 F1: 확인 없이 409 로 영영 막혔다)
+      if (res.status === 409 && d.code === "DUPLICATE") {
+        if (!askDuplicate(d)) return;
+        res = await send(true);
+        d = await res.json().catch(() => ({}));
+      }
       if (!res.ok) { toast.error(d.error || "다시 보내지 못했습니다."); return; }
       toast.success("직원에게 다시 보냈습니다 — 반려 기록은 이력에 남습니다.");
       fetchContracts();
@@ -1414,11 +1429,7 @@ ${url}`;
     // 패키지(묶음)면 3종을 함께 발송 — 근로계약서는 결재라인 전체, 나머지는 직원 서명만
     // 반려된 문서는 **그 문서만** 다시 보낸다(#206-4) — 패키지 발송은 반려 문서를 일부러 건너뛴다
     // 중복 발송 경고(#47) — 서버가 409 DUPLICATE 로 알려 주면 목록을 보여 주고, 확인하면 다시 보낸다
-    const askDup = (data: { duplicates?: { title: string; status: string; lastSentAt: string | null }[] }) => {
-      const st: Record<string, string> = { SENT: "진행 중", APPROVED: "진행 중", SIGNED: "완료", REJECTED: "반려", EXPIRED: "만료" };
-      const lines = (data.duplicates || []).slice(0, 5).map(d => `· ${d.title} — ${st[d.status] ?? d.status}${d.lastSentAt ? ` (발송 ${d.lastSentAt.slice(0, 10)})` : ""}`);
-      return confirm(`같은 직원에게 같은 양식이 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다.\n\n${lines.join("\n")}\n\n그래도 발송할까요?`);
-    };
+    const askDup = askDuplicate;
     const post = async (url: string, method: string, payload: Record<string, unknown>) => {
       let res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       let data = await res.json().catch(() => ({}));
@@ -3083,7 +3094,7 @@ ${url}`;
                                         {approverSlots.map((sid, i) => {
                                           if (!sid) return null;
                                           if (sid === "EXTERNAL") return (
-                                            <p key={i} className="text-xs text-gray-700">{i + 1}. {sendTarget.externalName || "외부 서명자"} · 외부 · {maskPhone(sendTarget.externalPhone)}</p>
+                                            <p key={i} className="text-xs text-gray-700">{i + 1}. {sendTarget.externalName || "외부 서명자"} · 외부{maskPhone(sendTarget.externalPhone) && ` · ${maskPhone(sendTarget.externalPhone)}`}</p>
                                           );
                                           const party = sid === sendTarget.userId && !sendTarget.externalName;
                                           const e = employees.find(x => x.id === sid);
@@ -3095,7 +3106,7 @@ ${url}`;
                                           return (
                                             <div key={i} className="text-xs text-gray-700">
                                               {i + 1}. {party ? `${sendTarget.user?.name || e?.name || "직원"} (당사자)` : e?.name || "?"}
-                                              {e?.branch && ` · ${e.branch}`}{e?.email && ` · ${e.email}`}{e?.phone && ` · ${maskPhone(e.phone)}`}
+                                              {e?.branch && ` · ${e.branch}`}{e?.email && ` · ${e.email}`}{maskPhone(e?.phone) && ` · ${maskPhone(e?.phone)}`}
                                               {warns.map(w => <span key={w} className="ml-1.5 rounded bg-amber-100 px-1 text-amber-700">⚠ {w}</span>)}
                                             </div>
                                           );

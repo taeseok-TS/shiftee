@@ -33,6 +33,7 @@ type ContractApprovalStep = {
 type Contract = {
   id: string;
   title: string;
+  sendMessage?: string | null; // 본부 발송 메시지(#65)
   templateId?: string | null;
   fileUrl?: string | null;
   createdAt: string;
@@ -287,6 +288,7 @@ export default function ContractApprovalsPage() {
                           <FileText size={16} className="text-blue-600" />
                           <span className="text-sm font-medium text-gray-900">{contract.title}</span>
                         </div>
+                        {contract.sendMessage && <p className="mt-1 text-xs text-indigo-700 whitespace-pre-wrap">💬 {contract.sendMessage}</p>}
                       </td>
 
                       {/* 생성일 */}

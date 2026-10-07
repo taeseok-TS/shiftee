@@ -40,7 +40,7 @@ export type DuplicateSend = { id: string; title: string; status: string; lastSen
 const DUP_DAYS = 30;
 
 /**
- * 같은 직원에게 같은 양식(템플릿이 없으면 같은 종류·같은 제목)을 진행 중(SENT·APPROVED)이거나 30일 안에 보낸 계약.
+ * 같은 직원에게 같은 양식(템플릿이 없으면 같은 종류·같은 제목)을 진행 중(SENT·APPROVED)이거나 30일 안에 보낸 계약(반려 제외).
  * 외부 계약(userId = 작성 관리자)은 보지 않는다. 같은 패키지 문서·자기 자신은 뺀다.
  */
 export async function findDuplicateSends(c: {
@@ -56,8 +56,10 @@ export async function findDuplicateSends(c: {
       id: { not: c.id },
       ...(c.bundleId ? { OR: [{ bundleId: null }, { bundleId: { not: c.bundleId } }] } : {}),
       ...(c.templateId ? { templateId: c.templateId } : { templateId: null, type: c.type as never, title: c.title }),
-      status: { not: "DRAFT" },
+      // 초안·반려는 진행 중이 아니다 — 「반려 → 새로 만들어 발송」마다 경고가 뜨지 않게(검증 F8)
+      status: { notIn: ["DRAFT", "REJECTED"] },
     },
+    orderBy: { createdAt: "desc" },
     select: {
       id: true, title: true, status: true,
       events: { where: { type: { in: ["SENT", "RESEND"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },

@@ -198,7 +198,7 @@ export async function POST(
       //   (2026-09-04 검증관 B 실측 — 주소.퇴사사유가 빈 채로 서명 완료되던 상태).
       //   `prisma: any` 라 타입 검사가 이 오타를 못 잡았다(F2, lib/db.ts).
       const tmpl = await prisma.contractTemplate.findUnique({
-        where: { id: contract.templateId }, select: { fileUrl: true },
+        where: { id: contract.templateId }, select: { fileUrl: true, version: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
@@ -236,7 +236,7 @@ export async function POST(
         // 옛 입력으로 만든 문서가 새 문서를 덮게 두지 않는다.
         const w = await prisma.contract.updateMany({
           where: { id, version: contract.version },
-          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged) },
+          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48)
         });
         if (w.count === 0)
           return NextResponse.json({ code: "DOC_CHANGED", error: SIGN_FAIL.DOC_CHANGED }, { status: 409 });
@@ -302,7 +302,8 @@ export async function POST(
         updated.externalName || updated.user.name, // 계약 당사자 — 외부 계약은 게스트 이름
         nextStep.order,
         appUrl,
-        nextStep.approverId || undefined
+        nextStep.approverId || undefined,
+        contract.sendMessage
       );
     } else if (!nextStep && updated.user.email) {
       // 계약 완료
@@ -318,7 +319,7 @@ export async function POST(
 
     // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 완료 알림 (#136 재정리)
     if (nextStep?.approverId) {
-      hrBotSendDM(nextStep.approverId, `🖋 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+      hrBotSendDM(nextStep.approverId, `🖋 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}` + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep) {
       // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원 (근로자가 마지막 스텝이면 근로자 DM 생략) (#136)
       notifyContractCompleted(id).catch((e) => console.error("[contract] 완료 알림 오류:", e));

@@ -268,6 +268,7 @@ export async function POST(
       hrBotSendDM(
         nextStep.approverId,
         `🖋 전자계약 결재 요청\n「${contractRow.title}」 — 대상: ${contractRow.externalName || "외부 계약자"}\n외부 계약자의 서명이 완료되어 결재 차례가 되었습니다.\n아래 링크에서 바로 처리할 수 있습니다:\n${getAppUrl()}${approvalPageUrl(approverRole)}`
+          + (await import("@/lib/contract-send-meta")).messageDmLine(contractRow.sendMessage)
       ).catch((e) => console.error("[external-sign] 결재 DM 오류:", e));
     }
   }

@@ -383,6 +383,10 @@ export default function ContractListScreen() {
           <Text style={styles.modalHint}>
             '{signTarget?.title}'{consentKeys.length > 0 && signStep === 1 ? " — 동의 항목을 확인하고 선택하세요." : " — 승인하면 다음 결재자에게 전달됩니다."}
           </Text>
+          {/* 본부 발송 메시지(#65) */}
+          {!!signTarget?.sendMessage && (
+            <Text style={{ fontSize: 13, color: "#3730a3", backgroundColor: "#eef2ff", borderRadius: 8, padding: 8, marginBottom: 8 }}>💬 본부 메시지 · {signTarget.sendMessage}</Text>
+          )}
 
           {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
           {consentKeys.length > 0 && signStep === 1 && (

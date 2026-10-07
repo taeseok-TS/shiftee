@@ -37,6 +37,16 @@ export async function POST(
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
 
+  // 외부 서명 단계는 외부 계약 패키지에서만 허용 (일반 패키지에 유입 시 User FK 500 방지)
+  const isExternalBundle = contracts.some((c) => c.externalName);
+  // 외부 패키지는 휴대폰 번호가 있어야 보낸다(디렉터 9/11) — 게스트 링크 본인 확인이 이 번호로 한다(안전망)
+  if (contracts.some((c) => c.externalName && !isValidMobile(c.externalPhone)))
+    return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
+  if (approverIds.includes("EXTERNAL") && !isExternalBundle)
+    return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
+  if (approverIds.filter((a) => a === "EXTERNAL").length > 1)
+    return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
+
   // 값 검증(#24) — 보낼 문서 전부를 먼저 본다
   {
     const { validateStoredContract } = await import("@/lib/contract-validate");
@@ -52,15 +62,6 @@ export async function POST(
     if (uniq.length) return NextResponse.json({ code: "DUPLICATE", duplicates: uniq, error: "같은 직원에게 같은 양식을 진행 중이거나 최근 30일 안에 보낸 계약이 있습니다." }, { status: 409 });
   }
 
-  // 외부 서명 단계는 외부 계약 패키지에서만 허용 (일반 패키지에 유입 시 User FK 500 방지)
-  const isExternalBundle = contracts.some((c) => c.externalName);
-  // 외부 패키지는 휴대폰 번호가 있어야 보낸다(디렉터 9/11) — 게스트 링크 본인 확인이 이 번호로 한다(안전망)
-  if (contracts.some((c) => c.externalName && !isValidMobile(c.externalPhone)))
-    return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
-  if (approverIds.includes("EXTERNAL") && !isExternalBundle)
-    return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
-  if (approverIds.filter((a) => a === "EXTERNAL").length > 1)
-    return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
 
   const mkToken = () =>
     crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
@@ -145,7 +146,7 @@ export async function POST(
     await prisma.contract.update({
       where: { id: c.id },
       data: { status: "SENT", ...(reRendered ? { fileUrl: JSON.stringify([reRendered]) } : {}),
-          templateVersion, sendMessage: sendMessage ?? null,   // #48 #65
+          templateVersion, ...(body.sendMessage !== undefined ? { sendMessage: sendMessage ?? null } : {}),   // #48 #65 — 메시지가 요청에 없으면 그대로
           // 재발송이면 결재선이 새로 만들어져 서명이 전부 사라진다. 저장된 완료본과 서명 시각을
           // 남기면 옛 완료본이 되살아나고 직원 화면이 "서명했다"로 오판한다.
           // 단건 재발송(PATCH)에는 넣었는데 패키지만 빠져 있었다 (2026-09-04).
