@@ -22,7 +22,7 @@ export async function POST(
     return NextResponse.json({ error: "패키지 발송은 관리자만 가능합니다." }, { status: 403 });
 
   const { bundleId } = await params;
-  const body = (await request.json().catch(() => ({}))) as { approverIds?: string[]; sendMessage?: unknown; confirmDuplicate?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { approverIds?: string[]; sendMessage?: unknown; confirmDuplicate?: boolean; deadlineDays?: unknown };
   const { approverIds } = body;
   if (!Array.isArray(approverIds) || approverIds.length === 0)
     return NextResponse.json({ error: "승인자를 선택해주세요." }, { status: 400 });
@@ -65,7 +65,9 @@ export async function POST(
 
   const mkToken = () =>
     crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
-  const tokenExpiresAt = new Date(Date.now() + 14 * 24 * 3600 * 1000);
+  // 서명 기한(#45) — 기본 14일, 외부 서명 링크 만료도 같은 시각
+  const { deadlineFromDays } = await import("@/lib/contract-deadline");
+  const tokenExpiresAt = deadlineFromDays(body.deadlineDays);
 
   let sent = 0;
   // 발송 후 봇 DM 대상 — 문서별 첫 결재 단계의 내부 인원 (개선 제안 2026-08-24)
@@ -147,6 +149,7 @@ export async function POST(
       where: { id: c.id },
       data: { status: "SENT", ...(reRendered ? { fileUrl: JSON.stringify([reRendered]) } : {}),
           templateVersion, ...(body.sendMessage !== undefined ? { sendMessage: sendMessage ?? null } : {}),   // #48 #65 — 메시지가 요청에 없으면 그대로
+          signDeadline: tokenExpiresAt,   // #45
           // 재발송이면 결재선이 새로 만들어져 서명이 전부 사라진다. 저장된 완료본과 서명 시각을
           // 남기면 옛 완료본이 되살아나고 직원 화면이 "서명했다"로 오판한다.
           // 단건 재발송(PATCH)에는 넣었는데 패키지만 빠져 있었다 (2026-09-04).

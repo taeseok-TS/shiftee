@@ -21,20 +21,22 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({ events, frozen: frozen?.docNo ? frozen : null });
 }
 
-// 열람 알림 — 화면이 문서를 열면 POST 로 알린다(GET 에 기록을 넣지 않는 규칙). 볼 권한이 있는 사람만, 10분 안 중복은 한 번.
+// 열람·내려받기 알림 — 화면이 문서를 열거나 받으면 POST 로 알린다(GET 에 기록을 넣지 않는 규칙). 볼 권한이 있는 사람만, 10분 안 중복은 한 번.
+// 내려받기(DOWNLOADED)는 2026-10-07 QA #21 #66(본부 답변 #31 「교부 일시·열람·다운로드 기록」)
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as { type?: string };
-  if (body.type !== "VIEWED") return NextResponse.json({ error: "지원하지 않는 기록입니다." }, { status: 400 });
+  if (body.type !== "VIEWED" && body.type !== "DOWNLOADED") return NextResponse.json({ error: "지원하지 않는 기록입니다." }, { status: 400 });
+  const type = body.type;
   const { canAccessContractFile } = await import("@/lib/contract-access");
   const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
   if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
   const recent = await prisma.contractEvent.findFirst({
-    where: { contractId: id, type: "VIEWED", actorId: session.userId, createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) } },
+    where: { contractId: id, type, actorId: session.userId, createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) } },
     select: { id: true },
   });
-  if (!recent) await recordContractEvent({ contractId: id, type: "VIEWED", actorId: session.userId, actorName: session.name, request });
+  if (!recent) await recordContractEvent({ contractId: id, type, actorId: session.userId, actorName: session.name, request });
   return NextResponse.json({ ok: true });
 }

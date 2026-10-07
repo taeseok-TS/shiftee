@@ -109,6 +109,9 @@ export async function POST(
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+  // 서명 기한이 지나 만료된 계약(#45) — 담당자가 재발송해야 다시 서명할 수 있다. 점검(하루 한 번) 전이라도 기한이 지났으면 막는다
+  if (contract.status === "EXPIRED" || (contract.signDeadline && contract.signDeadline < new Date()))
+    return NextResponse.json({ code: "EXPIRED", error: "서명 기한이 지나 만료된 계약입니다. 담당자에게 재발송을 요청해 주세요." }, { status: 409 });
 
   // ── 근로자 본인 서명 단계 (#205-1·#205-2, 2026-09-11 디렉터 결정) ──
   // 로그인만 돼 있으면 선 하나로 서명이 통과됐다(이예지대리 #205-1). 근로자 본인 서명은 **비밀번호를 다시 확인**하고

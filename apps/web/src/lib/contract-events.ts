@@ -11,7 +11,9 @@ import { prisma } from "@/lib/db";
  */
 export type ContractEventType =
   | "SENT" | "RESEND" | "EDITED" | "RESET" | "VIEWED" | "VERIFY_OK" | "VERIFY_FAIL"
-  | "CONSENT" | "SIGNED" | "COMPLETED" | "REJECTED" | "REVOKED" | "FROZEN" | "TSA";
+  | "CONSENT" | "SIGNED" | "COMPLETED" | "REJECTED" | "REVOKED" | "FROZEN" | "TSA"
+  // 2026-10-07 QA #45 #21 #66 — 미서명 알림·기한 변경·기한 만료·교부(완료 알림)·완료본 내려받기
+  | "REMINDED" | "DEADLINE_CHANGED" | "EXPIRED" | "DELIVERED" | "DOWNLOADED";
 
 /** 요청에서 IP·브라우저·기기 — 프록시(Caddy)가 x-forwarded-for 에 실제 접속 IP 를 넣는다(첫 값). 앱은 x-device-id 를 싣는다. */
 export function requestInfo(req?: Request | null) {

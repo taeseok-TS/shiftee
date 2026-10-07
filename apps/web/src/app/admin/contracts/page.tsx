@@ -44,6 +44,7 @@ type Contract = {
   hideRevoked?: boolean;              // 회수된 결재 숨김
   revocationLog?: { at?: string; by?: string; reason?: string }[] | null; // 회수 이력
   templateVersion?: number | null; // 발송 당시 양식 버전(#48)
+  signDeadline?: string | null;    // 서명 기한(#45)
   sendMessage?: string | null;     // 본부 발송 메시지(#65)
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
@@ -236,9 +237,10 @@ export default function ContractsPage() {
   const [sendOpen, setSendOpen] = useState(false);
   // 발송 메시지(#65) — 발송 창을 열 때 본부 기본 문구로 채운다. 「기본으로 저장」하면 다음 발송부터 이 문구
   const [sendMsg, setSendMsg] = useState("");
+  const [deadlineDays, setDeadlineDays] = useState("14");   // 서명 기한(#45, 본부 답변 #35 기본 2주)
   const [savingMsg, setSavingMsg] = useState(false);
   async function openSendDialog(c: Contract) {
-    setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendMsg(""); setSendOpen(true);
+    setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendMsg(""); setDeadlineDays("14"); setSendOpen(true);
     try {
       const d = await fetch("/api/admin/contract-message").then(r => (r.ok ? r.json() : null));
       if (d?.message) setSendMsg(m => (m ? m : d.message));
@@ -1503,7 +1505,7 @@ ${url}`;
 
     const bundleId = sendTarget?.bundleId;
     if (bundleId && sendTarget?.status !== "REJECTED") {
-      const r = await post(`/api/contracts/bundle/${bundleId}/send`, "POST", { approverIds, sendMessage: sendMsg });
+      const r = await post(`/api/contracts/bundle/${bundleId}/send`, "POST", { approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14 });
       if (!r) return;
       const { res, data } = r;
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
@@ -1526,7 +1528,7 @@ ${url}`;
       return;
     }
 
-    const r = await post(`/api/contracts/${id}`, "PATCH", { status: "SENT", approverIds, sendMessage: sendMsg });
+    const r = await post(`/api/contracts/${id}`, "PATCH", { status: "SENT", approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14 });
     if (!r) return;
     const { res, data } = r;
     if (!res.ok) { toast.error(data.error || "발송하지 못했습니다."); return; }
@@ -3016,7 +3018,25 @@ ${url}`;
                         {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
                         {c.employeeOnly && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span>}
                       </td>
-                      <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
+                      <td className="py-3">
+                        <Badge variant={s.variant}>{s.label}</Badge>
+                        {/* 서명 기한(#45) — 진행 중이면 표시·변경 */}
+                        {c.signDeadline && (c.status === "SENT" || c.status === "APPROVED") && (
+                          <button type="button" className="block mt-0.5 text-[11px] text-gray-400 hover:text-indigo-600 hover:underline" title="기한 바꾸기"
+                            onClick={async () => {
+                              const cur = new Date(new Date(c.signDeadline!).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+                              const v = window.prompt("새 서명 기한(YYYY-MM-DD)", cur);
+                              if (!v || v === cur) return;
+                              const res = await fetch(`/api/contracts/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signDeadline: v.trim() }) });
+                              const d = await res.json().catch(() => ({}));
+                              if (!res.ok) { toast.error(d.error || "기한을 바꾸지 못했습니다."); return; }
+                              toast.success(`기한을 ${v.trim()} 로 바꿨습니다.`);
+                              fetchContracts();
+                            }}>
+                            기한 {new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/")}
+                          </button>
+                        )}
+                      </td>
                       <td className="py-3">
                         <ApprovalChain
                           steps={c.approvalLine?.steps}
@@ -3035,7 +3055,7 @@ ${url}`;
                         {/* 완료본은 PDF로(수정 방지, 파일명=제목_서명완료.pdf) — 변환 실패 시 서버가 워드로 폴백.
                             미완료 원본은 워드 그대로, 파일명만 제목으로 (개선 제안 2026-08-24) */}
                         {/* 원본도 PDF로 — 워드 파일 그대로 나가면 수정 가능 (개선 제안 #67~#71) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" onClick={() => { fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }} title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -3210,6 +3230,13 @@ ${url}`;
                                         })}
                                       </div>
                                     )}
+                                    {/* 서명 기한(#45) — 기본 14일, 지나면 자동 만료·본부 알림. 미서명 알림은 3일마다 */}
+                                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                                      <span className="font-medium">서명 기한</span>
+                                      <input type="number" min={1} max={90} value={deadlineDays} onChange={e => setDeadlineDays(e.target.value)}
+                                        className="w-16 rounded-md border px-2 py-1 text-sm" />일
+                                      <span className="text-gray-400">· 지나면 자동 만료, 미서명 알림 3일마다</span>
+                                    </div>
                                     {/* 발송 메시지(#65) — 알림·메일·서명 화면에 함께 보인다 */}
                                     <div className="space-y-1">
                                       <div className="flex items-center justify-between">
@@ -3800,7 +3827,7 @@ ${url}`;
                     {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
                   </p>
                   {approvalDetailsTarget.status === "SIGNED" && (
-                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document`} className="block">
+                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document`} className="block" onClick={() => { fetch(`/api/contracts/${approvalDetailsTarget.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }}>
                       <Button className="w-full gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명 완료본 다운로드</Button>
                     </a>
                   )}

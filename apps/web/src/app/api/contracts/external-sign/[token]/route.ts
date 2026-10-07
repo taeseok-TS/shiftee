@@ -65,7 +65,7 @@ export async function GET(
     // 나중에 계약만 반려되는 경로가 생겼을 때 게스트에게 서명 화면이 그대로 뜬다.
     : step.status === "REJECTED" || contract.status === "REJECTED"
     ? "rejected"
-    : expired
+    : expired || contract.status === "EXPIRED"   // 서명 기한 만료(#45)
     ? "expired"
     : step.status === "PENDING"
     ? "ready"
@@ -125,7 +125,7 @@ export async function POST(
     return NextResponse.json({ error: "유효하지 않은 서명 링크입니다." }, { status: 404 });
   if (step.status === "APPROVED")
     return NextResponse.json({ error: "이미 서명이 완료된 계약서입니다." }, { status: 400 });
-  if (step.tokenExpiresAt && step.tokenExpiresAt < new Date())
+  if ((step.tokenExpiresAt && step.tokenExpiresAt < new Date()) || step.approvalLine.contract.status === "EXPIRED")
     return NextResponse.json({ error: "서명 링크가 만료되었습니다. 담당자에게 재발급을 요청해주세요." }, { status: 400 });
   if (step.status !== "PENDING")
     return NextResponse.json({ error: "아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 서명할 수 있습니다." }, { status: 400 });

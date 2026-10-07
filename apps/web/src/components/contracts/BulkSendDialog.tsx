@@ -23,6 +23,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
   const admins = employees.filter((e) => e.role === "ADMIN" && (e as { isContractApprover?: boolean }).isContractApprover !== false);
   const [hq, setHq] = useState("");
   const [msg, setMsg] = useState("");
+  const [days, setDays] = useState("14");   // 서명 기한(#45)
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -61,8 +62,8 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
       const ids = u.c.employeeOnly && !u.bundle ? [u.c.userId]
         : [hq !== u.c.userId ? hq : null, mgrOf(u.c)?.id ?? null, u.c.userId].filter((x): x is string => !!x);
       const res = u.bundle
-        ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approverIds: ids, sendMessage: msg, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) })
-        : await fetch(`/api/contracts/${u.c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "SENT", approverIds: ids, sendMessage: msg, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) });
+        ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approverIds: ids, sendMessage: msg, deadlineDays: Number(days) || 14, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) })
+        : await fetch(`/api/contracts/${u.c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "SENT", approverIds: ids, sendMessage: msg, deadlineDays: Number(days) || 14, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) });
       const d = await res.json().catch(() => ({}));
       return { res, d };
     };
@@ -119,6 +120,11 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
           </div>
           {noMgr.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">지점 원장을 찾지 못한 {noMgr.length}건은 2단계 없이 보냅니다.</p>}
           {external.length > 0 && <p className="text-xs text-gray-500">외부 계약 {external.length}건은 서명 링크 전달이 따로라 빼고 보냅니다 — 목록에서 각각 발송해 주세요.</p>}
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            <span className="font-medium">서명 기한</span>
+            <input type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} className="w-16 rounded-md border px-2 py-1 text-sm" />일
+            <span className="text-gray-400">· 지나면 자동 만료, 미서명 알림 3일마다</span>
+          </div>
           <div>
             <span className="text-xs font-medium text-gray-600">발송 메시지 <span className="font-normal text-gray-400">(선택 · 알림·메일·서명 화면)</span></span>
             <textarea value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={500} rows={2} className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm resize-none" />

@@ -43,6 +43,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "이미 완료된 계약은 반려할 수 없습니다. 회수를 사용하세요." }, { status: 400 });
   if (contract.status === "REJECTED")
     return NextResponse.json({ error: "이미 반려된 계약입니다." }, { status: 400 });
+  if (contract.status === "EXPIRED")
+    return NextResponse.json({ error: "서명 기한이 지나 만료된 계약입니다." }, { status: 400 });
 
   // **자기 차례일 때만** 반려할 수 있다. 관리자라도 남의 차례를 대신 반려하지 않는다 —
   // 그건 회수(revoke)의 일이고, 둘을 섞으면 누가 거부한 것인지 기록이 흐려진다.

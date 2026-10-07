@@ -90,6 +90,8 @@ export async function PATCH(
   // 발송 메시지(#65)·중복 발송 확인(#47) — JSON 발송 요청만 보낸다
   let sendMessageRaw: unknown = undefined;
   let confirmDuplicate = false;
+  let deadlineDays: unknown = undefined;      // 발송 기한(#45) — 일 수(기본 14)
+  let signDeadlineRaw: unknown = undefined;   // 기한 변경(#45) — "YYYY-MM-DD"
   let salary: string | null = null;
   let extraFieldsRaw: string | null = null;
   let newFileUrl: string | undefined;
@@ -155,6 +157,8 @@ export async function PATCH(
       confirmReset = body.confirmReset === true;
       sendMessageRaw = body.sendMessage;
       confirmDuplicate = body.confirmDuplicate === true;
+      deadlineDays = body.deadlineDays;
+      signDeadlineRaw = body.signDeadline;
       salary = body.salary ?? null;
       extraFieldsRaw = body.extraFields ? JSON.stringify(body.extraFields) : null;
     } catch (parseError) {
@@ -172,6 +176,22 @@ export async function PATCH(
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+
+  // 기한만 바꾸는 요청(#45) — 진행 중(발송됨·결재 중)인 계약만. 외부 서명 링크 만료도 같은 시각으로. 변경은 감사 기록에 남긴다
+  if (signDeadlineRaw !== undefined && !status) {
+    const { deadlineFromYmd, deadlineYmd } = await import("@/lib/contract-deadline");
+    if (contract.status !== "SENT" && contract.status !== "APPROVED")
+      return NextResponse.json({ error: "진행 중인 계약만 기한을 바꿀 수 있습니다(만료된 계약은 재발송)." }, { status: 400 });
+    const next = deadlineFromYmd(signDeadlineRaw);
+    if (!next) return NextResponse.json({ error: "기한은 오늘 이후 날짜(YYYY-MM-DD)로 넣어 주세요." }, { status: 400 });
+    const prev = await prisma.contract.findUnique({ where: { id }, select: { signDeadline: true } });
+    await prisma.$transaction([
+      prisma.contract.update({ where: { id }, data: { signDeadline: next } }),
+      prisma.contractApprovalStep.updateMany({ where: { approvalLine: { contractId: id }, approverId: null, status: { in: ["PENDING", "WAITING"] } }, data: { tokenExpiresAt: next } }),
+    ]);
+    await recordContractEvent({ contractId: id, type: "DEADLINE_CHANGED", actorId: session.userId, actorName: session.name, request, meta: { from: deadlineYmd(prev?.signDeadline), to: deadlineYmd(next) } });
+    return NextResponse.json({ success: true, signDeadline: next });
+  }
 
   // 발송 메시지(#65) — 발송 요청에 실려 오면 계약에 남긴다(빈 값이면 지운다). 요청에 아예 없으면(직원전용 [다시 보내기] 등) 그대로 둔다
   const { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } = await import("@/lib/contract-send-meta");
@@ -367,6 +387,9 @@ export async function PATCH(
     // 기록·삭제·새 결재선을 **결재 단계 잠금 + 한 트랜잭션**으로(D7) — 따로 돌면 ① 기록과 삭제 사이에 들어온 서명이 기록 없이
     // 지워지고 ② 새 결재선 생성이 실패하면 결재선 없는 계약이 남고 ③ 방금 마지막 서명으로 완료된 계약의 결재선을 다시 만들었다
     // (위 SIGNED 검사는 옛 값이라 못 막는다). 잠금 순서는 서명·초기화와 같다(단계 → 계약).
+    // 서명 기한(#45) — 발송·재발송 때마다 새로(기본 14일). 외부 서명 링크도 같은 시각에 만료
+    const { deadlineFromDays } = await import("@/lib/contract-deadline");
+    const sendDeadline = deadlineFromDays(deadlineDays);
     const resend = await prisma.$transaction(async (tx) => {
       await lockSteps(tx, id);
       const cur = await tx.contract.findUnique({ where: { id }, select: { status: true } });
@@ -389,7 +412,7 @@ export async function PATCH(
                   approverId: null,
                   externalName: contract.externalName || "외부 서명자",
                   signToken: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
-                  tokenExpiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000),
+                  tokenExpiresAt: sendDeadline,
                   order: idx + 1,
                   status: stepStatus,
                 };
@@ -485,7 +508,8 @@ export async function PATCH(
       ...(fieldSummary ? { extraFields: fieldSummary } : {}),
       // 발송이면 발송 당시 양식 버전·메시지를 남긴다(#48 #65). 파일을 직접 바꿔 보낸 건은 양식 버전이 없다
       ...(status === "SENT"
-        ? { templateVersion: sendTemplateVersion ?? editTemplateVersion, ...(sendMessageRaw !== undefined ? { sendMessage: sendMessage ?? null } : {}) }
+        ? { templateVersion: sendTemplateVersion ?? editTemplateVersion, ...(sendMessageRaw !== undefined ? { sendMessage: sendMessage ?? null } : {}),
+            signDeadline: (await import("@/lib/contract-deadline")).deadlineFromDays(deadlineDays) }
         // 서명·반려 뒤 내용 수정은 현재 양식으로 다시 만들어 처음부터 받는다 — 사실상 재발송이라 양식 버전도 맞춘다(검증 F4)
         : editTemplateVersion != null && contract.status !== "DRAFT" ? { templateVersion: editTemplateVersion } : {}),
     },

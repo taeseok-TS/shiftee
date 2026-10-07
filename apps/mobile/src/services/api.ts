@@ -234,6 +234,8 @@ export async function getSignedDocLink(id: string): Promise<string> {
   const token = await getToken();
   const res = await axios.get(`${API_URL}/contracts/${id}/signed-link`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  // 내려받기 기록(#21 #66, 본부 답변 #31) — 실패해도 무시. 서버가 10분 안 중복은 하나로 친다
+  axios.post(`${API_URL}/contracts/${id}/events`, { type: "DOWNLOADED" }, { headers: await signHeaders(token) }).catch(() => {});
   return res.data?.url;
 }
 

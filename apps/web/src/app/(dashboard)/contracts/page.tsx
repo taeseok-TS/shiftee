@@ -588,7 +588,7 @@ export default function ContractsPage() {
                         {c.status === "SIGNED" && c.postSignAccess === "none" ? (
                           <span className="text-[11px] text-gray-400 px-1" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
                         ) : (
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         )}
                         <Button
                           size="sm"
@@ -1037,7 +1037,7 @@ export default function ContractsPage() {
                     {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
                   </p>
                   {approvalDetailsTarget.status === "SIGNED" && (
-                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document?pdf=1`} className="block">
+                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document?pdf=1`} className="block" onClick={() => { fetch(`/api/contracts/${approvalDetailsTarget.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }}>
                       <Button className="w-full gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명 완료본 다운로드</Button>
                     </a>
                   )}
