@@ -1,5 +1,6 @@
 "use client";
 
+import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { useWeekHours, WeekHoursLine, showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -230,6 +231,11 @@ export default function AdminSchedulePage() {
                   <div>
                     <Label>날짜</Label>
                     <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+                  </div>
+                  <div className="col-span-full">
+                    <Label>근무일정 템플릿</Label>
+                    <TemplatePicker branch={employees.find((x) => x.id === form.userId)?.branch ?? null}
+                      onPick={(st, et) => setForm((f) => ({ ...f, startTime: st, endTime: et }))} />
                   </div>
                   <div>
                     <Label>시작 시간</Label>

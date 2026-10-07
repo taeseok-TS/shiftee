@@ -16,20 +16,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday } from "../../services/schedule";
+import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 
-/* 근무 시간 템플릿 (웹 신청 페이지와 동일) */
-const SCHEDULE_TEMPLATES = [
-  { id: "8-5", name: "8-5 (8AM-5PM)", startTime: "08:00", endTime: "17:00", hours: 9 },
-  { id: "9-6", name: "9-6 (9AM-6PM)", startTime: "09:00", endTime: "18:00", hours: 9 },
-  { id: "10-7", name: "10-7 (10AM-7PM)", startTime: "10:00", endTime: "19:00", hours: 9 },
-  { id: "11-8", name: "11-8 (11AM-8PM)", startTime: "11:00", endTime: "20:00", hours: 9 },
-  { id: "12-9", name: "12-9 (12PM-9PM)", startTime: "12:00", endTime: "21:00", hours: 9 },
-  { id: "1-10", name: "1-10 (1PM-10PM)", startTime: "13:00", endTime: "22:00", hours: 9 },
-  { id: "9-5", name: "9-5 (9AM-5PM)", startTime: "09:00", endTime: "17:00", hours: 8 },
-  { id: "10-6", name: "10-6 (10AM-6PM)", startTime: "10:00", endTime: "18:00", hours: 8 },
-];
+/* 근무 시간 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10, 웹 신청과 같은 목록) */
 
 /* 휴게시간 (근로기준법: 4.5h+ → 30분, 9h+ → 1시간) — 웹과 동일 규칙 */
 function breakHours(spanHours: number) {
@@ -102,7 +92,11 @@ export default function ScheduleScreen() {
 
   // 근무일정 신청 모달
   const [reqOpen, setReqOpen] = useState(false);
-  const [reqTemplate, setReqTemplate] = useState<(typeof SCHEDULE_TEMPLATES)[number] | null>(null);
+  const [reqTemplate, setReqTemplate] = useState<ScheduleTemplate | null>(null);
+  const [templates, setTemplates] = useState<ScheduleTemplate[]>([]);
+  useEffect(() => {
+    getScheduleTemplates().then(setTemplates).catch(() => {});
+  }, []);
   const [reqStart, setReqStart] = useState("");
   const [reqEnd, setReqEnd] = useState("");
   const [reqDays, setReqDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5])); // 기본 월~금
@@ -555,7 +549,7 @@ export default function ScheduleScreen() {
             <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
               <Text style={styles.reqLabel}>근무 시간</Text>
               <View style={styles.tmplWrap}>
-                {SCHEDULE_TEMPLATES.map((t) => (
+                {templates.map((t) => (
                   <TouchableOpacity
                     key={t.id}
                     style={[styles.tmplChip, !customOn && reqTemplate?.id === t.id && styles.tmplChipOn]}

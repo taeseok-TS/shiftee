@@ -1,5 +1,6 @@
 "use client";
 
+import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -554,6 +555,11 @@ export default function SchedulePage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>근무일정 템플릿</Label>
+              <TemplatePicker branch={employees.find((x) => x.id === addForm.userId)?.branch ?? null}
+                onPick={(st, et) => setAddForm((f) => ({ ...f, startTime: st, endTime: et }))} />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>출근</Label>
@@ -635,6 +641,10 @@ export default function SchedulePage() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label>근무일정 템플릿 (범용형 — 여러 직원·여러 날에 한 번에)</Label>
+              <TemplatePicker onPick={(st, et) => setBulk((b) => ({ ...b, startTime: st, endTime: et }))} />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>출근 시간</Label>

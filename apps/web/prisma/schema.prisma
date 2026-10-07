@@ -1229,3 +1229,21 @@ model AttendanceAlertLog {
   @@unique([userId, date, kind])
   @@index([date])
 }
+
+// 근무일정 템플릿(2026-10-07 QA #10, 본부 답변 #16) — 시프티 템플릿 34개에서 시작. branches 가 비면 전사 공통, 있으면 그 지점 전용.
+// 관리자 「근무일정 템플릿」 화면에서 관리하고, 직원 신청·원장/관리자 등록·일괄 생성이 이 표를 쓴다.
+model ScheduleTemplate {
+  id        String   @id @default(cuid())
+  code      String?
+  name      String
+  startTime String   // "HH:mm"
+  endTime   String
+  branches  String[] @default([])
+  jobs      String[] @default([])   // 직무(참고 표시용)
+  color     String?
+  memo      String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

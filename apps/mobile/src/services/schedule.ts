@@ -45,6 +45,16 @@ export async function getHolidays(year: number): Promise<Holiday[]> {
 }
 
 // 근무일정 신청 (웹 신청 페이지와 동일한 서버 계약 — 결재라인은 서버 정책이 자동 구성)
+/** 근무일정 템플릿(본부 관리, 2026-10-07 QA #10) — 전사 공통 + 내 지점 전용 */
+export type ScheduleTemplate = { id: string; name: string; startTime: string; endTime: string; hours: number };
+export async function getScheduleTemplates(): Promise<ScheduleTemplate[]> {
+  const res = await axios.get(`${API_URL}/schedule-templates`, { headers: await authHeaders() });
+  return ((res.data?.templates ?? []) as { id: string; name: string; startTime: string; endTime: string }[]).map((t) => {
+    const [sh, sm] = t.startTime.split(":").map(Number), [eh, em] = t.endTime.split(":").map(Number);
+    return { id: t.id, name: `${t.name} (${t.startTime}~${t.endTime})`, startTime: t.startTime, endTime: t.endTime, hours: Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 6) / 10 };
+  });
+}
+
 export async function createScheduleRequest(payload: {
   kind?: "CREATE" | "UPDATE" | "DELETE";   // 2026-10-07 #49 — 기존 일정 수정·삭제 요청
   templateId: string;

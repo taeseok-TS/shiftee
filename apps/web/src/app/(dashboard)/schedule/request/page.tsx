@@ -18,17 +18,11 @@ type ScheduleTemplate = {
   hours: number;
 };
 
-/* ── 근무 템플릿 (출근 8AM~1PM, 9시간 근무 기본) ── */
-const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
-  { id: "8-5", name: "8-5 (8AM-5PM)", startTime: "08:00", endTime: "17:00", hours: 9 },
-  { id: "9-6", name: "9-6 (9AM-6PM)", startTime: "09:00", endTime: "18:00", hours: 9 },
-  { id: "10-7", name: "10-7 (10AM-7PM)", startTime: "10:00", endTime: "19:00", hours: 9 },
-  { id: "11-8", name: "11-8 (11AM-8PM)", startTime: "11:00", endTime: "20:00", hours: 9 },
-  { id: "12-9", name: "12-9 (12PM-9PM)", startTime: "12:00", endTime: "21:00", hours: 9 },
-  { id: "1-10", name: "1-10 (1PM-10PM)", startTime: "13:00", endTime: "22:00", hours: 9 },
-  { id: "9-5", name: "9-5 (9AM-5PM)", startTime: "09:00", endTime: "17:00", hours: 8 },
-  { id: "10-6", name: "10-6 (10AM-6PM)", startTime: "10:00", endTime: "18:00", hours: 8 },
-];
+/* ── 근무 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10). 전사 공통 + 내 지점 전용 ── */
+const toTemplate = (t: { id: string; name: string; startTime: string; endTime: string }): ScheduleTemplate => {
+  const [sh, sm] = t.startTime.split(":").map(Number), [eh, em] = t.endTime.split(":").map(Number);
+  return { id: t.id, name: `${t.name} (${t.startTime}~${t.endTime})`, startTime: t.startTime, endTime: t.endTime, hours: Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 6) / 10 };
+};
 
 /* ── 휴게시간 계산 (근로기준법: 4.5시간 이상 30분, 9시간 이상 1시간) ── */
 function breakHours(spanHours: number) {
@@ -57,6 +51,12 @@ function buildCustomTemplate(start: string, end: string): ScheduleTemplate | nul
 export default function ScheduleRequestPage() {
   const [step, setStep] = useState(1); // 1: 템플릿, 2: 달력, 3: 승인권자, 4: 확인
   const [selectedTemplate, setSelectedTemplate] = useState<ScheduleTemplate | null>(null);
+  const [templates, setTemplates] = useState<ScheduleTemplate[]>([]);
+  useEffect(() => {
+    fetch("/api/schedule-templates").then((r) => (r.ok ? r.json() : { templates: [] }))
+      .then((d) => setTemplates(((d.templates || []) as { id: string; name: string; startTime: string; endTime: string }[]).map(toTemplate)))
+      .catch(() => {});
+  }, []);
   const [customStart, setCustomStart] = useState("09:00");
   const [customEnd, setCustomEnd] = useState("18:00");
 
@@ -427,7 +427,7 @@ export default function ScheduleRequestPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {SCHEDULE_TEMPLATES.map(template => (
+                {templates.map(template => (
                   <button
                     key={template.id}
                     onClick={() => setSelectedTemplate(template)}
