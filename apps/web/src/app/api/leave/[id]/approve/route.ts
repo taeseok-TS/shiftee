@@ -183,6 +183,7 @@ export async function POST(
         requesterName: leaveRequest.user.name,
         period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
         requesterId: leaveRequest.userId,
+        prevApprover: session.name,
       }).catch(() => {});
     }
 

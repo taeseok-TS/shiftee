@@ -134,7 +134,7 @@ export async function botNotifyApprovalRequest(step: {
   approverRole?: string | null;
   branch?: string | null;
   approverId?: string | null;
-}, opts: { kind: "근무일정" | "휴가" | "휴가 취소"; requesterName: string; period: string; requesterId: string }) {
+}, opts: { kind: "근무일정" | "휴가" | "휴가 취소"; requesterName: string; period: string; requesterId: string; prevApprover?: string }) {
   try {
     const { prisma } = await import("@/lib/db");
     const stepTargets: string[] = [];
@@ -163,7 +163,7 @@ export async function botNotifyApprovalRequest(step: {
     const text = `📋 결재 요청이 도착했습니다
 
 ${opts.kind}: ${opts.requesterName}
-기간: ${opts.period}
+기간: ${opts.period}${opts.prevApprover ? `\n원장 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
 
 결재함에서 확인해주세요.`;
     for (const id of list) {
@@ -193,10 +193,10 @@ export async function botNotifyDecision(
   approved: boolean,
   approverName: string,
   reason?: string | null,
-  // 본부 진행 알림용(2026-10-07 #8) — 원장이 처리했거나 반려면 본부에도 알린다. 본부가 직접 승인한 건 본인들이 안다
+  // 본부 진행 알림용(2026-10-07 #8) — 최종 승인·반려를 처리한 사람·신청자를 뺀 관리자 전원에게 알린다
   progress?: { actorId: string; actorRole: string },
 ) {
-  if (progress && (!approved || progress.actorRole !== "ADMIN")) {
+  if (progress) {
     const who = await prisma.user.findUnique({ where: { id: requesterId }, select: { name: true } }).catch(() => null);
     botNotifyAdminsProgress(
       `${who?.name ?? "직원"} · ${kind} — ${approved ? "승인" : "반려"} (결재: ${approverName})${!approved && reason ? `\n사유: ${reason}` : ""}`,

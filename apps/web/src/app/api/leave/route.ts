@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
       return created;
     });
 
-    // 1단계 결재자에게 알린다 — 근무일정과 같은 기준(지정 결재자 + 전체 관리자).
+    // 1단계 결재자에게 알린다 — 결재 차례인 사람에게만, 본부는 진행 알림(2026-10-07 본부 답변 #8).
     // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.
     if (policySteps.length > 0) {
       const ymd = (d: Date) => d.toISOString().slice(0, 10);

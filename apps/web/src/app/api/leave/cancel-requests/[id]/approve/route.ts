@@ -158,6 +158,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       requesterName: cr.user.name,
       period,
       requesterId: cr.userId,
+      prevApprover: session.name,
     }).catch(() => {});
   }
   if (out.final) {

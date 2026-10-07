@@ -183,6 +183,7 @@ export async function POST(
         requesterName: scheduleRequest.user.name,
         period: fmtRange(scheduleRequest.startDate, scheduleRequest.endDate),
         requesterId: scheduleRequest.userId,
+        prevApprover: session.name,
       }).catch(() => {});
     }
 

@@ -154,7 +154,8 @@ export async function expireStaleCancelRequests(): Promise<number> {
       targetType: "LEAVE", targetId: cr.leaveRequest.id, targetName: cr.user?.name ?? null,
       detail: `휴가 취소 요청 기한 만료 — 휴가 시작 전까지 결재가 끝나지 않음 (${period})`,
     }).catch(() => {});
-    const { botSendDM } = await import("@/lib/bot");   // bot.ts 가 이 파일을 부르므로 순환을 피한다
+    const { botSendDM, botNotifyAdminsProgress } = await import("@/lib/bot");   // bot.ts 가 이 파일을 부르므로 순환을 피한다
+    await botNotifyAdminsProgress(`${cr.user?.name ?? "직원"} · 휴가 취소 요청 기한 만료 (${period}) — 휴가는 그대로 유지`, [cr.userId]).catch(() => {});
     // 순서대로 보낸다 — 한 사람에게 2건이 한 번에 나가면 봇 DM 방 조회→생성 경쟁으로 방이 둘 생길 수 있다
     await botSendDM(
       cr.userId,
