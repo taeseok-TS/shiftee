@@ -217,7 +217,8 @@ export async function POST(
         `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
         emailAction === "approve",
         approverName,
-        reason
+        reason,
+        { actorId: session.userId, actorRole: session.role },
       ).catch(() => {});
     }
 
@@ -342,7 +343,8 @@ async function adminOverride(
     `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
     action === "approve",
     approverName,
-    reason
+    reason,
+    { actorId: approverId, actorRole: role ?? "ADMIN" },
   ).catch(() => {});
 
   return NextResponse.json({ success: true });

@@ -68,6 +68,15 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
     });
   }
 
+  // 본부는 모든 진행 상황(취소 포함)을 받는다(2026-10-07 본부 답변 #8)
+  {
+    const { botNotifyAdminsProgress } = await import("@/lib/bot");
+    botNotifyAdminsProgress(
+      `${leave.user?.name ?? "직원"} · 휴가 신청 취소 (${ymd(leave.startDate)} ~ ${ymd(leave.endDate)}, 처리: ${session.name})`,
+      [session.userId],
+    ).catch(() => {});
+  }
+
   // 남의 것을 취소했으면 당사자에게 알린다 — 모르는 사이에 휴가가 사라지면 안 된다
   if (leave.userId !== session.userId) {
     const { botSendDM } = await import("@/lib/bot");

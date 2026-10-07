@@ -161,7 +161,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }).catch(() => {});
   }
   if (out.final) {
-    botNotifyDecision(cr.userId, `${typeLabel} 휴가 취소 요청 (${period})`, action === "approve", session.name, reason).catch(() => {});
+    botNotifyDecision(cr.userId, `${typeLabel} 휴가 취소 요청 (${period})`, action === "approve", session.name, reason,
+      { actorId: session.userId, actorRole: session.role }).catch(() => {});
   }
   return NextResponse.json({ success: true, final: out.final, restoredDays: out.restored?.restoredDays ?? 0 });
 }

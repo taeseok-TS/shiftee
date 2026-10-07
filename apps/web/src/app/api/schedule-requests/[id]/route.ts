@@ -63,6 +63,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     detail: `근무일정 신청 취소 (${ymd(req.startDate)} ~ ${ymd(req.endDate)})`,
   });
 
+  // 본부는 모든 진행 상황(취소 포함)을 받는다(2026-10-07 본부 답변 #8)
+  {
+    const { botNotifyAdminsProgress } = await import("@/lib/bot");
+    botNotifyAdminsProgress(
+      `${req.user?.name ?? "직원"} · 근무일정 신청 취소 (${ymd(req.startDate)} ~ ${ymd(req.endDate)}, 처리: ${session.name})`,
+      [session.userId],
+    ).catch(() => {});
+  }
+
   // 남의 신청을 취소했으면 당사자에게 알린다 — 모르는 사이에 사라지면 안 된다(휴가와 같게).
   if (req.userId !== session.userId) {
     const { botSendDM } = await import("@/lib/bot");

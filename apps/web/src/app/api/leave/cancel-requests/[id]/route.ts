@@ -50,5 +50,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     targetType: "LEAVE", targetId: cr.leaveRequest.id, targetName: cr.user?.name ?? null,
     detail: `휴가 취소 요청 철회 (${ymdOf(cr.leaveRequest.startDate)} ~ ${ymdOf(cr.leaveRequest.endDate)})`,
   });
+  {
+    const { botNotifyAdminsProgress } = await import("@/lib/bot");
+    botNotifyAdminsProgress(
+      `${cr.user?.name ?? "직원"} · 휴가 취소 요청 철회 (${ymdOf(cr.leaveRequest.startDate)} ~ ${ymdOf(cr.leaveRequest.endDate)})`,
+      [session.userId],
+    ).catch(() => {});
+  }
   return NextResponse.json({ success: true });
 }

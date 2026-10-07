@@ -735,17 +735,25 @@ export default function LeavePage() {
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div className="rounded-lg border p-4">
-                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />연차 2일 이상 <span className="text-xs font-normal text-gray-400">(연차·병가·예비군·경조사·기타 등)</span></p>
+                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />휴가 <span className="text-xs font-normal text-gray-400">(일수와 무관 — 반차·반반차 포함)</span></p>
                   <ul className="space-y-1 text-gray-600">
                     <li>· <b>직원</b> 신청 → 소속 지점 <b>원장</b> → <b>관리자</b> <span className="text-gray-400">(2단계)</span></li>
                     <li>· <b>원장</b> 신청 → <b>관리자</b> <span className="text-gray-400">(1단계)</span></li>
+                    <li>· 휴가 <b>취소 요청</b>도 같은 결재선으로 갑니다.</li>
                   </ul>
                 </div>
                 <div className="rounded-lg border p-4">
-                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />1일 이하 <span className="text-xs font-normal text-gray-400">(1일 연차·반차·반반차)</span></p>
+                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />근무일정 신청</p>
                   <ul className="space-y-1 text-gray-600">
-                    <li>· <b>직원</b> 신청 → 소속 지점 <b>원장</b> <span className="text-gray-400">(1단계)</span></li>
-                    <li>· <b>원장</b> 신청 → <b>관리자</b> <span className="text-gray-400">(1단계)</span></li>
+                    <li>· 평일만: <b>직원</b> → 소속 지점 <b>원장</b> <span className="text-gray-400">(1단계)</span></li>
+                    <li>· 주말·공휴일 포함: <b>직원</b> → <b>원장</b> → <b>관리자</b> <span className="text-gray-400">(2단계)</span></li>
+                  </ul>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="font-semibold text-gray-800 mb-2">알림</p>
+                  <ul className="space-y-1 text-gray-600">
+                    <li>· 결재 요청은 <b>결재할 차례인 사람</b>에게만 갑니다.</li>
+                    <li>· 관리자는 모든 신청의 <b>진행 상황</b>(신청·원장 승인·반려·취소)을 「진행 알림」으로 받습니다.</li>
                   </ul>
                 </div>
                 <p className="text-xs text-gray-400 leading-relaxed">

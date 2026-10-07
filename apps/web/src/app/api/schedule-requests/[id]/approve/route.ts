@@ -203,7 +203,8 @@ export async function POST(
         `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
         emailAction === "approve",
         session.name,
-        reason
+        reason,
+        { actorId: session.userId, actorRole: session.role },
       ).catch(() => {});
     }
 
@@ -290,7 +291,8 @@ async function adminOverride(
     `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
     action === "approve",
     actor?.name ?? "관리자",
-    reason
+    reason,
+    { actorId: approverId, actorRole: "ADMIN" },
   ).catch(() => {});
 
   return NextResponse.json({ success: true });

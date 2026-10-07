@@ -102,11 +102,31 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
 }
 
 /**
- * **결재 차례가 된 사람에게 알린다.**
+ * 본부(관리자 전원)에게 **진행 상황**을 알린다 — 결재 차례가 아니어도 신청·원장 승인·반려·취소를 다 받는다
+ * (2026-10-07 본부 답변 #8). 결재 요청과 구분되게 「진행 알림」으로 보낸다. 실패는 무시한다.
+ */
+export async function botNotifyAdminsProgress(text: string, exclude: (string | null | undefined)[] = []) {
+  try {
+    const { prisma } = await import("@/lib/db");
+    const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
+    const skip = new Set(exclude.filter(Boolean) as string[]);
+    for (const a of admins) {
+      if (skip.has(a.id)) continue;
+      await botSendDM(a.id, `📌 [진행 알림] ${text}`).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
+    }
+  } catch (e) {
+    console.error("[bot] 진행 알림 오류:", e);
+  }
+}
+
+/**
+ * **결재 차례가 된 사람에게만** 결재 요청을 알린다(2026-10-07 본부 답변 #8 「결재 알림은 결재할 차례인 사람에게만」).
+ * 원장 단계면 그 지점 원장(지정 결재자가 있으면 그 사람)에게, 본부 단계면 관리자 전원에게.
+ * 본부는 원장 단계 건도 **진행 알림**으로 받는다(botNotifyAdminsProgress).
  *
  * 종전에는 결재 "결과" 알림만 있고 "요청" 알림이 없었다. 결재자는 화면에 직접
  * 들어가야만 알 수 있어서, 미결 신청이 7주째 방치된 건이 실재했다
- * (2026-09-08 검증에서 적발). 신청자는 기다리는데 결재자는 온 줄을 모른다.
+ * (2026-09-08 검증에서 적발). 그 뒤로는 원장 단계 건도 관리자 전원에게 결재 요청으로 갔다.
  *
  * 알림 실패가 신청.결재를 되돌리면 안 되므로 호출부는 await 하지 않는다.
  */
@@ -117,26 +137,24 @@ export async function botNotifyApprovalRequest(step: {
 }, opts: { kind: "근무일정" | "휴가" | "휴가 취소"; requesterName: string; period: string; requesterId: string }) {
   try {
     const { prisma } = await import("@/lib/db");
-    const targets: string[] = [];
+    const stepTargets: string[] = [];
+    const adminTurn = !step.approverId && step.approverRole === "ADMIN";
 
-    // ① 이 단계의 **결재자로 지정된 사람** (2026-09-09 디렉터 지시)
     if (step.approverId) {
-      targets.push(step.approverId);
+      stepTargets.push(step.approverId);       // 이 단계의 결재자로 지정된 사람(2026-09-09)
     } else if (step.approverRole === "MANAGER" && step.branch) {
       const { branchManagers } = await import("@/lib/manager-branches");
-      targets.push(...(await branchManagers(step.branch)).map((m) => m.id));
+      stepTargets.push(...(await branchManagers(step.branch)).map((m) => m.id));
     }
-
-    // ② **전체 관리자**. 원장 단계에서 멈춘 건을 관리자가 모르고 지나치면 안 되고,
-    //    그 지점 원장이 자리를 비웠을 때 대신 처리할 사람이 필요하다.
-    const admins = await prisma.user.findMany({
+    const admins = (await prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
       select: { id: true },
-    });
-    targets.push(...admins.map((a) => a.id));
+    })).map((a) => a.id);
 
-    // 본인에게는 보내지 않는다 (자기 신청이 자기 결재함에 뜨는 경우)
-    const list = [...new Set(targets)].filter((id) => id !== opts.requesterId);
+    // 결재 차례인 사람. 원장 단계인데 결재할 원장이 없으면(퇴사 등) 본부가 대신 받는다 — 건이 멈추지 않게
+    let requestTargets = adminTurn ? admins : stepTargets;
+    if (requestTargets.filter((id) => id !== opts.requesterId).length === 0) requestTargets = admins;
+    const list = [...new Set(requestTargets)].filter((id) => id !== opts.requesterId);
     if (list.length === 0) {
       console.error(`[bot] ${opts.kind} 결재 대상이 없습니다 — ${opts.requesterName} (${opts.period})`);
       return;
@@ -150,6 +168,14 @@ ${opts.kind}: ${opts.requesterName}
 결재함에서 확인해주세요.`;
     for (const id of list) {
       await botSendDM(id, text).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
+    }
+
+    // 본부 진행 알림 — 결재 요청을 이미 받은 본부 사람은 빼고(같은 내용 두 번 방지)
+    if (!list.some((id) => admins.includes(id)) || !adminTurn) {
+      await botNotifyAdminsProgress(
+        `${opts.kind} ${opts.kind === "휴가 취소" ? "요청" : "신청"} — ${opts.requesterName} (${opts.period})\n원장 결재 대기 중입니다.`,
+        [opts.requesterId, ...list],
+      );
     }
   } catch (e) {
     console.error("[bot] 결재 요청 알림 오류:", e);
@@ -166,8 +192,17 @@ export async function botNotifyDecision(
   kind: string, // 예: "연차 (2026-07-10 ~ 2026-07-10)"
   approved: boolean,
   approverName: string,
-  reason?: string | null
+  reason?: string | null,
+  // 본부 진행 알림용(2026-10-07 #8) — 원장이 처리했거나 반려면 본부에도 알린다. 본부가 직접 승인한 건 본인들이 안다
+  progress?: { actorId: string; actorRole: string },
 ) {
+  if (progress && (!approved || progress.actorRole !== "ADMIN")) {
+    const who = await prisma.user.findUnique({ where: { id: requesterId }, select: { name: true } }).catch(() => null);
+    botNotifyAdminsProgress(
+      `${who?.name ?? "직원"} · ${kind} — ${approved ? "승인" : "반려"} (결재: ${approverName})${!approved && reason ? `\n사유: ${reason}` : ""}`,
+      [progress.actorId, requesterId],
+    ).catch(() => {});
+  }
   let silent = false;
   try {
     const force = await prisma.appSetting.findUnique({ where: { key: "forceApprovalNotify" } });

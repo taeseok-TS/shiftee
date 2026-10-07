@@ -99,17 +99,6 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
   if (t.status !== "PENDING") {
     return { status: 409, error: "처리할 수 없는 상태의 신청입니다.", block: "STATE" };
   }
-  // 원장이 승인한 뒤에는 **신청한 본인**이 바로 취소하지 못한다 — 본부 결재가 남아 아직 「대기」여도 마찬가지
-  // (2026-10-06 본부 QA 요청 #14: 「원장 승인 뒤엔 직원이 취소 못 함, 필요하면 원장·본부에 요청」).
-  // 결재자(원장·본부)는 자기 단계에서 반려하거나 지금처럼 취소할 수 있다.
-  if (t.userId === v.userId && t.approvalSteps.some((s) => s.status === "APPROVED")) {
-    return {
-      status: 409,
-      error: "원장이 이미 승인한 휴가라 바로 취소할 수 없습니다. 원장·본부에 반려를 요청해 주세요.",
-      block: "IN_REVIEW",
-    };
-  }
-
   // 지나간 휴가는 누구도 취소하지 않는다 — 관리자 "잔여 조정"으로 정정한다(디렉터 확정).
   // **종료일 기준**(9/11 디렉터): 어제 시작해 내일 끝나는 휴가는 아직 취소할 수 있다.
   // 날짜는 @db.Date(UTC 자정)라 KST 오늘 0시를 같은 형식으로 만든 today 와 비교한다.
@@ -118,6 +107,17 @@ export function leaveCancelDenial(v: CancelViewer, t: LeaveCancelTarget): Cancel
       status: 409,
       error: "이미 지난 휴가는 취소할 수 없습니다. 연차는 관리자 '잔여 조정'으로 정정해주세요.",
       block: "PAST",
+    };
+  }
+
+  // 원장이 승인한 뒤에는 **신청한 본인**이 바로 취소하지 못한다 — 본부 결재가 남아 아직 「대기」여도 마찬가지
+  // (2026-10-06 본부 QA 요청 #14: 「원장 승인 뒤엔 직원이 취소 못 함, 필요하면 원장·본부에 요청」).
+  // 결재자(원장·본부)는 자기 단계에서 반려하거나 지금처럼 취소할 수 있다.
+  if (t.userId === v.userId && t.approvalSteps.some((s) => s.status === "APPROVED")) {
+    return {
+      status: 409,
+      error: "원장이 이미 승인한 휴가라 바로 취소할 수 없습니다. 원장·본부에 반려를 요청해 주세요.",
+      block: "IN_REVIEW",
     };
   }
 

@@ -252,7 +252,7 @@ export default function BranchesPage() {
   }
 
   // 0,0 은 옛 버그로 저장된 값이라 「설정됨」으로 세지 않는다 — 수정 창에서 실제 좌표를 넣어야 한다(2026-10-06)
-  const geoOk = (b: Branch) => b.latitude != null && b.longitude != null && !(b.latitude === 0 && b.longitude === 0);
+  const geoOk = (b: Branch) => b.latitude != null && b.longitude != null && b.latitude !== 0 && b.longitude !== 0; // 한쪽만 0 이어도 미설정(서버 판정과 같게)
   const configured = branches.filter(geoOk).length;
 
   return (
