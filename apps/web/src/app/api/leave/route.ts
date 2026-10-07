@@ -280,10 +280,23 @@ export async function POST(request: NextRequest) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-proxy:" + subject.id}))`;
         const overlap = await tx.leaveRequest.findMany({
           where: { userId: subject.id, status: { in: ["PENDING", "APPROVED"] }, startDate: { lte: end }, endDate: { gte: start } },
-          select: { type: true, startDate: true, endDate: true },
+          select: { type: true, startDate: true, endDate: true, days: true },
         });
-        const clash = overlap.find((o) => !(info.unit !== "FULL" && leaveInfo(o.type)?.unit !== "FULL" && o.type !== leaveType));
+        // 하루 미만 유형끼리만 같은 날에 둘 수 있다 — 같은 시간대(오전·오후)가 겹치거나 그날 합이 1일을 넘으면 막는다
+        const slot = (t: string) => (t.endsWith("_AM") ? "AM" : t.endsWith("_PM") ? "PM" : null);
+        const subDay = info.unit !== "FULL";
+        const sameDaySum = overlap.reduce((n, o) => n + (leaveInfo(o.type)?.unit !== "FULL" ? o.days : 0), 0);
+        const clash = overlap.find((o) =>
+          !subDay || leaveInfo(o.type)?.unit === "FULL" ||
+          (slot(o.type) !== null && slot(o.type) === slot(leaveType))
+        ) ?? (subDay && sameDaySum + days > 1 ? overlap[0] : undefined);
         if (clash) throw new ProxyOverlap(`${subject.name}님은 이미 ${leaveInfo(clash.type)?.label ?? clash.type} ${ymdUTC(clash.startDate)}${ymdUTC(clash.startDate) === ymdUTC(clash.endDate) ? "" : ` ~ ${ymdUTC(clash.endDate)}`} 휴가가 있습니다.`);
+        // 잔여 검사를 잠금 안에서 한 번 더 — 관리자 둘이 같은 직원에게 동시에 다른 날짜를 넣어도 잔여가 음수가 되지 않게
+        if (isLeaveDeductible(leaveType)) {
+          const y = leaveYearOfLeave(start);
+          const left = (await yearBalanceFor(tx, subject.id, y))?.remaining ?? null;
+          if (left !== null && left < days) throw new ProxyOverlap(`${subject.name}님의 잔여 휴가가 부족합니다. (${y}년 잔여 ${left}일, 신청 ${days}일)`);
+        }
       }
       const created = await tx.leaveRequest.create({
         data: {

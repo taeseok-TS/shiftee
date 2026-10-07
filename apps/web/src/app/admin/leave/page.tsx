@@ -1034,7 +1034,10 @@ export default function LeavePage() {
               )}
             </div>
             <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>취소</Button>
+              <Button type="button" variant="outline" onClick={() => {
+                setAddOpen(false);
+                setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
+              }}>취소</Button>
               <Button type="submit" disabled={previewDays <= 0 || submitting}>{submitting ? "처리 중..." : form.targetUserId ? "등록·승인" : "신청"}</Button>
             </div>
           </form>
