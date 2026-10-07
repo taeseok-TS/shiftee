@@ -206,7 +206,9 @@ export default function SchedulePage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success(`${data.count}개 일정 등록 완료 (${data.days}일 × ${bulk.userIds.length}명)`);
+      // 이미 일정이 있는 날·휴가인 날은 건너뛴다(본부 답변 #15)
+      const skipped = [data.skippedExisting ? `일정 있는 날 ${data.skippedExisting}건` : "", data.skippedLeave ? `휴가인 날 ${data.skippedLeave}건` : ""].filter(Boolean).join(", ");
+      toast.success(`${data.count}개 일정 등록 완료${skipped ? ` · 건너뜀: ${skipped}` : ""}`);
       showWeekWarnings(data.warnings);   // 주 49시간 초과 경고(#38) — 많으면 앞 3건만
       setBulkOpen(false);
       setBulk(defaultBulk);

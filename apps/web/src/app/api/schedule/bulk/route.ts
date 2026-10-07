@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, getDay, format, differenceInDays } from "date-fns";
-import { guardScheduleChange } from "@/lib/schedule-guard";
+import { guardScheduleChange, noteManagerSelfChange } from "@/lib/schedule-guard";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate, toMin, asHhmm, asScheduleType } from "@/lib/schedule-payload";
 
@@ -81,34 +81,32 @@ export async function POST(request: NextRequest) {
 
   const dateList = days.map(d => new Date(format(d, "yyyy-MM-dd")));
 
-  let created = 0;
-  await prisma.$transaction(async (tx) => {
-    // 기존 일정 삭제 (중복 방지)
-    await tx.schedule.deleteMany({
-      where: {
-        userId: { in: ids },
-        date: { in: dateList },
-      },
-    });
+  // 이미 일정이 있는 날·휴가(반차 포함)인 날은 **건너뛴다**(2026-10-07 본부 답변 #15).
+  // 종전에는 기존 일정을 지우고 덮어써서, 승인받은 주말 일정이나 고쳐 둔 시간이 사라졌다.
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const [existing, leaves] = await Promise.all([
+    prisma.schedule.findMany({ where: { userId: { in: ids }, date: { in: dateList } }, select: { userId: true, date: true } }),
+    prisma.leaveRequest.findMany({
+      where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: dateList[dateList.length - 1] }, endDate: { gte: dateList[0] } },
+      select: { userId: true, startDate: true, endDate: true },
+    }),
+  ]);
+  const has = new Set(existing.map((e) => `${e.userId}|${ymd(e.date)}`));
+  const onLeave = new Set<string>();
+  for (const l of leaves) for (let d = new Date(l.startDate); d <= l.endDate; d.setUTCDate(d.getUTCDate() + 1)) onLeave.add(`${l.userId}|${ymd(d)}`);
+  let skippedExisting = 0, skippedLeave = 0;
+  const rows = ids.flatMap((userId) => dateList.flatMap((date) => {
+    const k = `${userId}|${ymd(date)}`;
+    if (has.has(k)) { skippedExisting++; return []; }
+    if (onLeave.has(k)) { skippedLeave++; return []; }
+    return [{ userId, date, startTime: st, endTime: et, type: kind, note: typeof note === "string" ? note : null }];
+  }));
 
-    // 새 일정 일괄 생성
-    const made = await tx.schedule.createMany({
-      data: ids.flatMap(userId =>
-        dateList.map(date => ({
-          userId,
-          date,
-          startTime: st,
-          endTime: et,
-          type: kind,
-          note: typeof note === "string" ? note : null,
-        }))
-      ),
-      // (userId, date) 유니크 제약이 있다. 두 요청이 겹치면 충돌로 트랜잭션이
-      // 통째로 죽는 대신 건너뛴다 — 어차피 같은 날짜는 하나만 남으면 된다.
-      skipDuplicates: true,
-    });
-    created = made.count; // skipDuplicates 로 건너뛴 것이 있으면 예상치보다 적다
-  });
+  // (userId, date) 유니크 — 동시에 다른 요청이 같은 날을 넣었으면 건너뛴다
+  const made = rows.length ? await prisma.schedule.createMany({ data: rows, skipDuplicates: true }) : { count: 0 };
+  const created = made.count;
+  await noteManagerSelfChange(session as { userId: string; role: string; name: string }, ids,
+    `일괄 등록 ${startDate}~${endDate} ${st}~${et} (${created}건)`);
 
   // 주 49시간을 넘는 사람·주가 있으면 경고만(#38)
   const warnings = await over49Warnings(
@@ -118,6 +116,8 @@ export async function POST(request: NextRequest) {
     success: true,
     count: created,
     days: dateList.length,
+    skippedExisting,
+    skippedLeave,
     warnings,
   });
 }

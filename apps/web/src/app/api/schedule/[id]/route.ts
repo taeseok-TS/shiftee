@@ -12,13 +12,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   // ⚠ 종전에는 소유자.지점 검사가 아예 없어, 원장이 id 만 알면 남의 지점 직원의 승인된
   //   주말 일정을 지울 수 있었다(그러면 그 직원은 그날 출근이 막힌다).
-  const target = await prisma.schedule.findUnique({ where: { id }, select: { userId: true } });
+  const target = await prisma.schedule.findUnique({ where: { id }, select: { userId: true, date: true, startTime: true, endTime: true } });
   if (!target) return NextResponse.json({ error: "일정을 찾을 수 없습니다." }, { status: 404 });
-  const { guardScheduleChange } = await import("@/lib/schedule-guard");
+  const { guardScheduleChange, noteManagerSelfChange } = await import("@/lib/schedule-guard");
   const denied = await guardScheduleChange(session, target.userId);
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
   await prisma.schedule.delete({ where: { id } });
+  await noteManagerSelfChange(session, [target.userId], `${target.date.toISOString().slice(0, 10)} ${target.startTime}~${target.endTime} 삭제`);
   return NextResponse.json({ success: true });
 }
 
@@ -33,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // 시간대를 바꾸면 퇴근 상한이 따라 바뀐다 — 소유자.지점 검사가 반드시 필요하다.
   const target = await prisma.schedule.findUnique({ where: { id }, select: { userId: true } });
   if (!target) return NextResponse.json({ error: "일정을 찾을 수 없습니다." }, { status: 404 });
-  const { guardScheduleChange } = await import("@/lib/schedule-guard");
+  const { guardScheduleChange, noteManagerSelfChange } = await import("@/lib/schedule-guard");
   const denied = await guardScheduleChange(session, target.userId);
   if (denied) return NextResponse.json({ error: denied }, { status: 403 });
 
@@ -59,6 +60,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     include: { user: { select: { name: true, department: true } } },
   });
 
+  await noteManagerSelfChange(session, [schedule.userId], `${schedule.date.toISOString().slice(0, 10)} ${st}~${et}로 수정`);
   const warnings = await over49Warnings([{ userId: schedule.userId, date: schedule.date.toISOString().slice(0, 10) }]).catch(() => [] as string[]);
   return NextResponse.json({ success: true, schedule, warnings });
 }

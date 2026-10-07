@@ -196,6 +196,8 @@ export async function POST(request: NextRequest) {
     update: { startTime: st, endTime: et, type: kind, note: memo },
   });
 
+  const { noteManagerSelfChange } = await import("@/lib/schedule-guard");
+  await noteManagerSelfChange(session, [userId], `${date} ${st}~${et}`);
   // 주 49시간을 넘으면 경고만(막지 않는다, #38)
   const warnings = await over49Warnings([{ userId, date }]).catch(() => [] as string[]);
   return NextResponse.json({ success: true, schedule, warnings });
