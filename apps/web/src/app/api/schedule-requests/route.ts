@@ -88,6 +88,25 @@ export async function POST(request: NextRequest) {
     if (kind === "UPDATE" && typeof templateName === "string" && !templateName.startsWith("수정 · ")) templateName = `수정 · ${templateName}`;
   }
 
+  // 같은 날짜에 대기 중인 요청이 있으면 받지 않는다 — 수정·삭제가 끼면 승인 순서에 따라 결과가 갈린다(#49 검증).
+  // 새 일정 신청끼리는 종전대로(겹치면 나중 승인이 덮는다) 두고, 어느 한쪽이 수정·삭제일 때만 막는다.
+  {
+    const pend = await prisma.scheduleRequest.findMany({
+      where: {
+        userId: session.userId, status: "PENDING",
+        ...(kind === "CREATE" ? { kind: { not: "CREATE" } } : {}),
+        startDate: { lte: new Date(entries[entries.length - 1].date) },
+        endDate: { gte: new Date(entries[0].date) },
+      },
+      select: { scheduleData: true },
+    });
+    const mine = new Set(entries.map((e) => e.date));
+    const clash = pend.some((p) => (Array.isArray(p.scheduleData) ? p.scheduleData : [])
+      .some((x) => mine.has(String((x as { date?: unknown })?.date ?? ""))));
+    if (clash)
+      return NextResponse.json({ error: "같은 날짜에 승인을 기다리는 근무일정 요청이 있습니다. 그 요청이 처리되거나 취소된 뒤 다시 보내 주세요." }, { status: 409 });
+  }
+
   // 승인된 휴가가 걸친 날은 그만큼 뺀다 — 신청 화면과 **같은 규칙**이어야 결재자가
   // 보는 숫자가 화면과 일치한다(반차 0.5, 반반차 0.25 는 그 비율만큼).
   // 신청자가 보낸 totalHours 는 믿지 않는다. 이 값이 결재자가 보는 유일한 정량 정보다.

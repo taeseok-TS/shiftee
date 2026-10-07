@@ -125,7 +125,7 @@ export async function GET() {
     ...pendingScheduleItems.map((r) => ({
       id: r.id,
       type: "schedule" as const,
-      title: `근무일정 ${r.templateName ?? ""} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
+      title: `${r.templateName?.startsWith("근무일정") ? "" : "근무일정 "}${r.templateName ?? ""} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
       requester: r.user.name,
       requestedAt: r.createdAt,
     })),

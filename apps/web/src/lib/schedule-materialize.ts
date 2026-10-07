@@ -10,6 +10,20 @@ type ScheduleEntry = { date: string; startTime?: string; endTime?: string };
 //   그게 승인되는 순간 그대로 근무일정이 된다. 근무일정은 지각.조퇴.퇴근상한의
 //   기준이므로 이상한 값이 들어오면 근태가 통째로 틀어진다.
 //   범위(startDate~endDate) 밖 날짜도 버린다 — 결재자는 기간만 보고 승인했다.
+/** 수정·삭제 요청인데 대기 중에 날짜가 지났으면 승인하지 않는다(지난 일정을 지우면 그날 근태 기준이 바뀐다, #49) */
+export function staleEditError(req: { kind?: string | null; startDate: Date }): string | null {
+  if (!req.kind || req.kind === "CREATE") return null;
+  const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+  return req.startDate.toISOString().slice(0, 10) < today
+    ? "날짜가 지난 수정·삭제 요청은 승인할 수 없습니다. 반려해 주세요. (지난 기록은 출퇴근기록 수정 요청으로)"
+    : null;
+}
+
+/** 알림·기록용 꼬리표 — 「(삭제 요청)」·「(수정 요청)」 */
+export function kindTag(kind?: string | null): string {
+  return kind === "DELETE" ? " (삭제 요청)" : kind === "UPDATE" ? " (수정 요청)" : "";
+}
+
 export async function materializeSchedules(
   tx: Pick<typeof prisma, "schedule">,
   req: { id: string; userId: string; scheduleData: unknown; templateName: string | null;

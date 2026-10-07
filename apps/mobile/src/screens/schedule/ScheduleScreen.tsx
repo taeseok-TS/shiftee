@@ -109,6 +109,16 @@ export default function ScheduleScreen() {
   const [reqSubmitting, setReqSubmitting] = useState(false);
   // 기존 일정 수정 요청이면 그 날짜(2026-10-07 #49) — 신청 창을 그 날 하루로 열고 kind=UPDATE 로 보낸다
   const [updateDate, setUpdateDate] = useState<string | null>(null);
+  // 신청 창 닫기 — 수정 요청이었다면 그 하루·요일이 다음 「일정 신청」에 남지 않게 되돌린다
+  const closeReq = () => {
+    setReqOpen(false);
+    if (updateDate) {
+      setUpdateDate(null);
+      setReqStart("");
+      setReqEnd("");
+      setReqDays(new Set([1, 2, 3, 4, 5]));
+    }
+  };
   const [cancelingId, setCancelingId] = useState("");
   // 신청 기간의 공휴일 ("YYYY-MM-DD" → 이름). 위 holidays 는 달력 표시용으로 이번 달만 담겨 있어
   // 신청 기간 전체를 덮지 못한다 — 신청용으로 따로 조회한다(추석 연휴가 근무일로 잡히던 원인).
@@ -208,6 +218,8 @@ export default function ScheduleScreen() {
 
   // 신청 기간 × 선택 요일 → 근무 날짜 목록 (달력 날짜 기준, TZ 무관). 공휴일은 제외한다.
   const reqDates = useMemo(() => {
+    // 기존 일정 수정 요청은 그 하루로 고정 — 승인받은 공휴일 근무도 고칠 수 있게 공휴일 제외를 하지 않는다(#49)
+    if (updateDate) return [updateDate];
     if (!reqStart || !reqEnd || reqStart > reqEnd) return [] as string[];
     const out: string[] = [];
     const [sy, sm, sd] = reqStart.split("-").map(Number);
@@ -224,7 +236,7 @@ export default function ScheduleScreen() {
       cur.setDate(cur.getDate() + 1);
     }
     return out;
-  }, [reqStart, reqEnd, reqDays, reqHolidays]);
+  }, [reqStart, reqEnd, reqDays, reqHolidays, updateDate]);
 
   // 기간 안에서 실제로 빠진 공휴일 (사용자에게 왜 줄었는지 알려준다)
   const reqExcludedHolidays = useMemo(() => {
@@ -535,7 +547,7 @@ export default function ScheduleScreen() {
       )}
 
       {/* 근무일정 신청 모달 */}
-      <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={() => { setReqOpen(false); setUpdateDate(null); }}>
+      <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={closeReq}>
         <KeyboardAvoidingView style={styles.reqBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.reqCard}>
             <Text style={styles.reqTitle2}>{updateDate ? `근무일정 수정 요청 (${updateDate})` : "근무일정 신청"}</Text>
@@ -590,6 +602,7 @@ export default function ScheduleScreen() {
                 </View>
               )}
 
+              {!updateDate && (<>
               <Text style={styles.reqLabel}>기간</Text>
               <View style={styles.dateRow}>
                 <View style={{ flex: 1 }}>
@@ -619,6 +632,7 @@ export default function ScheduleScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              </>)}
 
               {reqDates.length > 0 && reqTemplate && (
                 <View style={styles.reqSummary}>
@@ -643,7 +657,7 @@ export default function ScheduleScreen() {
             </ScrollView>
 
             <View style={styles.reqBtns}>
-              <TouchableOpacity style={styles.reqCancel} onPress={() => { setReqOpen(false); setUpdateDate(null); }}>
+              <TouchableOpacity style={styles.reqCancel} onPress={closeReq}>
                 <Text style={styles.reqCancelText}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity

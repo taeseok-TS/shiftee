@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { materializeSchedules } from "@/lib/schedule-materialize";
+import { materializeSchedules, staleEditError, kindTag } from "@/lib/schedule-materialize";
 import { logAudit } from "@/lib/audit";
 import { botNotifyDecision, botNotifyApprovalRequest } from "@/lib/bot";
 import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
@@ -63,6 +63,11 @@ export async function POST(
   }
 
   const steps = scheduleRequest.approvalSteps;
+
+  if (action === "approve") {
+    const stale = staleEditError(scheduleRequest);
+    if (stale) return NextResponse.json({ error: stale }, { status: 409 });
+  }
 
   if (steps.length > 0) {
     // 내가 결재해야 할 PENDING 스텝 찾기 (역할/지점 기반)
@@ -174,7 +179,7 @@ export async function POST(
     if (notifyNext) {
       botNotifyApprovalRequest(notifyNext, {
         kind: "근무일정",
-        requesterName: scheduleRequest.user.name,
+        requesterName: `${scheduleRequest.user.name}${kindTag(scheduleRequest.kind)}`,
         period: fmtRange(scheduleRequest.startDate, scheduleRequest.endDate),
         requesterId: scheduleRequest.userId,
         prevApprover: session.name,
@@ -195,7 +200,7 @@ export async function POST(
     if (emailAction === "approve" || emailAction === "reject") {
       botNotifyDecision(
         scheduleRequest.userId,
-        `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
+        `근무일정${kindTag(scheduleRequest.kind)} (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
         emailAction === "approve",
         session.name,
         reason,
@@ -240,6 +245,10 @@ async function adminOverride(
       { status: 409 }
     );
   }
+  if (action === "approve") {
+    const stale = staleEditError(scheduleRequest);
+    if (stale) return NextResponse.json({ error: stale }, { status: 409 });
+  }
 
   // ⚠ **먼저 잡는 쪽만 처리한다.** 무조건 update 하면 관리자 둘이 동시에(또는 한 명이
   //   더블클릭) 처리할 때 감사로그.봇DM 이 두 번 나가고, 승인.반려가 엇갈리면 마지막
@@ -283,7 +292,7 @@ async function adminOverride(
   // 신청자에게 봇 DM
   botNotifyDecision(
     scheduleRequest.userId,
-    `근무일정 (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
+    `근무일정${kindTag(scheduleRequest.kind)} (${fmtRange(scheduleRequest.startDate, scheduleRequest.endDate)})`,
     action === "approve",
     actor?.name ?? "관리자",
     reason,
