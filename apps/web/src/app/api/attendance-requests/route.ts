@@ -154,9 +154,10 @@ export async function POST(request: NextRequest) {
     if (!action) return NextResponse.json({ error: "출근·퇴근 중 하나를 골라 주세요." }, { status: 400 });
     data.action = action;
 
-    // 누른 시각 — 앱이 버튼을 누른 순간을 보낸다. 30분 넘게 지났거나 미래면 받지 않고 지금으로
+    // 누른 시각 — 앱이 버튼을 누른 순간을 보낸다. 10분 넘게 지났거나 미래면 받지 않고 지금으로
+    // (넓게 받으면 지각을 피하는 데 쓸 수 있다 — 결재 화면에는 실제 접수 시각도 함께 보인다)
     const pressed = typeof body.pressedAt === "string" ? new Date(body.pressedAt) : null;
-    if (pressed && !Number.isNaN(pressed.getTime()) && pressed.getTime() <= now.getTime() + 60_000 && now.getTime() - pressed.getTime() <= 30 * 60_000) {
+    if (pressed && !Number.isNaN(pressed.getTime()) && pressed.getTime() <= now.getTime() + 60_000 && now.getTime() - pressed.getTime() <= 10 * 60_000) {
       data.requestedAt = pressed;
     }
     data.workDate = dateOfYmd(kstYmdOf(data.requestedAt));
@@ -186,6 +187,7 @@ export async function POST(request: NextRequest) {
         where: { userId: session.userId, workDate: data.workDate, action: "IN", status: "PENDING" }, select: { id: true },
       });
       if (!att?.clockIn && !pendingIn) return NextResponse.json({ error: "출근 기록이 없습니다. 출근부터 처리해 주세요." }, { status: 400 });
+      if (pendingIn) return NextResponse.json({ error: "출근 요청이 승인을 기다리고 있습니다. 퇴근은 퇴근 버튼으로 찍어 주세요." }, { status: 409 });
     }
 
     if (kind === "PHOTO") {
@@ -193,16 +195,26 @@ export async function POST(request: NextRequest) {
       const ext = path.extname(file.name || "").toLowerCase() || ".jpg";
       if (!PHOTO_EXT.has(ext)) return NextResponse.json({ error: "사진 파일만 올릴 수 있습니다." }, { status: 400 });
       if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "10MB 이하 사진만 올릴 수 있습니다." }, { status: 400 });
+      const buf = Buffer.from(await file.arrayBuffer());
+      // 파일 내용도 사진인지 본다(확장자만 바꾼 다른 파일을 막는다)
+      const head = buf.subarray(0, 12);
+      const isImage =
+        (head[0] === 0xff && head[1] === 0xd8) ||                                            // JPEG
+        head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ||                 // PNG
+        (head.subarray(0, 4).toString("ascii") === "RIFF" && head.subarray(8, 12).toString("ascii") === "WEBP") ||
+        head.subarray(4, 8).toString("ascii") === "ftyp";                                    // HEIC
+      if (!isImage) return NextResponse.json({ error: "사진 파일만 올릴 수 있습니다." }, { status: 400 });
       await fs.mkdir(PHOTO_DIR, { recursive: true });
       const name = `${session.userId}-${Date.now()}${ext}`;
-      await fs.writeFile(path.join(PHOTO_DIR, name), Buffer.from(await file.arrayBuffer()));
+      await fs.writeFile(path.join(PHOTO_DIR, name), buf);
       data.photoPath = name;
     }
   } else {
     // CORRECTION · MISSED_OUT — 지난 기록 고치기
     const ymd = typeof body.workDate === "string" && YMD.test(body.workDate) ? body.workDate : null;
     if (!ymd || Number.isNaN(dateOfYmd(ymd).getTime())) return NextResponse.json({ error: "날짜를 확인해 주세요." }, { status: 400 });
-    if (ymd > todayYmd) return NextResponse.json({ error: "앞으로의 날짜는 요청할 수 없습니다." }, { status: 400 });
+    // 지난 기록만 고친다 — 오늘 출퇴근은 출퇴근 버튼(또는 지점 밖·사진·본부 요청)으로(위치·주말 확인을 건너뛰지 않게)
+    if (ymd >= todayYmd) return NextResponse.json({ error: "오늘 출퇴근은 출퇴근 화면에서 처리해 주세요. 수정 요청은 지난 날짜만 됩니다." }, { status: 400 });
     if (dateOfYmd(todayYmd).getTime() - dateOfYmd(ymd).getTime() > 31 * 86400_000)
       return NextResponse.json({ error: "31일이 지난 기록은 본부에 직접 문의해 주세요." }, { status: 400 });
     data.workDate = dateOfYmd(ymd);
@@ -229,6 +241,7 @@ export async function POST(request: NextRequest) {
       data.clockOut = outAt;
     } else {
       if (!inAt && !outAt) return NextResponse.json({ error: "고칠 출근 또는 퇴근 시각을 넣어 주세요." }, { status: 400 });
+      if (!inAt && !att?.clockIn) return NextResponse.json({ error: "그날 출근 기록이 없습니다. 출근 시각도 넣어 주세요." }, { status: 400 });
       data.clockIn = inAt;
       data.clockOut = outAt;
     }
@@ -239,7 +252,7 @@ export async function POST(request: NextRequest) {
     if (dup) return NextResponse.json({ error: "그날 기록 수정 요청이 이미 승인을 기다리고 있습니다." }, { status: 409 });
   }
 
-  const approver = await resolveApprover({ role: me.role, branch: me.branch }, kind);
+  const approver = await resolveApprover({ id: session.userId, role: me.role, branch: me.branch }, kind);
   const row = await prisma.attendanceRequest.create({
     data: { userId: session.userId, ...data, approverRole: approver.approverRole, branch: approver.branch },
   });

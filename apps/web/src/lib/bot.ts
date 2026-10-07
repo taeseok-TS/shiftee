@@ -174,7 +174,7 @@ export async function botNotifyApprovalRequest(step: {
     const text = `📋 결재 요청이 도착했습니다
 
 ${opts.kind}: ${opts.requesterName}
-기간: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
+${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" : "기간"}: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
 
 결재함에서 확인해주세요.`;
     for (const id of list) {

@@ -59,10 +59,11 @@ export function kstHHmm(t: Date): string {
 }
 
 /** 결재자 — 본부 처리·기기 변경은 본부, 나머지는 신청자 지점 원장(원장 본인·원장 없는 지점은 본부) */
-export async function resolveApprover(user: { role: string; branch: string | null }, kind: RequestKind) {
+export async function resolveApprover(user: { id: string; role: string; branch: string | null }, kind: RequestKind) {
   if (kind === "HQ" || kind === "DEVICE") return { approverRole: "ADMIN", branch: user.branch };
   if (user.role === "MANAGER" || user.role === "ADMIN" || !user.branch) return { approverRole: "ADMIN", branch: user.branch };
-  return (await branchHasApprover(user.branch))
+  // 신청자 본인은 빼고 센다 — 유일한 대행자가 자기 요청을 내면 처리할 원장이 없다
+  return (await branchHasApprover(user.branch, user.id))
     ? { approverRole: "MANAGER", branch: user.branch }
     : { approverRole: "ADMIN", branch: user.branch };
 }
@@ -110,6 +111,7 @@ export class RequestConflict extends Error {}
 type FullReq = {
   id: string; userId: string; kind: string; action: string | null; workDate: Date; requestedAt: Date;
   clockIn: Date | null; clockOut: Date | null; reason: string | null; latitude: number | null; longitude: number | null;
+  clockOutPlace: string | null; clockOutLat: number | null; clockOutLng: number | null;
   deviceId: string | null; deviceName: string | null; platform: string | null;
 };
 
@@ -141,17 +143,28 @@ export async function applyApproved(
   if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
     if (r.action === "IN") {
       if (existing?.clockIn) throw new RequestConflict("이미 출근 기록이 있습니다.");
-      const status = await calcStatus(r.requestedAt, existing?.clockOut ?? null, ymd, r.userId);
-      const data = { clockIn: r.requestedAt, clockInPlace: place, latitude: r.latitude, longitude: r.longitude, status };
+      // 승인 대기 중에 찍은 퇴근(요청에 담겨 있다)도 함께 반영한다(본부 답변 #10)
+      const carriedOut = !existing?.clockOut && r.clockOut ? r.clockOut : null;
+      const out = carriedOut ?? existing?.clockOut ?? null;
+      if (out && out <= r.requestedAt) throw new RequestConflict("출근 시각이 퇴근 시각보다 늦습니다.");
+      const status = await calcStatus(r.requestedAt, out, ymd, r.userId);
+      const data = {
+        clockIn: r.requestedAt, clockInPlace: place, latitude: r.latitude, longitude: r.longitude, status,
+        ...(carriedOut ? { clockOut: carriedOut, clockOutPlace: r.clockOutPlace, clockOutLat: r.clockOutLat, clockOutLng: r.clockOutLng } : {}),
+      };
       if (existing) await tx.attendance.update({ where: { id: existing.id }, data });
       else await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } });
       return {};
     }
-    if (existing?.clockOut) throw new RequestConflict("이미 퇴근 기록이 있습니다.");
-    const status = await calcStatus(existing?.clockIn ?? null, r.requestedAt, ymd, r.userId);
-    const data = { clockOut: r.requestedAt, clockOutPlace: place, clockOutLat: r.latitude, clockOutLng: r.longitude, status };
-    if (existing) await tx.attendance.update({ where: { id: existing.id }, data });
-    else await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } });
+    // 퇴근만 있는 기록을 만들지 않는다 — 출근(요청)이 먼저 반영돼야 한다
+    if (!existing?.clockIn) throw new RequestConflict("출근 기록이 없습니다. 출근 요청을 먼저 처리해 주세요.");
+    if (existing.clockOut) throw new RequestConflict("이미 퇴근 기록이 있습니다.");
+    if (r.requestedAt <= existing.clockIn) throw new RequestConflict("퇴근 시각이 출근 시각보다 빠릅니다.");
+    const status = await calcStatus(existing.clockIn, r.requestedAt, ymd, r.userId);
+    await tx.attendance.update({
+      where: { id: existing.id },
+      data: { clockOut: r.requestedAt, clockOutPlace: place, clockOutLat: r.latitude, clockOutLng: r.longitude, status },
+    });
     return {};
   }
 
@@ -167,7 +180,8 @@ export async function applyApproved(
   // CORRECTION — 넣은 칸만 바꾼다
   const clockIn = r.clockIn ?? existing?.clockIn ?? null;
   const clockOut = r.clockOut ?? existing?.clockOut ?? null;
-  if (clockIn && clockOut && clockOut <= clockIn) throw new RequestConflict("퇴근 시각이 출근 시각보다 빠릅니다.");
+  if (!clockIn) throw new RequestConflict("그날 출근 기록이 없어 퇴근만 고칠 수 없습니다. 출근 시각도 넣어 주세요.");
+  if (clockOut && clockOut <= clockIn) throw new RequestConflict("퇴근 시각이 출근 시각보다 빠릅니다.");
   const status = await calcStatus(clockIn, clockOut, ymd, r.userId);
   const data = {
     ...(r.clockIn ? { clockIn: r.clockIn, clockInPlace: place } : {}),

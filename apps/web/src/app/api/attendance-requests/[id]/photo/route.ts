@@ -37,7 +37,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const buf = await fs.readFile(path.join(process.cwd(), "uploads", "private", "attendance-photos", name));
     return new NextResponse(new Uint8Array(buf), {
-      headers: { "Content-Type": TYPES[ext] ?? "application/octet-stream", "Cache-Control": "private, no-store" },
+      headers: { "Content-Type": TYPES[ext] ?? "application/octet-stream", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
     });
   } catch {
     return NextResponse.json({ error: "사진 파일을 찾을 수 없습니다." }, { status: 404 });

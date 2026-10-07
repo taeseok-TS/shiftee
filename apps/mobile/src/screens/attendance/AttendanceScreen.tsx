@@ -52,7 +52,7 @@ export default function AttendanceScreen() {
     try {
       const s = await attendance.getTodayStatus();
       // 출근 요청이 승인 대기 중이면 퇴근은 찍을 수 있다(본부 답변 #10)
-      setPhase(s.clockedOut || s.pendingOut ? "DONE" : s.clockedIn || s.pendingIn ? "IN" : "OUT");
+      setPhase(s.clockedOut || s.pendingOut || s.pendingInClockedOut ? "DONE" : s.clockedIn || s.pendingIn ? "IN" : "OUT");
       setPending({ in: !!s.pendingIn && !s.clockedIn, out: !!s.pendingOut });
     } catch {
       setPhase("OUT"); // 조회 실패 시 기본 출근 가능 상태
@@ -138,8 +138,9 @@ export default function AttendanceScreen() {
       }
       setLocation({ latitude: f.latitude, longitude: f.longitude });
       if (phase === "IN") {
-        await attendance.clockOut(f.latitude, f.longitude);
-        Alert.alert("성공", "퇴근 기록이 저장되었습니다");
+        const r = await attendance.clockOut(f.latitude, f.longitude);
+        // 출근 요청 승인 대기 중이면 퇴근은 요청에 담겨, 승인될 때 함께 기록된다
+        Alert.alert("성공", r?.pendingIn ? r.message || "퇴근을 남겼습니다. 출근 요청이 승인되면 함께 기록됩니다." : "퇴근 기록이 저장되었습니다");
         setPhase("DONE");
       } else {
         await attendance.clockIn(f.latitude, f.longitude);
@@ -202,7 +203,7 @@ export default function AttendanceScreen() {
     phase === "IN"
       ? { dot: pending.in ? "#d97706" : "#10b981", text: pending.in ? "근무 중 · 출근 요청 승인 대기" : "근무 중" }
       : phase === "DONE"
-      ? { dot: "#9ca3af", text: pending.out ? "퇴근 요청 승인 대기" : "퇴근 완료" }
+      ? { dot: "#9ca3af", text: pending.out ? "퇴근 요청 승인 대기" : pending.in ? "퇴근 완료 · 출근 요청 승인 대기" : "퇴근 완료" }
       : { dot: "#ef4444", text: "출근 전" };
 
   const buttonLabel = phase === "IN" ? "퇴근" : phase === "DONE" ? "오늘 근무 완료" : "출근";

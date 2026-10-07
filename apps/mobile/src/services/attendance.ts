@@ -27,6 +27,7 @@ export type TodayStatus = {
   clockOutAt: string | null;
   pendingIn?: boolean;    // 지점 밖·사진·본부 처리 출근 요청이 승인 대기 중(2026-10-07)
   pendingOut?: boolean;
+  pendingInClockedOut?: boolean;   // 출근 요청 승인 대기 중에 퇴근까지 찍음(승인 때 함께 기록)
 };
 
 export async function getTodayStatus(): Promise<TodayStatus> {
@@ -71,7 +72,11 @@ export async function createAttendanceRequest(body: Record<string, unknown>) {
   return res.data as { success: true; id: string; approverLabel: string };
 }
 
-/** 사진 출퇴근 요청 — 지점 사진 + 칸들(multipart) */
+/**
+ * 사진 출퇴근 요청 — 지점 사진 + 칸들(multipart).
+ * ⚠ Content-Type 을 직접 넣지 않는다 — 경계(boundary)가 빠져 서버가 못 읽는다(work.ts uploadFile 과 같은 관례).
+ *   fetch 가 FormData 를 보고 알아서 붙인다. 실패하면 axios 오류처럼 response.data.error 를 실어 던진다(화면 처리 공용).
+ */
 export async function createPhotoRequest(
   photo: { uri: string; name: string; mimeType?: string | null },
   fields: Record<string, string>,
@@ -79,11 +84,18 @@ export async function createPhotoRequest(
   const form = new FormData();
   form.append("file", { uri: photo.uri, name: photo.name, type: photo.mimeType || "image/jpeg" } as any);
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
-  const res = await axios.post(`${API_URL}/attendance-requests`, form, {
-    headers: { ...(await clockHeaders()), "Content-Type": "multipart/form-data" },
-    timeout: 120000,
-  });
-  return res.data as { success: true; id: string; approverLabel: string };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(`${API_URL}/attendance-requests`, {
+      method: "POST", body: form as any, headers: (await clockHeaders()) as Record<string, string>, signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data?.error || "보내지 못했어요"), { response: { status: res.status, data } });
+    return data as { success: true; id: string; approverLabel: string };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function getMyAttendanceRequests(): Promise<AttendanceRequestRow[]> {

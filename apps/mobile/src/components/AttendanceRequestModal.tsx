@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, ScrollView,
   KeyboardAvoidingView, Platform,
@@ -56,6 +56,7 @@ export default function AttendanceRequestModal({
   const [outTime, setOutTime] = useState("");
   const [fixReason, setFixReason] = useState("");
   const [sending, setSending] = useState(false);
+  const busy = useRef(false);   // 빠른 두 번 누름 방지 — state 는 다음 렌더 전까지 안 바뀐다(출퇴근 버튼과 같은 처리)
 
   // 창을 열 때마다 칸을 비운다
   useEffect(() => {
@@ -92,7 +93,7 @@ export default function AttendanceRequestModal({
   };
 
   const submit = async () => {
-    if (sending) return;
+    if (busy.current) return;
     const loc = draft.location ?? null;
     const base: Record<string, unknown> = { kind, memo: memo.trim() || undefined };
     if (isClock) {
@@ -112,6 +113,7 @@ export default function AttendanceRequestModal({
       if (kind === "CORRECTION" && !inTime && !outTime) { Alert.alert("고칠 출근 또는 퇴근 시각을 넣어 주세요"); return; }
       Object.assign(base, { workDate, clockIn: inTime || undefined, clockOut: outTime || undefined, reason: fixReason.trim() });
     }
+    busy.current = true;
     setSending(true);
     try {
       const res = kind === "PHOTO" && photo
@@ -123,6 +125,7 @@ export default function AttendanceRequestModal({
     } catch (e: any) {
       Alert.alert("보내지 못했어요", e?.response?.data?.error || "잠시 후 다시 시도해 주세요.");
     } finally {
+      busy.current = false;
       setSending(false);
     }
   };

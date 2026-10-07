@@ -411,7 +411,11 @@ export default function ApprovalsScreen() {
                 <Text style={styles.line}>{r.kind === "DEVICE" ? `새 기기: ${r.deviceName ?? "이름 없음"} (${r.platform ?? "-"})` : r.summary}</Text>
                 {(r.kind === "CORRECTION" || r.kind === "MISSED_OUT") && !!r.reason && <Text style={styles.reason}>사유: {r.reason}</Text>}
                 {!!r.memo && <Text style={styles.reason}>{r.memo}</Text>}
-                <Text style={styles.chain}>승인하면 요청한 시각으로 출퇴근 기록에 반영됩니다. 반려하면 기록되지 않습니다.</Text>
+                {/* 실제 접수 시각 — 요청 시각(누른 시각)과 비교할 수 있게 */}
+                <Text style={styles.chain}>
+                  접수 {new Date(r.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  {" · "}승인하면 요청한 시각으로 출퇴근 기록에 반영됩니다. 반려하면 기록되지 않습니다.
+                </Text>
                 <View style={styles.actions}>
                   {r.hasPhoto && (
                     <TouchableOpacity

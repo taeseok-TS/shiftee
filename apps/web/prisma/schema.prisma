@@ -1191,7 +1191,10 @@ model AttendanceRequest {
   workDate     DateTime  @db.Date
   requestedAt  DateTime  // 누른 시각(OUTSIDE·PHOTO·HQ) — 승인되면 이 시각으로 기록
   clockIn      DateTime? // CORRECTION 이 바라는 출근 시각
-  clockOut     DateTime? // CORRECTION·MISSED_OUT 이 바라는 퇴근 시각
+  clockOut     DateTime? // CORRECTION·MISSED_OUT 이 바라는 퇴근 시각 / 출근 요청 대기 중 찍은 퇴근(승인 때 함께 반영)
+  clockOutPlace String?  // 출근 요청 대기 중 찍은 퇴근의 장소·위치
+  clockOutLat   Float?
+  clockOutLng   Float?
   reason       String?
   memo         String?
   latitude     Float?

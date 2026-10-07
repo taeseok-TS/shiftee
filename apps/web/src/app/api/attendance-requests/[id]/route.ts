@@ -40,6 +40,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
   } catch (e) {
     if (e instanceof RequestConflict) return NextResponse.json({ error: e.message }, { status: 409 });
+    // 같은 사람·같은 날 기록이 동시에 만들어지면(출근 버튼과 승인이 겹침) — 되돌려졌으니 다시 누르면 된다
+    if ((e as { code?: string })?.code === "P2002")
+      return NextResponse.json({ error: "같은 날 기록이 방금 바뀌었습니다. 다시 눌러 주세요." }, { status: 409 });
     throw e;
   }
   // 기기를 바꿨으면 옛 기기에 남은 세션을 끊는다(기기 초기화와 같은 처리)

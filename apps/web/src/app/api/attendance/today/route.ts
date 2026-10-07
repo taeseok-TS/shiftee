@@ -20,7 +20,7 @@ export async function GET() {
   // 지점 밖·사진·본부 처리 요청이 승인 대기 중인지(2026-10-07 #9 #13) — 출근 요청 대기면 앱이 퇴근 버튼을 보여 준다
   const pending = await prisma.attendanceRequest.findMany({
     where: { userId: session.userId, workDate: today, status: "PENDING", action: { in: ["IN", "OUT"] } },
-    select: { action: true },
+    select: { action: true, clockOut: true },
   });
 
   return NextResponse.json({
@@ -30,5 +30,6 @@ export async function GET() {
     clockOutAt: att?.clockOut ?? null,
     pendingIn: pending.some((p) => p.action === "IN"),
     pendingOut: pending.some((p) => p.action === "OUT"),
+    pendingInClockedOut: pending.some((p) => p.action === "IN" && !!p.clockOut),   // 출근 요청 대기 중 퇴근까지 찍음
   });
 }

@@ -50,7 +50,12 @@ export async function PATCH(
 
   const attendance = await prisma.attendance.update({
     where: { id },
-    data: { clockIn: newIn, clockOut: newOut, status },
+    data: {
+      clockIn: newIn, clockOut: newOut, status,
+      // 시각을 바꾼 칸은 장소도 「본부 수정」으로 — 옛 「지점 밖 …」 문구가 남아 오해를 사지 않게(2026-10-07 #36)
+      ...(+(newIn ?? 0) !== +(record.clockIn ?? 0) ? { clockInPlace: newIn ? "본부 수정" : null } : {}),
+      ...(+(newOut ?? 0) !== +(record.clockOut ?? 0) ? { clockOutPlace: newOut ? "본부 수정" : null } : {}),
+    },
   });
 
   await logAudit({

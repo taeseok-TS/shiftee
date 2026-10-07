@@ -49,8 +49,11 @@ export async function POST(request: NextRequest) {
   // 출근 시각은 승인될 때 요청의 누른 시각으로 들어간다. 상한·조퇴 판정은 그 누른 시각을 출근으로 본다.
   const pendingIn = existing?.clockIn ? null : await prisma.attendanceRequest.findFirst({
     where: { userId: session.userId, workDate: today, action: "IN", status: "PENDING" },
-    select: { requestedAt: true },
+    select: { id: true, requestedAt: true, clockOut: true },
   });
+  if (pendingIn?.clockOut) {
+    return NextResponse.json({ error: "이미 퇴근 처리가 되어 있습니다. (출근 요청 승인 대기 중)" }, { status: 400 });
+  }
   const clockInAt = existing?.clockIn ?? pendingIn?.requestedAt ?? null;
   if (!clockInAt) {
     return NextResponse.json({ error: "출근 기록이 없습니다." }, { status: 400 });
@@ -157,11 +160,20 @@ export async function POST(request: NextRequest) {
   const status: "LATE" | "EARLY_LEAVE" | "NORMAL" = existing?.status === "LATE" ? "LATE" : (isEarlyLeave ? "EARLY_LEAVE" : "NORMAL");
 
   // 퇴근 위치는 따로 남긴다 — 종전에는 출근 위치(latitude/longitude)를 덮어썼다(#36)
-  const outData = { clockOut: now, status, clockOutPlace: place, clockOutLat: latitude ?? null, clockOutLng: longitude ?? null };
-  const attendance = existing
-    ? await prisma.attendance.update({ where: { id: existing.id }, data: outData })
-    // 출근 요청 승인 대기 중 — 퇴근만 있는 기록을 만든다(승인되면 출근 시각이 채워진다)
-    : await prisma.attendance.create({ data: { userId: session.userId, date: today, ...outData } });
+  if (pendingIn) {
+    // 출근 요청 승인 대기 중 — 퇴근은 그 요청에 담아 두고, 승인될 때 출근과 함께 기록한다.
+    // 반려되면 둘 다 남지 않는다(퇴근만 있는 기록을 만들지 않는다 — 검증 지적)
+    const claimed = await prisma.attendanceRequest.updateMany({
+      where: { id: pendingIn.id, status: "PENDING", clockOut: null },
+      data: { clockOut: now, clockOutPlace: place, clockOutLat: latitude ?? null, clockOutLng: longitude ?? null },
+    });
+    if (claimed.count === 0) return NextResponse.json({ error: "출근 요청이 방금 처리됐습니다. 다시 눌러 주세요." }, { status: 409 });
+    return NextResponse.json({ success: true, pendingIn: true, message: "퇴근을 남겼습니다. 출근 요청이 승인되면 함께 기록됩니다." });
+  }
+  const attendance = await prisma.attendance.update({
+    where: { id: existing!.id },
+    data: { clockOut: now, status, clockOutPlace: place, clockOutLat: latitude ?? null, clockOutLng: longitude ?? null },
+  });
 
   return NextResponse.json({ success: true, attendance });
 }
