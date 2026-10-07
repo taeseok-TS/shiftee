@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     // 기간 기준(#79) — 작성일(기본)·완료일(체결일)·마지막 활동일. from/to 를 주면 연·월 대신 이것으로 거른다(KST 날짜)
     const from = searchParams.get("from"), to = searchParams.get("to");
     // 형식 + 실제 있는 날짜만(2026-13-01·2026-02-31 은 무시 — Prisma 500·다른 날로 넘어가기 방지)
-    const ymdOk = (v: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v && v >= "2000-01-01";
+    const ymdOk = (v: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && (() => { const d = new Date(`${v}T00:00:00Z`); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v; })() && v >= "2000-01-01";
     if (ymdOk(from) || ymdOk(to)) {
       const field = searchParams.get("dateField") === "signed" ? "signedAt" : searchParams.get("dateField") === "activity" ? "updatedAt" : "createdAt";
       const kstStart = (v: string) => new Date(new Date(`${v}T00:00:00Z`).getTime() - 9 * 3600 * 1000);

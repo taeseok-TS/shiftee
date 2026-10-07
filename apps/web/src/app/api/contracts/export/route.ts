@@ -29,7 +29,7 @@ const firstFile = (raw: string | null): string | null => {
 // 파일 이름 — 쓸 수 없는 글자·제어문자를 _ 로, 앞부분을 먼저 자른다(뒤에 붙이는 번호까지 잘리면 같은 이름이 계속 나와 멈췄다, 검증 F1)
 const safeName = (s: string) => Array.from(s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_")).slice(0, 70).join("");
 const MAX_IDS = 200;
-const MAX_ZIP_BYTES = 300 * 1024 * 1024;   // 한 번에 300MB 까지(서버 2코어·메모리 보호, 검증 F2)
+const MAX_ZIP_BYTES = 150 * 1024 * 1024;   // 한 번에 150MB 까지(서버 2코어·메모리 보호, 검증 F2)
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
     if (!file) { notes.push(`${r.title} (${who(r)}) — 저장된 완료본 PDF 가 없음 — 목록에서 하나씩 내려받아 주세요`); continue; }
     try {
       const st = await fs.stat(file);
-      if (bytesTotal + st.size > MAX_ZIP_BYTES) { notes.push(`${r.title} (${who(r)}) — 한 번에 받을 수 있는 크기(300MB)를 넘어 빼 둠`); continue; }
+      if (bytesTotal + st.size > MAX_ZIP_BYTES) { notes.push(`${r.title} (${who(r)}) — 한 번에 받을 수 있는 크기(150MB)를 넘어 빼 둠`); continue; }
       const bytes = await fs.readFile(file);
       bytesTotal += bytes.length;
       const base = safeName(`${who(r)}_${r.title}${r.docNo ? `_${r.docNo}` : ""}`);
