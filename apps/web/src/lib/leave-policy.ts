@@ -24,7 +24,7 @@ export async function leavePolicySteps(
   const adminStep = { approverRole: "ADMIN", branch: null as string | null };
   const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
   const hasBranchManager = submitter?.branch
-    ? await branchHasApprover(submitter.branch) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
+    ? await branchHasApprover(submitter.branch, userId) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
     : false;
 
   let policySteps: PolicyStep[] = [];

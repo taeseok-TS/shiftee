@@ -34,10 +34,13 @@ export async function branchDelegates(branch: string): Promise<string[]> {
   return users.filter((u) => !isResigned(u.resignDate)).map((u) => u.id);
 }
 
-/** 이 지점에 원장 단계를 둘지 — 원장이 있거나, 오늘 대행자가 있으면(원장 공석 때 대행을 세운 경우) */
-export async function branchHasApprover(branch: string): Promise<boolean> {
+/**
+ * 이 지점에 원장 단계를 둘지 — 원장이 있거나, 오늘 대행자가 있으면(원장 공석 때 대행을 세운 경우).
+ * 신청자 본인은 빼고 센다 — 유일한 대행자가 자기 건을 내면 처리할 사람이 없는 원장 단계가 생긴다.
+ */
+export async function branchHasApprover(branch: string, requesterId?: string): Promise<boolean> {
   if (await branchHasManager(branch)) return true;
-  return (await branchDelegates(branch)).length > 0;
+  return (await branchDelegates(branch)).some((id) => id !== requesterId);
 }
 
 /**

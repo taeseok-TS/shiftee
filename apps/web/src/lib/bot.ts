@@ -134,7 +134,7 @@ export async function botNotifyApprovalRequest(step: {
   approverRole?: string | null;
   branch?: string | null;
   approverId?: string | null;
-}, opts: { kind: "근무일정" | "휴가" | "휴가 취소"; requesterName: string; period: string; requesterId: string; prevApprover?: string }) {
+}, opts: { kind: "근무일정" | "휴가" | "휴가 취소" | "출퇴근 요청" | "기기 변경"; requesterName: string; period: string; requesterId: string; prevApprover?: string }) {
   try {
     const { prisma } = await import("@/lib/db");
     const stepTargets: string[] = [];
@@ -149,8 +149,10 @@ export async function botNotifyApprovalRequest(step: {
     // 원장 단계면 그 지점 원장대행에게도(못박힌 단계 포함 — 결재 라우트 isMyStep 과 같은 규칙, 2026-10-07 #3)
     if (step.approverRole === "MANAGER" && step.branch) {
       try {   // 대행자 조회가 깨져도 원장 결재 요청·본부 진행 알림은 나가야 한다
+        // 원장이 올린 건은 대행자가 결재하지 않는다(isMyStep 과 같은 규칙) — 결재할 수 없는 건의 DM 을 보내지 않는다
+        const requester = await prisma.user.findUnique({ where: { id: opts.requesterId }, select: { role: true } });
         const { branchDelegates } = await import("@/lib/approval-delegate");
-        stepTargets.push(...(await branchDelegates(step.branch)));
+        if (requester?.role !== "MANAGER") stepTargets.push(...(await branchDelegates(step.branch)));
       } catch (e) {
         console.error("[bot] 원장대행 조회 오류:", e);
       }
