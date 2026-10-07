@@ -62,6 +62,11 @@ const hoursNum = (v: string | undefined | null): number | null => {
   const t = v || "";
   const hm = [...t.matchAll(/(\d+(?:\.\d+)?)\s*시간(?:\s*(\d+)\s*분)?/g)].map((m) => Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0));
   if (hm.length) return Math.max(...hm);
+  // 「7:30」→7.5(하루 시간 표기), 「30분」→0.5
+  const colon = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(t);
+  if (colon) return Number(colon[1]) + Number(colon[2]) / 60;
+  const onlyMin = /^\s*(\d+)\s*분\s*$/.exec(t);
+  if (onlyMin) return Number(onlyMin[1]) / 60;
   const all = [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter((n) => Number.isFinite(n) && n < 1000);
   return all.length ? Math.max(...all) : null;
 };
@@ -120,8 +125,15 @@ export async function validateContractMerge(
       const rate = num(merge["실무지급률"]) ?? 85;
       const prob = (monthly * rate) / 100;
       // 1년 = 시작일의 1년 뒤 같은 날 − 1일까지(윤년도 정확히, 재검증 N3)
-      const yearEnd = (() => { const d = new Date(`${sd}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() + 1); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })();
-      const oneYear = !opts.endDate || !sd || opts.endDate.slice(0, 10) >= yearEnd;
+      // 시작일이 없거나 날짜가 이상하면 1년 이상으로 본다 — 계산이 던져 500 이 나지 않게(재검증 N4)
+      const yearEnd = (from: string): string | null => {
+        const d = new Date(`${from}T00:00:00Z`);
+        if (Number.isNaN(d.getTime())) return null;
+        d.setUTCFullYear(d.getUTCFullYear() + 1); d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
+      };
+      const ye = sd ? yearEnd(sd) : null;
+      const oneYear = !opts.endDate || !ye || opts.endDate.slice(0, 10) >= ye;
       const floor = mw.won * (oneYear ? 0.9 : 1);
       if (prob / hours < floor) {
         errors.push(`실무평가(수습) 단계 급여가 ${oneYear ? "최저임금의 90%" : "최저임금(1년 미만 계약은 수습 감액 불가)"} 미만입니다 — 월 급여의 ${rate}% ${won(prob)} ÷ 월 ${hours}시간 = 시급 ${won(prob / hours)} (하한 ${won(floor)}, ${mwLabel}). 연봉이나 지급률을 고쳐야 저장·발송할 수 있습니다.`);
@@ -137,14 +149,16 @@ export async function validateStoredContract(c: {
   userId: string; templateId: string | null; title: string; startDate: Date | null; endDate: Date | null;
   extraFields: unknown; externalName: string | null; externalPhone: string | null;
 }): Promise<string[]> {
-  const sd = c.startDate ? c.startDate.toISOString().slice(0, 10) : "", edd = c.endDate ? c.endDate.toISOString().slice(0, 10) : "";
+  // 잘못된 날짜(Invalid Date)는 없는 것으로 — toISOString 이 던지지 않게
+  const iso = (d: Date | null) => (d && !Number.isNaN(d.getTime()) ? d.toISOString() : null);
+  const sd = iso(c.startDate)?.slice(0, 10) ?? "", edd = iso(c.endDate)?.slice(0, 10) ?? "";
   const dateErr = sd && edd && sd > edd ? [`계약 종료일(${edd})이 시작일(${sd})보다 빠릅니다.`] : [];
   if (!c.templateId) return dateErr;
   const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true } });
   if (!tmpl?.fileUrl.toLowerCase().endsWith(".docx")) return dateErr;
   const extra = (c.extraFields as Record<string, string>) || {};
-  const startDate = c.startDate ? c.startDate.toISOString() : null;
-  const endDate = c.endDate ? c.endDate.toISOString() : null;
+  const startDate = iso(c.startDate);
+  const endDate = iso(c.endDate);
   const merge = await buildContractMergeData(c.userId, {
     title: c.title, startDate, endDate,
     salary: ((extra["연봉"] || "").replace(/[^0-9]/g, "")) || null,
