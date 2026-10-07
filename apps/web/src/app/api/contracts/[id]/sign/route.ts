@@ -14,7 +14,7 @@ import type { Prisma } from "@prisma/client";
 import { lockSteps } from "@/lib/contract-reset";
 import { recordContractEvent, requestInfo } from "@/lib/contract-events";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
-import { pwTakeAttempt, pwFails, recentUnlock } from "@/lib/contract-pw";
+import { pwTakeAttempt, pwFails, recentUnlock, sessionMark } from "@/lib/contract-pw";
 
 // 본인 서명 비밀번호 확인 — 틀린 횟수 제한은 lib/contract-pw(문서 열기 관문 #20 과 같은 표)
 // 서명 확정 실패 사유 — 409 로 돌려준다
@@ -121,7 +121,7 @@ export async function POST(
         error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
     // 문서 열기 전에 비밀번호를 확인했으면(#20, 30분 안·이번 회차) 서명 때 다시 묻지 않는다
-    const unlocked = !(typeof password === "string" && password) && (await recentUnlock(id, session.userId, pendingMine!.order, requestInfo(request)));
+    const unlocked = !(typeof password === "string" && password) && (await recentUnlock(id, session.userId, pendingMine!.order, requestInfo(request), sessionMark(session)));
     if (!unlocked && (typeof password !== "string" || !password))
       return NextResponse.json({
         code: "PASSWORD_REQUIRED",

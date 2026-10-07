@@ -57,7 +57,8 @@ export async function botSendDM(userId: string, content: string, opts?: DMOpts) 
   return sendDMAs(await ensureBot(), "큐브티 봇", userId, content, opts);
 }
 
-async function sendDMAs(botId: string, botName: string, userId: string, content: string, opts?: DMOpts) {
+// 보냈으면 true, 실패하면 false(던지지 않는다) — 교부 기록(#21)처럼 「실제로 갔는가」가 필요한 곳이 본다
+async function sendDMAs(botId: string, botName: string, userId: string, content: string, opts?: DMOpts): Promise<boolean> {
   try {
     let dm = await prisma.workChannel.findFirst({
       where: {
@@ -89,8 +90,10 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
     }, { withWorkBadge: true, ...(opts?.respectWorkMute ? { respectWorkMute: true } : {}) });
+    return true;
   } catch (e) {
     console.error("[bot] DM 발송 오류:", e);
+    return false;
   }
 }
 

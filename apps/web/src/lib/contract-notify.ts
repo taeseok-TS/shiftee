@@ -101,7 +101,7 @@ export async function notifyContractCompleted(contractId: string) {
         employeeId,
         `✅ 전자계약 완료\n「${contract.title}」 결재가 모두 완료되었습니다.\n완료: ${doneAt} (KST)\n확인: ${appUrl}/contracts`
       )
-        .then(() => recordContractEvent({ contractId, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: contract.user.name, means: ["앱 알림"] } }))
+        .then((ok) => { if (ok) return recordContractEvent({ contractId, type: "DELIVERED", actorName: "큐브티 봇", meta: { to: contract.user.name, means: ["앱 알림"] } }); })
         .catch((e) => console.error("[contract] 완료 DM 오류:", e));
     }
 
@@ -161,7 +161,7 @@ export async function runContractReminders() {
             select: {
               id: true, title: true, createdBy: true, userId: true, externalName: true, signDeadline: true,
               user: { select: { name: true } },
-              events: { where: { type: { in: ["SENT", "RESEND", "RESET"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+              events: { where: { type: { in: ["SENT", "RESEND", "RESET", "REVOKED"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
             },
           },
         },

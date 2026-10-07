@@ -968,11 +968,15 @@ export default function ContractsPage() {
                         이전 버전
                       </Badge>
                     </div>
+                    {/* 본인 서명 차례 문서는 [서명]에서 비밀번호를 넣어야 열린다(#20 검증 R2) — 이전 버전도 따로 열지 않는다 */}
+                    {!(versionsTarget.userId === myId && !versionsTarget.externalName && versionsTarget.status !== "SIGNED"
+                        && (versionsTarget.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING")) && (
                     <a href={viewHref(getFileUrl(v.fileUrl))} target="_blank" rel="noreferrer">
                       <Button size="sm" variant="outline" className="w-full gap-1">
                         <Eye size={12} />보기
                       </Button>
                     </a>
+                    )}
                   </div>
                 ))
               )}

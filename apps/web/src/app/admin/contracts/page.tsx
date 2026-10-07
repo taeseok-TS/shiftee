@@ -3076,7 +3076,7 @@ ${url}`;
                             삭제는 초안만 (직원전용 패키지 문서 제외) */}
                         {/* 패키지 직원전용 문서도 **반려**되면 [수정]·[다시 보내기] — 종전엔 버튼이 없어 패키지를 새로 만들어야 했다
                             (#206 검증 F5, 9/12 디렉터). 외부 계약자는 게스트 화면에 반려가 없어 해당 없음 */}
-                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || (c.status === "REJECTED" && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
+                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || ((c.status === "REJECTED" || c.status === "EXPIRED") && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
                           <>
                             <Button
                               size="sm"

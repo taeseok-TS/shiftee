@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
-import { pwTakeAttempt, pwFails, UNLOCK_MS, UNLOCK_VIA } from "@/lib/contract-pw";
+import { pwTakeAttempt, pwFails, UNLOCK_MS, UNLOCK_VIA, sessionMark } from "@/lib/contract-pw";
 
 // 문서 열기 전 본인 확인(2026-10-07 QA #20, 본부 답변 #30 「서명하는 사람은 첫 화면에서 본인 비밀번호를 입력해야 문서에 들어갈 수 있게」).
 // 근로자 본인이 **자기 서명 차례**인 계약을 열 때 큐브티 로그인 비밀번호를 확인한다. 확인하면 30분 동안 서명할 때 다시 묻지 않는다.
@@ -32,6 +32,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." }, { status: 400 });
   }
   pwFails.delete(session.userId);
-  await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: mine.order, request, meta: { via: UNLOCK_VIA } });
+  await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: mine.order, request, meta: { via: UNLOCK_VIA, sid: sessionMark(session) } });
   return NextResponse.json({ ok: true, validUntil: new Date(Date.now() + UNLOCK_MS).toISOString() });
 }

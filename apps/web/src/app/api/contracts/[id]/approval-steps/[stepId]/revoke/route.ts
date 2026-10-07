@@ -61,7 +61,12 @@ export async function POST(
   }
 
   // 트랜잭션으로 모든 변경 처리
+  // 회수하면 다시 서명받는다 — 기한은 기존 기한과 오늘부터 14일 중 늦은 쪽, 외부 서명 링크 만료도 같은 값(#45 검증 B2)
+  const { deadlineFromDays } = await import("@/lib/contract-deadline");
+  const fresh = deadlineFromDays(14);
+  const revokeDeadline = contract.signDeadline && contract.signDeadline > fresh ? contract.signDeadline : fresh;
   const result = await prisma.$transaction(async (tx) => {
+    await tx.contractApprovalStep.updateMany({ where: { approvalLine: { contractId: id }, approverId: null }, data: { tokenExpiresAt: revokeDeadline } });
     // revocationLog JSON 배열로 관리
     const newLog = {
       type: "approval",
@@ -111,7 +116,7 @@ export async function POST(
       data: {
         status: "APPROVED",
         // 회수하면 다시 서명을 받는다 — 서명 기한도 새로 14일(#45 검증 B2: 옛 기한이 지나 있으면 다시 서명할 수 없었다)
-        signDeadline: (await import("@/lib/contract-deadline")).deadlineFromDays(14),
+        signDeadline: revokeDeadline,   // 다시 서명받는 기한 — 기존 기한과 14일 중 늦은 쪽(#45 검증 B2)
         // 저장된 완료본도 지운다. 남겨 두면 미리보기 폴백이 **회수 전 완료본**을 되살린다
         // (bundle-preview 는 signedUrl 이 있으면 그것부터 쓴다). 되돌린 서명이 찍힌 문서다.
         signedUrl: null,
