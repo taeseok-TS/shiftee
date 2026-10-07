@@ -177,6 +177,12 @@ export async function PATCH(
   const { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } = await import("@/lib/contract-send-meta");
   const sendMessage = normalizeSendMessage(sendMessageRaw);
   if (sendMessage === "TOO_LONG") return NextResponse.json({ error: `발송 메시지는 ${SEND_MESSAGE_MAX}자까지 쓸 수 있습니다.` }, { status: 400 });
+  // 값 검증(#24) — 저장된 값으로 발송 전에 본다(이 기능 전에 만든 초안도). 같은 요청에서 내용을 고치면 아래 수정 단계가 새 값으로 본다
+  if (status === "SENT" && !extraFieldsRaw && salary === null) {
+    const { validateStoredContract } = await import("@/lib/contract-validate");
+    const verrs = await validateStoredContract(contract);
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+  }
   // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
   if (status === "SENT" && !confirmDuplicate) {
     const dups = await findDuplicateSends({ id, ...contract });
@@ -279,6 +285,14 @@ export async function PATCH(
             // 외부 계약은 소유자가 작성 관리자 — external 미전달 시 관리자 개인정보가 문서에 박힘
             external: contract.externalName ? { name: contract.externalName, phone: contract.externalPhone } : null,
           });
+          // 값 검증(#24) — 고친 값이 최저임금 미만 등이면 저장하지 않는다
+          const { validateContractMerge } = await import("@/lib/contract-validate");
+          const verrs = await validateContractMerge(mergeData, {
+            templateFileUrl: tmpl.fileUrl,
+            startDate: (startDate as string) || (contract.startDate ? contract.startDate.toISOString() : null),
+            endDate: (endDate as string) || (contract.endDate ? contract.endDate.toISOString() : null),
+          });
+          if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
           newFileUrl = JSON.stringify([await fillDocxTemplate(tmpl.fileUrl, mergeData)]);
         } catch (e) {
           console.error("계약서 재생성 오류:", e);

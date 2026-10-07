@@ -44,6 +44,24 @@ export async function POST(request: NextRequest) {
   const bundleId = `bundle_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   const created: string[] = [];
 
+  // 값 검증(#24) — 패키지 문서를 하나도 만들기 전에 전부 본다
+  {
+    const { validateContractMerge } = await import("@/lib/contract-validate");
+    const verrs: string[] = [];
+    for (const item of items) {
+      const template = await prisma.contractTemplate.findUnique({ where: { id: item.templateId }, select: { fileUrl: true, name: true } });
+      if (!template?.fileUrl.toLowerCase().endsWith(".docx")) continue;
+      const mergeData = await buildContractMergeData(userId, {
+        title: item.title, startDate: item.startDate ?? null, endDate: item.endDate ?? null, salary: item.salary,
+        extraFields: item.extraFields ?? null,
+        external: externalName ? { name: externalName, phone: externalPhone } : null,
+      });
+      for (const e of await validateContractMerge(mergeData, { templateFileUrl: template.fileUrl, startDate: item.startDate ?? null, endDate: item.endDate ?? null }))
+        verrs.push(`[${template.name}] ${e}`);
+    }
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+  }
+
   try {
     for (const item of items) {
       const template = await prisma.contractTemplate.findUnique({ where: { id: item.templateId } });

@@ -37,6 +37,14 @@ export async function POST(
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
 
+  // 값 검증(#24) — 보낼 문서 전부를 먼저 본다
+  {
+    const { validateStoredContract } = await import("@/lib/contract-validate");
+    const verrs: string[] = [];
+    for (const c of contracts.filter((x) => x.status !== "SIGNED" && x.status !== "REJECTED"))
+      for (const e of await validateStoredContract(c)) verrs.push(`[${c.title}] ${e}`);
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+  }
   // 중복 발송 경고(#47) — 보낼 문서마다 같은 직원·같은 양식의 진행 중·30일 안 발송을 모아 먼저 묻는다
   if (body.confirmDuplicate !== true) {
     const dups = (await Promise.all(contracts.filter((c) => c.status !== "SIGNED" && c.status !== "REJECTED").map((c) => findDuplicateSends(c)))).flat();
