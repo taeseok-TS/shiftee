@@ -1,7 +1,8 @@
 "use client";
 
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
-import { useWeekHours, WeekHoursLine, showWeekWarnings } from "@/components/schedule/WeekHours";
+import { useWeekHours, showWeekWarnings } from "@/components/schedule/WeekHours";
+import { useWeekLeaves, LeaveChips, useShowLeave, useBranchColors, WeekTotalCell, empNoText } from "@/components/schedule/WeekExtras";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { toast } from "sonner";
 type Employee = {
   id: string;
   name: string;
+  empNo?: number | null;
   department: string | null;
   position: string | null;
   branch: string | null;
@@ -46,6 +48,11 @@ export default function AdminSchedulePage() {
   // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38). 저장하면 다시 센다
   const [weekReload, setWeekReload] = useState(0);
   const weekHours = useWeekHours(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"), weekReload);
+
+  // 휴가 함께 보기(#61)·지점 색(#74)
+  const [showLeave, setShowLeave] = useShowLeave();
+  const weekLeaves = useWeekLeaves(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"), showLeave, weekReload);
+  const branchColor = useBranchColors();
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
@@ -296,6 +303,10 @@ export default function AdminSchedulePage() {
                 {format(weekStart, "yyyy년 M월 d일", { locale: ko })} - {format(weekEnd, "M월 d일", { locale: ko })}
               </span>
             </div>
+            {/* 휴가 함께 보기(#61) — 이 브라우저에 기억 */}
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+              <input type="checkbox" checked={showLeave} onChange={(e) => setShowLeave(e.target.checked)} />휴가 표시
+            </label>
           </div>
 
           {/* 필터 */}
@@ -374,6 +385,7 @@ export default function AdminSchedulePage() {
                     );
                   })}
                 </div>
+                <div className="w-28 flex-shrink-0 p-3 bg-gray-50 font-medium text-sm" title="이번 주 근로시간(휴게 제외)">주간 합계</div>
               </div>
 
               {/* 직원별 일정 */}
@@ -385,13 +397,15 @@ export default function AdminSchedulePage() {
                 ) : (
                   filteredEmployees.map(employee => (
                     <div key={employee.id} className="flex border-b">
-                      <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50">
-                        <div className="font-medium text-gray-900">{employee.name}</div>
-                        <WeekHoursLine data={weekHours} userId={employee.id} />
+                      <div className="w-48 border-r border-l-4 p-3 flex-shrink-0 bg-gray-50" style={{ borderLeftColor: branchColor(employee.branch) ?? "transparent" }}>
+                        <div className="font-medium text-gray-900">
+                          {employee.name}
+                          {employee.empNo != null && <span className="ml-1.5 text-xs font-normal text-gray-400" title="사번">{empNoText(employee.empNo)}</span>}
+                        </div>
                         <div className="text-xs text-gray-600">
                           {employee.position}
                           {employee.branch && (
-                            <span className="text-blue-600"> · {employee.branch}</span>
+                            <span className={branchColor(employee.branch) ? "font-medium" : "text-blue-600"} style={{ color: branchColor(employee.branch) }}> · {employee.branch}</span>
                           )}
                         </div>
                       </div>
@@ -405,6 +419,7 @@ export default function AdminSchedulePage() {
                               key={dateStr}
                               className="flex-1 min-w-[150px] border-r p-3 min-h-[120px]"
                             >
+                              <LeaveChips data={weekLeaves} userId={employee.id} date={dateStr} />
                               {daySchedules.length === 0 ? (
                                 <div className="text-xs text-gray-400">-</div>
                               ) : (
@@ -412,7 +427,7 @@ export default function AdminSchedulePage() {
                                   {daySchedules.map(schedule => (
                                     <div
                                       key={schedule.id}
-                                      className="p-2 bg-blue-100 rounded text-xs"
+                                      className="p-2 bg-blue-100 rounded text-xs" style={{ borderLeft: `4px solid ${branchColor(schedule.branch ?? employee.branch) ?? "transparent"}` }}
                                     >
                                       <div className="font-medium text-blue-900">
                                         {schedule.startTime} - {schedule.endTime}
@@ -435,6 +450,7 @@ export default function AdminSchedulePage() {
                           );
                         })}
                       </div>
+                      <WeekTotalCell data={weekHours} userId={employee.id} />
                     </div>
                   ))
                 )}
@@ -458,6 +474,7 @@ export default function AdminSchedulePage() {
           <div className="w-4 h-4 bg-orange-100 rounded border border-orange-300" />
           출장
         </div>
+        <div className="text-gray-400">왼쪽 색 띠 = 지점</div>
       </div>
     </div>
   );
