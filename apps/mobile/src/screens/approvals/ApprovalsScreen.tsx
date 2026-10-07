@@ -549,7 +549,7 @@ export default function ApprovalsScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
+      <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => { setRejectTarget(null); setRejectReason(""); }}>
         <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{rejectTarget?.mode === "approve" ? "의견 남기고 승인" : "반려 사유"}</Text>

@@ -474,6 +474,13 @@ export default function ApprovalsPage() {
                                 </span>
                               ))}
                             </div>
+                            {(req.approvalSteps ?? []).some((x) => x.comment) && (
+                              <div className="mt-1 space-y-0.5">
+                                {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
+                                  <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+                                ))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
@@ -611,6 +618,13 @@ export default function ApprovalsPage() {
                                 </span>
                               ))}
                             </div>
+                            {(req.approvalSteps ?? []).some((x) => x.comment) && (
+                              <div className="mt-1 space-y-0.5">
+                                {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
+                                  <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+                                ))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">

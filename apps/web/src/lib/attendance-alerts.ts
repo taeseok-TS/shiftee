@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { isResigned } from "@/lib/resign";
+import { isHoliday } from "@/lib/holidays";
 
 // ─── 휴대폰 근태 알림(2026-10-07 QA #11, 디렉터 결정) ─────────────────────────
 // 근무일정(WORK)이 있는 날만 보낸다(일정 없는 날은 쉬는 날일 수 있다 — 출근 누락 안내는 지각 알림이 겸한다).
@@ -37,7 +38,8 @@ export async function runAttendanceAlerts(now: Date = new Date()) {
   const schedules = await prisma.schedule.findMany({
     where: {
       date: today, type: "WORK",
-      user: { isActive: true, deletedAt: null, role: { not: "ADMIN" } },
+      // 휴직·임시휴무는 일정이 남아 있어도 보내지 않는다(검증 P1)
+      user: { isActive: true, deletedAt: null, role: { not: "ADMIN" }, employmentStatus: "ACTIVE" },
     },
     select: { userId: true, startTime: true, endTime: true, user: { select: { name: true, branch: true, role: true, resignDate: true } } },
   });
@@ -58,18 +60,23 @@ export async function runAttendanceAlerts(now: Date = new Date()) {
   if (due.length === 0) return;
 
   const ids = [...new Set(due.map((d) => d.s.userId))];
-  const [atts, leaves, pendIn, sent] = await Promise.all([
+  const [atts, leaves, pendIn, pendOut, sent] = await Promise.all([
     prisma.attendance.findMany({ where: { userId: { in: ids }, date: today }, select: { userId: true, clockIn: true, clockOut: true } }),
     prisma.leaveRequest.findMany({
       where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: today }, endDate: { gte: today } },
       select: { userId: true },
     }),
-    prisma.attendanceRequest.findMany({ where: { userId: { in: ids }, workDate: today, action: "IN", status: "PENDING" }, select: { userId: true } }),
+    prisma.attendanceRequest.findMany({ where: { userId: { in: ids }, workDate: today, action: "IN", status: "PENDING" }, select: { userId: true, clockOut: true } }),
+    prisma.attendanceRequest.findMany({ where: { userId: { in: ids }, workDate: today, action: "OUT", status: "PENDING" }, select: { userId: true } }),
     prisma.attendanceAlertLog.findMany({ where: { userId: { in: ids }, date: today }, select: { userId: true, kind: true } }),
   ]);
   const att = new Map(atts.map((a) => [a.userId, a]));
   const onLeave = new Set(leaves.map((l) => l.userId));
   const waitingIn = new Set(pendIn.map((p) => p.userId));
+  // 승인 대기 중인 퇴근(출근 요청에 담긴 퇴근, 지점 밖·사진·본부 퇴근 요청)도 퇴근한 것으로 본다(검증 C1)
+  const waitingOut = new Set([...pendIn.filter((p) => !!p.clockOut).map((p) => p.userId), ...pendOut.map((p) => p.userId)]);
+  // 공휴일에는 지각 판정을 하지 않으므로(출근 처리·calcStatus) 원장에게 「[지각]」을 보내지 않는다(검증 P2)
+  const holidayToday = await isHoliday(new Date(today).toISOString().slice(0, 10)).catch(() => false);
   const already = new Set(sent.map((x) => `${x.userId}:${x.kind}`));
 
   const { botSendDM } = await import("@/lib/bot");
@@ -80,7 +87,7 @@ export async function runAttendanceAlerts(now: Date = new Date()) {
     if (onLeave.has(uid) || already.has(`${uid}:${d.kind}`)) continue;
     const a = att.get(uid);
     const clockedIn = !!a?.clockIn || waitingIn.has(uid);   // 출근 요청 대기 중이면 출근한 것으로 본다
-    const clockedOut = !!a?.clockOut;
+    const clockedOut = !!a?.clockOut || waitingOut.has(uid);
 
     if ((d.kind === "BEFORE_START" || d.kind === "LATE") && clockedIn) continue;
     if ((d.kind === "END_SOON" || d.kind === "AFTER_END") && (!clockedIn || clockedOut)) continue;
@@ -92,11 +99,11 @@ export async function runAttendanceAlerts(now: Date = new Date()) {
       } else if (d.kind === "LATE") {
         await botSendDM(uid, `⚠️ 출근 기록이 아직 없어요\n오늘 근무 시작 ${hhmm(d.start)} — 출근 버튼을 눌러 주세요.\n지점 밖이라면 출퇴근 화면에서 「지점 밖 출근 요청」을 보낼 수 있어요.`);
         // 그 지점 원장(+원장대행)에게도 — 원장 본인의 지각은 본인에게만
-        if (d.s.user.branch && d.s.user.role !== "MANAGER") {
+        if (d.s.user.branch && d.s.user.role !== "MANAGER" && !holidayToday) {
           const { branchManagers } = await import("@/lib/manager-branches");
           const { branchDelegates } = await import("@/lib/approval-delegate");
           const targets = new Set([
-            ...(await branchManagers(d.s.user.branch)).map((m) => m.id),
+            ...(await branchManagers(d.s.user.branch).catch(() => [] as { id: string }[])).map((m) => m.id),
             ...(await branchDelegates(d.s.user.branch).catch(() => [] as string[])),
           ]);
           targets.delete(uid);

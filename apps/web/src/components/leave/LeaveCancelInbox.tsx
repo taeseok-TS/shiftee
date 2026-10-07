@@ -25,6 +25,7 @@ type Step = {
   approverRole?: string | null;
   branch?: string | null;
   approver?: { name: string } | null;
+  comment?: string | null;   // 결재자 의견(#64)
 };
 type Row = {
   id: string;
@@ -68,6 +69,9 @@ export default function LeaveCancelInbox({
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // 의견 남기고 승인(#64)
+  const [noteId, setNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -173,6 +177,9 @@ export default function LeaveCancelInbox({
                     <td className="px-6 py-4 text-sm text-gray-700 max-w-xs">{c.reason || "-"}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-1 text-xs flex-wrap">
+                        <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+                          {c.approvalSteps.filter((x) => x.status === "APPROVED").length}/{c.approvalSteps.length}
+                        </span>
                         {c.approvalSteps.map((s, idx) => (
                           <span key={s.id} className="flex items-center gap-1">
                             {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
@@ -181,10 +188,17 @@ export default function LeaveCancelInbox({
                               s.status === "REJECTED" ? "bg-red-100 text-red-700" :
                               s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
                               "bg-gray-100 text-gray-600"
-                            }`}>{stepLabel(s)}</span>
+                            }`}>{stepLabel(s)}{s.comment ? " 💬" : ""}</span>
                           </span>
                         ))}
                       </div>
+                      {c.approvalSteps.some((x) => x.comment) && (
+                        <div className="mt-1 space-y-0.5">
+                          {c.approvalSteps.filter((x) => x.comment).map((x) => (
+                            <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex gap-2 justify-end">
@@ -192,6 +206,10 @@ export default function LeaveCancelInbox({
                           disabled={processingId === c.id} onClick={() => decide(c.id, "approve")}>
                           {processingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                           승인
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-gray-500 hover:bg-gray-100" title="의견을 남기고 승인합니다"
+                          disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
+                          의견
                         </Button>
                         <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50"
                           disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>
@@ -207,6 +225,23 @@ export default function LeaveCancelInbox({
           </table>
         </div>
       </Card>
+
+      <Dialog open={!!noteId} onOpenChange={(o) => { if (!o) setNoteId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>의견 남기고 승인</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <Textarea value={noteText} maxLength={300} rows={3} placeholder="다음 결재자와 본부가 볼 수 있는 의견입니다 (선택)"
+              onChange={(e) => setNoteText(e.target.value)} />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setNoteId(null)}>취소</Button>
+              <Button className="bg-green-600 hover:bg-green-700" disabled={processingId !== null}
+                onClick={async () => { if (!noteId) return; const id = noteId; setNoteId(null); await decide(id, "approve", noteText.trim() || undefined); }}>
+                승인
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!rejectId} onOpenChange={(o) => { if (!o) setRejectId(null); }}>
         <DialogContent className="max-w-md">
