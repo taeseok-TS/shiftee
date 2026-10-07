@@ -75,6 +75,7 @@ function askDuplicate(data: { duplicates?: { title: string; status: string; last
 type ContractTemplate = {
   id: string;
   name: string;
+  createdAt?: string; // 패키지 자동 선택 순서(#78 F1)
   description?: string;
   type: string;
   fileUrl: string;
@@ -777,32 +778,37 @@ export default function ContractsPage() {
     return fileUrl;
   };
 
+  // 패키지가 자동으로 고르는 문서는 **사본을 빼고 등록 순서(최근 먼저)로만** 고른다 — 목록의 「맨 위 고정」이나
+  // 「사본 만들기」(#78)가 발송 문서를 몰래 바꾸지 않게(#78 검증 F1: 사직원 사본이 퇴사 패키지로 나갔다)
+  const pkgTemplates = templates
+    .filter(t => !/\(사본( \d+)?\)/.test(t.name))
+    .sort((x, y) => (y.createdAt || "").localeCompare(x.createdAt || ""));
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
-  const ndaTemplate = templates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
-  const privacyTemplate = templates.find(t => t.name.includes("개인정보"));
+  const ndaTemplate = pkgTemplates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
+  const privacyTemplate = pkgTemplates.find(t => t.name.includes("개인정보"));
   // 신규입사 패키지의 근로계약서 — 에듀플렉스 명시 우선.
   // 코디·기타직무(외부용) 근로계약서는 제외 — 이름 부분매치로 새 템플릿이 끼어들면
   // "신규입사 체크 시 에듀플렉스 강제 전환"이 엉뚱한 계약서로 가는 사고 재발(코디 사고와 동일 패턴)
-  const empTemplate = templates.find(t => t.name.includes("에듀플렉스") && t.name.includes("근로계약"))
-    || templates.find(t => t.name.includes("근로계약") && !t.name.includes("코디") && !t.name.includes("기타직무"))
-    || templates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디") && !t.name.includes("기타직무"));
+  const empTemplate = pkgTemplates.find(t => t.name.includes("에듀플렉스") && t.name.includes("근로계약"))
+    || pkgTemplates.find(t => t.name.includes("근로계약") && !t.name.includes("코디") && !t.name.includes("기타직무"))
+    || pkgTemplates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디") && !t.name.includes("기타직무"));
   const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
 
   // 퇴사 패키지 5종 — 전부 결재라인(비밀유지서약서(퇴직시)도 결재표 신설로 결재라인, 2026-08-25)
   // 코디 채용 패키지 — 코디 계약서 4종(정규직 주40/주35·계약직 일반/단기) 중 선택 + 비밀유지·개인정보동의서
-  const codiTemplates = templates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
+  const codiTemplates = pkgTemplates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
   const canCodiBundle = codiTemplates.length > 0 && !!ndaTemplate && !!privacyTemplate;
 
   // 외부 채용 패키지 — 기타직무 계약서(학습실장 등) + 비밀유지·개인정보동의서, 게스트 링크 하나로 함께 서명
-  const extTemplate = templates.find(t => t.name.includes("기타직무"));
+  const extTemplate = pkgTemplates.find(t => t.name.includes("기타직무"));
   const canExtBundle = !!extTemplate && !!ndaTemplate && !!privacyTemplate;
 
   const resignTemplates = [
-    templates.find(t => t.name.includes("사직원")),
-    templates.find(t => t.name.includes("금품청산")),
-    templates.find(t => t.name.includes("퇴직금 정산")),
-    templates.find(t => t.name.includes("연차수당")),
-    templates.find(t => t.name.includes("비밀유지") && t.name.includes("퇴직")),
+    pkgTemplates.find(t => t.name.includes("사직원")),
+    pkgTemplates.find(t => t.name.includes("금품청산")),
+    pkgTemplates.find(t => t.name.includes("퇴직금 정산")),
+    pkgTemplates.find(t => t.name.includes("연차수당")),
+    pkgTemplates.find(t => t.name.includes("비밀유지") && t.name.includes("퇴직")),
   ];
   const canResignBundle = resignTemplates.every(Boolean);
 

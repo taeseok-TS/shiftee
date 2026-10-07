@@ -2,7 +2,7 @@
 -- 운영에는 prisma db push 를 쓰지 않는다 — 배포 전에 넣는다. 다시 돌려도 안전하다(IF NOT EXISTS).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
-ALTER TABLE "ContractTemplate" ADD COLUMN IF NOT EXISTS "labels" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE "ContractTemplate" ADD COLUMN IF NOT EXISTS "labels" TEXT[] DEFAULT ARRAY[]::TEXT[];   -- Prisma String[] 과 같게(NOT NULL 없음)
 ALTER TABLE "ContractTemplate" ADD COLUMN IF NOT EXISTS "pinned" BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS "ContractTemplateVersion" (
   "id"         TEXT NOT NULL,

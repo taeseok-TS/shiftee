@@ -27,12 +27,19 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
 
   let name = `${src.name} (사본)`;
   for (let n = 2; await prisma.contractTemplate.findUnique({ where: { name } }); n++) name = `${src.name} (사본 ${n})`;
-  const copy = await prisma.contractTemplate.create({
-    data: {
-      name, description: src.description, type: src.type, fileUrl: `/api/uploads/templates/${filename}`, version: 1,
-      createdBy: session.userId, approverIds: src.approverIds, postSignAccess: src.postSignAccess, labels: src.labels,
-    },
-  });
+  let copy;
+  try {
+    copy = await prisma.contractTemplate.create({
+      data: {
+        name, description: src.description, type: src.type, fileUrl: `/api/uploads/templates/${filename}`, version: 1,
+        createdBy: session.userId, approverIds: src.approverIds, postSignAccess: src.postSignAccess, labels: src.labels,
+      },
+    });
+  } catch {
+    // 같은 사본을 동시에 두 번 만들면 이름이 겹친다 — 복사한 파일을 지우고 다시 누르게 한다(#78 검증 F6)
+    await fs.unlink(path.join(dir, filename)).catch(() => {});
+    return NextResponse.json({ error: "사본을 만들지 못했습니다. 다시 눌러 주세요." }, { status: 409 });
+  }
   await logAudit({ actorId: session.userId, actorName: session.name, action: "CONTRACT_TEMPLATE_COPY", targetType: "ContractTemplate", targetId: copy.id, targetName: copy.name, detail: `원본: ${src.name} v${src.version}` });
   return NextResponse.json({ success: true, template: copy });
 }

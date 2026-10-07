@@ -38,7 +38,9 @@ export async function GET(
 
     const response = new NextResponse(file);
     response.headers.set("Content-Type", contentType);
-    response.headers.set("Content-Disposition", `${ext === ".pdf" ? "inline" : "attachment"}; filename="${filename}"`);
+    // 한글 파일 이름은 헤더에 그대로 못 넣는다(ByteString 오류 → 404 였다, #78 검증 F2) — ASCII 대체 이름 + UTF-8 이름
+    const ascii = filename.replace(/[^ -~]/g, "_").replace(/"/g, "");
+    response.headers.set("Content-Disposition", `${ext === ".pdf" ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
 
     return response;
   } catch (error) {

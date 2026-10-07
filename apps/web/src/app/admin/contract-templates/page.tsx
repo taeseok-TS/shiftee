@@ -63,7 +63,9 @@ export default function ContractTemplatesPage() {
   });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ name: string; current: { version: number; fileUrl: string; sent: number }; past: { id: string; version: number; fileUrl: string; replacedAt: string; replacedBy: string | null; sent: number }[] } | null>(null);
+  // 고른 라벨이 어느 템플릿에도 없으면(라벨을 지움) 거르지 않는다 — 빈 목록에 갇히지 않게(#78 검증 F3)
+  const activeLabel = labelFilter && templates.some(t => (t.labels || []).includes(labelFilter)) ? labelFilter : null;
+  const [history, setHistory] = useState<{ name: string; unrecorded?: { version: number; sent: number }[]; current: { version: number; fileUrl: string; sent: number }; past: { id: string; version: number; fileUrl: string; replacedAt: string; replacedBy: string | null; sent: number }[] } | null>(null);
   const openHistory = async (t: ContractTemplate) => {
     const res = await fetch(`/api/contract-templates/${t.id}/versions`);
     const d = await res.json().catch(() => ({}));
@@ -245,10 +247,10 @@ export default function ContractTemplatesPage() {
       {[...new Set(templates.flatMap(t => t.labels || []))].length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           <button type="button" onClick={() => setLabelFilter(null)}
-            className={`px-2.5 py-1 rounded-full text-xs border ${!labelFilter ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>전체</button>
+            className={`px-2.5 py-1 rounded-full text-xs border ${!activeLabel ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>전체</button>
           {[...new Set(templates.flatMap(t => t.labels || []))].sort().map(l => (
-            <button key={l} type="button" onClick={() => setLabelFilter(labelFilter === l ? null : l)}
-              className={`px-2.5 py-1 rounded-full text-xs border ${labelFilter === l ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>{l}</button>
+            <button key={l} type="button" onClick={() => setLabelFilter(activeLabel === l ? null : l)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${activeLabel === l ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600"}`}>{l}</button>
           ))}
         </div>
       )}
@@ -262,7 +264,7 @@ export default function ContractTemplatesPage() {
             </CardContent>
           </Card>
         ) : (
-          templates.filter(t => !labelFilter || (t.labels || []).includes(labelFilter)).map(template => (
+          templates.filter(t => !activeLabel || (t.labels || []).includes(activeLabel)).map(template => (
             <Card key={template.id} className={`hover:shadow-md transition-shadow ${template.pinned ? "border-amber-300" : ""}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -337,6 +339,9 @@ export default function ContractTemplatesPage() {
                   <span>v{p.version} · 발송 {p.sent}건<span className="block text-[11px] text-gray-400">{format(new Date(p.replacedAt), "yyyy-MM-dd HH:mm")} 교체{p.replacedBy ? ` · ${p.replacedBy}` : ""}</span></span>
                   <a href={p.fileUrl} download className="text-blue-600 hover:underline text-xs">내려받기</a>
                 </div>
+              ))}
+              {(history.unrecorded || []).map(u => (
+                <div key={`u${u.version}`} className="rounded border border-dashed px-3 py-2 text-gray-500">v{u.version} · 발송 {u.sent}건 <span className="text-[11px]">(파일 기록 없음 — 이력 기능 이전 버전)</span></div>
               ))}
             </div>
           )}

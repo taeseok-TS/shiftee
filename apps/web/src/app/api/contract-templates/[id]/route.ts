@@ -54,7 +54,12 @@ export async function PATCH(
     if (body.description !== undefined) data.description = body.description || null;
     if (body.type != null) data.type = body.type;
     if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
-    if (body.fileUrl) { data.fileUrl = body.fileUrl; data.version = existing.version + 1; }
+    // 파일 주소는 템플릿 업로드 폴더 안의 것만(#78 검증 F9), 지금과 같으면 버전을 올리지 않는다(F5)
+    if (body.fileUrl && body.fileUrl !== existing.fileUrl) {
+      if (typeof body.fileUrl !== "string" || !body.fileUrl.startsWith("/api/uploads/templates/") || body.fileUrl.includes(".."))
+        return NextResponse.json({ error: "파일 주소가 올바르지 않습니다." }, { status: 400 });
+      data.fileUrl = body.fileUrl; data.version = existing.version + 1;
+    }
     if (body.labels !== undefined) data.labels = cleanLabels(body.labels);
     if (typeof body.pinned === "boolean") data.pinned = body.pinned;
   }
