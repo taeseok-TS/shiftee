@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { leaveCancelDenial } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
+import { CLOSE_REQUESTER_CANCEL } from "@/lib/approval-close";
 
 // 휴가 신청 취소 — **대기 중인 신청만** 거둔다(연차 영향 없음). 본인은 자기 건, 원장.관리자는 담당 범위의 건.
 // ⚠ 승인된 휴가는 여기서 취소하지 않는다(9/11 디렉터) — 본인이 "취소 결재"를 올려 관리자까지 승인받고,
@@ -46,7 +47,7 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
     // 누군가 승인하면 되살아난다(근무일정에는 넣고 휴가만 빠뜨렸다).
     await tx.leaveApprovalStep.updateMany({
       where: { leaveRequestId: id, status: { in: ["PENDING", "WAITING"] } },
-      data: { status: "REJECTED", comment: "신청 취소", decidedAt: new Date() },
+      data: { status: "REJECTED", comment: CLOSE_REQUESTER_CANCEL, decidedAt: new Date() },
     });
 
     // 승인된 휴가는 여기로 오지 않는다(규칙이 NEEDS_REQUEST 로 막는다). 연차 복구는 취소 결재

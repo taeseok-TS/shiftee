@@ -7,6 +7,7 @@ import { restoreLeaveBalance } from "@/lib/leave-balance";
 import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 import { logAudit } from "@/lib/audit";
+import { CLOSE_EXPIRED } from "@/lib/approval-close";
 
 /**
  * 승인된 휴가의 **취소 결재** — 최종 승인 처리와 결재함 조건을 한 곳에 둔다.
@@ -127,7 +128,7 @@ export async function expireStaleCancelRequests(): Promise<number> {
       done = true;
       await tx.leaveCancelStep.updateMany({
         where: { cancelRequestId: cr.id, status: { in: ["PENDING", "WAITING"] } },
-        data: { status: "REJECTED", comment: "기한 만료", decidedAt: new Date() },
+        data: { status: "REJECTED", comment: CLOSE_EXPIRED, decidedAt: new Date() },
       });
     });
     } catch (e) {

@@ -35,8 +35,12 @@ const STATUS: Record<Item["status"], { label: string; cls: string }> = {
 const kst = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
 
 export default function RequestsPage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
-  // 본부·원장 메뉴 「처리한 요청」은 ?who=decided 로 들어온다
+  // 본부·원장 메뉴 「처리한 요청」은 ?who=decided 로 들어온다 — 같은 화면에서 주소만 바뀌어도 탭이 따라가게 key 로 다시 그린다
   const initialWho = use(searchParams).who === "decided" ? "decided" : "mine";
+  return <RequestsView key={initialWho} initialWho={initialWho} />;
+}
+
+function RequestsView({ initialWho }: { initialWho: "mine" | "decided" }) {
   const [who, setWho] = useState<"mine" | "decided">(initialWho);
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { leaveLabel } from "@/lib/leave-catalog";
 import { KIND_LABEL as ATT_KIND_LABEL } from "@/lib/attendance-request";
+import { SYSTEM_CLOSE_COMMENTS } from "@/lib/approval-close";
 
 // ─── 요청 한눈에(2026-10-07 QA76 묶음 9: #51 #43 #76) ─────────────────────
 // 휴가·휴가 취소·근무일정·출퇴근 요청을 한 목록으로. 진행(결재 n/N)·마지막 의견·반려 사유를 함께 준다.
@@ -35,10 +36,8 @@ const SCHED_KIND: Record<string, string> = { CREATE: "근무일정 신청", UPDA
 const STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const;
 
 // 시스템이 닫은 단계 — 사람이 결재한 게 아니다. 단계에 결재자가 **미리 박힌**(메인 원장 등) 채로 닫히므로
-// approverId 만 보면 「내가 반려」로 잘못 뜬다(2026-10-07 검증 적발). 문구는 닫는 곳과 같아야 한다:
-//   신청 취소 = leave/[id]·schedule-requests/[id] DELETE, 요청 철회 = leave/cancel-requests/[id] DELETE, 기한 만료 = leave-cancel-flow
+// approverId 만 보면 「내가 반려」로 잘못 뜬다(2026-10-07 검증 적발). 문구는 닫는 곳과 같은 상수(lib/approval-close)를 쓴다.
 // 반려 때 남은 WAITING 단계를 함께 닫는 것은 decidedAt 이 비어 있어 decidedAt 조건으로 빠진다.
-export const SYSTEM_CLOSE_COMMENTS = ["신청 취소", "요청 철회", "기한 만료"];
 const isSystemComment = (c: string | null) => !!c && SYSTEM_CLOSE_COMMENTS.includes(c);
 
 function createdRange(q: FeedQuery): { gte?: Date; lt?: Date } | undefined {

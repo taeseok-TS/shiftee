@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { ymdOf } from "@/lib/leave-cancel-flow";
+import { CLOSE_WITHDRAW } from "@/lib/approval-close";
 
 /**
  * 취소 결재 **철회** — 올린 본인만, 대기 중일 때만. 휴가는 그대로 유지된다.
@@ -40,7 +41,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     // 남은 결재 단계도 닫는다 — 안 닫으면 철회된 요청이 결재함에 계속 뜬다
     await tx.leaveCancelStep.updateMany({
       where: { cancelRequestId: id, status: { in: ["PENDING", "WAITING"] } },
-      data: { status: "REJECTED", comment: "요청 철회", decidedAt: new Date() },
+      data: { status: "REJECTED", comment: CLOSE_WITHDRAW, decidedAt: new Date() },
     });
   });
   if (!done) return NextResponse.json({ error: "이미 처리된 취소 요청입니다." }, { status: 409 });

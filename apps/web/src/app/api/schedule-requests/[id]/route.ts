@@ -4,6 +4,7 @@ import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { CLOSE_REQUESTER_CANCEL } from "@/lib/approval-close";
 
 /**
  * DELETE /api/schedule-requests/[id] — 본인이 낸 근무일정 신청을 취소한다.
@@ -48,7 +49,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 취소된 신청이 결재함에 계속 뜬다.
     await tx.scheduleApprovalStep.updateMany({
       where: { scheduleRequestId: id, status: { in: ["PENDING", "WAITING"] } },
-      data: { status: "REJECTED", comment: "신청 취소", decidedAt: new Date() },
+      data: { status: "REJECTED", comment: CLOSE_REQUESTER_CANCEL, decidedAt: new Date() },
     });
   });
 
