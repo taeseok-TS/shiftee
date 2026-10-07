@@ -165,7 +165,8 @@ export default function HomeScreen() {
     : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#2563eb" };
 
   const cards = [
-    { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: undefined as undefined | (() => void) },
+    // 잔여 연차 칸을 누르면 휴가 신청으로 바로(2026-10-07 #14)
+    { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: (() => navigation.navigate("Leave")) as undefined | (() => void) },
     { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
     approver
       ? { key: "approval", label: "대기 결재", value: inbox === null ? "…" : `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",

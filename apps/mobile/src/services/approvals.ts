@@ -23,6 +23,7 @@ type InboxStepInfo = {
   approverRole?: string | null;
   branch?: string | null;
   approver?: { id: string; name: string } | null;
+  comment?: string | null;   // 결재자 의견(2026-10-07 #64)
 };
 
 export type LeaveInboxStep = InboxStepInfo & {

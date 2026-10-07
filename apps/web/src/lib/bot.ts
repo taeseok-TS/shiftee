@@ -713,6 +713,16 @@ export function startBotScheduler() {
       console.error("[bot] 브리핑 조회 오류:", e);
     }
 
+    // 휴대폰 근태 알림 — 매 틱(2026-10-07 QA #11). 출근 10분 전·지각·종료 5분 전·종료 후 미퇴근.
+    // 하루 한 번 보장은 AttendanceAlertLog 유니크가 한다. 끄려면 환경설정 attendanceAlertsOff=true
+    try {
+      const off = await prisma.appSetting.findUnique({ where: { key: "attendanceAlertsOff" } });
+      if (off?.value !== "true") {
+        const { runAttendanceAlerts } = await import("@/lib/attendance-alerts");
+        await runAttendanceAlerts();
+      }
+    } catch (e) { console.error("[bot] 근태 알림 오류:", e); }
+
     if (k.getUTCHours() === 9 && k.getUTCMinutes() < 2 && g.__botRemLastRun !== today) {
       g.__botRemLastRun = today;
       try { await runNoticeReminders(); } catch (e) { console.error("[bot] 공지 재알림 오류:", e); }

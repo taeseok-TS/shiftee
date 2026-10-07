@@ -73,7 +73,7 @@ const CANCEL_BLOCK_LABEL: Record<string, string> = {
   MAIN_ONLY: "다른 원장의 신청 — 메인 원장만 취소할 수 있습니다",
 };
 
-type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel" | "attendance"; id: string } | null;
+type RejectTarget = { kind: "leave" | "schedule" | "leaveCancel" | "attendance"; id: string; mode?: "approve" } | null;
 
 export default function ApprovalsScreen() {
   useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
@@ -189,13 +189,32 @@ export default function ApprovalsScreen() {
     );
   };
 
+  // 결재선 — 「1/2 · 1. 원장 ✓ (의견) → 2. 관리자」 (2026-10-07 #64 진행률·승인권자 노트)
+  const chainText = (steps: { id: string; order: number; status: string; comment?: string | null; approverRole?: string | null; branch?: string | null; approver?: { id: string; name: string } | null }[]) =>
+    `${steps.filter((x) => x.status === "APPROVED").length}/${steps.length} · ` +
+    steps.map((x) => `${x.order}. ${stepLabel(x)}${x.status === "APPROVED" ? " ✓" : ""}${x.comment ? ` (“${x.comment}”)` : ""}`).join("  →  ");
+
   const confirmReject = async () => {
     if (!rejectTarget) return;
-    const { kind, id } = rejectTarget;
+    const { kind, id, mode } = rejectTarget;
     setProcessingId(id);
     const reason = rejectReason.trim() || undefined;
     setRejectTarget(null);
     setRejectReason("");
+    if (mode === "approve") {
+      // 의견 남기고 승인(#64) — 서버는 승인 때도 사유(reason)를 단계 의견으로 남긴다
+      try {
+        if (kind === "leave") await decideLeave(id, "approve", reason);
+        else if (kind === "leaveCancel") await decideLeaveCancel(id, "approve", reason);
+        else if (kind === "schedule") await decideSchedule(id, "approve", reason);
+        await load();
+      } catch (error: any) {
+        Alert.alert("승인 실패", error?.response?.data?.error || "처리 중 오류가 발생했습니다.");
+      } finally {
+        setProcessingId(null);
+      }
+      return;
+    }
     try {
       if (kind === "leave") await decideLeave(id, "reject", reason);
       else if (kind === "leaveCancel") await decideLeaveCancel(id, "reject", reason);
@@ -242,6 +261,14 @@ export default function ApprovalsScreen() {
       >
         <Ionicons name="close" size={16} color="#dc2626" />
         <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.btn, styles.cancelBtn]}
+        disabled={processingId === id}
+        onPress={() => setRejectTarget({ kind, id, mode: "approve" })}
+      >
+        <Ionicons name="chatbubble-ellipses-outline" size={15} color="#6b7280" />
+        <Text style={[styles.btnText, { color: "#6b7280" }]}>의견</Text>
       </TouchableOpacity>
       {/* 취소는 서버 판정(canCancel)으로만 — 원장끼리는 메인 원장만, 지난 휴가는 불가 등 */}
       {canCancel && (
@@ -304,7 +331,7 @@ export default function ApprovalsScreen() {
                   )}
                   {!!r.approvalSteps?.length && (
                     <Text style={styles.chain}>
-                      {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
+                      {chainText(r.approvalSteps)}
                     </Text>
                   )}
                   <Actions kind="leave" id={r.id} who={r.user?.name ?? "직원"} canCancel={r.canCancel} />
@@ -333,7 +360,7 @@ export default function ApprovalsScreen() {
                   {!!r.reason && <Text style={styles.reason}>{r.reason}</Text>}
                   {!!r.approvalSteps?.length && (
                     <Text style={styles.chain}>
-                      {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}`).join("  →  ")}
+                      {chainText(r.approvalSteps)}
                     </Text>
                   )}
                   <Actions kind="schedule" id={r.id} who={r.user?.name ?? "직원"} canCancel={r.canCancel} />
@@ -364,7 +391,7 @@ export default function ApprovalsScreen() {
                   <Text style={styles.chain}>최종 승인되면 휴가가 취소되고 연차가 복구됩니다. 반려하면 휴가는 그대로입니다.</Text>
                   {!!c.approvalSteps?.length && (
                     <Text style={styles.chain}>
-                      {c.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}${s.status === "APPROVED" ? " ✓" : ""}`).join("  →  ")}
+                      {chainText(c.approvalSteps)}
                     </Text>
                   )}
                   <View style={styles.actions}>
@@ -389,6 +416,14 @@ export default function ApprovalsScreen() {
                     >
                       <Ionicons name="close" size={16} color="#dc2626" />
                       <Text style={[styles.btnText, { color: "#dc2626" }]}>반려</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.cancelBtn]}
+                      disabled={processingId === c.id}
+                      onPress={() => setRejectTarget({ kind: "leaveCancel", id: c.id, mode: "approve" })}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={15} color="#6b7280" />
+                      <Text style={[styles.btnText, { color: "#6b7280" }]}>의견</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -485,7 +520,7 @@ export default function ApprovalsScreen() {
                   </Text>
                   {!!r.approvalSteps?.length && (
                     <Text style={styles.chain}>
-                      {r.approvalSteps.map((s) => `${s.order}. ${stepLabel(s)}${s.status === "APPROVED" ? " ✓" : ""}`).join("  →  ")}
+                      {chainText(r.approvalSteps)}
                     </Text>
                   )}
                   {!!r.pendingCancel && <Text style={styles.blockNote}>취소 결재 진행 중</Text>}
@@ -517,10 +552,10 @@ export default function ApprovalsScreen() {
       <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
         <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>반려 사유</Text>
+            <Text style={styles.modalTitle}>{rejectTarget?.mode === "approve" ? "의견 남기고 승인" : "반려 사유"}</Text>
             <TextInput
               style={styles.input}
-              placeholder="사유를 입력하세요 (선택)"
+              placeholder={rejectTarget?.mode === "approve" ? "다음 결재자와 본부가 볼 의견 (선택)" : "사유를 입력하세요 (선택)"}
               value={rejectReason}
               onChangeText={setRejectReason}
               multiline
@@ -529,8 +564,8 @@ export default function ApprovalsScreen() {
               <TouchableOpacity style={styles.modalCancel} onPress={() => { setRejectTarget(null); setRejectReason(""); }}>
                 <Text style={styles.modalCancelText}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirm} onPress={confirmReject}>
-                <Text style={styles.modalConfirmText}>반려</Text>
+              <TouchableOpacity style={[styles.modalConfirm, rejectTarget?.mode === "approve" && { backgroundColor: "#16a34a" }]} onPress={confirmReject}>
+                <Text style={styles.modalConfirmText}>{rejectTarget?.mode === "approve" ? "승인" : "반려"}</Text>
               </TouchableOpacity>
             </View>
           </View>

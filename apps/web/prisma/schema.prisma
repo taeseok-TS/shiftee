@@ -1217,3 +1217,15 @@ model AttendanceRequest {
   @@index([branch, status])
   @@index([status])
 }
+
+// 휴대폰 근태 알림 발송 기록(2026-10-07 QA #11) — 같은 사람·같은 날·같은 알림은 한 번만(유니크로 먼저 잡은 쪽만 보낸다)
+model AttendanceAlertLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  kind      String   // BEFORE_START | LATE | END_SOON | AFTER_END
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date, kind])
+  @@index([date])
+}

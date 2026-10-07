@@ -26,6 +26,7 @@ type ApprovalStep = {
   approver: { id: string; name: string; position: string | null } | null;
   approverRole?: string | null;
   branch?: string | null;
+  comment?: string | null;   // 결재자 의견(승인·반려 때 남긴 것)
 };
 
 // 역할/지점 기반 단계는 승인 전까지 approver가 null → 역할 라벨로 표시
@@ -106,6 +107,9 @@ export default function ApprovalsPage() {
   const [searchDate, setSearchDate] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
+  // 의견 남기고 승인(2026-10-07 #64) — 승인 버튼은 그대로 한 번, 의견이 있을 때만 이 창
+  const [noteTarget, setNoteTarget] = useState<{ id: string; type: "leave" | "schedule" } | null>(null);
+  const [noteText, setNoteText] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   // 메일의 "승인하기" 로 들어오면(?id=…) 그 건으로 스크롤·강조한다
@@ -235,7 +239,7 @@ export default function ApprovalsPage() {
     }
   };
 
-  const handleApprove = async (requestId: string, type: "leave" | "schedule") => {
+  const handleApprove = async (requestId: string, type: "leave" | "schedule", note?: string) => {
     try {
       setProcessingId(requestId);
       const endpoint = type === "leave"
@@ -245,7 +249,7 @@ export default function ApprovalsPage() {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve" }),
+        body: JSON.stringify({ action: "approve", ...(note ? { reason: note } : {}) }),
       });
 
       if (res.ok) {
@@ -453,16 +457,19 @@ export default function ApprovalsPage() {
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-1 text-xs flex-wrap">
+                              <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+                                {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
+                              </span>
                               {req.approvalSteps?.map((s, idx) => (
                                 <span key={s.id} className="flex items-center gap-1">
                                   {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
                                     s.status === "APPROVED" ? "bg-green-100 text-green-700" :
                                     s.status === "REJECTED" ? "bg-red-100 text-red-700" :
                                     s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
                                     "bg-gray-100 text-gray-600"
                                   }`}>
-                                    {stepLabel(s)}
+                                    {stepLabel(s)}{s.comment ? " 💬" : ""}
                                   </span>
                                 </span>
                               ))}
@@ -491,6 +498,16 @@ export default function ApprovalsPage() {
                               >
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                                 승인
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-gray-500 hover:bg-gray-100"
+                                disabled={processingId === req.id}
+                                title="의견을 남기고 승인합니다"
+                                onClick={() => { setNoteTarget({ id: req.id, type: "leave" }); setNoteText(""); }}
+                              >
+                                의견
                               </Button>
                               <Button
                                 size="sm"
@@ -577,16 +594,19 @@ export default function ApprovalsPage() {
                           <td className="px-6 py-4 text-sm text-gray-700">{req.totalHours}시간</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-1 text-xs flex-wrap">
+                              <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+                                {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
+                              </span>
                               {req.approvalSteps?.map((s, idx) => (
                                 <span key={s.id} className="flex items-center gap-1">
                                   {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
                                     s.status === "APPROVED" ? "bg-green-100 text-green-700" :
                                     s.status === "REJECTED" ? "bg-red-100 text-red-700" :
                                     s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
                                     "bg-gray-100 text-gray-600"
                                   }`}>
-                                    {stepLabel(s)}
+                                    {stepLabel(s)}{s.comment ? " 💬" : ""}
                                   </span>
                                 </span>
                               ))}
@@ -615,6 +635,16 @@ export default function ApprovalsPage() {
                               >
                                 {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                                 승인
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-gray-500 hover:bg-gray-100"
+                                disabled={processingId === req.id}
+                                title="의견을 남기고 승인합니다"
+                                onClick={() => { setNoteTarget({ id: req.id, type: "schedule" }); setNoteText(""); }}
+                              >
+                                의견
                               </Button>
                               <Button
                                 size="sm"
@@ -652,6 +682,38 @@ export default function ApprovalsPage() {
       </Tabs>
 
       {/* 거절 사유 다이얼로그 */}
+      <Dialog open={!!noteTarget} onOpenChange={(o) => { if (!o) setNoteTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>의견 남기고 승인</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              placeholder="다음 결재자와 본부가 볼 수 있는 의견입니다 (선택)"
+              value={noteText}
+              maxLength={300}
+              onChange={(e) => setNoteText(e.target.value)}
+              rows={3}
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setNoteTarget(null)}>취소</Button>
+              <Button
+                className="bg-green-600 hover:bg-green-700"
+                disabled={processingId !== null}
+                onClick={async () => {
+                  if (!noteTarget) return;
+                  const t = noteTarget;
+                  setNoteTarget(null);
+                  await handleApprove(t.id, t.type, noteText.trim() || undefined);
+                }}
+              >
+                승인
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
