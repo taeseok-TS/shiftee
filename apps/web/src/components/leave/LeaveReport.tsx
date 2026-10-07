@@ -36,6 +36,9 @@ export default function LeaveReport() {
   const [q, setQ] = useState("");
   const [view, setView] = useState<View>("list");
   const [rows, setRows] = useState<Row[] | null>(null);
+  // 마지막으로 조회한 조건 — 월 열·파일명은 입력칸이 아니라 이것을 따른다(검증 C1)
+  const [queried, setQueried] = useState<{ from: string; to: string; key: string } | null>(null);
+  const condKey = `${from}|${to}|${[...picked].sort().join(",")}|${activeOnly}`;
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -55,6 +58,7 @@ export default function LeaveReport() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "리포트를 불러오지 못했습니다."); return; }
       setRows(d.rows || []);
+      setQueried({ from, to, key: condKey });
     } catch {
       toast.error("네트워크 오류로 불러오지 못했습니다.");
     } finally {
@@ -85,15 +89,15 @@ export default function LeaveReport() {
   const typeCols = useMemo(() => LEAVE_CATALOG.filter((t) => shown.some((r) => r.type === t.code)), [shown]);
   const monthCols = useMemo(() => {
     const out: string[] = [];
-    if (!from || !to || from > to) return out;
-    let [y, m] = from.slice(0, 7).split("-").map(Number);
-    const end = to.slice(0, 7);
-    while (`${y}-${String(m).padStart(2, "0")}` <= end && out.length < 25) {
+    if (!queried) return out;
+    let [y, m] = queried.from.slice(0, 7).split("-").map(Number);
+    const end = queried.to.slice(0, 7);
+    while (`${y}-${String(m).padStart(2, "0")}` <= end && out.length < 40) {   // 서버 상한 2년 = 최대 26개월
       out.push(`${y}-${String(m).padStart(2, "0")}`);
       m += 1; if (m > 12) { m = 1; y += 1; }
     }
     return out;
-  }, [from, to]);
+  }, [queried]);
 
   // 표 하나 = [머리, ...줄] — 화면과 엑셀이 같은 값을 쓴다
   const table = useMemo((): (string | number)[][] => {
@@ -111,11 +115,11 @@ export default function LeaveReport() {
   }, [view, shown, people, typeCols, monthCols]);
 
   const download = () => {
-    if (!rows) return;
+    if (!rows || !queried) return;
     const ws = XLSX.utils.aoa_to_sheet(table);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, view === "list" ? "사용내역" : view === "type" ? "유형별" : "월별");
-    XLSX.writeFile(wb, `휴가리포트_${view === "list" ? "사용내역" : view === "type" ? "유형별" : "월별"}_${from}_${to}.xlsx`);
+    XLSX.writeFile(wb, `휴가리포트_${view === "list" ? "사용내역" : view === "type" ? "유형별" : "월별"}_${queried.from}_${queried.to}.xlsx`);
   };
 
   const toggle = (b: string) => setPicked((p) => (p.includes(b) ? p.filter((x) => x !== b) : [...p, b]));
@@ -166,7 +170,8 @@ export default function LeaveReport() {
               <Search size={14} className="absolute left-2.5 top-2 text-gray-400" />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·사번·지점·유형·사유" className="h-8 w-56 pl-8 text-sm" />
             </div>
-            <span className="text-xs text-gray-500">{shown.length}건 · {people.length}명</span>
+            <span className="text-xs text-gray-500">{queried?.from} ~ {queried?.to} · {shown.length}건 · {people.length}명</span>
+            {queried && queried.key !== condKey && <span className="text-xs text-amber-600">조건을 바꿨습니다 — 「조회」를 눌러야 반영됩니다</span>}
             <Button size="sm" variant="outline" className="gap-1 ml-auto" onClick={download} disabled={!shown.length}>
               <Download size={14} />엑셀
             </Button>
@@ -200,7 +205,7 @@ export default function LeaveReport() {
             </CardContent>
           </Card>
           <p className="text-xs text-gray-400">
-            승인된 휴가만, 기간 안의 날만 셉니다(주말·공휴일 제외). 유급 시간 = 일수 × 유형별 유급 시간. 연차 차감은 {LEAVE_GROUPS[0]} 그룹만입니다. 월별 칸은 일수입니다.
+            승인된 휴가만, 기간 안의 날만 셉니다(주말·공휴일 제외). 「기간」 칸은 휴가 원래 기간입니다. 유급 시간 = 일수 × 유형별 유급 시간. 연차 차감은 {LEAVE_GROUPS[0]} 그룹만입니다. 월별 칸은 일수입니다.
           </p>
         </>
       )}

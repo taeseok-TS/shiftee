@@ -639,7 +639,7 @@ export default function LeavePage() {
                           {isAdmin && (
                             <td className="px-4 py-3">
                               <p className="font-medium text-gray-900">{r.user.name}</p>
-                              <p className="text-xs text-gray-400">{r.user.department}</p>
+                              <p className="text-xs text-gray-400">{[r.user.branch, r.user.department].filter(Boolean).join(" · ")}</p>
                             </td>
                           )}
                           <td className="px-4 py-3 font-medium text-gray-800">{TYPE_LABEL[r.type] ?? r.type}</td>

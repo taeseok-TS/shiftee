@@ -5,6 +5,7 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate } from "@/lib/schedule-payload";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { leaveInfo } from "@/lib/leave-catalog";
+import { kstTodayMidnight, isResigned } from "@/lib/resign";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export const dynamic = "force-dynamic";
 // GET ?from=YYYY-MM-DD&to=YYYY-MM-DD[&branches=대치,평촌][&active=1]
 // 기간에 걸친 휴가는 **기간 안의 날만** 센다(9/29~10/2 휴가를 10월로 뽑으면 10/1·10/2 만). 종일 휴가는 근무일(주말·공휴일 제외)
 // 하루마다 1일, 반차·반반차는 0.5·0.25일. 유급 시간 = 일수 × 기준표 하루 유급 시간(반차는 반차 시간).
+// 휴가 전체가 기간 안이면 **저장된 일수**(실제 차감된 값)를 쓴다 — 공휴일이 나중에 바뀌어도 잔여와 맞게(검증 P1).
 // byMonth 는 월별 보기(#84)용 — 달마다 일수.
+// 「재직자만」 = 퇴사 처리 안 됨 + 퇴사일이 없거나 오늘 이후(직원 목록과 같은 기준). 휴직·임시휴무는 재직으로 본다(검증 C3·P2).
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -41,12 +44,15 @@ export async function GET(request: NextRequest) {
         user: {
           deletedAt: null,
           ...(branchIn ? { branch: { in: branchIn } } : {}),
-          ...(activeOnly ? { employmentStatus: "ACTIVE" as const, isActive: true } : {}),
+          ...(activeOnly ? {
+            isActive: true, employmentStatus: { not: "RESIGNED" as const },
+            OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }],
+          } : {}),
         },
       },
       select: {
         id: true, type: true, startDate: true, endDate: true, days: true, reason: true,
-        user: { select: { id: true, empNo: true, name: true, branch: true, employmentStatus: true } },
+        user: { select: { id: true, empNo: true, name: true, branch: true, employmentStatus: true, resignDate: true } },
       },
       orderBy: [{ startDate: "asc" }],
     }),
@@ -66,11 +72,18 @@ export async function GET(request: NextRequest) {
       days += unitDays;
       byMonth[ymd.slice(0, 7)] = (byMonth[ymd.slice(0, 7)] ?? 0) + unitDays;
     }
+    // 휴가 전체가 기간 안이고 한 달 안이면 저장된 일수(차감된 값)로 맞춘다
+    const whole = ymdUTC(r.startDate) >= from && ymdUTC(r.endDate) <= to;
+    const months = Object.keys(byMonth);
+    if (whole && months.length <= 1 && r.days > 0) {
+      days = r.days;
+      byMonth[months[0] ?? ymdUTC(r.startDate).slice(0, 7)] = r.days;
+    }
     const paidHours = info ? (days / unitDays) * info.paidHours : days * 8;
     return {
       id: r.id,
       userId: r.user.id, empNo: r.user.empNo, name: r.user.name, branch: r.user.branch,
-      resigned: r.user.employmentStatus === "RESIGNED",
+      resigned: r.user.employmentStatus === "RESIGNED" || isResigned(r.user.resignDate),
       type: r.type, label: info?.label ?? r.type, group: info?.group ?? "기타휴가",
       startDate: ymdUTC(r.startDate), endDate: ymdUTC(r.endDate),
       days, paidHours, deductDays: info?.deducts === false ? 0 : days,
