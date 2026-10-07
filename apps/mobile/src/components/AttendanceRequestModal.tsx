@@ -34,6 +34,11 @@ const todayYmd = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
+// 기록 수정은 지난 날짜만(서버 규칙) — 기본값은 어제
+const yesterdayYmd = () => {
+  const d = new Date(Date.now() - 86400_000);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const TITLE: Record<RequestDraft["kind"], string> = {
   OUTSIDE: "지점 밖 출퇴근 요청",
@@ -66,7 +71,7 @@ export default function AttendanceRequestModal({
     setOtherReason("");
     setMemo("");
     setPhoto(null);
-    setWorkDate(draft.workDate ?? todayYmd());
+    setWorkDate(draft.workDate ?? (draft.kind === "CORRECTION" ? yesterdayYmd() : todayYmd()));
     setInTime("");
     setOutTime("");
     setFixReason("");
@@ -184,7 +189,7 @@ export default function AttendanceRequestModal({
                 <Text style={styles.label}>날짜</Text>
                 {kind === "MISSED_OUT"
                   ? <Text style={styles.fixed}>{workDate}</Text>
-                  : <DatePicker value={workDate} onChange={setWorkDate} />}
+                  : <DatePicker value={workDate} onChange={setWorkDate} maxDate={yesterdayYmd()} />}
                 {kind === "CORRECTION" && (
                   <>
                     <Text style={styles.label}>출근 시각 (고칠 때만)</Text>

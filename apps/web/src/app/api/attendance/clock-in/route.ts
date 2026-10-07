@@ -48,6 +48,13 @@ export async function POST(request: NextRequest) {
   if (existing?.clockIn) {
     return NextResponse.json({ error: "이미 출근 처리가 되어 있습니다." }, { status: 400 });
   }
+  // 지점 밖·사진·본부 출근 요청이 승인 대기 중이면 버튼 출근은 받지 않는다 — 승인 때 「이미 출근」으로 부딪힌다
+  const pendingIn = await prisma.attendanceRequest.findFirst({
+    where: { userId: session.userId, workDate: today, action: "IN", status: "PENDING" }, select: { id: true },
+  });
+  if (pendingIn) {
+    return NextResponse.json({ error: "출근 요청이 승인을 기다리고 있습니다. 바로 출근하려면 출퇴근 화면에서 요청을 취소한 뒤 다시 눌러 주세요." }, { status: 409 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const { latitude, longitude } = body;

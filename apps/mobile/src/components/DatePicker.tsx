@@ -7,6 +7,7 @@ type Props = {
   onChange: (date: string) => void;
   placeholder?: string;
   minDate?: string; // 이 날짜 이전은 선택 불가
+  maxDate?: string; // 이 날짜 이후는 선택 불가
   disabled?: boolean;
 };
 
@@ -14,7 +15,7 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const pad = (n: number) => String(n).padStart(2, "0");
 const toStr = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
-export default function DatePicker({ value, onChange, placeholder = "날짜 선택", minDate, disabled }: Props) {
+export default function DatePicker({ value, onChange, placeholder = "날짜 선택", minDate, maxDate, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const today = new Date();
   const initial = value ? new Date(value) : today;
@@ -59,8 +60,8 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
   };
 
   const isDisabled = (d: number) => {
-    if (!minDate) return false;
-    return toStr(view.year, view.month, d) < minDate;
+    const s = toStr(view.year, view.month, d);
+    return (!!minDate && s < minDate) || (!!maxDate && s > maxDate);
   };
 
   const select = (d: number) => {

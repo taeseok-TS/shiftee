@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     // 누른 시각 — 앱이 버튼을 누른 순간을 보낸다. 10분 넘게 지났거나 미래면 받지 않고 지금으로
     // (넓게 받으면 지각을 피하는 데 쓸 수 있다 — 결재 화면에는 실제 접수 시각도 함께 보인다)
     const pressed = typeof body.pressedAt === "string" ? new Date(body.pressedAt) : null;
-    if (pressed && !Number.isNaN(pressed.getTime()) && pressed.getTime() <= now.getTime() + 60_000 && now.getTime() - pressed.getTime() <= 10 * 60_000) {
+    if (pressed && !Number.isNaN(pressed.getTime()) && pressed.getTime() <= now.getTime() && now.getTime() - pressed.getTime() <= 10 * 60_000) {
       data.requestedAt = pressed;
     }
     data.workDate = dateOfYmd(kstYmdOf(data.requestedAt));
@@ -186,8 +186,9 @@ export async function POST(request: NextRequest) {
       const pendingIn = await prisma.attendanceRequest.findFirst({
         where: { userId: session.userId, workDate: data.workDate, action: "IN", status: "PENDING" }, select: { id: true },
       });
+      // 출근 요청 대기 중이어도 받는다 — 외근이면 퇴근도 지점 밖이다. 승인은 출근이 먼저 반영돼야 되고(applyApproved),
+      // 출근 요청이 반려·취소되면 이 퇴근 요청도 함께 취소된다([id]/route.ts)
       if (!att?.clockIn && !pendingIn) return NextResponse.json({ error: "출근 기록이 없습니다. 출근부터 처리해 주세요." }, { status: 400 });
-      if (pendingIn) return NextResponse.json({ error: "출근 요청이 승인을 기다리고 있습니다. 퇴근은 퇴근 버튼으로 찍어 주세요." }, { status: 409 });
     }
 
     if (kind === "PHOTO") {
@@ -202,7 +203,8 @@ export async function POST(request: NextRequest) {
         (head[0] === 0xff && head[1] === 0xd8) ||                                            // JPEG
         head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ||                 // PNG
         (head.subarray(0, 4).toString("ascii") === "RIFF" && head.subarray(8, 12).toString("ascii") === "WEBP") ||
-        head.subarray(4, 8).toString("ascii") === "ftyp";                                    // HEIC
+        (head.subarray(4, 8).toString("ascii") === "ftyp" &&
+          ["heic", "heix", "hevc", "heim", "heis", "mif1", "msf1"].includes(head.subarray(8, 12).toString("ascii")));   // HEIC
       if (!isImage) return NextResponse.json({ error: "사진 파일만 올릴 수 있습니다." }, { status: 400 });
       await fs.mkdir(PHOTO_DIR, { recursive: true });
       const name = `${session.userId}-${Date.now()}${ext}`;

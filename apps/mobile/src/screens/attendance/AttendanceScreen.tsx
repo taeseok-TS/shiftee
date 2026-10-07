@@ -179,7 +179,8 @@ export default function AttendanceScreen() {
   };
 
   const cancelRequest = (r: attendance.AttendanceRequestRow) => {
-    Alert.alert("요청 취소", `${r.kindLabel} 요청을 거둘까요?`, [
+    const extra = r.action === "IN" ? "\n\n출근 요청을 거두면 그 뒤에 남긴 퇴근(퇴근 요청 포함)도 함께 사라집니다." : "";
+    Alert.alert("요청 취소", `${r.kindLabel} 요청을 거둘까요?${extra}`, [
       { text: "아니요", style: "cancel" },
       {
         text: "취소하기", style: "destructive",

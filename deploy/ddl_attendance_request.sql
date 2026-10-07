@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS "AttendanceRequest" (
   "updatedAt"    TIMESTAMP(3) NOT NULL,
   CONSTRAINT "AttendanceRequest_pkey" PRIMARY KEY ("id")
 );
+-- 표를 앞선 판으로 이미 만들었어도 새 칸이 생기게(IF NOT EXISTS)
+ALTER TABLE "AttendanceRequest" ADD COLUMN IF NOT EXISTS "clockOutPlace" TEXT;
+ALTER TABLE "AttendanceRequest" ADD COLUMN IF NOT EXISTS "clockOutLat" DOUBLE PRECISION;
+ALTER TABLE "AttendanceRequest" ADD COLUMN IF NOT EXISTS "clockOutLng" DOUBLE PRECISION;
 DO $$ BEGIN
   ALTER TABLE "AttendanceRequest" ADD CONSTRAINT "AttendanceRequest_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

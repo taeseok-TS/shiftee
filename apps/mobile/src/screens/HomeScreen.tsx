@@ -160,6 +160,8 @@ export default function HomeScreen() {
     ? { value: "퇴근 완료", label: `퇴근 ${hhmm(todayStatus.clockOutAt)}`, icon: "checkmark-done-outline" as const, color: "#6b7280" }
     : todayStatus?.clockedIn
     ? { value: "근무 중", label: `출근 ${hhmm(todayStatus.clockInAt)}`, icon: "walk-outline" as const, color: "#10b981" }
+    : todayStatus?.pendingIn
+    ? { value: "승인 대기", label: "출근 요청", icon: "hourglass-outline" as const, color: "#d97706" }
     : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#2563eb" };
 
   const cards = [

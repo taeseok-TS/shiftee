@@ -7,6 +7,14 @@ import { KIND_LABEL, RequestConflict, applyApproved, canDecide, summaryOf, type 
 
 export const dynamic = "force-dynamic";
 
+/** 출근 요청이 반려·취소되면 그날 대기 중인 지점 밖·사진·본부 퇴근 요청도 거둔다 */
+async function cancelDependentOut(userId: string, workDate: Date, why: string) {
+  await prisma.attendanceRequest.updateMany({
+    where: { userId, workDate, action: "OUT", status: "PENDING" },
+    data: { status: "CANCELLED", decidedAt: new Date(), rejectReason: why },
+  }).catch(() => {});
+}
+
 // 출퇴근 요청 처리 — POST { action: "approve" | "reject", reason? } / 본인 취소 DELETE
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -47,6 +55,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   // 기기를 바꿨으면 옛 기기에 남은 세션을 끊는다(기기 초기화와 같은 처리)
   if (deviceChanged) await bumpTokenVersion(r.userId).catch(() => {});
+  // 출근 요청을 반려하면 그날 대기 중인 퇴근 요청도 함께 거둔다(출근 없이 퇴근만 남지 않게)
+  if (!approve && r.action === "IN") await cancelDependentOut(r.userId, r.workDate, "출근 요청 반려로 함께 취소");
 
   const label = KIND_LABEL[r.kind as RequestKind] ?? r.kind;
   await logAudit({
@@ -71,6 +81,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   });
   if (claimed.count === 0) return NextResponse.json({ error: "취소할 수 있는 요청이 없습니다." }, { status: 409 });
   const r = await prisma.attendanceRequest.findUnique({ where: { id } });
+  if (r?.action === "IN") await cancelDependentOut(r.userId, r.workDate, "출근 요청 취소로 함께 취소");
   if (r) {
     const { botNotifyAdminsProgress } = await import("@/lib/bot");
     botNotifyAdminsProgress(`${session.name} · ${KIND_LABEL[r.kind as RequestKind] ?? r.kind} 요청 취소 (${summaryOf(r)})`, [session.userId]).catch(() => {});
