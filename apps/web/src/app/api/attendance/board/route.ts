@@ -48,10 +48,9 @@ export async function GET(request: NextRequest) {
   const today = kstTodayDateUTC();
   const fromD = dateOf(from), toD = dateOf(to);
   // 재직 = 퇴사일이 없거나 오늘 이후(퇴사일 다음 날부터 퇴사자 — #68). 퇴사자는 기간 안에 다녔던 사람만
-  const empWhere =
-    emp === "active" ? { isActive: true, OR: [{ resignDate: null }, { resignDate: { gte: today } }] }
-    : emp === "resigned" ? { resignDate: { lt: today, gte: fromD } }
-    : { OR: [{ isActive: true, resignDate: null }, { resignDate: { gte: fromD } }] };
+  const activeCond = { isActive: true, OR: [{ resignDate: null }, { resignDate: { gte: today } }] };
+  const resignedCond = { resignDate: { lt: today, gte: fromD } };
+  const empWhere = emp === "active" ? activeCond : emp === "resigned" ? resignedCond : { OR: [activeCond, resignedCond] };
 
   const users = await prisma.user.findMany({
     where: {
@@ -60,13 +59,15 @@ export async function GET(request: NextRequest) {
       ...(branches ? { branch: { in: branches } } : excluded.length ? { OR: [{ branch: null }, { branch: { notIn: excluded } }] } : {}),
       AND: [empWhere],
     },
-    select: { id: true, name: true, empNo: true, branch: true, position: true, jobGroup: true, role: true, resignDate: true },
+    select: { id: true, name: true, empNo: true, branch: true, position: true, jobGroup: true, role: true, resignDate: true, hireDate: true, employmentStatus: true },
     orderBy: [{ branch: "asc" }, { name: "asc" }],
-    take: 1000,
+    take: 1001,
   });
+  const truncated = users.length > 1000;   // 1000명을 넘으면 잘렸다고 알린다
+  if (truncated) users.pop();
   const ids = users.map((u) => u.id);
 
-  const [schedules, atts, leaves, holidays] = await Promise.all([
+  const [schedules, atts, leaves, holidays, pendings] = await Promise.all([
     prisma.schedule.findMany({ where: { userId: { in: ids }, date: { gte: fromD, lte: toD }, type: "WORK" }, select: { userId: true, date: true, startTime: true, endTime: true } }),
     prisma.attendance.findMany({
       where: { userId: { in: ids }, date: { gte: fromD, lte: toD } },
@@ -77,6 +78,11 @@ export async function GET(request: NextRequest) {
       select: { userId: true, type: true, startDate: true, endDate: true, days: true },
     }),
     getHolidaySet(fromD, toD),
+    // 승인 대기 중인 지점 밖·사진·본부 출퇴근 요청 — 결근·누락 대신 「승인 대기」로 보인다
+    prisma.attendanceRequest.findMany({
+      where: { userId: { in: ids }, workDate: { gte: fromD, lte: toD }, status: "PENDING", action: { in: ["IN", "OUT"] } },
+      select: { userId: true, workDate: true, action: true, clockOut: true },
+    }),
   ]);
 
   const days: string[] = [];
@@ -84,17 +90,23 @@ export async function GET(request: NextRequest) {
 
   type Cell = {
     sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null; attId?: string;
-    leave?: string; late?: boolean; missing?: boolean; absent?: boolean; workMin?: number; breakMin?: number;
+    leave?: string; leaveAm?: boolean; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
   };
   const cells: Record<string, Record<string, Cell>> = {};
   const cell = (u: string, d: string) => ((cells[u] ??= {})[d] ??= {});
 
   for (const s of schedules) cell(s.userId, ymdOf(s.date)).sched = `${s.startTime}-${s.endTime}`;
   for (const l of leaves) {
+    const multi = l.endDate > l.startDate;
     for (let d = new Date(l.startDate); d <= l.endDate; d.setUTCDate(d.getUTCDate() + 1)) {
       const y = ymdOf(d);
       if (y < from || y > to) continue;
-      cell(l.userId, y).leave = LEAVE_TYPE_LABEL[l.type] ?? l.type;
+      // 며칠짜리 휴가는 토·일·공휴일 칸에 찍지 않는다(휴가 일수도 그날을 빼고 센다)
+      if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;
+      const c = cell(l.userId, y);
+      const label = LEAVE_TYPE_LABEL[l.type] ?? l.type;
+      c.leave = c.leave ? `${c.leave}·${label}` : label;   // 같은 날 두 건(오전·오후 반차)도 함께
+      if (l.type === "HALF_AM" || l.type === "QUARTER_AM") c.leaveAm = true;
     }
   }
   const todayYmd = ymdOf(today);
@@ -113,15 +125,26 @@ export async function GET(request: NextRequest) {
       c.workMin = Math.max(Math.round(span) - br, 0);
     }
   }
-  // 누락·결근은 지난 날만 판정한다(오늘은 아직 진행 중)
+  for (const p of pendings) {
+    const c = cell(p.userId, ymdOf(p.workDate));
+    c.pending = true;
+  }
+  // 누락·결근은 지난 날만 판정한다(오늘은 아직 진행 중).
+  // 결근은 근무일정이 있는 날만 — 공휴일·휴직(임시휴무)·입사 전·퇴사일 다음 날부터는 결근으로 보지 않는다.
+  // 승인 대기 중인 출퇴근 요청이 있는 날은 결근·누락 대신 「승인 대기」.
+  // 오전 반차(반반차)가 있는 날은 늦게 출근해도 지각으로 보이지 않는다(저장된 상태는 휴가를 모른다).
   for (const u of users) {
     const row = cells[u.id];
     if (!row) continue;
+    const hire = u.hireDate ? ymdOf(u.hireDate) : null;
+    const resign = u.resignDate ? ymdOf(u.resignDate) : null;
     for (const [d, c] of Object.entries(row)) {
-      if (d >= todayYmd) continue;
+      if (c.leaveAm) c.late = false;
+      if (d >= todayYmd || c.pending) continue;
       const hasIn = !!c.in, hasOut = !!c.out;
       if (hasIn !== hasOut) c.missing = true;
-      else if (!hasIn && !hasOut && c.sched && !c.leave) c.absent = true;
+      else if (!hasIn && !hasOut && c.sched && !c.leave && !holidays.has(d)
+        && u.employmentStatus === "ACTIVE" && (!hire || d >= hire) && (!resign || d <= resign)) c.absent = true;
     }
   }
 
@@ -136,6 +159,7 @@ export async function GET(request: NextRequest) {
       workDays: Object.values(cells[u.id] ?? {}).filter((c) => c.in).length,   // 출근일(출근 기록이 있는 날)
     })),
     cells,
+    truncated,
     canEdit: session.role === "ADMIN",   // 원장은 보기만 — 수정은 출퇴근기록 수정 요청 승인으로(#53)
   });
 }

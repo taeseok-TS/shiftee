@@ -16,10 +16,10 @@ import { toast } from "sonner";
 
 type Cell = {
   sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null;
-  leave?: string; late?: boolean; missing?: boolean; absent?: boolean; workMin?: number; breakMin?: number;
+  leave?: string; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
 };
 type BoardUser = { id: string; name: string; empNo: number | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
-type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>> };
+type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>>; truncated?: boolean };
 
 type Kind = "normal" | "late" | "missing" | "absent" | "leave";
 const KIND_LABEL: Record<Kind, string> = { normal: "정상", late: "지각", missing: "누락", absent: "결근", leave: "휴가" };
@@ -32,8 +32,11 @@ const kindsOf = (c: Cell): Kind[] => {
   if (c.in && !c.late && !c.missing) k.push("normal");
   return k;
 };
-const statusText = (c: Cell) =>
-  c.absent ? "결근" : c.missing ? "누락" : c.late ? "지각" : c.leave && !c.in ? c.leave : c.in ? "정상" : "";
+const statusText = (c: Cell) => {
+  const base = c.pending ? "승인 대기" : c.absent ? "결근" : c.missing ? "누락" : c.late ? "지각" : c.in ? "정상" : "";
+  // 반차처럼 휴가와 출근이 같이 있는 날은 둘 다 보인다(목록·엑셀에서 휴가 정보가 사라지지 않게)
+  return c.leave ? (base ? `${base} · ${c.leave}` : c.leave) : base;
+};
 
 // 지점 색 띠 — 이름으로 정해지는 색(지점이 늘어도 따로 정할 필요 없음)
 const BRANCH_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6", "#ec4899", "#6366f1", "#84cc16", "#f97316"];
@@ -158,8 +161,9 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   }, [rows, colFilter]);
 
   const exportExcel = () => {
-    if (!listRows.length) { toast.error("내보낼 기록이 없습니다"); return; }
-    const data = listRows.map((r) => Object.fromEntries(COLS.map((c) => [c.label, c.get(r)])));
+    const src = view === "list" ? listRows : rows;   // 달력형에서는 목록형 열 검색을 적용하지 않는다
+    if (!src.length) { toast.error("내보낼 기록이 없습니다"); return; }
+    const data = src.map((r) => Object.fromEntries(COLS.map((c) => [c.label, c.get(r)])));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "출퇴근기록");
@@ -186,7 +190,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
           </Button>
           {branchOpen && (
             <div className="absolute right-0 z-20 mt-1 w-56 max-h-80 overflow-auto rounded-md border bg-white p-2 shadow-lg">
-              <button className="w-full text-left text-sm px-2 py-1 rounded hover:bg-gray-100" onClick={() => { setLoading(true); setPicked([]); }}>전체</button>
+              <button className="w-full text-left text-sm px-2 py-1 rounded hover:bg-gray-100" onClick={() => { if (picked.length) { setLoading(true); setPicked([]); } }}>전체</button>
               {branchOptions.map((b) => (
                 <label key={b} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-gray-50 cursor-pointer">
                   <input type="checkbox" checked={picked.includes(b)} onChange={() => togglePick(b)} />
@@ -233,7 +237,9 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
         <div className="py-16 text-center text-gray-400"><Loader2 className="inline animate-spin mr-2" size={18} />불러오는 중…</div>
       ) : !board || board.users.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-gray-400">표시할 직원이 없습니다.</CardContent></Card>
-      ) : view === "calendar" ? (
+      ) : (<>
+      {board.truncated && <div className="text-xs text-amber-700">직원이 1000명을 넘어 앞의 1000명만 보입니다. 지점을 골라 좁혀 주세요.</div>}
+      {view === "calendar" ? (
         <div className="overflow-auto border rounded-lg bg-white max-h-[75vh]">
           <table className="text-xs border-collapse">
             <thead className="sticky top-0 z-10 bg-gray-50">
@@ -270,7 +276,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                           : c.leave && !c.in ? <span className="text-green-700 font-medium">{c.leave}</span>
                           : (
                             <>
-                              <div className={c.late ? "text-red-600 font-semibold" : ""}>{c.in ?? <span className="text-red-600">누락❗</span>}{c.late ? "❗" : ""}</div>
+                              <div className={c.late ? "text-red-600 font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-amber-600">대기</span> : c.missing ? <span className="text-red-600">누락❗</span> : "")}{c.late ? "❗" : ""}</div>
                               <div>{c.out ?? (c.missing ? <span className="text-red-600">누락❗</span> : "")}</div>
                               {c.leave && <div className="text-green-700">{c.leave}</div>}
                             </>
@@ -316,6 +322,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
           <div className="px-3 py-2 text-xs text-gray-400 border-t">{listRows.length}건 · 휴게는 실제 근무 간격 기준(4.5시간 이상 30분, 9시간 이상 1시간)</div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
