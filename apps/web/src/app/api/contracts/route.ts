@@ -277,7 +277,7 @@ export async function POST(request: NextRequest) {
         // 값 검증(#24) — 최저임금·소정근로시간·기간. 걸리면 만들지 않는다
         const { validateContractMerge } = await import("@/lib/contract-validate");
         const verrs = await validateContractMerge(mergeData, { templateFileUrl: template.fileUrl, startDate: startDate || null, endDate: endDate || null });
-        if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+        if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
         try {
           const filledUrl = await fillDocxTemplate(template.fileUrl, mergeData);
           fileUrl = JSON.stringify([filledUrl]);

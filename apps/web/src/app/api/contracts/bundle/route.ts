@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
   const created: string[] = [];
 
   // 값 검증(#24) — 패키지 문서를 하나도 만들기 전에 전부 본다
-  {
+  try {
     const { validateContractMerge } = await import("@/lib/contract-validate");
     const verrs: string[] = [];
     for (const item of items) {
@@ -59,7 +59,10 @@ export async function POST(request: NextRequest) {
       for (const e of await validateContractMerge(mergeData, { templateFileUrl: template.fileUrl, startDate: item.startDate ?? null, endDate: item.endDate ?? null }))
         verrs.push(`[${template.name}] ${e}`);
     }
-    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
+  } catch (e) {
+    console.error("패키지 값 검증 오류:", e);
+    return NextResponse.json({ error: "계약 값을 확인하는 중 오류가 발생했습니다." }, { status: 500 });
   }
 
   try {

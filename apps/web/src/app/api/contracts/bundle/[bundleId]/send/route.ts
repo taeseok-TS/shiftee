@@ -53,7 +53,7 @@ export async function POST(
     const verrs: string[] = [];
     for (const c of contracts.filter((x) => x.status !== "SIGNED" && x.status !== "REJECTED"))
       for (const e of await validateStoredContract(c)) verrs.push(`[${c.title}] ${e}`);
-    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
   }
   // 중복 발송 경고(#47) — 보낼 문서마다 같은 직원·같은 양식의 진행 중·30일 안 발송을 모아 먼저 묻는다
   if (body.confirmDuplicate !== true) {

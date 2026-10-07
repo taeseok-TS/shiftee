@@ -243,6 +243,22 @@ export async function PATCH(
   });
   const needsReset = contentChanged && !isResend &&
     (decidedCount > 0 || !!contract.employeeSignedAt || contract.status === "REJECTED");
+  // 값 검증(#24) — 발송·재발송(결재 초기화 포함)이면 **이번 요청으로 바뀔 값까지 반영한** 최종 값으로 본다.
+  // 종전에는 요청에 값이 실리면 저장값 검사를 건너뛰고, 날짜만 고치면 수정 단계 검사도 타지 않았다(#24 검증 F1·F3).
+  // 결재 초기화 확인보다 먼저 — 확인해 놓고 막히지 않게.
+  if (status === "SENT" || needsReset) {
+    const { validateStoredContract } = await import("@/lib/contract-validate");
+    const verrs = await validateStoredContract({
+      ...contract,
+      title: (title as string) || contract.title,
+      startDate: startDate ? new Date(startDate) : contract.startDate,
+      endDate: endDate ? new Date(endDate) : contract.endDate,
+      extraFields: fieldSummary ?? contract.extraFields,
+      templateId: newFileUrl ? null : contract.templateId,   // 파일을 직접 바꾸면 양식 값 검사는 하지 않는다(기간만)
+    });
+    if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
+  }
+
   // 경고 없이 초기화하지 않는다 — 화면은 이 응답을 받아 확인창을 띄우고, 확인하면 confirmReset 을 달아 다시 보낸다.
   if (needsReset && !confirmReset)
     return NextResponse.json({
@@ -282,7 +298,7 @@ export async function PATCH(
             startDate: (startDate as string) || (contract.startDate ? contract.startDate.toISOString() : null),
             endDate: (endDate as string) || (contract.endDate ? contract.endDate.toISOString() : null),
           });
-          if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
+          if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
           newFileUrl = JSON.stringify([await fillDocxTemplate(tmpl.fileUrl, mergeData)]);
           editTemplateVersion = tmpl.version;
         } catch (e) {
@@ -311,6 +327,11 @@ export async function PATCH(
         reason: needsReset ? (contract.status === "REJECTED" ? "반려 후 수정 — 결재 처음부터" : "서명 후 수정 — 서명 초기화") : null,
   } : null;
 
+  // 발송은 결재선과 함께만 — 결재선 없이 SENT 만 보내면 값 검증(#24)·중복 확인(#47)을 건너뛰고,
+  // 초안이면 아무도 서명할 수 없는 SENT 계약이 생겼다(7-가 재검증 R1). 화면은 늘 결재선을 함께 보낸다.
+  if (status === "SENT" && !(Array.isArray(approverIds) && approverIds.length > 0))
+    return NextResponse.json({ error: "발송하려면 결재자를 지정해 주세요." }, { status: 400 });
+
   // 발송(SENT) 상태로 변경 시 또는 승인라인을 추가/업데이트할 때
   if ((status === "SENT" || approverIds) && approverIds && approverIds.length > 0) {
     // 디버깅 로그
@@ -333,12 +354,6 @@ export async function PATCH(
       const only = contract.externalName ? "EXTERNAL" : contract.userId;
       if (approverIds.length !== 1 || approverIds[0] !== only)
         return NextResponse.json({ error: "직원전용 문서는 서명자 본인 한 단계로만 보낼 수 있습니다." }, { status: 400 });
-    }
-    // 값 검증(#24) — 저장된 값으로 발송 전에 본다(이 기능 전에 만든 초안도). 같은 요청에서 내용을 고치면 아래 수정 단계가 새 값으로 본다
-    if (status === "SENT" && !extraFieldsRaw && salary === null) {
-      const { validateStoredContract } = await import("@/lib/contract-validate");
-      const verrs = await validateStoredContract(contract);
-      if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join("\n") }, { status: 400 });
     }
     // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
     if (status === "SENT" && !confirmDuplicate) {

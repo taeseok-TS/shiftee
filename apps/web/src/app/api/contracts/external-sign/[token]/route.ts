@@ -295,7 +295,7 @@ export async function POST(
       // 기본 동의 문서가 SIGNED로 확정되는 것 방지(관리자가 결재 현황에서 확인 후 재전달)
       if (consent && typeof consent === "object" && sib.templateId && sib.title.includes("개인정보")) {
         const tmpl = await prisma.contractTemplate.findUnique({
-          where: { id: sib.templateId }, select: { fileUrl: true },
+          where: { id: sib.templateId }, select: { fileUrl: true, version: true },
         });
         if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
           const { buildContractMergeData, fillDocxTemplate, buildFieldSummary } = await import("@/lib/contract-fields");
@@ -310,7 +310,7 @@ export async function POST(
           const newUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData);
           await prisma.contract.update({
             where: { id: sib.id },
-            data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged) },
+            data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48)
           });
         }
       }
