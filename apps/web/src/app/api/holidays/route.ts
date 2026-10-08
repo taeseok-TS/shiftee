@@ -36,28 +36,39 @@ export async function POST(request: NextRequest) {
 
   // 동기화/시드 실패가 기존 데이터를 지우지 않도록 upsert만 사용
   const before = await prisma.holiday.findUnique({ where: { date: new Date(date) }, select: { grantsLeave: true, name: true } });
-  // 「대체휴무 부여」 지정을 끌 때(2026-10-08 본부 답변 #56): 부여 N명·이미 사용 M명을 먼저 보여 주고(confirm 없음 → needConfirm),
-  // 사용한 사람이 한 명이라도 있으면 끄지 못하게 막는다(잔여 마이너스 방지). 아무도 안 썼으면 끄면서 부여분을 회수하고 이력을 남긴다
+  // 「대체휴무 부여」 지정을 끌 때(2026-10-08 본부 답변 #56): 부여 N명·그중 회수하면 잔여가 마이너스가 되는 사람 M명을 먼저 보여 주고
+  // (confirm 없음 → needConfirm), M>0 이면 끄지 못하게 막는다. 판정은 사람마다 대체휴일 전체 순잔여(모든 부여 − 승인·대기 사용)에서
+  // 이 날 부여분을 빼 본 값이다 — 「그 날 이후 신청이 있으면 사용」 같은 어림짐작이 아니다(6722cfb 검증 F5). 아무도 모자라지 않으면
+  // 끄면서 부여분을 회수하고(같은 트랜잭션, 검증 F6) 이력을 남긴다
   let revokeIds: string[] = [];
   if (before?.grantsLeave && grantsLeave === false) {
-    const grantsOnDay = await prisma.leaveGrant.findMany({ where: { source: "AUTO", group: "대체휴일", workDate: new Date(date) }, select: { id: true, userId: true, user: { select: { name: true } } } });
+    const grantsOnDay = await prisma.leaveGrant.findMany({ where: { source: "AUTO", group: "대체휴일", workDate: new Date(date) }, select: { id: true, userId: true, days: true, user: { select: { name: true } } } });
     const userIds = [...new Set(grantsOnDay.map((g) => g.userId))];
-    const usedUsers = userIds.length
-      ? new Set((await prisma.leaveRequest.findMany({ where: { userId: { in: userIds }, status: { in: ["APPROVED", "PENDING"] }, type: { in: ["COMPENSATORY", "COMPENSATORY_HALF"] }, startDate: { gte: new Date(date) } }, select: { userId: true } })).map((l) => l.userId))
-      : new Set<string>();
-    if (usedUsers.size > 0)
-      return NextResponse.json({ error: `이 날 대체휴일을 이미 사용(또는 신청 중)한 사람이 ${usedUsers.size}명 있어 지정을 끌 수 없습니다(잔여가 마이너스가 됩니다). 부여 ${userIds.length}명 · 사용 ${usedUsers.size}명`, granted: userIds.length, used: usedUsers.size }, { status: 409 });
+    const short = new Set<string>();
+    if (userIds.length) {
+      const [allGrants, uses] = await Promise.all([
+        prisma.leaveGrant.groupBy({ by: ["userId"], where: { userId: { in: userIds }, group: "대체휴일" }, _sum: { days: true } }),
+        prisma.leaveRequest.groupBy({ by: ["userId"], where: { userId: { in: userIds }, status: { in: ["APPROVED", "PENDING"] }, type: { in: ["COMPENSATORY", "COMPENSATORY_HALF"] } }, _sum: { days: true } }),
+      ]);
+      const net = new Map(allGrants.map((g) => [g.userId, g._sum.days ?? 0]));
+      for (const u of uses) net.set(u.userId, (net.get(u.userId) ?? 0) - (u._sum.days ?? 0));
+      for (const g of grantsOnDay) if ((net.get(g.userId) ?? 0) - g.days < -1e-9) short.add(g.userId);
+    }
+    if (short.size > 0)
+      return NextResponse.json({ error: `이 날 부여분을 거두면 대체휴일 잔여가 마이너스가 되는 직원이 ${short.size}명 있어 지정을 끌 수 없습니다(이미 사용·신청). 부여 ${userIds.length}명 · 부족 ${short.size}명 — ${grantsOnDay.filter((g) => short.has(g.userId)).map((g) => g.user.name).slice(0, 10).join(", ")}`, granted: userIds.length, used: short.size }, { status: 409 });
     if (confirm !== true)
       return NextResponse.json({ needConfirm: true, granted: userIds.length, used: 0, names: grantsOnDay.map((g) => g.user.name).slice(0, 20) });
     revokeIds = grantsOnDay.map((g) => g.id);
   }
-  const holiday = await prisma.holiday.upsert({
-    where: { date: new Date(date) },
-    create: { date: new Date(date), name: name.trim(), grantsLeave: grantsLeave === true },
-    update: { name: name.trim(), ...(typeof grantsLeave === "boolean" ? { grantsLeave } : {}) },
+  const [holiday, revoked] = await prisma.$transaction(async (tx) => {
+    const h = await tx.holiday.upsert({
+      where: { date: new Date(date) },
+      create: { date: new Date(date), name: name.trim(), grantsLeave: grantsLeave === true },
+      update: { name: name.trim(), ...(typeof grantsLeave === "boolean" ? { grantsLeave } : {}) },
+    });
+    const n = revokeIds.length ? (await tx.leaveGrant.deleteMany({ where: { id: { in: revokeIds } } })).count : 0;
+    return [h, n] as const;
   });
-  let revoked = 0;
-  if (revokeIds.length) revoked = (await prisma.leaveGrant.deleteMany({ where: { id: { in: revokeIds } } })).count;
   // 같은 날짜를 다시 보내 지정만 바꾼 것이면 「지정/해제」로 남긴다(등록으로 남기면 켠 건지 끈 건지 알 수 없다)
   const toggled = !!before && typeof grantsLeave === "boolean" && before.grantsLeave !== grantsLeave;
   await logAudit({
@@ -82,6 +93,12 @@ export async function DELETE(request: NextRequest) {
 
   const holiday = await prisma.holiday.findUnique({ where: { id } });
   if (!holiday) return NextResponse.json({ error: "공휴일을 찾을 수 없습니다." }, { status: 404 });
+  // 대체휴무 부여가 지정돼 이미 부여된 날은 바로 지우지 않는다 — 먼저 지정을 꺼서(사용 여부 확인·회수) 부여분을 정리해야 한다.
+  // 그냥 지우면 부여분이 남은 채 밤 점검도 거두지 않는다(6722cfb 검증 F4)
+  if (holiday.grantsLeave) {
+    const n = await prisma.leaveGrant.count({ where: { source: "AUTO", group: "대체휴일", workDate: holiday.date } });
+    if (n > 0) return NextResponse.json({ error: `이 날 대체휴일 부여분이 ${n}건 있습니다. 먼저 「대체휴무 부여」 지정을 끈 뒤(부여분 회수) 삭제해 주세요.` }, { status: 409 });
+  }
 
   await prisma.holiday.delete({ where: { id } });
   await logAudit({

@@ -118,7 +118,7 @@ export default function LeaveGrantBoard() {
             · 보상휴가: 5/1 근로자의 날 근무 기록(휴게 제외) — 8시간까지 ×1.5, 넘는 시간 ×2, 8시간 = 1일 (8h → 1.5일, 4h → 0.75일, 10h → 2일)<br />
             · 대체휴일: 공휴일 관리에서 「대체휴무 부여」로 지정한 공휴일의 평일 근무 기록 → 1일<br />
             · 매일 밤 최근 45일을 다시 계산합니다(출퇴근이 고쳐지면 갱신, 지워지면 회수). 잔여 = 올해(기준일 해) 부여 − 승인된 사용. 잔여가 모자라도 신청은 막지 않습니다.<br />
-            · 대상은 휴가 신청 대상과 같습니다(원장 포함, 본부 직원 제외). 부여분은 그해 12/31까지가 유효기간이며 지나도 자동 소멸하지 않고 「지난해 미정산」에 남아 본부가 정산합니다.
+            · 대상은 휴가 신청 대상과 같습니다(원장 포함, 본부 직원 제외). 부여분의 유효기간은 그해 12/31이지만 지나도 자동 소멸하지 않습니다 — 「지난해 이월」로 따로 보이고 잔여에 포함됩니다. 수당 지급 등으로 정산했으면 수동 조정(−)으로 빼 주세요.
           </p>
         </CardContent>
       </Card>
@@ -132,7 +132,7 @@ export default function LeaveGrantBoard() {
                 <th className="px-3 py-2.5 font-medium">직원</th>
                 <th className="px-3 py-2.5 font-medium">지점</th>
                 {GROUPS.map((g) => (
-                  <th key={g} className="px-3 py-2.5 font-medium text-right" colSpan={4}>{g} <span className="font-normal text-gray-400">(올해 부여 / 사용 / 잔여 / 지난해 미정산)</span></th>
+                  <th key={g} className="px-3 py-2.5 font-medium text-right" colSpan={4}>{g} <span className="font-normal text-gray-400">(올해 부여 / 올해 사용 / 지난해 이월 / 잔여)</span></th>
                 ))}
                 <th className="px-3 py-2.5 font-medium"></th>
               </tr>
@@ -237,8 +237,8 @@ function GroupCells({ v }: { v: { granted: number; used: number; remaining: numb
     <>
       <td className="px-3 py-2.5 text-right text-gray-600">{d(v.granted)}</td>
       <td className="px-3 py-2.5 text-right text-gray-600">{d(v.used)}</td>
-      <td className={`px-3 py-2.5 text-right font-semibold ${v.remaining < 0 ? "text-red-600" : "text-gray-900"}`}>{d(v.remaining)}</td>
-      <td className={`px-3 py-2.5 text-right ${v.carried > 0 ? "text-amber-700" : "text-gray-300"}`} title="부여한 해(12/31)가 지났는데 쓰지 못한 것 — 자동 소멸하지 않고 본부가 정산">{d(v.carried)}</td>
+      <td className={`px-3 py-2.5 text-right ${v.carried > 0 ? "text-amber-700" : v.carried < 0 ? "text-red-600" : "text-gray-300"}`} title="지난해까지의 부여 − 사용. 자동 소멸하지 않고 잔여에 포함된다. 정산(수당 지급 등)했으면 수동 조정(−)으로 빼 주세요">{d(v.carried)}</td>
+      <td className={`px-3 py-2.5 text-right font-semibold ${v.remaining < 0 ? "text-red-600" : "text-gray-900"}`} title="올해 부여 − 올해 사용 + 지난해 이월">{d(v.remaining)}</td>
     </>
   );
 }

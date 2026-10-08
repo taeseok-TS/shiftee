@@ -629,7 +629,7 @@ export default function EmployeesPage() {
                     <Label>역할</Label>
                     <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
                       <SelectTrigger>
-                        <SelectValue>{roleLabel[formData.role] ?? formData.role}</SelectValue>
+                        <SelectValue>{formData.role === "ADMIN" ? "관리자(서브)" : roleLabel[formData.role] ?? formData.role}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="EMPLOYEE">직원</SelectItem>
@@ -883,7 +883,7 @@ export default function EmployeesPage() {
                                       }
                                     >
                                       <SelectTrigger>
-                                        <SelectValue>{roleLabel[editEmployee.role] ?? editEmployee.role}</SelectValue>
+                                        <SelectValue>{editEmployee.role === "ADMIN" ? "관리자(서브)" : roleLabel[editEmployee.role] ?? editEmployee.role}</SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="EMPLOYEE">직원</SelectItem>

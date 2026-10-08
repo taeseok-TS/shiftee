@@ -96,6 +96,13 @@ export async function GET(
   const wantPdf = viewOnly || reqUrl.searchParams.get("pdf") === "1";
   // inline=1 — 저장(다운로드) 대신 브라우저 탭에서 바로 열람 (미리보기 용도)
   const dispo = reqUrl.searchParams.get("inline") === "1" ? "inline" : "attachment";
+  // PDF 응답은 전부 여기로 — 시험 문서(#67)는 어느 경로(고정본·저장본·변환·재합성)든 「테스트」 표시를 찍는다(본부 답변 2026-10-08, 검증 F1)
+  const pdfResponse = async (buf: Buffer, name: string) => {
+    const out = contract.isTest ? await stampTestPdf(buf) : buf;
+    return new NextResponse(asBody(out), {
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(name)}` },
+    });
+  };
 
   // ⚠ 완료(SIGNED) 계약은 **저장해 둔 완료본을 먼저 쓴다.**
   //   종전에는 매번 fileUrl + 현재 서명자로 다시 합성해서, 서명 로직을 배포할 때마다
@@ -106,12 +113,7 @@ export async function GET(
   if (contract.status === "SIGNED" && contract.signedPdfUrl) {
     try {
       const fbuf = await fs.readFile(diskPath(contract.signedPdfUrl));
-      return new NextResponse(asBody(fbuf), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(`${contract.title}${suffix}${contract.docNo ? `_${contract.docNo}` : ""}.pdf`)}`,
-        },
-      });
+      return await pdfResponse(fbuf, `${contract.title}${suffix}${contract.docNo ? `_${contract.docNo}` : ""}.pdf`);
     } catch (e) {
       console.error("고정 완료본 읽기 실패(저장본으로 진행):", e);
     }
@@ -120,13 +122,12 @@ export async function GET(
   if (storedSigned) {
     try {
       const sbuf = await fs.readFile(diskPath(storedSigned));
-      if (storedSigned.toLowerCase().endsWith(".pdf") || !wantPdf) {
+      if (storedSigned.toLowerCase().endsWith(".pdf")) return await pdfResponse(sbuf, contract.title + suffix + ".pdf");
+      if (!wantPdf) {
         return new NextResponse(asBody(sbuf), {
           headers: {
-            "Content-Type": storedSigned.toLowerCase().endsWith(".pdf")
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + (storedSigned.toLowerCase().endsWith(".pdf") ? ".pdf" : ".docx"))}`,
+            "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".docx")}`,
           },
         });
       }
@@ -135,7 +136,7 @@ export async function GET(
       fd0.append("files", new Blob([new Uint8Array(sbuf)]), "document.docx");
       // 변환기가 꺼져 있으면 fetch 가 **예외**를 던진다 — 오류 응답과 똑같이 "변환 실패"로 본다.
       // 예외가 아래 catch("저장본을 못 읽으면")로 떨어지면 재합성본이 나갔다(c911ba0 검증 F1).
-      let pdf0: Buffer | null = null;
+      let pdf0: Buffer | null = null;   // 변환 성공 시 아래에서 채운다
       let convStatus: number | string = "연결 실패";
       try {
         // 제한 시간 60초 — 변환기가 응답 없이 멈추면 요청도 같이 멈췄다. 넘기면 예외 → 아래에서 변환 실패로 처리
@@ -145,15 +146,7 @@ export async function GET(
       } catch (ce) {
         convStatus = ce instanceof Error ? ce.message : String(ce);
       }
-      if (pdf0) {
-        if (contract.isTest) pdf0 = await stampTestPdf(pdf0);   // 시험 문서(#67)는 「테스트」 표시(본부 답변 2026-10-08)
-        return new NextResponse(asBody(pdf0), {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
-          },
-        });
-      }
+      if (pdf0) return await pdfResponse(pdf0, contract.title + suffix + ".pdf");
       // 변환기가 실패해도 **재합성하지 않는다** — 재합성본은 지금의 서명 로직·시각 표기로 새로 만들어져 저장된 완료본과
       // 다른 문서가 된다(59fc92f 검증 R1). 열람만 허용 문서는 워드를 줄 수 없으니 잠시 후 다시, 그 외는 저장된 워드 그대로.
       console.error(`저장된 완료본 PDF 변환 실패(${viewOnly ? "열람 전용 — 503" : "워드 원본 제공"}):`, convStatus);
@@ -185,15 +178,7 @@ export async function GET(
             `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
             { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 catch 로(워드 또는 503)
           );
-          if (gres.ok) {
-            const pdf = Buffer.from(await gres.arrayBuffer());
-            return new NextResponse(asBody(pdf), {
-              headers: {
-                "Content-Type": "application/pdf",
-                "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
-              },
-            });
-          }
+          if (gres.ok) return await pdfResponse(Buffer.from(await gres.arrayBuffer()), contract.title + suffix + ".pdf");
           console.error("PDF 변환 실패(gotenberg):", gres.status, await gres.text().catch(() => ""));
         } catch (e) {
           console.error("PDF 변환 오류(gotenberg):", e);
@@ -211,12 +196,7 @@ export async function GET(
       });
     } else {
       const buf = await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers);
-      return new NextResponse(asBody(buf), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + suffix + ".pdf")}`,
-        },
-      });
+      return await pdfResponse(buf, contract.title + suffix + ".pdf");
     }
   } catch (e) {
     console.error("서명본 생성 오류:", e);

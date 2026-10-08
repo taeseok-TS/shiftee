@@ -209,8 +209,6 @@ export async function sendApprovalRequest(
           승인하기
         </a>
       </p>
-
-      <p style="margin-top: 30px; color: #666; font-size: 12px;">
   `);
 
   await sendEmail({

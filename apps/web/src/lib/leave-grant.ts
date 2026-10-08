@@ -76,6 +76,8 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
     }
   }
   // 지워진(휴지통) 직원은 근무 기록 조회에서 빠지므로 기존 행도 같이 빼야 한다 — 안 그러면 복구 전까지 매일 밤 회수된다(검증 F3)
+  // 본부 직원(ADMIN)은 대상이 아니다 — 이 규칙 전에 생긴 자동 부여는 거둔다(6722cfb 검증 F7)
+  await prisma.leaveGrant.deleteMany({ where: { source: "AUTO", user: { role: "ADMIN" } } });
   const existing = await prisma.leaveGrant.findMany({
     where: { source: "AUTO", workDate: { gte: from, lte: to }, user: { deletedAt: null, role: { not: "ADMIN" } } },
     select: { id: true, userId: true, group: true, workDate: true, days: true, note: true, user: { select: { name: true } } },
@@ -118,13 +120,14 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
 
 export type GrantRow = {
   userId: string; empNo: number | null; name: string; branch: string | null; department: string | null;
-  // granted·used·remaining = 기준일 해(회계연도) 안의 부여·사용·잔여. carried = 지난해까지 쓰지 못하고 남은 것(자동 소멸 안 함 — 본부 정산)
+  // granted·used = 기준일 해(회계연도) 안의 부여·사용. carried = 지난해까지의 부여 − 사용(이월, 음수 가능). remaining = 전체 기간 순잔여(= 올해 부여 − 올해 사용 + 이월)
+  // — 부여분은 자동 소멸하지 않으므로 잔여는 해를 가르지 않는다. 지난해 이월분의 정산(수당 지급·차감)은 수동 조정(−)으로 하면 잔여가 그만큼 준다(6722cfb 검증 F3)
   groups: Record<GrantGroup, { granted: number; used: number; remaining: number; carried: number }>;
   grants: { id: string; group: string; days: number; workDate: string | null; source: string; note: string; createdAt: string }[];
   uses: { id: string; group: GrantGroup; label: string; startDate: string; endDate: string; days: number }[];
 };
 
-/** 기준일 해(회계연도)의 직원별 종류별 부여·사용·잔여 + 지난해 미정산(#50). 대상 직원 범위는 「직원별 잔여 현황」과 같은 규칙 */
+/** 직원별 종류별 올해 부여·사용, 지난해 이월, 전체 순잔여(#50). 대상 직원 범위는 「직원별 잔여 현황」과 같은 규칙 */
 export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; includeTest: boolean }): Promise<GrantRow[]> {
   const excluded = opts.includeTest ? [] : await excludedBranchNames();
   const users = await prisma.user.findMany({
@@ -159,7 +162,7 @@ export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; i
     groups: { "보상휴가": { granted: 0, used: 0, remaining: 0, carried: 0 }, "대체휴일": { granted: 0, used: 0, remaining: 0, carried: 0 } },
     grants: [], uses: [],
   }]));
-  // 해마다 따로 모아 올해는 잔여로, 지난해들은 (부여 − 사용)이 남으면 미정산으로
+  // 해마다 따로 모아 올해는 부여·사용으로, 지난해들은 (부여 − 사용) 합을 이월로. 잔여는 둘을 합친 순잔여
   const byYear = new Map<string, Record<GrantGroup, { g: number; u: number }>>();   // userId|year
   const slot = (uid: string, y: number) => { const k = `${uid}|${y}`; let v = byYear.get(k); if (!v) { v = { "보상휴가": { g: 0, u: 0 }, "대체휴일": { g: 0, u: 0 } }; byYear.set(k, v); } return v; };
   for (const g of grants) {
@@ -177,12 +180,13 @@ export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; i
     const [uid, ys] = k.split("|"); const y = Number(ys); const r = rows.get(uid); if (!r) continue;
     for (const g of GRANT_GROUPS) {
       if (y === year) { r.groups[g].granted += v[g].g; r.groups[g].used += v[g].u; }
-      else if (y < year) r.groups[g].carried += Math.max(v[g].g - v[g].u, 0);
+      else if (y < year) r.groups[g].carried += v[g].g - v[g].u;
     }
   }
   for (const r of rows.values()) for (const g of GRANT_GROUPS) {
     r.groups[g].granted = r2(r.groups[g].granted); r.groups[g].used = r2(r.groups[g].used);
-    r.groups[g].remaining = r2(r.groups[g].granted - r.groups[g].used); r.groups[g].carried = r2(r.groups[g].carried);
+    r.groups[g].carried = r2(r.groups[g].carried);
+    r.groups[g].remaining = r2(r.groups[g].granted - r.groups[g].used + r.groups[g].carried);
   }
   return [...rows.values()];
 }

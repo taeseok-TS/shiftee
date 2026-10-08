@@ -100,6 +100,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true } } } } } } },
   });
   if (!c || c.status !== "SIGNED" || !c.signedUrl) return null;
+  if (c.isTest) return null;   // 시험 문서(#67)는 문서번호·고정본·공개 검증 쪽을 만들지 않는다(본부 답변 2026-10-08, 6722cfb 검증 F1)
   if (c.signedPdfUrl && c.signedSha256 && c.docNo) return { docNo: c.docNo, sha256: c.signedSha256 }; // 이미 고정 — 불변
 
   const all = await prisma.contractEvent.findMany({
