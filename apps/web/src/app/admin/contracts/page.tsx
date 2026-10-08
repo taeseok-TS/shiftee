@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye, Upload } from "lucide-react";
+import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye, Upload, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -199,6 +199,16 @@ export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
+  const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
+  const branchManagerName = (branch?: string | null): string => {
+    if (!branch) return "";
+    if (mainManagers[branch]) return mainManagers[branch];
+    const mgr = employees.find(e => e.role === "MANAGER" && (e.branch === branch || (e.managerBranches || []).includes(branch)));
+    return mgr?.name || "";
+  };
+  const lastAutoFillUser = useRef<string>("");   // 자동 채움을 마지막으로 한 직원 — 같은 직원이면 빈칸만 채운다(직접 고친 값 보존)
+  const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
   const [myId, setMyId] = useState("");
@@ -282,7 +292,8 @@ export default function ContractsPage() {
   const [bigZoom, setBigZoom] = useState(1);
   const bigRef = useRef<HTMLDivElement>(null);
   // 문서를 그 자리에서 크게 연다. 주소를 받으므로 발송 미리보기.서명 문서.원본 PDF 모두 같은 창을 쓴다.
-  const openBigDoc = (src: string, title: string) => { setBigZoom(1); setBigDoc({ src, title }); };
+  const [bigLoading, setBigLoading] = useState(false);   // 큰 문서가 뜨기 전 돌아가는 표시(#217-1 — 멈춘 것처럼 보인다는 의견)
+  const openBigDoc = (src: string, title: string) => { setBigZoom(1); setBigLoading(true); setBigDoc({ src, title }); };
   // ⚠ 큰 화면이 떠 있을 때 ESC 를 누르면 **뒤의 서명 모달**이 닫혔다 — 다이얼로그 라이브러리가
   // document 에 keydown 을 걸어두는데 이 오버레이는 그 바깥이라 자기가 최상위인 줄 모른다.
   // 서명하다 그러면 그리던 서명과 체크 상태가 통째로 날아간다. capture 단계에서 먼저 삼킨다.
@@ -421,7 +432,8 @@ export default function ContractsPage() {
     if (useFilters.stale) params.append("stale", "7");
     if (useFilters.test) params.append("test", "true");   // 내 테스트 문서만(#67)
 
-    const res = await fetch(`/api/contracts?${params.toString()}`);
+    setListLoading(true);
+    const res = await fetch(`/api/contracts?${params.toString()}`).finally(() => setListLoading(false));
     const data = await res.json();
     setContracts(data.contracts || []);
 
@@ -841,6 +853,18 @@ export default function ContractsPage() {
     pkgTemplates.find(t => t.name.includes("비밀유지") && t.name.includes("퇴직")),
   ];
   const canResignBundle = resignTemplates.every(Boolean);
+  // 근속 1년 미만(입사일~퇴사일자 만 12개월 미만)이면 퇴직금 정산 신청서를 패키지에서 뺀다(#213-7, 퇴직급여보장법 — 1년 미만은 퇴직금 없음).
+  // null = 판정 불가(입사일 또는 퇴사일자 없음) → 5종 그대로
+  const resignUnderOneYear: boolean | null = (() => {
+    const emp = employees.find(e => e.id === createForm.userId);
+    const hire = emp?.hireDate ? String(emp.hireDate).slice(0, 10) : "";
+    const resign = (extraFields["퇴사일자"] || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(hire) || !/^\d{4}-\d{2}-\d{2}$/.test(resign)) return null;
+    const [hy, hm, hd] = hire.split("-").map(Number); const [ry, rm, rd] = resign.split("-").map(Number);
+    let months = (ry - hy) * 12 + (rm - hm);
+    if (rd < hd) months -= 1;
+    return months < 12;
+  })();
 
   // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
@@ -935,7 +959,8 @@ export default function ContractsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, selectedTemplate, useTemplate, bundleMode, resignBundleMode, externalMode, externalForm.name]);
 
-  // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 원장) 자동 채움
+  // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 메인 원장) 자동 채움.
+  // 직원·지점 목록이 나중에 와도 다시 돈다 — 같은 직원이면 **빈칸만** 채워 직접 고친 값은 두고, 직원이 바뀌면 덮어쓴다(#213-4)
   useEffect(() => {
     if (!createForm.userId || templateFields.length === 0) return;
     const emp = employees.find(e => e.id === createForm.userId);
@@ -949,12 +974,18 @@ export default function ContractsPage() {
       if (templateFields.includes("연차시작일")) updates["연차시작일"] = hire;
     }
     if (templateFields.includes("원장명") && emp.branch) {
-      const mgr = employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!)));
-      if (mgr) updates["원장명"] = mgr.name;
+      const n = branchManagerName(emp.branch);
+      if (n) updates["원장명"] = n;
     }
-    if (Object.keys(updates).length) setExtraFields(prev => ({ ...prev, ...updates }));
+    const sameUser = lastAutoFillUser.current === createForm.userId;
+    lastAutoFillUser.current = createForm.userId;
+    if (Object.keys(updates).length) setExtraFields(prev => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(updates)) if (!sameUser || !(prev[k] || "").trim()) next[k] = v;
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createForm.userId, templateFields]);
+  }, [createForm.userId, templateFields, employees, mainManagers]);
 
   // 계약직 근로시간 자동 계산 (개선 제안 2026-08-24, 공식은 이예지대리 확정)
   //  일근무시간 = (퇴근-출근) - 휴게   /   월근로시간 = (주 + min(주/40×8, 8)) × 4.345 반올림
@@ -1084,6 +1115,11 @@ export default function ContractsPage() {
     });
     // includeAdmins: 승인자 선택에 관리자도 나오도록 (계약 대상 목록에서는 클라이언트에서 제외)
     fetch("/api/employees?includeAdmins=true").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
+    fetch("/api/branches").then(r => r.json()).then(d => {
+      const m: Record<string, string> = {};
+      for (const b of (d.branches || []) as { name: string; mainManager?: { name: string } | null }[]) if (b.mainManager?.name) m[b.name] = b.mainManager.name;
+      setMainManagers(m);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1251,10 +1287,7 @@ export default function ContractsPage() {
           if (templateFields.includes("근무시작일")) per["근무시작일"] = hire;
           if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
         }
-        if (templateFields.includes("원장명")) {
-          const mgr = employees.find(x => x.role === "MANAGER" && (x.branch === emp.branch || (x.managerBranches || []).includes(emp.branch!)));
-          per["원장명"] = mgr?.name || "";
-        }
+        if (templateFields.includes("원장명")) per["원장명"] = branchManagerName(emp.branch);   // 메인 원장 우선(#213-4)
         // 개인별 값(#19) — 표에 넣은 칸만, **지금 양식의 열**만 덮는다(양식을 바꾸기 전 값·다른 계약 구분 전용 칸은 넣지 않는다)
         const row = bulkValues[uid] || {};
         for (const [k, v] of Object.entries(row)) {
@@ -1424,7 +1457,8 @@ export default function ContractsPage() {
       const items = [
         { templateId: rSajik.id, title: `${prefix} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         { templateId: rGeum.id, title: `${prefix} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        { templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        // 근속 1년 미만이면 퇴직금 정산 신청서는 넣지 않는다(#213-7)
+        ...(resignUnderOneYear === true ? [] : [{ templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }]),
         { templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         // 비밀유지서약서(퇴직시) — 결재표(원장·본부)가 서식에 추가되어 결재라인을 태운다 (QA 2026-08-25)
         { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
@@ -1436,7 +1470,9 @@ export default function ContractsPage() {
       const data = await res.json();
       setUploading(false);
       if (!res.ok) { toast.error(data.error || "퇴사 패키지 생성 실패"); return; }
-      toast.success("퇴사 패키지 5종이 작성되었습니다. 사직원에서 발송하면 5종이 함께 발송됩니다.");
+      toast.success(resignUnderOneYear === true
+        ? "퇴사 패키지 4종이 작성되었습니다(근속 1년 미만 — 퇴직금 정산 신청서 제외). 사직원에서 발송하면 함께 발송됩니다."
+        : "퇴사 패키지 5종이 작성되었습니다. 사직원에서 발송하면 5종이 함께 발송됩니다.");
       setCreateOpen(false);
       setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setEmployeeSearchText("");
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
@@ -2038,6 +2074,8 @@ ${url}`;
                           <p className="text-[11px] text-rose-700 pl-6">
                             사직원 + 금품청산 동의서 + 퇴직금·연차수당 정산 신청서 + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
                             <b>5종 모두</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.
+                            {resignUnderOneYear === true && <><br /><b>근속 1년 미만</b>(입사일~퇴사일자)이라 퇴직금 정산 신청서는 빼고 <b>4종</b>으로 작성합니다.</>}
+                            {resignUnderOneYear === null && <><br />퇴사일자를 넣으면 근속 1년 미만 여부를 판정해 퇴직금 정산 신청서를 자동으로 뺍니다.</>}
                           </p>
                         )}
                       </div>
@@ -3128,7 +3166,9 @@ ${url}`;
                 </tr>
               </thead>
               <tbody>
-                {contracts.length === 0 ? (
+                {listLoading ? (
+                  <tr><td colSpan={6} className="py-8 text-center text-gray-400"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
+                ) : contracts.length === 0 ? (
                   <tr><td colSpan={6} className="py-8 text-center text-gray-400">없음</td></tr>
                 ) : contracts.map(c => {
                   const s = statusConfig[c.status] || { label: "미정", variant: "default" };
@@ -4093,11 +4133,17 @@ ${url}`;
               <Button type="button" variant="secondary" size="sm" className="h-8 px-3" onClick={() => setBigDoc(null)}>닫기</Button>
             </div>
           </div>
-          <div className="flex-1 min-h-0 mx-2 mb-2 overflow-auto rounded bg-white" onClick={e => e.stopPropagation()}>
+          <div className="relative flex-1 min-h-0 mx-2 mb-2 overflow-auto rounded bg-white" onClick={e => e.stopPropagation()}>
+            {bigLoading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white/80 text-sm text-gray-600">
+                <Loader2 size={18} className="animate-spin" />문서를 만드는 중입니다… (PDF 변환에 몇 초 걸립니다)
+              </div>
+            )}
             {/* scale 로 키우면 잘리므로 iframe 크기를 1/zoom 으로 역보정 (서명 모달과 같은 방식) */}
             <iframe
               src={bigDoc.src}
               title={bigDoc.title}
+              onLoad={() => setBigLoading(false)}
               style={{
                 width: `${100 / bigZoom}%`,
                 height: `${100 / bigZoom}%`,

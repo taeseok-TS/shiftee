@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
-import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, History, Eye } from "lucide-react";
+import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, History, Eye, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
@@ -170,6 +170,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
 
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
   const [myId, setMyId] = useState("");
   const [meLoaded, setMeLoaded] = useState(false); // 내 정보 조회가 끝났는지 — 실패해도 결재 대기 카드를 감추지 않는다(검증관 F3)
 
@@ -273,7 +274,8 @@ export default function ContractsPage() {
     if (useFilters.showHiddenRevoked) params.append("showHiddenRevoked", "true");
     params.append("scope", "self"); // 개인 페이지: 본인 계약서만
 
-    const res = await fetch(`/api/contracts?${params.toString()}`);
+    setListLoading(true);
+    const res = await fetch(`/api/contracts?${params.toString()}`).finally(() => setListLoading(false));
     const data = await res.json();
     setContracts(data.contracts || []);
     // 내 결재 대기 — 결재 차례가 온 남의 계약서(앱과 같은 API). 관리자·원장 화면에도 있지만 개인 화면에서도 보여준다.
@@ -587,7 +589,9 @@ export default function ContractsPage() {
                 </tr>
               </thead>
               <tbody>
-                {contracts.length === 0 ? (
+                {listLoading ? (
+                  <tr><td colSpan={5} className="py-8 text-center text-gray-400"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
+                ) : contracts.length === 0 ? (
                   <tr><td colSpan={5} className="py-8 text-center text-gray-400">없음</td></tr>
                 ) : contracts.map(c => {
                   const s = statusConfig[c.status] || { label: "미정", variant: "default" };

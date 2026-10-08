@@ -432,7 +432,7 @@ export default function ProfilePage() {
                   <p className="text-xs text-gray-400 mt-0.5">
                     {notifyForced
                       ? "관리자 정책으로 항상 발송됩니다"
-                      : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다"}
+                      : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다. 전자계약 반려·서명 거부는 항상 알립니다"}
                   </p>
                 </div>
                 <label className="inline-flex items-center cursor-pointer">

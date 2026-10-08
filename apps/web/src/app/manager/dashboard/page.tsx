@@ -5,10 +5,22 @@ import { useState, useEffect } from "react";
 type TeamStats = {
   teamCount: number;
   attendance: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
+  names?: { late: string[]; missing: string[]; earlyLeave: string[] };   // 누구인지(#215-6)
   pendingContracts: number;
   pendingApprovals: number;
   monthAbsent: number;
 };
+
+// 명단 — 8명까지 보이고 나머지는 「+N」. 비어 있으면 아무것도 그리지 않는다
+function Names({ list }: { list?: string[] }) {
+  if (!list || list.length === 0) return null;
+  const shown = list.slice(0, 8);
+  return (
+    <p className="mt-2 text-xs text-gray-600 leading-5 break-keep" title={list.join(", ")}>
+      {shown.join(", ")}{list.length > shown.length ? ` 외 ${list.length - shown.length}명` : ""}
+    </p>
+  );
+}
 
 export default function ManagerDashboardPage() {
   const [branch, setBranch] = useState("");
@@ -44,24 +56,28 @@ export default function ManagerDashboardPage() {
               {stats ? stats.attendance.present : "--"}
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-5">
+          <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">지각</div>
             <div className="text-3xl font-bold text-orange-600 mt-2">
               {stats ? stats.attendance.late : "--"}
             </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-5">
+            <Names list={stats?.names?.late} />
+          </a>
+          <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">미출근</div>
             <div className="text-3xl font-bold text-red-600 mt-2">
               {stats ? stats.attendance.absent : "--"}
             </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-5">
+            <Names list={stats?.names?.missing} />
+            {stats && stats.attendance.absent > 0 && <p className="mt-1 text-[11px] text-gray-400">아직 출근을 찍지 않은 직원(휴가 제외)</p>}
+          </a>
+          <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">조퇴</div>
             <div className="text-3xl font-bold text-yellow-600 mt-2">
               {stats ? stats.attendance.earlyLeave : "--"}
             </div>
-          </div>
+            <Names list={stats?.names?.earlyLeave} />
+          </a>
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-gray-500 text-sm font-medium">휴가</div>
             <div className="text-3xl font-bold text-green-600 mt-2">

@@ -55,24 +55,27 @@ export async function GET() {
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
   const today = kstTodayDateUTC();
 
-  const [teamCount, todayRecords, onLeave, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
+  const [members, todayRecords, onLeaveRows, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
     await Promise.all([
-      // 팀 인원
-      prisma.user.count({ where: memberWhere }),
+      // 팀 인원(이름까지 — 미출근 명단용 #215-6)
+      prisma.user.findMany({ where: memberWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
 
-      // 오늘 출퇴근 기록 (지점 직원)
+      // 오늘 출퇴근 기록 (지점 직원) — 지각·조퇴 명단용으로 이름 포함
       prisma.attendance.findMany({
         where: { date: today, user: memberWhere },
+        select: { userId: true, clockIn: true, status: true, user: { select: { name: true } } },
       }),
 
-      // 오늘 휴가 중 (승인된 휴가, 지점 직원)
-      prisma.leaveRequest.count({
+      // 오늘 휴가 중 (승인된 휴가, 지점 직원) — 사람 수로 센다(한 사람의 겹친 신청은 1명)
+      prisma.leaveRequest.findMany({
         where: {
           status: "APPROVED",
           startDate: { lte: today },
           endDate: { gte: today },
           user: memberWhere,
         },
+        select: { userId: true },
+        distinct: ["userId"],
       }),
 
       // 대기 중인 계약 (지점 직원에게 발송되어 서명 대기 중)
@@ -99,15 +102,23 @@ export async function GET() {
       }),
     ]);
 
-  // 오늘 근무 현황 집계
-  const present = todayRecords.filter((r) => r.clockIn).length;
-  const late = todayRecords.filter((r) => r.status === "LATE").length;
-  const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
-  const absent = Math.max(teamCount - present - onLeave, 0);
+  // 오늘 근무 현황 집계 — 숫자와 함께 **누구인지**(#215-6, 박정인 제안: 숫자만 나와 누가 지각·미입력인지 모른다)
+  const teamCount = members.length;
+  const onLeave = onLeaveRows.length;
+  const presentIds = new Set(todayRecords.filter((r) => r.clockIn).map((r) => r.userId));
+  const leaveIds = new Set(onLeaveRows.map((r) => r.userId));
+  const present = presentIds.size;
+  const lateNames = todayRecords.filter((r) => r.status === "LATE").map((r) => r.user.name);
+  const earlyLeaveNames = todayRecords.filter((r) => r.status === "EARLY_LEAVE").map((r) => r.user.name);
+  const missingNames = members.filter((m) => !presentIds.has(m.id) && !leaveIds.has(m.id)).map((m) => m.name);
+  const late = lateNames.length;
+  const earlyLeave = earlyLeaveNames.length;
+  const absent = missingNames.length;
 
   return NextResponse.json({
     teamCount,
     attendance: { present, late, absent, earlyLeave, onLeave },
+    names: { late: lateNames, missing: missingNames, earlyLeave: earlyLeaveNames },
     pendingContracts,
     pendingApprovals: pendingLeaveSteps + pendingScheduleSteps + pendingCancelSteps,
     monthAbsent: monthAbsent.length,

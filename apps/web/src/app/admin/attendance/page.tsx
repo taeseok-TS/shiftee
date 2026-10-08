@@ -182,8 +182,24 @@ export default function AttendancePage() {
   const [editIn, setEditIn] = useState("");   // "HH:mm" (비우면 삭제)
   const [editOut, setEditOut] = useState("");
   const [addOpen, setAddOpen] = useState(false);
-  const [addForm, setAddForm] = useState({ userId: "", date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" });
+  // 여러 명을 같은 시각으로 한꺼번에(#215-5). 저장 전 미리보기로 이미 기록이 있는 사람을 표시한다
+  const [addForm, setAddForm] = useState({ userIds: [] as string[], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" });
+  const [addSearch, setAddSearch] = useState("");
+  const [addExists, setAddExists] = useState<{ date: string; map: Record<string, boolean> }>({ date: "", map: {} });   // 미리보기 결과(날짜별) — userId → 그 날 기록 있음
+  const existsOn = (id: string) => addExists.date === addForm.date && !!addExists.map[id];
   const [editSaving, setEditSaving] = useState(false);
+  useEffect(() => {
+    if (!addOpen || !addForm.userIds.length || !/^\d{4}-\d{2}-\d{2}$/.test(addForm.date)) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      fetch("/api/attendance", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
+        body: JSON.stringify({ userIds: addForm.userIds, date: addForm.date, preview: true }) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.preview) setAddExists({ date: addForm.date, map: Object.fromEntries((d.preview as { userId: string; exists: boolean }[]).map(p => [p.userId, p.exists])) }); })
+        .catch(() => {});
+    }, 250);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [addOpen, addForm.userIds, addForm.date]);
 
   function openEditRec(r: AttendanceRecord) {
     setEditIn(r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "");
@@ -213,20 +229,23 @@ export default function AttendancePage() {
   }
 
   async function saveAddRec() {
-    if (!addForm.userId) { toast.error("직원을 선택해주세요."); return; }
+    if (!addForm.userIds.length) { toast.error("직원을 선택해주세요."); return; }
     if (!addForm.clockIn && !addForm.clockOut) { toast.error("출근 또는 퇴근 시각을 입력해주세요."); return; }
+    const dup = addForm.userIds.filter(existsOn);
+    if (dup.length && dup.length === addForm.userIds.length) { toast.error("선택한 직원 모두 그 날 기록이 이미 있습니다. 수정 기능을 사용해주세요."); return; }
+    if (dup.length && !confirm(`이미 기록이 있는 ${dup.length}명은 건너뛰고 ${addForm.userIds.length - dup.length}명만 추가합니다. 계속할까요?`)) return;
     setEditSaving(true);
     try {
       const res = await fetch("/api/attendance", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: addForm.userId, date: addForm.date,
+          userIds: addForm.userIds, date: addForm.date,
           clockIn: toKstIso(addForm.date, addForm.clockIn), clockOut: toKstIso(addForm.date, addForm.clockOut),
         }),
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error || "생성 실패"); return; }
-      toast.success("출퇴근 기록이 생성되었습니다.");
+      toast.success(`출퇴근 기록 ${d.created ?? 1}명 추가${d.skipped?.length ? ` · 건너뜀 ${d.skipped.length}명(${d.skipped.join(", ")})` : ""}`);
       setAddOpen(false);
       fetchStats();
     } finally { setEditSaving(false); }
@@ -831,7 +850,7 @@ export default function AttendancePage() {
                     <div className="flex gap-2">
                       {myRole === "ADMIN" && (
                         <Button variant="outline" size="sm" className="gap-1"
-                          onClick={() => { setAddForm({ userId: "", date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" }); setAddOpen(true); }}>
+                          onClick={() => { setAddForm({ userIds: [], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" }); setAddSearch(""); setAddOpen(true); }}>
                           <Plus size={13} />기록 추가
                         </Button>
                       )}
@@ -959,19 +978,39 @@ export default function AttendancePage() {
 
       {/* 출퇴근 기록 수동 생성 (관리자) */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>출퇴근 기록 추가</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>출퇴근 기록 추가 {addForm.userIds.length > 1 && <span className="text-sm font-normal text-gray-500">— {addForm.userIds.length}명 일괄</span>}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-gray-500">직원</label>
-              <Select value={addForm.userId} onValueChange={(v) => setAddForm((f) => ({ ...f, userId: v }))}>
-                <SelectTrigger><SelectValue placeholder="직원 선택" /></SelectTrigger>
-                <SelectContent>
-                  {employees.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>{e.name}{e.branch ? ` · ${e.branch}` : ""}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-gray-500">직원 <span className="text-gray-400">(여러 명 선택 가능 — 같은 시각으로 들어갑니다)</span></label>
+                <button type="button" className="text-[11px] text-blue-600 hover:underline"
+                  onClick={() => {
+                    const shown = employees.filter(e => !addSearch.trim() || `${e.name} ${e.branch || ""} ${e.department || ""}`.includes(addSearch.trim())).map(e => e.id);
+                    setAddForm(f => ({ ...f, userIds: shown.every(id => f.userIds.includes(id)) ? f.userIds.filter(id => !shown.includes(id)) : [...new Set([...f.userIds, ...shown])] }));
+                  }}>표시된 직원 전체 선택/해제</button>
+              </div>
+              <Input value={addSearch} onChange={(e) => setAddSearch(e.target.value)} placeholder="이름·지점으로 찾기" className="h-8 mt-1" />
+              <div className="mt-1 max-h-44 overflow-y-auto rounded border divide-y">
+                {employees.filter(e => !addSearch.trim() || `${e.name} ${e.branch || ""} ${e.department || ""}`.includes(addSearch.trim())).map((e) => {
+                  const on = addForm.userIds.includes(e.id);
+                  return (
+                    <label key={e.id} className={`flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-gray-50 ${on ? "bg-blue-50/60" : ""}`}>
+                      <input type="checkbox" checked={on}
+                        onChange={(ev) => setAddForm(f => ({ ...f, userIds: ev.target.checked ? [...f.userIds, e.id] : f.userIds.filter(id => id !== e.id) }))} />
+                      <span className="flex-1 truncate">{e.name}{e.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}</span>
+                      {on && existsOn(e.id) && <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300">그 날 기록 있음 · 건너뜀</Badge>}
+                    </label>
+                  );
+                })}
+                {employees.length === 0 && <p className="px-2 py-3 text-xs text-gray-400">직원 목록을 불러오는 중…</p>}
+              </div>
+              {addForm.userIds.length > 0 && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  대상 {addForm.userIds.length}명: {employees.filter(e => addForm.userIds.includes(e.id)).map(e => e.name).join(", ")}
+                  {addForm.userIds.some(existsOn) && <span className="text-amber-700"> (기록 있음 {addForm.userIds.filter(existsOn).length}명 제외)</span>}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs text-gray-500">날짜</label>
@@ -990,7 +1029,7 @@ export default function AttendancePage() {
             <p className="text-xs text-gray-400">수동 생성 기록은 GPS 좌표 없이 저장되며, 생성 내역은 감사 로그에 남습니다.</p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>취소</Button>
-              <Button size="sm" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : "추가"}</Button>
+              <Button size="sm" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : addForm.userIds.length > 1 ? `${addForm.userIds.length - addForm.userIds.filter(existsOn).length}명 추가` : "추가"}</Button>
             </div>
           </div>
         </DialogContent>
