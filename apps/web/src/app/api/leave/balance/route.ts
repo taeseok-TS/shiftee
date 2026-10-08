@@ -97,11 +97,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ balances: result });
 }
 
-// 관리자: 잔여 휴가 조정
+// 관리자: 잔여 휴가 조정 — 본부만(2026-10-08 #39 시프티 설정 「원장 휴가 직접 등록 OFF」에 맞춤).
+// 종전에는 원장도 통과했는데 지점 검사가 없어 **아무 직원의 총 연차·사용량**을 고칠 수 있었다(화면 버튼은 본부에만 있었다)
 export async function PATCH(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role === "EMPLOYEE") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "연차 조정은 본부만 할 수 있습니다." }, { status: 403 });
 
   const { userId, total, used, leaveNote } = await request.json();
   if (!userId || total === undefined) {

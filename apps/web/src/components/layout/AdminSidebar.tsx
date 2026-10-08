@@ -24,6 +24,7 @@ import {
   Bot,
   RefreshCw,
   Inbox,
+  ShieldCheck,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -42,6 +43,7 @@ const adminNavItems = [
   { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
   { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
   { href: "/admin/branches", label: "지점 관리", icon: Building2 },
+  { href: "/admin/permissions", label: "권한 현황", icon: ShieldCheck }, // 역할별 권한 보기 전용(2026-10-08 #39)
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
   { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
   { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
