@@ -27,5 +27,8 @@ export async function GET() {
     select: { id: true },
   });
   if (pending) return NextResponse.json({ missed: null });
-  return NextResponse.json({ missed: { date: att.date.toISOString().slice(0, 10), clockIn: att.clockIn } });
+  // can22: 출근이 22시 전이면 「22:00 퇴근으로 처리 동의」가 가능하다(#215-4). 22시 이후 출근은 요청으로만
+  const ymd = att.date.toISOString().slice(0, 10);
+  const can22 = !!att.clockIn && att.clockIn < new Date(`${ymd}T22:00:00+09:00`);
+  return NextResponse.json({ missed: { date: ymd, clockIn: att.clockIn, can22 } });
 }

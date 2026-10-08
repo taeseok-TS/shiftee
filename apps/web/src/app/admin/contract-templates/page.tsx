@@ -471,13 +471,14 @@ export default function ContractTemplatesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(postSignAccessLabel).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                      <SelectItem key={key} value={key} disabled={key === "none" && (editTarget.type === "EMPLOYMENT" || /근로계약서/.test(form.name))}>{label}{key === "none" && (editTarget.type === "EMPLOYMENT" || /근로계약서/.test(form.name)) ? " — 근로계약서는 불가(교부 의무)" : ""}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-gray-500">
                   서명 완료 후 근로자(계약 당사자)에게 완료본을 어디까지 열어줄지 정합니다.
                   &quot;접근 불가&quot;는 근로자 화면에 &quot;제출 완료&quot;만 표시됩니다. 관리자는 항상 무제한입니다.
+                  <br />규칙(#213-1): 근로자가 볼 수 있는 문서는 <b>근로계약서·비밀유지서약서·개인정보수집이용동의서·금품청산 지급기일연장 동의서</b> 4종이며 그 외 양식은 「접근 불가」가 기본입니다. 근로계약서는 「접근 불가」로 둘 수 없습니다.
                 </p>
               </div>
 

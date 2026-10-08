@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
+import { postSignAccessError } from "@/lib/contract-access";
 
 // 템플릿 수정 (관리자/원장) — 이름·설명·유형 수정, 파일 교체 시 버전 증가.
 // FormData(파일 포함) 또는 JSON(메타만) 둘 다 받는다.
@@ -71,6 +72,15 @@ export async function PATCH(
   }
 
   // 파일을 바꾸면 바뀌기 전 파일·버전을 이력에 남긴다(#78) — 같은 트랜잭션에서
+  // 근로계약서를 「접근 불가」로 바꾸는 것은 막는다(#213-1) — 이름·유형·접근 중 바뀌는 값과 기존 값을 합쳐 판정
+  {
+    const effName = typeof data.name === "string" ? data.name : existing.name;
+    const effType = typeof data.type === "string" ? data.type : existing.type;
+    const effAccess = typeof data.postSignAccess === "string" ? data.postSignAccess : existing.postSignAccess;
+    const accessErr = postSignAccessError(effName, effType, effAccess);
+    if (accessErr) return NextResponse.json({ error: accessErr }, { status: 400 });
+  }
+
   const template = await prisma.$transaction(async (tx) => {
     if (data.fileUrl && data.fileUrl !== existing.fileUrl) {
       await tx.contractTemplateVersion.create({

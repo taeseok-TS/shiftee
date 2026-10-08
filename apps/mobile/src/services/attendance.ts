@@ -123,7 +123,13 @@ export async function attendanceRequestPhotoSource(id: string) {
 }
 
 /** 퇴근 누락 안내 — 최근 7일 중 출근만 있고 퇴근이 없는 날 */
-export async function getMissedOut(): Promise<{ date: string; clockIn: string } | null> {
+export async function getMissedOut(): Promise<{ date: string; clockIn: string; can22?: boolean } | null> {
   const res = await axios.get(`${API_URL}/attendance-requests/missed-out`, { headers: await authHeaders() });
   return res.data?.missed ?? null;
+}
+
+/** 전날 퇴근 누락 → 22:00 퇴근으로 처리하는 데 동의(#215-4). 동의한 사람·시각이 기록된다 */
+export async function consentMissedOut22(date: string) {
+  const res = await axios.post(`${API_URL}/attendance-requests/missed-out/consent`, { date, agree: true }, { headers: await authHeaders() });
+  return res.data as { success: boolean; clockOut: string };
 }

@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
 
     const fileUrl = `/api/uploads/templates/${filename}`;
 
-    // 정책 결정: 명시값 > 같은 이름의 이전 템플릿 승계 > full(종전 동작)
+    // 정책 결정: 명시값 > 같은 이름의 이전 템플릿 승계 > 양식 종류별 기본값(4종 full, 그 외 none — #213-1)
+    const { defaultPostSignAccess, postSignAccessError } = await import("@/lib/contract-access");
     let postSignAccess: string;
     if (accessRaw === "none" || accessRaw === "view" || accessRaw === "full") {
       postSignAccess = accessRaw;
@@ -112,9 +113,11 @@ export async function POST(request: NextRequest) {
         orderBy: { createdAt: "desc" },
         select: { postSignAccess: true, name: true },
       });
-      postSignAccess = prev?.postSignAccess || "full";
+      postSignAccess = prev?.postSignAccess || defaultPostSignAccess(name, type);
       if (prev) console.info(`[템플릿] "${name}" 접근정책을 "${prev.name}"에서 승계: ${postSignAccess}`);
     }
+    const accessErr = postSignAccessError(name, pickOr(CONTRACT_TYPES, type, "OTHER"), postSignAccess);
+    if (accessErr) return NextResponse.json({ error: accessErr }, { status: 400 });
 
     // DB에 템플릿 저장
     const template = await prisma.contractTemplate.create({

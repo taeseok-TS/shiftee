@@ -253,3 +253,25 @@ export async function guestTicketCovers(contractId: string, fileName: string): P
   const ids = new Set(sibs.map((s) => s.id));
   return rows.some((r) => ids.has(r.id));
 }
+
+// ── 서명 완료 후 근로자 접근 — 양식 종류별 기본값·금지 규칙(2026-10-08 개선 제안 #213-1, 디렉터 채택) ──
+//  근로자가 열람·다운로드할 수 있는 문서는 **4종**: 근로계약서, 비밀유지서약서(퇴직시 포함), 개인정보수집이용동의서, 금품청산 지급기일연장 동의서.
+//  그 외(사직원·정산 신청서·휴가·근태 신청서 등)는 기본 「접근 불가(none)」. 관리자는 항상 전부 본다.
+//  근로계약서는 근로자 교부 의무(근로기준법 17조)가 있어 「접근 불가」로 바꿀 수 없다.
+const DELIVERABLE_NAME_RE = /근로계약서|비밀유지\s*서약서|개인정보\s*수집\s*[·.]?\s*이용\s*동의서|금품\s*청산\s*지급\s*기일\s*연장\s*동의서/;
+export function isEmploymentContractTemplate(name: string, type?: string | null): boolean {
+  return type === "EMPLOYMENT" || /근로계약서/.test(name);
+}
+export function isEmployeeDeliverable(name: string, type?: string | null): boolean {
+  return type === "EMPLOYMENT" || type === "CONFIDENTIAL" || DELIVERABLE_NAME_RE.test(name);
+}
+/** 새 양식의 기본 접근 — 4종은 full, 그 외 none */
+export function defaultPostSignAccess(name: string, type?: string | null): "full" | "none" {
+  return isEmployeeDeliverable(name, type) ? "full" : "none";
+}
+/** 저장하면 안 되는 조합이면 오류 문구, 아니면 null */
+export function postSignAccessError(name: string, type: string | null | undefined, access: string): string | null {
+  if (access === "none" && isEmploymentContractTemplate(name, type))
+    return "근로계약서는 근로자 교부 의무가 있어 「접근 불가」로 둘 수 없습니다(열람만 또는 열람+다운로드).";
+  return null;
+}

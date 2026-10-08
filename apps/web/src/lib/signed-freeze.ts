@@ -104,7 +104,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   if (c.signedPdfUrl && c.signedSha256 && c.docNo) return { docNo: c.docNo, sha256: c.signedSha256 }; // 이미 고정 — 불변
 
   const all = await prisma.contractEvent.findMany({
-    where: { contractId, type: { in: ["SIGNED", "VERIFY_OK", "CONSENT", "SENT", "RESEND", "RESET"] } },
+    where: { contractId, type: { in: ["SIGNED", "VERIFY_OK", "CONSENT", "SENT", "RESEND", "RESET", "VIEWED"] } },
     orderBy: { createdAt: "asc" },
   });
   // 이번 회차(마지막 발송·재발송·결재 초기화 이후) 기록만 본다 — 옛 회차의 같은 단계 번호 기록(다른 사람의 동의·IP)이
@@ -115,6 +115,9 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   const events = all.filter((e) => !roundStart || e.createdAt.getTime() >= roundStart.getTime() - 60_000);
   const lastOf = (type: string, st: { order: number; approverId: string | null }) =>
     [...events].reverse().find((e) => e.type === type && e.stepOrder === st.order && (!st.approverId || e.actorId === st.approverId));
+  // 문서 열람(#213-9, 모두싸인 「문서 내용 확인」에 해당) — 이번 회차의 첫 열람. 사내 열람 기록은 단계 번호가 없어 본인 기록으로, 외부는 단계 번호로 찾는다
+  const firstViewed = (st: { order: number; approverId: string | null }) =>
+    events.find((e) => e.type === "VIEWED" && (st.approverId ? e.actorId === st.approverId : e.stepOrder === st.order));
 
   const src = await sourcePdf(c.signedUrl);
   const doc = await PDFDocument.load(src, { ignoreEncryption: true });
@@ -156,6 +159,8 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
         ? (verified ? `로그인 + 비밀번호 확인 — ${via === "문서 열기 전 비밀번호" ? "문서 열기 전" : "서명 때"}${at}` : signed ? "로그인 + 비밀번호 재확인" : "로그인 계정")
         : "로그인 계정";
     w.text(`${st.order}. ${role}  ${name}   서명 ${kst(st.decidedAt)}`, 10, dark);
+    const viewed = firstViewed(st);
+    if (viewed) w.text(`문서 열람: ${kst(viewed.createdAt)}`, 9, gray, 14);
     w.text(`본인 확인: ${method}`, 9, gray, 14);
     w.text(signed
       ? `접속: IP ${maskIp(signed.ip)} · ${deviceOf(signed.userAgent, signed.deviceId) || "-"}`
@@ -177,6 +182,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
   w.text("같으면 발급 원본이고, 한 글자라도 바뀐 파일이면 다르게 나옵니다.", 9, gray);
   w.text(verifyUrl, 10, rgb(0.1, 0.2, 0.6));
   w.gap(6);
+  w.text("완료 뒤의 열람·내려받기·교부(완료 알림) 기록은 큐브티 문서 이력에 남습니다. 이 증명서는 완료 시점에 고정됩니다.", 8, gray);
   w.text("큐브티 전자계약", 9, gray);
 
   const bytes = Buffer.from(await doc.save());
