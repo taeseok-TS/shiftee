@@ -168,6 +168,9 @@ export async function GET(
       console.error("저장된 완료본 사용 실패(재합성으로 진행):", e);
     }
   }
+  // 서명자가 없는 계약(이관본, #4)은 재합성할 서명이 없다 — 저장본을 못 읽었으면 빈 서명본 대신 오류(검증 R2)
+  if (signers.length === 0)
+    return NextResponse.json({ error: "저장된 완료본 파일을 찾을 수 없습니다. 관리자에게 알려 주세요." }, { status: 503 });
 
   try {
     if (isDocx) {

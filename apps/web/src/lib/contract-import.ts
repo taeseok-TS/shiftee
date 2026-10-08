@@ -69,8 +69,10 @@ export async function previewContractImport(rowsIn: unknown[], fileNames: string
   const pick = (hits: string[], name: string): { file: string | null; many: boolean } => {
     if (hits.length === 1) return { file: hits[0], many: false };
     if (hits.length === 0) return { file: null, many: false };
+    // 이름은 파일명을 구분자(_ - 공백 괄호 .)로 나눈 **조각과 정확히 같을 때**만 — 「이수」가 「이수진」 파일에 걸리지 않게(검증 R1)
     const nn = norm(name);
-    const byName = nn ? hits.filter((f) => norm(path.basename(f)).includes(nn)) : [];
+    const segs = (f: string) => path.basename(f).replace(/\.(pdf|PDF)$/, "").split(/[\s_\-().\[\]·]+/).map((x) => x.toLowerCase()).filter(Boolean);
+    const byName = nn ? hits.filter((f) => segs(f).includes(nn)) : [];
     return byName.length === 1 ? { file: byName[0], many: false } : { file: null, many: true };
   };
   const findFile = (r: ContractImportRow, title: string, ref: string, name: string): { file: string | null; many: boolean } => {
