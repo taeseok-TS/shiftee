@@ -12,6 +12,9 @@ import { logAudit } from "@/lib/audit";
 //    (8h → 12h = 1.5일, 4h → 6h = 0.75일, 10h → 12+4 = 16h = 2일). 쉰 사람은 없음(원래 쉬는 날이든 유급휴일로 쉬었든)
 //  · 본부가 「대체휴무 부여」로 지정한 공휴일(Holiday.grantsLeave)에 **평일** 근무 기록이 있으면 대체휴일 1일(#56 요청: 주말 제외)
 //  · 그룹마다 초과 사용 제한 없음(본부 답변 #19) — 잔여가 모자라도 신청은 막지 않는다. 잔여는 본부 화면에서만(#50)
+//  · 대상은 큐브티 휴가 신청 대상과 같다 — 원장 포함, 본부 직원(ADMIN) 제외(2026-10-08 본부 답변)
+//  · 유효기간은 부여일이 속한 회계연도 말(12/31). 지나도 자동 소멸시키지 않고 「지난해 미정산」으로 따로 보여 본부가 정산한다
+//  · 공휴일 「대체휴무 부여」 지정을 끄면 밤 점검이 그 날 부여분을 **회수하지 않는다** — 끄는 화면(api/holidays)이 사용 여부를 확인하고 처리한다
 // 자동 부여(AUTO)는 (userId, group, workDate) 하나다. 매일 밤 최근 45일을 다시 계산해 근무 기록이 바뀌면 갱신, 없어지면 지운다.
 // 수동 조정(MANUAL)은 본부가 사유와 함께 넣는다(음수 = 차감). 잔여 = 부여 합 − 승인된 그 그룹 휴가 일수(기준일까지).
 export const GRANT_GROUPS = ["보상휴가", "대체휴일"] as const;
@@ -52,9 +55,10 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
       .map((h) => [ymdUTC(h.date), h.name]),
   );
   const att = await prisma.attendance.findMany({
-    where: { date: { gte: from, lte: to }, clockIn: { not: null }, clockOut: { not: null }, user: { deletedAt: null } },
+    where: { date: { gte: from, lte: to }, clockIn: { not: null }, clockOut: { not: null }, user: { deletedAt: null, role: { not: "ADMIN" } } },
     select: { userId: true, date: true, clockIn: true, clockOut: true, user: { select: { name: true } } },
   });
+  const attKeys = new Set(att.map((a) => `${a.userId}|${ymdUTC(a.date)}`));   // 근무 기록이 남아 있는 날 — 지정이 풀린 대체휴일은 회수하지 않는다
   // 부여해야 할 것 — key = userId|group|ymd
   type Want = { userId: string; group: GrantGroup; workDate: Date; days: number; note: string; name: string };
   const want = new Map<string, Want>();
@@ -73,7 +77,7 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
   }
   // 지워진(휴지통) 직원은 근무 기록 조회에서 빠지므로 기존 행도 같이 빼야 한다 — 안 그러면 복구 전까지 매일 밤 회수된다(검증 F3)
   const existing = await prisma.leaveGrant.findMany({
-    where: { source: "AUTO", workDate: { gte: from, lte: to }, user: { deletedAt: null } },
+    where: { source: "AUTO", workDate: { gte: from, lte: to }, user: { deletedAt: null, role: { not: "ADMIN" } } },
     select: { id: true, userId: true, group: true, workDate: true, days: true, note: true, user: { select: { name: true } } },
   });
   const byKey = new Map(existing.map((e) => [`${e.userId}|${e.group}|${ymdUTC(e.workDate!)}`, e]));
@@ -94,9 +98,11 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
       updated++; names.add(w.name);
     }
   }
-  // 근무 기록이 없어졌거나(출퇴근 삭제·수정) 지정이 풀린 날의 자동 부여는 거둔다
+  // 근무 기록이 없어진 날(출퇴근 삭제·수정)의 자동 부여만 거둔다. 공휴일 지정이 풀린 날은 근무 기록이 남아 있으므로 두고,
+  // 회수는 지정을 끄는 화면이 사용 여부를 확인한 뒤 한다(본부 답변 2026-10-08)
   for (const [key, ex] of byKey) {
     if (want.has(key)) continue;
+    if (ex.group === "대체휴일" && attKeys.has(`${ex.userId}|${ymdUTC(ex.workDate!)}`)) continue;
     await prisma.leaveGrant.delete({ where: { id: ex.id } });
     revoked++; names.add(ex.user.name);
   }
@@ -112,12 +118,13 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
 
 export type GrantRow = {
   userId: string; empNo: number | null; name: string; branch: string | null; department: string | null;
-  groups: Record<GrantGroup, { granted: number; used: number; remaining: number }>;
+  // granted·used·remaining = 기준일 해(회계연도) 안의 부여·사용·잔여. carried = 지난해까지 쓰지 못하고 남은 것(자동 소멸 안 함 — 본부 정산)
+  groups: Record<GrantGroup, { granted: number; used: number; remaining: number; carried: number }>;
   grants: { id: string; group: string; days: number; workDate: string | null; source: string; note: string; createdAt: string }[];
   uses: { id: string; group: GrantGroup; label: string; startDate: string; endDate: string; days: number }[];
 };
 
-/** 기준일까지의 직원별 종류별 부여·사용·잔여(#50). 대상 직원 범위는 「직원별 잔여 현황」과 같은 규칙 */
+/** 기준일 해(회계연도)의 직원별 종류별 부여·사용·잔여 + 지난해 미정산(#50). 대상 직원 범위는 「직원별 잔여 현황」과 같은 규칙 */
 export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; includeTest: boolean }): Promise<GrantRow[]> {
   const excluded = opts.includeTest ? [] : await excludedBranchNames();
   const users = await prisma.user.findMany({
@@ -145,25 +152,37 @@ export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; i
       orderBy: { startDate: "asc" },
     }),
   ]);
+  const year = opts.asOf.getUTCFullYear();
+  const yearOfGrant = (g: { workDate: Date | null; createdAt: Date }) => (g.workDate ? g.workDate : new Date(g.createdAt.getTime() + 9 * 3600000)).getUTCFullYear();
   const rows = new Map<string, GrantRow>(users.map((u) => [u.id, {
     userId: u.id, empNo: u.empNo, name: u.name, branch: u.branch, department: u.department,
-    groups: { "보상휴가": { granted: 0, used: 0, remaining: 0 }, "대체휴일": { granted: 0, used: 0, remaining: 0 } },
+    groups: { "보상휴가": { granted: 0, used: 0, remaining: 0, carried: 0 }, "대체휴일": { granted: 0, used: 0, remaining: 0, carried: 0 } },
     grants: [], uses: [],
   }]));
+  // 해마다 따로 모아 올해는 잔여로, 지난해들은 (부여 − 사용)이 남으면 미정산으로
+  const byYear = new Map<string, Record<GrantGroup, { g: number; u: number }>>();   // userId|year
+  const slot = (uid: string, y: number) => { const k = `${uid}|${y}`; let v = byYear.get(k); if (!v) { v = { "보상휴가": { g: 0, u: 0 }, "대체휴일": { g: 0, u: 0 } }; byYear.set(k, v); } return v; };
   for (const g of grants) {
     const r = rows.get(g.userId); if (!r || !isGrantGroup(g.group)) continue;
-    r.groups[g.group].granted += g.days;
+    slot(g.userId, yearOfGrant(g))[g.group].g += g.days;
     r.grants.push({ id: g.id, group: g.group, days: g.days, workDate: g.workDate ? ymdUTC(g.workDate) : null, source: g.source, note: g.note, createdAt: g.createdAt.toISOString() });
   }
   for (const u of uses) {
     const r = rows.get(u.userId); const group = groupOfType(u.type); if (!r || !group) continue;
-    r.groups[group].used += u.days;
+    slot(u.userId, u.startDate.getUTCFullYear())[group].u += u.days;
     r.uses.push({ id: u.id, group, label: leaveLabel(u.type), startDate: ymdUTC(u.startDate), endDate: ymdUTC(u.endDate), days: u.days });
   }
   const r2 = (n: number) => Math.round(n * 100) / 100;
+  for (const [k, v] of byYear) {
+    const [uid, ys] = k.split("|"); const y = Number(ys); const r = rows.get(uid); if (!r) continue;
+    for (const g of GRANT_GROUPS) {
+      if (y === year) { r.groups[g].granted += v[g].g; r.groups[g].used += v[g].u; }
+      else if (y < year) r.groups[g].carried += Math.max(v[g].g - v[g].u, 0);
+    }
+  }
   for (const r of rows.values()) for (const g of GRANT_GROUPS) {
     r.groups[g].granted = r2(r.groups[g].granted); r.groups[g].used = r2(r.groups[g].used);
-    r.groups[g].remaining = r2(r.groups[g].granted - r.groups[g].used);
+    r.groups[g].remaining = r2(r.groups[g].granted - r.groups[g].used); r.groups[g].carried = r2(r.groups[g].carried);
   }
   return [...rows.values()];
 }

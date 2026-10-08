@@ -591,7 +591,8 @@ export async function PATCH(
           updated.title,
           appUrl,
           updated.user.id, // 본인 확인 관문(#140) — 빠뜨리면 옛 링크(/contracts)로 나가 남의 세션으로 열린다
-          updated.sendMessage
+          updated.sendMessage,
+          updated.signDeadline // 서명 기한(#217-3 메일에 표시)
         );
       } else if (firstPendingStep.approver?.email) {
         // 직원이 아닌 다른 승인자가 첫 번째인 경우 - 승인 요청 이메일
@@ -604,7 +605,8 @@ export async function PATCH(
           firstPendingStep.order,
           appUrl,
           firstPendingStep.approverId || undefined,
-          updated.sendMessage
+          updated.sendMessage,
+          updated.signDeadline
         );
       }
     }

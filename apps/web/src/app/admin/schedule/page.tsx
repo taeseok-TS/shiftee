@@ -315,7 +315,7 @@ export default function AdminSchedulePage() {
               <Label className="text-sm">지점</Label>
               <Select value={filterBranch} onValueChange={setFilterBranch}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{filterBranch === "ALL" ? "모든 지점" : filterBranch}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">모든 지점</SelectItem>
@@ -332,7 +332,7 @@ export default function AdminSchedulePage() {
               <Label className="text-sm">부서</Label>
               <Select value={filterDepartment} onValueChange={setFilterDepartment}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{filterDepartment === "ALL" ? "모든 부서" : filterDepartment}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">모든 부서</SelectItem>

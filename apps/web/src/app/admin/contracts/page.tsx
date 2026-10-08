@@ -3,6 +3,7 @@ import ContractEventsList from "@/components/contracts/ContractEventsList";
 
 import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
+import { koreanMoney } from "@/lib/korean-money";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2158,7 +2159,7 @@ ${url}`;
                 <div className="space-y-2">
                   <Label>유형</Label>
                   <Select value={createForm.type} onValueChange={v => v && setCreateForm(f => ({ ...f, type: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger><SelectValue>{typeLabel[createForm.type] ?? createForm.type}</SelectValue></SelectTrigger>
                     <SelectContent>
                       {Object.entries(typeLabel).map(([k, v]) => (
                         <SelectItem key={k} value={k}>{v}</SelectItem>
@@ -2180,9 +2181,10 @@ ${url}`;
                         onChange={e => {
                           const v = e.target.value;
                           setCreateForm(f => {
-                            // 종료일 자동 채움 — 직영 계약 주기(분기)에 맞춘다
-                            // QA 확정 규칙(2026-08-24, 이예지대리): 시작일이 언제든
-                            // "다음 해"의 해당 분기 말일. 예) 26-07-01 시작 → 27-09-30
+                            // 종료일 자동 채움 — 직영 연봉 주기에 맞춘다
+                            // 규칙(2026-10-08 본부 박정인 #212·#201): 연봉 갱신 3·6·9·12월, 연봉 종료 2·5·8·11월 말.
+                            // 종료일 = 다음 해 + (시작일 뒤 첫 갱신월 1일 − 1일). 예) 26-09-10 → 27-11-30, 26-07-01 → 27-08-31, 26-09-01 → 27-08-31
+                            // (종전 「다음 해 분기 말일」 규칙은 폐기)
                             // Date 객체를 쓰지 않고 문자열 계산 — 시간대에 따른 하루 밀림 방지
                             // 종료일이 비었거나 "직전 자동값 그대로"면 재계산해 덮는다 —
                             // 시작일을 정정했는데 낡은 자동 종료일이 남는 사고 방지(검증관 지적).
@@ -2191,9 +2193,15 @@ ${url}`;
                             if (v && (!f.endDate || f.endDate === lastAutoEnd.current)) {
                               const [y, m] = v.split("-").map(Number);
                               // date input 타이핑 중 "0002-.." 같은 중간값이 오면 자동 채움 보류
-                              if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
-                                const QEND = ["03-31", "06-30", "09-30", "12-31"];
-                                end = `${y + 1}-${QEND[Math.floor((m - 1) / 3)]}`;
+                              const d = Number(v.split("-")[2]);
+                              if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1) {
+                                // 시작일 뒤의 첫 갱신월(3·6·9·12). 갱신월 1일에 시작하면 그 달이 곧 주기 시작이라 다음 갱신월로
+                                const RENEW = [3, 6, 9, 12];
+                                const nextQ = RENEW.find((q) => q > m || (q === m && d === 1));
+                                const endY = nextQ ? y + 1 : y + 2;                 // 12월 2일 이후 시작이면 다음 갱신월은 이듬해 3월
+                                const endM = (nextQ ?? 3) - 1;                       // 종료월 = 갱신월 − 1
+                                const lastDay = new Date(Date.UTC(endY, endM, 0)).getUTCDate();   // 그 달 말일
+                                end = `${endY}-${String(endM).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
                                 lastAutoEnd.current = end;
                               }
                             }
@@ -2204,7 +2212,7 @@ ${url}`;
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 다음 해의 분기 말일)</span></label>
+                      <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 다음 해의 연봉 종료월 말일 — 2·5·8·11월)</span></label>
                       <Input
                         type="date"
                         value={createForm.endDate}
@@ -2227,14 +2235,14 @@ ${url}`;
                   <Input
                     type="text"
                     inputMode="numeric"
-                    placeholder="예: 36,000,000"
+                    placeholder="예: 34,000,000"
                     value={wonView(createForm.salary, salaryFocus)}
                     onFocus={() => setSalaryFocus(true)}
                     onBlur={() => setSalaryFocus(false)}
                     onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                   />
                   {createForm.salary && (
-                    <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원</p>
+                    <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원 · 문서 표기: <b>金 {koreanMoney(Number(createForm.salary))}</b></p>
                   )}
                 </div>
                 )}
@@ -2729,7 +2737,7 @@ ${url}`;
               <div className="space-y-2">
                 <Label>유형</Label>
                 <Select value={editForm.type} onValueChange={v => v && setEditForm(f => ({ ...f, type: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger><SelectValue>{typeLabel[editForm.type] ?? editForm.type}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {Object.entries(typeLabel).map(([k, v]) => (
                       <SelectItem key={k} value={k}>{v}</SelectItem>
@@ -2884,7 +2892,7 @@ ${url}`;
               <Label className="text-xs font-medium">연도</Label>
               <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setFilterMonth(""); }}>
                 <SelectTrigger className="h-8 text-xs w-full">
-                  <SelectValue />
+                  <SelectValue>{filterYear ? `${filterYear}년` : "연도"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent className="max-h-80">
                   {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (

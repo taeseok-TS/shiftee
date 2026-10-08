@@ -629,7 +629,7 @@ export default function EmployeesPage() {
                     <Label>역할</Label>
                     <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>{roleLabel[formData.role] ?? formData.role}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="EMPLOYEE">직원</SelectItem>
@@ -738,7 +738,7 @@ export default function EmployeesPage() {
             </div>
             <Select value={filterRole} onValueChange={setFilterRole}>
               <SelectTrigger className="w-full sm:w-40">
-                <SelectValue />
+                <SelectValue>{filterRole === "ALL" ? "모든 역할" : roleLabel[filterRole] ?? filterRole}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">모든 역할</SelectItem>
@@ -749,7 +749,7 @@ export default function EmployeesPage() {
             {branches.length > 0 && (
               <Select value={filterBranch} onValueChange={setFilterBranch}>
                 <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue />
+                  <SelectValue>{filterBranch === "ALL" ? "모든 지점" : filterBranch}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">모든 지점</SelectItem>
@@ -883,7 +883,7 @@ export default function EmployeesPage() {
                                       }
                                     >
                                       <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue>{roleLabel[editEmployee.role] ?? editEmployee.role}</SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="EMPLOYEE">직원</SelectItem>
@@ -1015,7 +1015,7 @@ export default function EmployeesPage() {
                                       value={editEmployee.employmentStatus === "ON_LEAVE" || editEmployee.employmentStatus === "TEMPORARY" ? editEmployee.employmentStatus : "ACTIVE"}
                                       onValueChange={(value) => setEditEmployee({ ...editEmployee, employmentStatus: value })}
                                     >
-                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectTrigger><SelectValue>{editEmployee.employmentStatus === "ON_LEAVE" ? "휴직" : editEmployee.employmentStatus === "TEMPORARY" ? "임시휴무" : "재직"}</SelectValue></SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="ACTIVE">재직</SelectItem>
                                         <SelectItem value="ON_LEAVE">휴직</SelectItem>

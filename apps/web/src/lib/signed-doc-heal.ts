@@ -76,7 +76,7 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   }
 
   // 완료본은 있는데 고정 PDF 가 없는 계약 — 고정 실패분과 9/11 이전 완료분(백필). 오래된 것부터 5건씩.
-  const freezeWhere = { status: "SIGNED" as const, signedUrl: { not: null }, signedPdfUrl: null, updatedAt: { lt: cutoff } };
+  const freezeWhere = { status: "SIGNED" as const, signedUrl: { not: null }, signedPdfUrl: null, updatedAt: { lt: cutoff }, isTest: false };   // 시험 문서(#67)는 문서번호·고정본 없음(본부 답변)
   // 최근 6시간 안에 고정에 실패한 계약은 건너뛴다 — 안 되는 몇 건이 맨 앞을 막아 뒤 계약이 영영 고정되지 않거나,
   // 매시간 같은 실패가 오류 로그에 쌓이지 않게(8330d85 검증 3). 6시간마다는 다시 시도한다.
   const recentFails = await prisma.systemErrorLog.findMany({

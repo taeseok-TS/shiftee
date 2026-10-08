@@ -555,7 +555,7 @@ export default function SchedulePage() {
             <div className="space-y-2">
               <Label>유형</Label>
               <Select value={addForm.type} onValueChange={v => v && setAddForm(f => ({ ...f, type: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue>{TYPE_CFG[addForm.type] ?? addForm.type}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {Object.entries(TYPE_CFG).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
                 </SelectContent>

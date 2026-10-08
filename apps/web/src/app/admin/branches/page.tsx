@@ -292,7 +292,7 @@ export default function BranchesPage() {
           return (
             <Card key={b.id} className="hover:shadow-md transition-shadow">
               <CardContent className="py-4 px-5">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">{/* 좁은 화면에서 버튼이 잘리지 않게 줄바꿈(#217-2) */}
                   <div className="flex items-center gap-3 min-w-0">
                     {/* 상태 아이콘 */}
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${

@@ -300,7 +300,8 @@ export async function POST(
         nextStep.order,
         appUrl,
         nextStep.approverId || undefined,
-        contract.sendMessage
+        contract.sendMessage,
+        contract.signDeadline
       );
     } else if (!nextStep && updated.user.email) {
       // 계약 완료 — 메일이 실제로 나갔을 때만 교부 기록(#21)
@@ -383,7 +384,8 @@ export async function POST(
           nextStep.order,
           appUrl,
           finalContract.user.id, // 본인 확인 관문(#140)
-          contract.sendMessage
+          contract.sendMessage,
+          contract.signDeadline
         );
       } else if (nextStep.approver?.email) {
         // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
@@ -395,7 +397,8 @@ export async function POST(
           nextStep.order,
           appUrl,
           nextStep.approverId || undefined, // 본인 확인 관문(#140)
-          contract.sendMessage
+          contract.sendMessage,
+          contract.signDeadline
         );
       }
     } else if (!nextStep && finalContract.user.email) {

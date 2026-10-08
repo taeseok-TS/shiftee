@@ -7,31 +7,9 @@ import Docxtemplater from "docxtemplater";
 
 // 계약서 치환 데이터 구성 — 생성(POST /api/contracts)과 수정(PATCH /api/contracts/[id]) 공용
 
-// 금액의 한글 표기 (예: 34000000 → "삼천사백만원") — 근로계약서 金 표기용
-export function koreanMoney(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "";
-  const digits = ["", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구"];
-  const smallUnits = ["", "십", "백", "천"];
-  const bigUnits = ["", "만", "억", "조"];
-  let result = "";
-  let group = 0;
-  let v = Math.floor(n);
-  while (v > 0) {
-    const part = v % 10000;
-    if (part) {
-      let s = "";
-      let p = part, i = 0;
-      while (p > 0) {
-        const d = p % 10;
-        if (d) s = (d === 1 && i > 0 ? "" : digits[d]) + smallUnits[i] + s;
-        p = Math.floor(p / 10); i++;
-      }
-      result = s + bigUnits[group] + result;
-    }
-    v = Math.floor(v / 10000); group++;
-  }
-  return result + "원";
-}
+// 금액의 한글 표기 — lib/korean-money(순수 모듈, 화면과 공유)
+import { koreanMoney } from "@/lib/korean-money";
+export { koreanMoney };
 
 // 날짜만 있는 값("2026-09-12")은 그대로 적고, 시각이 있는 값(작성일 = 지금, ISO 문자열)은 **한국 날짜**로 적는다.
 // 서버는 UTC 라 getDate() 를 그대로 쓰면 새벽 0~9시에 만든 문서의 {작성일}이 전날로 찍혔다(9/12 디렉터 지시).

@@ -13,14 +13,14 @@ import { Card, CardContent } from "@/components/ui/card";
 type Row = {
   userId: string; empNo: number | null; name: string; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean;
   schedDays: number; workDays: number; workMin: number; leaveHours: number;
-  overtimeMin: number; nightMin: number; holidayMin: number; publicHolidayMin: number;
+  overtimeMin: number; nightMin: number; holidayMin: number; holidayWithinMin: number; holidayOverMin: number; publicHolidayMin: number;
   maxWeekMin: number; over52Weeks: number; remain52Min: number;
   late: number; missing: number; absent: number;
 };
 const ymdLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const empNoText = (n: number | null) => (n == null ? "" : String(n).padStart(5, "0"));
 const h = (min: number) => Math.round((min / 60) * 10) / 10;
-const HEAD = ["사번", "직원", "지점", "직무", "소정근무일", "실근무일", "실근로(h)", "유급휴가(h)", "연장(h)", "야간(h)", "휴일(h)", "공휴일(h)", "최대 주(h)", "52h 잔여(h)", "52h 초과 주", "지각", "누락", "결근"];
+const HEAD = ["사번", "직원", "지점", "직무", "소정근무일", "실근무일", "실근로(h)", "유급휴가(h)", "연장(h)", "야간(h)", "휴일 8h 이내(h)", "휴일 8h 초과(h)", "공휴일(h)", "최대 주(h)", "52h 잔여(h)", "52h 초과 주", "지각", "누락", "결근"];
 
 export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
   const [from, setFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; });
@@ -66,7 +66,7 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
   // 표 하나 = [머리, ...줄] — 화면과 엑셀이 같은 값을 쓴다
   const table = useMemo((): (string | number)[][] => [HEAD, ...shown.map((r) => [
     empNoText(r.empNo), r.name + (r.resigned ? " (퇴사)" : ""), r.branch ?? "", r.jobGroup ?? r.position ?? "",
-    r.schedDays, r.workDays, h(r.workMin), Math.round(r.leaveHours * 10) / 10, h(r.overtimeMin), h(r.nightMin), h(r.holidayMin), h(r.publicHolidayMin),
+    r.schedDays, r.workDays, h(r.workMin), Math.round(r.leaveHours * 10) / 10, h(r.overtimeMin), h(r.nightMin), h(r.holidayWithinMin), h(r.holidayOverMin), h(r.publicHolidayMin),
     h(r.maxWeekMin), h(r.remain52Min), r.over52Weeks, r.late, r.missing, r.absent,
   ])], [shown]);
 
@@ -147,7 +147,7 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
                         return (
                           <tr key={src.userId} className="border-b last:border-b-0 hover:bg-gray-50/50">
                             {r.map((c, j) => (
-                              <td key={j} className={`px-3 py-2 whitespace-nowrap ${typeof c === "number" ? "text-right tabular-nums" : ""} ${typeof c === "number" && c === 0 ? "text-gray-300" : ""} ${j === 13 && typeof c === "number" && c < 0 ? "text-red-600 font-semibold" : ""} ${j === 14 && typeof c === "number" && c > 0 ? "text-red-600 font-semibold" : ""}`}>
+                              <td key={j} className={`px-3 py-2 whitespace-nowrap ${typeof c === "number" ? "text-right tabular-nums" : ""} ${typeof c === "number" && c === 0 ? "text-gray-300" : ""} ${j === 14 && typeof c === "number" && c < 0 ? "text-red-600 font-semibold" : ""} ${j === 15 && typeof c === "number" && c > 0 ? "text-red-600 font-semibold" : ""}`}>
                                 {typeof c === "number" ? c : c}
                               </td>
                             ))}
@@ -162,7 +162,7 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
           </Card>
           <p className="text-xs text-gray-400 leading-relaxed">
             · 실근로 = 실제 출퇴근 간격 − 휴게(4.5h↑ 30분, 9h↑ 1시간). 유급휴가 = 승인된 휴가의 기간 안 날 × 유형별 유급 시간(주말·공휴일 제외).<br />
-            · 연장 = 주(월~일)마다 「평일 8시간 초과분 합」과 「주 평일 실근로 − 40시간」 중 큰 쪽. 휴일(일요일·공휴일) 근로는 연장이 아니라 휴일근로. 야간 = 22:00~06:00 겹친 시간.<br />
+            · 연장 = 주(월~일)마다 「평일 8시간 초과분 합」과 「주 평일 실근로 − 40시간」 중 큰 쪽. 휴일(일요일·공휴일) 근로는 연장이 아니라 휴일근로이며 하루 8시간 이내(가산 1.5배)와 초과(2배)로 나눕니다. 야간 = 22:00~06:00 겹친 시간.<br />
             · 최대 주·52h 잔여·초과 주는 기간에 걸친 주 전체(월~일, 휴일근로 포함)로 계산합니다. 52h 잔여가 음수면 그 주에 52시간을 넘은 것입니다.<br />
             · 지각 = 기록 상태 지각(오전 반차 날 제외), 누락 = 지난 날 출근·퇴근 한쪽만, 결근 = 지난 날 근무일정이 있는데 기록·휴가 없음(출퇴근 보드와 같은 규칙, 조퇴는 세지 않음).
           </p>

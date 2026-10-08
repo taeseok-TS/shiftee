@@ -383,7 +383,10 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
       while (docXml.includes(t.marker)) {
         const idx = docXml.indexOf(t.marker);
         // 마커가 속한 문단(w:p) 범위의 순수 텍스트를 이어붙여 (인) 동반 여부 판정
-        const pStart = docXml.lastIndexOf("<w:p", idx);
+        // ⚠ "<w:p" 로 찾으면 <w:pPr>·<w:pStyle> 에 걸려 문단 **속성 중간**에서 잘린다 — 그러면 padSigParagraph 가 pPr 을 못 찾아
+        //   오른쪽 자리(w:ind)·아래 여백을 못 넣고, 스타일(pStyle)이 있는 근로계약서 양식에서만 서명이 쪽 밖으로 나갔다(#212, 2026-10-08).
+        //   스타일 없는 서약서는 <w:pPr> 에 걸려 우연히 동작했다. 문단 여는 태그(<w:p> 또는 <w:p ...>)만 찾는다
+        const pStart = Math.max(docXml.lastIndexOf("<w:p>", idx), docXml.lastIndexOf("<w:p ", idx));
         const pEndTag = docXml.indexOf("</w:p>", idx);
         const paraEnd = pEndTag === -1 ? -1 : pEndTag + 6;
         const para = pStart !== -1 && pEndTag !== -1 ? docXml.slice(pStart, paraEnd) : "";
@@ -437,7 +440,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
 
     // 말미에 서명 일시 텍스트 (증빙용, 이미지는 본문 (인) 자리에 배치됨)
     const stamp = signers
-      .map((s) => `${escapeXml(s.label)} ${escapeXml(s.name)} (${fmt(s.date)})`)
+      .map((s) => `${escapeXml(s.label)}\u00A0${escapeXml(s.name)}\u00A0(${fmt(s.date).replace(" ", "\u00A0")})`)   // 이름·날짜·시각은 한 덩어리로(#217)
       .join(" · ");
     const footer = `<w:p><w:pPr><w:spacing w:before="240"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr><w:t xml:space="preserve">전자 서명 완료 — ${stamp}</w:t></w:r></w:p>`;
     const sIdx = docXml.lastIndexOf("<w:sectPr");

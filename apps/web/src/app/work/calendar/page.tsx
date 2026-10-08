@@ -210,7 +210,7 @@ export default function WorkCalendarPage() {
                 <label className="text-xs text-gray-500">대상</label>
                 {role === "ADMIN" ? (
                   <Select value={form.branch} onValueChange={(v) => setForm(f => ({ ...f, branch: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger><SelectValue>{form.branch === "__ALL__" ? "전사 공통" : form.branch === "__MGR__" ? "👑 원장 전용 (원장·관리자만 보임)" : form.branch}</SelectValue></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__ALL__">전사 공통</SelectItem>
                       <SelectItem value="__MGR__">👑 원장 전용 (원장·관리자만 보임)</SelectItem>
@@ -219,7 +219,7 @@ export default function WorkCalendarPage() {
                   </Select>
                 ) : (
                   <Select value={form.branch === "__MGR__" ? "__MGR__" : "__ALL__"} onValueChange={(v) => setForm(f => ({ ...f, branch: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger><SelectValue>{form.branch === "__MGR__" ? "👑 원장 전용 (원장·관리자만 보임)" : "내 지점"}</SelectValue></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__ALL__">내 지점</SelectItem>
                       <SelectItem value="__MGR__">👑 원장 전용 (원장·관리자만 보임)</SelectItem>

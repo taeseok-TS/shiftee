@@ -124,7 +124,7 @@ export default function AttendancePage() {
   const [employees, setEmployees]     = useState<Employee[]>([]);
   const [selectedUser, setSelectedUser] = useState("me");
   const [selectedBranch, setSelectedBranch] = useState(""); // "" = 지점별 조회 안 함
-  const [myRole, setMyRole]           = useState("EMPLOYEE");
+  const [myRole, setMyRole]           = useState("");   // "" = 아직 모름(역할을 알기 전엔 직원용 안내도 원장용 표도 그리지 않는다)
 
   /* 날짜 직접 입력 (input[type=date] 용) */
   const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -162,7 +162,7 @@ export default function AttendancePage() {
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE"));
+    fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE")).catch(() => setMyRole("EMPLOYEE"));
     fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
   }, []);
 
@@ -268,6 +268,19 @@ export default function AttendancePage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">출퇴근 관리</h1>
 
+      {/* 직원은 웹에서 본인 출퇴근 기록을 보지 않는다 — 시프티 설정 「직원 본인 출퇴근기록 열람 OFF」와 같게(2026-10-08 본부 답변 #3).
+          출퇴근 찍기·오늘 상태·기록 수정 요청은 앱에서 한다. 원장(담당 지점)·본부 화면은 그대로 */}
+      {myRole === "" ? (
+        <div className="py-10 text-center text-sm text-gray-400">불러오는 중…</div>
+      ) : myRole === "EMPLOYEE" ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-gray-500 space-y-2">
+            <p className="font-medium text-gray-700">출퇴근은 큐브티 앱에서 합니다.</p>
+            <p>오늘 출근·퇴근 상태와 「출퇴근기록 수정 요청(지각·누락)」은 앱 [출퇴근] 화면에 있습니다.</p>
+            <p className="text-xs text-gray-400">월별 출퇴근 기록은 지점 원장·본부가 관리합니다.</p>
+          </CardContent>
+        </Card>
+      ) : (
       <Tabs defaultValue="today">
         <TabsList>
           <TabsTrigger value="today">오늘 출퇴근</TabsTrigger>
@@ -278,22 +291,22 @@ export default function AttendancePage() {
         <TabsContent value="today" className="space-y-4 mt-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-6">
                 {/* 시계 */}
                 <div className="text-center">
                   <p className="text-5xl font-mono font-bold text-gray-900">{now ? format(now, "HH:mm:ss") : "--:--:--"}</p>
                   <p className="text-gray-500 mt-1 text-sm">{now ? format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko }) : ""}</p>
                 </div>
                 {/* 현황 */}
-                <div className="flex-1 grid grid-cols-2 gap-4">
+                <div className="flex-1 grid grid-cols-2 gap-4 min-w-[220px]">
                   <div className="bg-green-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-green-700 font-medium">출근 시각</p>
+                    <p className="text-sm text-green-700 font-medium whitespace-nowrap">출근 시각</p>
                     <p className="text-3xl font-bold text-green-800 mt-1">
                       {todayRecord?.clockIn ? format(new Date(todayRecord.clockIn), "HH:mm") : "--:--"}
                     </p>
                   </div>
                   <div className="bg-blue-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-blue-700 font-medium">퇴근 시각</p>
+                    <p className="text-sm text-blue-700 font-medium whitespace-nowrap">퇴근 시각</p>
                     <p className="text-3xl font-bold text-blue-800 mt-1">
                       {todayRecord?.clockOut ? format(new Date(todayRecord.clockOut), "HH:mm") : "--:--"}
                     </p>
@@ -356,7 +369,7 @@ export default function AttendancePage() {
                 }}
               >
                 <SelectTrigger className="w-44 bg-white">
-                  <SelectValue placeholder="개인별 조회" />
+                  <SelectValue placeholder="개인별 조회">{selectedUser === "me" ? "내 기록" : employees.find(e => e.id === selectedUser)?.name ?? "개인별 조회"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="me">내 기록</SelectItem>
@@ -384,7 +397,7 @@ export default function AttendancePage() {
                 }}
               >
                 <SelectTrigger className="w-44 bg-white">
-                  <SelectValue placeholder="지점별 조회" />
+                  <SelectValue placeholder="지점별 조회">{selectedBranch ? `${selectedBranch} 전체` : "지점별 조회 안 함"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">지점별 조회 안 함</SelectItem>
@@ -593,6 +606,7 @@ export default function AttendancePage() {
           )}
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }

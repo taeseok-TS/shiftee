@@ -376,7 +376,7 @@ export default function ContractTemplatesPage() {
               <Label>계약서 유형 *</Label>
               <Select value={form.type} onValueChange={type => setForm(f => ({ ...f, type }))}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{typeLabel[form.type] ?? form.type}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(typeLabel).map(([key, label]) => (
@@ -467,7 +467,7 @@ export default function ContractTemplatesPage() {
                 <Label>서명 완료 후 근로자 접근</Label>
                 <Select value={form.postSignAccess} onValueChange={postSignAccess => setForm(f => ({ ...f, postSignAccess }))}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{postSignAccessLabel[form.postSignAccess] ?? form.postSignAccess}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(postSignAccessLabel).map(([key, label]) => (

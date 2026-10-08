@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { stampTestPdf } from "@/lib/pdf-stamp";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
@@ -145,6 +146,7 @@ export async function GET(
         convStatus = ce instanceof Error ? ce.message : String(ce);
       }
       if (pdf0) {
+        if (contract.isTest) pdf0 = await stampTestPdf(pdf0);   // 시험 문서(#67)는 「테스트」 표시(본부 답변 2026-10-08)
         return new NextResponse(asBody(pdf0), {
           headers: {
             "Content-Type": "application/pdf",

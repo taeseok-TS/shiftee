@@ -507,22 +507,22 @@ export default function AttendancePage() {
         <TabsContent value="today" className="space-y-4 mt-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-6">
                 {/* 시계 */}
                 <div className="text-center">
                   <p className="text-5xl font-mono font-bold text-gray-900">{now ? format(now, "HH:mm:ss") : "--:--:--"}</p>
                   <p className="text-gray-500 mt-1 text-sm">{now ? format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko }) : ""}</p>
                 </div>
                 {/* 현황 */}
-                <div className="flex-1 grid grid-cols-2 gap-4">
+                <div className="flex-1 grid grid-cols-2 gap-4 min-w-[220px]">
                   <div className="bg-green-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-green-700 font-medium">출근 시각</p>
+                    <p className="text-sm text-green-700 font-medium whitespace-nowrap">출근 시각</p>
                     <p className="text-3xl font-bold text-green-800 mt-1">
                       {todayRecord?.clockIn ? format(new Date(todayRecord.clockIn), "HH:mm") : "--:--"}
                     </p>
                   </div>
                   <div className="bg-blue-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-blue-700 font-medium">퇴근 시각</p>
+                    <p className="text-sm text-blue-700 font-medium whitespace-nowrap">퇴근 시각</p>
                     <p className="text-3xl font-bold text-blue-800 mt-1">
                       {todayRecord?.clockOut ? format(new Date(todayRecord.clockOut), "HH:mm") : "--:--"}
                     </p>
@@ -641,7 +641,7 @@ export default function AttendancePage() {
                 }}
               >
                 <SelectTrigger className="w-44 bg-white">
-                  <SelectValue placeholder="개인별 조회" />
+                  <SelectValue placeholder="개인별 조회">{selectedUser === "me" ? "내 기록" : employees.find(e => e.id === selectedUser)?.name ?? "개인별 조회"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="me">내 기록</SelectItem>
@@ -669,7 +669,7 @@ export default function AttendancePage() {
                 }}
               >
                 <SelectTrigger className="w-44 bg-white">
-                  <SelectValue placeholder="지점별 조회" />
+                  <SelectValue placeholder="지점별 조회">{selectedBranch ? `${selectedBranch} 전체` : "지점별 조회 안 함"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">지점별 조회 안 함</SelectItem>

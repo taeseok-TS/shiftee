@@ -20,7 +20,7 @@ export const PERMISSION_MATRIX: PermSection[] = [
   ] },
   { title: "출퇴근", rows: [
     { feature: "출퇴근 찍기(앱)", admin: "na", manager: "self", employee: "self", note: "본부 직원은 큐브티 출퇴근 대상이 아님", basis: "api/attendance/clock-in·clock-out" },
-    { feature: "출퇴근 기록 보기(달력·목록)", admin: "all", manager: "branch", employee: "본인 기록(웹) / 오늘 상태(앱)", note: "앱은 오늘 출근·퇴근 누락만, 웹 /attendance 는 본인 월별 기록 표", diff: "시프티는 「직원 본인 출퇴근기록 열람 OFF」 — 큐브티 웹은 본인 기록을 보여 준다(앱은 같은 수준). 본부 확인 뒤 결정", basis: "api/attendance/board, api/attendance GET(self), app/(dashboard)/attendance" },
+    { feature: "출퇴근 기록 보기(달력·목록)", admin: "all", manager: "branch", employee: "오늘 상태만(앱)", note: "직원은 앱에서 오늘 출근·퇴근과 누락만 본다. 웹 /attendance 의 본인 월별 기록 표는 숨김(2026-10-08 본부 답변 — 시프티 「직원 본인 출퇴근기록 열람 OFF」와 같게). 기록 수정은 앱에서 요청", basis: "api/attendance/board, app/(dashboard)/attendance(EMPLOYEE 가림)" },
     { feature: "출퇴근 기록 직접 수정·추가·누락 보정", admin: "all", manager: "no", employee: "no", note: "시프티 「원장 직접 수정 OFF」와 같음 — 원장은 수정 요청 승인만", basis: "api/attendance POST·[id] PATCH" },
     { feature: "출퇴근 요청 승인(지점 밖·사진·기록 수정·퇴근 누락)", admin: "all", manager: "branch", employee: "no", note: "본부처리·기기변경 요청은 본부만, 본인 요청은 처리 불가", basis: "lib/attendance-request canDecide" },
     { feature: "출퇴근 통계", admin: "all", manager: "branch", employee: "self", basis: "api/attendance/stats" },

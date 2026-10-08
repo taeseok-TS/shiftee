@@ -488,7 +488,7 @@ export default function ContractsPage() {
               <Label className="text-xs font-medium">연도</Label>
               <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setFilterMonth(""); }}>
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
+                  <SelectValue>{filterYear ? `${filterYear}년` : "연도"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (

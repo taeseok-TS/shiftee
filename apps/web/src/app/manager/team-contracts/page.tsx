@@ -245,7 +245,7 @@ export default function ManagerContractsPage() {
             <div className="space-y-1">
               <Label className="text-xs font-medium">상태</Label>
               <Select value={filterStatus || "ALL"} onValueChange={v => setFilterStatus(v === "ALL" ? "" : v)}>
-                <SelectTrigger className="h-8 text-xs w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-36"><SelectValue>{({ ALL: "전체", DRAFT: "초안", SENT: "직원 서명 대기", APPROVED: "결재 중", SIGNED: "완료", EXPIRED: "만료", REJECTED: "반려" } as Record<string, string>)[filterStatus || "ALL"] ?? filterStatus}</SelectValue></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">전체</SelectItem>
                   <SelectItem value="DRAFT">초안</SelectItem>

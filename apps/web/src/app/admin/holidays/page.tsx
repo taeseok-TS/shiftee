@@ -44,12 +44,19 @@ export default function AdminHolidaysPage() {
 
   // 대체휴무 부여 지정 켜고 끄기(#56) — 지정된 공휴일(평일)에 근무 기록이 있으면 대체휴일 1일이 자동 부여된다
   async function toggleGrants(h: Holiday) {
-    const res = await fetch("/api/holidays", {
+    const post = (extra: Record<string, unknown> = {}) => fetch("/api/holidays", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: h.date, name: h.name, grantsLeave: !h.grantsLeave }),
+      body: JSON.stringify({ date: h.date, name: h.name, grantsLeave: !h.grantsLeave, ...extra }),
     });
-    if (res.ok) fetchHolidays(year);
-    else toast.error((await res.json().catch(() => ({}))).error || "변경 실패");
+    let res = await post();
+    let d = await res.json().catch(() => ({}));
+    // 끌 때는 부여 N명·사용 M명을 보여 주고 확인받는다. 사용자가 있으면 서버가 409 로 막는다
+    if (res.ok && d.needConfirm) {
+      if (!window.confirm(`${h.date} ${h.name}의 「대체휴무 부여」를 끕니다.\n부여 ${d.granted}명 · 이미 사용 0명${d.granted ? `\n(${(d.names || []).join(", ")})` : ""}\n끄면 이 날 부여분 ${d.granted}건을 회수하고 이력을 남깁니다. 계속할까요?`)) return;
+      res = await post({ confirm: true }); d = await res.json().catch(() => ({}));
+    }
+    if (res.ok) { if (d.revoked) toast.success(`지정을 끄고 부여분 ${d.revoked}건을 회수했습니다.`); fetchHolidays(year); }
+    else toast.error(d.error || "변경 실패", { duration: 10000 });
   }
 
   async function removeHoliday(h: Holiday) {

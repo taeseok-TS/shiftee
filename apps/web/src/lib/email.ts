@@ -117,6 +117,25 @@ export async function sendPasswordReset(email: string, name: string, resetUrl: s
   });
 }
 
+// 전자계약 메일 공통 틀(2026-10-08 #217-3) — 발신 표시·기한·보안 안내. 로고 파일이 없어 글자 머리말로 둔다
+const kstYmd = (d?: Date | null) => (d ? new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : null);
+function contractMailShell(title: string, body: string): string {
+  return `
+    <div style="font-family: Arial, 'Malgun Gothic', sans-serif; color: #333; max-width: 600px;">
+      <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 8px; margin-bottom: 16px;">
+        <span style="font-weight: bold; color: #1e3a8a; font-size: 15px;">에듀플렉스 직영점</span>
+        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">큐브티 전자계약</span>
+      </div>
+      <h2 style="margin: 0 0 12px 0; font-size: 18px;">${title}</h2>
+      ${body}
+      <p style="margin-top: 30px; color: #666; font-size: 12px; line-height: 1.6;">
+        발신: 에듀플렉스 직영점 본부 · 큐브티 전자계약(자동 발송, 회신 불가)<br>
+        🔒 이 메일의 링크는 본인 전용입니다. 다른 사람에게 전달하지 마세요. 문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
+      </p>
+    </div>
+  `;
+}
+
 /**
  * Send contract notification when contract is sent to employee
  */
@@ -126,33 +145,27 @@ export async function sendContractNotification(
   contractTitle: string,
   appUrl: string,
   recipientId?: string, // 본인 확인 관문용 (#140) — 남의 세션으로 열리는 것 방지
-  message?: string | null // 본부 발송 메시지(#65)
+  message?: string | null, // 본부 발송 메시지(#65)
+  deadline?: Date | null // 서명 기한(#45) — 메일에 보여 준다(#217-3)
 ): Promise<void> {
   const { messageEmailHtml } = await import("@/lib/contract-send-meta");
-  const html = `
-    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
-      <h2>계약서 발송 안내</h2>
+  const html = contractMailShell("계약서 서명 요청", `
       <p>안녕하세요 ${employeeName}님,</p>
-      <p>다음 계약서가 서명을 위해 발송되었습니다:</p>
+      <p>아래 계약서가 서명을 위해 발송되었습니다.</p>
 
       <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #2563eb;">
-        <p><strong>계약서명:</strong> ${contractTitle}</p>
-        <p><strong>상태:</strong> 직원 서명 대기</p>
+        <p><strong>문서:</strong> ${contractTitle}</p>
+        <p><strong>상태:</strong> 근로자 서명 대기</p>
+        ${kstYmd(deadline) ? `<p><strong>서명 기한:</strong> ${kstYmd(deadline)}</p>` : ""}
       </div>
       ${messageEmailHtml(message)}
 
       <p>
         <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
-          계약서 확인하기
+          계약서 확인하고 서명하기
         </a>
       </p>
-
-      <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
-        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
-      </p>
-    </div>
-  `;
+  `);
 
   await sendEmail({
     to: employeeEmail,
@@ -173,20 +186,21 @@ export async function sendApprovalRequest(
   appUrl: string,
   // 본인 확인 관문용 (#140) — 링크 수신자
   recipientId?: string,
-  message?: string | null // 본부 발송 메시지(#65)
+  message?: string | null, // 본부 발송 메시지(#65)
+  deadline?: Date | null // 서명 기한(#45)
 ): Promise<void> {
   const { messageEmailHtml } = await import("@/lib/contract-send-meta");
-  const html = `
-    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
-      <h2>계약서 승인 요청</h2>
+  // 종전 「○○이(가) 서명한 계약서의 승인이 필요합니다」는 아직 서명 전인데 「서명한」으로 읽히고 조사도 그대로 나갔다(#217-3)
+  const html = contractMailShell("계약서 결재(서명) 요청", `
       <p>안녕하세요 ${approverName}님,</p>
-      <p>${employeeName}이(가) 서명한 계약서의 승인이 필요합니다.</p>
+      <p>${employeeName}님의 계약서에 ${approverName}님의 결재(서명)가 필요합니다.</p>
 
       <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #f59e0b;">
-        <p><strong>계약서명:</strong> ${contractTitle}</p>
-        <p><strong>신청자:</strong> ${employeeName}</p>
-        <p><strong>승인 단계:</strong> ${stepOrder}단계</p>
-        <p><strong>상태:</strong> 승인 대기 중</p>
+        <p><strong>문서:</strong> ${contractTitle}</p>
+        <p><strong>계약 당사자:</strong> ${employeeName}</p>
+        <p><strong>결재 단계:</strong> ${stepOrder}단계</p>
+        <p><strong>상태:</strong> 결재 대기 중</p>
+        ${kstYmd(deadline) ? `<p><strong>서명 기한:</strong> ${kstYmd(deadline)}</p>` : ""}
       </div>
       ${messageEmailHtml(message)}
 
@@ -197,15 +211,11 @@ export async function sendApprovalRequest(
       </p>
 
       <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
-        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
-      </p>
-    </div>
-  `;
+  `);
 
   await sendEmail({
     to: approverEmail,
-    subject: `[승인 요청] ${contractTitle} - ${stepOrder}단계 승인 필요`,
+    subject: `[결재 요청] ${contractTitle} - ${stepOrder}단계 결재(서명) 필요`,
     html,
   });
 }

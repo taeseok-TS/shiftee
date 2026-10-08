@@ -436,11 +436,11 @@ export default function LeavePage() {
         <TabsContent value="list" className="mt-4 space-y-4">
           <div className="flex flex-wrap gap-2">
             <Select value={filterYear} onValueChange={v => v && (setFilterYear(v), setFilterMonth("all"))}>
-              <SelectTrigger className="w-28 h-8 text-sm bg-white"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-28 h-8 text-sm bg-white"><SelectValue>{filterYear}년</SelectValue></SelectTrigger>
               <SelectContent>{YEARS.map(y => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterMonth} onValueChange={v => v && setFilterMonth(v)}>
-              <SelectTrigger className="w-24 h-8 text-sm bg-white"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-24 h-8 text-sm bg-white"><SelectValue>{filterMonth === "all" ? "전체 월" : `${filterMonth}월`}</SelectValue></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 월</SelectItem>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
@@ -472,9 +472,9 @@ export default function LeavePage() {
                   <thead>
                     <tr className="border-b text-left text-xs text-gray-500 bg-gray-50/60">
                       {isAdmin && <th className="px-4 py-3 font-medium">직원</th>}
-                      <th className="px-4 py-3 font-medium">유형</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">유형</th>
                       <th className="px-4 py-3 font-medium">기간</th>
-                      <th className="px-4 py-3 font-medium">일수</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">일수</th>
                       <th className="px-4 py-3 font-medium">결재 현황</th>
                       <th className="px-4 py-3 font-medium">상태</th>
                       <th className="px-4 py-3 font-medium">처리</th>
@@ -501,12 +501,12 @@ export default function LeavePage() {
                               <p className="text-xs text-gray-400">{r.user.department}</p>
                             </td>
                           )}
-                          <td className="px-4 py-3 font-medium text-gray-800">{TYPE_LABEL[r.type] ?? r.type}</td>
+                          <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{TYPE_LABEL[r.type] ?? r.type}</td>
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                             {format(new Date(r.startDate), "yyyy.MM.dd")}
                             {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
                           </td>
-                          <td className="px-4 py-3 text-gray-600">{r.days}일</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.days}일</td>
                           <td className="px-4 py-3">
                             {r.approvalSteps && r.approvalSteps.length > 0
                               ? <ApprovalChain steps={r.approvalSteps} />
@@ -707,7 +707,7 @@ export default function LeavePage() {
               <Select value={form.type} onValueChange={v =>
                 v && setForm(f => ({ ...f, type: v, endDate: SINGLE_DAY_TYPES.has(v) ? f.startDate : f.endDate }))
               }>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
                   {LEAVE_GROUPS.map((g, gi) => {

@@ -256,7 +256,7 @@ export default function EmployeeStatsPage() {
               }
             >
               <SelectTrigger className="w-32">
-                <SelectValue />
+                <SelectValue>{activePeriod === "year" ? "연말" : "월말"}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="month">월말</SelectItem>

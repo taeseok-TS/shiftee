@@ -11,7 +11,7 @@ import { excludedBranchNames } from "@/lib/employee-scope";
 // 숫자의 뜻(법정 기준 그대로 — 본부 미답이라 큐브 기본값, 디렉터·본부 확인 사항):
 //  · 실근로 = 실제 출퇴근 간격에서 휴게(근무일정과 같은 규칙: 4.5h↑ 30분, 9h↑ 1시간)를 뺀 시간. 기간 안의 날만
 //  · 유급휴가 = 승인된 휴가의 기간 안 날 × 유형별 유급 시간(lib/leave-catalog paidHours, 주말·공휴일 제외)
-//  · 휴일근로 = 일요일(주휴일)·공휴일에 한 실근로 전부. 공휴일근로는 그중 공휴일분(휴일근로에 포함)
+//  · 휴일근로 = 일요일(주휴일)·공휴일에 한 실근로 전부. 하루 8시간 이내(가산 1.5배)와 8시간 초과(2배)를 나눈다(본부 답변 2026-10-08). 공휴일근로는 그중 공휴일분
 //  · 연장 = 주(월~일)마다 max(Σ 평일 8시간 초과분, 주 평일 실근로 − 40시간). 토요일은 평일처럼 40시간 초과분에 들어간다(무급휴무일)
 //  · 야간 = 22:00~06:00(KST)에 걸친 출퇴근 간격(휴게는 빼지 않는다)
 //  · 주 52시간 = 주(월~일) 실근로 전부(휴일근로 포함). 최대 주·52시간 잔여(52 − 최대 주, 음수면 초과)·초과 주 수
@@ -42,7 +42,7 @@ export function nightMinutes(inAt: Date, outAt: Date): number {
 export type WorkReportRow = {
   userId: string; empNo: number | null; name: string; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean;
   schedDays: number; workDays: number; workMin: number; leaveHours: number;
-  overtimeMin: number; nightMin: number; holidayMin: number; publicHolidayMin: number;
+  overtimeMin: number; nightMin: number; holidayMin: number; holidayWithinMin: number; holidayOverMin: number; publicHolidayMin: number;
   maxWeekMin: number; over52Weeks: number; remain52Min: number;
   late: number; missing: number; absent: number;
 };
@@ -85,7 +85,7 @@ export async function workReport(opts: {
 
   const rows = new Map<string, WorkReportRow>(users.map((u) => [u.id, {
     userId: u.id, empNo: u.empNo, name: u.name, branch: u.branch, position: u.position, jobGroup: u.jobGroup, resigned: !!u.resignDate && u.resignDate < today,
-    schedDays: 0, workDays: 0, workMin: 0, leaveHours: 0, overtimeMin: 0, nightMin: 0, holidayMin: 0, publicHolidayMin: 0,
+    schedDays: 0, workDays: 0, workMin: 0, leaveHours: 0, overtimeMin: 0, nightMin: 0, holidayMin: 0, holidayWithinMin: 0, holidayOverMin: 0, publicHolidayMin: 0,
     maxWeekMin: 0, over52Weeks: 0, remain52Min: WEEK_52_MIN, late: 0, missing: 0, absent: 0,
   }]));
   const sched = new Set<string>();
@@ -135,7 +135,7 @@ export async function workReport(opts: {
     if (!inPeriod) continue;
     r.workMin += net;
     r.nightMin += nightMinutes(a.clockIn, a.clockOut);
-    if (isRest) r.holidayMin += net;
+    if (isRest) { r.holidayMin += net; r.holidayWithinMin += Math.min(net, DAY_MIN); r.holidayOverMin += Math.max(net - DAY_MIN, 0); }
     if (isHol) r.publicHolidayMin += net;
   }
   const firstMon = mondayOf(from);
