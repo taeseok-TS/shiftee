@@ -101,7 +101,7 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   out.freezeBacklog = await prisma.contract.count({ where: freezeWhere });
 
   // 제3자 시각 도장(TSA) — 고정됐는데 도장이 없는 완료본(실패분 + 9/12 이전 고정분). 오래된 것부터 5건씩. 실패는 다음 시간에 다시.
-  const stampWhere = { status: "SIGNED" as const, signedSha256: { not: null }, tsaToken: null, signedPdfAt: { lt: cutoff } };
+  const stampWhere = { status: "SIGNED" as const, signedSha256: { not: null }, tsaToken: null, signedPdfAt: { lt: cutoff }, importBatch: null };   // 이관본(#4)은 제외
   const toStamp = await prisma.contract.findMany({ where: stampWhere, select: { id: true, signedSha256: true }, orderBy: { signedPdfAt: "asc" }, take: 3 }); // 요청 간격 15초라 3건씩(봇 틱이 오래 붙잡히지 않게)
   if (toStamp.length) {
     const { stampFrozen } = await import("@/lib/tsa");

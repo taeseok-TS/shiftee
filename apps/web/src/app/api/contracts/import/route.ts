@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       const zips = fd.getAll("zip").filter((f): f is File => f instanceof File);
       if (!zips.length) return NextResponse.json({ error: "ZIP 파일을 올려 주세요." }, { status: 400 });
       for (const z of zips) if (z.size > MAX_ZIP) return NextResponse.json({ error: `ZIP 은 하나에 100MB 까지입니다(${z.name}). 나눠 올려 주세요.` }, { status: 400 });
+      if (zips.reduce((a, z) => a + z.size, 0) > MAX_ZIP) return NextResponse.json({ error: "한 번에 올리는 ZIP 합계는 100MB 까지입니다. 나눠 올려 주세요." }, { status: 400 });
       const buffers = await Promise.all(zips.map(async (z) => Buffer.from(await z.arrayBuffer())));
       const r = await applyContractImport(rows, buffers, { userId: s.userId, name: s.name });
       return NextResponse.json({ success: true, ...r });

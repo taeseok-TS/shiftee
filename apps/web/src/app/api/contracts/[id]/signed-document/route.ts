@@ -78,7 +78,8 @@ export async function GET(
       role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
     });
   }
-  if (signers.length === 0)
+  // 이관 계약(모두싸인 체결본, #4)은 결재선이 없고 저장된 완료본만 있다 — 서명자가 없어도 아래 고정 완료본 지름길로 간다
+  if (signers.length === 0 && !(contract.status === "SIGNED" && contract.signedPdfUrl))
     return NextResponse.json({ error: inProgress ? "아직 서명이 없습니다." : "서명 정보가 없습니다." }, { status: 400 });
   const suffix = inProgress ? "_서명진행본" : "_서명완료";
 

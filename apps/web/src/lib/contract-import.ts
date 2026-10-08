@@ -30,7 +30,9 @@ type CType = (typeof TYPES)[number];
 const str = (v: unknown) => (v == null ? "" : String(v).trim());
 const norm = (s: string) => s.replace(/\.(pdf|PDF)$/, "").replace(/[\s()_\-·.\[\]]/g, "").toLowerCase();
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const CERT_RE = /인증서|감사|certificate|audit|trail/i;
+const CERT_RE = /감사\s*추적|인증서|certificate|audit[\s_-]*trail/i;   // 「감사서약서」「김감사」 같은 본 문서·사람 이름에 걸리지 않게 복합어만
+const CERT_STRIP = /감사\s*추적|인증서|certificate|audit[\s_-]*trail/gi;
+const MAX_ENTRY = 60 * 1024 * 1024;   // ZIP 항목 하나 풀린 크기 상한 — 압축 폭탄·메모리 보호
 
 const toYmd = (v: unknown): string | null => {
   const s = str(v);
@@ -63,20 +65,29 @@ export async function previewContractImport(rowsIn: unknown[], fileNames: string
   for (const u of users) byName.set(norm(u.name), [...(byName.get(norm(u.name)) ?? []), u]);
   const today = new Date();
 
-  const findFile = (r: ContractImportRow, title: string, ref: string): { file: string | null; many: boolean } => {
+  // 여러 파일이 걸리면 서명자 이름이 든 파일로 한 번 더 좁힌다(모두싸인 체결본은 「문서명_참여자」 꼴이 많다)
+  const pick = (hits: string[], name: string): { file: string | null; many: boolean } => {
+    if (hits.length === 1) return { file: hits[0], many: false };
+    if (hits.length === 0) return { file: null, many: false };
+    const nn = norm(name);
+    const byName = nn ? hits.filter((f) => norm(path.basename(f)).includes(nn)) : [];
+    return byName.length === 1 ? { file: byName[0], many: false } : { file: null, many: true };
+  };
+  const findFile = (r: ContractImportRow, title: string, ref: string, name: string): { file: string | null; many: boolean } => {
     const explicit = str(r.file);
     if (explicit) {
       const hit = docs.find((f) => path.basename(f) === explicit || norm(path.basename(f)) === norm(explicit));
       return { file: hit ?? null, many: false };
     }
-    if (ref) { const hits = docs.filter((f) => path.basename(f).includes(ref)); if (hits.length === 1) return { file: hits[0], many: false }; if (hits.length > 1) return { file: null, many: true }; }
+    if (ref.length >= 6) { const p = pick(docs.filter((f) => path.basename(f).includes(ref)), name); if (p.file || p.many) return p; }   // 짧은 ID 는 날짜·번호에 오매칭
     const nt = norm(title);
-    if (nt) { const hits = docs.filter((f) => norm(path.basename(f)) === nt || norm(path.basename(f)).startsWith(nt)); if (hits.length === 1) return { file: hits[0], many: false }; if (hits.length > 1) return { file: null, many: true }; }
+    if (nt) { const p = pick(docs.filter((f) => norm(path.basename(f)) === nt || norm(path.basename(f)).startsWith(nt)), name); if (p.file || p.many) return p; }
     return { file: null, many: false };
   };
+  // 인증서는 **정확히** 짝지어질 때만 — 문서 ID 가 들어 있거나, 인증서 이름에서 「인증서·감사추적」을 뗀 나머지가 본 문서 이름과 같을 때(빈 문자열이면 짝짓지 않는다)
   const findCert = (ref: string, file: string | null) => {
-    if (ref) { const c = certs.find((f) => path.basename(f).includes(ref)); if (c) return c; }
-    if (file) { const stem = norm(path.basename(file)); const c = certs.find((f) => norm(path.basename(f)).startsWith(stem) || stem.startsWith(norm(path.basename(f)).replace(/인증서|감사추적|certificate|audit|trail/gi, ""))); if (c) return c; }
+    if (ref.length >= 6) { const c = certs.filter((f) => path.basename(f).includes(ref)); if (c.length === 1) return c[0]; }
+    if (file) { const stem = norm(path.basename(file)); const c = certs.filter((f) => { const s = norm(path.basename(f).replace(CERT_STRIP, "")); return !!s && s === stem; }); if (c.length === 1) return c[0]; }
     return null;
   };
 
@@ -86,7 +97,7 @@ export async function previewContractImport(rowsIn: unknown[], fileNames: string
     if (!title) return { ...base, status: "invalid", message: "문서명이 비어 있음" };
     const signedAt = toYmd(r.signedAt);
     if (!signedAt) return { ...base, status: "invalid", message: "체결일 형식(예: 2026-05-01)이 잘못됨" };
-    const { file, many } = findFile(r, title, ref);
+    const { file, many } = findFile(r, title, ref, name);
     if (many) return { ...base, signedAt, status: "file_ambiguous", message: "맞는 파일이 여러 개 — 파일명 열을 넣어 주세요" };
     if (!file) return { ...base, signedAt, status: "file_not_found", message: "ZIP 안에 맞는 PDF 가 없음(문서 ID·문서명으로 찾음)" };
     const withFile = { ...base, signedAt, file, certFile: findCert(ref, file) };
@@ -113,7 +124,8 @@ export async function previewContractImport(rowsIn: unknown[], fileNames: string
     for (const r of ok) {
       const myRef = r.ref || path.basename(r.file!);
       if (existing.some((x) => x.importRef === myRef)) { r.status = "duplicate"; r.message = "이미 가져온 문서(같은 문서 ID·파일명)"; continue; }
-      if (existing.some((x) => x.userId === r.matched!.userId && x.title === r.title && x.signedAt && x.signedAt.toISOString().slice(0, 10) === r.signedAt)) { r.status = "duplicate"; r.message = "같은 직원·문서명·체결일의 완료 계약이 이미 있음"; continue; }
+      // 기존 계약의 signedAt 은 실제 시각(UTC) — KST 날짜로 바꿔 비교(이관본은 UTC 자정 = KST 09:00 이라 같은 날)
+      if (existing.some((x) => x.userId === r.matched!.userId && x.title === r.title && x.signedAt && new Date(x.signedAt.getTime() + 9 * 3600000).toISOString().slice(0, 10) === r.signedAt)) { r.status = "duplicate"; r.message = "같은 직원·문서명·체결일의 완료 계약이 이미 있음"; continue; }
       if (seen.has(r.file!)) { r.status = "duplicate"; r.message = "목록표 안에서 같은 파일이 또 쓰임"; continue; }
       seen.add(r.file!);
     }
@@ -135,7 +147,11 @@ export async function applyContractImport(rowsIn: unknown[], zips: Buffer[], act
   const dir = path.join(process.cwd(), "uploads", "contracts");
   await fs.mkdir(dir, { recursive: true });
   const save = async (entryName: string, n: number, kind: "doc" | "cert") => {
-    const bytes = Buffer.from(entries.get(entryName)!.asUint8Array());
+    const entry = entries.get(entryName)!;
+    const declared = (entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize;
+    if (declared != null && declared > MAX_ENTRY) throw new Error(`파일이 너무 큼(${Math.round(declared / 1048576)}MB): ${entryName}`);
+    const bytes = Buffer.from(entry.asUint8Array());
+    if (bytes.length > MAX_ENTRY) throw new Error(`파일이 너무 큼: ${entryName}`);
     if (bytes.length < 100 || bytes.subarray(0, 4).toString() !== "%PDF") throw new Error(`PDF 가 아님: ${entryName}`);
     const filename = `${batch}_${String(n).padStart(4, "0")}_${kind}.pdf`;   // 배치 이름으로 시작 — 되돌리기 때 이 접두어로 지운다
     await fs.writeFile(path.join(dir, filename), bytes);
@@ -152,7 +168,7 @@ export async function applyContractImport(rowsIn: unknown[], zips: Buffer[], act
       const created = await prisma.contract.create({
         data: {
           userId: r.matched!.userId, createdBy: actor.userId, title: r.title, type: r.type as CType, status: "SIGNED",
-          fileUrl: JSON.stringify([doc.url]), signedUrl: doc.url, signedPdfUrl: doc.url, signedSha256: doc.sha256, signedPdfAt: now, docNo: newDocNo(signedAt),
+          fileUrl: JSON.stringify(cert ? [doc.url, cert.url] : [doc.url]), signedUrl: doc.url, signedPdfUrl: doc.url, signedSha256: doc.sha256, signedPdfAt: now, docNo: newDocNo(signedAt),
           signedAt, employeeSignedAt: signedAt, importBatch: batch, importRef: r.ref || path.basename(r.file!), certificateUrl: cert?.url ?? null,
         },
       });

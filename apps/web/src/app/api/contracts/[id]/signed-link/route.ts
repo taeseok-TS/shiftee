@@ -18,7 +18,7 @@ export async function GET(
   const contract = await prisma.contract.findUnique({
     where: { id },
     select: {
-      id: true, userId: true, status: true, templateId: true,
+      id: true, userId: true, status: true, templateId: true, signedPdfUrl: true,
       approvalLine: { select: { steps: { select: { signatureUrl: true } } } },
     },
   });
@@ -37,7 +37,8 @@ export async function GET(
     );
   // #110 진행 중 계약도 서명이 1개 이상이면 지금까지의 서명 반영본을 열람할 수 있게 완화
   const inProgress = contract.status !== "SIGNED";
-  const hasSignature = (contract.approvalLine?.steps || []).some((s) => !!s.signatureUrl);
+  // 이관 계약(#4)은 서명 단계 없이 저장된 완료본만 있다
+  const hasSignature = (contract.approvalLine?.steps || []).some((s) => !!s.signatureUrl) || (contract.status === "SIGNED" && !!contract.signedPdfUrl);
   if (!hasSignature)
     return NextResponse.json({ error: "아직 서명이 없습니다." }, { status: 400 });
 

@@ -47,6 +47,8 @@ type Contract = {
   signDeadline?: string | null;    // 서명 기한(#45)
   sendMessage?: string | null;     // 본부 발송 메시지(#65)
   isTest?: boolean;                // 나에게 테스트 발송(#67) 시험 문서 — 7일 뒤 자동 삭제
+  importBatch?: string | null;     // 모두싸인 이관본(#4)
+  certificateUrl?: string | null;  // 이관본의 감사추적 인증서(#4)
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
     steps: Array<{
@@ -3136,6 +3138,8 @@ ${url}`;
                         {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
                         {c.employeeOnly && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span>}
                         {c.isTest && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle" title="나에게 테스트 발송한 시험 문서 — 7일 뒤 자동 삭제">테스트</span>}
+                        {c.importBatch && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 align-middle" title={`모두싸인 이관본 (${c.importBatch})`}>이관</span>}
+                        {c.certificateUrl && <a href={c.certificateUrl} target="_blank" rel="noreferrer" className="ml-1 text-[10px] text-sky-700 underline align-middle" title="모두싸인 감사추적 인증서">인증서</a>}
                       </td>
                       <td className="py-3">
                         <Badge variant={s.variant}>{s.label}</Badge>
