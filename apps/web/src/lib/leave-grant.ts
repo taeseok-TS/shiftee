@@ -71,8 +71,9 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
         note: `${ymd} ${designated.get(ymd)}(지정 공휴일) 근무 → 대체휴일 1일` });
     }
   }
+  // 지워진(휴지통) 직원은 근무 기록 조회에서 빠지므로 기존 행도 같이 빼야 한다 — 안 그러면 복구 전까지 매일 밤 회수된다(검증 F3)
   const existing = await prisma.leaveGrant.findMany({
-    where: { source: "AUTO", workDate: { gte: from, lte: to } },
+    where: { source: "AUTO", workDate: { gte: from, lte: to }, user: { deletedAt: null } },
     select: { id: true, userId: true, group: true, workDate: true, days: true, note: true, user: { select: { name: true } } },
   });
   const byKey = new Map(existing.map((e) => [`${e.userId}|${e.group}|${ymdUTC(e.workDate!)}`, e]));
@@ -81,7 +82,12 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
   for (const [key, w] of want) {
     const ex = byKey.get(key);
     if (!ex) {
-      await prisma.leaveGrant.create({ data: { userId: w.userId, group: w.group, days: w.days, workDate: w.workDate, source: "AUTO", note: w.note } });
+      // 밤 점검과 본부 [점검] 버튼이 겹쳐도 유니크 충돌로 죽지 않게 upsert(검증 F4)
+      await prisma.leaveGrant.upsert({
+        where: { userId_group_workDate: { userId: w.userId, group: w.group, workDate: w.workDate } },
+        create: { userId: w.userId, group: w.group, days: w.days, workDate: w.workDate, source: "AUTO", note: w.note },
+        update: { days: w.days, note: w.note },
+      });
       created++; names.add(w.name);
     } else if (ex.days !== w.days || ex.note !== w.note) {
       await prisma.leaveGrant.update({ where: { id: ex.id }, data: { days: w.days, note: w.note } });

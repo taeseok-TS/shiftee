@@ -107,10 +107,16 @@ export default function AdminHolidaysPage() {
                 <span className="font-mono text-gray-600 w-28 shrink-0">{h.date}</span>
                 <span className={`w-8 shrink-0 ${dow === "일" ? "text-red-500" : dow === "토" ? "text-blue-500" : "text-gray-400"}`}>({dow})</span>
                 <span className="flex-1 font-medium">{h.name}</span>
-                {/* 대체휴무 부여 지정(#56) — 켜 두면 이 날(평일) 근무 기록에 대체휴일 1일이 자동 부여된다 */}
-                <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-emerald-700" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
-                  <input type="checkbox" checked={!!h.grantsLeave} onChange={() => toggleGrants(h)} />대체휴무 부여
-                </label>
+                {/* 대체휴무 부여 지정(#56) — 켜 두면 이 날(평일) 근무 기록에 대체휴일 1일이 자동 부여된다. 주말은 부여 대상이 아니고 5/1 은 보상휴가로 계산 */}
+                {dow === "토" || dow === "일" ? (
+                  <span className="text-[11px] text-gray-300" title="주말 공휴일은 대체휴무 부여 대상이 아닙니다">주말</span>
+                ) : h.date.endsWith("-05-01") ? (
+                  <span className="text-[11px] text-gray-400" title="5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다">보상휴가 자동</span>
+                ) : (
+                  <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-emerald-700" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
+                    <input type="checkbox" checked={!!h.grantsLeave} onChange={() => toggleGrants(h)} />대체휴무 부여
+                  </label>
+                )}
                 <button onClick={() => removeHoliday(h)} className="text-gray-400 hover:text-red-500" title="삭제">
                   <Trash2 size={15} />
                 </button>

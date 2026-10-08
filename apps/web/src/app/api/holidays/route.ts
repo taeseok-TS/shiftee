@@ -35,15 +35,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "날짜(YYYY-MM-DD)와 이름을 입력해주세요." }, { status: 400 });
 
   // 동기화/시드 실패가 기존 데이터를 지우지 않도록 upsert만 사용
+  const before = await prisma.holiday.findUnique({ where: { date: new Date(date) }, select: { grantsLeave: true, name: true } });
   const holiday = await prisma.holiday.upsert({
     where: { date: new Date(date) },
     create: { date: new Date(date), name: name.trim(), grantsLeave: grantsLeave === true },
     update: { name: name.trim(), ...(typeof grantsLeave === "boolean" ? { grantsLeave } : {}) },
   });
+  // 같은 날짜를 다시 보내 지정만 바꾼 것이면 「지정/해제」로 남긴다(등록으로 남기면 켠 건지 끈 건지 알 수 없다)
+  const toggled = !!before && typeof grantsLeave === "boolean" && before.grantsLeave !== grantsLeave;
   await logAudit({
-    actorId: session.userId, actorName: session.name, action: "HOLIDAY_ADD",
+    actorId: session.userId, actorName: session.name, action: toggled ? "HOLIDAY_GRANT_TOGGLE" : "HOLIDAY_ADD",
     targetType: "Holiday", targetId: holiday.id, targetName: name.trim(),
-    detail: `공휴일 등록 ${date} ${name.trim()}${holiday.grantsLeave ? " (대체휴무 부여)" : ""}`,
+    detail: toggled
+      ? `대체휴무 부여 ${holiday.grantsLeave ? "지정" : "해제"} ${date} ${name.trim()}`
+      : `공휴일 등록 ${date} ${name.trim()}${holiday.grantsLeave ? " (대체휴무 부여)" : ""}`,
   });
   return NextResponse.json({ success: true, holiday });
 }

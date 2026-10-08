@@ -3,7 +3,7 @@
 // 휴가 종류별 잔여(2026-10-08 QA76 #50 #56) — 본부만. 기준일까지 직원별 보상휴가·대체휴일 부여/사용/잔여,
 // 부여 내역(근거 근무일·사유)·사용 내역, 본부 수동 조정(±, 사유 필수), 자동 부여 점검을 지금 돌리기.
 // 직원 화면에는 넣지 않는다(#50). 잔여가 모자라도 신청은 막지 않는다(본부 답변 #19).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw, ChevronDown, ChevronRight, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,10 @@ export default function LeaveGrantBoard() {
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<{ userId: string; group: Group; days: string; note: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const seq = useRef(0);   // 기준일·체크를 빨리 바꾸면 늦게 온 옛 응답이 새 표를 덮지 않게
 
   const load = useCallback(async () => {
+    const my = ++seq.current;
     setLoading(true);
     try {
       const p = new URLSearchParams({ asOf });
@@ -44,10 +46,11 @@ export default function LeaveGrantBoard() {
       if (inclTest) p.set("includeTest", "true");
       const res = await fetch(`/api/leave/grants?${p}`);
       const data = await res.json().catch(() => ({}));
+      if (my !== seq.current) return;
       if (!res.ok) { toast.error(data.error || "불러오지 못했습니다."); setRows([]); return; }
       setRows(data.rows || []);
-    } catch { toast.error("네트워크 오류로 불러오지 못했습니다."); setRows([]); }
-    finally { setLoading(false); }
+    } catch { if (my === seq.current) { toast.error("네트워크 오류로 불러오지 못했습니다."); setRows([]); } }
+    finally { if (my === seq.current) setLoading(false); }
   }, [asOf, inclAdmins, inclTest]);
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, [load]);
 
