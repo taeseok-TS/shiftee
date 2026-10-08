@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Inbox,
   ShieldCheck,
+  CalendarCheck,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -43,6 +44,7 @@ const adminNavItems = [
   { href: "/admin/employees", label: "직원 관리", icon: Users },
   { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
   { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
+  { href: "/admin/hire-dates", label: "입사일 대조", icon: CalendarCheck }, // 큐브티·포털·시프티 입사일 대조·반영(2026-10-08 #5)
   { href: "/admin/branches", label: "지점 관리", icon: Building2 },
   { href: "/admin/permissions", label: "권한 현황", icon: ShieldCheck }, // 역할별 권한 보기 전용(2026-10-08 #39)
   { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
