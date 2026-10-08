@@ -227,12 +227,14 @@ model LeaveRequest {
   attachmentName String?
   status         LeaveStatus         @default(PENDING)
   rejectedReason String?
+  importBatch    String? // 시프티 이관 배치(2026-10-08 QA76 #2) — 가져오기 한 묶음의 표식, 되돌리기·중복 방지용. deploy/ddl_leave_import.sql
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   approvalSteps  LeaveApprovalStep[]
   cancelRequests LeaveCancelRequest[] // 승인된 휴가의 취소 결재(2026-09-11)
 
   @@index([userId, status])
+  @@index([importBatch])
 }
 
 enum LeaveType {

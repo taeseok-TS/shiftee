@@ -25,6 +25,7 @@ import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 import DelegateManager from "@/components/leave/DelegateManager";
 import LeaveReport from "@/components/leave/LeaveReport";
 import LeaveGrantBoard from "@/components/leave/LeaveGrantBoard";
+import LeaveImport from "@/components/leave/LeaveImport";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -577,6 +578,11 @@ export default function LeavePage() {
                   <Users size={14} />종류별 잔여
                 </TabsTrigger>
               )}
+              {role === "ADMIN" && (
+                <TabsTrigger value="import" className="gap-1.5">
+                  <Upload size={14} />휴가 가져오기
+                </TabsTrigger>
+              )}
             </>
           )}
         </TabsList>
@@ -816,6 +822,13 @@ export default function LeavePage() {
         {role === "ADMIN" && (
           <TabsContent value="grants" className="mt-4">
             <LeaveGrantBoard />
+          </TabsContent>
+        )}
+
+        {/* ═══ 휴가 가져오기(#2) — 시프티 사용 내역 엑셀 → 승인 완료 휴가. 본부(ADMIN)만 ═══ */}
+        {role === "ADMIN" && (
+          <TabsContent value="import" className="mt-4">
+            <LeaveImport />
           </TabsContent>
         )}
 
