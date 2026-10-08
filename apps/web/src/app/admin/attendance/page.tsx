@@ -230,6 +230,7 @@ export default function AttendancePage() {
 
   async function saveAddRec() {
     if (!addForm.userIds.length) { toast.error("직원을 선택해주세요."); return; }
+    if (addForm.userIds.length > 200) { toast.error("한 번에 200명까지 넣을 수 있습니다."); return; }
     if (!addForm.clockIn && !addForm.clockOut) { toast.error("출근 또는 퇴근 시각을 입력해주세요."); return; }
     const dup = addForm.userIds.filter(existsOn);
     if (dup.length && dup.length === addForm.userIds.length) { toast.error("선택한 직원 모두 그 날 기록이 이미 있습니다. 수정 기능을 사용해주세요."); return; }
@@ -987,7 +988,11 @@ export default function AttendancePage() {
                 <button type="button" className="text-[11px] text-blue-600 hover:underline"
                   onClick={() => {
                     const shown = employees.filter(e => !addSearch.trim() || `${e.name} ${e.branch || ""} ${e.department || ""}`.includes(addSearch.trim())).map(e => e.id);
-                    setAddForm(f => ({ ...f, userIds: shown.every(id => f.userIds.includes(id)) ? f.userIds.filter(id => !shown.includes(id)) : [...new Set([...f.userIds, ...shown])] }));
+                    setAddForm(f => {
+                      const next = shown.every(id => f.userIds.includes(id)) ? f.userIds.filter(id => !shown.includes(id)) : [...new Set([...f.userIds, ...shown])];
+                      if (next.length > 200) { toast.error("한 번에 200명까지 넣을 수 있습니다. 지점·이름으로 좁혀 주세요."); return f; }
+                      return { ...f, userIds: next };
+                    });
                   }}>표시된 직원 전체 선택/해제</button>
               </div>
               <Input value={addSearch} onChange={(e) => setAddSearch(e.target.value)} placeholder="이름·지점으로 찾기" className="h-8 mt-1" />

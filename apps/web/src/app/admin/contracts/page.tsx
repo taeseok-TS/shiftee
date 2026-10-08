@@ -207,7 +207,8 @@ export default function ContractsPage() {
     const mgr = employees.find(e => e.role === "MANAGER" && (e.branch === branch || (e.managerBranches || []).includes(branch)));
     return mgr?.name || "";
   };
-  const lastAutoFillUser = useRef<string>("");   // 자동 채움을 마지막으로 한 직원 — 같은 직원이면 빈칸만 채운다(직접 고친 값 보존)
+  const lastAutoFillUser = useRef<string>("");   // 자동 채움을 마지막으로 한 직원 — 같은 직원이면 빈칸·자동값만 바꾼다(직접 고친 값 보존)
+  const autoFilled = useRef<Record<string, string>>({});   // 키 → 마지막에 자동으로 넣은 값. 현재 값이 이것과 같으면 사람이 안 고친 것
   const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
@@ -853,18 +854,23 @@ export default function ContractsPage() {
     pkgTemplates.find(t => t.name.includes("비밀유지") && t.name.includes("퇴직")),
   ];
   const canResignBundle = resignTemplates.every(Boolean);
-  // 근속 1년 미만(입사일~퇴사일자 만 12개월 미만)이면 퇴직금 정산 신청서를 패키지에서 뺀다(#213-7, 퇴직급여보장법 — 1년 미만은 퇴직금 없음).
-  // null = 판정 불가(입사일 또는 퇴사일자 없음) → 5종 그대로
+  // 근속 1년 미만이면 퇴직금 정산 신청서를 패키지에서 뺀다(#213-7, 퇴직급여보장법 — 계속근로기간 1년 미만은 퇴직금 없음).
+  // 퇴사일자는 **마지막 근무일**(근무종료일과 같다)이라 계속근로기간은 그 다음 날까지로 센다 — 1/1 입사·12/31 마지막 근무 = 만 1년(a59a786 검증 F1).
+  // null = 판정 불가(입사일·퇴사일자 없음, 또는 퇴사일자가 입사일보다 앞) → 5종 그대로. 판정이 틀렸을 때를 위해 「퇴직금 정산 신청서 포함」 토글을 둔다
+  const [forceSeverance, setForceSeverance] = useState(false);
   const resignUnderOneYear: boolean | null = (() => {
     const emp = employees.find(e => e.id === createForm.userId);
     const hire = emp?.hireDate ? String(emp.hireDate).slice(0, 10) : "";
     const resign = (extraFields["퇴사일자"] || "").trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(hire) || !/^\d{4}-\d{2}-\d{2}$/.test(resign)) return null;
-    const [hy, hm, hd] = hire.split("-").map(Number); const [ry, rm, rd] = resign.split("-").map(Number);
-    let months = (ry - hy) * 12 + (rm - hm);
-    if (rd < hd) months -= 1;
+    const h = new Date(`${hire}T00:00:00Z`); const r = new Date(`${resign}T00:00:00Z`);
+    if (isNaN(h.getTime()) || isNaN(r.getTime()) || r < h) return null;
+    const end = new Date(r.getTime() + 86400000);   // 마지막 근무일 다음 날 = 퇴직일
+    let months = (end.getUTCFullYear() - h.getUTCFullYear()) * 12 + (end.getUTCMonth() - h.getUTCMonth());
+    if (end.getUTCDate() < h.getUTCDate()) months -= 1;
     return months < 12;
   })();
+  const dropSeverance = resignUnderOneYear === true && !forceSeverance;   // 실제로 빼는가
 
   // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
@@ -979,9 +985,14 @@ export default function ContractsPage() {
     }
     const sameUser = lastAutoFillUser.current === createForm.userId;
     lastAutoFillUser.current = createForm.userId;
+    if (!sameUser) autoFilled.current = {};
     if (Object.keys(updates).length) setExtraFields(prev => {
       const next = { ...prev };
-      for (const [k, v] of Object.entries(updates)) if (!sameUser || !(prev[k] || "").trim()) next[k] = v;
+      for (const [k, v] of Object.entries(updates)) {
+        const cur = (prev[k] || "").trim();
+        // 직원이 바뀌었거나, 빈칸이거나, 아직 자동값 그대로(예: 메인 원장 목록이 늦게 와서 임시로 넣은 다른 원장)면 바꾼다
+        if (!sameUser || !cur || cur === autoFilled.current[k]) { next[k] = v; autoFilled.current[k] = v; }
+      }
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1458,7 +1469,7 @@ export default function ContractsPage() {
         { templateId: rSajik.id, title: `${prefix} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         { templateId: rGeum.id, title: `${prefix} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         // 근속 1년 미만이면 퇴직금 정산 신청서는 넣지 않는다(#213-7)
-        ...(resignUnderOneYear === true ? [] : [{ templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }]),
+        ...(dropSeverance ? [] : [{ templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }]),
         { templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
         // 비밀유지서약서(퇴직시) — 결재표(원장·본부)가 서식에 추가되어 결재라인을 태운다 (QA 2026-08-25)
         { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
@@ -1470,11 +1481,11 @@ export default function ContractsPage() {
       const data = await res.json();
       setUploading(false);
       if (!res.ok) { toast.error(data.error || "퇴사 패키지 생성 실패"); return; }
-      toast.success(resignUnderOneYear === true
+      toast.success(dropSeverance
         ? "퇴사 패키지 4종이 작성되었습니다(근속 1년 미만 — 퇴직금 정산 신청서 제외). 사직원에서 발송하면 함께 발송됩니다."
         : "퇴사 패키지 5종이 작성되었습니다. 사직원에서 발송하면 5종이 함께 발송됩니다.");
       setCreateOpen(false);
-      setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setEmployeeSearchText("");
+      setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setForceSeverance(false); setEmployeeSearchText("");
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
       setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
       fetchContracts();
@@ -2068,13 +2079,21 @@ ${url}`;
                                 scanFields(selectedTemplate, false, false);
                               }
                             }} />
-                          퇴사 패키지로 함께 발송 (5종)
+                          퇴사 패키지로 함께 발송 ({dropSeverance ? "4종" : "5종"})
                         </label>
                         {resignBundleMode && (
                           <p className="text-[11px] text-rose-700 pl-6">
-                            사직원 + 금품청산 동의서 + 퇴직금·연차수당 정산 신청서 + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
-                            <b>5종 모두</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.
-                            {resignUnderOneYear === true && <><br /><b>근속 1년 미만</b>(입사일~퇴사일자)이라 퇴직금 정산 신청서는 빼고 <b>4종</b>으로 작성합니다.</>}
+                            사직원 + 금품청산 동의서 + {dropSeverance ? "연차수당 정산 신청서" : "퇴직금·연차수당 정산 신청서"} + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
+                            <b>전부</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.
+                            {resignUnderOneYear === true && (
+                              <>
+                                <br /><b>근속 1년 미만</b>(입사일 ~ 퇴사일자 다음 날)이라 퇴직금 정산 신청서는 {forceSeverance ? "넣습니다(직접 포함)" : <>빼고 <b>4종</b>으로 작성합니다</>}.
+                                <label className="ml-2 inline-flex items-center gap-1 cursor-pointer">
+                                  <input type="checkbox" checked={forceSeverance} onChange={e => setForceSeverance(e.target.checked)} />
+                                  그래도 퇴직금 정산 신청서 포함
+                                </label>
+                              </>
+                            )}
                             {resignUnderOneYear === null && <><br />퇴사일자를 넣으면 근속 1년 미만 여부를 판정해 퇴직금 정산 신청서를 자동으로 뺍니다.</>}
                           </p>
                         )}

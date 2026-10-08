@@ -58,9 +58,15 @@ export async function POST(request: NextRequest) {
   for (const t of targets) {
     if (existingIds.has(t.id)) { skipped.push(t.name); continue; }   // 겹치는 사람은 건너뛴다(미리보기에서 이미 표시됨)
     const status = await calcStatus(inAt, outAt, date, t.id);
-    attendance = await prisma.attendance.create({
-      data: { userId: t.id, date: dateUtc, clockIn: inAt, clockOut: outAt, status },
-    });
+    try {
+      attendance = await prisma.attendance.create({
+        data: { userId: t.id, date: dateUtc, clockIn: inAt, clockOut: outAt, status },
+      });
+    } catch (e) {
+      // 확인과 생성 사이에 다른 관리자가 같은 날 기록을 넣었으면(userId_date 유일 제약) 그 사람만 건너뛴다 — 중간에 500 으로 끊지 않는다(a59a786 검증 F3)
+      if ((e as { code?: string })?.code === "P2002") { skipped.push(t.name); continue; }
+      throw e;
+    }
     await logAudit({
       actorId: session.userId,
       actorName: session.name,

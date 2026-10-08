@@ -110,7 +110,12 @@ export async function GET() {
   const present = presentIds.size;
   const lateNames = todayRecords.filter((r) => r.status === "LATE").map((r) => r.user.name);
   const earlyLeaveNames = todayRecords.filter((r) => r.status === "EARLY_LEAVE").map((r) => r.user.name);
-  const missingNames = members.filter((m) => !presentIds.has(m.id) && !leaveIds.has(m.id)).map((m) => m.name);
+  // 오늘 일정이 휴무(OFF)·공휴일(HOLIDAY)인 직원은 미출근이 아니다(a59a786 검증 F4). 일정이 없는 직원은 근무로 본다(종전과 같음)
+  const offIds = new Set(
+    (await prisma.schedule.findMany({ where: { date: today, userId: { in: members.map((m) => m.id) }, type: { in: ["OFF", "HOLIDAY"] } }, select: { userId: true } }))
+      .map((s) => s.userId),
+  );
+  const missingNames = members.filter((m) => !presentIds.has(m.id) && !leaveIds.has(m.id) && !offIds.has(m.id)).map((m) => m.name);
   const late = lateNames.length;
   const earlyLeave = earlyLeaveNames.length;
   const absent = missingNames.length;

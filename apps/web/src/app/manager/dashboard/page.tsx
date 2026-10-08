@@ -69,7 +69,7 @@ export default function ManagerDashboardPage() {
               {stats ? stats.attendance.absent : "--"}
             </div>
             <Names list={stats?.names?.missing} />
-            {stats && stats.attendance.absent > 0 && <p className="mt-1 text-[11px] text-gray-400">아직 출근을 찍지 않은 직원(휴가 제외)</p>}
+            {stats && stats.attendance.absent > 0 && <p className="mt-1 text-[11px] text-gray-400">아직 출근을 찍지 않은 직원(휴가·휴무 일정 제외)</p>}
           </a>
           <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">조퇴</div>
