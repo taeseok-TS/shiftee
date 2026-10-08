@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
+import { recalcYearBalanceForHire } from "@/lib/leave-recalc";
 import { portalConfig, fetchPortalRoster, mapBranch, HIRE_CONFIRM_PREFIX } from "@/lib/portal-roster";
 
 export const dynamic = "force-dynamic";
@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
   const items = body && typeof body === "object" && Array.isArray((body as { items?: unknown }).items) ? ((body as { items: unknown[] }).items) : [];
   if (!items.length) return NextResponse.json({ error: "반영할 항목이 없습니다." }, { status: 400 });
   if (items.length > 500) return NextResponse.json({ error: "한 번에 500명까지 반영할 수 있습니다." }, { status: 400 });
-  const now = new Date(), year = currentLeaveYear();
   let applied = 0, confirmed = 0; const errors: string[] = []; const warnings: string[] = [];
   for (const it of items) {
     const o = it && typeof it === "object" ? (it as Record<string, unknown>) : {};
@@ -93,14 +92,9 @@ export async function POST(request: NextRequest) {
     if (before === hireDate) { confirmed++; continue; }   // 같으면 날짜는 손대지 않는다(감사 기록도 남기지 않는다) — 확정 표식만 남는다
     await prisma.user.update({ where: { id: u.id }, data: { hireDate: new Date(`${hireDate}T00:00:00Z`) } });
     await logAudit({ actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `입사일 ${before ?? "-"}→${hireDate} (입사일 대조표, 출처: ${source})` });
-    // 올해 연차 총량을 근속으로 다시 센다 — 「연차 자동계산」과 같은 규칙(사용은 그대로, 잔여 = 총 − 사용)
-    const total = annualLeaveDays(new Date(`${hireDate}T00:00:00Z`), now);
-    const bal = await prisma.leaveBalance.findUnique({ where: { userId_year: { userId: u.id, year } }, select: { used: true, total: true } });
-    const used = bal?.used ?? 0, remaining = Math.max(0, total - used);
-    if (total < used) warnings.push(`${u.name}: 새 입사일 기준 올해 총 연차 ${total}일 < 이미 사용 ${used}일 — 잔여 0`);
-    await prisma.leaveBalance.upsert({ where: { userId_year: { userId: u.id, year } }, create: { userId: u.id, year, total, used, remaining }, update: { total, remaining } });
-    if (!bal || bal.total !== total)
-      await logAudit({ actorId: session.userId, actorName: session.name, action: "LEAVE_BALANCE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `(입사일 변경 재계산 ${year}년) 연차 총 ${bal?.total ?? "-"}→${total}일, 사용 ${used}일, 잔여 ${remaining}일` });
+    // 올해 연차 총량을 근속으로 다시 센다 — lib/leave-recalc(포털 인사명부 반영과 같은 함수)
+    const rc = await recalcYearBalanceForHire({ id: u.id, name: u.name }, new Date(`${hireDate}T00:00:00Z`), { id: session.userId, name: session.name }, "입사일 변경 재계산");
+    if (rc.warning) warnings.push(rc.warning);
     applied++;
   }
   return NextResponse.json({ success: true, applied, confirmed, errors, warnings });

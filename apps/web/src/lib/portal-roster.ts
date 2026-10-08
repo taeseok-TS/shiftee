@@ -445,6 +445,11 @@ async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
   const labels: Record<FieldKey, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일" };
   const detail = (Object.entries(fields) as [FieldKey, [string | null, string]][]).map(([k, v]) => `${labels[k]} ${v[0] ?? "-"}→${v[1]}`).join(", ");
   await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: userId, targetName: u.name, detail: `인사명부 반영 — ${detail}` });
+  // 입사일이 바뀌면 올해 연차 총량도 근속으로 다시 센다 — 입사일 대조표(#5)와 같은 함수(2026-10-08 검증 R2)
+  if (fields.hireDate) {
+    const { recalcYearBalanceForHire } = await import("@/lib/leave-recalc");
+    await recalcYearBalanceForHire({ id: userId, name: u.name }, utcDate(fields.hireDate[1]), actor, "인사명부 입사일 반영 재계산").catch((e) => console.error("[portal-sync] 연차 재계산 오류:", e));
+  }
 }
 
 type ChangeRow = { id: string; kind: string; empNo: number; name: string; userId: string | null; diff: Prisma.JsonValue };
