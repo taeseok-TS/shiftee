@@ -31,6 +31,7 @@ const adminNavItems = [
   { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard },
   { href: "/admin/attendance", label: "출퇴근", icon: Clock },
   { href: "/admin/attendance-board", label: "출퇴근기록 (달력·목록)", icon: Clock },
+  { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 연장·야간·휴일·주 52시간(2026-10-08 #41)
   { href: "/admin/schedule", label: "근무일정", icon: Calendar },
   { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
   { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
