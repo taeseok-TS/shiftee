@@ -18,6 +18,9 @@ export async function PATCH(
   const { id, stepId } = await params;
   const body = await request.json();
   const { approverId } = body;
+  // 시험 문서(#67)의 결재자는 본인뿐 — 남으로 바꾸면 그 사람에게 알림이 간다
+  const testDoc = await prisma.contract.findUnique({ where: { id }, select: { isTest: true } });
+  if (testDoc?.isTest) return NextResponse.json({ error: "테스트 문서의 결재자는 바꿀 수 없습니다." }, { status: 400 });
 
   // ⚠ 종전에는 "EMPLOYEE 가 아니면" 통과가 전부였다. 그러면 **원장이 뒤 단계 결재자를
   //   자기로 바꾼 뒤 혼자 전 단계를 서명 완료**할 수 있다(2026-09-04 검증 지적).

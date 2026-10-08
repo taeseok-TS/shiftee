@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       .map((u) => [u.id, u.name] as [string, string]),
   );
   // 계약에 남은 발송 당시 버전(#48)별 건수 — 어느 버전으로 몇 건 나갔는지
-  const used = await prisma.contract.groupBy({ by: ["templateVersion"], where: { templateId: id, templateVersion: { not: null } }, _count: { _all: true } });
+  const used = await prisma.contract.groupBy({ by: ["templateVersion"], where: { templateId: id, templateVersion: { not: null }, isTest: false }, _count: { _all: true } });
   const usedBy = new Map(used.map((u) => [u.templateVersion as number, u._count._all]));
   // 이 기능 전에 바뀐 버전은 파일 기록이 없다 — 발송 건수만이라도 보여 준다(#78 검증 F4)
   const known = new Set([t.version, ...past.map((p) => p.version)]);

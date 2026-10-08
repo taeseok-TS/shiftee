@@ -172,7 +172,7 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true, bundleId: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true, bundleId: true, isTest: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -205,6 +205,10 @@ export async function PATCH(
   //   관리자가 고쳐서(수정) 또는 그대로(재발송) 다시 보내면 결재는 1단계부터 다시 받고, 반려 기록은 이력에 남는다.
   if (status && !["DRAFT", "SENT", "APPROVED", "SIGNED", "EXPIRED"].includes(status))
     return NextResponse.json({ error: "알 수 없는 계약 상태입니다." }, { status: 400 });
+  // 시험 문서(#67)는 다시 보내거나 고칠 수 없다 — 재발송으로 결재선을 남에게 바꾸면 그 사람에게 알림이 가고(결재함에는 없음),
+  // 수정으로 「[테스트] 」 접두어를 지울 수 있다(#67 검증 F1). 기한 변경·회수 숨김은 그대로. 다시 보려면 지우고 새로 테스트 발송
+  if (contract.isTest && (status || approverIds || title || type || startDate || endDate || newFileUrl || extraFieldsRaw))
+    return NextResponse.json({ error: "테스트 문서는 다시 보내거나 고칠 수 없습니다. 지우고 다시 [나에게 테스트 발송]을 눌러 주세요." }, { status: 400 });
   // 반려 해제는 [재발송](결재선 지정) 또는 내용 [수정](결재 처음부터)으로만 — 상태만 바꾸는 요청으로 풀면 반려 단계가
   // 남은 채 "완료"가 되거나 결재 대기 없는 SENT 로 멈춘다(#206 검증 F3 — 9/4 검증 F3 가 막던 경로).
   if (contract.status === "REJECTED" && status && !(status === "SENT" && Array.isArray(approverIds) && approverIds.length > 0))

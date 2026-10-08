@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
       whereBase.updatedAt = { ...(whereBase.updatedAt || {}), lt: prevLt && prevLt < cutoff ? prevLt : cutoff };
     }
 
-    if (userId && !selfOnly) {
+    if (userId && !selfOnly && !(session.role === "ADMIN" && searchParams.get("test") === "true")) {   // 시험 문서 보기는 늘 자기 것만(#67)
       whereBase.userId = userId;
     }
 

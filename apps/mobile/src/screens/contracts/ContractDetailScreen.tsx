@@ -51,8 +51,9 @@ export default function ContractDetailScreen() {
   const [contract, setContract] = useState<Contract | null>(null);
   const [loading, setLoading] = useState(true);
   const [myRole, setMyRole] = useState<string>("");
+  const [myId, setMyId] = useState<string>("");
   useEffect(() => {
-    import("../../services/storage").then((st) => st.getUser().then((u) => setMyRole(u?.role || ""))).catch(() => {});
+    import("../../services/storage").then((st) => st.getUser().then((u) => { setMyRole(u?.role || ""); setMyId(u?.id || ""); })).catch(() => {});
   }, []);
   const [showSign, setShowSign] = useState(false);
   const [signing, setSigning] = useState(false);
@@ -162,7 +163,8 @@ export default function ContractDetailScreen() {
 
   const st = STATUS[contract.status] || STATUS.DRAFT;
   const originalFile = firstUrl(contract.fileUrl);
-  const isAdmin = myRole === "ADMIN";
+  // 관리자라도 **본인이 서명자인 계약**(나에게 테스트 발송 #67)은 직원과 같은 흐름 — 비밀번호 관문·열람 제한을 그대로 본다
+  const isAdmin = myRole === "ADMIN" && !!myId && (contract as any).userId !== myId;
   const signedFile = firstUrl(contract.signedUrl);
   // 본인 서명은 결재 순서상 자기 차례(내 단계가 PENDING)일 때만 — 결재라인 없는 구계약은 기존 SENT 기준
   const steps: any[] = (contract as any).approvalLine?.steps || [];

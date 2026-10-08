@@ -1539,7 +1539,7 @@ ${url}`;
   }
 
   // 한꺼번에 발송 대상 — 고른 것 중 지금도 초안인 것만(그 사이 단건으로 발송된 건 다시 보내 결재를 초기화하지 않게, #34 검증 F2)
-  const pickedDrafts = contracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT");
+  const pickedDrafts = contracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT" && !x.isTest);   // 시험 문서(#67)는 한꺼번에 발송에서 제외
   // 고른 것 전부(#46) — 지금 목록에 보이는 것만
   const pickedAll = contracts.filter(x => pickedIds.has(x.id));
   const [exporting, setExporting] = useState(false);
@@ -3193,7 +3193,14 @@ ${url}`;
                             삭제는 초안만 (직원전용 패키지 문서 제외) */}
                         {/* 패키지 직원전용 문서도 **반려**되면 [수정]·[다시 보내기] — 종전엔 버튼이 없어 패키지를 새로 만들어야 했다
                             (#206 검증 F5, 9/12 디렉터). 외부 계약자는 게스트 화면에 반려가 없어 해당 없음 */}
-                        {role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || ((c.status === "REJECTED" || c.status === "EXPIRED") && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
+                        {/* 시험 문서(#67)는 지우는 것만 — 재발송·수정은 서버도 막는다(남에게 알림이 가고 접두어를 지울 수 있어서) */}
+                        {c.isTest && role === "ADMIN" && (
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => { setDeleteTarget({ id: c.id, title: c.title, bundleId: c.bundleId }); setDeleteConfirmOpen(true); }}>
+                            <Trash2 size={12} />삭제
+                          </Button>
+                        )}
+                        {!c.isTest && role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || ((c.status === "REJECTED" || c.status === "EXPIRED") && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
                           <>
                             <Button
                               size="sm"
@@ -3740,7 +3747,7 @@ ${url}`;
               <DialogTitle>결재 히스토리</DialogTitle>
               <div className="flex gap-2">
                 {/* 삭제 버튼 - ADMIN && 결재 완료 아님 */}
-                {role === "ADMIN" && approvalDetailsTarget && approvalDetailsTarget.status !== "SIGNED" && (
+                {role === "ADMIN" && approvalDetailsTarget && (approvalDetailsTarget.status !== "SIGNED" || approvalDetailsTarget.isTest) && (
                   <Button
                     size="sm"
                     variant="destructive"
