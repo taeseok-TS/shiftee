@@ -1799,6 +1799,7 @@ ${url}`;
             <Dialog open={createOpen} onOpenChange={(open) => {
               setCreateOpen(open);
               if (!open) {
+                setForceSeverance(false);   // 「퇴직금 정산 신청서 포함」 선택이 다음 직원에게 넘어가지 않게(7b92cb9 검증)
                 setEmployeeSearchText("");
                 setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
                 setFiles([]);
@@ -2067,7 +2068,7 @@ ${url}`;
                           <input type="checkbox" checked={resignBundleMode}
                             onChange={e => {
                               const checked = e.target.checked;
-                              setResignBundleMode(checked);
+                              setResignBundleMode(checked); setForceSeverance(false);
                               if (checked) { setCodiBundleMode(false); setBulkMode(false); setBulkUserIds([]); } // 일괄과 병용 불가 (검증관 2026-08-26)
                               const sajik = resignTemplates[0];
                               if (checked && sajik) {
