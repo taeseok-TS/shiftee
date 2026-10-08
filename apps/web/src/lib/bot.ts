@@ -677,7 +677,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string; __botResignChat?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string; __botResignChat?: string; __botLeaveGrant?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -754,6 +754,16 @@ export function startBotScheduler() {
         const n = await purgeTestContracts();
         if (n) console.log(`[bot] 테스트 문서 ${n}건 정리`);
       } catch (e) { console.error("[bot] 테스트 문서 정리 오류:", e); }
+    }
+
+    // 보상휴가·대체휴일 자동 부여 점검 — 매일 KST 23:30경 1회(2026-10-08 QA76 #56). 최근 45일 근무 기록을 다시 읽어 부여·갱신·회수
+    if (k.getUTCHours() === 23 && k.getUTCMinutes() >= 30 && g.__botLeaveGrant !== today) {
+      g.__botLeaveGrant = today;
+      try {
+        const { runLeaveGrants } = await import("@/lib/leave-grant");
+        const r = await runLeaveGrants();
+        if (r.created || r.updated || r.revoked) console.log(`[bot] 휴가 자동 부여 점검: 부여 ${r.created}·갱신 ${r.updated}·회수 ${r.revoked}`);
+      } catch (e) { console.error("[bot] 휴가 자동 부여 점검 오류:", e); }
     }
 
     // 일일 상태 보고 — 매일 KST 08:30경 1회. **이상이 없어도 보낸다**(2026-09-06 디렉터 지시).

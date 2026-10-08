@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { CalendarDays, Plus, Trash2 } from "lucide-react";
 
-type Holiday = { id: string; date: string; name: string };
+type Holiday = { id: string; date: string; name: string; grantsLeave?: boolean };   // grantsLeave: 대체휴무 부여 지정(#56)
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -18,6 +18,7 @@ export default function AdminHolidaysPage() {
   const [loading, setLoading] = useState(true);
   const [newDate, setNewDate] = useState("");
   const [newName, setNewName] = useState("");
+  const [newGrants, setNewGrants] = useState(false);   // 대체휴무 부여 지정(#56)
 
   const fetchHolidays = useCallback(async (y: number) => {
     setLoading(true);
@@ -32,13 +33,23 @@ export default function AdminHolidaysPage() {
     if (!newDate || !newName.trim()) { toast.error("날짜와 이름을 입력해주세요."); return; }
     const res = await fetch("/api/holidays", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: newDate, name: newName }),
+      body: JSON.stringify({ date: newDate, name: newName, grantsLeave: newGrants }),
     });
     const d = await res.json();
     if (!res.ok) { toast.error(d.error || "등록 실패"); return; }
     toast.success("공휴일이 등록되었습니다.");
-    setNewDate(""); setNewName("");
+    setNewDate(""); setNewName(""); setNewGrants(false);
     fetchHolidays(year);
+  }
+
+  // 대체휴무 부여 지정 켜고 끄기(#56) — 지정된 공휴일(평일)에 근무 기록이 있으면 대체휴일 1일이 자동 부여된다
+  async function toggleGrants(h: Holiday) {
+    const res = await fetch("/api/holidays", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: h.date, name: h.name, grantsLeave: !h.grantsLeave }),
+    });
+    if (res.ok) fetchHolidays(year);
+    else toast.error((await res.json().catch(() => ({}))).error || "변경 실패");
   }
 
   async function removeHoliday(h: Holiday) {
@@ -74,6 +85,9 @@ export default function AdminHolidaysPage() {
             <Input placeholder="예: 임시공휴일" value={newName} onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") addHoliday(); }} />
           </div>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 h-10 cursor-pointer select-none" title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
+            <input type="checkbox" checked={newGrants} onChange={(e) => setNewGrants(e.target.checked)} />대체휴무 부여
+          </label>
           <Button onClick={addHoliday} className="gap-1"><Plus size={14} />추가</Button>
         </CardContent>
       </Card>
@@ -93,6 +107,10 @@ export default function AdminHolidaysPage() {
                 <span className="font-mono text-gray-600 w-28 shrink-0">{h.date}</span>
                 <span className={`w-8 shrink-0 ${dow === "일" ? "text-red-500" : dow === "토" ? "text-blue-500" : "text-gray-400"}`}>({dow})</span>
                 <span className="flex-1 font-medium">{h.name}</span>
+                {/* 대체휴무 부여 지정(#56) — 켜 두면 이 날(평일) 근무 기록에 대체휴일 1일이 자동 부여된다 */}
+                <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-emerald-700" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
+                  <input type="checkbox" checked={!!h.grantsLeave} onChange={() => toggleGrants(h)} />대체휴무 부여
+                </label>
                 <button onClick={() => removeHoliday(h)} className="text-gray-400 hover:text-red-500" title="삭제">
                   <Trash2 size={15} />
                 </button>
@@ -101,7 +119,8 @@ export default function AdminHolidaysPage() {
           })}
         </div>
       )}
-      <p className="text-xs text-gray-400">2026~2027년 법정공휴일(대체공휴일 포함)은 기본 등록되어 있습니다. 이미 승인된 과거 휴가의 차감 일수는 소급 변경되지 않습니다.</p>
+      <p className="text-xs text-gray-400">2026~2027년 법정공휴일(대체공휴일 포함)은 기본 등록되어 있습니다. 이미 승인된 과거 휴가의 차감 일수는 소급 변경되지 않습니다.<br />
+        「대체휴무 부여」를 켠 공휴일(평일)에 출퇴근 기록이 있으면 대체휴일 1일이 자동 부여됩니다(휴가 관리 → 종류별 잔여). 5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다.</p>
     </div>
   );
 }

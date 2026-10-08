@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 import DelegateManager from "@/components/leave/DelegateManager";
 import LeaveReport from "@/components/leave/LeaveReport";
+import LeaveGrantBoard from "@/components/leave/LeaveGrantBoard";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -571,6 +572,9 @@ export default function LeavePage() {
               <TabsTrigger value="report" className="gap-1.5">
                 <Download size={14} />휴가 리포트
               </TabsTrigger>
+              <TabsTrigger value="grants" className="gap-1.5">
+                <Users size={14} />종류별 잔여
+              </TabsTrigger>
             </>
           )}
         </TabsList>
@@ -803,6 +807,13 @@ export default function LeavePage() {
         {isAdmin && (
           <TabsContent value="report" className="mt-4">
             <LeaveReport />
+          </TabsContent>
+        )}
+
+        {/* ═══ 종류별 잔여(#50 #56) — 보상휴가·대체휴일 부여/사용/잔여, 자동 부여 점검, 수동 조정. 본부만 ═══ */}
+        {isAdmin && (
+          <TabsContent value="grants" className="mt-4">
+            <LeaveGrantBoard />
           </TabsContent>
         )}
 

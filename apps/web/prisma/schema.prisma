@@ -53,6 +53,7 @@ model User {
   schedules             Schedule[]
   leaveRequests         LeaveRequest[]
   leaveBalance          LeaveBalance[] // 연도별 1행 (@@unique([userId, year]))
+  leaveGrants           LeaveGrant[]   // 보상휴가·대체휴일 부여 기록(#50 #56)
   contracts             Contract[]
   approvedLeaves        LeaveRequest[]         @relation("Approver")
   approvalLines         ApprovalLine[]         @relation("ApprovalLineTarget")
@@ -725,6 +726,29 @@ model Holiday {
   id   String   @id @default(cuid())
   date DateTime @unique @db.Date
   name String
+  // 대체휴무 부여 지정 공휴일(2026-10-08 QA76 #56) — 본부가 켠 공휴일(평일)에 근무 기록이 있으면 대체휴일 1일 자동 부여. deploy/ddl_leave_grant.sql
+  grantsLeave Boolean @default(false)
+}
+
+// ─── 휴가 종류별 부여 기록(2026-10-08 QA76 #50 #56) ─────────────────────
+// 보상휴가(5/1 근로자의 날 근무 — 본부 답변 #26: 8h 이내 ×1.5, 초과 ×2, 1일=8h)·대체휴일(지정 공휴일 평일 근무 1일)의
+// 자동 부여와 본부 수동 조정. 잔여 = 부여 합 − 승인된 그 그룹 휴가 일수(기준일까지). 연차(LeaveBalance)와 별개.
+// 자동 부여(AUTO)는 (userId, group, workDate) 하나 — 근무 기록이 바뀌면 갱신, 없어지면 지운다. deploy/ddl_leave_grant.sql
+model LeaveGrant {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  group     String    // "보상휴가" | "대체휴일" (lib/leave-catalog LeaveGroup)
+  days      Float     // 부여 일수(음수 = 본부 차감)
+  workDate  DateTime? @db.Date // 근거 근무일(자동 부여만)
+  source    String    // AUTO | MANUAL
+  note      String    // 근거·사유
+  createdBy String?   // 수동 조정한 관리자
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, group, workDate])
+  @@index([userId, group])
 }
 
 // 앱 전역 설정 (키-값) — 예: forceApprovalNotify(결재 알림 강제발송)
