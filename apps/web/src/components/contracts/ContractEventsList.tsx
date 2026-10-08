@@ -15,7 +15,7 @@ const LABEL: Record<string, string> = {
   VERIFY_OK: "본인 확인 통과", VERIFY_FAIL: "본인 확인 실패", CONSENT: "전자서명 동의", SIGNED: "서명",
   COMPLETED: "계약 완료", REJECTED: "반려", REVOKED: "회수", FROZEN: "완료본 고정", TSA: "제3자 시각 인증",
   // 2026-10-07 QA #45 #21 #66
-  REMINDED: "미서명 알림", DEADLINE_CHANGED: "기한 변경", EXPIRED: "기한 만료", DELIVERED: "교부(완료 알림)", DOWNLOADED: "완료본 내려받기",
+  REMINDED: "미서명 알림", DEADLINE_CHANGED: "기한 변경", EXPIRED: "기한 만료", DELIVERED: "교부(완료 알림)", DOWNLOADED: "완료본 내려받기", IMPORTED: "모두싸인 이관",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다

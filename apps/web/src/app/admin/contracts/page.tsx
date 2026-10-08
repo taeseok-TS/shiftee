@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye } from "lucide-react";
+import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -1763,6 +1763,8 @@ ${url}`;
               }
             }}>
             <div className="flex gap-2">
+              {/* 모두싸인 체결본 가져오기(#4) — 본부만 */}
+              {role === "ADMIN" && <a href="/admin/contract-import"><Button variant="outline" className="gap-2"><Upload size={16} />체결본 가져오기</Button></a>}
               <Button className="gap-2" onClick={() => { setSalaryFocus(false); setCreateOpen(true); }}><Plus size={16} />계약서 작성</Button>
               {role !== "EMPLOYEE" && (
                 <DropdownMenu>

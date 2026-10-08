@@ -25,7 +25,7 @@ import { recordContractEvent } from "@/lib/contract-events";
 const ALPH = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 export const DOC_NO_RE = /^CT-\d{6}-[2-9A-HJKMNP-Z]{5}-[2-9A-HJKMNP-Z]{5}$/;
 
-function newDocNo(at: Date): string {
+export function newDocNo(at: Date): string {
   const ymd = new Date(at.getTime() + 9 * 3600 * 1000).toISOString().slice(2, 10).replace(/-/g, "");
   let s = "";
   for (let i = 0; i < 10; i++) s += ALPH[crypto.randomInt(ALPH.length)];
