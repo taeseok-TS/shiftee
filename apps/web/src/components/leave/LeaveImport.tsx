@@ -11,31 +11,34 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LEAVE_CATALOG } from "@/lib/leave-catalog";
 
-type Field = "empNo" | "name" | "email" | "type" | "startDate" | "endDate" | "days" | "reason";
-const FIELDS: { key: Field; label: string; hint: RegExp; required?: boolean }[] = [
-  { key: "name", label: "이름", hint: /^(이름|성명|직원|name)$/i, required: true },
-  { key: "empNo", label: "사번", hint: /사번|사원번호|empno/i },
-  { key: "email", label: "이메일", hint: /이메일|email|메일/i },
-  { key: "type", label: "휴가 유형", hint: /유형|종류|type/i, required: true },
-  { key: "startDate", label: "시작일", hint: /시작|start|from|^날짜$|^일자$/i, required: true },
-  { key: "endDate", label: "종료일", hint: /종료|end|to$/i },
-  { key: "days", label: "일수", hint: /일수|차감|days/i },
-  { key: "reason", label: "사유", hint: /사유|메모|비고|reason/i },
+type Field = "empNo" | "name" | "email" | "type" | "startDate" | "endDate" | "days" | "reason" | "status";
+// 열 이름 자동 매칭 — 앞 패턴(구체)부터 찾고, 잔여·반려·취소 같은 다른 뜻의 열은 뺀다(검증 F7)
+const FIELDS: { key: Field; label: string; hints: RegExp[]; exclude?: RegExp; required?: boolean }[] = [
+  { key: "name", label: "이름", hints: [/^(이름|성명|직원명|직원|사용자|name)$/i, /이름|성명|직원명/], required: true },
+  { key: "empNo", label: "사번", hints: [/사번|사원\s*번호|empno/i] },
+  { key: "email", label: "이메일", hints: [/이메일|email|메일/i] },
+  { key: "type", label: "휴가 유형", hints: [/휴가\s*(유형|종류|구분)/, /(유형|종류|type)/i], exclude: /근무|출퇴근|결재/, required: true },
+  { key: "startDate", label: "시작일", hints: [/시작\s*(일|날짜)?|start|from/i, /^(날짜|일자|휴가일)$/], required: true },
+  { key: "endDate", label: "종료일", hints: [/종료\s*(일|날짜)?|end|to$/i] },
+  { key: "days", label: "일수", hints: [/사용\s*일수|신청\s*일수|^일수$/, /일수|days/i], exclude: /잔여|남은|부여|발생|차감\s*전|누적/ },
+  { key: "reason", label: "사유", hints: [/신청\s*사유|휴가\s*사유|^사유$/, /사유|메모|비고|reason/i], exclude: /반려|취소|거절/ },
+  { key: "status", label: "상태(선택)", hints: [/^(상태|결재\s*상태|승인\s*상태|status)$/i, /상태|status/i] },
 ];
 type Result = {
   i: number; name: string; matched: { userId: string; name: string; branch: string | null } | null;
   typeText: string; typeCode: string | null; typeLabel: string | null; startDate: string; endDate: string; days: number | null; reason: string;
-  status: "ok" | "user_not_found" | "user_ambiguous" | "type_unknown" | "invalid" | "duplicate"; message: string;
+  status: "ok" | "applied" | "user_not_found" | "user_ambiguous" | "user_mismatch" | "type_unknown" | "invalid" | "duplicate" | "status_skip"; message: string;
 };
 type Batch = { batch: string; count: number; days: number; createdAt: string | null };
 const STATUS: Record<Result["status"], { label: string; cls: string }> = {
-  ok: { label: "적용 예정", cls: "text-emerald-600" }, duplicate: { label: "건너뜀 · 중복", cls: "text-gray-500" },
-  user_not_found: { label: "건너뜀 · 직원 없음", cls: "text-red-500" }, user_ambiguous: { label: "건너뜀 · 동명이인", cls: "text-red-500" },
-  type_unknown: { label: "유형 고르기", cls: "text-amber-600" }, invalid: { label: "건너뜀 · 값 오류", cls: "text-red-500" },
+  ok: { label: "적용 예정", cls: "text-emerald-600" }, applied: { label: "적용됨", cls: "text-emerald-700 font-semibold" }, duplicate: { label: "건너뜀 · 중복", cls: "text-gray-500" },
+  user_not_found: { label: "건너뜀 · 직원 없음", cls: "text-red-500" }, user_ambiguous: { label: "건너뜀 · 동명이인", cls: "text-red-500" }, user_mismatch: { label: "건너뜀 · 이름 불일치", cls: "text-red-500" },
+  type_unknown: { label: "유형 고르기", cls: "text-amber-600" }, invalid: { label: "건너뜀 · 값 오류", cls: "text-red-500" }, status_skip: { label: "건너뜀 · 승인 아님", cls: "text-gray-500" },
 };
 const kst = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") : "");
 // 엑셀 날짜 셀은 cellDates 로 Date 가 되고, 문자열은 그대로 — 서버가 「2026-05-01」「2026.5.1」을 받는다
-const cellText = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : v == null ? "" : String(v).trim());
+const pad = (n: number) => String(n).padStart(2, "0");
+const cellText = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` : v == null ? "" : String(v).trim());
 
 export default function LeaveImport() {
   const [fileName, setFileName] = useState("");
@@ -46,6 +49,7 @@ export default function LeaveImport() {
   const [results, setResults] = useState<Result[] | null>(null);
   const [busy, setBusy] = useState<"" | "preview" | "apply" | "rollback">("");
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [deduct, setDeduct] = useState(true);   // 연차 차감 — 잔여를 시프티 기준으로 이미 맞췄다면 끄고 기록만
 
   const loadBatches = useCallback(async () => {
     try { const r = await fetch("/api/leave/import"); const d = await r.json().catch(() => ({})); if (r.ok) setBatches(d.batches || []); } catch { /* 목록은 보조 */ }
@@ -61,28 +65,36 @@ export default function LeaveImport() {
       const hs = Object.keys(json[0]);
       // 열 이름으로 자동 매칭 — 같은 열을 두 칸에 쓰지 않는다
       const used = new Set<string>(); const m: Partial<Record<Field, string>> = {};
-      for (const f of FIELDS) { const h = hs.find((x) => !used.has(x) && f.hint.test(x.trim())); if (h) { m[f.key] = h; used.add(h); } }
+      for (const f of FIELDS) {
+        let h: string | undefined;
+        for (const re of f.hints) { h = hs.find((x) => !used.has(x) && re.test(x.trim()) && !(f.exclude && f.exclude.test(x))); if (h) break; }
+        if (h) { m[f.key] = h; used.add(h); }
+      }
       setFileName(f.name); setHeaders(hs); setRows(json); setMap(m); setOverrides({}); setResults(null);
     } catch { toast.error("엑셀을 읽지 못했습니다."); }
   };
 
   const payload = useMemo(() => rows.map((r, i) => {
     const g = (k: Field) => (map[k] ? cellText(r[map[k]!]) : "");
-    return { empNo: g("empNo"), name: g("name"), email: g("email"), type: g("type"), startDate: g("startDate"), endDate: g("endDate") || g("startDate"), days: g("days"), reason: g("reason"), typeOverride: overrides[i] || null };
+    return { empNo: g("empNo"), name: g("name"), email: g("email"), type: g("type"), startDate: g("startDate"), endDate: g("endDate") || g("startDate"), days: g("days"), reason: g("reason"), status: g("status"), typeOverride: overrides[i] || null };
   }), [rows, map, overrides]);
   const missing = FIELDS.filter((f) => f.required && !map[f.key]).map((f) => f.label);
 
   const run = async (apply: boolean) => {
     if (missing.length) { toast.error(`${missing.join("·")} 열을 골라 주세요.`); return; }
-    if (apply && !confirm(`적용 예정 ${results?.filter((r) => r.status === "ok").length ?? 0}건을 승인 완료 휴가로 넣고 연차를 차감합니다. 계속할까요?`)) return;
+    if (apply && !confirm(`적용 예정 ${results?.filter((r) => r.status === "ok").length ?? 0}건을 승인 완료 휴가로 넣습니다${deduct ? " (연차 차감 유형은 그 해 연차에서 차감)" : " (연차는 차감하지 않고 기록만)"}. 계속할까요?`)) return;
     setBusy(apply ? "apply" : "preview");
     try {
-      const res = await fetch("/api/leave/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: payload, apply }) });
+      const res = await fetch("/api/leave/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: payload, apply, deduct }) });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d.error || "실패했습니다."); return; }
+      if (!res.ok) { toast.error(d.error || "실패했습니다."); if (apply) loadBatches(); return; }
       setResults(d.results || []);
-      if (apply) { toast.success(`${d.applied}건 적용, ${d.skipped}행 건너뜀${d.batch ? ` (묶음 ${d.batch})` : ""}`); loadBatches(); }
-    } catch { toast.error("네트워크 오류입니다."); }
+      if (apply) {
+        if (d.failedAt != null) toast.error(`${d.failedAt + 2}행에서 실패해 중단했습니다 — ${d.applied}건은 들어갔습니다(묶음 ${d.batch ?? "-"}). 아래 목록에서 되돌릴 수 있습니다.`, { duration: 12000 });
+        else toast.success(`${d.applied}건 적용, ${d.skipped}행 건너뜀${d.batch ? ` (묶음 ${d.batch})` : ""}`);
+        loadBatches();
+      }
+    } catch { toast.error("네트워크 오류입니다."); if (apply) loadBatches(); }
     finally { setBusy(""); }
   };
 
@@ -95,7 +107,8 @@ export default function LeaveImport() {
       if (!res.ok) { toast.error(d.error || "되돌리지 못했습니다."); return; }
       toast.success(`${d.removed}건 되돌림${d.kept ? `, 취소 요청이 걸린 ${d.kept}건은 그대로` : ""}`);
       loadBatches();
-    } finally { setBusy(""); }
+    } catch { toast.error("네트워크 오류입니다."); }
+    finally { setBusy(""); }
   };
 
   const counts = useMemo(() => {
@@ -110,7 +123,8 @@ export default function LeaveImport() {
         <CardContent className="pt-5 space-y-3">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
             <p className="font-semibold">💡 시프티에서 내려받은 휴가 사용 내역 엑셀을 그대로 올리면 됩니다</p>
-            <p>첫 시트를 읽어 열 이름으로 이름·사번·유형·날짜를 자동으로 맞춥니다(틀리면 아래에서 고르세요). 미리보기에서 직원·유형·중복을 확인한 뒤 적용하면 <b>승인 완료</b> 휴가로 들어가고, 연차 차감 유형은 그 해 연차에서 차감됩니다. 잘못 넣었으면 묶음째 되돌릴 수 있습니다.</p>
+            <p>첫 시트를 읽어 열 이름으로 이름·사번·유형·날짜를 자동으로 맞춥니다(틀리면 아래에서 고르세요). 미리보기에서 직원·유형·중복을 확인한 뒤 적용하면 <b>승인 완료</b> 휴가로 들어갑니다. 잘못 넣었으면 묶음째 되돌릴 수 있습니다.</p>
+            <p>시프티 「반차」「반반차」는 오전·오후 구분이 없어 <b>오전</b>으로 들어갑니다. 상태 열을 맞추면 반려·취소 건은 건너뜁니다.</p>
           </div>
           <div className="flex gap-2 items-center">
             <input id="leave-import-file" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
@@ -131,8 +145,11 @@ export default function LeaveImport() {
             </div>
           )}
           {headers.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onClick={() => run(false)} disabled={!!busy}>{busy === "preview" ? "확인 중…" : "미리보기"}</Button>
+              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none" title="끄면 휴가 기록만 넣고 연차 잔여는 건드리지 않습니다 — 잔여를 「연차 일괄 업로드」로 시프티 기준에 이미 맞췄을 때">
+                <input type="checkbox" checked={deduct} onChange={(e) => setDeduct(e.target.checked)} />연차 차감 유형은 그 해 연차에서 차감
+              </label>
               {results && (
                 <>
                   <span className="text-xs text-gray-500">적용 예정 {counts.ok ?? 0} · 유형 고르기 {counts.type_unknown ?? 0} · 중복 {counts.duplicate ?? 0} · 직원 없음 {(counts.user_not_found ?? 0) + (counts.user_ambiguous ?? 0)} · 값 오류 {counts.invalid ?? 0}</span>
