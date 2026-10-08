@@ -92,7 +92,7 @@ export async function workReport(opts: {
   for (const s of schedules) { sched.add(`${s.userId}|${ymdOf(s.date)}`); rows.get(s.userId)!.schedDays++; }
   const pending = new Set(pendings.map((p) => `${p.userId}|${ymdOf(p.workDate)}`));
 
-  // 휴가 — 기간 안의 날만, 며칠짜리는 주말·공휴일 건너뜀. 하루 전부 쉬는 날(합 1일)은 결근 판정에서 뺀다, 오전 반차는 지각 제외
+  // 휴가 — 기간 안의 날만, 며칠짜리는 주말·공휴일 건너뜀. 휴가가 하나라도 있는 날은 결근이 아니다(출퇴근 보드와 같은 규칙 — 검증 F1), 오전 반차는 지각 제외
   const leaveDay = new Map<string, { frac: number; am: boolean }>();
   for (const l of leaves) {
     const info = leaveInfo(l.type);
@@ -159,7 +159,7 @@ export async function workReport(opts: {
       if (pending.has(k)) continue;
       const a = attDays.get(k);
       if (a && a.in !== a.out) { r.missing++; continue; }
-      if (!a?.in && !a?.out && sched.has(k) && (leaveDay.get(k)?.frac ?? 0) < 1 && !holidays.has(y)
+      if (!a?.in && !a?.out && sched.has(k) && !leaveDay.has(k) && !holidays.has(y)
         && u.employmentStatus !== "ON_LEAVE" && u.employmentStatus !== "TEMPORARY"
         && (!hire || y >= hire) && (!resign || y <= resign)) r.absent++;
     }
