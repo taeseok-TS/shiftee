@@ -76,8 +76,9 @@ export async function POST(request: NextRequest) {
     const rows = await prisma.portalSyncChange.findMany({ where: { status: "PENDING", kind: "UPDATE" }, select: { id: true, diff: true } });
     let done = 0; const failed: string[] = [];
     for (const r of rows) {
-      const d = r.diff as { nameMismatch?: boolean; managerScope?: boolean; weakIdentity?: boolean; unverified?: boolean } | null;
-      if (d?.nameMismatch || d?.managerScope || d?.weakIdentity || d?.unverified) continue; // 개명·원장 계정·같은 사람 확인 안 된 경우는 한 건씩
+      const d = r.diff as { nameMismatch?: boolean; managerScope?: boolean; weakIdentity?: boolean; unverified?: boolean; hireChange?: boolean; fields?: { hireDate?: unknown } } | null;
+      // 개명·원장 계정·같은 사람 확인 안 된 경우·입사일 변경(연차 기준)은 한 건씩 — 옛 diff 는 hireChange 가 없어 fields.hireDate 로도 본다
+      if (d?.nameMismatch || d?.managerScope || d?.weakIdentity || d?.unverified || d?.hireChange || d?.fields?.hireDate) continue;
       const res = await decideChange(r.id, "apply", actor);
       if (res.ok === false) failed.push(res.error); else done++; // strictNullChecks 없이는 res.ok 로 좁혀지지 않는다
     }

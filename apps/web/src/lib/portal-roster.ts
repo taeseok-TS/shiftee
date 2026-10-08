@@ -22,6 +22,8 @@ import { sendTempPassword } from "@/lib/email";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
+/** 입사일 대조표(#5)에서 본부가 확정한 입사일 — AppSetting 키 접두어, 값은 YYYY-MM-DD */
+export const HIRE_CONFIRM_PREFIX = "hireDateConfirmed:";
 // 입사 반영 시 임시 비밀번호 — 관리자 비밀번호 초기화와 같은 규칙(24시간 뒤 봇이 변경 요청)
 // 새 계정의 임시 비밀번호는 계정마다 무작위로 만들어 등록 이메일로 보낸다(2026-09-30 디렉터 — 종전 고정값 12345678 폐지)
 // 봇 계정(비활성 EMPLOYEE)은 사람이 아니다 — 대조에서 뺀다
@@ -225,6 +227,9 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
   const notCounted = new Set(branchRows.filter((b) => !b.countInStats).map((b) => b.name)); // 본부·테스트지점 — "명부에 없음" 목록에서 뺀다
   const byEmp = new Map<number, CUser>();
   for (const u of users) if (u.empNo != null) byEmp.set(u.empNo, u);
+  // 본부가 입사일 대조표(#5)에서 확정한 입사일 — 그 값 그대로면 포털 값으로 되돌리자고 제안하지 않는다(2026-10-08)
+  const confirmedHire = new Map((await prisma.appSetting.findMany({ where: { key: { startsWith: HIRE_CONFIRM_PREFIX } }, select: { key: true, value: true } }))
+    .map((s) => [s.key.slice(HIRE_CONFIRM_PREFIX.length), s.value]));
 
   const plans: Plan[] = [];
   const skipped: Skip[] = [];
@@ -315,7 +320,7 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
     const pos = mapPosition(r.position);
     if (pos && pos !== u.position) fields.position = [u.position, pos];
     // 7월 이전 입사자는 입사일을 건드리지 않는다(디렉터 확정 2026-09-18) — 교육 수료 후 입사라 기준이 다르다
-    if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
+    if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate) && confirmedHire.get(u.id) !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
       // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 바뀌는 건은 항상 확인받는다.
@@ -324,7 +329,8 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
       const hireChange = !!fields.hireDate;
       // 원장 계정의 지점·직책이 바뀌면 담당 범위·권한 판정이 따라 바뀐다 — 자동으로 두지 않는다(M5)
       const managerScope = u.role === "MANAGER" && !!(fields.branch || fields.jobGroup);
-      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, ...idf }, forceConfirm: nameMismatch || managerScope || hireChange || weakIdentity || unverified });
+      // hireChange 를 diff 에도 남긴다 — 「모두 반영」·화면 일반 변경 목록이 입사일 변경을 한 건씩 확인하게(#5 검증 F1)
+      plans.push({ ...base, kind: "UPDATE", diff: { fields, nameMismatch, managerScope, hireChange, ...idf }, forceConfirm: nameMismatch || managerScope || hireChange || weakIdentity || unverified });
     }
   }
 

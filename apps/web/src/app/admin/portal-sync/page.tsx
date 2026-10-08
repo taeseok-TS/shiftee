@@ -37,7 +37,8 @@ type PortalSide = { branch?: string | null; joinDate?: string | null };
 const targetOf = (c: Change) => (c.diff.target ?? null) as Target | null;
 const portalOf = (c: Change) => (c.diff.portal ?? null) as PortalSide | null;
 /** 일반 칸 변경이라도 개명·원장 계정·이름만 같은 약한 일치면 개별 확인으로 */
-const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope || !!c.diff.weakIdentity || !!c.diff.unverified;
+const needsConfirm = (c: Change) => c.kind !== "UPDATE" || !!c.diff.nameMismatch || !!c.diff.managerScope || !!c.diff.weakIdentity || !!c.diff.unverified
+  || !!c.diff.hireChange || !!(c.diff.fields as { hireDate?: unknown } | undefined)?.hireDate;   // 입사일 변경은 연차 기준이라 한 건씩(#5)
 
 function TargetLine({ c }: { c: Change }) {
   const tg = targetOf(c);

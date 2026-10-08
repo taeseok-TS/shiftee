@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 
-type Row = { userId: string; empNo: number | null; name: string; email: string; branch: string | null; cubetee: string | null; portal: string | null; portalEditable: boolean | null; resigned: boolean };
+type Row = { userId: string; empNo: number | null; name: string; email: string; branch: string | null; cubetee: string | null; portal: string | null; portalEditable: boolean | null; portalNote: string | null; confirmed: string | null; resigned: boolean };
 type Pick = "keep" | "portal" | "shiftee" | "manual";
 const empNoText = (n: number | null) => (n == null ? "" : String(n).padStart(5, "0"));
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -46,8 +46,10 @@ export default function HireDatesPage() {
       const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: "" });
       if (!json.length) { toast.error("첫 시트에 데이터가 없습니다."); return; }
       const hs = Object.keys(json[0]);
+      // 구체 패턴부터(열 순서가 아니라 패턴 순서가 이기게 — 「입사 구분」「hire type」이 「입사일」보다 앞에 있어도 입사일을 잡는다)
       const col = (res: RegExp[], ex?: RegExp) => { for (const re of res) { const h = hs.find((x) => re.test(x.trim()) && !(ex && ex.test(x))); if (h) return h; } return null; };
-      const cEmp = col([/사번|사원\s*번호|empno/i]), cEmail = col([/이메일|email|메일/i]), cName = col([/^(이름|성명|직원명|직원|name)$/i, /이름|성명/]), cHire = col([/입사\s*(일|날짜)|입사|hire|join/i], /퇴사|발령|재입사/);
+      const cEmp = col([/사번|사원\s*번호|empno/i]), cEmail = col([/이메일|email|메일/i]), cName = col([/^(이름|성명|직원명|직원|name)$/i, /이름|성명/]);
+      const cHire = col([/^입사\s*(일|일자|날짜)$/, /입사\s*(일|일자|날짜)/, /hire\s*date|join(ed)?\s*date/i, /^입사$/, /입사/, /hire|join/i], /퇴사|발령|재입사|구분|type|유형|예정/i);
       if (!cHire || (!cEmp && !cEmail && !cName)) { toast.error("입사일 열과 사번·이메일·이름 중 하나가 있어야 합니다."); return; }
       const byEmp = new Map(rows.filter((r) => r.empNo != null).map((r) => [r.empNo as number, r.userId]));
       const byEmail = new Map(rows.map((r) => [r.email.toLowerCase(), r.userId]));
@@ -75,21 +77,25 @@ export default function HireDatesPage() {
       .filter((r) => !k || [r.name, empNoText(r.empNo), r.branch ?? ""].some((v) => v.includes(k)));
   }, [rows, shiftee, onlyDiff, q]);
 
-  const valueOf = (r: (typeof shown)[number]) => {
+  // 반영 대상은 필터·검색으로 숨긴 행까지 포함한 **전체** 선택 — 숨은 선택이 confirm 에 안 보이는 채 반영되지 않게 이름을 함께 보여 준다
+  const all = useMemo(() => (rows ?? []).map((r) => ({ ...r, shiftee: shiftee.get(r.userId) ?? null })), [rows, shiftee]);
+  const valueOf = (r: (typeof all)[number]) => {
     const p = picks[r.userId]; if (!p || p.pick === "keep") return null;
-    if (p.pick === "portal") return r.portal; if (p.pick === "shiftee") return r.shiftee; return toYmd(p.manual) ;
+    if (p.pick === "portal") return r.portal; if (p.pick === "shiftee") return r.shiftee; return toYmd(p.manual);
   };
-  const pending = shown.map((r) => ({ r, v: valueOf(r) })).filter((x) => x.v && x.v !== x.r.cubetee);
+  const pending = all.map((r) => ({ r, v: valueOf(r) })).filter((x) => x.v && x.v !== x.r.cubetee);
 
   const apply = async () => {
     if (!pending.length) { toast.error("반영할 변경이 없습니다. 행마다 확정값을 고르세요."); return; }
-    if (!confirm(`${pending.length}명의 입사일을 바꾸고 올해 연차 총량을 다시 계산합니다. 계속할까요?`)) return;
+    if (!confirm(`${pending.length}명의 입사일을 바꾸고 올해 연차 총량을 다시 계산합니다.\n${pending.slice(0, 15).map(({ r, v }) => `· ${r.name} ${r.cubetee ?? "-"} → ${v}`).join("\n")}${pending.length > 15 ? `\n… 외 ${pending.length - 15}명` : ""}\n계속할까요?`)) return;
     setBusy(true);
     try {
       const res = await fetch("/api/admin/hire-dates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: pending.map(({ r, v }) => ({ userId: r.userId, hireDate: v, source: picks[r.userId].pick === "portal" ? "포털" : picks[r.userId].pick === "shiftee" ? "시프티" : "직접 입력" })) }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "반영하지 못했습니다."); return; }
       toast.success(`${d.applied}명 반영${d.errors?.length ? `, 오류 ${d.errors.length}건` : ""}`);
+      for (const w of (d.warnings ?? []) as string[]) toast.warning(w, { duration: 10000 });
+      for (const e of ((d.errors ?? []) as string[]).slice(0, 5)) toast.error(e, { duration: 10000 });
       setPicks({}); load();
     } catch { toast.error("네트워크 오류입니다."); }
     finally { setBusy(false); }
@@ -119,7 +125,7 @@ export default function HireDatesPage() {
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={apply} disabled={busy || !pending.length}>{busy ? "반영 중…" : `선택한 ${pending.length}명 반영`}</Button>
           </div>
           {portalError && <p className="text-xs text-amber-600">포털 명부: {portalError} — 포털 칸은 비어 있습니다.</p>}
-          <p className="text-xs text-gray-400">포털 칸이 흐린 직원은 7월 이전 입사자라 포털 루트입과일이 입사일이 아닙니다(인사명부 규칙 2026-09-18) — 본부가 확인한 값만 고르세요. 시프티 입사일은 지점 발령일인 경우가 있습니다(요청서 #5).</p>
+          <p className="text-xs text-gray-400">포털 칸이 흐린 직원은 7월 이전 입사자라 포털 루트입과일이 입사일이 아닙니다(인사명부 규칙 2026-09-18) — 본부가 확인한 값만 고르세요. 시프티 입사일은 지점 발령일인 경우가 있습니다(요청서 #5). 반영한 값은 「확정」으로 표시되고 포털 동기화가 되돌리자고 제안하지 않습니다(「유지」를 골라 반영해도 확정됩니다).</p>
         </CardContent>
       </Card>
       <Card>
@@ -139,8 +145,8 @@ export default function HireDatesPage() {
                   <tr key={r.userId} className="border-b last:border-0 hover:bg-gray-50/70">
                     <td className="px-3 py-2"><p className="font-medium text-gray-900">{r.name}{r.resigned && <span className="ml-1 text-xs text-gray-400">(퇴사)</span>}</p><p className="text-xs text-gray-400">{empNoText(r.empNo)}</p></td>
                     <td className="px-3 py-2 text-gray-600">{r.branch || "-"}</td>
-                    <td className="px-3 py-2 font-mono">{r.cubetee ?? <span className="text-red-500">없음</span>}</td>
-                    <td className={`px-3 py-2 font-mono ${r.portalEditable === false ? "text-gray-300" : diffP ? "text-amber-700 font-semibold" : ""}`} title={r.portalEditable === false ? "7월 이전 입사자 — 루트입과일은 입사일이 아님" : ""}>{r.portal ?? "-"}</td>
+                    <td className="px-3 py-2 font-mono">{r.cubetee ?? <span className="text-red-500">없음</span>}{r.confirmed && r.confirmed === r.cubetee && <span className="block text-[11px] text-emerald-600 font-sans" title="본부가 대조표에서 확정한 값 — 포털 동기화가 되돌리자고 제안하지 않음">확정</span>}</td>
+                    <td className={`px-3 py-2 font-mono ${r.portalEditable === false ? "text-gray-300" : diffP ? "text-amber-700 font-semibold" : ""}`} title={r.portalEditable === false ? "7월 이전 입사자 — 루트입과일은 입사일이 아님" : r.portalNote ?? ""}>{r.portal ?? "-"}{r.portalNote && <span className="block text-[11px] text-red-500 font-sans">{r.portalNote}</span>}</td>
                     <td className={`px-3 py-2 font-mono ${diffS ? "text-amber-700 font-semibold" : ""}`}>{r.shiftee ?? "-"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
