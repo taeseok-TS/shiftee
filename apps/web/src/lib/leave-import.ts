@@ -108,7 +108,7 @@ export async function previewLeaveImport(rowsIn: unknown[]): Promise<ImportResul
     const withDates = { ...typed, startDate: s, endDate: e };
     if (info.unit !== "FULL" && s !== e) return { ...withDates, status: "invalid", message: `${info.label}은(는) 하루만` };
     if (spanDays(s, e) > 366) return { ...withDates, status: "invalid", message: "기간이 1년을 넘음" };
-    const daysText = str(r.days).replace(/일$/, "").replace(/,/g, "");
+    const daysText = str(r.days).replace(/일$/, "").replace(/,(?=\d{3})/g, "");   // 「1,000」 식 천 단위 쉼표만 뗀다(「1,5」는 오류로)
     const daysIn = daysText === "" ? null : Number(daysText);
     if (daysIn != null && (!Number.isFinite(daysIn) || daysIn <= 0 || daysIn > spanDays(s, e))) return { ...withDates, status: "invalid", message: "일수가 올바르지 않음(기간보다 크거나 숫자가 아님)" };
     return { ...withDates, days: daysIn, status: "ok", message: "" };
@@ -149,6 +149,9 @@ export async function previewLeaveImport(rowsIn: unknown[]): Promise<ImportResul
   return out;
 }
 
+export const IMPORT_MARK_DEDUCTED = "시프티 이관";
+export const IMPORT_MARK_RECORD_ONLY = "시프티 이관(차감 없음)";
+
 export type ApplyOutcome = { batch: string | null; applied: number; skipped: number; failedAt: number | null; error: string | null; results: ImportResult[] };
 
 /** 적용 — 미리보기 ok 행만 승인 완료 휴가로 넣고(deduct 면 차감) 배치 id 를 돌려준다. 중간에 실패하면 거기까지 넣은 것을 알린다(되돌리기 가능) */
@@ -167,8 +170,9 @@ export async function applyLeaveImport(rows: unknown[], opts: { deduct: boolean 
             reason: `[시프티 이관] ${r.reason}`.trim(), status: "APPROVED", approverId: actor.userId, importBatch: batch,
           },
         });
-        // 본부 승인 단계 하나 — 목록·연차 대장에 「관리자 승인(시프티 이관)」으로 보이게(대리 등록 #37 과 같은 방식)
-        await tx.leaveApprovalStep.create({ data: { leaveRequestId: created.id, order: 1, approverRole: "ADMIN", approverId: actor.userId, status: "APPROVED", comment: "시프티 이관", decidedAt: new Date() } });
+        // 본부 승인 단계 하나 — 목록·연차 대장에 「관리자 승인(시프티 이관)」으로 보이게(대리 등록 #37 과 같은 방식).
+        // 차감 여부를 이 단계 comment 에 남긴다 — 되돌리기가 행마다 이것으로 복구 여부를 정한다(감사 로그는 실패를 삼키므로 믿지 않는다, 검증 A)
+        await tx.leaveApprovalStep.create({ data: { leaveRequestId: created.id, order: 1, approverRole: "ADMIN", approverId: actor.userId, status: "APPROVED", comment: opts.deduct ? IMPORT_MARK_DEDUCTED : IMPORT_MARK_RECORD_ONLY, decidedAt: new Date() } });
         if (opts.deduct && isLeaveDeductible(r.typeCode!)) await deductLeaveBalance(tx, r.matched!.userId, leaveYearOfLeave(dateOf(r.startDate)), r.days!);
       });
       r.status = "applied"; r.message = "";
@@ -190,23 +194,22 @@ export async function applyLeaveImport(rows: unknown[], opts: { deduct: boolean 
 export async function rollbackLeaveImport(batch: string, actor: { userId: string; name: string }) {
   const rows = await prisma.leaveRequest.findMany({
     where: { importBatch: batch },
-    select: { id: true, userId: true, type: true, days: true, startDate: true, status: true, _count: { select: { cancelRequests: { where: { status: "PENDING" } } } } },
+    select: { id: true, userId: true, type: true, days: true, startDate: true, status: true, approvalSteps: { select: { comment: true } }, _count: { select: { cancelRequests: { where: { status: "PENDING" } } } } },
   });
-  // 차감 여부는 적용 때 감사 기록에 남겼다 — 복구는 그 배치의 LEAVE_IMPORT 기록이 「연차 차감」이었을 때만
-  const applyLog = await prisma.auditLog.findFirst({ where: { action: "LEAVE_IMPORT", targetId: batch }, select: { detail: true } });
-  const deducted = !!applyLog?.detail?.includes("(연차 차감)");
-  let removed = 0, kept = 0;
+  let removed = 0, kept = 0, restored = 0;
   for (const r of rows) {
     if (r._count.cancelRequests > 0) { kept++; continue; }
+    // 「차감 없음」 표식이 없으면 차감한 것으로 보고 복구한다(표식이 없는 쪽으로 기울이지 않는다 — 검증 A)
+    const deducted = !r.approvalSteps.some((s) => s.comment === IMPORT_MARK_RECORD_ONLY);
     await prisma.$transaction(async (tx) => {
       await tx.leaveApprovalStep.deleteMany({ where: { leaveRequestId: r.id } });
       await tx.leaveRequest.delete({ where: { id: r.id } });
-      if (deducted && r.status === "APPROVED" && isLeaveDeductible(r.type)) await restoreLeaveBalance(tx, r.userId, leaveYearOfLeave(r.startDate), r.days);
+      if (deducted && r.status === "APPROVED" && isLeaveDeductible(r.type)) { await restoreLeaveBalance(tx, r.userId, leaveYearOfLeave(r.startDate), r.days); restored++; }
     });
     removed++;
   }
-  await logAudit({ actorId: actor.userId, actorName: actor.name, action: "LEAVE_IMPORT_ROLLBACK", targetType: "LeaveRequest", targetId: batch, detail: `시프티 휴가 가져오기 되돌리기 ${batch}: ${removed}건 삭제${deducted ? "·연차 복구" : ""}${kept ? `, 취소 요청이 진행 중인 ${kept}건은 둠` : ""}` });
-  return { removed, kept };
+  await logAudit({ actorId: actor.userId, actorName: actor.name, action: "LEAVE_IMPORT_ROLLBACK", targetType: "LeaveRequest", targetId: batch, detail: `시프티 휴가 가져오기 되돌리기 ${batch}: ${removed}건 삭제·${restored}건 연차 복구${kept ? `, 취소 요청이 진행 중인 ${kept}건은 둠` : ""}` });
+  return { removed, kept, restored };
 }
 
 /** 가져온 배치 목록 — 배치별 건수·일수·첫 적용 시각 */
