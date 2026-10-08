@@ -164,7 +164,8 @@ export default function ContractDetailScreen() {
   const st = STATUS[contract.status] || STATUS.DRAFT;
   const originalFile = firstUrl(contract.fileUrl);
   // 관리자라도 **본인이 서명자인 계약**(나에게 테스트 발송 #67)은 직원과 같은 흐름 — 비밀번호 관문·열람 제한을 그대로 본다
-  const isAdmin = myRole === "ADMIN" && !!myId && (contract as any).userId !== myId;
+  // 외부 계약은 소유자가 작성 관리자(userId=나)라 본인 서명이 아니다 — 관리자 흐름 유지
+  const isAdmin = myRole === "ADMIN" && !(!!myId && (contract as any).userId === myId && !(contract as any).externalName);
   const signedFile = firstUrl(contract.signedUrl);
   // 본인 서명은 결재 순서상 자기 차례(내 단계가 PENDING)일 때만 — 결재라인 없는 구계약은 기존 SENT 기준
   const steps: any[] = (contract as any).approvalLine?.steps || [];
