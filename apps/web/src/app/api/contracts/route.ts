@@ -33,11 +33,12 @@ export async function GET(request: NextRequest) {
       // 본인 계약만 — 외부 계약(externalName)은 소유자가 작성 관리자라 개인 화면에서는 제외
       ? { userId: session.userId, externalName: null }
       : session.role === "ADMIN"
-      ? {}
+      // 시험 문서(#67)는 기본 목록에서 빼고, ?test=true 면 **자기** 시험 문서만
+      ? (searchParams.get("test") === "true" ? { isTest: true, userId: session.userId } : { isTest: false })
       : session.role === "MANAGER"
       // 원장은 담당 지점 직원 계약서를 보되, 직원전용 문서(비밀유지·개인정보동의서)와
       // 외부 계약(소유자=작성 관리자 — 지점이 겹치면 딸려 나옴)은 제외. 결재 차례면 my-approvals로 보임
-      ? { user: { branch: { in: myBranches } }, employeeOnly: false, externalName: null }
+      ? { user: { branch: { in: myBranches } }, employeeOnly: false, externalName: null, isTest: false }
       : { userId: session.userId, externalName: null };
 
     // 추가 필터 적용
@@ -224,10 +225,16 @@ export async function POST(request: NextRequest) {
     const endDate = formData.get("endDate") as string;
     const salary = formData.get("salary") as string | null;
     const extraFieldsRaw = formData.get("extraFields") as string | null; // 템플릿별 동적 입력란 값(JSON)
+    // 나에게 테스트 발송(#67) — 관리자 본인이 서명자인 시험 문서를 만들어 바로 보낸다. 직원 선택·외부 계약 값은 무시
+    const testSend = formData.get("testSend") === "1";
+    if (testSend && session.role !== "ADMIN")
+      return NextResponse.json({ error: "테스트 발송은 관리자만 할 수 있습니다." }, { status: 403 });
+    const { TEST_TITLE_PREFIX } = await import("@/lib/contract-test");
+    const finalTitle = testSend ? (title || "").startsWith(TEST_TITLE_PREFIX) ? title : `${TEST_TITLE_PREFIX}${(title || "").trim() || "테스트 문서"}` : title;
     // 외부(미가입) 계약자 — 이름·연락처를 관리자가 직접 입력, 계약 소유자는 작성 관리자
-    const externalName = ((formData.get("externalName") as string) || "").trim() || null;
-    const externalPhone = ((formData.get("externalPhone") as string) || "").trim() || null;
-    const effectiveUserId = externalName ? session.userId : userId;
+    const externalName = testSend ? null : ((formData.get("externalName") as string) || "").trim() || null;
+    const externalPhone = testSend ? null : ((formData.get("externalPhone") as string) || "").trim() || null;
+    const effectiveUserId = externalName || testSend ? session.userId : userId;
     if (externalName && session.role !== "ADMIN")
       return NextResponse.json({ error: "외부 계약은 관리자만 작성할 수 있습니다." }, { status: 403 });
     // 외부 계약은 휴대폰 번호 필수(디렉터 9/11) — 게스트 서명 링크의 본인 확인(뒷자리 4자리)이 이 번호로 한다
@@ -235,7 +242,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
 
     // 템플릿 없을 때는 파일 필수, 템플릿 있을 때는 파일 불필수
-    if ((files.length === 0 && !templateId) || !effectiveUserId || !title || !type)
+    if ((files.length === 0 && !templateId) || !effectiveUserId || !finalTitle || !type)
       return NextResponse.json(
         { error: "필수 정보가 누락되었습니다." },
         { status: 400 }
@@ -300,7 +307,7 @@ export async function POST(request: NextRequest) {
           try { parsedExtra = JSON.parse(extraFieldsRaw); } catch { /* 형식 오류는 무시 */ }
         }
         const mergeData = await buildContractMergeData(effectiveUserId, {
-          title, startDate, endDate, salary, extraFields: parsedExtra,
+          title: finalTitle, startDate, endDate, salary, extraFields: parsedExtra,
           external: externalName ? { name: externalName, phone: externalPhone } : null,
         });
         // 값 검증(#24) — 최저임금·소정근로시간·기간. 걸리면 만들지 않는다
@@ -335,8 +342,9 @@ export async function POST(request: NextRequest) {
         createdBy: session.userId, // 작성자 — 단계·완료 알림 대상 (#136)
         externalName: externalName || undefined,
         externalPhone: externalPhone || undefined,
-        title,
+        title: finalTitle,
         type: pickOr(CONTRACT_TYPES, type, "OTHER"),
+        isTest: testSend,
         fileUrl,
         templateId: templateId || undefined, // 수정 시 문서 재생성에 필요
         startDate: startDate ? new Date(startDate) : null,
@@ -358,6 +366,19 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // 시험 문서는 만든 자리에서 바로 보낸다(본인 서명 한 단계·기한 7일·본부 기본 메시지·본인 알림)
+    if (testSend) {
+      try {
+        const { sendTestContract } = await import("@/lib/contract-test");
+        const sent = await sendTestContract(contract.id, { userId: session.userId, name: session.name }, request);
+        return NextResponse.json({ success: true, test: true, contract: { ...contract, status: "SENT", signDeadline: sent.signDeadline, sendMessage: sent.sendMessage } });
+      } catch (e) {
+        // 문서는 만들어졌는데 발송 단계에서 실패 — 초안이 「내 테스트 문서만」에 남는다(7일 뒤 자동 삭제)
+        console.error("테스트 발송 오류:", e);
+        return NextResponse.json({ error: "테스트 문서는 만들어졌지만 보내지 못했습니다. 목록에서 「내 테스트 문서만」을 켜 확인한 뒤 지우고 다시 시도해 주세요." }, { status: 500 });
+      }
+    }
 
     return NextResponse.json({ success: true, contract });
   } catch (err) {

@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   if (!kind) return NextResponse.json({ error: "받을 형식을 골라 주세요." }, { status: 400 });
 
   const rows = await prisma.contract.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: ids }, isTest: false },   // 시험 문서(#67)는 내보내지 않는다
     select: {
       id: true, title: true, status: true, createdAt: true, signedAt: true, signDeadline: true, templateVersion: true, docNo: true,
       signedPdfUrl: true, signedUrl: true, extraFields: true, externalName: true,

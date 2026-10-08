@@ -650,7 +650,7 @@ export async function DELETE(
   const contract = await prisma.contract.findUnique({
     where: { id },
     select: {
-      id: true, status: true, title: true, bundleId: true,
+      id: true, status: true, title: true, bundleId: true, isTest: true,
       externalName: true, user: { select: { name: true } },
     },
   });
@@ -659,8 +659,8 @@ export async function DELETE(
     return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // 결재 완료(SIGNED) 상태는 삭제 불가
-  if (contract.status === "SIGNED") {
+  // 결재 완료(SIGNED) 상태는 삭제 불가 — 시험 문서(#67)는 완료돼도 지울 수 있다
+  if (contract.status === "SIGNED" && !contract.isTest) {
     return NextResponse.json(
       { error: "결재 완료된 계약서는 삭제할 수 없습니다." },
       { status: 400 }

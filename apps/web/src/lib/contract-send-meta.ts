@@ -53,6 +53,7 @@ export async function findDuplicateSends(c: {
     where: {
       userId: c.userId,
       externalName: null,
+      isTest: false,   // 시험 문서(#67)는 진행 중이어도 중복으로 치지 않는다
       id: { not: c.id },
       ...(c.bundleId ? { OR: [{ bundleId: null }, { bundleId: { not: c.bundleId } }] } : {}),
       ...(c.templateId ? { templateId: c.templateId } : { templateId: null, type: c.type as never, title: c.title }),

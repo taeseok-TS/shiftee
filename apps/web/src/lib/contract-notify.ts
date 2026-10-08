@@ -150,7 +150,7 @@ export async function runContractReminders() {
       status: "PENDING",
       updatedAt: { lt: new Date(cutoff.getTime() + 6 * 60 * 60 * 1000) }, // PENDING이 된 시점 근사치 = 스텝 최종 갱신 시각
       OR: [{ remindedAt: null }, { remindedAt: { lt: remindBefore } }],
-      approvalLine: { contract: { status: { in: ["SENT", "APPROVED"] } } },
+      approvalLine: { contract: { status: { in: ["SENT", "APPROVED"] }, isTest: false } },   // 시험 문서(#67)는 리마인더 없음
     },
     take: 200,
     include: {
@@ -232,7 +232,7 @@ export async function expireOverdueContracts() {
   const now = new Date();
   const due = await prisma.contract.findMany({
     where: { status: { in: ["SENT", "APPROVED"] }, signDeadline: { lt: now } },
-    select: { id: true, title: true, createdBy: true, externalName: true, signDeadline: true, user: { select: { name: true } } },
+    select: { id: true, title: true, createdBy: true, externalName: true, signDeadline: true, isTest: true, user: { select: { name: true } } },
     take: 200,
   });
   if (!due.length) return;
@@ -245,6 +245,7 @@ export async function expireOverdueContracts() {
       if (!r.count) continue;
       const ymd = c.signDeadline ? new Date(c.signDeadline.getTime() + KST_MS).toISOString().slice(0, 10) : "";
       await recordContractEvent({ contractId: c.id, type: "EXPIRED", actorName: "큐브티 봇", meta: { deadline: ymd } });
+      if (c.isTest) continue;   // 시험 문서(#67)는 만료만 하고 아무에게도 알리지 않는다
       const who = c.externalName || c.user.name;
       const msg = `⌛ 서명 기한 만료 — 「${c.title}」 (${who})\n기한 ${ymd} 까지 서명이 끝나지 않아 만료됐습니다. 다시 받으려면 계약 목록에서 재발송해 주세요.`;
       expired.push(`· 「${c.title}」 (${who}) — 기한 ${ymd}`);

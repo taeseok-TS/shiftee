@@ -311,6 +311,8 @@ model Contract {
   // 발송 당시 양식 버전(#48)·발송 메시지(#65) — 2026-10-07 QA76 묶음 7-가. deploy/ddl_contract_send_meta.sql
   templateVersion  Int?
   sendMessage      String?
+  // 나에게 테스트 발송(#67, 2026-10-08) — 관리자 본인이 서명자인 시험 문서. 목록·통계·알림·중복 검사에서 빼고 7일 뒤 지운다. deploy/ddl_contract_test.sql
+  isTest           Boolean               @default(false)
   // 서명 기한(#45, 본부 답변 #35 「기한 기본 2주, 지나면 자동 만료하고 본부에 알림」). deploy/ddl_contract_deadline.sql
   signDeadline     DateTime?
   employeeSignedAt DateTime?

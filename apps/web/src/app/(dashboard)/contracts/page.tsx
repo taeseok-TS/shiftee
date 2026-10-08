@@ -38,6 +38,7 @@ type Contract = {
   status: string;
   extraFields?: Record<string, string> | null; // 개인정보동의서 선택 동의 등
   sendMessage?: string | null; // 본부 발송 메시지(#65)
+  isTest?: boolean; // 나에게 테스트 발송(#67) 시험 문서 — 관리자 본인이 서명자
   profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
   employeeFields?: string[] | null; // 직원이 서명 시 직접 입력하는 필드 (퇴사일자/퇴사사유 등)
   employeeSignedAt?: string | null;
@@ -456,7 +457,7 @@ export default function ContractsPage() {
             {contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).map(c => (
               <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200">
                 <div>
-                  <p className="font-medium text-sm">{c.title}</p>
+                  <p className="font-medium text-sm">{c.title}{c.isTest && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">테스트</span>}</p>
                   <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
                 </div>
                 <div className="flex gap-2">
@@ -592,7 +593,7 @@ export default function ContractsPage() {
                   const s = statusConfig[c.status] || { label: "미정", variant: "default" };
                   return (
                     <tr key={c.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 font-medium">{c.title}</td>
+                      <td className="py-3 font-medium">{c.title}{c.isTest && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">테스트</span>}</td>
                       <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
                       <td className="py-3">
                         <ApprovalChain

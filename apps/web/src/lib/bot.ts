@@ -748,6 +748,12 @@ export function startBotScheduler() {
         const { runContractReminders } = await import("@/lib/contract-notify");
         await runContractReminders();
       } catch (e) { console.error("[bot] 전자계약 리마인더 오류:", e); }
+      // 보관 기간이 지난 테스트 문서(#67) 정리 — 리마인더와 같은 시각, 따로 실패해도 리마인더는 끝난 뒤
+      try {
+        const { purgeTestContracts } = await import("@/lib/contract-test");
+        const n = await purgeTestContracts();
+        if (n) console.log(`[bot] 테스트 문서 ${n}건 정리`);
+      } catch (e) { console.error("[bot] 테스트 문서 정리 오류:", e); }
     }
 
     // 일일 상태 보고 — 매일 KST 08:30경 1회. **이상이 없어도 보낸다**(2026-09-06 디렉터 지시).

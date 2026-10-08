@@ -46,6 +46,7 @@ type Contract = {
   templateVersion?: number | null; // 발송 당시 양식 버전(#48)
   signDeadline?: string | null;    // 서명 기한(#45)
   sendMessage?: string | null;     // 본부 발송 메시지(#65)
+  isTest?: boolean;                // 나에게 테스트 발송(#67) 시험 문서 — 7일 뒤 자동 삭제
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
     steps: Array<{
@@ -381,6 +382,8 @@ export default function ContractsPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterStale, setFilterStale] = useState(false);
+  const [showTest, setShowTest] = useState(false);       // 내 테스트 문서만(#67)
+  const [testSending, setTestSending] = useState(false); // 나에게 테스트 발송 중(#67)
 
   const fetchContracts = useCallback(async (filters?: any) => {
     const params = new URLSearchParams();
@@ -395,6 +398,7 @@ export default function ContractsPage() {
       templateId: filterTemplateId,
       pkg: filterPkg,
       dateField: filterDateField, from: filterFrom, to: filterTo, stale: filterStale,
+      test: showTest,
     };
 
     if (useFilters.year) params.append("year", useFilters.year);
@@ -412,6 +416,7 @@ export default function ContractsPage() {
       if (useFilters.to) params.append("to", useFilters.to);
     }
     if (useFilters.stale) params.append("stale", "7");
+    if (useFilters.test) params.append("test", "true");   // 내 테스트 문서만(#67)
 
     const res = await fetch(`/api/contracts?${params.toString()}`);
     const data = await res.json();
@@ -422,7 +427,7 @@ export default function ContractsPage() {
       const approvalData = await approvalRes.json();
       setMyApprovals(approvalData.contracts || []);
     }
-  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked, filterTemplateId, filterPkg, filterDateField, filterFrom, filterTo, filterStale]);
+  }, [role, filterYear, filterMonth, filterStatus, filterUserId, filterBranch, filterSearchText, showHiddenRevoked, filterTemplateId, filterPkg, filterDateField, filterFrom, filterTo, filterStale, showTest]);
 
   const fetchTemplates = useCallback(async () => {
     if (role === "EMPLOYEE") return;
@@ -1107,6 +1112,66 @@ export default function ContractsPage() {
     }
   }
 
+  // 단건 작성에 보내는 동적 입력값 — 계약서 작성(handleCreate)과 나에게 테스트 발송(#67)이 같은 값을 쓴다
+  function buildSingleExtra(): Record<string, string> {
+    // 계약 구분에 해당하지 않는(숨겨진) 필드 값은 제외하고 전송
+    const allExtra: Record<string, string> = {};
+    for (const [k, v] of Object.entries(extraFields)) {
+      if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+      allExtra[k] = v;
+    }
+    // 손대지 않은 체크박스 필드는 기본 체크(☑)로 전송
+    // "기타"류는 실수 방지를 위해 기본 해제 (개선 제안 2026-08-24)
+    for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
+    // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
+    for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
+    if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+    // 개인정보동의서 "단독" 발송에도 동의 단계가 뜨도록 키를 심는다 — 키가 없으면 서명 화면이
+    // 동의 확인을 건너뛰어 빈 체크로 완료되는 회귀 (검증관 2026-08-27)
+    if (privacyTemplate && selectedTemplate === privacyTemplate.id) {
+      if (!allExtra["동의고유식별"]) allExtra["동의고유식별"] = "미선택";
+      if (!allExtra["동의채용정보"]) allExtra["동의채용정보"] = "미선택";
+    }
+    return allExtra;
+  }
+
+  // 나에게 테스트 발송(#67) — 지금 고른 양식·입력값으로 **관리자 본인이 서명자**인 시험 문서를 만들어 바로 보낸다.
+  // 직원 선택은 쓰지 않는다(서명자가 나). 결재선은 본인 서명 한 단계라 다른 사람에게는 알림이 가지 않는다.
+  // 시험 문서는 「내 계약서」에서 서명자 화면 그대로 보이고, 이 목록에서는 「내 테스트 문서만」을 켜면 보인다. 7일 뒤 자동 삭제
+  async function handleTestSend() {
+    if (!useTemplate && files.length === 0) { toast.error("파일을 선택하거나 템플릿을 고르세요."); return; }
+    if (useTemplate && !selectedTemplate) { toast.error("템플릿을 선택해주세요."); return; }
+    const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    if (needsSalary && !String(createForm.salary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    if (testSending) return;
+    setTestSending(true);
+    try {
+      const formData = new FormData();
+      formData.append("testSend", "1");
+      if (useTemplate && selectedTemplate) formData.append("templateId", selectedTemplate);
+      else files.forEach((file) => formData.append("files", file));
+      formData.append("title", createForm.title || templates.find(t => t.id === selectedTemplate)?.name || "테스트 문서");
+      formData.append("type", createForm.type);
+      formData.append("startDate", createForm.startDate);
+      formData.append("endDate", createForm.endDate);
+      formData.append("salary", createForm.salary);
+      const allExtra = buildSingleExtra();
+      if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
+      const res = await fetch("/api/contracts", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || "테스트 발송에 실패했습니다."); return; }
+      toast.success("테스트 문서를 나에게 보냈습니다. 「내 계약서」에서 서명자 화면을 확인하세요. 이 목록에서는 「내 테스트 문서만」을 켜면 보입니다(7일 뒤 자동 삭제).", {
+        duration: 10000, action: { label: "내 계약서 열기", onClick: () => window.open("/contracts", "_blank") },
+      });
+      setCreateOpen(false);
+      setFiles([]); setUseTemplate(false); setSelectedTemplate(""); setEmployeeSearchText("");
+      setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
+      fetchContracts();
+    } finally {
+      setTestSending(false);
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
 
@@ -1440,24 +1505,7 @@ export default function ContractsPage() {
     formData.append("endDate", createForm.endDate);
     formData.append("salary", createForm.salary);
     {
-      // 계약 구분에 해당하지 않는(숨겨진) 필드 값은 제외하고 전송
-      const allExtra: Record<string, string> = {};
-      for (const [k, v] of Object.entries(extraFields)) {
-        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
-        allExtra[k] = v;
-      }
-      // 손대지 않은 체크박스 필드는 기본 체크(☑)로 전송
-      // "기타"류는 실수 방지를 위해 기본 해제 (개선 제안 2026-08-24)
-      for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
-      // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
-      for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
-      if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
-      // 개인정보동의서 "단독" 발송에도 동의 단계가 뜨도록 키를 심는다 — 키가 없으면 서명 화면이
-      // 동의 확인을 건너뛰어 빈 체크로 완료되는 회귀 (검증관 2026-08-27)
-      if (privacyTemplate && selectedTemplate === privacyTemplate.id) {
-        if (!allExtra["동의고유식별"]) allExtra["동의고유식별"] = "미선택";
-        if (!allExtra["동의채용정보"]) allExtra["동의채용정보"] = "미선택";
-      }
+      const allExtra = buildSingleExtra();
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
     }
 
@@ -2460,6 +2508,14 @@ ${url}`;
                       <Eye size={14} />{previewing ? "생성 중..." : "미리보기"}
                     </Button>
                   )}
+                  {/* 나에게 테스트 발송(#67) — 단건 작성에서만. 패키지·여러 명·외부 계약은 실제 발송 흐름이 달라 제외 */}
+                  {role === "ADMIN" && !bulkMode && !externalMode && !bundleMode && !resignBundleMode && !codiBundleMode && !extBundleMode && (
+                    <Button type="button" variant="outline" className="gap-1 text-amber-700 border-amber-300 hover:bg-amber-50" disabled={uploading || testSending}
+                      title="실제로 보내기 전에 나에게 먼저 보내 서명자 화면·알림·완료본을 확인합니다. 직원 선택은 쓰지 않고, 다른 사람에게는 알림이 가지 않습니다."
+                      onClick={handleTestSend}>
+                      {testSending ? "보내는 중..." : "나에게 테스트 발송"}
+                    </Button>
+                  )}
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
                   <Button type="submit" disabled={uploading}>{uploading ? "업로드" : "작성"}</Button>
                 </div>
@@ -2985,6 +3041,13 @@ ${url}`;
               <input type="checkbox" checked={filterStale} onChange={e => setFilterStale(e.target.checked)} />
               오래된 대기만(7일 넘게 움직임 없음)
             </label>
+            {/* 내 테스트 문서만(#67) — 나에게 테스트 발송한 시험 문서(7일 뒤 자동 삭제). 기본 목록에는 나오지 않는다 */}
+            {role === "ADMIN" && (
+              <label className="ml-4 flex items-center gap-1.5 text-xs cursor-pointer text-amber-700" title="나에게 테스트 발송한 시험 문서만 — 7일 뒤 자동 삭제">
+                <input type="checkbox" checked={showTest} onChange={e => setShowTest(e.target.checked)} />
+                내 테스트 문서만
+              </label>
+            )}
             {/* 기간 기준(#79) — 날짜를 넣으면 위 연·월 대신 이 기간으로 거른다 */}
             <div className="ml-4 flex items-center gap-1 text-xs">
               <select value={filterDateField} onChange={e => setFilterDateField(e.target.value)} className="h-7 rounded border px-1">
@@ -3070,6 +3133,7 @@ ${url}`;
                         {c.title}
                         {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
                         {c.employeeOnly && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span>}
+                        {c.isTest && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle" title="나에게 테스트 발송한 시험 문서 — 7일 뒤 자동 삭제">테스트</span>}
                       </td>
                       <td className="py-3">
                         <Badge variant={s.variant}>{s.label}</Badge>

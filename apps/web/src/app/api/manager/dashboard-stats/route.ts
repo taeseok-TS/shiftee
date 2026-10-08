@@ -77,7 +77,7 @@ export async function GET() {
 
       // 대기 중인 계약 (지점 직원에게 발송되어 서명 대기 중)
       prisma.contract.count({
-        where: { status: "SENT", user: memberWhere },
+        where: { status: "SENT", user: memberWhere, isTest: false },
       }),
 
       // 내가 결재해야 할 휴가/근무일정.

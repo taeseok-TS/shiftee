@@ -12,7 +12,8 @@ export async function GET(_request: NextRequest) {
       approverId: session.userId,
       status: "PENDING",
       // 기한이 지나 만료된 계약은 결재함에 남기지 않는다(#45 검증 M1) — 재발송되면 다시 나온다
-      approvalLine: { contract: { status: { not: "EXPIRED" } } },
+      // 시험 문서(#67)는 결재함에 두지 않는다 — 서명자 화면(「내 계약서」)에서만 다룬다
+      approvalLine: { contract: { status: { not: "EXPIRED" }, isTest: false } },
     },
     include: {
       approvalLine: {
