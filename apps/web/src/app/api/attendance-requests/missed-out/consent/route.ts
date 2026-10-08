@@ -4,18 +4,22 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { calcStatus } from "@/lib/attendance-status";
 import { kstTodayDateUTC } from "@/lib/kst";
+import { verifyAttendanceDevice } from "@/lib/device";
+import { consent22Eligibility, clockOut22Of, hasPendingOutRequest } from "@/lib/missed-out";
 
 export const dynamic = "force-dynamic";
 
 // 전날 퇴근 누락 → 「22:00 퇴근으로 처리하는 데 동의」(2026-10-08 개선 제안 #215-4, 디렉터 채택)
 //  · 본인 기록만, 오늘 이전 7일 안, 출근만 있고 퇴근이 없는 날
-//  · 출근이 22시 이후인 날은 22시 퇴근이 성립하지 않으니 거절(퇴근 처리 요청으로)
+//  · 자격 규칙(lib/missed-out.ts): 평일 10.5시간 상한 안·주말/공휴일 아님·출근 22시 전·퇴근 쪽 요청 대기 없음 — 상한 우회 금지(76a0c00 검증 F1)
+//  · 출퇴근 버튼과 같은 기기 검증(x-device-id) — 결재 없이 바로 기록되므로(F4)
 //  · 동의한 사람·시각을 퇴근 장소 칸과 감사 기록에 남긴다. 22시가 아니면 보정 요청(AttendanceRequest CORRECTION)으로 고친다
-export const CLOSE_HOUR_KST = 22;
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  const deviceError = await verifyAttendanceDevice(session.userId, session.role, request.headers.get("x-device-id"));
+  if (deviceError) return NextResponse.json({ error: deviceError }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { date?: unknown; agree?: unknown };
   const date = typeof body.date === "string" ? body.date : "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "날짜가 올바르지 않습니다." }, { status: 400 });
@@ -33,16 +37,13 @@ export async function POST(request: NextRequest) {
   if (!att || !att.clockIn) return NextResponse.json({ error: "그 날 출근 기록이 없습니다." }, { status: 404 });
   if (att.clockOut) return NextResponse.json({ error: "이미 퇴근이 기록된 날입니다." }, { status: 409 });
 
-  const clockOut = new Date(`${date}T${String(CLOSE_HOUR_KST).padStart(2, "0")}:00:00+09:00`);
-  if (att.clockIn >= clockOut)
-    return NextResponse.json({ error: "출근이 22시 이후여서 22:00 퇴근으로 처리할 수 없습니다. 「퇴근 처리 요청하기」로 실제 시각을 넣어 주세요." }, { status: 400 });
+  const elig = await consent22Eligibility(att.clockIn, date);
+  if (!elig.ok) return NextResponse.json({ error: elig.reason ?? "22:00 퇴근으로 처리할 수 없습니다." }, { status: 400 });
+  const clockOut = clockOut22Of(date);
 
-  // 그 날 퇴근 누락·수정 요청이 대기 중이면 두 갈래로 처리되지 않게 막는다
-  const pending = await prisma.attendanceRequest.findFirst({
-    where: { userId: session.userId, workDate, status: "PENDING", kind: { in: ["MISSED_OUT", "CORRECTION"] } },
-    select: { id: true },
-  });
-  if (pending) return NextResponse.json({ error: "그 날 퇴근 처리 요청이 이미 대기 중입니다. 요청 결과를 기다려 주세요." }, { status: 409 });
+  // 그 날 퇴근 쪽 요청(누락·수정·지점 밖/사진/본부 퇴근)이 대기 중이면 두 갈래로 처리되지 않게 막는다
+  if (await hasPendingOutRequest(session.userId, workDate))
+    return NextResponse.json({ error: "그 날 퇴근 처리 요청이 이미 대기 중입니다. 요청 결과를 기다려 주세요." }, { status: 409 });
 
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 16).replace("T", " ");

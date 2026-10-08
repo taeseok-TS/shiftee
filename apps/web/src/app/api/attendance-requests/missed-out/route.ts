@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
+import { consent22Eligibility, hasPendingOutRequest } from "@/lib/missed-out";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +23,10 @@ export async function GET() {
     select: { date: true, clockIn: true },
   });
   if (!att) return NextResponse.json({ missed: null });
-  const pending = await prisma.attendanceRequest.findFirst({
-    where: { userId: session.userId, workDate: att.date, status: "PENDING", kind: { in: ["MISSED_OUT", "CORRECTION"] } },
-    select: { id: true },
-  });
-  if (pending) return NextResponse.json({ missed: null });
-  // can22: 출근이 22시 전이면 「22:00 퇴근으로 처리 동의」가 가능하다(#215-4). 22시 이후 출근은 요청으로만
+  // 퇴근 쪽 요청(누락·수정·지점 밖/사진/본부 퇴근)이 대기 중이면 다시 안내하지 않는다
+  if (await hasPendingOutRequest(session.userId, att.date)) return NextResponse.json({ missed: null });
+  // can22: 「22:00 퇴근으로 처리 동의」 자격(#215-4, lib/missed-out) — 평일 10.5시간 상한 안·주말/공휴일 아님·출근 22시 전. 아니면 사유를 함께 준다
   const ymd = att.date.toISOString().slice(0, 10);
-  const can22 = !!att.clockIn && att.clockIn < new Date(`${ymd}T22:00:00+09:00`);
-  return NextResponse.json({ missed: { date: ymd, clockIn: att.clockIn, can22 } });
+  const elig = await consent22Eligibility(att.clockIn!, ymd);
+  return NextResponse.json({ missed: { date: ymd, clockIn: att.clockIn, can22: elig.ok, can22Reason: elig.ok ? null : (elig.reason ?? null) } });
 }

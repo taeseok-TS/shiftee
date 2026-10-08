@@ -38,7 +38,7 @@ export default function AttendanceScreen() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   // 같은 출근(또는 퇴근)에서 연속 실패 횟수 — 3번이면 사진·본부 요청을 안내한다(본부 답변 #11)
   const [fail, setFail] = useState<{ count: number; reason: FailReason; detail?: string; pressedAt: string } | null>(null);
-  const [missed, setMissed] = useState<{ date: string; clockIn: string; can22?: boolean } | null>(null);
+  const [missed, setMissed] = useState<{ date: string; clockIn: string; can22?: boolean; can22Reason?: string | null } | null>(null);
   const [consenting, setConsenting] = useState(false);
   // 전날 퇴근 누락 → 22:00 퇴근 동의(#215-4). 동의 시각·사람이 서버에 기록되고, 22시가 아니면 「퇴근 처리 요청」으로 고친다
   const consent22 = (date: string) => {
@@ -257,7 +257,7 @@ export default function AttendanceScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <Text style={styles.warnText}>출근이 22시 이후여서 퇴근 시각을 넣어 요청해 주세요.</Text>
+            <Text style={styles.warnText}>{missed.can22Reason || "퇴근 시각을 넣어 요청해 주세요."}</Text>
           )}
           <TouchableOpacity style={styles.outlineBtn} onPress={() => setDraft({ kind: "MISSED_OUT", workDate: missed.date })}>
             <Text style={styles.outlineText}>{missed.can22 !== false ? "다른 시각이에요 — 퇴근 처리 요청하기" : "퇴근 처리 요청하기"}</Text>

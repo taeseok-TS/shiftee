@@ -258,12 +258,15 @@ export async function guestTicketCovers(contractId: string, fileName: string): P
 //  근로자가 열람·다운로드할 수 있는 문서는 **4종**: 근로계약서, 비밀유지서약서(퇴직시 포함), 개인정보수집이용동의서, 금품청산 지급기일연장 동의서.
 //  그 외(사직원·정산 신청서·휴가·근태 신청서 등)는 기본 「접근 불가(none)」. 관리자는 항상 전부 본다.
 //  근로계약서는 근로자 교부 의무(근로기준법 17조)가 있어 「접근 불가」로 바꿀 수 없다.
-const DELIVERABLE_NAME_RE = /근로계약서|비밀유지\s*서약서|개인정보\s*수집\s*[·.]?\s*이용\s*동의서|금품\s*청산\s*지급\s*기일\s*연장\s*동의서/;
+// 이름 표기 변형 허용: 「근로 계약서」「단시간근로계약서」「비밀유지 계약서」「개인정보 수집 및 이용 동의서」「개인정보 수집·이용 동의서」「금품청산 지급기일 연장 동의서」
+export const EMPLOYMENT_NAME_RE = /근로\s*계약서|파트\s*타임\s*계약서/;
+const DELIVERABLE_NAME_RE = /비밀\s*유지\s*(서약서|계약서)|개인\s*정보\s*수집\s*(및|[·.,]|과)?\s*이용\s*동의서|금품\s*청산\s*지급\s*기일\s*연장\s*동의서/;
+/** 근로계약서(단시간근로 포함) — 교부 의무 대상 */
 export function isEmploymentContractTemplate(name: string, type?: string | null): boolean {
-  return type === "EMPLOYMENT" || /근로계약서/.test(name);
+  return type === "EMPLOYMENT" || type === "PART_TIME" || EMPLOYMENT_NAME_RE.test(name);
 }
 export function isEmployeeDeliverable(name: string, type?: string | null): boolean {
-  return type === "EMPLOYMENT" || type === "CONFIDENTIAL" || DELIVERABLE_NAME_RE.test(name);
+  return isEmploymentContractTemplate(name, type) || type === "CONFIDENTIAL" || DELIVERABLE_NAME_RE.test(name);
 }
 /** 새 양식의 기본 접근 — 4종은 full, 그 외 none */
 export function defaultPostSignAccess(name: string, type?: string | null): "full" | "none" {

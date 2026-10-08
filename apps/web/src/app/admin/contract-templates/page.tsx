@@ -44,6 +44,10 @@ const postSignAccessLabel: Record<string, string> = {
   view: "열람만 (다운로드 불가)",
   none: "접근 불가 (제출 완료만 표시)",
 };
+// 화면용 판정(lib/contract-access 와 같은 규칙 — 서버 모듈은 prisma 를 물고 있어 클라이언트에서 못 가져온다)
+const isEmploymentTpl = (name: string, type: string) => type === "EMPLOYMENT" || type === "PART_TIME" || /근로\s*계약서|파트\s*타임\s*계약서/.test(name);
+const isDeliverableTpl = (name: string, type: string) =>
+  isEmploymentTpl(name, type) || type === "CONFIDENTIAL" || /비밀\s*유지\s*(서약서|계약서)|개인\s*정보\s*수집\s*(및|[·.,]|과)?\s*이용\s*동의서|금품\s*청산\s*지급\s*기일\s*연장\s*동의서/.test(name);
 
 export default function ContractTemplatesPage() {
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
@@ -386,6 +390,12 @@ export default function ContractTemplatesPage() {
               </Select>
             </div>
 
+            <div className="rounded-md bg-gray-50 border px-3 py-2 text-xs text-gray-600">
+              서명 완료 후 근로자 접근(기본값): <b>{isDeliverableTpl(form.name, form.type) ? postSignAccessLabel.full : postSignAccessLabel.none}</b>
+              {" "}— 근로자가 볼 수 있는 문서는 근로계약서·비밀유지서약서·개인정보수집이용동의서·금품청산 지급기일연장 동의서 4종이고 그 외는 「접근 불가」입니다(#213-1).
+              같은 이름의 이전 양식이 있으면 그 설정을 이어받습니다. 등록 뒤 「수정」에서 바꿀 수 있습니다.
+            </div>
+
             <div className="space-y-2">
               <Label>파일 (PDF 또는 워드) *</Label>
               <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
@@ -471,7 +481,7 @@ export default function ContractTemplatesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(postSignAccessLabel).map(([key, label]) => (
-                      <SelectItem key={key} value={key} disabled={key === "none" && (editTarget.type === "EMPLOYMENT" || /근로계약서/.test(form.name))}>{label}{key === "none" && (editTarget.type === "EMPLOYMENT" || /근로계약서/.test(form.name)) ? " — 근로계약서는 불가(교부 의무)" : ""}</SelectItem>
+                      <SelectItem key={key} value={key} disabled={key === "none" && isEmploymentTpl(form.name, editTarget.type)}>{label}{key === "none" && isEmploymentTpl(form.name, editTarget.type) ? " — 근로계약서는 불가(교부 의무)" : ""}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
