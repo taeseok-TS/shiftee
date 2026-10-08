@@ -86,7 +86,8 @@ export default function HireDatesPage() {
   };
   const pending = all.map((r) => ({ r, v: valueOf(r) })).filter((x) => x.v && x.v !== x.r.cubetee);
   // 「유지」를 **직접 고른** 행(기본값이 아니라)은 지금 값으로 확정 표식만 남긴다 — 포털이 매일 되돌리자고 제안하지 않게(검증 R1)
-  const confirms = all.filter((r) => picks[r.userId]?.pick === "keep" && r.cubetee && r.confirmed !== r.cubetee);
+  // 명시적 「유지」뿐 아니라 포털·시프티 값이 지금 값과 같은 행을 고른 것도 확정으로 본다(검증 R1-c)
+  const confirms = all.filter((r) => r.cubetee && r.confirmed !== r.cubetee && picks[r.userId] && (picks[r.userId].pick === "keep" || valueOf(r) === r.cubetee));
 
   const apply = async () => {
     if (!pending.length && !confirms.length) { toast.error("반영할 변경이 없습니다. 행마다 확정값을 고르세요(지금 값이 맞으면 「유지」)."); return; }
@@ -158,7 +159,8 @@ export default function HireDatesPage() {
                     <td className={`px-3 py-2 font-mono ${diffS ? "text-amber-700 font-semibold" : ""}`}>{r.shiftee ?? "-"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "keep"} onChange={() => set({ pick: "keep" })} />유지</label>
+                        {/* 기본값이 「유지」라 이미 체크된 라디오는 onChange 가 안 뜬다 — onClick 으로 명시 선택을 기록(검증 R1-b) */}
+                        <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "keep"} onChange={() => set({ pick: "keep" })} onClick={() => { if (!picks[r.userId]) set({ pick: "keep" }); }} />유지{picks[r.userId]?.pick === "keep" && r.confirmed !== r.cubetee && <span className="text-emerald-600">(확정)</span>}</label>
                         {r.portal && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "portal"} onChange={() => set({ pick: "portal" })} />포털</label>}
                         {r.shiftee && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "shiftee"} onChange={() => set({ pick: "shiftee" })} />시프티</label>}
                         <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "manual"} onChange={() => set({ pick: "manual" })} />직접</label>
