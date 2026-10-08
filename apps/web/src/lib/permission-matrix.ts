@@ -15,8 +15,8 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "직원 삭제(휴지통)·복구", admin: "all", manager: "no", employee: "no", note: "관리자 계정 삭제는 메인 관리자만", basis: "api/employees/[id]/delete·restore" },
     { feature: "엑셀 일괄 등록·수정", admin: "all", manager: "branch", employee: "no", note: "원장은 담당 지점 기존 직원 수정만(신규 등록·지점 열 불가)", basis: "api/employees/bulk" },
     { feature: "직원 명부 엑셀 내려받기", admin: "all", manager: "branch", employee: "no", basis: "api/employees/export" },
-    { feature: "비밀번호 초기화·퇴사 처리·휴지통 목록", admin: "all", manager: "no", employee: "no", note: "관리자 계정 비밀번호는 메인 관리자만", basis: "api/employees/[id]/reset-password·resign, employees/archived" },
-    { feature: "기기 초기화(1인 1기기 잠금 해제)", admin: "all", manager: "branch", employee: "no", note: "원장은 담당 지점, 본인 제외", basis: "api/employees/[id]/device DELETE" },
+    { feature: "비밀번호 초기화·퇴사 처리·휴지통 목록", admin: "all", manager: "no", employee: "no", note: "관리자 계정은 메인 관리자만(비밀번호·퇴사 모두)", basis: "api/employees/[id]/reset-password·resign, employees/archived" },
+    { feature: "기기 초기화(1인 1기기 잠금 해제)", admin: "all", manager: "branch", employee: "no", note: "원장은 담당 지점 직원만(다른 원장·본인 불가)", basis: "api/employees/[id]/device DELETE" },
   ] },
   { title: "출퇴근", rows: [
     { feature: "출퇴근 찍기(앱)", admin: "na", manager: "self", employee: "self", note: "본부 직원은 큐브티 출퇴근 대상이 아님", basis: "api/attendance/clock-in·clock-out" },
