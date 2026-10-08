@@ -43,8 +43,8 @@ export async function GET() {
     else {
       known = new Set((await prisma.branch.findMany({ select: { name: true } })).map((b) => b.name));
       for (const r of await fetchPortalRoster(cfg)) {
-        if (!r.joinDate) continue;
-        const v: P = { joinDate: r.joinDate, editable: r.hireDateEditable !== false, name: normName(r.name), email: r.email.trim().toLowerCase() };
+        // 입사일 없는 줄도 「같은 사번 여러 줄」 판정에는 넣는다(검증 R3) — 짝은 아래에서 joinDate 있는 것만
+        const v: P = { joinDate: r.joinDate || "", editable: r.hireDateEditable !== false, name: normName(r.name), email: r.email.trim().toLowerCase() };
         if (r.empNo != null) byEmpNo.set(r.empNo, [...(byEmpNo.get(r.empNo) ?? []), v]);
         const b = mapBranch(r.branch, known).value ?? r.branch.trim();
         const k = `${v.name}|${b}`;
@@ -55,13 +55,14 @@ export async function GET() {
   const confirmed = new Map((await prisma.appSetting.findMany({ where: { key: { startsWith: HIRE_CONFIRM_PREFIX } }, select: { key: true, value: true } })).map((s) => [s.key.slice(HIRE_CONFIRM_PREFIX.length), s.value]));
   const rows = users.map((u) => {
     let p: P | undefined; let note: string | null = null;
-    const nn = normName(u.name), em = u.email.toLowerCase();
+    const nn = normName(u.name), em = u.email.trim().toLowerCase();
     if (u.empNo != null) {
       const c = byEmpNo.get(u.empNo) ?? [];
       if (c.length > 1) note = "포털에 같은 사번이 여러 줄";
       else if (c.length === 1) { if (c[0].name === nn || (c[0].email && c[0].email === em)) p = c[0]; else note = `사번 충돌 의심(포털 ${c[0].name})`; }
     }
     if (!p && !note && u.branch) { const c = byNameBranch.get(`${nn}|${u.branch.trim()}`) ?? []; if (c.length === 1) p = c[0]; else if (c.length > 1) note = "포털에 같은 이름·지점이 여러 줄"; }
+    if (p && !p.joinDate) p = undefined;   // 짝은 맞았지만 포털에 입사일이 없는 줄
     return { userId: u.id, empNo: u.empNo, name: u.name, email: u.email, branch: u.branch, cubetee: ymd(u.hireDate), portal: p?.joinDate || null, portalEditable: p ? p.editable : null, portalNote: note, confirmed: confirmed.get(u.id) ?? null, resigned: !!u.resignDate && u.resignDate < new Date() };
   });
   return NextResponse.json({ rows, portalError });
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
   if (!items.length) return NextResponse.json({ error: "반영할 항목이 없습니다." }, { status: 400 });
   if (items.length > 500) return NextResponse.json({ error: "한 번에 500명까지 반영할 수 있습니다." }, { status: 400 });
   const now = new Date(), year = currentLeaveYear();
-  let applied = 0; const errors: string[] = []; const warnings: string[] = [];
+  let applied = 0, confirmed = 0; const errors: string[] = []; const warnings: string[] = [];
   for (const it of items) {
     const o = it && typeof it === "object" ? (it as Record<string, unknown>) : {};
     const userId = typeof o.userId === "string" ? o.userId : "";
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     const before = ymd(u.hireDate);
     // 본부 확정 표식 — 포털 동기화가 이 값을 되돌리자고 제안하지 않게(lib/portal-roster planPortalSync)
     await prisma.appSetting.upsert({ where: { key: `${HIRE_CONFIRM_PREFIX}${u.id}` }, create: { key: `${HIRE_CONFIRM_PREFIX}${u.id}`, value: hireDate }, update: { value: hireDate } });
-    if (before === hireDate) continue;   // 같으면 날짜는 손대지 않는다(감사 기록도 남기지 않는다) — 확정 표식만 남는다
+    if (before === hireDate) { confirmed++; continue; }   // 같으면 날짜는 손대지 않는다(감사 기록도 남기지 않는다) — 확정 표식만 남는다
     await prisma.user.update({ where: { id: u.id }, data: { hireDate: new Date(`${hireDate}T00:00:00Z`) } });
     await logAudit({ actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `입사일 ${before ?? "-"}→${hireDate} (입사일 대조표, 출처: ${source})` });
     // 올해 연차 총량을 근속으로 다시 센다 — 「연차 자동계산」과 같은 규칙(사용은 그대로, 잔여 = 총 − 사용)
@@ -102,5 +103,5 @@ export async function POST(request: NextRequest) {
       await logAudit({ actorId: session.userId, actorName: session.name, action: "LEAVE_BALANCE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: `(입사일 변경 재계산 ${year}년) 연차 총 ${bal?.total ?? "-"}→${total}일, 사용 ${used}일, 잔여 ${remaining}일` });
     applied++;
   }
-  return NextResponse.json({ success: true, applied, errors, warnings });
+  return NextResponse.json({ success: true, applied, confirmed, errors, warnings });
 }

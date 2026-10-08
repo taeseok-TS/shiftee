@@ -64,7 +64,8 @@ export default function HireDatesPage() {
         if (uid) m.set(uid, hire); else miss++;
       }
       setShiftee(m); setShifteeName(f.name); setUnmatched(miss);
-      toast.success(`시프티 입사일 ${m.size}명 연결${miss ? `, ${miss}행은 못 찾음` : ""}`);
+      if (m.size === 0) { toast.error(`입사일 열을 「${cHire}」로 추정했지만 날짜를 읽지 못했습니다. 열 이름을 「입사일」로 고쳐 다시 올려 주세요.`, { duration: 10000 }); return; }
+      toast.success(`시프티 입사일 ${m.size}명 연결(열 「${cHire}」)${miss ? `, ${miss}행은 못 찾음` : ""}`);
     } catch { toast.error("엑셀을 읽지 못했습니다."); }
   };
 
@@ -84,16 +85,23 @@ export default function HireDatesPage() {
     if (p.pick === "portal") return r.portal; if (p.pick === "shiftee") return r.shiftee; return toYmd(p.manual);
   };
   const pending = all.map((r) => ({ r, v: valueOf(r) })).filter((x) => x.v && x.v !== x.r.cubetee);
+  // 「유지」를 **직접 고른** 행(기본값이 아니라)은 지금 값으로 확정 표식만 남긴다 — 포털이 매일 되돌리자고 제안하지 않게(검증 R1)
+  const confirms = all.filter((r) => picks[r.userId]?.pick === "keep" && r.cubetee && r.confirmed !== r.cubetee);
 
   const apply = async () => {
-    if (!pending.length) { toast.error("반영할 변경이 없습니다. 행마다 확정값을 고르세요."); return; }
-    if (!confirm(`${pending.length}명의 입사일을 바꾸고 올해 연차 총량을 다시 계산합니다.\n${pending.slice(0, 15).map(({ r, v }) => `· ${r.name} ${r.cubetee ?? "-"} → ${v}`).join("\n")}${pending.length > 15 ? `\n… 외 ${pending.length - 15}명` : ""}\n계속할까요?`)) return;
+    if (!pending.length && !confirms.length) { toast.error("반영할 변경이 없습니다. 행마다 확정값을 고르세요(지금 값이 맞으면 「유지」)."); return; }
+    const lines = [...pending.slice(0, 15).map(({ r, v }) => `· ${r.name} ${r.cubetee ?? "-"} → ${v}`), ...(pending.length > 15 ? [`… 외 ${pending.length - 15}명`] : [])];
+    if (!confirm(`변경 ${pending.length}명(올해 연차 총량 재계산) · 지금 값으로 확정 ${confirms.length}명\n${lines.join("\n")}\n계속할까요?`)) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/admin/hire-dates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: pending.map(({ r, v }) => ({ userId: r.userId, hireDate: v, source: picks[r.userId].pick === "portal" ? "포털" : picks[r.userId].pick === "shiftee" ? "시프티" : "직접 입력" })) }) });
+      const items = [
+        ...pending.map(({ r, v }) => ({ userId: r.userId, hireDate: v, source: picks[r.userId].pick === "portal" ? "포털" : picks[r.userId].pick === "shiftee" ? "시프티" : "직접 입력" })),
+        ...confirms.map((r) => ({ userId: r.userId, hireDate: r.cubetee, source: "유지" })),
+      ];
+      const res = await fetch("/api/admin/hire-dates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "반영하지 못했습니다."); return; }
-      toast.success(`${d.applied}명 반영${d.errors?.length ? `, 오류 ${d.errors.length}건` : ""}`);
+      toast.success(`${d.applied}명 변경 · ${d.confirmed ?? 0}명 확정${d.errors?.length ? `, 오류 ${d.errors.length}건` : ""}`);
       for (const w of (d.warnings ?? []) as string[]) toast.warning(w, { duration: 10000 });
       for (const e of ((d.errors ?? []) as string[]).slice(0, 5)) toast.error(e, { duration: 10000 });
       setPicks({}); load();
@@ -122,7 +130,7 @@ export default function HireDatesPage() {
             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none ml-2"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />차이 있는 직원만</label>
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·사번·지점" className="h-8 w-40" />
             <Button size="sm" variant="outline" className="gap-1 ml-auto" onClick={download} disabled={!shown.length}><Download size={13} />엑셀</Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={apply} disabled={busy || !pending.length}>{busy ? "반영 중…" : `선택한 ${pending.length}명 반영`}</Button>
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={apply} disabled={busy || (!pending.length && !confirms.length)}>{busy ? "반영 중…" : `변경 ${pending.length} · 확정 ${confirms.length} 반영`}</Button>
           </div>
           {portalError && <p className="text-xs text-amber-600">포털 명부: {portalError} — 포털 칸은 비어 있습니다.</p>}
           <p className="text-xs text-gray-400">포털 칸이 흐린 직원은 7월 이전 입사자라 포털 루트입과일이 입사일이 아닙니다(인사명부 규칙 2026-09-18) — 본부가 확인한 값만 고르세요. 시프티 입사일은 지점 발령일인 경우가 있습니다(요청서 #5). 반영한 값은 「확정」으로 표시되고 포털 동기화가 되돌리자고 제안하지 않습니다(「유지」를 골라 반영해도 확정됩니다).</p>
