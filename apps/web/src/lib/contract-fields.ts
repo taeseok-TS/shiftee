@@ -109,18 +109,23 @@ export async function buildContractMergeData(
     where: { id: userId },
     select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true, birthDate: true, address: true, empNo: true },
   });
+  // 포털 인사카드 자동 채움(#25) — 프로필(연락처·생년월일·주소)이 비어 있을 때만, 문서를 만드는 이 자리에서 가져다 쓴다.
+  // 어디에도 저장하지 않는다(본부 요청). 포털이 없거나 못 찾으면 종전처럼 빈 칸(서명 때 직원이 입력)
+  const hc = targetUser && (!targetUser.phone || !targetUser.birthDate || !targetUser.address)
+    ? await (await import("@/lib/portal-hr-contact")).portalHrContactFor({ name: targetUser.name, branch: targetUser.branch }).catch(() => null)
+    : null;
   const now = new Date();
   const mergeData: Record<string, string> = {
     직원명: opts.external?.name ?? targetUser?.name ?? "",
     이름: opts.external?.name ?? targetUser?.name ?? "",
     이메일: targetUser?.email ?? "",
-    연락처: opts.external?.phone ?? targetUser?.phone ?? "",
+    연락처: opts.external?.phone ?? targetUser?.phone ?? hc?.phone ?? "",
     지점: targetUser?.branch ?? "",
     직책: targetUser?.jobGroup ?? "",
     직급: targetUser?.position ?? "",
     입사일: targetUser?.hireDate ? fmtKoreanDate(targetUser.hireDate.toISOString()) : "",
-    생년월일: targetUser?.birthDate ? fmtKoreanDate(targetUser.birthDate.toISOString()) : "",
-    주소: targetUser?.address ?? "", // 프로필 자동 채움 — 서명 시 비어 있으면 직원이 입력
+    생년월일: targetUser?.birthDate ? fmtKoreanDate(targetUser.birthDate.toISOString()) : hc?.birthDate ? fmtKoreanDate(hc.birthDate) : "",
+    주소: targetUser?.address || hc?.address || "", // 프로필 자동 채움 — 없으면 포털 인사카드(#25) — 그래도 비면 서명 시 직원이 입력
     사원번호: targetUser?.empNo != null ? String(targetUser.empNo).padStart(5, "0") : "",
     제목: opts.title,
     계약시작일: fmtKoreanDate(opts.startDate),

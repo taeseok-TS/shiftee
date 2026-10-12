@@ -155,6 +155,12 @@ export async function GET(request: NextRequest) {
     );
 
     // 데이터 필터링 적용: 직원 정보에서 이메일 제거 (부분 노출)
+    // 포털 인사카드가 채워 줄 수 있는 프로필 칸(#25) — 본인이 서명할 계약에서만 보므로 한 번만 계산
+    let portalFillable: string[] = [];
+    if (contracts.some((c) => c.userId === session.userId && !c.externalName && Array.isArray(c.profileFields) && c.profileFields.length)) {
+      const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true, branch: true, address: true, birthDate: true, phone: true } });
+      if (me) portalFillable = await (await import("@/lib/portal-hr-contact")).portalFillableFields(me).catch(() => []);
+    }
     const filteredContracts = contracts.map(({ template, ...contract }) => {
       const access = template?.postSignAccess || "full";
       // 열람 금지 문서는 **서명을 마친 뒤에만** 파일 주소를 감춘다.
@@ -167,6 +173,10 @@ export async function GET(request: NextRequest) {
         !!contract.employeeSignedAt;
       return ({
       ...contract,
+      // 포털이 채우는 칸은 서명 때 묻지 않는다(#25) — 프로필에 없어도 문서에는 들어간다
+      profileFields: Array.isArray(contract.profileFields) && portalFillable.length && contract.userId === session.userId && !contract.externalName
+        ? (contract.profileFields as string[]).filter((f) => !portalFillable.includes(f))
+        : contract.profileFields,
       tsaToken: undefined, // 시각 도장 원문(약 8KB)은 목록·상세에 싣지 않는다 — 공개 /api/verify/문서번호/tsr 로만
       revocationLog: Array.isArray(contract.revocationLog)
         ? contract.revocationLog.map((l) => {

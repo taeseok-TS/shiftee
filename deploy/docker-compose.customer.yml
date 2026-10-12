@@ -56,6 +56,9 @@ services:
       UPLOADS_GATE: ${UPLOADS_GATE:-signatures,contracts}
       # 채팅 첨부(work) 파일별 판정 모드 — observe(기록만, 기본) | enforce(잠금) | off (2026-10-01, lib/work-file-access)
       UPLOADS_WORK_MODE: ${UPLOADS_WORK_MODE:-observe}
+      # 직영포털 인사카드 연락처 자동 채움(#25, 2026-10-12) — 비우면 기능 꺼짐(계약 작성은 그대로)
+      PORTAL_HR_CONTACT_URL: ${PORTAL_HR_CONTACT_URL:-}
+      PORTAL_HR_CONTACT_KEY: ${PORTAL_HR_CONTACT_KEY:-}
       # 워드->PDF 변환기 주소. 이 서비스가 없으면 계약서 PDF 열람.다운로드가 전부 실패한다.
       GOTENBERG_URL: http://gotenberg:3000
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf

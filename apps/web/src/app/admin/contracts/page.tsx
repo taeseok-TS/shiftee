@@ -207,6 +207,8 @@ export default function ContractsPage() {
   const lastAutoFillUser = useRef<string>("");   // 자동 채움을 마지막으로 한 직원 — 같은 직원이면 빈칸·자동값만 바꾼다(직접 고친 값 보존)
   const autoFilled = useRef<Record<string, string>>({});   // 키 → 마지막에 자동으로 넣은 값. 현재 값이 이것과 같으면 사람이 안 고친 것
   const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
+  // 포털 인사카드가 채워 줄 수 있는 빈 프로필 칸(#25) — 칸 이름만 받는다(값은 화면에 보이지 않는다)
+  const [portalFill, setPortalFill] = useState<{ userId: string; fields: string[] } | null>(null);
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
   const [role, setRole] = useState("EMPLOYEE");
   const [myId, setMyId] = useState("");
@@ -969,6 +971,15 @@ export default function ContractsPage() {
     setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, selectedTemplate || undefined, bundleMode, resignBundleMode) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, selectedTemplate, useTemplate, bundleMode, resignBundleMode, externalMode, externalForm.name]);
+
+  // 포털 인사카드가 채워 줄 빈 칸 이름(#25) — 직원을 고를 때마다 조회(값은 받지 않는다)
+  useEffect(() => {
+    const uid = createForm.userId;
+    if (!uid) return;
+    let stop = false;
+    fetch(`/api/admin/hr-contact?userId=${encodeURIComponent(uid)}`).then(r => (r.ok ? r.json() : null)).then(d => { if (!stop && d) setPortalFill({ userId: uid, fields: d.fillable || [] }); }).catch(() => {});
+    return () => { stop = true; };
+  }, [createForm.userId]);
 
   // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 메인 원장) 자동 채움.
   // 직원·지점 목록이 나중에 와도 다시 돈다 — 같은 직원이면 **빈칸만** 채워 직접 고친 값은 두고, 직원이 바뀌면 덮어쓴다(#213-4)
@@ -2395,13 +2406,15 @@ ${url}`;
                   if (autoRows.length === 0) return null;
                   return (
                     <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
-                      <p className="text-xs font-semibold text-gray-600">자동 채움 <span className="font-normal text-gray-400">(직원 정보 · 수정 불가)</span></p>
+                      <p className="text-xs font-semibold text-gray-600">자동 채움 <span className="font-normal text-gray-400">(직원 정보 · 수정 불가{portalFill?.userId === emp.id && portalFill.fields.includes("주소") ? " · 주소는 포털 인사카드에서 자동" : ""})</span></p>
                       <div className="grid grid-cols-2 gap-2">
                         {autoRows.map(r => (
                           <div key={r.field} className="text-sm">
                             <span className="text-gray-500 text-xs">{r.label}</span>
-                            <p className={r.val ? "font-medium" : "text-amber-600 text-xs"}>
-                              {r.val || ((r as { profileFallback?: boolean }).profileFallback ? "정보 없음 → 직원이 서명 시 입력" : "직원 정보에 없음")}
+                            <p className={r.val ? "font-medium" : (portalFill?.userId === emp.id && portalFill.fields.includes(r.field) ? "text-emerald-700 text-xs" : "text-amber-600 text-xs")}>
+                              {r.val || (portalFill?.userId === emp.id && portalFill.fields.includes(r.field)
+                                ? "포털 인사카드에서 자동으로 채워집니다"
+                                : (r as { profileFallback?: boolean }).profileFallback ? "정보 없음 → 직원이 서명 시 입력" : "직원 정보에 없음")}
                             </p>
                           </div>
                         ))}
