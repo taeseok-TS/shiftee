@@ -13,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, FileSpreadsheet } from "lucide-react";
+import { ScheduleImport } from "@/components/schedule/ScheduleImport";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -49,6 +50,7 @@ export default function AdminSchedulePage() {
   const [selJobGroups, setSelJobGroups] = useState<string[]>([]);
   const [searchName, setSearchName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);   // 엑셀 업로드(#75)
   // 근무일정 추가 — 종전 창은 입력값을 어디에도 담지 않고 "추가되었습니다"만 띄워 실제로는 저장되지 않았다(2026-10-06 QA 조사에서 적발)
   const emptyForm = () => ({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00", type: "WORK" as "WORK" | "OFF", note: "" });
   const [form, setForm] = useState(emptyForm);
@@ -238,7 +240,14 @@ export default function AdminSchedulePage() {
               </div>
             </DialogContent>
           </Dialog>
-          {/* 다운로드·업로드는 근무일정 엑셀 업로드(#75)와 함께 만든다 — 연결 없는 버튼은 눌러도 아무 일이 없어 오해를 샀다(2026-10-06) */}
+          {/* 엑셀 업로드·양식 내려받기(#75) — 달력형·목록형 */}
+          <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} />엑셀 업로드</Button>
+          <Dialog open={importOpen} onOpenChange={setImportOpen}>
+            <DialogContent className="max-w-5xl">
+              <DialogHeader><DialogTitle>근무일정 엑셀 업로드</DialogTitle></DialogHeader>
+              <ScheduleImport employees={filteredEmployees} schedules={schedules} rangeStart={view.startYmd} rangeEnd={view.endYmd} onApplied={fetchSchedules} />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
