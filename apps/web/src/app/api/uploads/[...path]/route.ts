@@ -81,7 +81,7 @@ export async function GET(
     const ticket = new URL(_request.url).searchParams.get("t");
     const tk0 = verifyUploadTicket(ticket);
     // 뷰어 전용 티켓(v:, 오피스 뷰어 주소에 노출됨)은 **채팅 첨부(work)에만** 통한다 — 서명·계약서 경로군에서는 티켓이 없는 것으로 본다(2026-10-12)
-    const tk = tk0?.subject.startsWith("v:") ? null : tk0;
+    const tk = tk0?.subject.startsWith("v:") && !(decoded[0] === "work" || pathParts[0] === "work") ? null : tk0;   // work 가 게이트 목록에 들어와도 뷰어는 열리게(검증 권고)
     const session = await getSession();
     if (!tk && !session)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
