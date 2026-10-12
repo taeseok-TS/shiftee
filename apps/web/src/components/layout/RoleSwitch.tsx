@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuGroup,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuItem,
@@ -107,9 +108,11 @@ export function RoleSwitch() {
       <DropdownMenuContent align="end" className="w-56">
         {canSwitchRoles && (
           <>
-            <DropdownMenuLabel className="text-xs text-gray-500 font-semibold">
-              🔄 역할 전환 (테스트용)
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-gray-500 font-semibold">
+                🔄 역할 전환 (테스트용)
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             {availableRoles.map((role) => (
               <DropdownMenuItem
                 key={role}

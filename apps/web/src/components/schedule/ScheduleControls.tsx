@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, Settings2 } from "lucide-react";
@@ -54,18 +54,21 @@ export function ViewSettingsMenu({ prefs, onChange, hideShow = [] }: {
         <Settings2 size={14} />보기 설정
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[220px] max-h-[70vh] overflow-y-auto">
-        <DropdownMenuLabel>정렬</DropdownMenuLabel>
+        {/* 제목(GroupLabel)은 Base UI 규칙상 Group/RadioGroup 안에 있어야 한다 — 밖에 두면 운영에서 오류 #31 로 화면이 깨졌다(10/12) */}
         <DropdownMenuRadioGroup value={prefs.sort} onValueChange={(v) => onChange({ sort: v as SortKey })}>
+          <DropdownMenuLabel>정렬</DropdownMenuLabel>
           {SORT_KEYS.map((k) => <DropdownMenuRadioItem key={k} value={k} closeOnClick={false}>{SORT_LABEL[k]}</DropdownMenuRadioItem>)}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>표시 항목</DropdownMenuLabel>
-        {SHOW_KEYS.filter((k) => !hideShow.includes(k)).map((k) => (
-          <DropdownMenuCheckboxItem key={k} checked={prefs.show[k]} onCheckedChange={(on) => setShow(k, !!on)} closeOnClick={false}>{SHOW_LABEL[k]}</DropdownMenuCheckboxItem>
-        ))}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>표시 항목</DropdownMenuLabel>
+          {SHOW_KEYS.filter((k) => !hideShow.includes(k)).map((k) => (
+            <DropdownMenuCheckboxItem key={k} checked={prefs.show[k]} onCheckedChange={(on) => setShow(k, !!on)} closeOnClick={false}>{SHOW_LABEL[k]}</DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>한 주의 시작 요일</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={String(prefs.weekStart)} onValueChange={(v) => onChange({ weekStart: Number(v) as WeekStart })}>
+          <DropdownMenuLabel>한 주의 시작 요일</DropdownMenuLabel>
           {WEEK_START_OPTIONS.map((o) => <DropdownMenuRadioItem key={o.value} value={String(o.value)} closeOnClick={false}>{o.label}</DropdownMenuRadioItem>)}
         </DropdownMenuRadioGroup>
         <div className="px-2 pt-1.5 pb-1 text-[11px] text-gray-400 leading-4">주 49시간 합계는 법정 기준(월~일)이라 월요일 시작일 때만 실제 시간까지 보입니다.</div>
