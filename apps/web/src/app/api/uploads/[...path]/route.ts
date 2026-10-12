@@ -54,7 +54,8 @@ export async function GET(
   if (decoded[0] === "submissions" || pathParts[0] === "submissions") {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const { canAccessSubmissionFile } = await import("@/lib/submission-access");
-    const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
+    const tk0 = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
+    const tk = tk0?.subject.startsWith("v:") ? null : tk0;   // 뷰어 전용 티켓(v:)은 채팅 첨부에만 — 여기선 없는 것으로(2026-10-12)
     const session = await getSession();
     // 개인 API 키(Bearer cbt_pk_…)도 받는다 — 유효한 submissions:read 키면 그 사람 주체로 같은 판정(2026-09-13 2단계)
     let subject: string | null = tk?.subject ?? null;
@@ -78,7 +79,9 @@ export async function GET(
   if (gated.includes(decoded[0]) || gated.includes(pathParts[0])) {
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const ticket = new URL(_request.url).searchParams.get("t");
-    const tk = verifyUploadTicket(ticket);
+    const tk0 = verifyUploadTicket(ticket);
+    // 뷰어 전용 티켓(v:, 오피스 뷰어 주소에 노출됨)은 **채팅 첨부(work)에만** 통한다 — 서명·계약서 경로군에서는 티켓이 없는 것으로 본다(2026-10-12)
+    const tk = tk0?.subject.startsWith("v:") ? null : tk0;
     const session = await getSession();
     if (!tk && !session)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
