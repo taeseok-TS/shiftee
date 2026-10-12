@@ -43,11 +43,11 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const ymdOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 // 엑셀 셀 → 글자. 날짜 셀은 yyyy-MM-dd, 시간만 있는 셀(1899-12-30 기준)은 HH:mm
 // ⚠ xlsx 가 엑셀 날짜 셀을 Date 로 바꿀 때 서울 옛 시간대(+8:27:52) 보정으로 **52초 모자라** 자정 날짜가 전날 23:59:08 이 된다(10/13 검증 1).
-//   그래서 날짜는 12시간, 시간은 30초를 더한 뒤 읽는다(정수 날짜·분 단위 시간 셀에서 정확).
+//   그래서 날짜는 60초(오차만 덮고 「2026-10-01 19:00」 같은 날짜+시간 셀은 그대로), 시간은 30초를 더한 뒤 읽는다.
 const cellText = (v: unknown): string => {
   if (v instanceof Date) {
     if (v.getFullYear() < 1950) { const t = new Date(v.getTime() + 30_000); return `${pad(t.getHours())}:${pad(t.getMinutes())}`; }
-    return ymdOf(new Date(v.getTime() + 12 * 3600_000));
+    return ymdOf(new Date(v.getTime() + 60_000));
   }
   if (typeof v === "number" && v > 0 && v < 1) { const m = Math.round(v * 1440); return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; }   // 시간 숫자(0.4166=10:00)
   return v == null ? "" : String(v).trim();
