@@ -4,8 +4,9 @@ import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 import { postSignAccessError } from "@/lib/contract-access";
-import { parseApprovalSteps, validateSteps } from "@/lib/approval-order";
+import { parseApprovalSteps, validateSteps, stepsLabel } from "@/lib/approval-order";
 import { Prisma } from "@prisma/client";
+import { logAudit } from "@/lib/audit";
 
 // 결재 순서(#213-2) 입력 → data 에 반영. "" 또는 "null" 이면 순서 없음(NULL)으로 되돌린다. 모양이 틀리면 오류 문구
 function applyApprovalOrder(data: Record<string, unknown>, stepsRaw: unknown, lockedRaw: unknown): string | null {
@@ -117,6 +118,26 @@ export async function PATCH(
     }
     return tx.contractTemplate.update({ where: { id }, data });
   });
+  // 감사 기록 — 누가 언제 무엇을 바꿨는지(이예지 대리 확인 요청 2026-10-12: 결재 순서 변경 이력). 바뀐 칸만 적는다
+  {
+    const changes: string[] = [];
+    if (typeof data.name === "string" && data.name !== existing.name) changes.push(`이름 ${existing.name}→${data.name}`);
+    if (typeof data.type === "string" && data.type !== existing.type) changes.push(`유형 ${existing.type}→${data.type}`);
+    if (typeof data.postSignAccess === "string" && data.postSignAccess !== existing.postSignAccess) changes.push(`근로자 접근 ${existing.postSignAccess}→${data.postSignAccess}`);
+    if (data.fileUrl && data.fileUrl !== existing.fileUrl) changes.push(`파일 교체 v${existing.version}→v${existing.version + 1}`);
+    if (Array.isArray(data.labels) && JSON.stringify(data.labels) !== JSON.stringify(existing.labels)) changes.push(`라벨 ${(data.labels as string[]).join(",") || "없음"}`);
+    if (typeof data.pinned === "boolean" && data.pinned !== existing.pinned) changes.push(`맨 위 고정 ${data.pinned ? "켬" : "끔"}`);
+    if ("approvalSteps" in data) {
+      const before = parseApprovalSteps(existing.approvalSteps); const after = data.approvalSteps === Prisma.DbNull ? null : parseApprovalSteps(data.approvalSteps);
+      const lab = (s: ReturnType<typeof parseApprovalSteps>) => (s ? stepsLabel(s) : "지정 안 함");
+      if (lab(before) !== lab(after)) changes.push(`결재 순서 「${lab(before)}」→「${lab(after)}」`);
+    }
+    if (typeof data.approvalLocked === "boolean" && data.approvalLocked !== existing.approvalLocked) changes.push(`발송 때 순서 변경 ${data.approvalLocked ? "불가" : "허용"}`);
+    if (changes.length) await logAudit({
+      actorId: session.userId, actorName: session.name, action: "CONTRACT_TEMPLATE_UPDATE",
+      targetType: "ContractTemplate", targetId: id, targetName: existing.name, detail: changes.join(" · "),
+    });
+  }
   return NextResponse.json({ success: true, template });
 }
 
