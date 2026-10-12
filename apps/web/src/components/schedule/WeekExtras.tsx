@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import type { WeekHours } from "@/components/schedule/WeekHours";
 
 /**
  * 근무일정 주간 표 공용(2026-10-07 QA 묶음 5-다) — 관리자 근무일정 표와 원장 팀 일정 표가 같이 쓴다.
@@ -13,7 +14,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 export const empNoText = (n: number | null | undefined) => (n == null ? "" : String(n).padStart(5, "0"));
 
 // ── #61 휴가 표시 ──
-type WeekLeaves = { monday: string; leaves: Record<string, Record<string, { type: string; label: string }[]>> };
+export type RangeLeaves = { from: string; to: string; leaves: Record<string, Record<string, { type: string; label: string }[]>> };
 
 const SHOW_LEAVE_KEY = "schedule.showLeave";
 const showLeaveSubs = new Set<() => void>();
@@ -35,23 +36,36 @@ export function useShowLeave(): [boolean, (v: boolean) => void] {
   return [fallback ?? stored, set];
 }
 
-export function useWeekLeaves(monday: string, enabled: boolean, reloadKey = 0) {
-  const [data, setData] = useState<WeekLeaves | null>(null);
+/** 기간(start~end, yyyy-MM-dd, 62일까지)에 걸친 승인 휴가 — 일·주·월 보기(#71)가 같은 훅을 쓴다 */
+export function useRangeLeaves(start: string, end: string, enabled: boolean, reloadKey = 0) {
+  const [data, setData] = useState<RangeLeaves | null>(null);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !start || !end) return;
     let alive = true;
-    fetch(`/api/schedule/week-leaves?week=${monday}`)
+    fetch(`/api/schedule/week-leaves?start=${start}&end=${end}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (alive) setData(d); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [monday, enabled, reloadKey]);
-  return enabled && data && data.monday === monday ? data : null;   // 다른 주 응답은 쓰지 않는다
+  }, [start, end, enabled, reloadKey]);
+  return enabled && data && data.from === start && data.to === end ? data : null;   // 다른 기간 응답은 쓰지 않는다
 }
 
-export function LeaveChips({ data, userId, date }: { data: WeekLeaves | null; userId: string; date: string }) {
+export function LeaveChips({ data, userId, date, compact = false }: { data: RangeLeaves | null; userId: string; date: string; compact?: boolean }) {
   const list = data?.leaves[userId]?.[date];
   if (!list?.length) return null;
+  if (compact) {
+    // 월간 칸(좁다) — 이름 앞 두 글자, 전체 이름은 마우스를 올리면
+    return (
+      <div className="flex flex-wrap gap-0.5 mb-0.5">
+        {list.map((l, i) => (
+          <span key={i} title={l.label} className="px-1 rounded bg-green-100 border border-green-300 text-[10px] font-medium text-green-800 leading-4">
+            {l.label.slice(0, 2)}
+          </span>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="space-y-1 mb-1">
       {list.map((l, i) => (
@@ -90,7 +104,6 @@ export function useBranchColors(): (branch: string | null | undefined) => string
 }
 
 // ── #40 주간 합계 열 ──
-type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sched: number; actual: number }> };
 
 export function WeekTotalCell({ data, userId }: { data: WeekHours | null; userId: string }) {
   const wh = data?.hours[userId];

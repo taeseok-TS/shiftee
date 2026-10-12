@@ -9,11 +9,13 @@ import { toast } from "sonner";
  *  · <WeekHoursLine>: 「주 일정 Xh · 실제 Yh」, 49시간을 넘으면 빨간색
  *  · showWeekWarnings: 저장 응답의 경고를 토스트로 — 많으면 앞 3건 + 「외 N건」
  */
-type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sched: number; actual: number }> };
+export type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sched: number; actual: number }> };
 
+/** 월요일이 빈 문자열이면(일·월 보기, #71) 부르지 않고 null */
 export function useWeekHours(monday: string, reloadKey = 0) {
   const [data, setData] = useState<WeekHours | null>(null);
   useEffect(() => {
+    if (!monday) return;
     let alive = true;
     fetch(`/api/schedule/weekly-hours?week=${monday}`)
       .then((r) => (r.ok ? r.json() : null))

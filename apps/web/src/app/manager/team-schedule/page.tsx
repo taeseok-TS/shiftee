@@ -1,56 +1,34 @@
 "use client";
 
 import { useWeekHours } from "@/components/schedule/WeekHours";
-import { useWeekLeaves, LeaveChips, useShowLeave, useBranchColors, WeekTotalCell, empNoText } from "@/components/schedule/WeekExtras";
+import { useRangeLeaves, useShowLeave, useBranchColors } from "@/components/schedule/WeekExtras";
 import { ScheduleEditDialog, ScheduleBulkDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
+import { yearsOf } from "@/lib/schedule-view";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ChevronLeft, ChevronRight, Search, Plus, CalendarRange } from "lucide-react";
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks } from "date-fns";
-import { ko } from "date-fns/locale";
+import { Search, Plus, CalendarRange } from "lucide-react";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
-type Employee = {
-  id: string;
-  name: string;
-  empNo?: number | null;
-  position: string | null;
-  jobGroup: string | null;
-  branch: string | null;
-};
-
-type Schedule = {
-  id: string;
-  userId: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  branch: string | null;
-  type: string; // work(근무), off(휴무), holiday(공휴일)
-  note?: string | null;
-};
-
-type ScheduleGroup = { [key: string]: Schedule[] };
+type Employee = BoardEmployee;
+type Schedule = BoardSchedule;
 
 export default function ManagerSchedulePage() {
   const [branch, setBranch] = useState("");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWeek, setCurrentWeek] = useState(new Date());
+  // 보기 전환(#71): 일·주·월 × 달력형·목록형 — 선택은 이 브라우저에 기억
+  const view = useScheduleView();
   const [searchName, setSearchName] = useState("");
   // 일정 관리(2026-10-07 QA #18 #12) — 칸을 누르면 추가, 일정을 누르면 고치기·지우기
   const [edit, setEdit] = useState<EditTarget>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkKey, setBulkKey] = useState(0);   // 열 때마다 새 창(이전 선택이 남지 않게)
   const [me, setMe] = useState<{ id: string; name: string; branch: string | null } | null>(null);
-
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
-  const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
   // 지점 정보
   useEffect(() => {
@@ -76,32 +54,47 @@ export default function ManagerSchedulePage() {
     }
   }, []);
 
-  // 주 근로시간 — 49시간을 넘으면 빨간 표시(#38, 담당 지점만). 일정을 저장하면 다시 센다
+  // 주 근로시간 — 49시간을 넘으면 빨간 표시(#38, 담당 지점만). 일정을 저장하면 다시 센다. 주 보기에서만
   const [weekReload, setWeekReload] = useState(0);
-  const weekHours = useWeekHours(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"), weekReload);
+  const weekHours = useWeekHours(view.weekMonday, weekReload);
 
   // 휴가 함께 보기(#61)·지점 색(#74)
   const [showLeave, setShowLeave] = useShowLeave();
-  const weekLeaves = useWeekLeaves(format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd"), showLeave, weekReload);
+  const leaves = useRangeLeaves(view.startYmd, view.endYmd, showLeave, weekReload);
   const branchColor = useBranchColors();
 
-  // 근무 일정 (현재 주 기준)
+  // 공휴일 — 날짜별 이름 맵(본부 근무일정과 같은 표시). 기간이 두 해에 걸치면 둘 다
+  const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
+  const yearsKey = yearsOf(view.range).join(",");
+  useEffect(() => {
+    let alive = true;
+    Promise.all(yearsKey.split(",").map((y) => fetch(`/api/holidays?year=${y}`).then((r) => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
+      .then((list) => { if (alive) setHolidayMap(new Map(list.flatMap((d) => (d.holidays || []) as { date: string; name: string }[]).map((h) => [h.date, h.name]))); });
+    return () => { alive = false; };
+  }, [yearsKey]);
+
+  // 근무 일정 (보기 기간 기준)
+  const { startYmd, endYmd } = view;
+  // 기간이 바뀐 뒤 늦게 도착한 옛 기간 응답은 버린다 — 저장된 보기가 월이면 첫 화면에서 주→월 순으로 두 번 조회된다(#71 검증 1)
+  const reqKey = useRef("");
   const fetchSchedules = useCallback(async () => {
+    const key = `${startYmd}~${endYmd}`;
+    reqKey.current = key;
     try {
       setLoading(true);
-      const start = format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      const end = format(endOfWeek(currentWeek, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      const res = await fetch(`/api/schedule?start=${start}&end=${end}`);
+      const res = await fetch(`/api/schedule?start=${startYmd}&end=${endYmd}`);
+      if (reqKey.current !== key) return;
       if (res.ok) {
         const data = await res.json();
+        if (reqKey.current !== key) return;
         setSchedules(data.schedules || []);
       }
     } catch {
-      toast.error("근무 일정을 불러올 수 없습니다");
+      if (reqKey.current === key) toast.error("근무 일정을 불러올 수 없습니다");
     } finally {
-      setLoading(false);
+      if (reqKey.current === key) setLoading(false);
     }
-  }, [currentWeek]);
+  }, [startYmd, endYmd]);
 
   useEffect(() => {
     fetchEmployees();
@@ -117,17 +110,6 @@ export default function ManagerSchedulePage() {
     return team.filter(emp => !searchName || emp.name.includes(searchName));
   }, [team, searchName]);
 
-  const weekSchedules = useMemo(() => {
-    const map: ScheduleGroup = {};
-    schedules.forEach(s => {
-      const key = `${s.userId}-${s.date}`;
-      if (!map[key]) map[key] = [];
-      map[key].push(s);
-    });
-    return map;
-  }, [schedules]);
-
-  const getSchedules = (employeeId: string, date: string) => weekSchedules[`${employeeId}-${date}`] || [];
   const onSaved = () => { fetchSchedules(); setWeekReload((n) => n + 1); };
 
   return (
@@ -148,29 +130,15 @@ export default function ManagerSchedulePage() {
         </div>
       </div>
 
-      {/* 날짜 네비게이션 + 검색 */}
+      {/* 날짜 네비게이션 + 보기 전환(#71) + 검색 */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}>
-                <ChevronLeft size={16} />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(new Date())}>
-                오늘
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}>
-                <ChevronRight size={16} />
-              </Button>
-              <span className="text-lg font-semibold ml-4">
-                {format(weekStart, "yyyy년 M월 d일", { locale: ko })} - {format(weekEnd, "M월 d일", { locale: ko })}
-              </span>
-            </div>
-            {/* 휴가 함께 보기(#61) — 이 브라우저에 기억 */}
+          <ScheduleViewBar view={view} right={
+            /* 휴가 함께 보기(#61) — 이 브라우저에 기억 */
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
               <input type="checkbox" checked={showLeave} onChange={(e) => setShowLeave(e.target.checked)} />휴가 표시
             </label>
-          </div>
+          } />
           <div className="relative max-w-xs">
             <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
             <Input
@@ -183,95 +151,13 @@ export default function ManagerSchedulePage() {
         </CardContent>
       </Card>
 
-      {/* 일정 캘린더 */}
+      {/* 일정 표 — 일·주·월 / 달력형·목록형. 칸을 누르면 추가, 일정을 누르면 고치기 */}
       <Card className="overflow-x-auto">
         <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">근무 일정을 불러오는 중...</div>
-          ) : (
-            <div className="min-w-full">
-              {/* 날짜 헤더 */}
-              <div className="flex border-b sticky top-0 bg-gray-50">
-                <div className="w-48 border-r p-3 flex-shrink-0 bg-gray-50 font-medium">직원</div>
-                <div className="flex flex-1">
-                  {daysInWeek.map(day => {
-                    const dayName = format(day, "EEE", { locale: ko });
-                    const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
-                    const isHoliday = dayName === "토" || dayName === "일";
-                    return (
-                      <div
-                        key={format(day, "yyyy-MM-dd")}
-                        className={`flex-1 min-w-[150px] border-r p-3 text-center font-medium ${
-                          isToday ? "bg-blue-50" : isHoliday ? "bg-red-50" : "bg-white"
-                        }`}
-                      >
-                        <div className={isToday ? "text-blue-600" : isHoliday ? "text-red-600" : ""}>
-                          {format(day, "d일(EEE)", { locale: ko })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="w-28 flex-shrink-0 p-3 bg-gray-50 font-medium text-sm" title="이번 주 근로시간(휴게 제외)">주간 합계</div>
-              </div>
-
-              {/* 직원별 일정 */}
-              <div>
-                {filteredEmployees.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">표시할 직원이 없습니다.</div>
-                ) : (
-                  filteredEmployees.map(employee => (
-                    <div key={employee.id} className="flex border-b">
-                      <div className="w-48 border-r border-l-4 p-3 flex-shrink-0 bg-gray-50" style={{ borderLeftColor: branchColor(employee.branch) ?? "transparent" }}>
-                        <div className="font-medium text-gray-900">
-                          {employee.name}
-                          {employee.empNo != null && <span className="ml-1.5 text-xs font-normal text-gray-400" title="사번">{empNoText(employee.empNo)}</span>}
-                        </div>
-                        <div className="text-xs text-gray-600">
-                          {employee.jobGroup || employee.position}
-                          {employee.branch && <span className={branchColor(employee.branch) ? "font-medium" : "text-blue-600"} style={{ color: branchColor(employee.branch) }}> · {employee.branch}</span>}
-                        </div>
-                      </div>
-                      <div className="flex flex-1">
-                        {daysInWeek.map(day => {
-                          const dateStr = format(day, "yyyy-MM-dd");
-                          const daySchedules = getSchedules(employee.id, dateStr);
-                          return (
-                            <div key={dateStr} className="flex-1 min-w-[150px] border-r p-3 min-h-[120px]">
-                              <LeaveChips data={weekLeaves} userId={employee.id} date={dateStr} />
-                              {daySchedules.length === 0 ? (
-                                <button className="w-full h-full min-h-[90px] text-xs text-gray-300 hover:text-blue-500 hover:bg-blue-50 rounded"
-                                  onClick={() => setEdit({ userId: employee.id, date: dateStr, startTime: "10:00", endTime: "19:00" })}>
-                                  + 추가
-                                </button>
-                              ) : (
-                                <div className="space-y-2">
-                                  {daySchedules.map(schedule => (
-                                    <div key={schedule.id} className="p-2 bg-blue-100 rounded text-xs cursor-pointer hover:ring-2 hover:ring-blue-300" style={{ borderLeft: `4px solid ${branchColor(schedule.branch ?? employee.branch) ?? "transparent"}` }}
-                                      role="button" tabIndex={0}
-                                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEdit({ id: schedule.id, userId: employee.id, date: dateStr, startTime: schedule.startTime, endTime: schedule.endTime, type: schedule.type, note: schedule.note ?? null }); } }}
-                                      onClick={() => setEdit({ id: schedule.id, userId: employee.id, date: dateStr, startTime: schedule.startTime, endTime: schedule.endTime, type: schedule.type, note: schedule.note ?? null })}>
-                                      <div className="font-medium text-blue-900">
-                                        {schedule.startTime} - {schedule.endTime}
-                                      </div>
-                                      <Badge variant="outline" className="mt-1 text-xs">
-                                        {schedule.type === "work" ? "근무" : schedule.type === "off" ? "휴무" : "공휴일"}
-                                      </Badge>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <WeekTotalCell data={weekHours} userId={employee.id} />
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+          <ScheduleBoard view={view} employees={filteredEmployees} schedules={schedules} loading={loading}
+            holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} branchColor={branchColor}
+            onEmptyCell={(userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" })}
+            onSchedule={(s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null })} />
         </CardContent>
       </Card>
 
@@ -282,7 +168,10 @@ export default function ManagerSchedulePage() {
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-green-100 rounded border border-green-300" />휴가(승인)
         </div>
-        <p className="text-gray-400">※ 직원이 신청한 근무일정은 결재에서 승인되면 표시됩니다. 원장이 여기서 넣은 일정(주말 포함)은 바로 확정됩니다.</p>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-gray-100 rounded border border-gray-300" />휴무
+        </div>
+        <p className="text-gray-400">※ 직원이 신청한 근무일정은 결재에서 승인되면 표시됩니다. 원장이 여기서 넣은 일정(주말 포함)은 바로 확정됩니다. 월 보기의 합계는 화면에 보이는 일정의 근로시간(휴게 제외)입니다.</p>
       </div>
 
       <ScheduleEditDialog key={edit ? `${edit.id ?? "new"}-${edit.userId}-${edit.date}` : "none"} target={edit} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
