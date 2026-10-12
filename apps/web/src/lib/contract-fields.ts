@@ -119,7 +119,7 @@ export async function buildContractMergeData(
     직원명: opts.external?.name ?? targetUser?.name ?? "",
     이름: opts.external?.name ?? targetUser?.name ?? "",
     이메일: targetUser?.email ?? "",
-    연락처: opts.external?.phone ?? targetUser?.phone ?? hc?.phone ?? "",
+    연락처: opts.external?.phone ?? (targetUser?.phone || hc?.phone || ""),   // 빈 문자열 프로필도 「없음」으로(검증 F2)
     지점: targetUser?.branch ?? "",
     직책: targetUser?.jobGroup ?? "",
     직급: targetUser?.position ?? "",

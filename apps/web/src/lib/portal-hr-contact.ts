@@ -12,7 +12,9 @@ export type HrContact = { address: string; birthDate: string; phone: string };  
 type Row = { name: string; branch: string; address: string; birthDate: string; phone: string };
 
 const TTL_MS = 10 * 60 * 1000;
+const FAIL_TTL_MS = 60 * 1000;   // 실패도 1분은 기억 — 포털이 죽었을 때 렌더마다 8초씩 기다리지 않게(143693e 검증 P1)
 let cache: { at: number; rows: Row[] } | null = null;
+let failedAt = 0;
 let inflight: Promise<Row[]> | null = null;
 
 export function portalHrContactConfigured(): boolean {
@@ -37,11 +39,12 @@ async function loadRows(): Promise<Row[]> {
   if (!url || !key) return [];
   const now = Date.now();
   if (cache && now - cache.at < TTL_MS) return cache.rows;
+  if (failedAt && now - failedAt < FAIL_TTL_MS) return cache?.rows ?? [];
   if (inflight) return inflight;
   inflight = (async () => {
     try {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, signal: AbortSignal.timeout(8000), cache: "no-store" });
-      if (!res.ok) { console.error("[portal-hr-contact] 응답", res.status); return cache?.rows ?? []; }   // 실패하면 옛 기억이라도
+      if (!res.ok) { console.error("[portal-hr-contact] 응답", res.status); failedAt = Date.now(); return cache?.rows ?? []; }   // 실패하면 옛 기억이라도
       const d = (await res.json()) as { employees?: unknown };
       const known = new Set((await prisma.branch.findMany({ select: { name: true } })).map((b) => b.name));
       const rows: Row[] = [];
@@ -53,10 +56,11 @@ async function loadRows(): Promise<Row[]> {
         const branch = mapBranch(branchRaw, known).value ?? branchRaw;
         rows.push({ name, branch, address: typeof o.address === "string" ? o.address.trim() : "", birthDate: ymd(o.birth_date), phone: phoneOf(o.phone) });
       }
-      cache = { at: Date.now(), rows };
+      cache = { at: Date.now(), rows }; failedAt = 0;
       return rows;
     } catch (e) {
-      console.error("[portal-hr-contact] 가져오기 실패:", e instanceof Error ? e.message : e);   // 값은 적지 않는다
+      console.error("[portal-hr-contact] 가져오기 실패:", e instanceof Error ? e.name : "error");   // 값·본문은 적지 않는다
+      failedAt = Date.now();
       return cache?.rows ?? [];
     } finally { inflight = null; }
   })();
@@ -70,9 +74,11 @@ export async function portalHrContactFor(user: { name: string; branch: string | 
   const n = normName(user.name); if (!n) return null;
   const byName = rows.filter((r) => r.name === n);
   if (byName.length === 0) return null;
+  // 지점이 둘 다 있으면 반드시 같아야 한다 — 이름이 하나뿐이어도 지점이 다르면 다른 사람(신규 입사자가 포털에 아직 없을 때
+  // 같은 이름의 다른 지점 사람 주소가 들어갔다, 143693e 검증 F1). 한쪽 지점이 비어 있을 때만 이름 유일성으로 본다
   const b = (user.branch || "").trim();
-  const hit = byName.length === 1 ? byName[0] : (b ? byName.filter((r) => r.branch === b) : []);
-  const row = Array.isArray(hit) ? (hit.length === 1 ? hit[0] : null) : hit;
+  const cands = b ? byName.filter((r) => !r.branch || r.branch === b) : byName;
+  const row = cands.length === 1 ? cands[0] : null;
   if (!row) return null;   // 동명이인인데 지점으로도 못 가르면 채우지 않는다(남의 주소가 들어가면 안 된다)
   return { address: row.address, birthDate: row.birthDate, phone: row.phone };
 }
