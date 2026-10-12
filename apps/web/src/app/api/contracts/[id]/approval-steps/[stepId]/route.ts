@@ -98,7 +98,8 @@ export async function PATCH(
       const ctx = { contractUserId: c.userId, external: !!c.externalName };
       const oldKind = step.approverId ? kindOfApprover(step.approverId, ctx, () => (old?.role as "ADMIN" | "MANAGER" | "EMPLOYEE" | undefined) ?? null) : "EXTERNAL";
       const newKind = kindOfApprover(approverId, ctx, () => newApprover.role as "ADMIN" | "MANAGER" | "EMPLOYEE");
-      if (newKind === "OTHER" || newKind !== oldKind)
+      // 양식이 잠기기 전에 보낸 계약의 「기타」 단계(팀장 등)나 삭제된 사용자 단계는 종류를 알 수 없으니 그대로 바꿀 수 있게 둔다(재검증 F4 잔여)
+      if (oldKind !== "OTHER" && (newKind === "OTHER" || newKind !== oldKind))
         return NextResponse.json({ error: `이 양식은 결재 순서가 고정이라 ${oldKind === "OTHER" ? "이 단계" : `${KIND_LABEL[oldKind]} 단계`}는 같은 종류(${oldKind === "OTHER" ? "본부·원장·당사자" : KIND_LABEL[oldKind]})로만 바꿀 수 있습니다.` }, { status: 400 });
     }
   }

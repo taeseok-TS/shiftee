@@ -16,6 +16,7 @@ type C = {
   id: string; userId: string; title: string; status: string; bundleId?: string | null; employeeOnly?: boolean;
   externalName?: string | null; user: { name: string; branch?: string | null };
   approvalSteps?: { kind: string }[] | null;   // 양식의 결재 순서(#213-2)
+  templateId?: string | null; createdAt?: string;
 };
 type E = { id: string; name: string; role?: string; branch?: string | null; managerBranches?: string[] };
 
@@ -55,9 +56,14 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
   const external = contracts.filter((c) => c.externalName);
   const noMgr = units.filter((u) => !u.c.employeeOnly && !mgrOf(u.c));
   // 양식의 결재 순서(#213-2) — 본부 단계가 둘 이상인 양식은 사람을 둘 골라야 해서 여기서는 못 보낸다(개별 발송)
+  // 패키지의 결재 순서는 **대표 문서**(직원전용이 아닌 가장 먼저 만들어진 문서 = 근로계약서·사직원)의 양식에서 읽는다 — 서버(bundle/send)와 같은 기준.
+  // 목록은 최신순이라 u.c 가 비밀유지·개인정보동의서일 수 있다(재검증 F8)
+  const repOf = (u: { c: C; bundle: boolean }): C => u.bundle
+    ? ([...contracts].filter((c) => c.bundleId === u.c.bundleId && !c.employeeOnly && c.templateId).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))[0] ?? u.c)
+    : u.c;
   const specsOf = (c: C) => parseApprovalSteps(c.approvalSteps) ?? DEFAULT_STEPS;
-  const multiHq = units.filter((u) => !u.c.employeeOnly && specsOf(u.c).filter((s) => s.kind === "HQ").length > 1);
-  const needHq = units.some((u) => !(u.c.employeeOnly && !u.bundle) && specsOf(u.c).some((s) => s.kind === "HQ"));   // 본부 단계가 있는 건이 하나라도 있으면 본부를 골라야 한다
+  const multiHq = units.filter((u) => !(u.c.employeeOnly && !u.bundle) && specsOf(repOf(u)).filter((s) => s.kind === "HQ").length > 1);
+  const needHq = units.some((u) => !(u.c.employeeOnly && !u.bundle) && specsOf(repOf(u)).some((s) => s.kind === "HQ"));   // 본부 단계가 있는 건이 하나라도 있으면 본부를 골라야 한다
 
   const run = async () => {
     if (needHq && !hq) { toast.error("본부 결재자를 골라 주세요(양식에 본부 단계가 있는 건이 있습니다)."); return; }
@@ -67,7 +73,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
       // 본부 결재자가 계약 당사자 본인이면 1단계를 비운다 — 단건 발송 창과 같은 규칙(#34 검증 F13: 근로자 서명이 1단계로 당겨졌다)
       // 양식의 결재 순서대로 — 본부는 고른 한 명(당사자 본인이면 비움), 원장은 자동, 근로자는 당사자(#213-2)
       const ids = u.c.employeeOnly && !u.bundle ? [u.c.userId]
-        : specsOf(u.c).map((s) => s.kind === "HQ" ? (hq !== u.c.userId ? hq : null) : s.kind === "MANAGER" ? (mgrOf(u.c)?.id ?? null) : s.kind === "EMPLOYEE" ? u.c.userId : null)
+        : specsOf(repOf(u)).map((s) => s.kind === "HQ" ? (hq !== u.c.userId ? hq : null) : s.kind === "MANAGER" ? (mgrOf(u.c)?.id ?? null) : s.kind === "EMPLOYEE" ? u.c.userId : null)
             .filter((x): x is string => !!x);
       const res = u.bundle
         ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approverIds: ids, sendMessage: msg, deadlineDays: Number(days) || 14, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) })
@@ -122,7 +128,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
               return (
                 <div key={u.key} className="px-2 py-1.5">
                   {u.c.user.branch ? `[${u.c.user.branch}] ` : ""}{u.c.user.name} — {u.c.title}{u.bundle ? " (패키지)" : ""}
-                  <span className="block text-gray-400">{u.c.employeeOnly && !u.bundle ? "근로자 본인만" : `${stepsLabel(specsOf(u.c))} · 원장: ${m ? m.name : "없음(원장 단계 없이)"}`}</span>
+                  <span className="block text-gray-400">{u.c.employeeOnly && !u.bundle ? "근로자 본인만" : `${stepsLabel(specsOf(repOf(u)))} · 원장: ${m ? m.name : "없음(원장 단계 없이)"}`}</span>
                 </div>
               );
             })}
