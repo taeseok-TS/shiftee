@@ -63,7 +63,9 @@ function DialogContent({
           //    호출부의 `w-[90vw]`·`w-[95vw]` 도 통째로 무력화된다. 태블릿 폭에서 모달이
           //    화면 끝에 붙고 모서리.테두리가 잘렸다(2026-09-03 검증에서 실측).
           //  · 기본 폭은 호출부가 폭을 **안 줬을 때만** 붙인다.
-          "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // 높이 규칙(2026-10-12 디렉터 지적): 창이 작으면 모달 아랫부분(템플릿 수정의 결재 순서·파일 교체 등)이 화면 밖으로 나가 닫지도 저장하지도 못했다.
+          // 화면 높이 − 여백까지만 키우고 넘치면 모달 안에서 스크롤한다(관리자 모달 31곳 공통). 호출부가 max-h-* 를 주면 그게 이긴다
+          "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // className 은 함수로도 올 수 있다(Base UI). 문자열일 때만 폭 지정 여부를 본다.
           // 호출부가 **팝업 자신의 폭**을 지정했는지 본다. 조각(class) 단위로 보고,
           // 변형 접두(`sm:` `xl:` `data-[state=open]:`)와 `!` 는 건너뛴 뒤 max-w- 로
