@@ -55,6 +55,7 @@ const cellText = (v: unknown): string => {
 // 날짜 머리글 — 「2026-10-01」「2026.10.1」「2026-10-06(화)」, 연도가 없는 「10/1」「10월 5일」「10/7(수)」은 보고 있는 기간의 해로
 const isDateHeader = (h: unknown, year: number): string | null => {
   if (h instanceof Date) return cellText(h);
+  if (typeof h === "number") return null;   // 숫자 셀(10.1·8.5)은 날짜 머리글로 보지 않는다
   const s = cellText(h);
   let m = /^(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/.exec(s);
   if (m) return `${m[1]}-${pad(Number(m[2]))}-${pad(Number(m[3]))}`;
@@ -68,6 +69,7 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
 }) {
   const [fileName, setFileName] = useState("");
   const [mode, setMode] = useState<"calendar" | "list" | "">("");
+  const [yearNote, setYearNote] = useState("");   // 연도 없는 머리글(10/1)을 어느 해로 읽었는지
   const [calRows, setCalRows] = useState<Row[]>([]);                 // 달력형은 읽을 때 바로 행으로
   const [headers, setHeaders] = useState<string[]>([]);              // 목록형 열 이름
   const [listRows, setListRows] = useState<Record<string, unknown>[]>([]);
@@ -93,7 +95,18 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
       const hi = hiCal >= 0 ? hiCal : grid.findIndex((r) => r.filter((c) => cellText(c) !== "").length >= 2);
       if (hi < 0) { toast.error("첫 시트에 데이터가 없습니다."); return; }
       const head = grid[hi];
-      const dateCols = head.map((h, c) => ({ c, d: isDateHeader(h, year) })).filter((x) => x.d);
+      // 연도 없는 머리글은 보는 기간의 해로 읽되, 열이 12월→1월로 넘어가면 다음 해로 올린다(연말 파일). 어느 해로 읽었는지 알린다
+      let y = year, prev = "", yearless = 0;
+      const dateCols = head.map((h, c) => {
+        const raw = isDateHeader(h, year);
+        if (!raw) return { c, d: null as string | null };
+        const hasYear = h instanceof Date || /^\d{4}/.test(cellText(h));
+        let d = raw;
+        if (!hasYear) { yearless++; d = `${y}${raw.slice(4)}`; if (prev && d < prev) { y += 1; d = `${y}${raw.slice(4)}`; } }
+        prev = d;
+        return { c, d };
+      }).filter((x) => x.d);
+      setYearNote(yearless ? `연도 없는 날짜 머리글 ${yearless}개는 ${year}년${y !== year ? `~${y}년` : ""}으로 읽었습니다` : "");
       setFileName(f.name); setResults(null);
       if (hiCal >= 0) {
         // 달력형: 날짜가 아닌 앞 열에서 사번·이름을 찾는다
@@ -212,7 +225,7 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
         <Button size="sm" className="gap-1" onClick={() => document.getElementById("schedule-import-file")?.click()}><Upload size={13} />파일 선택</Button>
         <Button size="sm" variant="outline" className="gap-1" onClick={downloadCalendar} title="지금 보는 기간·직원 표. 기존 일정이 칸에 채워져 나오니 고쳐서 다시 올리면 됩니다"><Download size={13} />달력형 내려받기</Button>
         <Button size="sm" variant="outline" className="gap-1" onClick={downloadList}><Download size={13} />목록형 양식</Button>
-        {fileName && <span className="text-xs text-gray-500 truncate">{fileName} · {mode === "calendar" ? `달력형 · 채워진 칸 ${calRows.length}` : `목록형 · ${listRows.length}행`}</span>}
+        {fileName && <span className="text-xs text-gray-500 truncate">{fileName} · {mode === "calendar" ? `달력형 · 채워진 칸 ${calRows.length}` : `목록형 · ${listRows.length}행`}{yearNote ? <span className="ml-2 text-amber-600">{yearNote}</span> : null}</span>}
       </div>
       {mode === "list" && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
