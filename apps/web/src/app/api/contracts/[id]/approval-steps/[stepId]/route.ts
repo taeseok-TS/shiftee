@@ -81,11 +81,26 @@ export async function PATCH(
   // 새로운 승인자 존재 확인
   const newApprover = await prisma.user.findUnique({
     where: { id: approverId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, role: true },
   });
 
   if (!newApprover) {
     return NextResponse.json({ error: "승인자를 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  // 양식이 결재 순서를 고정했으면 같은 종류(본부·원장·당사자)끼리만 바꿀 수 있다 — 발송 때만 잠그면 교체로 우회된다(3f2d0d4 검증 F4)
+  {
+    const c = await prisma.contract.findUnique({ where: { id }, select: { userId: true, externalName: true, template: { select: { approvalSteps: true, approvalLocked: true } } } });
+    const { parseApprovalSteps, kindOfApprover, KIND_LABEL } = await import("@/lib/approval-order");
+    const steps = c?.template?.approvalLocked ? parseApprovalSteps(c.template.approvalSteps) : null;
+    if (c && steps) {
+      const old = step.approverId ? await prisma.user.findUnique({ where: { id: step.approverId }, select: { role: true } }) : null;
+      const ctx = { contractUserId: c.userId, external: !!c.externalName };
+      const oldKind = step.approverId ? kindOfApprover(step.approverId, ctx, () => (old?.role as "ADMIN" | "MANAGER" | "EMPLOYEE" | undefined) ?? null) : "EXTERNAL";
+      const newKind = kindOfApprover(approverId, ctx, () => newApprover.role as "ADMIN" | "MANAGER" | "EMPLOYEE");
+      if (newKind === "OTHER" || newKind !== oldKind)
+        return NextResponse.json({ error: `이 양식은 결재 순서가 고정이라 ${oldKind === "OTHER" ? "이 단계" : `${KIND_LABEL[oldKind]} 단계`}는 같은 종류(${oldKind === "OTHER" ? "본부·원장·당사자" : KIND_LABEL[oldKind]})로만 바꿀 수 있습니다.` }, { status: 400 });
+    }
   }
 
   // 결재자 업데이트 — 외부 스텝이었다면 기존 서명 링크 토큰을 반드시 파기(구 링크로 대리 서명 방지)

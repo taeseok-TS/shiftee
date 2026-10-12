@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 // 결재 순서(#213-2) 입력 → data 에 반영. "" 또는 "null" 이면 순서 없음(NULL)으로 되돌린다. 모양이 틀리면 오류 문구
 function applyApprovalOrder(data: Record<string, unknown>, stepsRaw: unknown, lockedRaw: unknown): string | null {
   if (stepsRaw !== undefined && stepsRaw !== null) {
-    if (stepsRaw === "" || stepsRaw === "null") data.approvalSteps = Prisma.JsonNull;
+    if (stepsRaw === "" || stepsRaw === "null") data.approvalSteps = Prisma.DbNull;   // 지정 안 함 = SQL NULL
     else {
       const parsed = parseApprovalSteps(stepsRaw);
       if (!parsed) {

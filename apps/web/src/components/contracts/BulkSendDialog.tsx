@@ -57,9 +57,10 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
   // 양식의 결재 순서(#213-2) — 본부 단계가 둘 이상인 양식은 사람을 둘 골라야 해서 여기서는 못 보낸다(개별 발송)
   const specsOf = (c: C) => parseApprovalSteps(c.approvalSteps) ?? DEFAULT_STEPS;
   const multiHq = units.filter((u) => !u.c.employeeOnly && specsOf(u.c).filter((s) => s.kind === "HQ").length > 1);
+  const needHq = units.some((u) => !(u.c.employeeOnly && !u.bundle) && specsOf(u.c).some((s) => s.kind === "HQ"));   // 본부 단계가 있는 건이 하나라도 있으면 본부를 골라야 한다
 
   const run = async () => {
-    if (!hq) { toast.error("1단계 본부 결재자를 골라 주세요."); return; }
+    if (needHq && !hq) { toast.error("본부 결재자를 골라 주세요(양식에 본부 단계가 있는 건이 있습니다)."); return; }
     setBusy(true);
     const ok: string[] = [], fail: string[] = [], dupUnits: typeof units = [], keep: string[] = [];
     const send = async (u: (typeof units)[number], confirmDuplicate: boolean) => {
@@ -109,7 +110,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
         <div className="space-y-3 text-sm">
           <p className="text-xs text-gray-600">건마다 결재선은 <b>양식의 결재 순서</b>대로(#213-2): 본부는 아래에서 고른 한 명, 원장은 당사자 지점 원장 자동, 근로자는 당사자 본인. 패키지는 함께, 직원전용 문서는 직원 본인만.</p>
           <div>
-            <span className="text-xs font-medium text-gray-600">1단계 본부 결재자</span>
+            <span className="text-xs font-medium text-gray-600">본부 결재자 {needHq ? "" : "(이번 건들은 본부 단계가 없어 선택하지 않아도 됩니다)"}</span>
             <select value={hq} onChange={(e) => setHq(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm">
               <option value="">선택</option>
               {admins.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -140,7 +141,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose} disabled={busy}>취소</Button>
-            <Button onClick={() => { if (confirm(`${units.length}건을 발송합니다. 발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) run(); }} disabled={busy || !units.length || !hq}>
+            <Button onClick={() => { if (confirm(`${units.length}건을 발송합니다. 발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) run(); }} disabled={busy || !units.length || (needHq && !hq)}>
               {busy ? "발송 중…" : `${units.length}건 발송`}
             </Button>
           </div>

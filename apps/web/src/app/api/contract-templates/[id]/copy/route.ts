@@ -33,6 +33,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       data: {
         name, description: src.description, type: src.type, fileUrl: `/api/uploads/templates/${filename}`, version: 1,
         createdBy: session.userId, approverIds: src.approverIds, postSignAccess: src.postSignAccess, labels: src.labels,
+        approvalSteps: src.approvalSteps ?? undefined, approvalLocked: src.approvalLocked,   // 결재 순서(#213-2)도 사본에
       },
     });
   } catch {

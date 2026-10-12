@@ -13,7 +13,7 @@ import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin } from "lucid
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
-import { DEFAULT_STEPS, parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
+import { parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
 
 type ContractTemplate = {
   id: string;
@@ -68,10 +68,10 @@ export default function ContractTemplatesPage() {
     postSignAccess: "full",
     file: null as File | null,
     labels: "",   // 쉼표 구분(#78)
-    approvalSteps: DEFAULT_STEPS.map((s) => ({ ...s })) as ApprovalStepSpec[],   // 결재 순서(#213-2)
+    approvalSteps: null as ApprovalStepSpec[] | null,   // 결재 순서(#213-2) — null = 지정 안 함(기본 3칸·검사 없음)
     approvalLocked: true,
   });
-  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: DEFAULT_STEPS.map((s) => ({ ...s })) as ApprovalStepSpec[], approvalLocked: true });
+  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   // 고른 라벨이 어느 템플릿에도 없으면(라벨을 지움) 거르지 않는다 — 빈 목록에 갇히지 않게(#78 검증 F3)
@@ -136,7 +136,7 @@ export default function ContractTemplatesPage() {
       formData.append("description", form.description || "");
       formData.append("type", form.type);
       formData.append("file", form.file);
-      formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2)
+      if (form.approvalSteps) formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2) — 없으면 안 보냄(NULL)
       formData.append("approvalLocked", String(form.approvalLocked));
 
       const res = await fetch("/api/contract-templates", {
@@ -178,7 +178,7 @@ export default function ContractTemplatesPage() {
       formData.append("type", form.type);
       formData.append("postSignAccess", form.postSignAccess); // 서명 완료 후 근로자 접근 (#129)
       formData.append("labels", form.labels); // 라벨(#78)
-      formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2)
+      formData.append("approvalSteps", form.approvalSteps ? JSON.stringify(form.approvalSteps) : ""); // 결재 순서(#213-2) — "" 면 지정 안 함(NULL)으로
       formData.append("approvalLocked", String(form.approvalLocked));
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
@@ -234,7 +234,7 @@ export default function ContractTemplatesPage() {
       description: template.description || "",
       type: template.type,
       postSignAccess: template.postSignAccess || "full",
-      approvalSteps: parseApprovalSteps(template.approvalSteps) ?? DEFAULT_STEPS.map((s) => ({ ...s })),
+      approvalSteps: parseApprovalSteps(template.approvalSteps),   // 없으면 null(지정 안 함) 그대로 — 수정만 해도 순서가 생기지 않게(검증 F2)
       approvalLocked: template.approvalLocked !== false,
       file: null,
       labels: (template.labels || []).join(", "),

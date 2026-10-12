@@ -280,8 +280,11 @@ export default function ContractsPage() {
   const [slotSpecs, setSlotSpecs] = useState<ApprovalStepSpec[]>(DEFAULT_STEPS);   // 칸마다의 종류(본부·원장·근로자·외부) — 양식 순서(#213-2)
   const [activeSlot, setActiveSlot] = useState<number | null>(null); // 슬롯을 먼저 눌러 "지금 채울 칸" 지정
   const approverIds = approverSlots.filter((x): x is string => !!x);
-  // 양식이 순서를 고정했으면(기본) 발송 창에서 순서를 못 바꾼다. 순서가 없는 양식도 종전처럼 3칸 고정
-  const slotLocked = !sendTarget?.approvalSteps || sendTarget.approvalLocked !== false;
+  // 양식에 순서가 있고 고정이면(기본) 칸 종류대로만 사람을 넣고 순서를 못 바꾼다. 순서 변경 허용 양식은 ▲▼·추가·삭제.
+  // 순서가 없는(레거시) 양식은 종전 그대로 — 3칸(본부·원장·근로자)에 아무나 넣을 수 있고 서버도 검사하지 않는다(3f2d0d4 검증 F1)
+  const slotLocked = !!sendTarget?.approvalSteps && sendTarget.approvalLocked !== false;
+  const slotEditable = !!sendTarget?.approvalSteps && sendTarget.approvalLocked === false;
+  const partyIsManager = !!sendTarget && !sendTarget.externalName && employees.find(e => e.id === sendTarget.userId)?.role === "MANAGER";
   const slotKind = (i: number): StepKind => effectiveKind(slotSpecs[i]?.kind ?? "HQ", !!sendTarget?.externalName);
   const slotLabel = (i: number) => KIND_LABEL[slotKind(i)];
   const [approverSearch, setApproverSearch] = useState(""); // 승인자 검색 (발송 다이얼로그)
@@ -1749,9 +1752,18 @@ ${url}`;
   // 후보 클릭 → 지정한 슬롯(없으면 비어 있는 가장 앞 슬롯 — 고정 양식이면 종류가 맞는 칸)에 배정. 같은 사람 중복 배치는 방지
   function assignApprover(id: string) {
     const kind = approverKind(id);
+    const idx = activeSlot !== null ? activeSlot : approverSlots.findIndex((x, i) => !x && (!slotLocked || slotKind(i) === kind));
+    if (idx < 0) {
+      toast.error(slotLocked
+        ? `이 양식은 결재 순서가 고정이라 ${kind === "OTHER" ? "본부·원장·당사자만 결재자가 될 수 있습니다" : `${KIND_LABEL[kind]} 칸이 비어 있을 때만 넣을 수 있습니다`}. 칸을 먼저 누르면 바꿀 수 있습니다.`
+        : "빈 칸이 없습니다. 바꿀 칸을 먼저 눌러 주세요.");
+      return;
+    }
+    if (slotLocked && activeSlot !== null && kind !== slotKind(activeSlot)) {
+      toast.error(`${activeSlot + 1}단계는 ${slotLabel(activeSlot)} 칸입니다 — ${kind === "OTHER" ? "본부·원장·당사자" : KIND_LABEL[kind]}은(는) 넣을 수 없습니다(양식 결재 순서 고정).`);
+      return;
+    }
     setApproverSlots(prev => {
-      const idx = activeSlot !== null ? activeSlot : prev.findIndex((x, i) => !x && (!slotLocked || slotKind(i) === kind));
-      if (idx < 0) return prev;
       const next = [...prev] as ApproverSlots;
       for (let i = 0; i < next.length; i++) if (next[i] === id) next[i] = null;
       next[idx] = id;
@@ -3445,21 +3457,21 @@ ${url}`;
                                               </button>
                                               <span className="truncate">{approverLabel(id)}</span>
                                               <button type="button" onClick={() => clearApproverSlot(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="비우기"><X size={14} /></button>
-                                              {!slotLocked && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
+                                              {slotEditable && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
                                             </span>
                                           ) : (
                                             <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
                                               className={`flex w-full items-center justify-between rounded-md border border-dashed px-2 py-1.5 text-xs ${activeSlot === i ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-gray-300 text-gray-400 hover:border-gray-400"}`}>
-                                              <span>{i + 1}단계 · {slotLabel(i)} — {slotKind(i) === "MANAGER" ? "원장 없음(비운 채 보내면 이 단계 없이)" : "선택 필요"}</span>
+                                              <span>{i + 1}단계 · {slotLabel(i)} — {slotKind(i) === "MANAGER" && partyIsManager ? "당사자가 원장이라 이 단계는 생략됩니다(비워 두세요)" : "선택 필요"}</span>
                                               <span className="flex items-center gap-1">
                                                 {activeSlot === i && <span className="font-semibold">아래에서 고르세요</span>}
-                                                {!slotLocked && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
+                                                {slotEditable && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
                                               </span>
                                             </button>
                                           )}
                                         </div>
                                       ))}
-                                      {!slotLocked && slotSpecs.length < 6 && (
+                                      {slotEditable && slotSpecs.length < 6 && (
                                         <div className="flex items-center gap-1 text-[11px] text-gray-500">
                                           단계 추가:
                                           {STEP_KINDS.filter(k => k !== "EXTERNAL" || !!sendTarget.externalName).map(k => (
