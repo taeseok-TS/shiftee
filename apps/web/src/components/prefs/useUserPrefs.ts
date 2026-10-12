@@ -15,13 +15,13 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
  */
 type Store<T> = {
   value: T; userId: string | null; pending: Partial<T> | null; version: number;   // version: 바꿀 때마다 +1 — 옛 GET 응답이 새 값을 덮지 않게
-  saveTimer: ReturnType<typeof setTimeout> | null; subs: Set<() => void>; fetching: Promise<void> | null;
+  saveTimer: ReturnType<typeof setTimeout> | null; subs: Set<() => void>; fetching: Promise<void> | null; failures: number;
 };
 const stores = new Map<string, Store<unknown>>();
 
 function getStore<T>(key: string, defaults: T): Store<T> {
   let s = stores.get(key) as Store<T> | undefined;
-  if (!s) { s = { value: defaults, userId: null, pending: null, version: 0, saveTimer: null, subs: new Set(), fetching: null }; stores.set(key, s as Store<unknown>); }
+  if (!s) { s = { value: defaults, userId: null, pending: null, version: 0, saveTimer: null, subs: new Set(), fetching: null, failures: 0 }; stores.set(key, s as Store<unknown>); }
   return s;
 }
 function emit(s: Store<unknown>) { s.subs.forEach((cb) => cb()); }
@@ -44,8 +44,13 @@ function scheduleSave<T>(key: string, s: Store<T>) {
     s.pending = null;
     // 저장이 **성공한 뒤**에 비운다 — 실패하면 되살려 다음 변경과 함께 다시 보낸다(10/12 3차 검증 1)
     fetch("/api/me/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: s.value }) })
-      .then((r) => { if (!r.ok) throw new Error(String(r.status)); })
-      .catch(() => { if (sent) { s.pending = { ...sent, ...(s.pending ?? {}) }; if (!s.saveTimer) scheduleSave(key, s); } });
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); s.failures = 0; })
+      .catch(() => {
+        // 실패하면 되살리되 자동 재시도는 2번까지 — 그 뒤엔 다음 변경 때 함께 보낸다(600ms 마다 두드리지 않게)
+        if (sent) s.pending = { ...sent, ...(s.pending ?? {}) };
+        s.failures += 1;
+        if (s.failures <= 2 && !s.saveTimer) scheduleSave(key, s);
+      });
   }, 600);
 }
 
