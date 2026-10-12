@@ -1706,7 +1706,8 @@ export default function WorkChatScreen() {
           </>
         )}
         <TextInput
-          style={styles.input}
+          // 최대 높이 = 화면의 1/3(최소 100px) — 종전 100px 고정(약 4줄)은 긴 글을 쓸 때 너무 일찍 접혔다(2026-10-12 디렉터 결정 3번). 그 이상은 안에서 스크롤
+          style={[styles.input, { maxHeight: Math.max(100, Math.round(winH / 3)) }]}
           placeholder="메시지 입력 (@멘션)"
           value={text}
           selection={selOverride ?? undefined}
