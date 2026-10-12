@@ -138,6 +138,9 @@ export async function previewScheduleImport(rowsIn: unknown[], actor: Actor, ove
         if (t === "ambiguous") { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」에 맞는 템플릿이 여럿 — 코드를 써 주세요` }); continue; }
         if (t) { st = t.startTime; et = t.endTime; }
         else {
+          // 다른 지점 전용 템플릿 코드면 시간 범위로 읽지 않고 그렇다고 알려 준다(「10-7」이 10:00~07:00 으로 읽혀 엉뚱한 오류가 나던 것, 10/13 라이브)
+          const elsewhere = tpls.filter((x) => (x.code && norm(x.code) === norm(code)) || norm(x.name) === norm(code));
+          if (elsewhere.length) { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」 템플릿은 ${[...new Set(elsewhere.flatMap((x) => x.branches))].join("·")} 전용 — ${user.branch ?? "지점 없음"} 직원에게는 쓸 수 없습니다` }); continue; }
           const range = parseRange(code);
           if (!range) { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」 — 템플릿 코드·이름이나 「10:00-19:00」 형식이어야 합니다` }); continue; }
           st = range.st; et = range.et;
