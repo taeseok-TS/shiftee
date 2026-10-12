@@ -49,7 +49,8 @@ export async function GET(request: NextRequest) {
   } else {
     // 세션 또는 티켓 (게스트 서명·앱 WebView 는 티켓을 URL 에 싣는다)
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
-    const tk = verifyUploadTicket(ticket);
+    const tk0 = verifyUploadTicket(ticket);
+    const tk = tk0?.subject.startsWith("v:") && group !== "work" ? null : tk0;   // 뷰어 전용 티켓(v:)은 채팅 첨부(work)에만(2026-10-12)
     const session = await getSession();
     // 자료제출 첨부는 개인 API 키(Bearer cbt_pk_…)로도 미리보기를 받는다(2026-09-13 2단계)
     let keySubject: string | null = null;
