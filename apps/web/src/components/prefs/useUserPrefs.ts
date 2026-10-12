@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 /**
  * 내 화면 설정 훅(2026-10-12 QA #73) — 서버(`/api/me/prefs`)에 **사람마다** 저장.
@@ -14,14 +14,14 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
  *  · 두 탭·두 PC 에서 동시에 바꾸면 나중 저장이 이긴다(설정값이라 감수).
  */
 type Store<T> = {
-  value: T; userId: string | null; pending: Partial<T> | null;
+  value: T; userId: string | null; pending: Partial<T> | null; version: number;   // version: 바꿀 때마다 +1 — 옛 GET 응답이 새 값을 덮지 않게
   saveTimer: ReturnType<typeof setTimeout> | null; subs: Set<() => void>; fetching: Promise<void> | null;
 };
 const stores = new Map<string, Store<unknown>>();
 
 function getStore<T>(key: string, defaults: T): Store<T> {
   let s = stores.get(key) as Store<T> | undefined;
-  if (!s) { s = { value: defaults, userId: null, pending: null, saveTimer: null, subs: new Set(), fetching: null }; stores.set(key, s as Store<unknown>); }
+  if (!s) { s = { value: defaults, userId: null, pending: null, version: 0, saveTimer: null, subs: new Set(), fetching: null }; stores.set(key, s as Store<unknown>); }
   return s;
 }
 function emit(s: Store<unknown>) { s.subs.forEach((cb) => cb()); }
@@ -40,21 +40,26 @@ function scheduleSave<T>(key: string, s: Store<T>) {
   if (s.saveTimer) clearTimeout(s.saveTimer);
   s.saveTimer = setTimeout(() => {
     s.saveTimer = null;
+    const sent = s.pending;
     s.pending = null;
-    fetch("/api/me/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: s.value }) }).catch(() => {});
+    // 저장이 **성공한 뒤**에 비운다 — 실패하면 되살려 다음 변경과 함께 다시 보낸다(10/12 3차 검증 1)
+    fetch("/api/me/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [key]: s.value }) })
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); })
+      .catch(() => { if (sent) { s.pending = { ...sent, ...(s.pending ?? {}) }; if (!s.saveTimer) scheduleSave(key, s); } });
   }, 600);
 }
 
 export function useUserPrefs<T extends object>(key: string, defaults: T, clean: (raw: unknown) => T): [T, (patch: Partial<T>) => void, boolean] {
   const defaultsRef = useRef(defaults);
   const cleanRef = useRef(clean);
-  const subscribe = (cb: () => void) => { const s = getStore(key, defaultsRef.current); s.subs.add(cb); return () => { s.subs.delete(cb); }; };
+  const subscribe = useCallback((cb: () => void) => { const s = getStore(key, defaultsRef.current); s.subs.add(cb); return () => { s.subs.delete(cb); }; }, [key]);
   const value = useSyncExternalStore(subscribe, () => getStore(key, defaultsRef.current).value, () => defaultsRef.current);
   const loaded = useSyncExternalStore(subscribe, () => getStore(key, defaultsRef.current).userId !== null, () => false);
 
   useEffect(() => {
     const s = getStore(key, defaultsRef.current);
     if (s.fetching) return;
+    const sentAt = s.version;
     s.fetching = fetch("/api/me/prefs")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -66,9 +71,12 @@ export function useUserPrefs<T extends object>(key: string, defaults: T, clean: 
           if (s.saveTimer) clearTimeout(s.saveTimer);
           s.saveTimer = null; s.pending = null;
           s.value = server;
-        } else {
-          s.value = s.pending ? cleanRef.current({ ...server, ...s.pending }) : server;   // 읽는 동안 바꾼 것은 서버값 위에 병합
+        } else if (s.pending) {
+          s.value = cleanRef.current({ ...server, ...s.pending });   // 읽는 동안 바꾼 것은 서버값 위에 병합
+        } else if (s.version === sentAt || s.userId === null) {
+          s.value = server;   // 읽는 동안 아무것도 안 바꿨거나(또는 첫 읽기) 서버값 그대로
         }
+        // 그 밖(읽는 동안 바꿔서 이미 저장까지 끝남)은 화면 값을 지킨다 — 느린 GET 이 방금 저장한 값을 되돌리던 것(3차 검증 1)
         s.userId = d.userId;
         emit(s as Store<unknown>);
         if (s.pending) scheduleSave(key, s);   // 읽기 전에 바꾼 것이 있으면 이제 저장
@@ -81,6 +89,7 @@ export function useUserPrefs<T extends object>(key: string, defaults: T, clean: 
     const s = getStore(key, defaultsRef.current);
     s.value = cleanRef.current({ ...s.value, ...patch });
     s.pending = { ...(s.pending ?? {}), ...patch };
+    s.version += 1;
     emit(s as Store<unknown>);
     scheduleSave(key, s);
   };

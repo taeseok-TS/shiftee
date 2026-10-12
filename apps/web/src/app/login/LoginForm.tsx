@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginForm({ direct }: { direct: boolean }) {
@@ -41,6 +42,7 @@ export default function LoginForm({ direct }: { direct: boolean }) {
           const u = new URL(raw, window.location.origin);
           if (u.origin === window.location.origin) back = u.pathname + u.search + u.hash;
         } catch { /* 해석이 안 되는 값이면 기본 화면으로 */ }
+        resetUserPrefs();   // 앞사람 화면 설정 저장소를 비운다 — 세션 만료 뒤 같은 탭에서 다른 사람이 로그인하는 경우(#73 3차 검증 2)
         router.push(back || "/dashboard");
         router.refresh();
       }
