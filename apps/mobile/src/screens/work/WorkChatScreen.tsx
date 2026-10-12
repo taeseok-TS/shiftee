@@ -133,6 +133,10 @@ export default function WorkChatScreen() {
   const { channelId } = route.params;
   const [messages, setMessages] = useState<WorkMessage[]>([]);
   const [text, setText] = useState("");
+  // 입력줄 도구(사진·파일·투표·이모티콘) 접기(2026-10-12 디렉터 결정 2번): 글을 쓰기 시작하면 「›」 하나로 접혀 입력창이 넓어진다.
+  // 비어 있을 땐 늘 펼쳐져 사진 첨부는 한 번에 누른다. 「›」를 누르면 쓰는 중에도 다시 펼친다(다시 비면 자동으로 원래대로)
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsCollapsed = !!text.trim() && !toolsOpen;
   const [chanMembers, setChanMembers] = useState<ChannelMemberInfo[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -796,6 +800,7 @@ export default function WorkChatScreen() {
   };
   const onChangeText = (v: string) => {
     setText(v);
+    if (!v.trim() && toolsOpen) setToolsOpen(false);   // 다 지우면 다음에 쓸 때 다시 접히게
     if (selOverride) setSelOverride(null);
     // 편집 지점 계산: 길이 델타 추정은 드래그 선택 치환·붙여넣기에서 틀린다 —
     // 이전/새 문자열의 공통 접두·접미를 걷어낸 "삽입이 끝난 지점"을 캐럿으로 본다 (검증관 M3)
@@ -1674,25 +1679,34 @@ export default function WorkChatScreen() {
         </View>
       ) : (
       <View style={styles.inputBar}>
-        <TouchableOpacity style={styles.attachBtn} onPress={handlePickImage} disabled={uploading}>
-          <Ionicons name="image-outline" size={26} color="#4f46e5" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.attachBtn} onPress={handleAttach} disabled={uploading}>
-          {uploading ? (
-            <ActivityIndicator size="small" color="#4f46e5" />
-          ) : (
-            <Ionicons name="document-outline" size={24} color="#4f46e5" />
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.attachBtn} onPress={() => setPollOpen(true)}>
-          <Ionicons name="stats-chart-outline" size={22} color="#4f46e5" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.attachBtn} onPress={openStickers} accessibilityLabel="이모티콘">
-          <Ionicons name="happy-outline" size={24} color="#4f46e5" />
-        </TouchableOpacity>
+        {toolsCollapsed ? (
+          /* 글 쓰는 중 — 도구 4개를 「›」 하나로 접어 입력창을 넓힌다 */
+          <TouchableOpacity style={styles.attachBtn} onPress={() => setToolsOpen(true)} accessibilityLabel="첨부 도구 펼치기">
+            <Ionicons name="chevron-forward" size={26} color="#4f46e5" />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.attachBtn} onPress={handlePickImage} disabled={uploading}>
+              <Ionicons name="image-outline" size={26} color="#4f46e5" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={handleAttach} disabled={uploading}>
+              {uploading ? (
+                <ActivityIndicator size="small" color="#4f46e5" />
+              ) : (
+                <Ionicons name="document-outline" size={24} color="#4f46e5" />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={() => setPollOpen(true)}>
+              <Ionicons name="stats-chart-outline" size={22} color="#4f46e5" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={openStickers} accessibilityLabel="이모티콘">
+              <Ionicons name="happy-outline" size={24} color="#4f46e5" />
+            </TouchableOpacity>
+          </>
+        )}
         <TextInput
           style={styles.input}
-          placeholder="메시지 입력... (@로 멘션)"
+          placeholder="메시지 입력 (@멘션)"
           value={text}
           selection={selOverride ?? undefined}
           onChangeText={onChangeText}
