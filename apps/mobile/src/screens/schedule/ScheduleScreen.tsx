@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LEAVE_LABELS } from "../../services/leaveLabels";
 import {
   View,
@@ -84,11 +84,13 @@ export default function ScheduleScreen() {
   const [focusDay, setFocusDay] = useState(() => ymdOf(new Date()));
   useEffect(() => { getMyCalendarUnit().then(setUnitState).catch(() => {}); }, []);
   const setUnit = (u: CalendarUnit) => { setUnitState(u); setMyCalendarUnit(u); };
+  const loadSeq = useRef(0);   // 늦게 온 옛 조회(월↔주 전환·빠른 이동)가 화면을 덮지 않게(#81 검증 1)
   const period = unit === "week" ? weekOf(focusDay) : unit === "day" ? { start: focusDay, end: focusDay } : null;
   const [requests, setRequests] = useState<ScheduleRequest[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [events, setEvents] = useState<WorkCalendarEvent[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);         // 이번 달(목록 섹션용)
+  const [holidaysAll, setHolidaysAll] = useState<Holiday[]>([]);   // 보기 기간이 걸친 해 전부(주 띠·일 보기용, #81 검증 2)
   const [myId, setMyId] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,14 +139,20 @@ export default function ScheduleScreen() {
   }, []);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
-      const [s, r, l, ev, hd] = await Promise.all([
+      // 공휴일은 보기 기간이 걸친 해를 모두(연말 주는 두 해)
+      const years = [...new Set([cursor.year, ...(period ? [Number(period.start.slice(0, 4)), Number(period.end.slice(0, 4))] : [])])];
+      const [s, r, l, ev, hdList] = await Promise.all([
         period ? getMySchedulesRange(period.start, period.end) : api.getMySchedules(cursor.year, cursor.month),
         api.getScheduleRequests(),
         api.getLeaveRequests(cursor.year, cursor.month),
         getWorkCalendar(cursor.year, cursor.month).catch(() => []),
-        getHolidays(cursor.year).catch(() => []),
+        Promise.all(years.map((y) => getHolidays(y).catch(() => [] as Holiday[]))),
       ]);
+      if (seq !== loadSeq.current) return;   // 그 사이 다른 기간을 요청했다
+      const hd = hdList.flat();
+      setHolidaysAll(hd);
       setShifts(s.sort((a, b) => a.date.localeCompare(b.date)));
       setRequests(r);
       setEvents(ev);
@@ -156,8 +164,7 @@ export default function ScheduleScreen() {
     } catch (error) {
       console.error("❌ Failed to load schedule:", error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (seq === loadSeq.current) { setLoading(false); setRefreshing(false); }
     }
   }, [cursor, myId, period?.start, period?.end]);
 
@@ -200,7 +207,7 @@ export default function ScheduleScreen() {
     const s = dateOf(period.start), e = dateOf(period.end);
     return `${s.getFullYear()}년 ${s.getMonth() + 1}월 ${s.getDate()}일 - ${s.getMonth() === e.getMonth() ? "" : `${e.getMonth() + 1}월 `}${e.getDate()}일`;
   })();
-  const holidayName = (ymd: string) => holidays.find((h) => String(h.date).slice(0, 10) === ymd)?.name;
+  const holidayName = (ymd: string) => holidaysAll.find((h) => String(h.date).slice(0, 10) === ymd)?.name;
 
   const fmtDay = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -435,7 +442,7 @@ export default function ScheduleScreen() {
                 const isToday = d === todayStr;
                 const red = dow === 0 || !!hol;
                 return (
-                  <TouchableOpacity key={d} style={[styles.weekDay, isToday && styles.weekDayToday]} onPress={() => { setLoading(true); setFocusDay(d); setUnit("day"); }} activeOpacity={0.7}>
+                  <TouchableOpacity key={d} style={[styles.weekDay, isToday && styles.weekDayToday]} onPress={() => { setLoading(true); setFocusDay(d); setUnitState("day"); }} activeOpacity={0.7}>
                     <Text style={[styles.weekDow, red && { color: "#ef4444" }, dow === 6 && { color: "#2563eb" }]}>{WEEKDAYS[dow]}</Text>
                     <Text style={[styles.weekNum, isToday && styles.weekNumToday]}>{dd.getDate()}</Text>
                     <Text style={styles.weekShift} numberOfLines={2}>

@@ -3,7 +3,7 @@
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useUserPrefs } from "@/components/prefs/useUserPrefs";
-import { type ViewUnit, UNIT_LABEL, VIEW_UNITS, daysOf, isViewUnit, rangeOf, rangeTitle, shiftAnchor, ymd } from "@/lib/schedule-view";
+import { type ViewUnit, UNIT_LABEL, VIEW_UNITS, daysOf, isViewUnit, rangeOf, rangeTitle, shiftAnchor, yearsOf, ymd } from "@/lib/schedule-view";
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -83,7 +83,9 @@ export default function SchedulePage() {
   const unit = cal.unit;
   // 주·일 보기 기간과 그 날들의 내 현황(날짜 상세와 같은 API, 하루 한 번씩) — 기간이 바뀐 뒤 늦게 온 옛 응답은 버린다
   const range = useMemo(() => rangeOf(currentDate, unit === "month" ? "month" : unit, 1), [currentDate, unit]);
-  const rangeKey = `${unit}:${ymd(range.start)}~${ymd(range.end)}`;
+  const [rangeReload, setRangeReload] = useState(0);   // 관리자·원장이 상세 창에서 일정을 바꾸면 카드도 다시(#81 검증 4)
+  const rangeKey = `${unit}:${ymd(range.start)}~${ymd(range.end)}#${rangeReload}`;
+  // 값: EmpRow = 그날 내 현황, null = 조회 실패(「일정 없음」으로 위장하지 않는다, #81 검증 3)
   const [dayRowsByDate, setDayRowsByDate] = useState<{ key: string; rows: Record<string, EmpRow | null> }>({ key: "", rows: {} });
   useEffect(() => {
     if (unit === "month") return;
@@ -93,7 +95,7 @@ export default function SchedulePage() {
       .then((list) => {
         if (!alive) return;
         const rows: Record<string, EmpRow | null> = {};
-        days.forEach((d, i) => { rows[d] = (list[i]?.employees?.[0] as EmpRow | undefined) ?? null; });
+        days.forEach((d, i) => { rows[d] = list[i] ? ((list[i].employees?.[0] as EmpRow | undefined) ?? { status: "NO_SCHEDULE" } as EmpRow) : null; });
         setDayRowsByDate({ key: rangeKey, rows });
       });
     return () => { alive = false; };
@@ -103,12 +105,13 @@ export default function SchedulePage() {
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
+  const yearsKey = yearsOf(range).join(",");   // 연말 주는 두 해(#81 검증 5)
   useEffect(() => {
-    fetch(`/api/holidays?year=${currentDate.getFullYear()}`)
-      .then((r) => (r.ok ? r.json() : { holidays: [] }))
-      .then((d) => setHolidayMap(new Map((d.holidays || []).map((h: { date: string; name: string }) => [h.date, h.name]))))
-      .catch(() => {});
-  }, [currentDate]);
+    let alive = true;
+    Promise.all(yearsKey.split(",").map((y) => fetch(`/api/holidays?year=${y}`).then((r) => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
+      .then((list) => { if (alive) setHolidayMap(new Map(list.flatMap((d) => (d.holidays || []) as { date: string; name: string }[]).map((h) => [h.date, h.name]))); });
+    return () => { alive = false; };
+  }, [yearsKey]);
   const [monthData,   setMonthData]   = useState<DayData[]>([]);
   const [totalEmp,    setTotalEmp]    = useState(0);
   const [employees,   setEmployees]   = useState<Employee[]>([]);
@@ -208,6 +211,7 @@ export default function SchedulePage() {
     setAddOpen(false);
     setAddForm(defaultForm);
     fetchMonth();
+    setRangeReload((n) => n + 1);
     if (dayOpen && selectedDay === addForm.date) openDay(selectedDay);
   }
 
@@ -217,6 +221,7 @@ export default function SchedulePage() {
     if (!res.ok) { toast.error("삭제 실패"); return; }
     toast.success("일정이 삭제되었습니다.");
     fetchMonth();
+    setRangeReload((n) => n + 1);
     openDay(selectedDay);
   }
 
@@ -250,6 +255,7 @@ export default function SchedulePage() {
       setBulkOpen(false);
       setBulk(defaultBulk);
       fetchMonth();
+      setRangeReload((n) => n + 1);
     } finally { setBulkLoading(false); }
   }
 
@@ -312,6 +318,7 @@ export default function SchedulePage() {
                   const dow = getDay(day);
                   const today = isToday(day);
                   const holidayName = holidayMap.get(dateStr);
+                  const failed = r === null;
                   const cfg = r ? (STATUS_CFG[r.status] ?? STATUS_CFG.NO_SCHEDULE) : null;
                   return (
                     <button key={dateStr} type="button" onClick={() => openDay(dateStr)} title="누르면 상세"
@@ -323,7 +330,9 @@ export default function SchedulePage() {
                         </span>
                         {holidayName && <span className="text-xs text-red-400 truncate ml-1">{holidayName}</span>}
                       </div>
-                      {cfg && (
+                      {failed ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium bg-amber-50 text-amber-700 border-amber-200">불러오지 못함 · 다시 열어 주세요</span>
+                      ) : cfg && (
                         <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${cfg.badge}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{cfg.label}
                         </span>
