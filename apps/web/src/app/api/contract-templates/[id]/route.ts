@@ -4,6 +4,26 @@ import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import path from "path";
 import { postSignAccessError } from "@/lib/contract-access";
+import { parseApprovalSteps, validateSteps } from "@/lib/approval-order";
+import { Prisma } from "@prisma/client";
+
+// 결재 순서(#213-2) 입력 → data 에 반영. "" 또는 "null" 이면 순서 없음(NULL)으로 되돌린다. 모양이 틀리면 오류 문구
+function applyApprovalOrder(data: Record<string, unknown>, stepsRaw: unknown, lockedRaw: unknown): string | null {
+  if (stepsRaw !== undefined && stepsRaw !== null) {
+    if (stepsRaw === "" || stepsRaw === "null") data.approvalSteps = Prisma.JsonNull;
+    else {
+      const parsed = parseApprovalSteps(stepsRaw);
+      if (!parsed) {
+        let why = "";
+        try { const v = typeof stepsRaw === "string" ? JSON.parse(stepsRaw) : stepsRaw; if (Array.isArray(v)) why = validateSteps(v) ?? ""; } catch { /* 모양 오류 */ }
+        return `결재 순서가 올바르지 않습니다. ${why}`.trim();
+      }
+      data.approvalSteps = parsed;
+    }
+  }
+  if (lockedRaw !== undefined && lockedRaw !== null) data.approvalLocked = lockedRaw === true || lockedRaw === "true";
+  return null;
+}
 
 // 템플릿 수정 (관리자/원장) — 이름·설명·유형 수정, 파일 교체 시 버전 증가.
 // FormData(파일 포함) 또는 JSON(메타만) 둘 다 받는다.
@@ -39,6 +59,10 @@ export async function PATCH(
     if (description != null) data.description = description || null;
     if (type != null) data.type = type;
     if (postSignAccess != null && POST_SIGN_ACCESS.includes(postSignAccess)) data.postSignAccess = postSignAccess;
+    {
+      const e = applyApprovalOrder(data, form.get("approvalSteps"), form.get("approvalLocked"));
+      if (e) return NextResponse.json({ error: e }, { status: 400 });
+    }
 
     if (file && file.size > 0) {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -55,6 +79,10 @@ export async function PATCH(
     if (body.description !== undefined) data.description = body.description || null;
     if (body.type != null) data.type = body.type;
     if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
+    {
+      const e = applyApprovalOrder(data, body.approvalSteps, body.approvalLocked);
+      if (e) return NextResponse.json({ error: e }, { status: 400 });
+    }
     // 파일 주소는 템플릿 업로드 폴더 안의 것만(#78 검증 F9), 지금과 같으면 버전을 올리지 않는다(F5)
     if (body.fileUrl && body.fileUrl !== existing.fileUrl) {
       if (typeof body.fileUrl !== "string" || !body.fileUrl.startsWith("/api/uploads/templates/") || body.fileUrl.includes(".."))

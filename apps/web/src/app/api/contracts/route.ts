@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
       include: {
         user: { select: { id: true, name: true, email: true, department: true, branch: true } },
         // 서명 완료 후 근로자 접근 (#129) — 완료본 버튼 게이트용 + 요약 칸을 그 템플릿 필드로 거르는 데 쓴다(#206-2)
-        template: { select: { postSignAccess: true, fileUrl: true } },
+        template: { select: { postSignAccess: true, fileUrl: true, approvalSteps: true, approvalLocked: true } },
         approvalLine: {
           include: {
             steps: {
@@ -177,6 +177,9 @@ export async function GET(request: NextRequest) {
       ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,
+      // 양식의 결재 순서(#213-2) — 없으면 null(발송 창은 본부→원장→근로자)
+      approvalSteps: template?.approvalSteps ?? null,
+      approvalLocked: template?.approvalLocked ?? true,
       summaryFields: summaryForTemplate(contract.extraFields, template?.fileUrl ? namesByTemplate.get(template.fileUrl) : null),
       user: {
         id: contract.user.id,

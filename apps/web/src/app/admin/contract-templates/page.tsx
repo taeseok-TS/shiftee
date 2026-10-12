@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
+import { DEFAULT_STEPS, parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
 
 type ContractTemplate = {
   id: string;
@@ -25,6 +27,8 @@ type ContractTemplate = {
   createdByUser: { id: string; name: string };
   approverIds: string[];
   postSignAccess: string; // 서명 완료 후 근로자 접근 (#129)
+  approvalSteps?: { kind: string }[] | null; // 결재 순서(#213-2) — 없으면 본부→원장→근로자
+  approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본 true)
   labels?: string[];       // 라벨(#78)
   pinned?: boolean;        // 맨 위 고정(#78)
   createdAt: string;
@@ -64,7 +68,10 @@ export default function ContractTemplatesPage() {
     postSignAccess: "full",
     file: null as File | null,
     labels: "",   // 쉼표 구분(#78)
+    approvalSteps: DEFAULT_STEPS.map((s) => ({ ...s })) as ApprovalStepSpec[],   // 결재 순서(#213-2)
+    approvalLocked: true,
   });
+  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: DEFAULT_STEPS.map((s) => ({ ...s })) as ApprovalStepSpec[], approvalLocked: true });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   // 고른 라벨이 어느 템플릿에도 없으면(라벨을 지움) 거르지 않는다 — 빈 목록에 갇히지 않게(#78 검증 F3)
@@ -129,6 +136,8 @@ export default function ContractTemplatesPage() {
       formData.append("description", form.description || "");
       formData.append("type", form.type);
       formData.append("file", form.file);
+      formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2)
+      formData.append("approvalLocked", String(form.approvalLocked));
 
       const res = await fetch("/api/contract-templates", {
         method: "POST",
@@ -141,7 +150,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 생성되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" });
+      setForm(emptyForm());
       setCreateOpen(false);
       fetchTemplates();
     } catch (error) {
@@ -169,6 +178,8 @@ export default function ContractTemplatesPage() {
       formData.append("type", form.type);
       formData.append("postSignAccess", form.postSignAccess); // 서명 완료 후 근로자 접근 (#129)
       formData.append("labels", form.labels); // 라벨(#78)
+      formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2)
+      formData.append("approvalLocked", String(form.approvalLocked));
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
@@ -182,7 +193,7 @@ export default function ContractTemplatesPage() {
       }
 
       toast.success("템플릿이 수정되었습니다");
-      setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" });
+      setForm(emptyForm());
       setEditOpen(false);
       setEditTarget(null);
       fetchTemplates();
@@ -223,6 +234,8 @@ export default function ContractTemplatesPage() {
       description: template.description || "",
       type: template.type,
       postSignAccess: template.postSignAccess || "full",
+      approvalSteps: parseApprovalSteps(template.approvalSteps) ?? DEFAULT_STEPS.map((s) => ({ ...s })),
+      approvalLocked: template.approvalLocked !== false,
       file: null,
       labels: (template.labels || []).join(", "),
     });
@@ -241,7 +254,7 @@ export default function ContractTemplatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">계약서 템플릿</h1>
-        <Button onClick={() => { setForm({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null, labels: "" }); setCreateOpen(true); }} className="gap-2">
+        <Button onClick={() => { setForm(emptyForm()); setCreateOpen(true); }} className="gap-2">
           <Plus size={16} />
           새 템플릿 만들기
         </Button>
@@ -294,6 +307,9 @@ export default function ContractTemplatesPage() {
                 )}
                 <p className="text-xs text-gray-500">
                   v{template.version} · 서명 완료 후 근로자 접근: {postSignAccessLabel[template.postSignAccess] || postSignAccessLabel.full}
+                </p>
+                <p className="text-xs text-gray-500">
+                  결재 순서: {stepsLabel(parseApprovalSteps(template.approvalSteps))}{template.approvalSteps ? (template.approvalLocked === false ? " (발송 때 변경 가능)" : " (고정)") : " (기본값 — 수정에서 지정)"}
                 </p>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   <a href={template.fileUrl} download className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Download size={12} />원본 내려받기</a>
@@ -388,6 +404,11 @@ export default function ContractTemplatesPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>결재 순서 <span className="text-xs text-gray-400 font-normal">(#213-2 — 이 양식으로 보낼 때의 서명·결재 차례)</span></Label>
+              <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked }))} />
             </div>
 
             <div className="rounded-md bg-gray-50 border px-3 py-2 text-xs text-gray-600">
@@ -496,6 +517,11 @@ export default function ContractTemplatesPage() {
                 <Label>라벨 <span className="text-gray-400 font-normal text-xs">(쉼표로 구분 · 예: 신규입사, 코디)</span></Label>
                 <Input value={form.labels} onChange={e => setForm(f => ({ ...f, labels: e.target.value }))} placeholder="신규입사, 퇴사, 코디" />
               </div>
+              <div className="space-y-2">
+                <Label>결재 순서 <span className="text-xs text-gray-400 font-normal">(이 양식으로 보낼 때의 서명·결재 차례)</span></Label>
+                <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked }))} />
+              </div>
+
               <div className="space-y-2">
                 <Label>파일 교체 (선택사항)</Label>
                 <p className="text-xs text-gray-500 mb-2">새 PDF 또는 워드(.docx) 파일을 선택하면 기존 파일이 교체됩니다 (버전 증가)</p>

@@ -46,6 +46,15 @@ export async function POST(
     return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
   if (approverIds.filter((a) => a === "EXTERNAL").length > 1)
     return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
+  // 결재 순서 검사(#213-2) — 패키지는 대표 문서(직원전용이 아닌 첫 문서)의 양식 순서를 따른다
+  {
+    const rep = contracts.find((c) => !c.employeeOnly && c.templateId);
+    if (rep) {
+      const { validateSendOrder } = await import("@/lib/approval-order-server");
+      const orderErr = await validateSendOrder({ approverIds, templateId: rep.templateId, contractUserId: rep.userId, external: isExternalBundle });
+      if (orderErr) return NextResponse.json({ code: "ORDER_MISMATCH", error: orderErr }, { status: 400 });
+    }
+  }
 
   // 값 검증(#24) — 보낼 문서 전부를 먼저 본다
   {

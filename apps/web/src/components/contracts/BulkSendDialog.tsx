@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DEFAULT_STEPS, parseApprovalSteps, stepsLabel } from "@/lib/approval-order";
 
 /**
  * 선택한 초안 한꺼번에 발송(2026-10-07 QA #34).
@@ -14,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 type C = {
   id: string; userId: string; title: string; status: string; bundleId?: string | null; employeeOnly?: boolean;
   externalName?: string | null; user: { name: string; branch?: string | null };
+  approvalSteps?: { kind: string }[] | null;   // 양식의 결재 순서(#213-2)
 };
 type E = { id: string; name: string; role?: string; branch?: string | null; managerBranches?: string[] };
 
@@ -52,6 +54,9 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
   })();
   const external = contracts.filter((c) => c.externalName);
   const noMgr = units.filter((u) => !u.c.employeeOnly && !mgrOf(u.c));
+  // 양식의 결재 순서(#213-2) — 본부 단계가 둘 이상인 양식은 사람을 둘 골라야 해서 여기서는 못 보낸다(개별 발송)
+  const specsOf = (c: C) => parseApprovalSteps(c.approvalSteps) ?? DEFAULT_STEPS;
+  const multiHq = units.filter((u) => !u.c.employeeOnly && specsOf(u.c).filter((s) => s.kind === "HQ").length > 1);
 
   const run = async () => {
     if (!hq) { toast.error("1단계 본부 결재자를 골라 주세요."); return; }
@@ -59,8 +64,10 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
     const ok: string[] = [], fail: string[] = [], dupUnits: typeof units = [], keep: string[] = [];
     const send = async (u: (typeof units)[number], confirmDuplicate: boolean) => {
       // 본부 결재자가 계약 당사자 본인이면 1단계를 비운다 — 단건 발송 창과 같은 규칙(#34 검증 F13: 근로자 서명이 1단계로 당겨졌다)
+      // 양식의 결재 순서대로 — 본부는 고른 한 명(당사자 본인이면 비움), 원장은 자동, 근로자는 당사자(#213-2)
       const ids = u.c.employeeOnly && !u.bundle ? [u.c.userId]
-        : [hq !== u.c.userId ? hq : null, mgrOf(u.c)?.id ?? null, u.c.userId].filter((x): x is string => !!x);
+        : specsOf(u.c).map((s) => s.kind === "HQ" ? (hq !== u.c.userId ? hq : null) : s.kind === "MANAGER" ? (mgrOf(u.c)?.id ?? null) : s.kind === "EMPLOYEE" ? u.c.userId : null)
+            .filter((x): x is string => !!x);
       const res = u.bundle
         ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approverIds: ids, sendMessage: msg, deadlineDays: Number(days) || 14, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) })
         : await fetch(`/api/contracts/${u.c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "SENT", approverIds: ids, sendMessage: msg, deadlineDays: Number(days) || 14, ...(confirmDuplicate ? { confirmDuplicate: true } : {}) }) });
@@ -70,6 +77,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
     try {
       const failOf = (u: (typeof units)[number], why: string) => { fail.push(`${u.c.user.name}(${why})`); keep.push(u.c.id); };
       for (const u of units) {
+        if (multiHq.some((m) => m.key === u.key)) { failOf(u, "본부 단계가 둘 — 개별 발송"); continue; }
         try {
           const { res, d } = await send(u, false);
           if (res.ok) ok.push(u.c.user.name);
@@ -99,7 +107,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>선택한 계약 {units.length}건 한꺼번에 발송</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
-          <p className="text-xs text-gray-600">건마다 결재선: <b>1단계 본부</b>(아래에서 고름) → <b>2단계 지점 원장</b>(자동) → <b>3단계 근로자</b>. 패키지는 함께, 직원전용 문서는 직원 본인만.</p>
+          <p className="text-xs text-gray-600">건마다 결재선은 <b>양식의 결재 순서</b>대로(#213-2): 본부는 아래에서 고른 한 명, 원장은 당사자 지점 원장 자동, 근로자는 당사자 본인. 패키지는 함께, 직원전용 문서는 직원 본인만.</p>
           <div>
             <span className="text-xs font-medium text-gray-600">1단계 본부 결재자</span>
             <select value={hq} onChange={(e) => setHq(e.target.value)} className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm">
@@ -113,12 +121,13 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, on
               return (
                 <div key={u.key} className="px-2 py-1.5">
                   {u.c.user.branch ? `[${u.c.user.branch}] ` : ""}{u.c.user.name} — {u.c.title}{u.bundle ? " (패키지)" : ""}
-                  <span className="block text-gray-400">{u.c.employeeOnly && !u.bundle ? "근로자 본인만" : `원장: ${m ? m.name : "없음(2단계 없이 본부 → 근로자)"}`}</span>
+                  <span className="block text-gray-400">{u.c.employeeOnly && !u.bundle ? "근로자 본인만" : `${stepsLabel(specsOf(u.c))} · 원장: ${m ? m.name : "없음(원장 단계 없이)"}`}</span>
                 </div>
               );
             })}
           </div>
-          {noMgr.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">지점 원장을 찾지 못한 {noMgr.length}건은 2단계 없이 보냅니다.</p>}
+          {noMgr.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">지점 원장을 찾지 못한 {noMgr.length}건은 원장 단계 없이 보냅니다(양식이 고정 순서면 당사자가 원장일 때만 통과).</p>}
+          {multiHq.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">결재 순서에 본부 단계가 둘 이상인 {multiHq.length}건은 여기서 못 보냅니다 — 목록에서 각각 발송해 주세요.</p>}
           {external.length > 0 && <p className="text-xs text-gray-500">외부 계약 {external.length}건은 서명 링크 전달이 따로라 빼고 보냅니다 — 목록에서 각각 발송해 주세요.</p>}
           <div className="flex items-center gap-2 text-xs text-gray-600">
             <span className="font-medium">서명 기한</span>

@@ -68,6 +68,17 @@ export async function POST(request: NextRequest) {
     // 방식으로 교체하는 순간 그날 발송분이 전부 열린다(경고도 없이). 값을 받고,
     // 안 주면 **같은 이름의 이전 템플릿 값을 승계**한다 — 교체 사고를 원천 차단한다.
     const accessRaw = (formData.get("postSignAccess") as string | null)?.trim();
+    // 결재 순서(#213-2) — JSON 문자열. 없으면 NULL(발송 창은 본부→원장→근로자). 모양이 틀리면 거절
+    const { parseApprovalSteps, validateSteps } = await import("@/lib/approval-order");
+    const stepsRaw = formData.get("approvalSteps") as string | null;
+    let approvalSteps: { kind: string }[] | undefined;
+    if (stepsRaw != null && stepsRaw.trim() !== "") {
+      const parsed = parseApprovalSteps(stepsRaw);
+      if (!parsed) return NextResponse.json({ error: `결재 순서가 올바르지 않습니다. ${(() => { try { const v = JSON.parse(stepsRaw); return Array.isArray(v) ? (validateSteps(v) ?? "") : ""; } catch { return ""; } })()}`.trim() }, { status: 400 });
+      approvalSteps = parsed;
+    }
+    const lockedRaw = formData.get("approvalLocked") as string | null;
+    const approvalLocked = lockedRaw == null ? true : lockedRaw !== "false";
 
     if (!file || !name || !type) {
       return NextResponse.json(
@@ -130,7 +141,9 @@ export async function POST(request: NextRequest) {
         isActive: true,
         postSignAccess,
         createdBy: session.userId,
-        approverIds: "[]" // 기본값: 빈 배열
+        approverIds: "[]", // 기본값: 빈 배열
+        ...(approvalSteps ? { approvalSteps } : {}),
+        approvalLocked,
       },
       include: {
         createdByUser: {

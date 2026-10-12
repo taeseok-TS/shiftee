@@ -4,6 +4,7 @@ import ContractEventsList from "@/components/contracts/ContractEventsList";
 import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import { koreanMoney } from "@/lib/korean-money";
+import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,8 @@ type Contract = {
   signDeadline?: string | null;    // 서명 기한(#45)
   sendMessage?: string | null;     // 본부 발송 메시지(#65)
   isTest?: boolean;                // 나에게 테스트 발송(#67) 시험 문서 — 7일 뒤 자동 삭제
+  approvalSteps?: { kind: string }[] | null; // 양식의 결재 순서(#213-2) — 없으면 본부→원장→근로자
+  approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본)
   importBatch?: string | null;     // 모두싸인 이관본(#4)
   certificateUrl?: string | null;  // 이관본의 감사추적 인증서(#4)
   user: { name: string; department: string | null; branch?: string | null };
@@ -125,9 +128,8 @@ const FILTER_STATUS_LABEL: Record<string, string> = {
   REJECTED: "반려",
 };
 
-// 발송 승인자 3칸 고정 슬롯 (#158·#159) — 단계와 역할이 화면에 고정으로 보이게
-type ApproverSlots = [string | null, string | null, string | null];
-const SLOT_ROLES = ["본부", "원장", "근로자"] as const;
+// 발송 승인자 슬롯 (#158·#159) — 칸 수·역할은 **양식의 결재 순서**(#213-2, lib/approval-order)대로. 순서 없는 양식은 본부→원장→근로자
+type ApproverSlots = (string | null)[];
 
 // 문서 종류 필터 그룹 (#168) — 템플릿 이름으로 4그룹 분류. "퇴직시 비밀유지"는 퇴사 쪽
 const DOC_GROUPS = ["근로계약서", "신규입사 서류", "퇴사 서류", "신청 서류"] as const;
@@ -201,6 +203,7 @@ export default function ContractsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
   const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
+  const [mainManagerIds, setMainManagerIds] = useState<Record<string, string>>({});   // 지점 → 메인 원장 id(발송 창 원장 단계 자동 채움)
   const branchManagerName = (branch?: string | null): string => {
     if (!branch) return "";
     if (mainManagers[branch]) return mainManagers[branch];
@@ -255,7 +258,7 @@ export default function ContractsPage() {
   const [deadlineDays, setDeadlineDays] = useState("14");   // 서명 기한(#45, 본부 답변 #35 기본 2주)
   const [savingMsg, setSavingMsg] = useState(false);
   async function openSendDialog(c: Contract) {
-    setSendTarget(c); resetApproverSlots(); setApproverSearch(""); setSendMsg(""); setDeadlineDays("14"); setSendOpen(true);
+    setSendTarget(c); resetApproverSlots(c); setApproverSearch(""); setSendMsg(""); setDeadlineDays("14"); setSendOpen(true);
     try {
       const d = await fetch("/api/admin/contract-message").then(r => (r.ok ? r.json() : null));
       if (d?.message) setSendMsg(m => (m ? m : d.message));
@@ -274,8 +277,13 @@ export default function ContractsPage() {
   // 승인자는 3칸 고정 슬롯 — 1단계 본부 / 2단계 원장 / 3단계 근로자 (#158·#159).
   // 서버 계약은 그대로라 발송 시 null 을 뺀 배열(approverIds)로 변환해 보낸다.
   const [approverSlots, setApproverSlots] = useState<ApproverSlots>([null, null, null]);
+  const [slotSpecs, setSlotSpecs] = useState<ApprovalStepSpec[]>(DEFAULT_STEPS);   // 칸마다의 종류(본부·원장·근로자·외부) — 양식 순서(#213-2)
   const [activeSlot, setActiveSlot] = useState<number | null>(null); // 슬롯을 먼저 눌러 "지금 채울 칸" 지정
   const approverIds = approverSlots.filter((x): x is string => !!x);
+  // 양식이 순서를 고정했으면(기본) 발송 창에서 순서를 못 바꾼다. 순서가 없는 양식도 종전처럼 3칸 고정
+  const slotLocked = !sendTarget?.approvalSteps || sendTarget.approvalLocked !== false;
+  const slotKind = (i: number): StepKind => effectiveKind(slotSpecs[i]?.kind ?? "HQ", !!sendTarget?.externalName);
+  const slotLabel = (i: number) => KIND_LABEL[slotKind(i)];
   const [approverSearch, setApproverSearch] = useState(""); // 승인자 검색 (발송 다이얼로그)
   const [updateApproverSearch, setUpdateApproverSearch] = useState(""); // 결재자 수정 검색
 
@@ -1127,9 +1135,9 @@ export default function ContractsPage() {
     // includeAdmins: 승인자 선택에 관리자도 나오도록 (계약 대상 목록에서는 클라이언트에서 제외)
     fetch("/api/employees?includeAdmins=true").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
     fetch("/api/branches").then(r => r.json()).then(d => {
-      const m: Record<string, string> = {};
-      for (const b of (d.branches || []) as { name: string; mainManager?: { name: string } | null }[]) if (b.mainManager?.name) m[b.name] = b.mainManager.name;
-      setMainManagers(m);
+      const m: Record<string, string> = {}; const ids: Record<string, string> = {};
+      for (const b of (d.branches || []) as { name: string; mainManager?: { id: string; name: string } | null }[]) if (b.mainManager?.name) { m[b.name] = b.mainManager.name; ids[b.name] = b.mainManager.id; }
+      setMainManagers(m); setMainManagerIds(ids);
     }).catch(() => {});
   }, []);
 
@@ -1690,16 +1698,59 @@ ${url}`;
     }
   }
 
-  // ── 승인자 슬롯 조작 (#158·#159) ──────────────────────────────
-  function resetApproverSlots() {
-    setApproverSlots([null, null, null]);
+  // ── 승인자 슬롯 조작 (#158·#159·#213-2) ──────────────────────────────
+  // 당사자 지점의 원장 id — 메인 원장 우선, 없으면 그 지점 원장(겸직 포함). 당사자 본인이 원장이면 null(같은 사람이 두 번 결재하지 않게)
+  const partyBranchManagerId = (c: Contract): string | null => {
+    const emp = employees.find(e => e.id === c.userId);
+    const b = emp?.branch; if (!b) return null;
+    const id = mainManagerIds[b] ?? employees.find(e => e.role === "MANAGER" && (e.branch === b || (e.managerBranches || []).includes(b)))?.id ?? null;
+    return id && id !== c.userId ? id : null;
+  };
+  // 양식 순서대로 칸을 미리 채운다 — 근로자·외부는 당사자, 원장은 자동, 본부는 직접 고른 값만 유지
+  const prefillSlots = (c: Contract, specs: ApprovalStepSpec[], keep: ApproverSlots = []): ApproverSlots =>
+    specs.map((s, i) => {
+      const k = effectiveKind(s.kind, !!c.externalName);
+      if (k === "EXTERNAL") return "EXTERNAL";
+      if (k === "EMPLOYEE") return c.userId;
+      if (k === "MANAGER") return partyBranchManagerId(c);
+      return keep[i] ?? null;
+    });
+  function resetApproverSlots(c?: Contract) {
+    const specs = c ? (parseApprovalSteps(c.approvalSteps) ?? DEFAULT_STEPS) : DEFAULT_STEPS;
+    setSlotSpecs(specs);
+    setApproverSlots(c ? prefillSlots(c, specs) : specs.map(() => null));
+    setActiveSlot(null);
+  }
+  // 결재자 한 사람의 종류 — 칸 종류와 맞는 칸에만 넣는다(양식이 순서를 고정했을 때)
+  const approverKind = (id: string) => sendTarget
+    ? kindOfApprover(id, { contractUserId: sendTarget.userId, external: !!sendTarget.externalName }, (uid) => (employees.find(e => e.id === uid)?.role as "ADMIN" | "MANAGER" | "EMPLOYEE" | undefined) ?? null)
+    : "OTHER";
+  // 순서 변경이 허용된 양식에서만: 칸 옮기기·추가·삭제(칸의 종류와 사람이 함께 움직인다)
+  function moveSlot(i: number, d: -1 | 1) {
+    const j = i + d; if (j < 0 || j >= slotSpecs.length) return;
+    setSlotSpecs(prev => { const n = [...prev]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+    setApproverSlots(prev => { const n = [...prev]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+    setActiveSlot(null);
+  }
+  function removeSlot(i: number) {
+    if (slotSpecs.length <= 1) return;
+    setSlotSpecs(prev => prev.filter((_, k) => k !== i));
+    setApproverSlots(prev => prev.filter((_, k) => k !== i));
+    setActiveSlot(null);
+  }
+  function addSlot(kind: StepKind) {
+    if (slotSpecs.length >= 6 || !sendTarget) return;
+    const c = sendTarget;
+    setSlotSpecs(prev => [...prev, { kind }]);
+    setApproverSlots(prev => [...prev, prefillSlots(c, [{ kind }])[0]]);
     setActiveSlot(null);
   }
 
-  // 후보 클릭 → 지정한 슬롯(없으면 비어 있는 가장 앞 슬롯)에 배정. 같은 사람 중복 배치는 방지
+  // 후보 클릭 → 지정한 슬롯(없으면 비어 있는 가장 앞 슬롯 — 고정 양식이면 종류가 맞는 칸)에 배정. 같은 사람 중복 배치는 방지
   function assignApprover(id: string) {
+    const kind = approverKind(id);
     setApproverSlots(prev => {
-      const idx = activeSlot !== null ? activeSlot : prev.findIndex(x => !x);
+      const idx = activeSlot !== null ? activeSlot : prev.findIndex((x, i) => !x && (!slotLocked || slotKind(i) === kind));
       if (idx < 0) return prev;
       const next = [...prev] as ApproverSlots;
       for (let i = 0; i < next.length; i++) if (next[i] === id) next[i] = null;
@@ -3343,7 +3394,11 @@ ${url}`;
                                 <DialogHeader><DialogTitle>발송 전 승인자 설정</DialogTitle></DialogHeader>
                                 {sendTarget && (
                                   <div className="space-y-3">
-                                    <p className="text-sm text-gray-600">'{sendTarget.title}'의 승인자를 단계별로 지정하세요. (1단계 본부 · 2단계 원장 · 3단계 근로자)</p>
+                                    <p className="text-sm text-gray-600">「{sendTarget.title}」의 결재자를 단계별로 지정하세요.</p>
+                                    <p className="text-xs text-gray-500">
+                                      결재 순서: <b>{stepsLabel(slotSpecs, !!sendTarget.externalName)}</b>
+                                      {sendTarget.approvalSteps ? (slotLocked ? " · 양식에서 정한 순서(고정)" : " · 이 양식은 발송 때 순서를 바꿀 수 있습니다") : " · 양식에 순서가 없어 기본값(템플릿 수정에서 지정할 수 있습니다)"}
+                                    </p>
                                     {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99·#159) */}
                                     {/* min-w-0 이 없으면 flex 항목이 글자 최소폭 밑으로 줄지 않아 모달 밖으로 밀려난다 (#178) */}
                                     <div className="flex gap-2">
@@ -3355,22 +3410,21 @@ ${url}`;
                                       {!sendTarget.externalName && (
                                         <Button type="button" variant="outline" size="sm" className="flex-1 basis-0 min-w-0 gap-1 h-8 whitespace-normal leading-tight"
                                           onClick={() => {
-                                            // 원장은 반드시 2번, 근로자는 3번 슬롯 — 1번(본부)은 직접 고른다 (#159)
-                                            const emp = employees.find(e => e.id === sendTarget.userId);
-                                            const mgr = emp?.branch ? employees.find(e => e.role === "MANAGER" && (e.branch === emp.branch || (e.managerBranches || []).includes(emp.branch!))) : undefined;
+                                            // 양식 순서대로 원장(메인 원장)·근로자(당사자)를 다시 채운다 — 본부 칸은 직접 고른 값 유지(#159·#213-2)
+                                            const mgrId = partyBranchManagerId(sendTarget);
                                             setApproverSlots(prev => {
-                                              const next = [...prev] as ApproverSlots;
-                                              // 근로자(당사자)를 3단계에 먼저 두고, 원장은 당사자와 다른 사람일 때만 2단계에.
-                                              // 원장 본인의 계약서면 원장=근로자라 같은 사람이 두 번 결재하게 된다 (검증관 M1)
-                                              next[2] = sendTarget.userId;
-                                              next[1] = mgr && mgr.id !== sendTarget.userId ? mgr.id : null;
-                                              // 1단계에 이미 같은 사람이 들어가 있으면 비운다
-                                              if (next[0] && (next[0] === next[1] || next[0] === next[2])) next[0] = null;
+                                              const next = prefillSlots(sendTarget, slotSpecs, prev);
+                                              // 본부 칸에 원장·당사자와 같은 사람이 들어가 있으면 비운다
+                                              for (let i = 0; i < next.length; i++) if (slotKind(i) === "HQ" && next[i] && next.some((x, j) => j !== i && x === next[i])) next[i] = null;
                                               return next;
                                             });
                                             setActiveSlot(null);
-                                            if (!mgr) toast.error("담당 원장을 찾지 못했습니다 — 2단계는 직접 선택해주세요.");
-                                            else if (mgr.id === sendTarget.userId) toast.error("당사자가 해당 지점 원장입니다 — 2단계 결재자는 직접 선택해주세요.");
+                                            const hasMgrStep = slotSpecs.some(s => s.kind === "MANAGER");
+                                            if (hasMgrStep && !mgrId) {
+                                              const emp = employees.find(e => e.id === sendTarget.userId);
+                                              const isMgr = emp?.role === "MANAGER";
+                                              toast.error(isMgr ? "당사자가 원장이라 원장 단계를 비웠습니다(그대로 보내면 원장 단계 없이 진행)." : "담당 원장을 찾지 못했습니다 — 원장 칸은 직접 선택해주세요.");
+                                            }
                                           }}>원장·근로자 자동 채움 (본부는 직접 선택)</Button>
                                       )}
                                     </div>
@@ -3387,20 +3441,32 @@ ${url}`;
                                             <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm ${activeSlot === i ? "border-indigo-400 bg-indigo-100 ring-2 ring-indigo-200" : "border-indigo-200 bg-indigo-50"}`}>
                                               <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
                                                 className="text-[11px] font-semibold text-indigo-500 shrink-0" title="이 칸에 다른 사람을 넣으려면 누르세요">
-                                                {i + 1}단계 · {SLOT_ROLES[i]}
+                                                {i + 1}단계 · {slotLabel(i)}
                                               </button>
                                               <span className="truncate">{approverLabel(id)}</span>
                                               <button type="button" onClick={() => clearApproverSlot(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="비우기"><X size={14} /></button>
+                                              {!slotLocked && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
                                             </span>
                                           ) : (
                                             <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
                                               className={`flex w-full items-center justify-between rounded-md border border-dashed px-2 py-1.5 text-xs ${activeSlot === i ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-gray-300 text-gray-400 hover:border-gray-400"}`}>
-                                              <span>{i + 1}단계 · {SLOT_ROLES[i]} — 선택 필요</span>
-                                              {activeSlot === i && <span className="font-semibold">아래에서 고르세요</span>}
+                                              <span>{i + 1}단계 · {slotLabel(i)} — {slotKind(i) === "MANAGER" ? "원장 없음(비운 채 보내면 이 단계 없이)" : "선택 필요"}</span>
+                                              <span className="flex items-center gap-1">
+                                                {activeSlot === i && <span className="font-semibold">아래에서 고르세요</span>}
+                                                {!slotLocked && <SlotOrderButtons i={i} n={slotSpecs.length} onMove={moveSlot} onRemove={removeSlot} />}
+                                              </span>
                                             </button>
                                           )}
                                         </div>
                                       ))}
+                                      {!slotLocked && slotSpecs.length < 6 && (
+                                        <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                                          단계 추가:
+                                          {STEP_KINDS.filter(k => k !== "EXTERNAL" || !!sendTarget.externalName).map(k => (
+                                            <button key={k} type="button" onClick={() => addSlot(k)} className="rounded border px-1.5 py-0.5 hover:bg-gray-50">+ {KIND_LABEL[k]}</button>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                     {/* 받는 사람 확인(#26) — 순서·이름·지점·이메일·휴대폰 일부, 다른 지점 원장·퇴사 예정 경고 */}
                                     {approverSlots.some(Boolean) && (
@@ -3457,14 +3523,14 @@ ${url}`;
                                         <div className="border rounded max-h-44 overflow-y-auto divide-y">
                                           {/* 계약서 당사자 - 상단 고정 (외부 계약은 링크 서명 항목) */}
                                           {sendTarget.externalName ? (
-                                            !approverIds.includes("EXTERNAL") && (
+                                            !approverIds.includes("EXTERNAL") && (!slotLocked || activeSlot === null || slotKind(activeSlot) === "EXTERNAL") && (
                                               <button type="button" onClick={() => assignApprover("EXTERNAL")}
                                                 className="w-full text-left px-2.5 py-1.5 text-sm text-emerald-700 font-semibold hover:bg-emerald-50">
                                                 🔗 {sendTarget.externalName} (외부 · 링크로 서명)
                                               </button>
                                             )
                                           ) : (
-                                          !approverIds.includes(sendTarget.userId) && (
+                                          !approverIds.includes(sendTarget.userId) && (!slotLocked || activeSlot === null || slotKind(activeSlot) === "EMPLOYEE") && (
                                             <button type="button" onClick={() => assignApprover(sendTarget.userId)}
                                               className="w-full text-left px-2.5 py-1.5 text-sm text-blue-600 font-semibold hover:bg-blue-50">
                                               👤 {sendTarget.user?.name || "직원"} (당사자)
@@ -3476,6 +3542,8 @@ ${url}`;
                                             .filter(e => !approverIds.includes(e.id) && (sendTarget.externalName ? true : e.id !== sendTarget.userId))
                                             // 시스템 설정에서 "계약 결재자" 를 끈 관리자는 후보에서 제외
                                             .filter(e => e.role !== "ADMIN" || (e as { isContractApprover?: boolean }).isContractApprover !== false)
+                                            // 고정 양식: 고른 칸이 본부면 관리자만, 원장이면 원장만(#213-2). 칸을 안 골랐으면 전부 보이되 맞는 칸에 들어간다
+                                            .filter(e => !slotLocked || activeSlot === null || (slotKind(activeSlot) === "HQ" ? e.role === "ADMIN" : slotKind(activeSlot) === "MANAGER" ? e.role === "MANAGER" : false))
                                             .filter(e => !approverSearch
                                               || e.name.toLowerCase().includes(approverSearch.toLowerCase())
                                               || (e.branch || "").toLowerCase().includes(approverSearch.toLowerCase()))
@@ -3494,7 +3562,7 @@ ${url}`;
                                       <Button disabled={approverIds.length === 0 || sending} onClick={() => {
                                         // 어느 단계에 누가 들어갔는지 그대로 보여준다 (#158)
                                         const names = approverSlots
-                                          .map((id, i) => (id ? `${i + 1}단계 ${SLOT_ROLES[i]} ${approverName(id)}` : null))
+                                          .map((id, i) => (id ? `${i + 1}단계 ${slotLabel(i)} ${approverName(id)}` : null))
                                           .filter(Boolean)
                                           .join(" → ");
                                         if (!confirm(`${names}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
@@ -4206,3 +4274,15 @@ ${url}`;
     </div>
   );
 }
+
+// 발송 창 칸 순서 버튼(#213-2) — 양식이 순서 변경을 허용했을 때만 보인다
+function SlotOrderButtons({ i, n, onMove, onRemove }: { i: number; n: number; onMove: (i: number, d: -1 | 1) => void; onRemove: (i: number) => void }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 ml-1 shrink-0">
+      <button type="button" onClick={e => { e.stopPropagation(); onMove(i, -1); }} disabled={i === 0} className="text-gray-400 hover:text-gray-700 disabled:text-gray-200" title="위로">▲</button>
+      <button type="button" onClick={e => { e.stopPropagation(); onMove(i, 1); }} disabled={i === n - 1} className="text-gray-400 hover:text-gray-700 disabled:text-gray-200" title="아래로">▼</button>
+      <button type="button" onClick={e => { e.stopPropagation(); onRemove(i); }} disabled={n <= 1} className="text-gray-400 hover:text-red-500 disabled:text-gray-200" title="단계 삭제">－</button>
+    </span>
+  );
+}
+

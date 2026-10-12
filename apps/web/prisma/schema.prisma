@@ -521,6 +521,10 @@ model ContractTemplate {
   // 라벨·맨 위 고정(#78, 2026-10-07 QA76 묶음 7-다). deploy/ddl_contract_template_meta.sql
   labels        String[]     @default([])
   pinned        Boolean      @default(false)
+  // 결재 순서(#213-2, 2026-10-12): [{kind:"HQ"|"MANAGER"|"EMPLOYEE"|"EXTERNAL"}] — lib/approval-order.ts. NULL = 순서 없음(본부→원장→근로자).
+  // approvalLocked true = 발송 때 순서 변경 불가(기본). deploy/ddl_template_approval_order.sql
+  approvalSteps  Json?
+  approvalLocked Boolean     @default(true)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
