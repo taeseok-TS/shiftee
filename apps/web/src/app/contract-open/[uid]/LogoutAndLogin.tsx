@@ -1,5 +1,6 @@
 "use client";
 
+import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -14,6 +15,7 @@ export default function LogoutAndLogin() {
         setBusy(true);
         try {
           await fetch("/api/auth/logout", { method: "POST" });
+          resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
         } catch {
           /* 실패해도 로그인 화면으로 이동 — 거기서 다시 로그인하면 세션이 교체된다 */
         }

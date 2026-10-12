@@ -1,5 +1,6 @@
 "use client";
 
+import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -66,6 +67,7 @@ export function RoleSwitch() {
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
+    resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
     router.push("/login");
     router.refresh();
   };
