@@ -14,6 +14,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
 import { parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
+import { TEMPLATE_CATEGORIES, templateCategoryOf, type TemplateCategory } from "@/lib/template-category";
 
 type ContractTemplate = {
   id: string;
@@ -74,6 +75,7 @@ export default function ContractTemplatesPage() {
   const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [catFilter, setCatFilter] = useState<TemplateCategory | null>(null);   // 묶음으로 거르기(#214-5)
   // 고른 라벨이 어느 템플릿에도 없으면(라벨을 지움) 거르지 않는다 — 빈 목록에 갇히지 않게(#78 검증 F3)
   const activeLabel = labelFilter && templates.some(t => (t.labels || []).includes(labelFilter)) ? labelFilter : null;
   const [history, setHistory] = useState<{ name: string; unrecorded?: { version: number; sent: number }[]; current: { version: number; fileUrl: string; sent: number }; past: { id: string; version: number; fileUrl: string; replacedAt: string; replacedBy: string | null; sent: number }[] } | null>(null);
@@ -260,6 +262,20 @@ export default function ContractTemplatesPage() {
         </Button>
       </div>
 
+      {/* 묶음으로 거르기(#214-5) — 근로계약서 / 입사 서류 / 휴가·근태 신청서 / 퇴사 서류 / 기타(이름으로 자동 분류) */}
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => setCatFilter(null)}
+          className={`px-2.5 py-1 rounded-full text-xs border ${!catFilter ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600"}`}>전체 묶음</button>
+        {TEMPLATE_CATEGORIES.map(cat => {
+          const n = templates.filter(t => templateCategoryOf(t.name) === cat).length;
+          if (n === 0) return null;
+          return (
+            <button key={cat} type="button" onClick={() => setCatFilter(catFilter === cat ? null : cat)}
+              className={`px-2.5 py-1 rounded-full text-xs border ${catFilter === cat ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600"}`}>{cat} {n}</button>
+          );
+        })}
+      </div>
+
       {/* 라벨로 거르기(#78) */}
       {[...new Set(templates.flatMap(t => t.labels || []))].length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -272,7 +288,7 @@ export default function ContractTemplatesPage() {
         </div>
       )}
 
-      {/* 템플릿 목록 */}
+      {/* 템플릿 목록 — 묶음별로 머리글을 두고 묶음 순서대로(#214-5). 묶음 안은 서버 순서(고정 → 최근 등록) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {templates.length === 0 ? (
           <Card className="md:col-span-2">
@@ -281,7 +297,16 @@ export default function ContractTemplatesPage() {
             </CardContent>
           </Card>
         ) : (
-          templates.filter(t => !activeLabel || (t.labels || []).includes(activeLabel)).map(template => (
+          TEMPLATE_CATEGORIES.filter(cat => !catFilter || cat === catFilter).flatMap(cat => {
+            const list = templates.filter(t => templateCategoryOf(t.name) === cat && (!activeLabel || (t.labels || []).includes(activeLabel)));
+            if (list.length === 0) return [];
+            return [
+              <div key={`h-${cat}`} className="md:col-span-2 flex items-center gap-2 pt-2">
+                <span className="text-sm font-semibold text-gray-700">{cat}</span>
+                <span className="text-xs text-gray-400">{list.length}</span>
+                <span className="flex-1 border-t" />
+              </div>,
+              ...list.map(template => (
             <Card key={template.id} className={`hover:shadow-md transition-shadow ${template.pinned ? "border-amber-300" : ""}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -338,7 +363,9 @@ export default function ContractTemplatesPage() {
                 </div>
               </CardContent>
             </Card>
-          ))
+              )),
+            ];
+          })
         )}
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState, type ComponentType } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { WorkUnreadBadge } from "./WorkUnreadBadge";
@@ -26,38 +27,69 @@ import {
   Inbox,
   ShieldCheck,
   CalendarCheck,
+  ChevronDown,
 } from "lucide-react";
 
-const adminNavItems = [
-  { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard },
-  { href: "/admin/attendance", label: "출퇴근", icon: Clock },
-  { href: "/admin/attendance-board", label: "출퇴근기록 (달력·목록)", icon: Clock },
-  { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 연장·야간·휴일·주 52시간(2026-10-08 #41)
-  { href: "/admin/schedule", label: "근무일정", icon: Calendar },
-  { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
-  { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
-  { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
-  { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
-  { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
-  { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
-  { href: "/admin/contract-templates", label: "계약 템플릿", icon: FileText },
-  { href: "/admin/employees", label: "직원 관리", icon: Users },
-  { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
-  { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
-  { href: "/admin/hire-dates", label: "입사일 대조", icon: CalendarCheck }, // 큐브티·포털·시프티 입사일 대조·반영(2026-10-08 #5)
-  { href: "/admin/branches", label: "지점 관리", icon: Building2 },
-  { href: "/admin/permissions", label: "권한 현황", icon: ShieldCheck }, // 역할별 권한 보기 전용(2026-10-08 #39)
-  { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
-  { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
-  { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
-  { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
-  { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
-  { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
+type NavItem = { href: string; label: string; icon: ComponentType<{ size?: number; className?: string }> };
+// 관리자 메뉴 5묶음(2026-10-12 개선 제안 #214-5, 디렉터 채택): 근태 / 결재 / 전자계약 / 인사 / 설정. 대시보드는 맨 위에 그대로.
+// 묶음은 접었다 펼 수 있고 상태는 브라우저에 기억한다. 지금 보고 있는 화면이 든 묶음은 늘 펼친다
+const DASHBOARD: NavItem = { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard };
+const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
+  { key: "attendance", title: "근태", items: [
+    { href: "/admin/attendance", label: "출퇴근", icon: Clock },
+    { href: "/admin/attendance-board", label: "출퇴근기록 (달력·목록)", icon: Clock },
+    { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 연장·야간·휴일·주 52시간(2026-10-08 #41)
+    { href: "/admin/schedule", label: "근무일정", icon: Calendar },
+    { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
+    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
+    { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
+  ] },
+  { key: "approval", title: "결재", items: [
+    { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
+    { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
+    { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
+  ] },
+  { key: "contract", title: "전자계약", items: [
+    { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
+    { href: "/admin/contract-templates", label: "계약 템플릿", icon: FileText },
+  ] },
+  { key: "hr", title: "인사", items: [
+    { href: "/admin/employees", label: "직원 관리", icon: Users },
+    { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
+    { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
+    { href: "/admin/hire-dates", label: "입사일 대조", icon: CalendarCheck }, // 큐브티·포털·시프티 입사일 대조·반영(2026-10-08 #5)
+    { href: "/admin/branches", label: "지점 관리", icon: Building2 },
+    { href: "/admin/permissions", label: "권한 현황", icon: ShieldCheck }, // 역할별 권한 보기 전용(2026-10-08 #39)
+  ] },
+  { key: "settings", title: "설정", items: [
+    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
+    { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
+    { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
+    { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
+    { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
+  ] },
 ];
+const COLLAPSE_KEY = "adminNav.collapsed";
 
 export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+  // 접힌 묶음 — 브라우저에만 기억(새로고침·다른 화면에서도 유지). 저장소를 못 쓰는 환경이면 늘 펼친 상태
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    // 서버 렌더와 첫 화면을 맞추려고(hydration) 저장값은 붙은 뒤에 읽는다 — 그래서 effect 안에서 한 번 setState 한다
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    try { const v = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); if (v && typeof v === "object") setCollapsed(v); } catch { /* 무시 */ }
+  }, []);
+  const toggleGroup = (key: string) => setCollapsed(prev => {
+    const next = { ...prev, [key]: !prev[key] };
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { /* 무시 */ }
+    return next;
+  });
+  const isActive = (href: string) => {
+    const path = href.split("?")[0];
+    return pathname === path || pathname.startsWith(path + "/");
+  };
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -81,23 +113,24 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
         </div>
       </div>
 
-      {/* 네비게이션 — 항목이 늘어도 하단(전환·로그아웃)이 화면 밖으로 밀리지 않게 간격 압축 */}
+      {/* 네비게이션 — 5묶음(#214-5). 묶음 머리를 누르면 접히고, 보고 있는 화면이 든 묶음은 늘 펼친다 */}
       <nav className="flex-1 px-3 py-3 space-y-0.5">
-        {adminNavItems.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              pathname === href || pathname.startsWith(href + "/")
-                ? "bg-red-600 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )}
-          >
-            <Icon size={18} />
-            {label}
-          </Link>
-        ))}
+        <NavLink item={DASHBOARD} active={isActive(DASHBOARD.href)} />
+        {adminNavGroups.map(g => {
+          const hasActive = g.items.some(it => isActive(it.href));
+          const open = hasActive || !collapsed[g.key];
+          return (
+            <div key={g.key} className="pt-2">
+              <button type="button" onClick={() => toggleGroup(g.key)}
+                className="flex w-full items-center justify-between px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300"
+                aria-expanded={open}>
+                <span>{g.title}</span>
+                <ChevronDown size={14} className={cn("transition-transform", open ? "" : "-rotate-90")} />
+              </button>
+              {open && g.items.map(it => <NavLink key={it.href} item={it} active={isActive(it.href)} />)}
+            </div>
+          );
+        })}
       </nav>
 
       {/* 환경설정 및 로그아웃 */}
@@ -147,3 +180,20 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
     </aside>
   );
 }
+
+function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+        active ? "bg-red-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+      )}
+    >
+      <Icon size={18} />
+      {item.label}
+    </Link>
+  );
+}
+

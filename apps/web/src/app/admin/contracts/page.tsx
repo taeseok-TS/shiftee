@@ -5,6 +5,7 @@ import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, type 
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import { koreanMoney } from "@/lib/korean-money";
 import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
+import { TEMPLATE_CATEGORIES, templateCategoryOf } from "@/lib/template-category";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -131,16 +132,9 @@ const FILTER_STATUS_LABEL: Record<string, string> = {
 // 발송 승인자 슬롯 (#158·#159) — 칸 수·역할은 **양식의 결재 순서**(#213-2, lib/approval-order)대로. 순서 없는 양식은 본부→원장→근로자
 type ApproverSlots = (string | null)[];
 
-// 문서 종류 필터 그룹 (#168) — 템플릿 이름으로 4그룹 분류. "퇴직시 비밀유지"는 퇴사 쪽
-const DOC_GROUPS = ["근로계약서", "신규입사 서류", "퇴사 서류", "신청 서류"] as const;
-type DocGroup = (typeof DOC_GROUPS)[number];
-function docGroupOf(name: string): DocGroup {
-  if (name.includes("퇴직시")) return "퇴사 서류";
-  if (name.includes("근로계약서") || name.includes("코디") || name.includes("기타직무")) return "근로계약서";
-  if (name.includes("비밀유지") || name.includes("개인정보")) return "신규입사 서류";
-  if (name.includes("사직원") || name.includes("금품청산") || name.includes("퇴직금") || name.includes("연차수당")) return "퇴사 서류";
-  return "신청 서류";
-}
+// 문서 종류 필터 그룹 (#168) — 양식 분류 5묶음(lib/template-category, #214-5)과 같은 기준
+const DOC_GROUPS = TEMPLATE_CATEGORIES;
+const docGroupOf = templateCategoryOf;
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 function getFileUrl(fileUrl: string): string {
