@@ -44,7 +44,7 @@ export function parseTime(v: unknown): string | null {
   let pm = false, am = false;
   if (/pm|오후/i.test(s)) pm = true;
   if (/am|오전/i.test(s)) am = true;
-  s = s.replace(/am|pm|오전|오후/gi, "").trim();
+  s = s.replace(/am|pm|오전|오후/gi, "").trim().replace(/^(\d{1,2}:\d{2}):\d{2}$/, "$1");   // 「09:30:00」(초) → 「09:30」
   let h: number, m: number;
   let mm = /^(\d{1,2})[:시]\s*(\d{1,2})?분?$/.exec(s);
   if (mm) { h = Number(mm[1]); m = Number(mm[2] ?? 0); }
@@ -133,13 +133,14 @@ export async function previewScheduleImport(rowsIn: unknown[], actor: Actor, ove
       if (OFF_RE.test(code)) type = "OFF";
       else if (HOLIDAY_RE.test(code)) type = "HOLIDAY";
       else {
-        const range = parseRange(code);
-        if (range) { st = range.st; et = range.et; }
+        // 템플릿 코드·이름을 **먼저** 본다 — 시프티 코드 「10-7」(10시~19시)을 시간 범위로 읽으면 10:00~07:00 이 돼 거부된다
+        const t = findTemplate(tpls, code, user.branch);
+        if (t === "ambiguous") { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」에 맞는 템플릿이 여럿 — 코드를 써 주세요` }); continue; }
+        if (t) { st = t.startTime; et = t.endTime; }
         else {
-          const t = findTemplate(tpls, code, user.branch);
-          if (t === "ambiguous") { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」에 맞는 템플릿이 여럿 — 코드를 써 주세요` }); continue; }
-          if (!t) { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」 — 템플릿 코드·이름이나 「10:00-19:00」 형식이어야 합니다` }); continue; }
-          st = t.startTime; et = t.endTime;
+          const range = parseRange(code);
+          if (!range) { pass1.push({ ...base, matched, date, status: "code_unknown", message: `「${code}」 — 템플릿 코드·이름이나 「10:00-19:00」 형식이어야 합니다` }); continue; }
+          st = range.st; et = range.et;
         }
       }
     }
