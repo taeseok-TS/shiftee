@@ -1,6 +1,7 @@
 "use client";
 
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -54,7 +55,7 @@ const STATUS_CFG: Record<string, { label: string; badge: string; dot: string }> 
   NO_SCHEDULE: { label: "일정없음", badge: "bg-gray-50 text-gray-400 border-gray-100",      dot: "bg-gray-300" },
 };
 
-const LEAVE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
+const LEAVE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -66,6 +67,7 @@ const defaultForm = { userId: "", date: "", startTime: "09:00", endTime: "18:00"
 const defaultBulk = { userIds: [] as string[], startDate: "", endDate: "", weekdays: [1,2,3,4,5] as number[], startTime: "09:00", endTime: "18:00", type: "WORK" };
 
 export default function SchedulePage() {
+  useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵

@@ -1,6 +1,7 @@
 "use client";
 
-import { LEAVE_CATALOG, LEAVE_LABELS, LEAVE_GROUPS, leaveInfo } from "@/lib/leave-catalog";
+import { LEAVE_CATALOG, LEAVE_LABELS, leaveInfo, LIVE_SINGLE_DAY, LIVE_FIXED_DAYS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,9 +59,10 @@ type MyStep   = {
 
 /* ── 상수 ── */
 // 휴가 유형 — 기준표(lib/leave-catalog.ts, 본부 답변 #19)에서
-const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;
-const SINGLE_DAY_TYPES = new Set(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => t.code));
-const FIXED_DAYS: Record<string, number> = Object.fromEntries(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => [t.code, t.unit === "HALF" ? 0.5 : 0.25]));
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
+// 공용 라이브 객체(lib/leave-catalog) — useLeaveCatalog 가 본부 유형까지 채운다(#216-1). 복사하면 새 유형이 빠진다
+const SINGLE_DAY_TYPES = LIVE_SINGLE_DAY;
+const FIXED_DAYS: Record<string, number> = LIVE_FIXED_DAYS;
 // 연차 미차감 유형 (승인되어도 잔여 연차에서 차감되지 않음)
 const NON_DEDUCT_TYPES = new Set(LEAVE_CATALOG.filter((t) => !t.deducts).map((t) => t.code));
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
@@ -124,6 +126,7 @@ function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
 }
 
 export default function LeavePage() {
+  const leaveCat = useLeaveCatalog();   // 기본 + 본부가 만든 유형·숨김(GET /api/leave/types, #216-1) — 받으면 다시 그린다
   const [role, setRole]   = useState("EMPLOYEE");
   const [myId, setMyId]   = useState("");
 
@@ -710,8 +713,8 @@ export default function LeavePage() {
                 <SelectTrigger><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
-                  {LEAVE_GROUPS.map((g, gi) => {
-                    const items = LEAVE_CATALOG.filter((t) => t.selectable && t.group === g);
+                  {leaveCat.groups.map((g, gi) => {
+                    const items = leaveCat.catalog.filter((t) => t.selectable && t.group === g);
                     if (!items.length) return null;
                     return (
                       <div key={g}>

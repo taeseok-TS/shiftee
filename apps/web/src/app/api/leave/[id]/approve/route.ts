@@ -1,4 +1,4 @@
-import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { leaveLabels } from "@/lib/leave-catalog";
 import { NextRequest, NextResponse } from "next/server";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
@@ -187,7 +187,7 @@ export async function POST(
     // 같은 내용이 두 경로로 나가면 한쪽만 실패했을 때 무엇이 갔는지 알 수 없다.
     const requesterName = leaveRequest.user.name;
     const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
-    const leaveTypeLabel: Record<string, string> = { ...LEAVE_LABELS };
+    const leaveTypeLabel: Record<string, string> = leaveLabels();   // 본부 유형 포함(#216-1)
     const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
     const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
     const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
@@ -303,7 +303,7 @@ async function adminOverride(
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   const approverName = approver?.name || "관리자";
   const requesterName = leaveRequest.user.name;
-  const leaveTypeLabel: Record<string, string> = { ...LEAVE_LABELS };
+  const leaveTypeLabel: Record<string, string> = leaveLabels();   // 본부 유형 포함(#216-1)
   const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
   const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
   const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';

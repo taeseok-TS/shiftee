@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { breakHours } from "@/lib/schedule-payload";
 import { ymdUTC } from "@/lib/holidays";
 import { kstTodayDateUTC } from "@/lib/kst";
-import { LEAVE_CATALOG, leaveLabel } from "@/lib/leave-catalog";
+import { allLeaveTypes, leaveLabel } from "@/lib/leave-catalog";
 import { excludedBranchNames } from "@/lib/employee-scope";
 import { logAudit } from "@/lib/audit";
 
@@ -22,11 +22,9 @@ export type GrantGroup = (typeof GRANT_GROUPS)[number];
 export const isGrantGroup = (v: unknown): v is GrantGroup => typeof v === "string" && (GRANT_GROUPS as readonly string[]).includes(v);
 const WORKERS_DAY = "05-01";
 const LOOKBACK_DAYS = 45;
-const GROUP_CODES: Record<GrantGroup, string[]> = {
-  "보상휴가": LEAVE_CATALOG.filter((t) => t.group === "보상휴가").map((t) => t.code),
-  "대체휴일": LEAVE_CATALOG.filter((t) => t.group === "대체휴일").map((t) => t.code),
-};
-const groupOfType = (code: string): GrantGroup | null => (GRANT_GROUPS.find((g) => GROUP_CODES[g].includes(code)) ?? null);
+// 그룹의 유형 코드 — 본부가 만든 유형(#216-1)도 그룹이 보상휴가·대체휴일이면 같은 잔여에서 센다(allLeaveTypes 는 서버가 적재한 것까지)
+const groupCodes = (g: GrantGroup): string[] => allLeaveTypes().filter((t) => t.group === g).map((t) => t.code);
+const groupOfType = (code: string): GrantGroup | null => (GRANT_GROUPS.find((g) => groupCodes(g).includes(code)) ?? null);
 
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""));
 
@@ -150,7 +148,7 @@ export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; i
       orderBy: [{ workDate: "asc" }, { createdAt: "asc" }],
     }),
     prisma.leaveRequest.findMany({
-      where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: opts.asOf }, type: { in: [...GROUP_CODES["보상휴가"], ...GROUP_CODES["대체휴일"]] as never[] } },
+      where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: opts.asOf }, type: { in: [...groupCodes("보상휴가"), ...groupCodes("대체휴일")] } },
       select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true },
       orderBy: { startDate: "asc" },
     }),

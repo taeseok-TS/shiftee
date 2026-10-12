@@ -11,3 +11,15 @@ export const LEAVE_LABELS: Record<string, string> = {
   SICK: "병가", SPECIAL: "특별휴가", FAMILY_MARRIAGE: "경조-결혼", FAMILY_BIRTH: "경조-출산", FAMILY_BEREAVEMENT: "경조-사망(조사)",
   PERSONAL: "개인휴가", BEREAVEMENT: "경조휴가",
 };
+
+// 서버 기준표(기본 + 본부가 만든 유형, 2026-10-12 #216-1)로 이름표를 채운다 — 위 객체를 **그 자리에서** 덮으므로
+// `LEAVE_LABELS` 를 그대로 참조하는 화면(홈·결재·일정)이 다음 렌더부터 새 이름을 쓴다. 실패하면 기본 이름표 그대로
+let synced = 0;
+export async function syncLeaveLabels(force = false): Promise<void> {
+  if (!force && synced && Date.now() - synced < 10 * 60 * 1000) return;
+  try {
+    const { getLeaveTypes } = await import("./approvals");
+    const d = await getLeaveTypes();
+    if (d?.labels) { Object.assign(LEAVE_LABELS, d.labels); synced = Date.now(); }
+  } catch { /* 무시 */ }
+}

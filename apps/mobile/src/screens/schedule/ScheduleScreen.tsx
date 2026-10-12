@@ -50,7 +50,7 @@ function shiftHalfHour(t: string, delta: number) {
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
-const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };   // 서버 기준표와 같은 이름(services/leaveLabels)
+const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
 
 const TYPE_LABEL: Record<string, { label: string; color: string }> = {
   work: { label: "근무", color: "#2563eb" },

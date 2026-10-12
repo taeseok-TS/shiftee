@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { LEAVE_CATALOG, leaveInfo, leaveLabel } from "@/lib/leave-catalog";
+import { allLeaveTypes, leaveInfo, leaveLabel } from "@/lib/leave-catalog";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOfLeave } from "@/lib/leave-calc";
 import { deductLeaveBalance, restoreLeaveBalance } from "@/lib/leave-balance";
@@ -33,17 +33,18 @@ const ALIASES: Record<string, string> = {
   "배우자출산": "SPOUSE_BIRTH", "가족돌봄": "FAMILY_CARE", "태아검진": "PRENATAL_CHECKUP", "출산": "MATERNITY", "포상": "REWARD",
 };
 const norm = (s: string) => s.replace(/[\s()_\-·]/g, "").toLowerCase();
-const BY_LABEL = new Map(LEAVE_CATALOG.map((t) => [norm(t.label), t.code]));
-const CODES = new Set(LEAVE_CATALOG.map((t) => t.code));
+// 본부가 만든 유형(#216-1)까지 — 서버가 적재한 뒤 호출되므로 함수로 둔다
+const byLabel = () => new Map(allLeaveTypes().map((t) => [norm(t.label), t.code]));
+const codes = () => new Set(allLeaveTypes().map((t) => t.code));
 const NOT_APPROVED = /반려|취소|철회|거절|대기|삭제|reject|cancel|pending|withdraw/i;
 
 /** 시프티 유형 이름 → 큐브티 코드. 못 맞추면 null */
 export function resolveLeaveType(text: string): string | null {
   const t = text.trim();
   if (!t) return null;
-  if (CODES.has(t)) return t;
+  if (codes().has(t)) return t;
   const n = norm(t);
-  return BY_LABEL.get(n) ?? ALIASES[n] ?? null;
+  return byLabel().get(n) ?? ALIASES[n] ?? null;
 }
 
 const toYmd = (v: unknown): string | null => {
@@ -98,7 +99,7 @@ export async function previewLeaveImport(rowsIn: unknown[]): Promise<ImportResul
     const matched = { userId: user.id, name: user.name, branch: user.branch };
     // 유형
     const ov = str(r.typeOverride);
-    const typeCode = (ov && CODES.has(ov) ? ov : null) ?? resolveLeaveType(typeText);
+    const typeCode = (ov && codes().has(ov) ? ov : null) ?? resolveLeaveType(typeText);
     if (!typeCode) return { ...base, matched, status: "type_unknown", message: `유형 「${typeText || "(비어 있음)"}」을 큐브티 유형에 맞춰 주세요` };
     const info = leaveInfo(typeCode)!;
     const typed: ImportResult = { ...base, matched, typeCode, typeLabel: leaveLabel(typeCode) };

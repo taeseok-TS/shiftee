@@ -42,6 +42,7 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/schedule", label: "근무일정", icon: Calendar },
     { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
     { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
+    { href: "/admin/leave-types", label: "휴가 유형 관리", icon: UmbrellaOff }, // 본부가 유형을 만들고 기본 유형을 숨김(2026-10-12 #216-1)
     { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
   ] },
   { key: "approval", title: "결재", items: [

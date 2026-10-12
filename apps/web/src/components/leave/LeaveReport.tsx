@@ -7,7 +7,8 @@ import { Download, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { LEAVE_CATALOG, LEAVE_GROUPS } from "@/lib/leave-catalog";
+import { LEAVE_GROUPS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 
 /**
  * 휴가 리포트(2026-10-07 QA #29 #84 #85) — 관리자 휴가 관리 「휴가 리포트」 탭.
@@ -28,6 +29,7 @@ const empNoText = (n: number | null) => (n == null ? "" : String(n).padStart(5, 
 const num = (n: number) => (Math.round(n * 100) / 100).toString();
 
 export default function LeaveReport() {
+  const leaveCat = useLeaveCatalog();   // 본부 유형 포함(#216-1)
   const [from, setFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
   const [to, setTo] = useState(() => ymdLocal(new Date()));
   const [branches, setBranches] = useState<string[]>([]);
@@ -86,7 +88,7 @@ export default function LeaveReport() {
     }
     return [...m.values()].sort((a, b) => (a.branch ?? "").localeCompare(b.branch ?? "") || a.name.localeCompare(b.name));
   }, [shown]);
-  const typeCols = useMemo(() => LEAVE_CATALOG.filter((t) => shown.some((r) => r.type === t.code)), [shown]);
+  const typeCols = useMemo(() => leaveCat.catalog.filter((t) => shown.some((r) => r.type === t.code)), [shown, leaveCat.catalog]);
   const monthCols = useMemo(() => {
     const out: string[] = [];
     if (!queried) return out;

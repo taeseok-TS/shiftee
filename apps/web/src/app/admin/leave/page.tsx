@@ -1,6 +1,7 @@
 "use client";
 
-import { LEAVE_CATALOG, LEAVE_LABELS, LEAVE_GROUPS, leaveInfo } from "@/lib/leave-catalog";
+import { LEAVE_LABELS, leaveInfo, LIVE_SINGLE_DAY, LIVE_FIXED_DAYS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,10 +77,11 @@ type MyStep   = {
 };
 
 /* ── 상수 ── */
-const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체(복사 아님) — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 // 하루짜리·고정 일수·미차감 — 기준표(lib/leave-catalog.ts, 본부 답변 #19)에서. 직원 신청 화면과 같은 표
-const SINGLE_DAY_TYPES = new Set(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => t.code));
-const FIXED_DAYS: Record<string, number> = Object.fromEntries(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => [t.code, t.unit === "HALF" ? 0.5 : 0.25]));
+// 공용 라이브 객체(lib/leave-catalog) — useLeaveCatalog 가 본부 유형까지 채운다(#216-1). 복사하면 새 유형이 빠진다
+const SINGLE_DAY_TYPES = LIVE_SINGLE_DAY;
+const FIXED_DAYS: Record<string, number> = LIVE_FIXED_DAYS;
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   PENDING:   { label: "대기중",  badge: "bg-amber-100 text-amber-700 border-amber-200" },
   APPROVED:  { label: "승인",    badge: "bg-green-100 text-green-700 border-green-200" },
@@ -132,6 +134,7 @@ function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
 }
 
 export default function LeavePage() {
+  const leaveCat = useLeaveCatalog();   // 기본 + 본부가 만든 유형·숨김(GET /api/leave/types, #216-1) — 받으면 다시 그린다
   const [role, setRole]   = useState("EMPLOYEE");
   const [myId, setMyId]   = useState("");
 
@@ -987,8 +990,8 @@ export default function LeavePage() {
                 <SelectTrigger><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
                 <SelectContent>
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
-                  {LEAVE_GROUPS.map((g, gi) => {
-                    const items = LEAVE_CATALOG.filter((t) => t.selectable && t.group === g);
+                  {leaveCat.groups.map((g, gi) => {
+                    const items = leaveCat.catalog.filter((t) => t.selectable && t.group === g);
                     if (!items.length) return null;
                     return (
                       <div key={g}>

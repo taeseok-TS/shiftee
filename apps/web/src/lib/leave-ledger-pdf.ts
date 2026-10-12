@@ -1,9 +1,8 @@
-import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { leaveLabel } from "@/lib/leave-catalog";
 import { PDFDocument, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
 import { embedKoreanFont } from "@/lib/pdf-korean-font";
 import type { Ledger } from "@/lib/leave-ledger";
 
-const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
 const STATUS_LABEL: Record<string, string> = {
   PENDING: "대기", APPROVED: "승인", REJECTED: "반려", CANCELLED: "취소", WAITING: "대기 전",
 };
@@ -96,7 +95,7 @@ export async function renderLedgerPdf(ledger: Ledger, meta: { issuedBy: string; 
   ledger.entries.forEach((e, i) => {
     y -= 2;
     line(
-      `${i + 1}. ${e.startDate}${e.startDate !== e.endDate ? ` ~ ${e.endDate}` : ""} · ${TYPE_LABEL[e.type] ?? e.type} · ${e.days}일` +
+      `${i + 1}. ${e.startDate}${e.startDate !== e.endDate ? ` ~ ${e.endDate}` : ""} · ${leaveLabel(e.type)} · ${e.days}일` +
         `${e.deductible ? "" : "(연차 미차감)"} · ${STATUS_LABEL[e.status] ?? e.status}`,
       { size: 10, color: rgb(0, 0, 0) }
     );

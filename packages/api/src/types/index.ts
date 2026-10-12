@@ -99,14 +99,8 @@ export interface ContractSignRequest {
 // ============== 휴가 ==============
 
 export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-export type LeaveType =
-  | "ANNUAL" | "SICK" | "PERSONAL" | "MATERNITY" | "BEREAVEMENT"
-  | "HALF_AM" | "HALF_PM" | "QUARTER_AM" | "QUARTER_PM"
-  | "SPECIAL" | "COMPENSATORY" | "COMPENSATORY_HALF"
-  | "CIVIL_DEFENSE" | "RESERVE_FORCES"
-  | "FAMILY_EVENT" | "FAMILY_MARRIAGE" | "FAMILY_BIRTH" | "FAMILY_BEREAVEMENT"
-  // 2026-10-07 QA #30 — apps/web/src/lib/leave-catalog.ts
-  | "COMP_LEAVE" | "COMP_LEAVE_HALF" | "PRENATAL_CHECKUP" | "REWARD" | "SPOUSE_BIRTH" | "FAMILY_CARE" | "OTHER_PAID" | "OTHER_UNPAID";
+// 휴가 유형 코드 — 기본 유형(apps/web/src/lib/leave-catalog.ts) 또는 본부가 만든 유형("CUSTOM_…", 2026-10-12 #216-1). 열거형이 아니라 문자열
+export type LeaveType = string;
 
 export interface LeaveRequest {
   id: string;

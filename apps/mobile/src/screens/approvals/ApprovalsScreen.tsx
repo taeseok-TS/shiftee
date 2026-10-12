@@ -37,7 +37,7 @@ import {
   TeamLeave,
 } from "../../services/approvals";
 
-const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };   // 서버 기준표와 같은 이름(services/leaveLabels)
+const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
 
 function fmtRange(start: string, end: string): string {
   const f = (s: string) => {

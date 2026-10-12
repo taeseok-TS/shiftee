@@ -1,6 +1,7 @@
 "use client";
 
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,10 +82,11 @@ type ScheduleApprovalStep = {
 };
 
 /* ── 상수 ── */
-const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
+const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 
 /* ── 통합 결재 페이지 ── */
 export default function ApprovalsPage() {
+  useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
   const [leaveSteps, setLeaveSteps] = useState<LeaveApprovalStep[]>([]);
   const [scheduleSteps, setScheduleSteps] = useState<ScheduleApprovalStep[]>([]);
   const [loading, setLoading] = useState(true);

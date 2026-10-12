@@ -15,7 +15,7 @@ import { leaveYearOfLeave } from "@/lib/leave-calc";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
-import { LEAVE_STATUSES, pick, LEAVE_TYPES, type LeaveTypeValue } from "@/lib/enums";
+import { LEAVE_STATUSES, pick } from "@/lib/enums";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -174,12 +174,13 @@ export async function POST(request: NextRequest) {
   if (!isRealDate(startDate) || !isRealDate(endDate)) {
     return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });
   }
-  if (typeof type !== "string" || !(LEAVE_TYPES as readonly string[]).includes(type)) {
+  if (typeof type !== "string" || !type) {
     return NextResponse.json({ error: "휴가 유형이 올바르지 않습니다." }, { status: 400 });
   }
-  const leaveType = type as LeaveTypeValue;
-  // 새 신청은 기준표의 신청 목록에 있는 유형만(병가·옛 경조 세부 유형은 기록만 남는다, 본부 답변 #19)
+  const leaveType = type;
+  // 새 신청은 기준표(기본 + 본부가 만든 유형)의 신청 목록에 있는 유형만(병가·옛 경조 세부 유형·숨긴 유형은 기록만 남는다)
   const { leaveInfo } = await import("@/lib/leave-catalog");
+  await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog();
   const info = leaveInfo(type);
   if (!info || !info.selectable) {
     return NextResponse.json({ error: "지금은 신청할 수 없는 휴가 유형입니다." }, { status: 400 });

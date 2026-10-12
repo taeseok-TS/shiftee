@@ -9,7 +9,8 @@ import { toast } from "sonner";
 import { Upload, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { LEAVE_CATALOG } from "@/lib/leave-catalog";
+import {  } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 
 type Field = "empNo" | "name" | "email" | "type" | "startDate" | "endDate" | "days" | "reason" | "status";
 // 열 이름 자동 매칭 — 앞 패턴(구체)부터 찾고, 잔여·반려·취소 같은 다른 뜻의 열은 뺀다(검증 F7)
@@ -41,6 +42,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const cellText = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` : v == null ? "" : String(v).trim());
 
 export default function LeaveImport() {
+  const leaveCat = useLeaveCatalog();   // 본부 유형 포함(#216-1)
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
@@ -178,7 +180,7 @@ export default function LeaveImport() {
                         {r.status === "type_unknown" || overrides[r.i] ? (
                           <select value={overrides[r.i] ?? ""} onChange={(e) => { setOverrides({ ...overrides, [r.i]: e.target.value }); }} className="h-7 rounded border px-1 bg-white">
                             <option value="">(고르세요)</option>
-                            {LEAVE_CATALOG.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+                            {leaveCat.catalog.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
                           </select>
                         ) : (r.typeLabel ?? "-")}
                       </td>

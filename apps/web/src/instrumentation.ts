@@ -1,5 +1,13 @@
 // Next.js 서버 기동 시 1회 실행 — 큐브티 봇 스케줄러 시작
 export async function register() {
+  // 휴가 유형(본부가 만든 유형·숨김) 적재(#216-1) — 서버가 뜰 때 한 번, 그 뒤 60초마다. 실패해도 기본 유형으로 돈다
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    try {
+      const { ensureLeaveCatalog } = await import("@/lib/leave-catalog-db");
+      await ensureLeaveCatalog().catch(() => {});
+      setInterval(() => { ensureLeaveCatalog().catch(() => {}); }, 60_000).unref?.();
+    } catch { /* 적재 모듈이 없으면 기본 유형만 */ }
+  }
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startBotScheduler } = await import("@/lib/bot");
     startBotScheduler();

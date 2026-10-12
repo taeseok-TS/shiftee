@@ -1,4 +1,4 @@
-import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { leaveLabel } from "@/lib/leave-catalog";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -90,7 +90,6 @@ export async function GET() {
   const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
   const absent = Math.max(totalEmployees - present - onLeave, 0);
 
-  const LEAVE_TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 
   // 휴가 취소 결재 — 결재함(/api/leave/cancel-requests/my-approvals)과 같은 기준(본인 요청 제외)
@@ -113,7 +112,7 @@ export async function GET() {
     ...pendingLeaveItems.map((r) => ({
       id: r.id,
       type: "leave" as const,
-      title: `${LEAVE_TYPE_LABEL[r.type] ?? r.type} ${fmt(r.startDate)}~${fmt(r.endDate)} (${r.days}일)`,
+      title: `${leaveLabel(r.type)} ${fmt(r.startDate)}~${fmt(r.endDate)} (${r.days}일)`,
       requester: r.user.name,
       requestedAt: r.createdAt,
     })),
@@ -127,7 +126,7 @@ export async function GET() {
     ...pendingCancelItems.map((r) => ({
       id: r.id,
       type: "leaveCancel" as const,
-      title: `휴가 취소 요청 · ${LEAVE_TYPE_LABEL[r.leaveRequest.type] ?? r.leaveRequest.type} ${fmt(r.leaveRequest.startDate)}~${fmt(r.leaveRequest.endDate)} (${r.leaveRequest.days}일)`,
+      title: `휴가 취소 요청 · ${leaveLabel(r.leaveRequest.type)} ${fmt(r.leaveRequest.startDate)}~${fmt(r.leaveRequest.endDate)} (${r.leaveRequest.days}일)`,
       requester: r.user.name,
       requestedAt: r.createdAt,
     })),

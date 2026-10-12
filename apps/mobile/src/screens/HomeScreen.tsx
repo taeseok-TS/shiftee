@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { LEAVE_LABELS } from "../services/leaveLabels";
+import { LEAVE_LABELS, syncLeaveLabels } from "../services/leaveLabels";
 import {
   View,
   Text,
@@ -25,7 +25,7 @@ import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
-const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };   // 서버 기준표와 같은 이름(services/leaveLabels)
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
 
 type ModalKind = "contract" | "approval" | "announcement";
 
@@ -71,6 +71,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     load();
+    syncLeaveLabels().catch(() => {});   // 본부가 만든 휴가 유형 이름(#216-1) — 홈에 올 때 한 번(10분 캐시)
   }, [load]);
 
   // 결재 건수 — 홈 로딩(스피너)과 떼어 따로 부른다. 결재 화면에서 처리하고 돌아오면 줄어 있어야 해서

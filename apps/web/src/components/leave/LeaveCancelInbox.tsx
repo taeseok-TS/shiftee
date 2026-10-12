@@ -1,6 +1,7 @@
 "use client";
 
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,7 @@ type Row = {
   };
 };
 
-const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 
 function stepLabel(s: Step): string {
   if (s.approver) return s.approver.name;
@@ -60,6 +61,7 @@ export default function LeaveCancelInbox({
   searchName?: string;
   searchDate?: string;
 }) {
+  useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);

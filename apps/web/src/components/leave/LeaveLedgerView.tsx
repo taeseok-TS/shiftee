@@ -1,6 +1,7 @@
 "use client";
 
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
+import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ type Ledger = {
   summary: { approvedDeductibleDays: number; balanceUsed: number | null; match: boolean | null };
 };
 
-const TYPE_LABEL: Record<string, string> = { ...LEAVE_LABELS };
+const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 const STATUS: Record<string, { label: string; cls: string }> = {
   PENDING: { label: "대기", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   APPROVED: { label: "승인", cls: "bg-green-50 text-green-700 border-green-200" },
@@ -46,6 +47,7 @@ const stepText = (st: Step) =>
   `${st.decidedAt ? ` ${kst(st.decidedAt)}` : ""}${st.comment ? ` (${st.comment})` : ""}`;
 
 export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: string; backLabel?: string }) {
+  useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
   const [userId, setUserId] = useState<string | null>(null);   // null = 본인
   const [year, setYear] = useState<number>(() => new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear());
   const [ready, setReady] = useState(false);

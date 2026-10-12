@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { LEAVE_CATALOG } from "@/lib/leave-catalog";
+import { allLeaveTypes } from "@/lib/leave-catalog";
+import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +10,15 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  await ensureLeaveCatalog();   // 본부가 만든 유형·숨김 반영(#216-1)
+  const all = allLeaveTypes();
+  const pack = (t: (typeof all)[number]) => ({
+    code: t.code, label: t.label, group: t.group, unit: t.unit, paidHours: t.paidHours,
+    deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null, selectable: t.selectable, custom: !!t.custom,
+  });
   return NextResponse.json({
-    types: LEAVE_CATALOG.filter((t) => t.selectable).map((t) => ({
-      code: t.code, label: t.label, group: t.group, unit: t.unit, paidHours: t.paidHours,
-      deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null,
-    })),
-    labels: Object.fromEntries(LEAVE_CATALOG.map((t) => [t.code, t.label])),
+    types: all.filter((t) => t.selectable).map(pack),
+    all: all.map(pack),   // 옛·숨긴 유형까지(기록 표시·일수 계산용)
+    labels: Object.fromEntries(all.map((t) => [t.code, t.label])),
   });
 }

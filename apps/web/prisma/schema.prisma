@@ -218,7 +218,9 @@ model LeaveRequest {
   user           User                @relation(fields: [userId], references: [id])
   approverId     String?
   approver       User?               @relation("Approver", fields: [approverId], references: [id])
-  type           LeaveType
+  // 휴가 유형 코드 — 기본 유형(lib/leave-catalog.ts) 또는 본부가 만든 유형(LeaveTypeDef.code, "CUSTOM_…"). 2026-10-12 #216-1 부터 enum 이 아니라 문자열.
+  // deploy/ddl_leave_type_def.sql
+  type           String
   startDate      DateTime            @db.Date
   endDate        DateTime            @db.Date
   days           Float
@@ -237,32 +239,23 @@ model LeaveRequest {
   @@index([importBatch])
 }
 
-enum LeaveType {
-  ANNUAL // 연차
-  HALF_AM // 오전 반차 (0.5일)
-  HALF_PM // 오후 반차 (0.5일)
-  QUARTER_AM // 오전 반반차 (0.25일)
-  QUARTER_PM // 오후 반반차 (0.25일)
-  COMPENSATORY // 대체휴무
-  COMPENSATORY_HALF // 대체휴무반차 (0.5일)
-  SICK // 병가
-  SPECIAL // 특별휴가
-  CIVIL_DEFENSE // 민방위 (0.5일, 연차 미차감)
-  RESERVE_FORCES // 예비군훈련 (연차 미차감)
-  FAMILY_EVENT // 경조사(기타)
-  FAMILY_MARRIAGE // 경조사-결혼 (연차 미차감)
-  FAMILY_BIRTH // 경조사-출산 (연차 미차감)
-  FAMILY_BEREAVEMENT // 경조사-사망(조사) (연차 미차감)
-  // 2026-10-07 QA #30(본부 답변 #19) — 시프티 휴가 유형 그대로. 성질은 lib/leave-catalog.ts
-  COMP_LEAVE // 보상휴가
-  COMP_LEAVE_HALF // 보상휴가(반차)
-  PRENATAL_CHECKUP // 태아검진휴가(4시간)
-  REWARD // 포상휴가
-  MATERNITY // 출산휴가
-  SPOUSE_BIRTH // 배우자출산휴가
-  FAMILY_CARE // 가족돌봄휴가
-  OTHER_PAID // 기타휴가(유급)
-  OTHER_UNPAID // 기타휴가(무급)
+// 본부가 화면에서 만드는 휴가 유형(2026-10-12 #216-1). 기본 유형은 lib/leave-catalog.ts, 둘을 합친 조회는 lib/leave-catalog-db.ts.
+// code 는 "CUSTOM_" 으로 시작. 신청 기록(LeaveRequest.type)이 이 코드를 가리키므로 지우지 않고 selectable=false 로 숨긴다.
+model LeaveTypeDef {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  label          String
+  group          String   // 연차휴가 | 보상휴가 | 대체휴일 | 보건휴가 | 경조휴가 | 기타휴가 (lib/leave-catalog LEAVE_GROUPS)
+  unit           String   @default("FULL") // FULL | HALF | QUARTER
+  paidHours      Int      @default(8)      // 하루(또는 반차) 당 유급 시간 — 엑셀·리포트
+  deducts        Boolean  @default(false)  // 연차 차감
+  attachRequired String?
+  notice         String?
+  selectable     Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 enum LeaveStatus {

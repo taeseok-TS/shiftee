@@ -19,6 +19,7 @@ export type LeaveTypeInfo = {
   attachRequired?: string;    // 필수 첨부(있으면 신청 때 받아야 한다) — 화면 안내 문구
   notice?: string;            // 신청 화면 안내
   selectable: boolean;        // 새 신청 목록에 보이나
+  custom?: boolean;           // 본부가 화면에서 만든 유형(LeaveTypeDef, #216-1)
 };
 
 export const LEAVE_CATALOG: LeaveTypeInfo[] = [
@@ -56,7 +57,34 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
 ];
 
 const BY_CODE = new Map(LEAVE_CATALOG.map((t) => [t.code, t]));
-export const leaveInfo = (code: string): LeaveTypeInfo | undefined => BY_CODE.get(code);
-export const leaveLabel = (code: string): string => BY_CODE.get(code)?.label ?? code;
+// ── 본부가 만든 유형·숨긴 기본 유형(2026-10-12 #216-1) — 서버는 lib/leave-catalog-db 가 적재해 얹고, 화면은 GET /api/leave/types 로 받아 얹는다 ──
+let EXTRA = new Map<string, LeaveTypeInfo>();
+let HIDDEN = new Set<string>();
+export function registerExtraLeaveTypes(list: LeaveTypeInfo[]): void { EXTRA = new Map(list.map((t) => [t.code, { ...t, custom: true }])); }
+export function setHiddenLeaveTypes(codes: string[]): void { HIDDEN = new Set(codes); }
+/** 기본 유형 + 본부 유형. 숨긴 기본 유형은 selectable=false 로 보인다(기록 표시는 그대로) */
+export function allLeaveTypes(): LeaveTypeInfo[] {
+  return [...LEAVE_CATALOG.map((t) => (HIDDEN.has(t.code) ? { ...t, selectable: false } : t)), ...EXTRA.values()];
+}
+export const leaveInfo = (code: string): LeaveTypeInfo | undefined => {
+  const b = BY_CODE.get(code);
+  if (b) return HIDDEN.has(code) ? { ...b, selectable: false } : b;
+  return EXTRA.get(code);
+};
+export const leaveLabel = (code: string): string => BY_CODE.get(code)?.label ?? EXTRA.get(code)?.label ?? code;
+/** 기본 유형 이름표(모듈 상수) — 본부 유형까지 포함하려면 leaveLabel() 또는 leaveLabels() 를 쓴다 */
 export const LEAVE_LABELS: Record<string, string> = Object.fromEntries(LEAVE_CATALOG.map((t) => [t.code, t.label]));
+export const leaveLabels = (): Record<string, string> => Object.fromEntries(allLeaveTypes().map((t) => [t.code, t.label]));
+// 화면용 라이브 집합(#216-1) — 하루짜리 유형·고정 일수. 모듈 상수로 복사해 두면 본부가 만든 유형이 빠지므로 **같은 객체**를 참조하고,
+// useLeaveCatalog 가 서버 기준표를 받으면 applyLiveCatalog 로 그 자리에서 채운다
+export const LIVE_SINGLE_DAY: Set<string> = new Set(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => t.code));
+export const LIVE_FIXED_DAYS: Record<string, number> = Object.fromEntries(LEAVE_CATALOG.filter((t) => t.unit !== "FULL").map((t) => [t.code, t.unit === "HALF" ? 0.5 : 0.25]));
+export function applyLiveCatalog(all: LeaveTypeInfo[]): void {
+  LIVE_SINGLE_DAY.clear();
+  for (const k of Object.keys(LIVE_FIXED_DAYS)) delete LIVE_FIXED_DAYS[k];
+  for (const t of all) {
+    if (t.unit !== "FULL") { LIVE_SINGLE_DAY.add(t.code); LIVE_FIXED_DAYS[t.code] = t.unit === "HALF" ? 0.5 : 0.25; }
+    LEAVE_LABELS[t.code] = t.label;
+  }
+}
 export const LEAVE_GROUPS: LeaveGroup[] = ["연차휴가", "보상휴가", "대체휴일", "보건휴가", "경조휴가", "기타휴가"];

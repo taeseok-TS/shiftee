@@ -36,7 +36,7 @@ export class CancelConflict extends Error {}
 export async function applyLeaveCancel(
   tx: Tx,
   cancelRequestId: string,
-  leave: { id: string; userId: string; type: Parameters<typeof isLeaveDeductible>[0]; days: number; startDate: Date },
+  leave: { id: string; userId: string; type: string; days: number; startDate: Date },
   approverId: string
 ): Promise<{ restoredDays: number; year: number }> {
   const won = await tx.leaveCancelRequest.updateMany({
