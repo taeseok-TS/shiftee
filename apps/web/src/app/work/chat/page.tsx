@@ -1221,12 +1221,28 @@ export default function WorkChatPage() {
   // 티켓은 [열기]를 누를 때마다 새로 받는다(2026-10-06 검증관 C1: 페이지를 열 때 한 번 받아 두던 방식은
   // 잠금 전환 전에 열어 둔 탭·첫 요청 실패 탭에서 새로고침 전까지 최대 6시간 "열 수 없음"이었다).
   // 잠금(enforce)일 때만 붙인다 — 그 전엔 마이크로소프트 서버·브라우저 기록에 내 티켓을 내보낼 이유가 없다.
+  // 티켓은 **뷰어 전용 짧은 티켓**(10분, 채팅 첨부에만 통함 — ?scope=viewer)이다. 휠클릭·「새 탭에서 열기」는 onClick 을 안 거치므로
+  // href 에도 미리 붙여 둔다(5분마다 갱신). 잠금이 아니면 붙이지 않는다(2026-10-12 첨부 잠금 재점검)
   const isOfficeDoc = (fileUrl: string, fileName: string | null) => /\.(pptx?|xlsx?|docx?)$/i.test(fileName || fileUrl);
   const officeViewer = (fileUrl: string, ticket: string | null) => {
     const src = window.location.origin + fileUrl + (ticket ? (fileUrl.includes("?") ? "&" : "?") + "t=" + ticket : "");
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(src)}`;
   };
-  const openHref = (fileUrl: string, fileName: string | null) => (isOfficeDoc(fileUrl, fileName) ? officeViewer(fileUrl, null) : fileUrl);
+  const [viewerTicket, setViewerTicket] = useState<string | null>(null);
+  useEffect(() => {
+    let stop = false;
+    const refresh = async () => {
+      try {
+        const r = await fetch("/api/uploads/ticket?scope=viewer", { cache: "no-store" });
+        const d = r.ok ? await r.json() : null;
+        if (!stop) setViewerTicket(d?.t && d?.workMode === "enforce" ? d.t : null);
+      } catch { /* 못 받으면 [열기] 클릭 경로가 다시 받는다 */ }
+    };
+    refresh();
+    const id = setInterval(refresh, 5 * 60 * 1000);
+    return () => { stop = true; clearInterval(id); };
+  }, []);
+  const openHref = (fileUrl: string, fileName: string | null) => (isOfficeDoc(fileUrl, fileName) ? officeViewer(fileUrl, viewerTicket) : fileUrl);
   const openOffice = async (e: ReactMouseEvent, fileUrl: string, fileName: string | null) => {
     if (!isOfficeDoc(fileUrl, fileName)) return; // 그 밖의 파일은 같은 출처라 쿠키로 열린다 — 기본 동작 그대로
     e.preventDefault();
@@ -1235,9 +1251,10 @@ export default function WorkChatPage() {
     if (w) w.opener = null;
     let ticket: string | null = null;
     try {
-      const r = await fetch("/api/uploads/ticket", { cache: "no-store" });
+      const r = await fetch("/api/uploads/ticket?scope=viewer", { cache: "no-store" });
       const d = r.ok ? await r.json() : null;
       ticket = d?.t && d?.workMode === "enforce" ? d.t : null;
+      if (ticket) setViewerTicket(ticket);
       if (!r.ok && r.status === 401) { w?.close(); toast.error("로그인이 끊어졌습니다. 새로고침 후 다시 열어 주세요."); return; }
     } catch { /* 티켓을 못 받아도 관찰 모드에선 그대로 열린다 — 잠금이면 뷰어가 실패를 보여 준다 */ }
     const url = officeViewer(fileUrl, ticket);

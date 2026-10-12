@@ -139,7 +139,9 @@ export async function GET(
     const { verifyUploadTicket } = await import("@/lib/upload-ticket");
     const { judgeWorkFileRequest } = await import("@/lib/work-file-access");
     const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
-    const session = await getSession().catch(() => null);
+    // 세션 조회가 던지는 건 DB 장애다 — null 로 삼키면 쿠키 사용자가 401(로그아웃처럼)을 받는다. 잠시 뒤 다시(503)로(2026-10-12 재점검)
+    let session: Awaited<ReturnType<typeof getSession>>;
+    try { session = await getSession(); } catch { return NextResponse.json({ error: "잠시 후 다시 시도해주세요." }, { status: 503 }); }
     const j = await judgeWorkFileRequest({
       segments: decoded.slice(1), session, ticketSubject: tk?.subject ?? null,
       userAgent: _request.headers.get("user-agent") || "", via: "uploads",

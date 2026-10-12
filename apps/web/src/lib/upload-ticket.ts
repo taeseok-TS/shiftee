@@ -30,6 +30,14 @@ export function issueUploadTicket(subject: string, ttlMs = 12 * 3600 * 1000): st
   return `${exp}.${subject}.${sign(subject, exp)}`;
 }
 
+// 오피스 뷰어 전용 티켓(2026-10-12 첨부 잠금 재점검) — 주체 `v:<userId>~<tv>`, 10분.
+// 마이크로소프트 뷰어 주소(브라우저 기록·MS 서버 로그)에 남는 티켓이라 **채팅 첨부(work)에만** 통하게 주체 접두를 달리 둔다.
+// 계약서·자료제출 판정(contract-access resolvePrincipal, submission-access)은 `u:`/`c:` 만 알아보므로 `v:` 는 거기서 401 이다.
+export const VIEWER_TICKET_TTL_MS = 10 * 60 * 1000;
+export function issueViewerTicket(userId: string, tv: number): string {
+  return issueUploadTicket(`v:${userId}~${tv}`, VIEWER_TICKET_TTL_MS);
+}
+
 /** 유효하면 주체를 돌려준다. 무효면 null. */
 export function verifyUploadTicket(t: string | null | undefined): { subject: string } | null {
   if (!t || !secret()) return null; // 시크릿이 비면 어떤 티켓도 인정하지 않는다 (빈 키 HMAC 위조 방지)

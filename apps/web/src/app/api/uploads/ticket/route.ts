@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { issueUploadTicket } from "@/lib/upload-ticket";
+import { issueUploadTicket, issueViewerTicket, VIEWER_TICKET_TTL_MS } from "@/lib/upload-ticket";
 import { uploadGateGroups } from "@/lib/upload-gate";
 import { workGateMode } from "@/lib/work-file-access";
 
@@ -14,9 +14,13 @@ import { workGateMode } from "@/lib/work-file-access";
 // gate: 게이트가 켜진 경로군 목록. 앱은 **이 목록에 있는 경로에만** ?t= 를 붙인다 —
 // 그래야 게이트 밖 파일(채팅 첨부 등)의 URL 이 고정돼 이미지 캐시가 유지되고,
 // 나중에 서버에서 경로군을 늘려도 앱을 다시 배포하지 않아도 된다.
-export async function GET() {
+//
+// ?scope=viewer : 오피스 뷰어용 짧은 티켓(10분, 채팅 첨부에만 통함 — lib/upload-ticket issueViewerTicket). 웹 채팅 [열기]가 쓴다(2026-10-12)
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (new URL(request.url).searchParams.get("scope") === "viewer")
+    return NextResponse.json({ t: issueViewerTicket(session.userId, session.tv ?? 0), ttlMs: VIEWER_TICKET_TTL_MS, workMode: workGateMode() });
   // submissions(자료제출 첨부)는 env 목록과 무관하게 코드에서 늘 잠겨 있다 — 앱이 티켓을 붙이도록 목록에 넣어 준다(2026-09-13)
   // work(채팅 첨부)도 판정 대상이 됐다(2026-10-01) — observe 동안에도 앱이 티켓을 붙여야 기록으로 "앱이 실제로 붙이는지"를 볼 수 있다
   const gate = [...new Set([...uploadGateGroups(), "submissions", ...(workGateMode() !== "off" ? ["work"] : [])])];

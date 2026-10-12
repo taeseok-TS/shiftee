@@ -197,13 +197,14 @@ export async function canAccessWorkFileCached(segments: string[], viewer: WorkVi
   return r;
 }
 
-/** 티켓 주체(u:<id>~<세션번호>) → 사람. 영상 조각 요청마다 사용자를 다시 읽지 않게 1분 기억 */
+/** 티켓 주체(u:<id>~<세션번호>, 또는 뷰어 전용 v:<id>~<세션번호>) → 사람. 영상 조각 요청마다 사용자를 다시 읽지 않게 1분 기억.
+ *  `v:` 는 채팅 첨부에서만 사람으로 인정한다(lib/upload-ticket issueViewerTicket) — 다른 경로군 판정은 `v:` 를 모른다 */
 async function viewerFromTicket(subject: string): Promise<WorkViewer | null> {
   const now = Date.now();
   const hit = viewerCache.get(subject);
   if (hit && now - hit.at < DECISION_TTL_MS) return hit.viewer;
   const { resolveSubmissionViewer } = await import("@/lib/submission-access");
-  const v = await resolveSubmissionViewer(null, subject);
+  const v = await resolveSubmissionViewer(null, subject.startsWith("v:") ? `u:${subject.slice(2)}` : subject);
   const viewer = v ? { userId: v.userId, role: v.role } : null;
   viewerCache.set(subject, { at: now, viewer });
   prune(viewerCache, now);
