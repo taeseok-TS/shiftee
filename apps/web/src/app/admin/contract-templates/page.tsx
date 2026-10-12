@@ -296,6 +296,12 @@ export default function ContractTemplatesPage() {
               <p className="text-center text-gray-500">등록된 템플릿이 없습니다</p>
             </CardContent>
           </Card>
+        ) : templates.every(t => (catFilter && templateCategoryOf(t.name) !== catFilter) || (activeLabel && !(t.labels || []).includes(activeLabel))) ? (
+          <Card className="md:col-span-2">
+            <CardContent className="pt-10">
+              <p className="text-center text-gray-500">고른 묶음·라벨에 해당하는 템플릿이 없습니다. <button type="button" className="text-blue-600 hover:underline" onClick={() => { setCatFilter(null); setLabelFilter(null); }}>전체 보기</button></p>
+            </CardContent>
+          </Card>
         ) : (
           TEMPLATE_CATEGORIES.filter(cat => !catFilter || cat === catFilter).flatMap(cat => {
             const list = templates.filter(t => templateCategoryOf(t.name) === cat && (!activeLabel || (t.labels || []).includes(activeLabel)));

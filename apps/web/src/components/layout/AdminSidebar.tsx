@@ -121,7 +121,7 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
           const open = hasActive || !collapsed[g.key];
           return (
             <div key={g.key} className="pt-2">
-              <button type="button" onClick={() => toggleGroup(g.key)}
+              <button type="button" onClick={() => { if (!hasActive) toggleGroup(g.key); }}   // 보고 있는 화면의 묶음은 늘 펼쳐 둔다(눌러도 접히지 않음)
                 className="flex w-full items-center justify-between px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300"
                 aria-expanded={open}>
                 <span>{g.title}</span>
