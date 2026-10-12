@@ -13,17 +13,10 @@ import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
 // 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
 async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
 
-// 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
-async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
-
-// 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
-async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  await catalogReady();
   await catalogReady();
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
