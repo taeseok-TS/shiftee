@@ -134,7 +134,8 @@ export default function WorkChatScreen() {
   const [messages, setMessages] = useState<WorkMessage[]>([]);
   const [text, setText] = useState("");
   // 입력줄 도구(사진·파일·투표·이모티콘) 접기(2026-10-12 디렉터 결정 2번): 글을 쓰기 시작하면 「›」 하나로 접혀 입력창이 넓어진다.
-  // 비어 있을 땐 늘 펼쳐져 사진 첨부는 한 번에 누른다. 「›」를 누르면 쓰는 중에도 다시 펼친다(다시 비면 자동으로 원래대로)
+  // 비어 있을 땐 늘 펼쳐져 사진 첨부는 한 번에 누른다. 「›」를 누르면 쓰는 중에도 다시 펼치되, **다음 글자를 치면 다시 접힌다**
+  // (디렉터 실기기 확인 10/12: 펼친 뒤 계속 쓰는 동안 펼쳐진 채로 남으면 안 된다)
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsCollapsed = !!text.trim() && !toolsOpen;
   // 글이 비면(전송·예약·수정 취소·방 이동 등 어떤 경로든) 펼침 상태를 되돌린다 — onChangeText 에만 두면 setText("") 경로가 빠진다(검증 F1)
@@ -802,6 +803,7 @@ export default function WorkChatScreen() {
   };
   const onChangeText = (v: string) => {
     setText(v);
+    if (toolsOpen) setToolsOpen(false);   // 펼친 뒤 다시 글을 치면 접힌다
     if (selOverride) setSelOverride(null);
     // 편집 지점 계산: 길이 델타 추정은 드래그 선택 치환·붙여넣기에서 틀린다 —
     // 이전/새 문자열의 공통 접두·접미를 걷어낸 "삽입이 끝난 지점"을 캐럿으로 본다 (검증관 M3)
