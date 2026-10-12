@@ -39,6 +39,7 @@ export async function applyLeaveCancel(
   leave: { id: string; userId: string; type: string; days: number; startDate: Date },
   approverId: string
 ): Promise<{ restoredDays: number; year: number }> {
+  await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {});   // 본부 유형 차감 여부(#216-1)
   const won = await tx.leaveCancelRequest.updateMany({
     where: { id: cancelRequestId, status: "PENDING" },
     data: { status: "APPROVED", approverId },

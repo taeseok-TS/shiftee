@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { Upload, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {  } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 
 type Field = "empNo" | "name" | "email" | "type" | "startDate" | "endDate" | "days" | "reason" | "status";

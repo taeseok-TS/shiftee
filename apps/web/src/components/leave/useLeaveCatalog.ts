@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { LEAVE_CATALOG, LEAVE_GROUPS, LEAVE_LABELS, applyLiveCatalog, type LeaveTypeInfo } from "@/lib/leave-catalog";
+import { LEAVE_CATALOG, LEAVE_GROUPS, LEAVE_LABELS, applyLiveCatalog, registerExtraLeaveTypes, setHiddenLeaveTypes, type LeaveTypeInfo } from "@/lib/leave-catalog";
 
 // 화면용 휴가 유형 기준표(2026-10-12 #216-1) — 기본 유형으로 먼저 그리고, GET /api/leave/types 로 본부가 만든 유형·숨김을 받아 덮는다.
 // 이름표는 lib/leave-catalog 의 LEAVE_LABELS **객체 자체**를 채운다(복사본이 아니라) — 그래서 `= LEAVE_LABELS` 로 참조하는 화면은 다시 그려질 때 새 이름을 쓴다.
@@ -18,6 +18,9 @@ async function load(): Promise<LeaveTypeInfo[] | null> {
     }));
     Object.assign(LEAVE_LABELS, d.labels || {});
     applyLiveCatalog(all);
+    // leaveInfo(code) 로 조회하는 화면(첨부 필수·안내 문구)도 본부 유형·숨김을 보게(485880f 검증 F1)
+    registerExtraLeaveTypes(all.filter((t) => t.custom));
+    setHiddenLeaveTypes(all.filter((t) => !t.custom && !t.selectable && LEAVE_CATALOG.find((b) => b.code === t.code)?.selectable).map((t) => t.code));
     cached = all;
     return all;
   }).catch(() => null).finally(() => { fetched = null; });

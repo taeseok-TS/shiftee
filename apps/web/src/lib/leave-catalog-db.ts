@@ -29,7 +29,10 @@ function toInfo(r: LeaveTypeDefRow): LeaveTypeInfo | null {
 export async function ensureLeaveCatalog(force = false): Promise<void> {
   const now = Date.now();
   if (!force && loadedAt && now - loadedAt < TTL_MS) return;
-  if (inflight) return inflight;
+  if (inflight) {
+    if (!force) return inflight;
+    await inflight;   // 바꾼 직후의 강제 재적재는 진행 중인(옛) 적재를 기다린 뒤 **새로** 읽는다(485880f 검증 F3)
+  }
   inflight = (async () => {
     try {
       const [rows, hidden] = await Promise.all([

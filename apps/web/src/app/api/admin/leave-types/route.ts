@@ -114,6 +114,11 @@ export async function PATCH(request: NextRequest) {
   const { out, err } = cleanDef(body, true);
   if (err) return bad(err);
   if (!Object.keys(out).length) return bad("바꿀 값이 없습니다.");
+  // 신청 기록이 있으면 단위·연차 차감은 못 바꾼다 — 리포트의 일수 계산과 취소 때 복구 기준이 소급해서 달라진다(485880f 검증 F4). 새 유형을 만들어 쓰도록
+  if ((out.unit !== undefined && out.unit !== existing.unit) || (out.deducts !== undefined && out.deducts !== existing.deducts)) {
+    const used = await prisma.leaveRequest.count({ where: { type: existing.code } });
+    if (used > 0) return NextResponse.json({ error: `이 유형으로 신청한 기록이 ${used}건 있어 단위·연차 차감은 바꿀 수 없습니다. 이름·안내·표시는 바꿀 수 있고, 성격이 다르면 새 유형을 만들어 주세요.` }, { status: 409 });
+  }
   await ensureLeaveCatalog(true);
   if (typeof out.label === "string" && out.label !== existing.label && allLeaveTypes().some((t) => t.label === out.label)) return bad(`「${out.label}」 이름의 유형이 이미 있습니다.`);
   const row = await prisma.leaveTypeDef.update({ where: { id }, data: out });

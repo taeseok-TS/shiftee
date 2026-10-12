@@ -77,7 +77,9 @@ function buildCategories(types: LeaveTypeItem[]): Category[] {
     const cat = out.find((c) => c.key === (TAB_OF[t.group] ?? "ETC"));
     cat?.options.push({ value: t.code as LeaveType, label: t.label, unit: t.unit, attachRequired: t.attachRequired, notice: t.notice });
   }
-  return out.every((c) => c.options.length) ? out : FALLBACK_CATEGORIES;
+  // 본부가 한 탭의 유형을 모두 숨기면(#216-1) 그 탭만 뺀다 — 기본 목록으로 되돌리면 숨긴 유형이 다시 보인다(485880f 검증 F5)
+  const nonEmpty = out.filter((c) => c.options.length);
+  return nonEmpty.length ? nonEmpty : FALLBACK_CATEGORIES;
 }
 
 // 하루짜리 유형(반차·반반차·4시간 휴가) — 시작일만 받고 종료일=시작일
@@ -147,7 +149,7 @@ export default function LeaveRequestScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const activeCategory = CATEGORIES.find((c) => c.key === category)!;
+  const activeCategory = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];   // 고른 탭이 빠졌으면 첫 탭(연차는 못 숨기므로 늘 있다)
   const activeOption = activeCategory.options.find((o) => o.value === leaveType) ?? activeCategory.options[0];
   const isSingleDay = SINGLE_DAY.has(leaveType) || (activeOption.value === leaveType && !!activeOption.unit && activeOption.unit !== "FULL");
   const attachRequired = activeOption.value === leaveType ? activeOption.attachRequired ?? null : null;   // 동의서·증빙 필수(기준표)
@@ -180,7 +182,7 @@ export default function LeaveRequestScreen() {
   };
 
   const pickCategory = (key: string) => {
-    const cat = CATEGORIES.find((c) => c.key === key)!;
+    const cat = CATEGORIES.find((c) => c.key === key) ?? CATEGORIES[0];
     setCategory(key);
     setLeaveType(cat.options[0].value); // 카테고리 바꾸면 첫 항목으로
   };
