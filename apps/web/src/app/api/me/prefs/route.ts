@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 //  · 최상위 키는 허용 목록만(schedule …). 값은 JSON 객체, 키마다 4KB 까지. 서버는 내용을 해석하지 않는다(화면이 검증).
 //  GET → { userId, prefs: { schedule?: {...} } } / PUT { schedule: {...} } → 그 키만 바꾼다(다른 키는 유지), null 이면 지운다
 //  userId 를 실어 주는 이유: 화면 훅이 같은 브라우저에서 사람이 바뀐 것을 알아채기 위해(10/12 검증 1)
-const ALLOWED = ["schedule"] as const;
+const ALLOWED = ["schedule", "myCalendar"] as const;
 const MAX_BYTES = 4096;
 const keyOf = (userId: string) => `userpref:${userId}`;
 

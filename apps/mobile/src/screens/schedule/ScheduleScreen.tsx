@@ -17,7 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday } from "../../services/schedule";
+import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 
 /* 근무 시간 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10, 웹 신청과 같은 목록) */
@@ -50,6 +50,14 @@ function shiftHalfHour(t: string, delta: number) {
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+/* 달력 보기 단위(2026-10-12 QA #81) — 월(종전) · 주(월~일) · 일. 날짜 계산은 달력 날짜 문자열로(TZ 무관) */
+const UNIT_LABEL: Record<CalendarUnit, string> = { month: "월", week: "주", day: "일" };
+const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dateOf = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (ymd: string, n: number) => { const d = dateOf(ymd); d.setDate(d.getDate() + n); return ymdOf(d); };
+const weekOf = (ymd: string) => { const d = dateOf(ymd); const back = (d.getDay() + 6) % 7; const start = addDays(ymd, -back); return { start, end: addDays(start, 6) }; };
+const weekDays = (start: string) => Array.from({ length: 7 }, (_, i) => addDays(start, i));
+
 const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
 
 const TYPE_LABEL: Record<string, { label: string; color: string }> = {
@@ -71,6 +79,12 @@ export default function ScheduleScreen() {
     return { year: n.getFullYear(), month: n.getMonth() + 1 };
   });
   const [shifts, setShifts] = useState<ScheduleEntry[]>([]);
+  // 보기 단위(#81)와 기준 날짜 — 주·일 보기는 기준 날짜의 주/그 날, 월 보기는 cursor 의 달
+  const [unit, setUnitState] = useState<CalendarUnit>("month");
+  const [focusDay, setFocusDay] = useState(() => ymdOf(new Date()));
+  useEffect(() => { getMyCalendarUnit().then(setUnitState).catch(() => {}); }, []);
+  const setUnit = (u: CalendarUnit) => { setUnitState(u); setMyCalendarUnit(u); };
+  const period = unit === "week" ? weekOf(focusDay) : unit === "day" ? { start: focusDay, end: focusDay } : null;
   const [requests, setRequests] = useState<ScheduleRequest[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [events, setEvents] = useState<WorkCalendarEvent[]>([]);
@@ -125,7 +139,7 @@ export default function ScheduleScreen() {
   const load = useCallback(async () => {
     try {
       const [s, r, l, ev, hd] = await Promise.all([
-        api.getMySchedules(cursor.year, cursor.month),
+        period ? getMySchedulesRange(period.start, period.end) : api.getMySchedules(cursor.year, cursor.month),
         api.getScheduleRequests(),
         api.getLeaveRequests(cursor.year, cursor.month),
         getWorkCalendar(cursor.year, cursor.month).catch(() => []),
@@ -145,7 +159,7 @@ export default function ScheduleScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [cursor, myId]);
+  }, [cursor, myId, period?.start, period?.end]);
 
   useEffect(() => {
     load();
@@ -158,13 +172,35 @@ export default function ScheduleScreen() {
 
   const move = (delta: number) => {
     setLoading(true);
-    setCursor((c) => {
-      const m = c.month + delta;
-      if (m < 1) return { year: c.year - 1, month: 12 };
-      if (m > 12) return { year: c.year + 1, month: 1 };
-      return { year: c.year, month: m };
-    });
+    if (unit === "month") {
+      setCursor((c) => {
+        const m = c.month + delta;
+        if (m < 1) return { year: c.year - 1, month: 12 };
+        if (m > 12) return { year: c.year + 1, month: 1 };
+        return { year: c.year, month: m };
+      });
+      return;
+    }
+    // 주·일 보기: 기준 날짜를 옮기고, 달이 바뀌면 휴가·공휴일·전체 일정도 그 달로
+    const next = addDays(focusDay, unit === "week" ? delta * 7 : delta);
+    setFocusDay(next);
+    const d = dateOf(next);
+    setCursor({ year: d.getFullYear(), month: d.getMonth() + 1 });
   };
+  const goToday = () => {
+    setLoading(true);
+    const t = ymdOf(new Date());
+    setFocusDay(t);
+    const d = new Date();
+    setCursor({ year: d.getFullYear(), month: d.getMonth() + 1 });
+  };
+  const periodTitle = (() => {
+    if (!period) return `${cursor.year}년 ${cursor.month}월`;
+    if (unit === "day") { const d = dateOf(focusDay); return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`; }
+    const s = dateOf(period.start), e = dateOf(period.end);
+    return `${s.getFullYear()}년 ${s.getMonth() + 1}월 ${s.getDate()}일 - ${s.getMonth() === e.getMonth() ? "" : `${e.getMonth() + 1}월 `}${e.getDate()}일`;
+  })();
+  const holidayName = (ymd: string) => holidays.find((h) => String(h.date).slice(0, 10) === ymd)?.name;
 
   const fmtDay = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -364,12 +400,21 @@ export default function ScheduleScreen() {
         <TouchableOpacity onPress={() => move(-1)} style={styles.monthBtn}>
           <Ionicons name="chevron-back" size={22} color="#374151" />
         </TouchableOpacity>
-        <Text style={styles.monthText}>
-          {cursor.year}년 {cursor.month}월
-        </Text>
+        <TouchableOpacity onPress={goToday} style={{ flex: 1, alignItems: "center" }} activeOpacity={0.7}>
+          <Text style={styles.monthText}>{periodTitle}</Text>
+          {unit !== "month" && <Text style={styles.todayHint}>제목을 누르면 오늘</Text>}
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => move(1)} style={styles.monthBtn}>
           <Ionicons name="chevron-forward" size={22} color="#374151" />
         </TouchableOpacity>
+      </View>
+      {/* 보기 단위(#81): 월 · 주 · 일 */}
+      <View style={styles.unitBar}>
+        {(["month", "week", "day"] as CalendarUnit[]).map((u) => (
+          <TouchableOpacity key={u} style={[styles.unitChip, unit === u && styles.unitChipOn]} onPress={() => { if (u !== unit) { setLoading(true); setUnit(u); } }}>
+            <Text style={[styles.unitChipText, unit === u && styles.unitChipTextOn]}>{UNIT_LABEL[u]}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {loading ? (
@@ -378,17 +423,44 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <>
+          {/* 주 보기: 7일 띠 — 누르면 그 날(일 보기) */}
+          {unit === "week" && period && (
+            <View style={styles.weekStrip}>
+              {weekDays(period.start).map((d) => {
+                const dd = dateOf(d);
+                const dow = dd.getDay();
+                const my = shifts.filter((s) => String(s.date).slice(0, 10) === d);
+                const work = my.find((s) => s.type === "work");
+                const hol = holidayName(d);
+                const isToday = d === todayStr;
+                const red = dow === 0 || !!hol;
+                return (
+                  <TouchableOpacity key={d} style={[styles.weekDay, isToday && styles.weekDayToday]} onPress={() => { setLoading(true); setFocusDay(d); setUnit("day"); }} activeOpacity={0.7}>
+                    <Text style={[styles.weekDow, red && { color: "#ef4444" }, dow === 6 && { color: "#2563eb" }]}>{WEEKDAYS[dow]}</Text>
+                    <Text style={[styles.weekNum, isToday && styles.weekNumToday]}>{dd.getDate()}</Text>
+                    <Text style={styles.weekShift} numberOfLines={2}>
+                      {work ? `${work.startTime}\n${work.endTime}` : my.length ? (TYPE_LABEL[my[0].type]?.label ?? "-") : hol ? "공휴일" : "-"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
           {/* 내 근무일정 */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>내 근무일정</Text>
+              <Text style={styles.sectionTitle}>{unit === "day" ? "이 날 근무일정" : unit === "week" ? "이 주 근무일정" : "내 근무일정"}</Text>
               <TouchableOpacity style={styles.addReqBtn} onPress={() => setReqOpen(true)}>
                 <Ionicons name="add" size={18} color="#fff" />
                 <Text style={styles.addReqText}>일정 신청</Text>
               </TouchableOpacity>
             </View>
+            {unit === "day" && holidayName(focusDay) && (
+              <Text style={[styles.empty, { color: "#dc2626" }]}>🎌 {holidayName(focusDay)}</Text>
+            )}
             {shifts.length === 0 ? (
-              <Text style={styles.empty}>이 달에 등록된 일정이 없습니다.</Text>
+              <Text style={styles.empty}>{unit === "day" ? "이 날 등록된 일정이 없습니다." : unit === "week" ? "이 주에 등록된 일정이 없습니다." : "이 달에 등록된 일정이 없습니다."}</Text>
             ) : (
               shifts.map((s) => {
                 const t = TYPE_LABEL[s.type] || TYPE_LABEL.work;
@@ -672,6 +744,20 @@ const styles = StyleSheet.create({
   },
   monthBtn: { padding: 4 },
   monthText: { fontSize: 17, fontWeight: "bold", color: "#111827" },
+  todayHint: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
+  // 보기 단위(#81)
+  unitBar: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: "#fff", paddingBottom: 10 },
+  unitChip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb" },
+  unitChipOn: { backgroundColor: "#111827", borderColor: "#111827" },
+  unitChipText: { fontSize: 13, color: "#374151", fontWeight: "600" },
+  unitChipTextOn: { color: "#fff" },
+  weekStrip: { flexDirection: "row", gap: 4, paddingHorizontal: 12, paddingTop: 12 },
+  weekDay: { flex: 1, backgroundColor: "#fff", borderRadius: 10, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: "#e5e7eb" },
+  weekDayToday: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
+  weekDow: { fontSize: 11, color: "#6b7280" },
+  weekNum: { fontSize: 16, fontWeight: "700", color: "#111827", marginVertical: 2 },
+  weekNumToday: { color: "#2563eb" },
+  weekShift: { fontSize: 10, color: "#374151", textAlign: "center", lineHeight: 13 },
   section: { padding: 16, paddingTop: 12 },
   sectionTitle: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 10 },
   empty: { color: "#9ca3af", fontSize: 14, paddingVertical: 12 },

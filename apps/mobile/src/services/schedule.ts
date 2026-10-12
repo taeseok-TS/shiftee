@@ -34,6 +34,26 @@ export async function getWorkCalendar(year: number, month: number): Promise<Work
   return (res.data?.events as WorkCalendarEvent[]) || [];
 }
 
+/** 내 근무일정 — 기간(YYYY-MM-DD, 주·일 보기 #81). 달 경계를 넘는 주도 한 번에 */
+export type MyShift = { id: string; userId: string; date: string; startTime: string; endTime: string; type: string; note: string | null; branch: string | null };
+export async function getMySchedulesRange(start: string, end: string): Promise<MyShift[]> {
+  const res = await axios.get(`${API_URL}/schedule`, { params: { scope: "self", start, end }, headers: await authHeaders() });
+  return (res.data?.schedules as MyShift[]) || [];
+}
+
+/** 달력 보기 단위(월·주·일) — 사람마다 서버 저장, 웹 「근무일정」과 같은 값을 본다(#81) */
+export type CalendarUnit = "month" | "week" | "day";
+export async function getMyCalendarUnit(): Promise<CalendarUnit> {
+  try {
+    const res = await axios.get(`${API_URL}/me/prefs`, { headers: await authHeaders() });
+    const u = res.data?.prefs?.myCalendar?.unit;
+    return u === "week" || u === "day" ? u : "month";
+  } catch { return "month"; }
+}
+export async function setMyCalendarUnit(unit: CalendarUnit): Promise<void> {
+  try { await axios.put(`${API_URL}/me/prefs`, { myCalendar: { unit } }, { headers: await authHeaders() }); } catch { /* 저장 못 해도 이번 화면은 바뀐다 */ }
+}
+
 // 공휴일 목록 (연도별 — 관리자 > 공휴일 관리에서 등록된 데이터)
 export type Holiday = { id: string; date: string; name: string };
 export async function getHolidays(year: number): Promise<Holiday[]> {

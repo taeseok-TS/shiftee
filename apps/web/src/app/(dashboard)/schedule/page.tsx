@@ -2,6 +2,8 @@
 
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
+import { useUserPrefs } from "@/components/prefs/useUserPrefs";
+import { type ViewUnit, UNIT_LABEL, VIEW_UNITS, daysOf, isViewUnit, rangeOf, rangeTitle, shiftAnchor, ymd } from "@/lib/schedule-view";
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -64,11 +66,40 @@ const TYPE_CFG: Record<string, string> = {
 };
 
 const defaultForm = { userId: "", date: "", startTime: "09:00", endTime: "18:00", type: "WORK", note: "" };
+
+// 직원 달력 보기 단위(2026-10-12 QA #81) — 월(종전 달력) · 주 · 일. 선택은 사람마다 저장(/api/me/prefs 키 myCalendar)
+type MyCalPrefs = { unit: ViewUnit };
+const MYCAL_DEFAULT: MyCalPrefs = { unit: "month" };
+const cleanMyCal = (raw: unknown): MyCalPrefs => {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return { unit: isViewUnit(r.unit) ? r.unit : "month" };
+};
 const defaultBulk = { userIds: [] as string[], startDate: "", endDate: "", weekdays: [1,2,3,4,5] as number[], startTime: "09:00", endTime: "18:00", type: "WORK" };
 
 export default function SchedulePage() {
   useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [cal, setCal] = useUserPrefs<MyCalPrefs>("myCalendar", MYCAL_DEFAULT, cleanMyCal);
+  const unit = cal.unit;
+  // 주·일 보기 기간과 그 날들의 내 현황(날짜 상세와 같은 API, 하루 한 번씩) — 기간이 바뀐 뒤 늦게 온 옛 응답은 버린다
+  const range = useMemo(() => rangeOf(currentDate, unit === "month" ? "month" : unit, 1), [currentDate, unit]);
+  const rangeKey = `${unit}:${ymd(range.start)}~${ymd(range.end)}`;
+  const [dayRowsByDate, setDayRowsByDate] = useState<{ key: string; rows: Record<string, EmpRow | null> }>({ key: "", rows: {} });
+  useEffect(() => {
+    if (unit === "month") return;
+    let alive = true;
+    const days = daysOf(range).map(ymd);
+    Promise.all(days.map((d) => fetch(`/api/schedule/day?date=${d}&scope=self`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
+      .then((list) => {
+        if (!alive) return;
+        const rows: Record<string, EmpRow | null> = {};
+        days.forEach((d, i) => { rows[d] = (list[i]?.employees?.[0] as EmpRow | undefined) ?? null; });
+        setDayRowsByDate({ key: rangeKey, rows });
+      });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey]);
+  const rangeRows = dayRowsByDate.key === rangeKey ? dayRowsByDate.rows : null;
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
@@ -241,22 +272,79 @@ export default function SchedulePage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-semibold text-gray-800 text-2xl">
               <CalendarDays size={24} className="text-blue-600" />
-              {year}년 {month}월
+              {unit === "month" ? `${year}년 ${month}월` : rangeTitle(range, unit)}
               <span className="text-base font-normal text-gray-400 ml-1">내 일정</span>
             </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => subMonths(d, 1))}>
-                <ChevronLeft size={16} />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 px-3 text-xs"
-                onClick={() => setCurrentDate(new Date())}>오늘</Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentDate(d => addMonths(d, 1))}>
-                <ChevronRight size={16} />
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 보기 단위(#81) */}
+              <div role="radiogroup" className="inline-flex rounded-md border bg-white p-0.5 text-xs">
+                {VIEW_UNITS.map((u) => (
+                  <button key={u} type="button" role="radio" aria-checked={unit === u}
+                    className={`px-2.5 py-1 rounded ${unit === u ? "bg-gray-900 text-white font-semibold" : "text-gray-600 hover:bg-gray-100"}`}
+                    onClick={() => setCal({ unit: u })}>{UNIT_LABEL[u]}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="이전"
+                  onClick={() => setCurrentDate(d => unit === "month" ? subMonths(d, 1) : shiftAnchor(d, unit, -1))}>
+                  <ChevronLeft size={16} />
+                </Button>
+                <Button variant="ghost" size="sm" className="h-8 px-3 text-xs"
+                  onClick={() => setCurrentDate(new Date())}>오늘</Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="다음"
+                  onClick={() => setCurrentDate(d => unit === "month" ? addMonths(d, 1) : shiftAnchor(d, unit, 1))}>
+                  <ChevronRight size={16} />
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
 
+        {unit !== "month" ? (
+          <CardContent className="px-3 pb-4">
+            {!rangeRows ? (
+              <div className="py-16 text-center text-gray-400 text-sm">불러오는 중...</div>
+            ) : (
+              <div className={`grid gap-2 ${unit === "week" ? "grid-cols-1 md:grid-cols-7" : "grid-cols-1"}`}>
+                {daysOf(range).map((day) => {
+                  const dateStr = ymd(day);
+                  const r = rangeRows[dateStr];
+                  const dow = getDay(day);
+                  const today = isToday(day);
+                  const holidayName = holidayMap.get(dateStr);
+                  const cfg = r ? (STATUS_CFG[r.status] ?? STATUS_CFG.NO_SCHEDULE) : null;
+                  return (
+                    <button key={dateStr} type="button" onClick={() => openDay(dateStr)} title="누르면 상세"
+                      className={`text-left rounded-lg border p-3 transition-all hover:border-gray-300 hover:bg-gray-50/70
+                        ${today ? "border-blue-400 bg-blue-50/60" : "border-gray-200"} ${dow === 0 || holidayName ? "bg-red-50/30" : dow === 6 ? "bg-blue-50/20" : ""}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`font-semibold ${unit === "day" ? "text-xl" : "text-base"} ${today ? "text-blue-700" : dow === 0 || holidayName ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-700"}`}>
+                          {format(day, unit === "day" ? "M월 d일 (EEEE)" : "d일 (EEE)", { locale: ko })}
+                        </span>
+                        {holidayName && <span className="text-xs text-red-400 truncate ml-1">{holidayName}</span>}
+                      </div>
+                      {cfg && (
+                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${cfg.badge}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{cfg.label}
+                        </span>
+                      )}
+                      <dl className={`mt-2 space-y-1 ${unit === "day" ? "text-base" : "text-sm"}`}>
+                        <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">근무</dt><dd className="text-gray-800">
+                          {r?.leaveType ? <span className="text-blue-600">{LEAVE_LABEL[r.leaveType] ?? r.leaveType}</span>
+                            : r?.scheduleType === "WORK" ? `${r.startTime} ~ ${r.endTime}`
+                            : r?.scheduleType ? <span className="text-gray-400">{TYPE_CFG[r.scheduleType] ?? r.scheduleType}</span>
+                            : <span className="text-gray-300">일정 없음</span>}
+                        </dd></div>
+                        <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">출근</dt><dd className="font-mono text-gray-800">{r?.clockIn ?? <span className="text-gray-300">-</span>}</dd></div>
+                        <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">퇴근</dt><dd className="font-mono text-gray-800">{r?.clockOut ?? <span className="text-gray-300">-</span>}</dd></div>
+                      </dl>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        ) : (
         <CardContent className="px-3 pb-4">
           {/* 범례 */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
@@ -346,6 +434,7 @@ export default function SchedulePage() {
             })}
           </div>
         </CardContent>
+        )}
       </Card>
 
       {/* ═══════════════════════════════════
