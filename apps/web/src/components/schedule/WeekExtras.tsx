@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import type { WeekHours } from "@/components/schedule/WeekHours";
 
 /**
  * 근무일정 주간 표 공용(2026-10-07 QA 묶음 5-다) — 관리자 근무일정 표와 원장 팀 일정 표가 같이 쓴다.
- *  · #61 useWeekLeaves / <LeaveChips>: 그 주 승인된 휴가를 칸에 함께. 「휴가 표시」 켜기·끄기는 이 브라우저에 기억
+ *  · #61 useRangeLeaves / <LeaveChips>: 기간의 승인된 휴가를 칸에 함께. 켜기·끄기는 보기 설정(사람마다 저장, #73)
  *  · #74 useBranchColors: 지점마다 색 — 지점이 만들어진 순서로 배정(새 지점은 다음 색, 이름을 바꿔도 그대로.
  *    지점을 비활성화하면 그 뒤에 만든 지점 색이 한 칸씩 당겨진다)
  *  · #40 empNoText: 사번 5자리
@@ -15,26 +15,6 @@ export const empNoText = (n: number | null | undefined) => (n == null ? "" : Str
 
 // ── #61 휴가 표시 ──
 export type RangeLeaves = { from: string; to: string; leaves: Record<string, Record<string, { type: string; label: string }[]>> };
-
-const SHOW_LEAVE_KEY = "schedule.showLeave";
-const showLeaveSubs = new Set<() => void>();
-function readShowLeave(): boolean {
-  try { return window.localStorage.getItem(SHOW_LEAVE_KEY) !== "0"; } catch { return true; }
-}
-/** 「휴가 표시」 — 기본 켜짐, 이 브라우저에 기억(저장 못 하는 환경이면 이번 화면에서만) */
-export function useShowLeave(): [boolean, (v: boolean) => void] {
-  const [fallback, setFallback] = useState<boolean | null>(null);
-  const stored = useSyncExternalStore(
-    (cb) => { showLeaveSubs.add(cb); return () => { showLeaveSubs.delete(cb); }; },
-    readShowLeave,
-    () => true,
-  );
-  const set = (v: boolean) => {
-    try { window.localStorage.setItem(SHOW_LEAVE_KEY, v ? "1" : "0"); } catch { setFallback(v); }
-    showLeaveSubs.forEach((cb) => cb());
-  };
-  return [fallback ?? stored, set];
-}
 
 /** 기간(start~end, yyyy-MM-dd, 62일까지)에 걸친 승인 휴가 — 일·주·월 보기(#71)가 같은 훅을 쓴다 */
 export function useRangeLeaves(start: string, end: string, enabled: boolean, reloadKey = 0) {

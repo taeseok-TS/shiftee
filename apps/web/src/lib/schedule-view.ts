@@ -25,6 +25,51 @@ export const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 export const isViewUnit = (v: unknown): v is ViewUnit => v === "day" || v === "week" || v === "month";
 export const isViewLayout = (v: unknown): v is ViewLayout => v === "grid" || v === "list";
 
+// ── 정렬·표시 항목·주 시작 요일(#73) — 사람마다 저장(/api/me/prefs, 키 schedule) ──
+export type SortKey = "name" | "empNo" | "branch" | "jobGroup" | "hireDate";
+export const SORT_KEYS: SortKey[] = ["name", "empNo", "branch", "jobGroup", "hireDate"];
+export const SORT_LABEL: Record<SortKey, string> = { name: "이름", empNo: "사번", branch: "지점 → 이름", jobGroup: "직무 → 이름", hireDate: "입사일(오래된 순)" };
+export type ShowKey = "empNo" | "subline" | "time" | "typeBadge" | "note" | "leave" | "total";
+export const SHOW_KEYS: ShowKey[] = ["time", "typeBadge", "note", "leave", "empNo", "subline", "total"];
+export const SHOW_LABEL: Record<ShowKey, string> = {
+  time: "근무 시간", typeBadge: "유형(근무·휴무)", note: "메모", leave: "승인된 휴가", empNo: "사번", subline: "직무·지점", total: "합계 열(주·월)",
+};
+export const WEEK_START_OPTIONS: { value: WeekStart; label: string }[] = [{ value: 1, label: "월요일" }, { value: 0, label: "일요일" }, { value: 6, label: "토요일" }];
+export type SchedulePrefs = { unit: ViewUnit; layout: ViewLayout; weekStart: WeekStart; sort: SortKey; show: Record<ShowKey, boolean> };
+export const SCHEDULE_PREFS_DEFAULT: SchedulePrefs = {
+  unit: "week", layout: "grid", weekStart: 1, sort: "name",
+  show: { time: true, typeBadge: true, note: true, leave: true, empNo: true, subline: true, total: true },
+};
+/** 저장소에 뭐가 있어도 화면이 안 깨지게 — 모르는 값은 기본값으로 */
+export function cleanSchedulePrefs(raw: unknown): SchedulePrefs {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const show = (r.show && typeof r.show === "object" ? r.show : {}) as Record<string, unknown>;
+  const ws = r.weekStart;
+  return {
+    unit: isViewUnit(r.unit) ? r.unit : SCHEDULE_PREFS_DEFAULT.unit,
+    layout: isViewLayout(r.layout) ? r.layout : SCHEDULE_PREFS_DEFAULT.layout,
+    weekStart: WEEK_START_OPTIONS.some((o) => o.value === ws) ? (ws as WeekStart) : SCHEDULE_PREFS_DEFAULT.weekStart,
+    sort: SORT_KEYS.includes(r.sort as SortKey) ? (r.sort as SortKey) : SCHEDULE_PREFS_DEFAULT.sort,
+    show: Object.fromEntries(SHOW_KEYS.map((k) => [k, typeof show[k] === "boolean" ? show[k] : SCHEDULE_PREFS_DEFAULT.show[k]])) as Record<ShowKey, boolean>,
+  };
+}
+
+type Sortable = { name: string; empNo?: number | null; branch: string | null; jobGroup?: string | null; position?: string | null; hireDate?: string | null };
+const ko_ = (a: string, b: string) => a.localeCompare(b, "ko");
+/** 직원 정렬(#73). 값이 없는 사람은 뒤로, 같으면 이름순 */
+export function sortEmployees<T extends Sortable>(list: T[], sort: SortKey): T[] {
+  const byName = (a: T, b: T) => ko_(a.name, b.name);
+  const nullsLast = (a: string | null | undefined, b: string | null | undefined) => (a ? 0 : 1) - (b ? 0 : 1);
+  const cmp: Record<SortKey, (a: T, b: T) => number> = {
+    name: byName,
+    empNo: (a, b) => ((a.empNo ?? Number.MAX_SAFE_INTEGER) - (b.empNo ?? Number.MAX_SAFE_INTEGER)) || byName(a, b),
+    branch: (a, b) => nullsLast(a.branch, b.branch) || ko_(a.branch ?? "", b.branch ?? "") || byName(a, b),
+    jobGroup: (a, b) => nullsLast(a.jobGroup || a.position, b.jobGroup || b.position) || ko_(a.jobGroup || a.position || "", b.jobGroup || b.position || "") || byName(a, b),
+    hireDate: (a, b) => nullsLast(a.hireDate, b.hireDate) || (a.hireDate ?? "").localeCompare(b.hireDate ?? "") || byName(a, b),
+  };
+  return [...list].sort(cmp[sort]);
+}
+
 /** 기준 날짜가 속한 기간 */
 export function rangeOf(anchor: Date, unit: ViewUnit, weekStartsOn: WeekStart = 1): DateRange {
   if (unit === "day") { const s = startOfDay(anchor); return { start: s, end: s }; }

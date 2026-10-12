@@ -2,9 +2,10 @@
 
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { useWeekHours, showWeekWarnings } from "@/components/schedule/WeekHours";
-import { useRangeLeaves, useShowLeave, useBranchColors } from "@/components/schedule/WeekExtras";
+import { useRangeLeaves, useBranchColors } from "@/components/schedule/WeekExtras";
 import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
-import { yearsOf } from "@/lib/schedule-view";
+import { MultiPick } from "@/components/schedule/ScheduleControls";
+import { sortEmployees, yearsOf } from "@/lib/schedule-view";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -23,15 +24,14 @@ export default function AdminSchedulePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
-  // 보기 전환(#71): 일·주·월 × 달력형·목록형 — 선택은 이 브라우저에 기억
+  // 보기 전환(#71): 일·주·월 × 달력형·목록형, 정렬·표시·주 시작 요일(#73) — 사람마다 저장
   const view = useScheduleView();
   // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38). 저장하면 다시 센다. 주 보기에서만
   const [weekReload, setWeekReload] = useState(0);
   const weekHours = useWeekHours(view.weekMonday, weekReload);
 
-  // 휴가 함께 보기(#61)·지점 색(#74)
-  const [showLeave, setShowLeave] = useShowLeave();
-  const leaves = useRangeLeaves(view.startYmd, view.endYmd, showLeave, weekReload);
+  // 휴가 함께 보기(#61, 보기 설정 「승인된 휴가」)·지점 색(#74)
+  const leaves = useRangeLeaves(view.startYmd, view.endYmd, view.show.leave, weekReload);
   const branchColor = useBranchColors();
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵. 기간이 두 해에 걸치면 둘 다
@@ -43,8 +43,11 @@ export default function AdminSchedulePage() {
       .then((list) => { if (alive) setHolidayMap(new Map(list.flatMap((d) => (d.holidays || []) as { date: string; name: string }[]).map((h) => [h.date, h.name]))); });
     return () => { alive = false; };
   }, [yearsKey]);
-  const [filterBranch, setFilterBranch] = useState<string>("ALL");
-  const [filterDepartment, setFilterDepartment] = useState<string>("ALL");
+  // 필터(#72): 여러 개 동시 선택(빈 배열 = 전체) + 이름 검색
+  const [selBranches, setSelBranches] = useState<string[]>([]);
+  const [selDepartments, setSelDepartments] = useState<string[]>([]);
+  const [selJobGroups, setSelJobGroups] = useState<string[]>([]);
+  const [searchName, setSearchName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   // 근무일정 추가 — 종전 창은 입력값을 어디에도 담지 않고 "추가되었습니다"만 띄워 실제로는 저장되지 않았다(2026-10-06 QA 조사에서 적발)
   const emptyForm = () => ({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00", type: "WORK" as "WORK" | "OFF", note: "" });
@@ -59,6 +62,10 @@ export default function AdminSchedulePage() {
 
   const departments = useMemo(() => {
     const unique = new Set(employees.map(e => e.department).filter((d): d is string => !!d));
+    return Array.from(unique).sort();
+  }, [employees]);
+  const jobGroups = useMemo(() => {
+    const unique = new Set(employees.map(e => e.jobGroup || e.position).filter((d): d is string => !!d));
     return Array.from(unique).sort();
   }, [employees]);
 
@@ -104,14 +111,20 @@ export default function AdminSchedulePage() {
     fetchSchedules();
   }, [fetchEmployees, fetchSchedules]);
 
-  // 필터링된 직원 목록
+  // 필터링·정렬된 직원 목록
+  const q = searchName.trim();
+  const sortKey = view.prefs.sort;
   const filteredEmployees = useMemo(() => {
-    return employees.filter(emp => {
-      const branchMatch = filterBranch === "ALL" || emp.branch === filterBranch;
-      const deptMatch = filterDepartment === "ALL" || emp.department === filterDepartment;
-      return branchMatch && deptMatch;
+    // 목록에서 사라진 값(이름이 바뀐 지점 등)은 세지 않는다 — MultiPick 이 「전체」로 보이는 것과 같은 기준(10/12 검증 4)
+    const fb = selBranches.filter((v) => branches.includes(v)), fd = selDepartments.filter((v) => departments.includes(v)), fj = selJobGroups.filter((v) => jobGroups.includes(v));
+    const list = employees.filter(emp => {
+      if (fb.length && !(emp.branch && fb.includes(emp.branch))) return false;
+      if (fd.length && !(emp.department && fd.includes(emp.department))) return false;
+      if (fj.length && !fj.includes(emp.jobGroup || emp.position || "")) return false;
+      return !q || emp.name.includes(q);
     });
-  }, [employees, filterBranch, filterDepartment]);
+    return sortEmployees(list, sortKey);
+  }, [employees, branches, departments, jobGroups, selBranches, selDepartments, selJobGroups, q, sortKey]);
 
   const handleCreate = async () => {
     if (!form.userId) { toast.error("직원을 선택해주세요."); return; }
@@ -232,48 +245,21 @@ export default function AdminSchedulePage() {
       {/* 날짜 네비게이션 + 보기 전환(#71) */}
       <Card>
         <CardContent className="pt-6">
-          <ScheduleViewBar view={view} right={
-            /* 휴가 함께 보기(#61) — 이 브라우저에 기억 */
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-              <input type="checkbox" checked={showLeave} onChange={(e) => setShowLeave(e.target.checked)} />휴가 표시
-            </label>
-          } />
+          <ScheduleViewBar view={view} />
 
-          {/* 필터 */}
-          <div className="flex flex-wrap gap-3">
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm">지점</Label>
-              <Select value={filterBranch} onValueChange={(v) => setFilterBranch(v ?? "ALL")}>
-                <SelectTrigger>
-                  <SelectValue>{filterBranch === "ALL" ? "모든 지점" : filterBranch}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">모든 지점</SelectItem>
-                  {branches.map(branch => (
-                    <SelectItem key={branch} value={branch}>
-                      {branch}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* 필터(#72) — 지점·직무·부서를 여러 개 동시에, 이름 검색 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <MultiPick label="지점" options={branches} value={selBranches} onChange={setSelBranches} allLabel="모든 지점" />
+            <MultiPick label="직무" options={jobGroups} value={selJobGroups} onChange={setSelJobGroups} allLabel="모든 직무" />
+            <MultiPick label="부서" options={departments} value={selDepartments} onChange={setSelDepartments} allLabel="모든 부서" />
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              <Input placeholder="직원 이름 검색" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="pl-9 h-9 w-48" />
             </div>
-
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm">부서</Label>
-              <Select value={filterDepartment} onValueChange={(v) => setFilterDepartment(v ?? "ALL")}>
-                <SelectTrigger>
-                  <SelectValue>{filterDepartment === "ALL" ? "모든 부서" : filterDepartment}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">모든 부서</SelectItem>
-                  {departments.map(dept => (
-                    <SelectItem key={dept} value={dept}>
-                      {dept}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {(selBranches.length || selJobGroups.length || selDepartments.length || searchName) ? (
+              <button type="button" className="text-xs text-gray-500 underline" onClick={() => { setSelBranches([]); setSelJobGroups([]); setSelDepartments([]); setSearchName(""); }}>필터 지우기</button>
+            ) : null}
+            <span className="ml-auto text-xs text-gray-400">{filteredEmployees.length}명 / 전체 {employees.length}명</span>
           </div>
         </CardContent>
       </Card>

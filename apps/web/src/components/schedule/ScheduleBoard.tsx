@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import { format, isToday as isTodayFn } from "date-fns";
 import { ko } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -8,52 +8,41 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { LeaveChips, WeekTotalCell, empNoText, type RangeLeaves } from "@/components/schedule/WeekExtras";
 import type { WeekHours } from "@/components/schedule/WeekHours";
+import { useUserPrefs } from "@/components/prefs/useUserPrefs";
+import { ViewSettingsMenu } from "@/components/schedule/ScheduleControls";
 import {
-  type ViewLayout, type ViewUnit, type WeekStart,
-  LAYOUT_LABEL, UNIT_LABEL, VIEW_LAYOUTS, VIEW_UNITS, compactTime, daysOf, fmtHours, isViewLayout, isViewUnit,
+  type SchedulePrefs, type ShowKey, type ViewLayout, type ViewUnit,
+  LAYOUT_LABEL, SCHEDULE_PREFS_DEFAULT, UNIT_LABEL, VIEW_LAYOUTS, VIEW_UNITS, cleanSchedulePrefs, compactTime, daysOf, fmtHours,
   netMinutes, rangeOf, rangeTitle, shiftAnchor, timeAxis, timeToMin, ymd,
 } from "@/lib/schedule-view";
 
 /**
  * 근무일정 표 공용(2026-10-12 QA #71 보기 전환·목록형) — 본부 근무일정과 원장 팀 근무일정이 같이 쓴다.
- *  · useScheduleView: 보기 단위(일·주·월)·모양(달력형·목록형)·기준 날짜. 단위·모양은 이 브라우저에 기억
+ *  · useScheduleView: 보기 단위(일·주·월)·모양(달력형·목록형)·기준 날짜 + 정렬·표시 항목·주 시작 요일(#73). 사람마다 서버에 저장
  *  · <ScheduleViewBar>: ◀ 오늘 ▶ 제목 + 단위·모양 전환
  *  · <ScheduleBoard>: 달력형 — 일(시간축 띠), 주(요일 칸), 월(날짜 칸 + 월 합계) / 목록형 — 날짜·직원별 표
  *  · 칸·일정을 누르는 동작(onEmptyCell/onSchedule)은 부르는 쪽이 정한다(원장은 추가·고치기, 본부는 보기만)
  */
-export type BoardEmployee = { id: string; name: string; empNo?: number | null; branch: string | null; jobGroup?: string | null; position?: string | null; department?: string | null };
+export type BoardEmployee = { id: string; name: string; empNo?: number | null; branch: string | null; jobGroup?: string | null; position?: string | null; department?: string | null; hireDate?: string | null };
+type Show = Record<ShowKey, boolean>;
 export type BoardSchedule = { id: string; userId: string; date: string; startTime: string; endTime: string; branch: string | null; type: string; note?: string | null };
 
-const UNIT_KEY = "schedule.unit", LAYOUT_KEY = "schedule.layout";
-const readStored = <T,>(key: string, ok: (v: unknown) => v is T, fallback: T): T => {
-  try { const v = window.localStorage.getItem(key); return ok(v) ? v : fallback; } catch { return fallback; }
-};
-// 이 브라우저에 기억하는 선택(useShowLeave 와 같은 방식) — 서버 렌더는 기본값, 화면에서는 저장값
-const choiceSubs = new Set<() => void>();
-const subscribeChoice = (cb: () => void) => { choiceSubs.add(cb); return () => { choiceSubs.delete(cb); }; };
-function usePersistedChoice<T extends string>(key: string, ok: (v: unknown) => v is T, fallback: T): [T, (v: T) => void] {
-  const [unsaved, setUnsaved] = useState<T | null>(null);   // 저장 못 하는 환경이면 이번 화면에서만
-  const stored = useSyncExternalStore(subscribeChoice, () => readStored(key, ok, fallback), () => fallback);
-  const set = (v: T) => {
-    try { window.localStorage.setItem(key, v); setUnsaved(null); } catch { setUnsaved(v); }
-    choiceSubs.forEach((cb) => cb());
-  };
-  return [unsaved ?? stored, set];
-}
-
-export function useScheduleView(weekStartsOn: WeekStart = 1) {
-  const [unit, setUnit] = usePersistedChoice<ViewUnit>(UNIT_KEY, isViewUnit, "week");
-  const [layout, setLayout] = usePersistedChoice<ViewLayout>(LAYOUT_KEY, isViewLayout, "grid");
+/** 보기 단위·모양·정렬·표시·주 시작 요일 — 사람마다 저장(#73). 기준 날짜는 화면마다 */
+export function useScheduleView() {
+  const [prefs, setPrefs] = useUserPrefs<SchedulePrefs>("schedule", SCHEDULE_PREFS_DEFAULT, cleanSchedulePrefs);
+  const { unit, layout, weekStart } = prefs;
   const [anchor, setAnchor] = useState<Date>(() => new Date());
-  const range = useMemo(() => rangeOf(anchor, unit, weekStartsOn), [anchor, unit, weekStartsOn]);
+  const range = useMemo(() => rangeOf(anchor, unit, weekStart), [anchor, unit, weekStart]);
   const startYmd = ymd(range.start), endYmd = ymd(range.end);
   return {
-    unit, setUnit, layout, setLayout, anchor, setAnchor, range, startYmd, endYmd,
+    prefs, setPrefs, show: prefs.show, weekStart,
+    unit, setUnit: (u: ViewUnit) => setPrefs({ unit: u }), layout, setLayout: (l: ViewLayout) => setPrefs({ layout: l }),
+    anchor, setAnchor, range, startYmd, endYmd,
     prev: () => setAnchor((a) => shiftAnchor(a, unit, -1)),
     next: () => setAnchor((a) => shiftAnchor(a, unit, 1)),
     today: () => setAnchor(new Date()),
-    /** 주 보기일 때 그 주 월요일(49시간 합계용) — 다른 보기면 빈 문자열 */
-    weekMonday: unit === "week" && weekStartsOn === 1 ? startYmd : "",
+    /** 주 보기 + 월요일 시작일 때 그 주 월요일(법정 49시간 합계용) — 아니면 빈 문자열 */
+    weekMonday: unit === "week" && weekStart === 1 ? startYmd : "",
   };
 }
 
@@ -85,6 +74,7 @@ export function ScheduleViewBar({ view, right }: { view: View; right?: React.Rea
       <div className="flex flex-wrap items-center gap-3">
         <Segmented value={view.unit} options={VIEW_UNITS} label={(u) => UNIT_LABEL[u]} onChange={view.setUnit} />
         <Segmented value={view.layout} options={VIEW_LAYOUTS} label={(l) => LAYOUT_LABEL[l]} onChange={view.setLayout} />
+        <ViewSettingsMenu prefs={view.prefs} onChange={view.setPrefs} />
         {right}
       </div>
     </div>
@@ -136,33 +126,36 @@ function dayHeaderInfo(day: Date, holidayMap: Map<string, string>) {
   return { key, today: isTodayFn(day), red: dow === 0 || dow === 6 || !!holidayName, holidayName };
 }
 
-function EmployeeCell({ emp, branchColor, width = "w-48" }: { emp: BoardEmployee; branchColor: BoardProps["branchColor"]; width?: string }) {
+function EmployeeCell({ emp, branchColor, show, width = "w-48" }: { emp: BoardEmployee; branchColor: BoardProps["branchColor"]; show: Show; width?: string }) {
   const c = branchColor(emp.branch);
   return (
     <div className={`${width} border-r border-l-4 p-3 flex-shrink-0 bg-gray-50`} style={{ borderLeftColor: c ?? "transparent" }}>
       <div className="font-medium text-gray-900">
         {emp.name}
-        {emp.empNo != null && <span className="ml-1.5 text-xs font-normal text-gray-400" title="사번">{empNoText(emp.empNo)}</span>}
+        {show.empNo && emp.empNo != null && <span className="ml-1.5 text-xs font-normal text-gray-400" title="사번">{empNoText(emp.empNo)}</span>}
       </div>
-      <div className="text-xs text-gray-600">
-        {emp.jobGroup || emp.position}
-        {emp.branch && <span className={c ? "font-medium" : "text-blue-600"} style={{ color: c }}> · {emp.branch}</span>}
-      </div>
+      {show.subline && (
+        <div className="text-xs text-gray-600">
+          {emp.jobGroup || emp.position}
+          {emp.branch && <span className={c ? "font-medium" : "text-blue-600"} style={{ color: c }}> · {emp.branch}</span>}
+        </div>
+      )}
     </div>
   );
 }
 
-function ScheduleChip({ s, color, onClick }: { s: BoardSchedule; color: string | undefined; onClick?: () => void }) {
+function ScheduleChip({ s, color, show, onClick }: { s: BoardSchedule; color: string | undefined; show: Show; onClick?: () => void }) {
   const clickable = !!onClick;
+  const timeOn = show.time && s.type === "work";
   return (
     <div className={`p-2 bg-blue-100 rounded text-xs ${clickable ? "cursor-pointer hover:ring-2 hover:ring-blue-300" : ""}`}
       style={{ borderLeft: `4px solid ${color ?? "transparent"}` }}
       role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
       onClick={onClick}>
-      <div className="font-medium text-blue-900">{s.startTime} - {s.endTime}</div>
-      <Badge variant="outline" className="mt-1 text-xs">{typeLabel(s.type)}</Badge>
-      {s.note && <div className="mt-1 text-[11px] text-gray-600 truncate" title={s.note}>{s.note}</div>}
+      {timeOn && <div className="font-medium text-blue-900">{s.startTime} - {s.endTime}</div>}
+      {(show.typeBadge || !timeOn) && <Badge variant="outline" className={`text-xs ${timeOn ? "mt-1" : ""}`}>{typeLabel(s.type)}</Badge>}
+      {show.note && s.note && <div className="mt-1 text-[11px] text-gray-600 truncate" title={s.note}>{s.note}</div>}
     </div>
   );
 }
@@ -180,7 +173,10 @@ const NoEmployees = () => <div className="p-8 text-center text-gray-500">표시�
 function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, branchColor, onEmptyCell, onSchedule }: BoardProps) {
   const days = daysOf(view.range);
   const by = useByUserDate(schedules);
-  const showTotal = !!view.weekMonday;
+  const show = view.show;
+  const showTotal = show.total;
+  const legal = !!view.weekMonday;   // 월요일 시작이면 서버 49시간 합계(일정·실제), 아니면 화면에 보이는 일정 합계만
+  const totals = useScheduledTotals(schedules);
   return (
     <div className="min-w-full">
       <div className="flex border-b sticky top-0 bg-gray-50">
@@ -196,11 +192,11 @@ function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, b
             );
           })}
         </div>
-        {showTotal && <div className="w-28 flex-shrink-0 p-3 bg-gray-50 font-medium text-sm" title="이번 주 근로시간(휴게 제외)">주간 합계</div>}
+        {showTotal && <div className="w-28 flex-shrink-0 p-3 bg-gray-50 font-medium text-sm" title={legal ? "이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색" : "화면에 보이는 7일의 일정 근로시간(휴게 제외). 49시간 판정은 월~일 기준이라 월요일 시작 보기에서만"}>{legal ? "주간 합계" : "일정 합계"}</div>}
       </div>
       {employees.length === 0 ? <NoEmployees /> : employees.map((emp) => (
         <div key={emp.id} className="flex border-b">
-          <EmployeeCell emp={emp} branchColor={branchColor} />
+          <EmployeeCell emp={emp} branchColor={branchColor} show={show} />
           <div className="flex flex-1">
             {days.map((day) => {
               const key = ymd(day);
@@ -210,14 +206,14 @@ function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, b
                   <LeaveChips data={leaves} userId={emp.id} date={key} />
                   {list.length === 0 ? <EmptyCell onClick={onEmptyCell ? () => onEmptyCell(emp.id, key) : undefined} /> : (
                     <div className="space-y-2">
-                      {list.map((s) => <ScheduleChip key={s.id} s={s} color={branchColor(s.branch ?? emp.branch)} onClick={onSchedule ? () => onSchedule(s, emp) : undefined} />)}
+                      {list.map((s) => <ScheduleChip key={s.id} s={s} show={show} color={branchColor(s.branch ?? emp.branch)} onClick={onSchedule ? () => onSchedule(s, emp) : undefined} />)}
                     </div>
                   )}
                 </div>
               );
             })}
           </div>
-          {showTotal && <WeekTotalCell data={weekHours} userId={emp.id} />}
+          {showTotal && (legal ? <WeekTotalCell data={weekHours} userId={emp.id} /> : <div className="w-28 flex-shrink-0 p-3 text-xs bg-gray-50 text-gray-700">일정 {fmtHours(totals.get(emp.id) ?? 0)}</div>)}
         </div>
       ))}
     </div>
@@ -225,14 +221,20 @@ function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, b
 }
 
 // ── 월 보기 — 날짜 칸이 좁아 시간은 「10~19」처럼, 합계는 화면에서 센 일정 근로시간(휴게 제외) ──
-function MonthView({ view, employees, schedules, holidayMap, leaves, branchColor, onEmptyCell, onSchedule }: BoardProps) {
-  const days = daysOf(view.range);
-  const by = useByUserDate(schedules);
-  const totals = useMemo(() => {
+/** 사람별 일정 근로시간 합(분, 휴게 제외) — 화면에 보이는 일정 기준 */
+function useScheduledTotals(schedules: BoardSchedule[]) {
+  return useMemo(() => {
     const t = new Map<string, number>();
     for (const s of schedules) if (s.type === "work") t.set(s.userId, (t.get(s.userId) ?? 0) + netMinutes(s.startTime, s.endTime));
     return t;
   }, [schedules]);
+}
+
+function MonthView({ view, employees, schedules, holidayMap, leaves, branchColor, onEmptyCell, onSchedule }: BoardProps) {
+  const days = daysOf(view.range);
+  const by = useByUserDate(schedules);
+  const show = view.show;
+  const totals = useScheduledTotals(schedules);
   return (
     <div className="min-w-full text-xs">
       <div className="flex border-b sticky top-0 bg-gray-50">
@@ -248,11 +250,11 @@ function MonthView({ view, employees, schedules, holidayMap, leaves, branchColor
             );
           })}
         </div>
-        <div className="w-20 flex-shrink-0 p-2 bg-gray-50 font-medium text-center" title="이 달 근무일정 근로시간(휴게 제외) — 화면에 보이는 일정 기준">월 합계</div>
+        {show.total && <div className="w-20 flex-shrink-0 p-2 bg-gray-50 font-medium text-center" title="이 달 근무일정 근로시간(휴게 제외) — 화면에 보이는 일정 기준">월 합계</div>}
       </div>
       {employees.length === 0 ? <NoEmployees /> : employees.map((emp) => (
         <div key={emp.id} className="flex border-b">
-          <EmployeeCell emp={emp} branchColor={branchColor} width="w-40 sticky left-0 z-10" />
+          <EmployeeCell emp={emp} branchColor={branchColor} show={show} width="w-40 sticky left-0 z-10" />
           <div className="flex flex-1">
             {days.map((day) => {
               const key = ymd(day);
@@ -265,7 +267,7 @@ function MonthView({ view, employees, schedules, holidayMap, leaves, branchColor
                     onEmptyCell ? <button type="button" aria-label={`${emp.name} ${key} 일정 추가`} className="w-full h-full min-h-[40px] rounded text-gray-200 hover:text-blue-500 hover:bg-blue-50" onClick={() => onEmptyCell(emp.id, key)}>+</button> : null
                   ) : list.map((s) => {
                     const clickable = !!onSchedule;
-                    const label = s.type === "work" ? `${compactTime(s.startTime)}~${compactTime(s.endTime)}` : typeLabel(s.type);
+                    const label = s.type === "work" && show.time ? `${compactTime(s.startTime)}~${compactTime(s.endTime)}` : typeLabel(s.type);
                     return (
                       <div key={s.id} title={`${s.startTime} - ${s.endTime} ${typeLabel(s.type)}${s.note ? ` · ${s.note}` : ""}`}
                         className={`px-1 py-1 rounded text-[11px] leading-4 text-center font-medium ${s.type === "work" ? "bg-blue-100 text-blue-900" : "bg-gray-100 text-gray-600"} ${clickable ? "cursor-pointer hover:ring-2 hover:ring-blue-300" : ""}`}
@@ -281,7 +283,7 @@ function MonthView({ view, employees, schedules, holidayMap, leaves, branchColor
               );
             })}
           </div>
-          <div className="w-20 flex-shrink-0 p-2 bg-gray-50 text-center text-gray-700 font-medium">{fmtHours(totals.get(emp.id) ?? 0)}</div>
+          {show.total && <div className="w-20 flex-shrink-0 p-2 bg-gray-50 text-center text-gray-700 font-medium">{fmtHours(totals.get(emp.id) ?? 0)}</div>}
         </div>
       ))}
     </div>
@@ -298,6 +300,7 @@ function DayView({ view, employees, schedules, holidayMap, leaves, branchColor, 
   const span = (toH - fromH) * 60;
   const pct = (min: number) => `${Math.min(100, Math.max(0, ((min - fromH * 60) / span) * 100))}%`;
   const h = dayHeaderInfo(view.range.start, holidayMap);
+  const show = view.show;
   return (
     <div className="min-w-full">
       <div className="flex border-b sticky top-0 bg-gray-50">
@@ -318,7 +321,7 @@ function DayView({ view, employees, schedules, holidayMap, leaves, branchColor, 
         const leaveList = leaves?.leaves[emp.id]?.[key] ?? [];
         return (
           <div key={emp.id} className="flex border-b">
-            <EmployeeCell emp={emp} branchColor={branchColor} />
+            <EmployeeCell emp={emp} branchColor={branchColor} show={show} />
             <div className="flex-1 relative min-w-[600px] min-h-[64px]">
               <div className="absolute inset-0 flex">
                 {hours.map((hh) => <div key={hh} className="flex-1 border-r border-gray-100" />)}
@@ -347,7 +350,7 @@ function DayView({ view, employees, schedules, holidayMap, leaves, branchColor, 
                     role={clickable ? "button" : undefined} tabIndex={clickable ? 0 : undefined}
                     onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSchedule(s, emp); } } : undefined}
                     onClick={clickable ? () => onSchedule(s, emp) : undefined}>
-                    {s.startTime} - {s.endTime}{s.note ? ` · ${s.note}` : ""}
+                    {show.time ? `${s.startTime} - ${s.endTime}` : "근무"}{show.note && s.note ? ` · ${s.note}` : ""}
                   </div>
                 );
               })}
@@ -378,6 +381,7 @@ function ListView({ view, employees, schedules, holidayMap, leaves, branchColor,
     return out;
   }, [days, employees, by, leaves]);
   const schedCount = rows.filter((r) => r.s).length, leaveCount = rows.filter((r) => r.leave.length).length;
+  const show = view.show;
   if (employees.length === 0) return <NoEmployees />;
   return (
     <div>
@@ -390,12 +394,12 @@ function ListView({ view, employees, schedules, holidayMap, leaves, branchColor,
             <tr className="text-left text-xs text-gray-500">
               <th className="px-4 py-2.5 font-medium w-36">날짜</th>
               <th className="px-3 py-2.5 font-medium w-40">직원</th>
-              <th className="px-3 py-2.5 font-medium w-28">지점</th>
-              <th className="px-3 py-2.5 font-medium w-24">직무</th>
-              <th className="px-3 py-2.5 font-medium w-32">근무시간</th>
-              <th className="px-3 py-2.5 font-medium w-20">유형</th>
-              <th className="px-3 py-2.5 font-medium w-32">휴가</th>
-              <th className="px-3 py-2.5 font-medium">메모</th>
+              {show.subline && <th className="px-3 py-2.5 font-medium w-28">지점</th>}
+              {show.subline && <th className="px-3 py-2.5 font-medium w-24">직무</th>}
+              {show.time && <th className="px-3 py-2.5 font-medium w-32">근무시간</th>}
+              {show.typeBadge && <th className="px-3 py-2.5 font-medium w-20">유형</th>}
+              {show.leave && <th className="px-3 py-2.5 font-medium w-32">휴가</th>}
+              {show.note && <th className="px-3 py-2.5 font-medium">메모</th>}
             </tr>
           </thead>
           <tbody>
@@ -416,14 +420,14 @@ function ListView({ view, employees, schedules, holidayMap, leaves, branchColor,
                   <td className="px-3 py-2">
                     <span className="inline-block w-1.5 h-4 rounded-sm align-middle mr-2" style={{ backgroundColor: c ?? "#e5e7eb" }} />
                     <span className="font-medium text-gray-900">{r.emp.name}</span>
-                    {r.emp.empNo != null && <span className="ml-1.5 text-xs text-gray-400">{empNoText(r.emp.empNo)}</span>}
+                    {show.empNo && r.emp.empNo != null && <span className="ml-1.5 text-xs text-gray-400">{empNoText(r.emp.empNo)}</span>}
                   </td>
-                  <td className="px-3 py-2 text-gray-600 text-xs">{r.emp.branch ?? "-"}</td>
-                  <td className="px-3 py-2 text-gray-600 text-xs">{r.emp.jobGroup || r.emp.position || "-"}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-gray-800">{r.s && r.s.type === "work" ? `${r.s.startTime} - ${r.s.endTime}` : "-"}</td>
-                  <td className="px-3 py-2 text-xs">{r.s ? <Badge variant="outline" className="text-xs">{typeLabel(r.s.type)}</Badge> : <span className="text-gray-300">-</span>}</td>
-                  <td className="px-3 py-2 text-xs text-green-800">{r.leave.join(", ") || <span className="text-gray-300">-</span>}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[240px]" title={r.s?.note ?? undefined}>{r.s?.note ?? ""}</td>
+                  {show.subline && <td className="px-3 py-2 text-gray-600 text-xs">{r.emp.branch ?? "-"}</td>}
+                  {show.subline && <td className="px-3 py-2 text-gray-600 text-xs">{r.emp.jobGroup || r.emp.position || "-"}</td>}
+                  {show.time && <td className="px-3 py-2 font-mono text-xs text-gray-800">{r.s && r.s.type === "work" ? `${r.s.startTime} - ${r.s.endTime}` : "-"}</td>}
+                  {show.typeBadge && <td className="px-3 py-2 text-xs">{r.s ? <Badge variant="outline" className="text-xs">{typeLabel(r.s.type)}</Badge> : <span className="text-gray-300">-</span>}</td>}
+                  {show.leave && <td className="px-3 py-2 text-xs text-green-800">{r.leave.join(", ") || <span className="text-gray-300">-</span>}</td>}
+                  {show.note && <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[240px]" title={r.s?.note ?? undefined}>{r.s?.note ?? ""}</td>}
                 </tr>
               );
             })}

@@ -1,10 +1,11 @@
 "use client";
 
 import { useWeekHours } from "@/components/schedule/WeekHours";
-import { useRangeLeaves, useShowLeave, useBranchColors } from "@/components/schedule/WeekExtras";
+import { useRangeLeaves, useBranchColors } from "@/components/schedule/WeekExtras";
+import { MultiPick } from "@/components/schedule/ScheduleControls";
 import { ScheduleEditDialog, ScheduleBulkDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
 import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
-import { yearsOf } from "@/lib/schedule-view";
+import { sortEmployees, yearsOf } from "@/lib/schedule-view";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,9 +22,12 @@ export default function ManagerSchedulePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
-  // 보기 전환(#71): 일·주·월 × 달력형·목록형 — 선택은 이 브라우저에 기억
+  // 보기 전환(#71): 일·주·월 × 달력형·목록형, 정렬·표시·주 시작 요일(#73) — 사람마다 저장
   const view = useScheduleView();
   const [searchName, setSearchName] = useState("");
+  // 필터(#72): 직무·지점(겸직 원장) 여러 개 동시 선택(빈 배열 = 전체)
+  const [selJobGroups, setSelJobGroups] = useState<string[]>([]);
+  const [selBranches, setSelBranches] = useState<string[]>([]);
   // 일정 관리(2026-10-07 QA #18 #12) — 칸을 누르면 추가, 일정을 누르면 고치기·지우기
   const [edit, setEdit] = useState<EditTarget>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -58,9 +62,8 @@ export default function ManagerSchedulePage() {
   const [weekReload, setWeekReload] = useState(0);
   const weekHours = useWeekHours(view.weekMonday, weekReload);
 
-  // 휴가 함께 보기(#61)·지점 색(#74)
-  const [showLeave, setShowLeave] = useShowLeave();
-  const leaves = useRangeLeaves(view.startYmd, view.endYmd, showLeave, weekReload);
+  // 휴가 함께 보기(#61, 보기 설정 「승인된 휴가」)·지점 색(#74)
+  const leaves = useRangeLeaves(view.startYmd, view.endYmd, view.show.leave, weekReload);
   const branchColor = useBranchColors();
 
   // 공휴일 — 날짜별 이름 맵(본부 근무일정과 같은 표시). 기간이 두 해에 걸치면 둘 다
@@ -106,9 +109,22 @@ export default function ManagerSchedulePage() {
     if (!me || employees.some((e) => e.id === me.id)) return employees;
     return [{ id: me.id, name: `${me.name} (본인)`, position: null, jobGroup: "원장", branch: me.branch }, ...employees];
   }, [employees, me]);
+  const jobGroups = useMemo(() => [...new Set(team.map((e) => e.jobGroup || e.position).filter((v): v is string => !!v))].sort(), [team]);
+  const branches = useMemo(() => [...new Set(team.map((e) => e.branch).filter((v): v is string => !!v))].sort(), [team]);
+  const q = searchName.trim();
+  const sortKey = view.prefs.sort;
   const filteredEmployees = useMemo(() => {
-    return team.filter(emp => !searchName || emp.name.includes(searchName));
-  }, [team, searchName]);
+    const fj = selJobGroups.filter((v) => jobGroups.includes(v)), fb = selBranches.filter((v) => branches.includes(v));   // 목록에 있는 값만(10/12 검증 4)
+    const list = team.filter(emp => {
+      if (fj.length && !fj.includes(emp.jobGroup || emp.position || "")) return false;
+      if (fb.length && !(emp.branch && fb.includes(emp.branch))) return false;
+      return !q || emp.name.includes(q);
+    });
+    // 정렬(#73) — 본인 행은 정렬과 무관하게 맨 앞(본부 답변 #7 의 「맨 앞에 붙인다」 유지)
+    const sorted = sortEmployees(list, sortKey);
+    const mine = me ? sorted.filter((e) => e.id === me.id) : [];
+    return mine.length ? [...mine, ...sorted.filter((e) => e.id !== me!.id)] : sorted;
+  }, [team, jobGroups, branches, selJobGroups, selBranches, q, sortKey, me]);
 
   const onSaved = () => { fetchSchedules(); setWeekReload((n) => n + 1); };
 
@@ -133,20 +149,19 @@ export default function ManagerSchedulePage() {
       {/* 날짜 네비게이션 + 보기 전환(#71) + 검색 */}
       <Card>
         <CardContent className="pt-6">
-          <ScheduleViewBar view={view} right={
-            /* 휴가 함께 보기(#61) — 이 브라우저에 기억 */
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-              <input type="checkbox" checked={showLeave} onChange={(e) => setShowLeave(e.target.checked)} />휴가 표시
-            </label>
-          } />
-          <div className="relative max-w-xs">
-            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-            <Input
-              placeholder="직원 이름으로 검색..."
-              value={searchName}
-              onChange={(e) => setSearchName(e.target.value)}
-              className="pl-10"
-            />
+          <ScheduleViewBar view={view} />
+          {/* 필터(#72) — 직무 여러 개, 겸직이면 지점도, 이름 검색 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <MultiPick label="직무" options={jobGroups} value={selJobGroups} onChange={setSelJobGroups} allLabel="모든 직무" />
+            {branches.length > 1 && <MultiPick label="지점" options={branches} value={selBranches} onChange={setSelBranches} allLabel="모든 지점" />}
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              <Input placeholder="직원 이름 검색" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="pl-9 h-9 w-48" />
+            </div>
+            {(selJobGroups.length || selBranches.length || searchName) ? (
+              <button type="button" className="text-xs text-gray-500 underline" onClick={() => { setSelJobGroups([]); setSelBranches([]); setSearchName(""); }}>필터 지우기</button>
+            ) : null}
+            <span className="ml-auto text-xs text-gray-400">{filteredEmployees.length}명 / 전체 {team.length}명</span>
           </div>
         </CardContent>
       </Card>
