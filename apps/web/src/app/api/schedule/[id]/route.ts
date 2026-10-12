@@ -56,7 +56,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const schedule = await prisma.schedule.update({
     where: { id },
-    data: { startTime: st, endTime: et, type: kind, note: typeof note === "string" ? note : null },
+    data: { startTime: st, endTime: et, type: kind, note: typeof note === "string" ? note : null, importBatch: null },   // 손으로 고친 행은 엑셀 묶음 되돌리기에서 뺀다(#75)
     include: { user: { select: { name: true, department: true } } },
   });
 

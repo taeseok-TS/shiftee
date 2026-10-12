@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
   const schedule = await prisma.schedule.upsert({
     where: { userId_date: { userId, date: dateUtc } },
     create: { userId, date: dateUtc, startTime: st, endTime: et, type: kind, note: memo },
-    update: { startTime: st, endTime: et, type: kind, note: memo },
+    update: { startTime: st, endTime: et, type: kind, note: memo, importBatch: null },   // 손으로 덮어쓴 행은 엑셀 묶음에서 뺀다(#75)
   });
 
   const { noteManagerSelfChange } = await import("@/lib/schedule-guard");

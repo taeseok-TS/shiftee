@@ -42,16 +42,25 @@ const kst = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() + 9 
 const pad = (n: number) => String(n).padStart(2, "0");
 const ymdOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 // 엑셀 셀 → 글자. 날짜 셀은 yyyy-MM-dd, 시간만 있는 셀(1899-12-30 기준)은 HH:mm
+// ⚠ xlsx 가 엑셀 날짜 셀을 Date 로 바꿀 때 서울 옛 시간대(+8:27:52) 보정으로 **52초 모자라** 자정 날짜가 전날 23:59:08 이 된다(10/13 검증 1).
+//   그래서 날짜는 12시간, 시간은 30초를 더한 뒤 읽는다(정수 날짜·분 단위 시간 셀에서 정확).
 const cellText = (v: unknown): string => {
-  if (v instanceof Date) return v.getFullYear() < 1950 ? `${pad(v.getHours())}:${pad(v.getMinutes())}` : ymdOf(v);
+  if (v instanceof Date) {
+    if (v.getFullYear() < 1950) { const t = new Date(v.getTime() + 30_000); return `${pad(t.getHours())}:${pad(t.getMinutes())}`; }
+    return ymdOf(new Date(v.getTime() + 12 * 3600_000));
+  }
   if (typeof v === "number" && v > 0 && v < 1) { const m = Math.round(v * 1440); return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; }   // 시간 숫자(0.4166=10:00)
   return v == null ? "" : String(v).trim();
 };
-const isDateHeader = (h: unknown): string | null => {
-  if (h instanceof Date) return ymdOf(h);
+// 날짜 머리글 — 「2026-10-01」「2026.10.1」「2026-10-06(화)」, 연도가 없는 「10/1」「10월 5일」「10/7(수)」은 보고 있는 기간의 해로
+const isDateHeader = (h: unknown, year: number): string | null => {
+  if (h instanceof Date) return cellText(h);
   const s = cellText(h);
-  const m = /^(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/.exec(s);
-  return m ? `${m[1]}-${pad(Number(m[2]))}-${pad(Number(m[3]))}` : null;
+  let m = /^(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${pad(Number(m[2]))}-${pad(Number(m[3]))}`;
+  m = /^(\d{1,2})\s*[./월]\s*(\d{1,2})\s*일?\s*(?:\(.\))?$/.exec(s);
+  if (m && Number(m[1]) >= 1 && Number(m[1]) <= 12 && Number(m[2]) >= 1 && Number(m[2]) <= 31) return `${year}-${pad(Number(m[1]))}-${pad(Number(m[2]))}`;
+  return null;
 };
 
 export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onApplied }: {
@@ -78,17 +87,22 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
       const wb = XLSX.read(await f.arrayBuffer(), { type: "array", cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const grid = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
-      // 머리글 = 값이 2칸 이상인 첫 줄(시프티 내려받기는 위에 제목 줄이 있다)
-      const hi = grid.findIndex((r) => r.filter((c) => cellText(c) !== "").length >= 2);
+      const year = Number(rangeStart.slice(0, 4));
+      // 머리글 = 날짜 칸이 3개 이상인 첫 줄(달력형), 없으면 값이 2칸 이상인 첫 줄(목록형). 시프티 내려받기는 위에 제목 줄이 있다
+      const hiCal = grid.findIndex((r) => r.filter((h) => isDateHeader(h, year)).length >= 3);
+      const hi = hiCal >= 0 ? hiCal : grid.findIndex((r) => r.filter((c) => cellText(c) !== "").length >= 2);
       if (hi < 0) { toast.error("첫 시트에 데이터가 없습니다."); return; }
       const head = grid[hi];
-      const dateCols = head.map((h, c) => ({ c, d: isDateHeader(h) })).filter((x) => x.d);
+      const dateCols = head.map((h, c) => ({ c, d: isDateHeader(h, year) })).filter((x) => x.d);
       setFileName(f.name); setResults(null);
-      if (dateCols.length >= 3) {
+      if (hiCal >= 0) {
         // 달력형: 날짜가 아닌 앞 열에서 사번·이름을 찾는다
         const textCols = head.map((h, c) => ({ c, h: cellText(h) })).filter((x) => !dateCols.some((d) => d.c === x.c));
-        const nameC = textCols.find((x) => /이름|성명|직원/.test(x.h))?.c ?? textCols[0]?.c;
+        const nameC = textCols.find((x) => /이름|성명|직원/.test(x.h))?.c;
         const empC = textCols.find((x) => /사번|사원/.test(x.h))?.c;
+        if (nameC == null && empC == null) { toast.error("「이름」 또는 「사번」 열을 찾지 못했습니다. 머리글을 확인해 주세요."); return; }
+        const unknownCols = textCols.filter((x) => x.c !== nameC && x.c !== empC && x.h && !/지점|직무|직급|부서|조직|소속|비고|메모/.test(x.h));
+        if (unknownCols.length) toast.warning(`날짜로 읽지 못한 열 ${unknownCols.length}개는 건너뜁니다: ${unknownCols.map((x) => x.h).slice(0, 4).join(", ")}${unknownCols.length > 4 ? " …" : ""}`, { duration: 8000 });
         const rows: Row[] = [];
         grid.slice(hi + 1).forEach((r, ri) => {
           const name = nameC != null ? cellText(r[nameC]) : "", empNo = empC != null ? cellText(r[empC]) : "";
@@ -191,7 +205,7 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
     <div className="space-y-4 text-sm">
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
         <p className="font-semibold">💡 달력형(행=직원, 열=날짜)과 목록형(한 줄에 직원·날짜·시간) 엑셀을 모두 올릴 수 있습니다</p>
-        <p>칸에는 템플릿 코드·이름, 「10:00-19:00」 같은 시간, 「휴무」를 적습니다. 비어 있는 칸은 건드리지 않습니다. 이미 일정이 있는 날은 건너뛰고(덮어쓰기를 켜면 바꿈), 승인된 휴가가 있는 날은 넣지 않습니다. 잘못 올렸으면 묶음째 되돌릴 수 있습니다.</p>
+        <p>칸에는 템플릿 코드·이름, 「10:00-19:00」 같은 시간, 「휴무」를 적습니다. 비어 있는 칸은 건드리지 않습니다. 이미 일정이 있는 날은 건너뛰고(덮어쓰기를 켜면 바꿈), 승인된 휴가가 있는 날은 넣지 않습니다. 잘못 올렸으면 묶음째 되돌릴 수 있습니다 — 올린 뒤 손으로 고친 일정은 묶음에서 빠져 되돌리기의 영향을 받지 않습니다.</p>
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <input id="schedule-import-file" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />

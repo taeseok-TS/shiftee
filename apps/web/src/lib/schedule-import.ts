@@ -30,7 +30,7 @@ const HOLIDAY_RE = /^(공휴일|holiday|휴일)$/i;
 
 const toYmd = (v: unknown): string | null => {
   const s = str(v);
-  const m = /^(\d{4})[.\-/년 ]\s*(\d{1,2})[.\-/월 ]\s*(\d{1,2})일?/.exec(s);
+  const m = /^(\d{4})[.\-/년 ]\s*(\d{1,2})[.\-/월 ]\s*(\d{1,2})일?(?:\D.*)?$/.exec(s);   // 「2026-10-01」「2026.10.1」「2026-10-01 00:00」「2026-10-06(화)」
   if (!m) return null;
   const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
   const dt = new Date(Date.UTC(y, mo - 1, d));
@@ -48,19 +48,19 @@ export function parseTime(v: unknown): string | null {
   let h: number, m: number;
   let mm = /^(\d{1,2})[:시]\s*(\d{1,2})?분?$/.exec(s);
   if (mm) { h = Number(mm[1]); m = Number(mm[2] ?? 0); }
-  else if ((mm = /^(\d{1,2})(\d{2})$/.exec(s))) { h = Number(mm[1]); m = Number(mm[2]); }
+  else if ((mm = /^(\d{2})(\d{2})$/.exec(s))) { h = Number(mm[1]); m = Number(mm[2]); }   // 「1000」 — 세 자리(「100」)는 모호해서 받지 않는다
   else if ((mm = /^(\d{1,2})$/.exec(s))) { h = Number(mm[1]); m = 0; }
   else return null;
   if (pm && h < 12) h += 12;
   if (am && h === 12) h = 0;
-  if (h > 24 || m > 59 || (h === 24 && m > 0)) return null;
+  if (h > 23 || m > 59) return null;   // 저장 형식(asHhmm, 00~23시)과 같은 범위 — 「24:00」은 거부
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 /** 「10:00-19:00」「10-19」「10:30~19:30」「10:00 ~ 19:00」 */
 function parseRange(code: string): { st: string; et: string } | null {
   const m = /^(.+?)\s*[-~–]\s*(.+)$/.exec(code);
   if (!m) return null;
-  const st = parseTime(m[1]), et = parseTime(m[2]);
+  const st = asHhmm(parseTime(m[1]) ?? ""), et = asHhmm(parseTime(m[2]) ?? "");
   return st && et ? { st, et } : null;
 }
 function checkTimes(st: string, et: string): string | null {
@@ -90,7 +90,7 @@ export async function previewScheduleImport(rowsIn: unknown[], actor: Actor, ove
     prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, name: true, empNo: true, branch: true, isActive: true, role: true } }),
     prisma.scheduleTemplate.findMany({ where: { isActive: true }, select: { code: true, name: true, startTime: true, endTime: true, branches: true } }),
   ]);
-  const byEmpNo = new Map(users.filter((u) => u.empNo != null).map((u) => [u.empNo as number, u]));
+  const byEmpNo = new Map(users.filter((u) => u.empNo != null && u.isActive).map((u) => [u.empNo as number, u]));   // 재직자만(이름 매칭과 같은 기준)
   const byName = new Map<string, typeof users>();
   for (const u of users) { if (!u.isActive) continue; const k = norm(u.name); byName.set(k, [...(byName.get(k) ?? []), u]); }
   const myBranches = actor.role === "MANAGER" ? await getManagerBranches(actor.userId) : undefined;
@@ -232,7 +232,8 @@ export async function rollbackScheduleImport(batch: string, actor: Actor) {
 export async function listScheduleImportBatches(actor: Actor) {
   // 원장은 담당 지점 직원의 묶음만
   const scope = actor.role === "MANAGER" ? { user: { branch: { in: await getManagerBranches(actor.userId) } } } : {};
-  const g = await prisma.schedule.groupBy({ by: ["importBatch"], where: { importBatch: { not: null }, ...scope }, _count: { _all: true }, _min: { date: true, createdAt: true }, _max: { date: true } });
-  return g.filter((x) => x.importBatch).sort((a, b) => (b._min.createdAt?.getTime() ?? 0) - (a._min.createdAt?.getTime() ?? 0)).slice(0, 30)
-    .map((x) => ({ batch: x.importBatch as string, count: x._count._all, from: x._min.date ? ymdUTC(x._min.date) : null, to: x._max.date ? ymdUTC(x._max.date) : null, createdAt: x._min.createdAt?.toISOString() ?? null }));
+  // 올린 시각은 묶음 이름의 날짜 + 행의 updatedAt(덮어쓴 행은 createdAt 이 원래 행의 것이라 쓰지 않는다, 10/13 검증 5)
+  const g = await prisma.schedule.groupBy({ by: ["importBatch"], where: { importBatch: { not: null }, ...scope }, _count: { _all: true }, _min: { date: true }, _max: { date: true, updatedAt: true } });
+  return g.filter((x) => x.importBatch).sort((a, b) => (b._max.updatedAt?.getTime() ?? 0) - (a._max.updatedAt?.getTime() ?? 0)).slice(0, 30)
+    .map((x) => ({ batch: x.importBatch as string, count: x._count._all, from: x._min.date ? ymdUTC(x._min.date) : null, to: x._max.date ? ymdUTC(x._max.date) : null, createdAt: x._max.updatedAt?.toISOString() ?? null }));
 }
