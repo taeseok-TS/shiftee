@@ -137,6 +137,8 @@ export default function WorkChatScreen() {
   // 비어 있을 땐 늘 펼쳐져 사진 첨부는 한 번에 누른다. 「›」를 누르면 쓰는 중에도 다시 펼친다(다시 비면 자동으로 원래대로)
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsCollapsed = !!text.trim() && !toolsOpen;
+  // 글이 비면(전송·예약·수정 취소·방 이동 등 어떤 경로든) 펼침 상태를 되돌린다 — onChangeText 에만 두면 setText("") 경로가 빠진다(검증 F1)
+  useEffect(() => { if (!text.trim()) setToolsOpen(false); }, [text]);
   const [chanMembers, setChanMembers] = useState<ChannelMemberInfo[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -800,7 +802,6 @@ export default function WorkChatScreen() {
   };
   const onChangeText = (v: string) => {
     setText(v);
-    if (!v.trim() && toolsOpen) setToolsOpen(false);   // 다 지우면 다음에 쓸 때 다시 접히게
     if (selOverride) setSelOverride(null);
     // 편집 지점 계산: 길이 델타 추정은 드래그 선택 치환·붙여넣기에서 틀린다 —
     // 이전/새 문자열의 공통 접두·접미를 걷어낸 "삽입이 끝난 지점"을 캐럿으로 본다 (검증관 M3)
