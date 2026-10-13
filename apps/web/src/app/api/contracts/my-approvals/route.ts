@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { templateFieldNames, summaryForTemplate } from "@/lib/contract-fields";
+import { templateFieldNames, summaryForTemplate, maskPiiJson } from "@/lib/contract-fields";
 
 export async function GET(_request: NextRequest) {
   const session = await getSession();
@@ -44,6 +44,7 @@ export async function GET(_request: NextRequest) {
   // 데이터 필터링 적용: 직원 정보에서 이메일 제거
   const contracts = pendingSteps.map((step) => ({
     ...step.approvalLine.contract,
+    extraFields: maskPiiJson(step.approvalLine.contract.extraFields),   // 주민등록번호·계좌번호는 가려서(목록과 같은 규칙)
     template: undefined, // 요약 계산용으로만 읽었다 — 응답에 싣지 않는다
     summaryFields: summaryForTemplate(
       step.approvalLine.contract.extraFields,

@@ -891,7 +891,7 @@ export default function ContractsPage() {
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
     setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
     lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
-    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({});
+    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({}); setTransferCustom(false);
     const ids = [templateId];
     if (includeBundle) {
       if (ndaTemplate) ids.push(ndaTemplate.id);
@@ -2542,7 +2542,7 @@ ${url}`;
                           onChange={e => {
                             const v = e.target.value;
                             // 「목록에 없음」: 자리표시 글자를 넣지 않는다(문서에 「(직접 입력)」이 찍히던 것, 10/13 검증 3). 비어 있으면 필수 검사가 막는다
-                            if (v === "__custom") { setTransferCustom(true); setExtraFields(prev => ({ ...prev, [f]: branchAddresses[prev[f] || ""] ? "" : prev[f] })); return; }
+                            if (v === "__custom") { setTransferCustom(true); setExtraFields(prev => ({ ...prev, [f]: branchAddresses[prev[f] || ""] ? "" : prev[f], 발령근무지주소: branchAddresses[prev[f] || ""] ? "" : prev["발령근무지주소"] })); return; }   // 지점에서 직접 입력으로 바꾸면 그 지점 주소도 비운다
                             setTransferCustom(false);
                             setExtraFields(prev => ({ ...prev, [f]: v, ...(v && branchAddresses[v] ? { 발령근무지주소: branchAddresses[v] } : {}) }));
                           }}>
