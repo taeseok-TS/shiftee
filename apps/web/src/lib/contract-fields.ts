@@ -211,15 +211,19 @@ export async function buildContractMergeData(
 
 // 템플릿(.docx)이 참조하는 직원 프로필 필드 목록 반환 — 서명 시 비어 있으면 입력 유도
 // 현재 대상: 주소(User.address), 생년월일(User.birthDate)
-export async function scanTemplateProfileFields(templateFileUrl: string): Promise<string[]> {
+export async function scanTemplateProfileFields(templateFileUrl: string, templateId?: string | null): Promise<string[]> {
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
   try {
+    const settings = await loadFieldSettings(templateId);   // 본부가 자동·본부 입력·보내기 전 수정으로 정한 칸은 서명 때 묻지 않는다(#22 1단계)
     const rel = templateFileUrl.replace(/^\/api\/uploads\//, "");
     const buf = await fs.readFile(path.join(process.cwd(), "uploads", rel));
     const xml = new PizZip(buf).file("word/document.xml")?.asText() || "";
     const text = (xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
     const found: string[] = [];
-    for (const f of ["주소", "생년월일"]) if (text.includes(`{${f}}`)) found.push(f);
+    for (const f of ["주소", "생년월일"]) {
+      const m = settings[f]?.mode;
+      if (text.includes(`{${f}}`) && (!m || m === "sign")) found.push(f);
+    }
     return found;
   } catch {
     return [];

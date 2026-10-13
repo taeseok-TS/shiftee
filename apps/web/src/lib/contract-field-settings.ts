@@ -35,14 +35,14 @@ const SOURCES = new Set(AUTO_SOURCES.map((s) => s.key));
 const MAX_FIELDS = 150;
 
 /** 저장값(JSON) → 설정. 모르는 값은 버린다(저장소에 뭐가 있어도 화면·치환이 안 깨지게) */
-export function parseFieldSettings(raw: unknown): FieldSettings {
+export function parseFieldSettings(raw: unknown, opts: { keepProtected?: boolean } = {}): FieldSettings {
   let v = raw;
   if (typeof v === "string") { try { v = JSON.parse(v); } catch { return {}; } }
   if (!v || typeof v !== "object" || Array.isArray(v)) return {};
   const out: FieldSettings = {};
   for (const [k, s] of Object.entries(v as Record<string, unknown>).slice(0, MAX_FIELDS)) {
     const name = k.trim();
-    if (!name || name.length > 30 || PROTECTED_FIELDS.has(name) || !s || typeof s !== "object" || Array.isArray(s)) continue;
+    if (!name || name.length > 30 || (PROTECTED_FIELDS.has(name) && !opts.keepProtected) || !s || typeof s !== "object" || Array.isArray(s)) continue;
     const o = s as Record<string, unknown>;
     const fs: FieldSetting = {};
     if (typeof o.mode === "string" && MODES.has(o.mode)) fs.mode = o.mode as FieldMode;
@@ -80,9 +80,10 @@ export const humanFields = (settings: FieldSettings) =>
 
 /** auto 칸의 값을 치환 데이터에 넣는다 — 고정 문구가 있으면 그것, 아니면 출처 값. 출처가 없는 auto 칸은 건드리지 않는다 */
 export function applyAutoSources(mergeData: Record<string, string>, settings: FieldSettings): void {
+  const base = { ...mergeData };   // 출처는 적용 전 값을 본다 — 설정 순서에 따라 결과가 달라지지 않게(10/13 검증 8)
   for (const [name, s] of Object.entries(settings)) {
     if (s.mode !== "auto") continue;
     if (s.text) mergeData[name] = s.text;
-    else if (s.source && s.source in mergeData) mergeData[name] = mergeData[s.source];
+    else if (s.source && (base[s.source] ?? "") !== "") mergeData[name] = base[s.source];   // 출처가 비면 건드리지 않는다(다른 채움이 살게)
   }
 }

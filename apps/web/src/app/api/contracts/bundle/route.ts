@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         fileUrl = JSON.stringify([await fillDocxTemplate(template.fileUrl, mergeData)]);
         // 외부 계약은 계정이 없어 프로필 보완·직원 직접입력이 불가 — 전부 관리자 입력(extraFields)으로 완성
         if (!externalName) {
-          profileFields = await scanTemplateProfileFields(template.fileUrl);
+          profileFields = await scanTemplateProfileFields(template.fileUrl, item.templateId);
           employeeFields = await scanEmployeeFillFields(template.fileUrl, item.templateId);
         }
       } else {

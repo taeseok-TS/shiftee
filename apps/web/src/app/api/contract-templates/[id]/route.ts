@@ -138,7 +138,7 @@ export async function PATCH(
     }
     if (typeof data.approvalLocked === "boolean" && data.approvalLocked !== existing.approvalLocked) changes.push(`발송 때 순서 변경 ${data.approvalLocked ? "불가" : "허용"}`);
     if ("fieldSettings" in data) {   // 누가·언제·어느 칸을 어떻게 바꿨는지(#22 요구)
-      const d = fieldSettingsDiff(parseFieldSettings(existing.fieldSettings), data.fieldSettings as FieldSettings);
+      const d = fieldSettingsDiff(parseFieldSettings(existing.fieldSettings, { keepProtected: true }), data.fieldSettings as FieldSettings);   // 옛 저장값의 보호 칸이 사라지는 것도 기록에 남게
       if (d.length) changes.push(`칸 설정 ${d.slice(0, 8).join(", ")}${d.length > 8 ? ` 외 ${d.length - 8}칸` : ""}`);
     }
     if (changes.length) await logAudit({

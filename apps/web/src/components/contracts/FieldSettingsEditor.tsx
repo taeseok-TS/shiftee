@@ -27,6 +27,7 @@ export default function FieldSettingsEditor({ templateId, value, onChange }: { t
       const cur = { ...(next[name] ?? {}), ...patch };
       // 방식을 자동이 아닌 것으로 바꾸면 출처·고정 문구는 비운다(그대로 두면 다시 자동으로 되돌아가던 것, 10/13 검증 3)
       if ("mode" in patch && patch.mode !== "auto") { delete cur.source; delete cur.text; }
+      if ("mode" in patch && patch.mode === "auto") delete cur.required;   // 자동 칸의 필수는 뜻이 없다
       // 비워진 키는 지운다 — 기본값과 같으면 설정 자체를 없앤다. 단 출처·고정 문구가 있으면 mode "auto" 를 남긴다(서버는 mode 가 auto 인 칸에만 출처를 적용)
       if (!cur.source) delete cur.source;
       if (!cur.text) delete cur.text;

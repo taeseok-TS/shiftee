@@ -38,7 +38,11 @@ const STATUS: Record<Result["status"], { label: string; cls: string }> = {
 const kst = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") : "");
 // 엑셀 날짜 셀은 cellDates 로 Date 가 되고, 문자열은 그대로 — 서버가 「2026-05-01」「2026.5.1」을 받는다
 const pad = (n: number) => String(n).padStart(2, "0");
-const cellText = (v: unknown): string => (v instanceof Date ? `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` : v == null ? "" : String(v).trim());
+// ⚠ xlsx 가 엑셀 날짜 셀을 Date 로 바꿀 때 서울 옛 시간대 보정으로 52초가 모자라 자정 날짜가 전날 23:59:08 이 된다(10/13 #75 검증) — 60초 더한 뒤 읽는다
+const cellText = (v: unknown): string => {
+  if (v instanceof Date) { const d = new Date(v.getTime() + 60_000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+  return v == null ? "" : String(v).trim();
+};
 
 export default function LeaveImport() {
   const leaveCat = useLeaveCatalog();   // 본부 유형 포함(#216-1)

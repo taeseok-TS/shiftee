@@ -312,7 +312,7 @@ export async function POST(request: NextRequest) {
 
       if (template.fileUrl.toLowerCase().endsWith(".docx")) {
         // 이 계약서가 쓰는 프로필 필드(주소/생년월일) + 직원 직접입력 필드(퇴사일자 등) 기록
-        contractProfileFields = await scanTemplateProfileFields(template.fileUrl);
+        contractProfileFields = await scanTemplateProfileFields(template.fileUrl, template.id);
         contractEmployeeFields = await scanEmployeeFillFields(template.fileUrl, template.id);
         // 워드 템플릿: 치환 필드({직원명}, {연봉} 등)를 입력값으로 채워 계약서 생성
         let parsedExtra: Record<string, string> | null = null;

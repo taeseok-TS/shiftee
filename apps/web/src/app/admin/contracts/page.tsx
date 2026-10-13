@@ -905,8 +905,15 @@ export default function ContractsPage() {
     const fieldConds: Record<string, string> = {};
     const docsMap: Record<string, string> = {}; // 필드 → 출처 문서명 (#113)
     const settingsMap: FieldSettings = {};   // 칸 설정(#22 1단계) — 묶음이면 문서별 설정을 합친다
+    // 같은 칸을 문서마다 다르게 정했으면: 사람이 적는 방식(보내기 전 수정 > 본부 입력)이 이기고(입력란이 있어야 그 문서에 값이 간다), 필수는 하나라도 있으면 필수
+    const RANK: Record<string, number> = { edit: 3, hq: 2, sign: 1, auto: 0 };
     results.forEach((d, i) => {
-      Object.assign(settingsMap, d.settings || {});
+      for (const [k, s] of Object.entries((d.settings || {}) as FieldSettings)) {
+        const cur = settingsMap[k];
+        if (!cur) { settingsMap[k] = { ...s }; continue; }
+        const win = (RANK[s.mode ?? ""] ?? -1) > (RANK[cur.mode ?? ""] ?? -1) ? s : cur;
+        settingsMap[k] = { ...win, required: !!(cur.required || s.required) || undefined };
+      }
       const docName = templates.find(t => t.id === ids[i])?.name || "";
       for (const f of d.fields || []) {
         if (!fields.includes(f)) fields.push(f);
