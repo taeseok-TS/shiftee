@@ -840,8 +840,9 @@ export default function ContractsPage() {
     .filter(t => !/\(사본( \d+)?\)/.test(t.name))
     .sort((x, y) => (y.createdAt || "").localeCompare(x.createdAt || ""));
   // 신규입사 패키지에 함께 발송할 문서(비밀유지·개인정보동의서) 자동 탐색
-  const ndaTemplate = pkgTemplates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직"));
-  const privacyTemplate = pkgTemplates.find(t => t.name.includes("개인정보"));
+  // 「[채용] …」(입사 전 지원자용, 2026-10-13 추가 8종)은 신규입사·코디·외부 패키지의 동반 문서가 아니다 — 이름 부분매치 탐색기에서 뺀다(등록만 하고 탐색기 점검을 빼먹어 패키지가 엉뚱한 양식으로 간 사고 3회)
+  const ndaTemplate = pkgTemplates.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직") && !t.name.includes("[채용]"));
+  const privacyTemplate = pkgTemplates.find(t => t.name.includes("개인정보") && !t.name.includes("[채용]"));
   // 신규입사 패키지의 근로계약서 — 에듀플렉스 명시 우선.
   // 코디·기타직무(외부용) 근로계약서는 제외 — 이름 부분매치로 새 템플릿이 끼어들면
   // "신규입사 체크 시 에듀플렉스 강제 전환"이 엉뚱한 계약서로 가는 사고 재발(코디 사고와 동일 패턴)
