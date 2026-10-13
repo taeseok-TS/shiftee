@@ -809,7 +809,7 @@ export default function ContractsPage() {
   const dynamicFields = templateFields
     .filter(f => !FORM_FIELDS.includes(f) && f !== "계약구분" && fieldSettings[f]?.mode !== "auto"
       && (fieldSettings[f]?.mode === "edit" || fieldSettings[f]?.mode === "hq" || !AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))))
-    .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
+    .filter(f => !employeeFillFields.includes(f) || externalMode || (fieldSettings[f]?.mode !== undefined && fieldSettings[f]?.mode !== "sign")) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력. 묶음에서 다른 문서가 「서명 때 직원 입력」이어도 이 문서 설정이 본부 입력이면 입력란을 둔다(10/13 3차 검증)
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
   // 요일별 근무시간(계약직 주근무시간 합산 보조) — 계산 보조일 뿐 문서에는 합계만 들어간다
