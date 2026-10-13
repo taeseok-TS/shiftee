@@ -278,7 +278,12 @@ export async function POST(
     try {
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(contractId);
-    } catch (e) { console.error("외부 서명 완료본 생성 오류:", e); }
+    } catch (e) {
+      console.error("외부 서명 완료본 생성 오류:", e);
+      // 시스템 로그에 바로 남긴다(sign 라우트와 같게, 10/14) — 매시 점검(signed-doc-heal)이 다시 만든다
+      const { recordSignedDocFailure } = await import("@/lib/signed-doc-heal");
+      await recordSignedDocFailure(contractId, e, "external-sign");
+    }
     // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원에게 통지 (외부 계약자는 계정이 없어 DM 없음)
     const { notifyContractCompleted } = await import("@/lib/contract-notify");
     await notifyContractCompleted(contractId);

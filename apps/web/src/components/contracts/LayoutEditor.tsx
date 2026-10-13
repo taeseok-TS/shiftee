@@ -15,7 +15,9 @@ import { CheckSquare, ChevronDown, Image as ImageIcon, PenLine, Stamp, Type, Cal
 
 type Props = { templateId: string; fileUrl: string; name: string; initial: TemplateLayout | null };
 type PageInfo = { w: number; h: number };   // PDF 포인트 단위 쪽 크기
-type Drag = { id: string; kind: "move" | "resize"; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; pw: number; ph: number };
+type Drag = { id: string; kind: "move" | "resize"; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; pw: number; ph: number; ids: string[]; orig: Record<string, { x: number; y: number }> };
+type Guides = { page: number; xs: number[]; ys: number[] };
+const SNAP = 0.004;   // 정렬 보조선에 달라붙는 거리(쪽 비율, A4 760px 기준 약 3px)
 type HistoryItem = { id: string; at: string; by: string; detail: string };
 // pdfjs-dist 중 쓰는 부분만(패키지 타입은 any 투성이라 여기서 좁힌다)
 type RenderTask = { promise: Promise<void>; cancel: () => void };
@@ -56,7 +58,9 @@ const fmtAt = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1
 
 export default function LayoutEditor({ templateId, fileUrl, name, initial }: Props) {
   const [fields, setFields] = useState<LayoutField[]>(initial?.fields ?? []);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);   // 주 선택(속성 패널·크기 조절 대상)
+  const [extra, setExtra] = useState<string[]>([]);                 // Shift+클릭으로 더한 선택 — 함께 옮기고 지운다
+  const [guides, setGuides] = useState<Guides | null>(null);        // 끌 때 다른 칸·쪽 가장자리에 맞으면 보이는 정렬 보조선
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [pdfError, setPdfError] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -77,6 +81,8 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
   const baseWidth = 760;   // 쪽 기본 너비(px). 배율은 이 값에 곱한다
 
   const sel = useMemo(() => fields.find((f) => f.id === selected) ?? null, [fields, selected]);
+  const selIds = useMemo(() => (selected ? [selected, ...extra.filter((id) => id !== selected)] : []), [selected, extra]);
+  const clearSel = useCallback(() => { setSelected(null); setExtra([]); }, []);
 
   // ── 되돌리기 스택을 쌓고 바꾼다
   const commit = useCallback((next: LayoutField[] | ((prev: LayoutField[]) => LayoutField[])) => {
@@ -93,16 +99,23 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
     if (!prev) return;
     fieldsRef.current = prev;
     setFields(prev); setDirty(true); setUndoCount(undoRef.current.length);
+    setSelected(null); setExtra([]);   // 되돌린 뒤엔 없는 칸을 가리킬 수 있어 선택을 푼다
   }, []);
   const patchField = useCallback((id: string, patch: Partial<LayoutField>) => {
     commit((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }, [commit]);
-  const duplicate = useCallback((id: string) => {
-    const f = fields.find((x) => x.id === id);
-    if (!f) return;
-    const c = { ...f, id: newId(), x: clamp(f.x + 0.02, 0, 1 - f.w), y: clamp(f.y + 0.02, 0, 1 - f.h) };
-    commit((p) => [...p, c]); setSelected(c.id);
+  // 선택한 칸(여러 개면 전부)을 살짝 비켜 복제하고 복제본을 선택한다
+  const duplicate = useCallback((ids: string[]) => {
+    const copies = ids.map((id) => fields.find((x) => x.id === id)).filter((f): f is LayoutField => !!f)
+      .map((f) => ({ ...f, id: newId(), x: clamp(f.x + 0.02, 0, 1 - f.w), y: clamp(f.y + 0.02, 0, 1 - f.h) }));
+    if (!copies.length) return;
+    commit((p) => [...p, ...copies]); setSelected(copies[0].id); setExtra(copies.slice(1).map((c) => c.id));
   }, [fields, commit]);
+  const removeIds = useCallback((ids: string[]) => {
+    if (!ids.length) return;
+    const set = new Set(ids);
+    commit((p) => p.filter((f) => !set.has(f.id))); setSelected(null); setExtra([]);
+  }, [commit]);
 
   // ── 수정 기록
   useEffect(() => {
@@ -183,20 +196,28 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
-      if (!selected) return;
-      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); commit((p) => p.filter((f) => f.id !== selected)); setSelected(null); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicate(selected); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {   // 보고 있는 쪽의 칸 전부 선택
+        e.preventDefault();
+        const ids = fieldsRef.current.filter((f) => f.page === activePage).map((f) => f.id);
+        if (ids.length) { setSelected(ids[0]); setExtra(ids.slice(1)); }
+        return;
+      }
+      if (!selIds.length) return;
+      if (e.key === "Escape") { clearSel(); return; }
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeIds(selIds); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicate(selIds); return; }
       const step = e.shiftKey ? 0.01 : 0.002;
       const d: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
       if (d[e.key]) {
         e.preventDefault();
         const [dx, dy] = d[e.key];
-        commit((p) => p.map((f) => (f.id === selected ? { ...f, x: clamp(f.x + dx, 0, 1 - f.w), y: clamp(f.y + dy, 0, 1 - f.h) } : f)));
+        const set = new Set(selIds);
+        commit((p) => p.map((f) => (set.has(f.id) ? { ...f, x: clamp(f.x + dx, 0, 1 - f.w), y: clamp(f.y + dy, 0, 1 - f.h) } : f)));
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [selected, commit, undo, duplicate]);
+  }, [selIds, activePage, commit, undo, duplicate, removeIds, clearSel]);
 
   // ── 칸 추가
   const addField = (type: LayoutFieldType, at?: { page: number; x: number; y: number }, preset?: Partial<LayoutField>) => {
@@ -211,7 +232,7 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
       ...(preset?.source ? { source: preset.source } : {}),
     };
     commit((p) => [...p, f]);
-    setSelected(f.id);
+    setSelected(f.id); setExtra([]);
   };
   // ── 끌기(이동·크기)
   const onPointerDown = (e: React.PointerEvent, f: LayoutField, kind: "move" | "resize") => {
@@ -219,23 +240,56 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
     const pageEl = pageRefs.current.get(f.page);
     if (!pageEl) return;
     const r = pageEl.getBoundingClientRect();
-    dragRef.current = { id: f.id, kind, sx: e.clientX, sy: e.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, pw: r.width, ph: r.height };
+    // 선택: Shift+클릭은 더하기/빼기, 이미 선택된 칸을 누르면 선택을 유지한 채 함께 끈다, 아니면 그 칸만
+    let ids: string[];
+    if (kind === "resize") ids = [f.id];
+    else if (e.shiftKey) {
+      if (selIds.includes(f.id)) { ids = selIds.filter((id) => id !== f.id); setSelected(ids[0] ?? null); setExtra(ids.slice(1)); dragRef.current = null; return; }
+      ids = [...selIds, f.id]; setSelected(f.id); setExtra(selIds);
+    } else if (selIds.includes(f.id)) { ids = selIds; setSelected(f.id); setExtra(selIds.filter((id) => id !== f.id)); }
+    else { ids = [f.id]; setSelected(f.id); setExtra([]); }
+    const orig: Record<string, { x: number; y: number }> = {};
+    for (const g of fields) if (ids.includes(g.id)) orig[g.id] = { x: g.x, y: g.y };
+    dragRef.current = { id: f.id, kind, sx: e.clientX, sy: e.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, pw: r.width, ph: r.height, ids, orig };
     undoRef.current = [...undoRef.current.slice(-49), fields];
     setUndoCount(undoRef.current.length);
-    setSelected(f.id); setActivePage(f.page);
+    setActivePage(f.page);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    const dx = (e.clientX - d.sx) / d.pw, dy = (e.clientY - d.sy) / d.ph;
+    let dx = (e.clientX - d.sx) / d.pw, dy = (e.clientY - d.sy) / d.ph;
+    if (d.kind === "resize") {
+      setFields((prev) => prev.map((f) => (f.id === d.id ? { ...f, w: clamp(d.ow + dx, 0.005, 1 - f.x), h: clamp(d.oh + dy, 0.005, 1 - f.y) } : f)));
+      return;
+    }
+    // 정렬 보조선 — 끄는 칸(주 선택)의 왼쪽·가운데·오른쪽(위·가운데·아래)이 같은 쪽 다른 칸의 선이나 쪽 가장자리·중앙에 가까우면 달라붙는다
+    const me = fieldsRef.current.find((f) => f.id === d.id);
+    if (me) {
+      const others = fieldsRef.current.filter((f) => f.page === me.page && !d.ids.includes(f.id));
+      const xs = [0, 0.5, 1, ...others.flatMap((g) => [g.x, g.x + g.w / 2, g.x + g.w])];
+      const ys = [0, 0.5, 1, ...others.flatMap((g) => [g.y, g.y + g.h / 2, g.y + g.h])];
+      const nx = clamp(d.ox + dx, 0, 1 - me.w), ny = clamp(d.oy + dy, 0, 1 - me.h);
+      const snap = (cands: number[], edges: number[]) => {
+        let best: { diff: number; line: number } | null = null;
+        for (const c of cands) for (const edge of edges) { const diff = c - edge; if (Math.abs(diff) <= SNAP && (!best || Math.abs(diff) < Math.abs(best.diff))) best = { diff, line: c }; }
+        return best;
+      };
+      const sx = snap(xs, [nx, nx + me.w / 2, nx + me.w]), sy = snap(ys, [ny, ny + me.h / 2, ny + me.h]);
+      const okX = sx && clamp(nx + sx.diff, 0, 1 - me.w) === nx + sx.diff;
+      const okY = sy && clamp(ny + sy.diff, 0, 1 - me.h) === ny + sy.diff;
+      if (okX && sx) dx += sx.diff;
+      if (okY && sy) dy += sy.diff;
+      setGuides(okX || okY ? { page: me.page, xs: okX && sx ? [sx.line] : [], ys: okY && sy ? [sy.line] : [] } : null);
+    }
     setFields((prev) => prev.map((f) => {
-      if (f.id !== d.id) return f;
-      if (d.kind === "move") return { ...f, x: clamp(d.ox + dx, 0, 1 - f.w), y: clamp(d.oy + dy, 0, 1 - f.h) };
-      return { ...f, w: clamp(d.ow + dx, 0.005, 1 - f.x), h: clamp(d.oh + dy, 0.005, 1 - f.y) };
+      const o = d.orig[f.id];
+      if (!o) return f;
+      return { ...f, x: clamp(o.x + dx, 0, 1 - f.w), y: clamp(o.y + dy, 0, 1 - f.h) };
     }));
   };
-  const onPointerUp = () => { if (dragRef.current) { dragRef.current = null; setDirty(true); } };
+  const onPointerUp = () => { if (dragRef.current) { dragRef.current = null; setDirty(true); } setGuides(null); };
 
   // ── 팔레트에서 쪽으로 끌어다 놓기(HTML5 DnD)
   const onDrop = (e: React.DragEvent, pageNo: number) => {
@@ -254,7 +308,7 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
   // ── 저장
   const save = async () => {
     const bad = fields.filter((f) => f.type !== "signature" && f.type !== "seal" && !f.name.trim());
-    if (bad.length) { toast.error("이름이 없는 칸이 있습니다."); setSelected(bad[0].id); return; }
+    if (bad.length) { toast.error("이름이 없는 칸이 있습니다."); setSelected(bad[0].id); setExtra([]); return; }
     setSaving(true);
     try {
       const res = await fetch(`/api/contract-templates/${templateId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout: fields.length ? { v: 1, fields } : null }) });
@@ -334,11 +388,12 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
               <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-gray-500" />자동 입력</div>
             </div>
             <p className="text-[11px] text-gray-500 mt-1.5">서명 순서(본부→원장→직원 등)는 템플릿 수정 창의 「결재 순서」에서 정합니다.</p>
+            <p className="text-[11px] text-gray-500 mt-1.5">저장한 배치는 그 뒤에 만들거나 다시 그리는 계약서부터 적용됩니다. 이미 만든 문서는 그 문서를 마지막으로 그렸을 때의 배치대로 서명이 찍힙니다.</p>
           </section>
         </aside>
 
         {/* 가운데: PDF 쪽 + 칸 */}
-        <div ref={wrapRef} className="flex-1 min-w-0 overflow-auto bg-gray-200 rounded-lg p-4" onPointerDown={() => setSelected(null)}>
+        <div ref={wrapRef} className="flex-1 min-w-0 overflow-auto bg-gray-200 rounded-lg p-4" onPointerDown={clearSel}>
           {pdfError && <p className="text-red-600 text-sm">{pdfError}</p>}
           {!pdfError && !pages.length && <p className="text-gray-500 text-sm">PDF 를 여는 중…</p>}
           <div className="flex flex-col items-center gap-4">
@@ -352,9 +407,11 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onDrop={(e) => onDrop(e, no)}
                     onPointerDown={() => setActivePage(no)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
                     <canvas ref={(el) => { if (el) canvasRefs.current.set(no, el); }} className="absolute inset-0 pointer-events-none" />
+                    {guides?.page === no && guides.xs.map((x) => <div key={`gx${x}`} className="absolute top-0 bottom-0 w-px bg-pink-500 pointer-events-none z-20" style={{ left: `${x * 100}%` }} />)}
+                    {guides?.page === no && guides.ys.map((y) => <div key={`gy${y}`} className="absolute left-0 right-0 h-px bg-pink-500 pointer-events-none z-20" style={{ top: `${y * 100}%` }} />)}
                     {fields.filter((f) => f.page === no).map((f) => {
                       const c = roleColor(f);
-                      const isSel = f.id === selected;
+                      const isSel = f.id === selected || extra.includes(f.id);
                       return (
                         <div key={f.id} role="button" tabIndex={0} aria-label={`${f.name} 칸`}
                           onPointerDown={(e) => onPointerDown(e, f, "move")} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
@@ -363,7 +420,7 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
                           <span className={`absolute left-0 -top-4 text-[10px] leading-4 px-1 rounded whitespace-nowrap ${c.chip} ${isSel ? "" : "opacity-90"}`}>
                             {f.type === "signature" ? `${LAYOUT_ROLES.find((r) => r.value === f.role)?.label} 서명` : f.type === "seal" ? "회사 직인" : `{${f.name}}`}{f.required ? " · 필수" : ""}
                           </span>
-                          {isSel && (
+                          {f.id === selected && (
                             <span onPointerDown={(e) => onPointerDown(e, f, "resize")} className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-blue-600 rounded-sm cursor-nwse-resize" aria-label="크기 조절" />
                           )}
                         </div>
@@ -379,15 +436,26 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
         {/* 오른쪽: 속성·수정 기록 */}
         <aside className="w-72 shrink-0 overflow-auto space-y-4 text-sm">
           <section className="border rounded-lg p-3 bg-white space-y-2">
-            {!sel ? (
-              <p className="text-xs text-gray-500">칸을 누르면 여기서 이름·담당·필수를 정합니다. Delete 로 삭제, 방향키로 미세 이동(Shift 로 크게), Ctrl+Z 되돌리기, Ctrl+D 복제.</p>
+            {extra.length > 0 ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold">{selIds.length}개 칸 선택</h2>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => duplicate(selIds)} className="p-1 rounded hover:bg-gray-100" title="모두 복제"><Copy size={14} /></button>
+                    <button type="button" onClick={() => removeIds(selIds)} className="p-1 rounded hover:bg-red-50 text-red-600" title="모두 삭제"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">끌거나 방향키로 함께 옮깁니다. Shift+클릭으로 선택을 더하거나 빼고, Esc 로 풉니다. 이름·담당은 칸 하나만 선택했을 때 바꿀 수 있습니다.</p>
+              </div>
+            ) : !sel ? (
+              <p className="text-xs text-gray-500">칸을 누르면 여기서 이름·담당·필수를 정합니다. Delete 로 삭제, 방향키로 미세 이동(Shift 로 크게), Ctrl+Z 되돌리기, Ctrl+D 복제, Shift+클릭으로 여러 칸 선택, Ctrl+A 로 이 쪽 전부 선택. 끌 때 다른 칸과 줄이 맞으면 분홍 보조선이 뜹니다.</p>
             ) : (
               <>
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold">선택한 칸{sel.type !== "signature" && sel.type !== "seal" ? `: {${sel.name}}` : ""}</h2>
                   <div className="flex gap-1">
-                    <button type="button" onClick={() => duplicate(sel.id)} className="p-1 rounded hover:bg-gray-100" title="복제"><Copy size={14} /></button>
-                    <button type="button" onClick={() => { commit((p) => p.filter((f) => f.id !== sel.id)); setSelected(null); }} className="p-1 rounded hover:bg-red-50 text-red-600" title="삭제"><Trash2 size={14} /></button>
+                    <button type="button" onClick={() => duplicate([sel.id])} className="p-1 rounded hover:bg-gray-100" title="복제"><Copy size={14} /></button>
+                    <button type="button" onClick={() => removeIds([sel.id])} className="p-1 rounded hover:bg-red-50 text-red-600" title="삭제"><Trash2 size={14} /></button>
                   </div>
                 </div>
                 <label className="block text-xs text-gray-600">종류

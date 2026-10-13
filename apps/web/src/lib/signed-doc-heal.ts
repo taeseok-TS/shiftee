@@ -10,11 +10,11 @@
 import { prisma } from "@/lib/db";
 
 /** 저장 실패를 시스템 로그에 남긴다 — 관리자 화면에 뜨고 매시 점검이 집계한다. */
-export async function recordSignedDocFailure(contractId: string, e: unknown): Promise<void> {
+export async function recordSignedDocFailure(contractId: string, e: unknown, source = "sign"): Promise<void> {
   try {
     await prisma.systemErrorLog.create({
       data: {
-        path: `/api/contracts/${contractId}/sign (서명본 저장)`,
+        path: `/api/contracts/${contractId}/${source} (서명본 저장)`,
         method: "POST",
         message: `서명본 저장 실패: ${e instanceof Error ? e.message : String(e)}`,
         stack: e instanceof Error ? e.stack?.slice(0, 4000) ?? null : null,

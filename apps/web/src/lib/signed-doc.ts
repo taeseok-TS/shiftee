@@ -504,7 +504,19 @@ function escapeXml(s: string) {
 }
 
 // ── PDF에 서명 페이지 합성 ──
-/** 계약의 템플릿이 PDF 칸 배치(#22 2단계)를 가지면 그 배치 — 서명본을 만들 때 서명·직인을 칸에 얹는다 */
+/**
+ * 서명·직인을 얹을 배치 — **문서를 만들 때 남긴 스냅샷**(<문서>.layout.json)이 먼저, 없으면 템플릿의 현재 배치.
+ * 발송 뒤 편집기에서 서명 칸을 옮겨도 이미 보낸 문서는 그 문서를 그린 자리에 서명이 찍힌다(10/14 #22 후속).
+ */
+export async function layoutForContractFile(origPath: string | null, templateId: string | null | undefined): Promise<TemplateLayout | null> {
+  if (origPath && /\.pdf$/i.test(origPath)) {
+    const snap = await fs.readFile(`${origPath}.layout.json`, "utf8").then((t) => parseLayout(t)).catch(() => null);
+    if (snap) return snap;
+  }
+  return layoutForContractTemplate(templateId);
+}
+
+/** 계약의 템플릿이 PDF 칸 배치(#22 2단계)를 가지면 그 배치(스냅샷이 없을 때의 폴백) */
 export async function layoutForContractTemplate(templateId: string | null | undefined): Promise<TemplateLayout | null> {
   if (!templateId) return null;
   const t = await prisma.contractTemplate.findUnique({ where: { id: templateId }, select: { fileUrl: true, layout: true } })
@@ -611,7 +623,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const isDocx = !!orig && orig.toLowerCase().endsWith(".docx");
   const buf = isDocx
     ? await buildSignedDocx(diskPath(orig!), contract.title, signers)
-    : await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers, await layoutForContractTemplate(contract.templateId));
+    : await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers, await layoutForContractFile(orig ? diskPath(orig) : null, contract.templateId));
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-signed.${isDocx ? "docx" : "pdf"}`;
   const dir = path.join(process.cwd(), "uploads", "contracts");
   await fs.mkdir(dir, { recursive: true });

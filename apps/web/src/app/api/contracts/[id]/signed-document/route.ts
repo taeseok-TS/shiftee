@@ -3,7 +3,7 @@ import { stampTestPdf } from "@/lib/pdf-stamp";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
-import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, layoutForContractTemplate, type Signer } from "@/lib/signed-doc";
+import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, layoutForContractFile, type Signer } from "@/lib/signed-doc";
 
 // Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
 // 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
@@ -195,7 +195,7 @@ export async function GET(
         },
       });
     } else {
-      const buf = await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers, await layoutForContractTemplate(contract.templateId));
+      const buf = await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers, await layoutForContractFile(orig ? diskPath(orig) : null, contract.templateId));
       return await pdfResponse(buf, contract.title + suffix + ".pdf");
     }
   } catch (e) {

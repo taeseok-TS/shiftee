@@ -51,6 +51,9 @@ async function fillPdfTemplate(templateFileUrl: string, data: Record<string, str
   const dir = path.join(process.cwd(), "uploads", "contracts");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, filename), buf);
+  // 배치 스냅샷 — 이 문서를 그린 배치를 옆에 남긴다. 서명·직인은 **이 스냅샷의 서명 칸**에 얹는다(발송 뒤 편집기에서
+  // 서명 칸을 옮겨도 이미 보낸 문서는 옛 자리 그대로, 10/14 #22 후속). 못 써도 문서 생성은 막지 않는다(템플릿 배치로 폴백)
+  if (layout && !opts?.highlight) await fs.writeFile(path.join(dir, `${filename}.layout.json`), JSON.stringify(layout)).catch((e) => console.error("[contract-fields] 배치 스냅샷 저장 실패:", e));
   return `/api/uploads/contracts/${filename}`;
 }
 
