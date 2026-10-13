@@ -2,7 +2,7 @@
 #
 # 원본은 PDF 라 치환 엔진(docxtemplater)이 못 읽는다. 문구·조항·표 숫자는 PDF 그대로 옮기고 입력 자리는 {칸} 으로 둔다.
 #  · 자동 칸: {직원명} {지점} {지점명} {직급} {생년월일} {주소} {작성일} {원장명} {지점주소} {계약시작일} {계약종료일}
-#  · 서명 마커: {근로자서명} {원장서명} {본부서명} {대표서명}(직인)
+#  · 서명 마커: {근로자서명} 《원장서명》 《본부서명》 {대표서명}(직인)
 #  · 서명 때 고르는 동의: {동의_…}  (consentBox → "(☒ 동의함  □ 동의하지 않음)")
 # 실행: python build_tpl8.py <출력 폴더>
 import sys, os
@@ -127,8 +127,8 @@ def t_start_change():
     d.add_page_break()   # 원본처럼 날짜·서명란은 2쪽에 모아 둔다(서명 세 곳이 한 쪽에)
     para(d, "{작성일}", align=C, before=12, after=14)
     sig_line(d, "신청자(근로자) 성명: ", "{직원명}", "{근로자서명}")
-    sig_line(d, "지점 원장: ", "{원장명}", "{원장서명}")
-    sig_line(d, "직영사업본부 확인: ", "", "{본부서명}", suffix="(인)")
+    sig_line(d, "지점 원장: ", "{원장명}", "《원장서명》")
+    sig_line(d, "직영사업본부 확인: ", "", "《본부서명》", suffix="(인)")
     para(d, "넥스큐브코퍼레이션  귀중", bold=True, before=14)
     return d, "출근일 변경 신청서(루트코스).docx"
 
@@ -144,7 +144,7 @@ def t_parental_leave():
     appr = right.add_table(rows=2, cols=3); appr.style = "Table Grid"; appr.alignment = WD_TABLE_ALIGNMENT.RIGHT
     set_cell(appr.cell(0, 0), "결\n재", bold=True, size=9, align=C, shade="EDEDED"); appr.cell(0, 0).merge(appr.cell(1, 0))
     set_cell(appr.cell(0, 1), "원장", bold=True, size=9, align=C, shade="EDEDED"); set_cell(appr.cell(0, 2), "본부", bold=True, size=9, align=C, shade="EDEDED")
-    set_cell(appr.cell(1, 1), "{원장서명}", size=9, align=C); set_cell(appr.cell(1, 2), "{본부서명}", size=9, align=C)
+    set_cell(appr.cell(1, 1), "《원장서명》", size=9, align=C); set_cell(appr.cell(1, 2), "《본부서명》", size=9, align=C)
     for r_ in appr.rows: r_.height = Cm(1.2)
     for row in appr.rows:
         row.cells[0].width = Cm(1.0); row.cells[1].width = Cm(2.6); row.cells[2].width = Cm(2.6)
@@ -301,7 +301,7 @@ def t_severance_account():
     d = new_doc(compact=True)
     appr = d.add_table(rows=2, cols=2); appr.style = "Table Grid"; appr.alignment = WD_TABLE_ALIGNMENT.RIGHT
     set_cell(appr.cell(0, 0), "본인", bold=True, size=9, align=C, shade="EDEDED"); set_cell(appr.cell(0, 1), "본부(부서)", bold=True, size=9, align=C, shade="EDEDED")
-    set_cell(appr.cell(1, 0), "{근로자서명}\n(서명/인)", size=8, align=C); set_cell(appr.cell(1, 1), "{본부서명}\n(서명/인)", size=8, align=C)
+    set_cell(appr.cell(1, 0), "{근로자서명}\n(서명/인)", size=8, align=C); set_cell(appr.cell(1, 1), "《본부서명》\n(서명/인)", size=8, align=C)
     for row in appr.rows:
         for c_ in row.cells: c_.width = Cm(2.8)
     appr.rows[1].height = Cm(1.4)
