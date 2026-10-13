@@ -78,6 +78,11 @@ export const fieldsWithMode = (settings: FieldSettings, mode: FieldMode) =>
 export const humanFields = (settings: FieldSettings) =>
   new Set(Object.entries(settings).filter(([, s]) => s.mode && s.mode !== "auto").map(([k]) => k));
 
+/** 본부가 적는 칸(본부 입력·보내기 전 수정) 중 필수인데 비어 있는 칸 — 작성·묶음 작성이 직접 호출·일괄 경로에서도 막게(10/13 검증 11) */
+export function requiredHqMissing(mergeData: Record<string, string>, settings: FieldSettings): string[] {
+  return Object.entries(settings).filter(([k, s]) => (s.mode === "hq" || s.mode === "edit") && s.required && !String(mergeData[k] ?? "").trim()).map(([k]) => k);
+}
+
 /** auto 칸의 값을 치환 데이터에 넣는다 — 고정 문구가 있으면 그것, 아니면 출처 값. 출처가 없는 auto 칸은 건드리지 않는다 */
 export function applyAutoSources(mergeData: Record<string, string>, settings: FieldSettings): void {
   const base = { ...mergeData };   // 출처는 적용 전 값을 본다 — 설정 순서에 따라 결과가 달라지지 않게(10/13 검증 8)

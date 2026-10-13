@@ -6,6 +6,7 @@ import { phoneHint, phoneLast4, issueExternalVerify, checkExternalVerify, tryLas
 import { recordContractEvent } from "@/lib/contract-events";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { lockSteps } from "@/lib/contract-reset";
+import { isFillableTemplate } from "@/lib/contract-fields";
 
 // 외부(미가입) 계약자 게스트 서명 — 로그인 없이 서명 링크 토큰으로 인증
 // 토큰은 발송 시 생성(64자 랜덤, 14일 유효), 해당 단계가 자기 차례(PENDING)일 때만 서명 가능
@@ -297,7 +298,7 @@ export async function POST(
         const tmpl = await prisma.contractTemplate.findUnique({
           where: { id: sib.templateId }, select: { fileUrl: true, version: true },
         });
-        if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+        if (isFillableTemplate(tmpl?.fileUrl)) {
           const { buildContractMergeData, fillDocxTemplate, buildFieldSummary } = await import("@/lib/contract-fields");
           const prevExtra = (sib.extraFields as Record<string, string>) || {};
           const merged = { ...prevExtra, ...consent };

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requiredHqMissing } from "@/lib/contract-field-settings";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, isFillableTemplate, loadFieldSettings, isPdfTemplate } from "@/lib/contract-fields";
 import { isValidMobile } from "@/lib/external-verify";
 
 // 폼.JSON 에서 온 문자열을 계약 종류로 확정한다. 단건 작성(app/api/contracts/route.ts)에는
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     const verrs: string[] = [];
     for (const item of items) {
       const template = await prisma.contractTemplate.findUnique({ where: { id: item.templateId }, select: { fileUrl: true, name: true } });
-      if (!template?.fileUrl.toLowerCase().endsWith(".docx")) continue;
+      if (!isFillableTemplate(template?.fileUrl)) continue;
       const mergeData = await buildContractMergeData(userId, { templateId: item.templateId,
         title: item.title, startDate: item.startDate ?? null, endDate: item.endDate ?? null, salary: item.salary,
         extraFields: item.extraFields ?? null,
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
       });
       for (const e of await validateContractMerge(mergeData, { templateFileUrl: template.fileUrl, startDate: item.startDate ?? null, endDate: item.endDate ?? null }))
         verrs.push(`[${template.name}] ${e}`);
+      if (isPdfTemplate(template.fileUrl))   // PDF 배치 양식만 — 워드는 {#조건} 구간 칸을 서버가 몰라 화면 검사만(2차 검증 2)
+        for (const k of requiredHqMissing(mergeData, await loadFieldSettings(item.templateId)))   // 본부 필수 칸(10/13 검증 11)
+          verrs.push(`[${template.name}] 필수 칸 「${k}」이 비어 있습니다.`);
     }
     if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
   } catch (e) {
@@ -73,7 +77,7 @@ export async function POST(request: NextRequest) {
       let fileUrl: string;
       let profileFields: string[] = [];
       let employeeFields: string[] = [];
-      if (template.fileUrl.toLowerCase().endsWith(".docx")) {
+      if (isFillableTemplate(template.fileUrl)) {
         const mergeData = await buildContractMergeData(userId, { templateId: item.templateId,
           title: item.title,
           startDate: item.startDate ?? null,

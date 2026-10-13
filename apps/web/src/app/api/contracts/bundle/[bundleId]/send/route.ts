@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
-import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
 import { preserveDecidedSteps, lockSteps } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { recordContractEvent } from "@/lib/contract-events";
@@ -139,7 +139,7 @@ export async function POST(
       try {
         const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true, version: true } });
         templateVersion = tmpl?.version ?? null;
-        if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+        if (isFillableTemplate(tmpl?.fileUrl)) {
           const extra = (c.extraFields as Record<string, string>) || {};
           const mergeData = await buildContractMergeData(c.userId, { templateId: c.templateId,
             title: c.title,

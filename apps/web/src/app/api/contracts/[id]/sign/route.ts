@@ -6,7 +6,8 @@ import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
 import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, isFillableTemplate, layoutForTemplateFile } from "@/lib/contract-fields";
+import { layoutFieldTypes } from "@/lib/contract-layout";
 import fs from "fs/promises";
 import path from "path";
 import bcrypt from "bcryptjs";
@@ -196,7 +197,7 @@ export async function POST(
       const tmpl = await prisma.contractTemplate.findUnique({
         where: { id: contract.templateId }, select: { fileUrl: true, version: true, fieldSettings: true },
       });
-      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+      if (isFillableTemplate(tmpl?.fileUrl)) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
         // 템플릿이 "직원이 직접 입력한다"고 선언한 칸만 받는다. 동의 항목은 개인정보동의서의
         // 선택지라 별도로 허용하되, 역시 이미 있는 키(prevExtra)나 동의 접두로 제한한다.
@@ -229,6 +230,16 @@ export async function POST(
           const st = parseFieldSettings(tmpl.fieldSettings);
           const missing = Object.entries(st).filter(([k, s]) => s.mode === "sign" && s.required && allowed.has(k) && !String((merged as Record<string, string>)[k] ?? "").trim()).map(([k]) => k);
           if (missing.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `필수 입력 칸을 채워 주세요: ${missing.join(", ")}` }, { status: 400 });
+          // PDF 칸 배치(#22 2단계)의 칸 종류 — 필수 체크박스는 체크(☑)해야 하고, 드롭다운은 정한 선택지 중 하나여야 한다(2차 검증 3)
+          const lo = await layoutForTemplateFile(tmpl.fileUrl);
+          if (lo) {
+            const types = layoutFieldTypes(lo);
+            const m = merged as Record<string, string>;
+            const unchecked = Object.entries(types).filter(([k, t]) => t.type === "checkbox" && st[k]?.required && allowed.has(k) && m[k] !== "☑" && m[k] !== "동의").map(([k]) => k);   // 동의_ 이름 칸은 서명 화면이 「동의」를 보낸다(3차 검증)
+            if (unchecked.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `체크해 주세요: ${unchecked.join(", ")}` }, { status: 400 });
+            const badSel = Object.entries(types).filter(([k, t]) => t.type === "select" && allowed.has(k) && String(m[k] ?? "").trim() && !(t.options ?? []).includes(m[k])).map(([k]) => k);
+            if (badSel.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `선택지에서 골라 주세요: ${badSel.join(", ")}` }, { status: 400 });
+          }
         }
         const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
           title: contract.title,

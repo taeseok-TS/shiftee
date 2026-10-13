@@ -801,6 +801,7 @@ export default function ContractsPage() {
   const [templateFields, setTemplateFields] = useState<string[]>([]);
   const [employeeFillFields, setEmployeeFillFields] = useState<string[]>([]); // 직원이 서명 시 직접 입력(퇴사일자 등)
   const [fieldSettings, setFieldSettings] = useState<FieldSettings>({}); // 양식 칸 설정(#22 1단계) — 보내기 전 수정·자동·필수
+  const [fieldTypes, setFieldTypes] = useState<Record<string, { type: string; options?: string[] }>>({}); // PDF 칸 배치(#22 2단계)의 칸 종류 — 체크박스·드롭다운·날짜
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [templateConditions, setTemplateConditions] = useState<string[]>([]); // 템플릿의 {#조건} 이름들
   const [fieldConditions, setFieldConditions] = useState<Record<string, string>>({}); // 필드 → 소속 조건
@@ -891,7 +892,7 @@ export default function ContractsPage() {
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
     setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
     lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
-    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({}); setTransferCustom(false);
+    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({}); setFieldTypes({}); setTransferCustom(false);
     const ids = [templateId];
     if (includeBundle) {
       if (ndaTemplate) ids.push(ndaTemplate.id);
@@ -909,6 +910,7 @@ export default function ContractsPage() {
     const fieldConds: Record<string, string> = {};
     const docsMap: Record<string, string> = {}; // 필드 → 출처 문서명 (#113)
     const settingsMap: FieldSettings = {};   // 칸 설정(#22 1단계) — 묶음이면 문서별 설정을 합친다
+    const typesMap: Record<string, { type: string; options?: string[] }> = {};   // 칸 종류(#22 2단계, PDF 배치만)
     // 같은 칸을 문서마다 다르게 정했으면: 사람이 적는 방식(보내기 전 수정 > 본부 입력)이 이기고(입력란이 있어야 그 문서에 값이 간다), 필수는 하나라도 있으면 필수
     const RANK: Record<string, number> = { edit: 3, hq: 2, sign: 1, auto: 0 };
     results.forEach((d, i) => {
@@ -926,8 +928,9 @@ export default function ContractsPage() {
       for (const c of d.conditions || []) if (!conditions.includes(c)) conditions.push(c);
       for (const f of d.employeeFields || []) if (!empFill.includes(f)) empFill.push(f);
       Object.assign(fieldConds, d.fieldConditions || {});
+      Object.assign(typesMap, d.types || {});
     });
-    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill); setFieldDocs(docsMap); setFieldSettings(settingsMap);
+    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill); setFieldDocs(docsMap); setFieldSettings(settingsMap); setFieldTypes(typesMap);
 
     // 시각 필드 기본값 — 직영 표준 근무가 13~20시라 미리 채워 둔다(수정 가능).
     // 개시·출근·시작류 = 13:00, 종료·퇴근류 = 20:00
@@ -2634,11 +2637,22 @@ ${url}`;
                           </div>
                         </div>
                       )}
+                      {fieldTypes[f]?.type === "checkbox" ? (   // PDF 칸 배치 체크박스(#22 2단계) — 체크하면 문서에 ✓
+                        <label className="flex items-center gap-2 h-9 text-sm cursor-pointer">
+                          <input type="checkbox" checked={extraFields[f] === "☑"} onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.checked ? "☑" : "" }))} />해당
+                        </label>
+                      ) : fieldTypes[f]?.type === "select" ? (   // PDF 칸 배치 드롭다운
+                        <select className="w-full h-9 rounded-md border px-2 text-sm bg-white" value={extraFields[f] || ""} onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}>
+                          <option value="">선택</option>
+                          {(fieldTypes[f]?.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : (
                       <Input
-                        type={isTimeField(f) ? "time" : isDateField(f) ? "date" : "text"}
+                        type={isTimeField(f) ? "time" : fieldTypes[f]?.type === "date" || isDateField(f) ? "date" : "text"}
                         value={extraFields[f] || ""}
                         onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))}
                       />
+                      )}
                     </div>
                     )
                   );

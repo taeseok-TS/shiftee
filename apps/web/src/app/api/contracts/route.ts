@@ -1,11 +1,13 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
+import { requiredHqMissing } from "@/lib/contract-field-settings";
+import { layoutFieldTypes, type LayoutFieldTypes } from "@/lib/contract-layout";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { filterContractData } from "@/lib/api-response";
 import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
 import path from "path";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate, maskPiiJson } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate, maskPiiJson, isFillableTemplate, layoutForTemplateFile, loadFieldSettings, isPdfTemplate } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 import { CONTRACT_STATUSES, CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
 import { isValidMobile } from "@/lib/external-verify";
@@ -129,9 +131,11 @@ export async function GET(request: NextRequest) {
 
     // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2). 템플릿마다 한 번만 읽는다(파일 캐시는 lib 에 있다)
     const namesByTemplate = new Map<string, string[] | null>();
+    const typesByTemplate = new Map<string, LayoutFieldTypes | null>();   // PDF 칸 배치(#22 2단계)의 칸 종류 — 서명 화면이 체크박스·드롭다운·날짜를 맞게 그린다
     for (const c of contracts) {
       const u = c.template?.fileUrl;
       if (u && !namesByTemplate.has(u)) namesByTemplate.set(u, await templateFieldNames(u));
+      if (u && !typesByTemplate.has(u)) { const lo = await layoutForTemplateFile(u); typesByTemplate.set(u, lo ? layoutFieldTypes(lo) : null); }
     }
 
     // 회수·반려 이력의 처리자 이름(9/12) — 이력에는 사람 id 만 남아, 직원 화면(직원 목록이 없다)에서는 늘 "알 수 없는 사용자"로 보였다
@@ -191,6 +195,7 @@ export async function GET(request: NextRequest) {
       approvalSteps: template?.approvalSteps ?? null,
       approvalLocked: template?.approvalLocked ?? true,
       summaryFields: summaryForTemplate(contract.extraFields, template?.fileUrl ? namesByTemplate.get(template.fileUrl) : null),
+      fieldTypes: template?.fileUrl ? typesByTemplate.get(template.fileUrl) ?? null : null,
       extraFields: maskPiiJson(contract.extraFields),   // 주민등록번호·계좌번호는 가려서(수정 창이 가린 값을 돌려보내면 서버가 원문을 유지한다)
       user: {
         id: contract.user.id,
@@ -311,7 +316,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
       }
 
-      if (template.fileUrl.toLowerCase().endsWith(".docx")) {
+      if (isFillableTemplate(template.fileUrl)) {
         // 이 계약서가 쓰는 프로필 필드(주소/생년월일) + 직원 직접입력 필드(퇴사일자 등) 기록
         contractProfileFields = await scanTemplateProfileFields(template.fileUrl, template.id);
         contractEmployeeFields = await scanEmployeeFillFields(template.fileUrl, template.id);
@@ -328,6 +333,10 @@ export async function POST(request: NextRequest) {
         const { validateContractMerge } = await import("@/lib/contract-validate");
         const verrs = await validateContractMerge(mergeData, { templateFileUrl: template.fileUrl, startDate: startDate || null, endDate: endDate || null });
         if (verrs.length) return NextResponse.json({ code: "INVALID_FIELDS", errors: verrs, error: verrs.join(" / ") }, { status: 400 });
+        if (isPdfTemplate(template.fileUrl)) {   // PDF 배치 양식: 본부가 적는 필수 칸이 비면 만들지 않는다(10/13 검증 11). 워드는 {#조건} 구간 칸을 서버가 몰라 종전대로 화면 검사만(2차 검증 2)
+          const miss = requiredHqMissing(mergeData, await loadFieldSettings(templateId));
+          if (miss.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `필수 칸을 채워 주세요: ${miss.join(", ")}` }, { status: 400 });
+        }
         try {
           const filledUrl = await fillDocxTemplate(template.fileUrl, mergeData);
           fileUrl = JSON.stringify([filledUrl]);

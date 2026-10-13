@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
 
@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
     for (const tid of templateIds) {
       const tmpl = await prisma.contractTemplate.findUnique({ where: { id: tid }, select: { fileUrl: true, name: true } });
       if (!tmpl) return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
-      if (!tmpl.fileUrl.toLowerCase().endsWith(".docx"))
-        return NextResponse.json({ error: "워드 템플릿만 미리보기를 지원합니다." }, { status: 400 });
+      if (!isFillableTemplate(tmpl.fileUrl))
+        return NextResponse.json({ error: "워드·PDF 템플릿만 미리보기를 지원합니다." }, { status: 400 });
       if (!firstName) firstName = tmpl.name;
       const mergeData = await buildContractMergeData(userId || "", { templateId: tid,
         title: title || tmpl.name,
@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       const tmpUrl = await fillDocxTemplate(tmpl.fileUrl, mergeData, { highlight });
       tmpUrls.push(tmpUrl);
       const buf = await fs.readFile(path.join(process.cwd(), "uploads", tmpUrl.replace(/^\/api\/uploads\//, "")));
+      if (tmpUrl.toLowerCase().endsWith(".pdf")) { pdfs.push(buf); continue; }   // PDF 양식(#22 2단계)은 이미 PDF — 변환 없이
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)

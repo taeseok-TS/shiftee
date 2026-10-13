@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
+import { parseLayout, fillPdfLayout, layoutFieldNames, isSignField, type TemplateLayout } from "@/lib/contract-layout";
 
 // 계약서 치환 데이터 구성 — 생성(POST /api/contracts)과 수정(PATCH /api/contracts/[id]) 공용
 
@@ -30,7 +31,30 @@ export const fmtKoreanDate = (d: string | null) => {
   return `${k.getUTCFullYear()}년 ${k.getUTCMonth() + 1}월 ${k.getUTCDate()}일`;
 };
 
-// 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성
+/** 값을 채워 넣을 수 있는 양식 — 워드({칸} 태그) 또는 PDF(칸 배치, #22 2단계). 배치 없는 PDF 는 그대로 복사된다 */
+export const isFillableTemplate = (fileUrl: string | null | undefined) => !!fileUrl && /\.(docx|pdf)$/i.test(fileUrl);
+export const isPdfTemplate = (fileUrl: string | null | undefined) => !!fileUrl && /\.pdf$/i.test(fileUrl);
+/** 템플릿 파일 주소로 PDF 칸 배치를 찾는다(파일은 템플릿마다 고유). 워드·배치 없음 → null */
+export async function layoutForTemplateFile(fileUrl: string): Promise<TemplateLayout | null> {
+  if (!isPdfTemplate(fileUrl)) return null;
+  const t = await prisma.contractTemplate.findFirst({ where: { fileUrl }, select: { layout: true } })
+    .catch((e: unknown) => { console.error("[contract-fields] 템플릿 배치 조회 실패(layout 컬럼 DDL 확인):", e); return null; });   // 삼키면 값 없는 PDF 가 조용히 나간다(2차 검증 6)
+  return parseLayout(t?.layout);
+}
+
+// PDF 양식(#22 2단계): 칸 배치대로 pdf-lib 으로 값을 그려 새 PDF 를 만든다. 배치가 없으면 그대로 복사(호출부가 임시 파일로 지우므로 원본을 돌려주면 안 된다)
+async function fillPdfTemplate(templateFileUrl: string, data: Record<string, string>, opts?: { highlight?: boolean }): Promise<string> {
+  const src = await fs.readFile(path.join(process.cwd(), "uploads", templateFileUrl.replace(/^\/api\/uploads\//, "")));
+  const layout = await layoutForTemplateFile(templateFileUrl);
+  const buf = layout ? await fillPdfLayout(src, layout, data, { highlight: !!opts?.highlight, isEmployeeInput: isEmployeeInputField }) : src;
+  const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-contract.pdf`;
+  const dir = path.join(process.cwd(), "uploads", "contracts");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, filename), buf);
+  return `/api/uploads/contracts/${filename}`;
+}
+
+// 워드(.docx) 템플릿의 치환 필드({직원명} 등)를 실제 값으로 채워 새 파일 생성 — PDF 양식이면 칸 배치로 그린다(fillPdfTemplate)
 // opts.highlight (#100, 2026-08-27): 미리보기 전용 — 치환된 값을 노란 하이라이트로,
 // 값이 비어 있는 필드는 붉은 〔미입력〕 표시로 렌더해 확인 포인트가 한눈에 보이게 한다.
 // 방식: 값을 사설영역 센티널(~)로 감싸 렌더한 뒤 XML 후처리로 하이라이트 run 분리.
@@ -39,6 +63,7 @@ export async function fillDocxTemplate(
   data: Record<string, string>,
   opts?: { highlight?: boolean }
 ): Promise<string> {
+  if (isPdfTemplate(templateFileUrl)) return fillPdfTemplate(templateFileUrl, data, opts);
   const relPath = templateFileUrl.replace(/^\/api\/uploads\//, "");
   const srcPath = path.join(process.cwd(), "uploads", relPath);
   const content = await fs.readFile(srcPath);
@@ -220,6 +245,12 @@ export async function buildContractMergeData(
 // 템플릿(.docx)이 참조하는 직원 프로필 필드 목록 반환 — 서명 시 비어 있으면 입력 유도
 // 현재 대상: 주소(User.address), 생년월일(User.birthDate)
 export async function scanTemplateProfileFields(templateFileUrl: string, templateId?: string | null): Promise<string[]> {
+  if (isPdfTemplate(templateFileUrl)) {   // PDF 칸 배치(#22 2단계) — 배치된 주소·생년월일 칸이 「서명 때 직원 입력」이면
+    const layout = await layoutForTemplateFile(templateFileUrl);
+    if (!layout) return [];
+    const settings = await loadFieldSettings(templateId);
+    return ["주소", "생년월일"].filter((f) => layout.fields.some((x) => x.name === f && !isSignField(x)) && (!settings[f]?.mode || settings[f].mode === "sign"));
+  }
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
   try {
     const settings = await loadFieldSettings(templateId);   // 본부가 자동·본부 입력·보내기 전 수정으로 정한 칸은 서명 때 묻지 않는다(#22 1단계)
@@ -271,6 +302,21 @@ export async function loadFieldSettings(templateId?: string | null): Promise<Fie
 // 화이트리스트(선사용사유 등 '사유'류·주민등록번호)만 직원 입력 — 퇴사사유는 관리자 작성 — 나머지는 전부 관리자 작성 폼에 표시.
 // 프로필 필드(주소/생년월일)와 달리 프로필에 저장하지 않고 해당 문서에만 반영한다.
 export async function scanEmployeeFillFields(templateFileUrl: string, templateId?: string | null): Promise<string[]> {
+  if (isPdfTemplate(templateFileUrl)) {   // PDF 칸 배치(#22 2단계) — 워드 {칸} 과 같은 규칙을 배치된 칸 이름에 적용
+    const layout = await layoutForTemplateFile(templateFileUrl);
+    if (!layout) return [];
+    const settings = await loadFieldSettings(templateId);
+    const found: string[] = [];
+    for (const f of layout.fields) {
+      if (isSignField(f) || found.includes(f.name)) continue;
+      const mode = settings[f.name]?.mode;
+      if (mode === "sign") { found.push(f.name); continue; }
+      if (mode) continue;
+      if (SYSTEM_FIELDS.has(f.name) || !isEmployeeInputField(f.name)) continue;
+      found.push(f.name);
+    }
+    return found;
+  }
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
   try {
     const settings = await loadFieldSettings(templateId);   // 칸 설정(#22 1단계)이 있으면 그것이 우선
@@ -339,6 +385,10 @@ export function buildFieldSummary(
 // 퇴사사유·금품 체크까지 떠서 무엇에 서명하는지 흐려졌다. 웹 관리자·원장·앱이 모두 서버의 이 값을 쓴다.
 const fieldNameCache = new Map<string, { mtimeMs: number; names: string[] }>();
 export async function templateFieldNames(templateFileUrl: string): Promise<string[] | null> {
+  if (isPdfTemplate(templateFileUrl)) {   // PDF 칸 배치(#22 2단계) — 배치가 없으면 모름(null = 거르지 않는다)
+    const layout = await layoutForTemplateFile(templateFileUrl);
+    return layout ? layoutFieldNames(layout) : null;
+  }
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return null;
   try {
     const file = path.join(process.cwd(), "uploads", templateFileUrl.replace(/^\/api\/uploads\//, ""));

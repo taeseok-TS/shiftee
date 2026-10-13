@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs/promises";
 import PizZip from "pizzip";
 import { prisma } from "@/lib/db";
-import { buildContractMergeData, templateFieldNames } from "@/lib/contract-fields";
+import { buildContractMergeData, templateFieldNames, isFillableTemplate } from "@/lib/contract-fields";
 
 // ─── 전자계약 값 검증(2026-10-07 QA #24, 본부 답변 #32 「최저임금 미만이면 발송을 막아 주세요(경고 아님)」) ───
 // 작성·수정·발송 때 서버가 본다. 하나라도 걸리면 저장·발송하지 않고 이유를 돌려준다.
@@ -155,7 +155,7 @@ export async function validateStoredContract(c: {
   const dateErr = sd && edd && sd > edd ? [`계약 종료일(${edd})이 시작일(${sd})보다 빠릅니다.`] : [];
   if (!c.templateId) return dateErr;
   const tmpl = await prisma.contractTemplate.findUnique({ where: { id: c.templateId }, select: { fileUrl: true } });
-  if (!tmpl?.fileUrl.toLowerCase().endsWith(".docx")) return dateErr;
+  if (!isFillableTemplate(tmpl?.fileUrl)) return dateErr;
   const extra = (c.extraFields as Record<string, string>) || {};
   const startDate = iso(c.startDate);
   const endDate = iso(c.endDate);

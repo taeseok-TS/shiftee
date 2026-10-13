@@ -5,7 +5,7 @@ import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { hrBotSendDM } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiJson } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiJson, isFillableTemplate } from "@/lib/contract-fields";
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
@@ -311,7 +311,7 @@ export async function PATCH(
         where: { id: contract.templateId },
         select: { fileUrl: true, version: true },
       });
-      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+      if (isFillableTemplate(tmpl?.fileUrl)) {
         try {
           const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
             title: (title as string) || contract.title,
@@ -464,7 +464,7 @@ export async function PATCH(
         where: { id: contract.templateId }, select: { fileUrl: true, version: true },
       });
       sendTemplateVersion = tmpl?.version ?? null;
-      if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+      if (isFillableTemplate(tmpl?.fileUrl)) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
         const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
           title: title || contract.title,

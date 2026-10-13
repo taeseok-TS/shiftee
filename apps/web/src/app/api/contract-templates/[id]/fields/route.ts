@@ -18,8 +18,26 @@ export async function GET(
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const { id } = await params;
-  const template = await prisma.contractTemplate.findUnique({ where: { id }, select: { fileUrl: true, fieldSettings: true } });
+  const template = await prisma.contractTemplate.findUnique({ where: { id }, select: { fileUrl: true, fieldSettings: true, layout: true } });
   if (!template) return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
+  if (/\.pdf$/i.test(template.fileUrl)) {
+    // PDF 칸 배치(#22 2단계) — 배치된 입력 칸이 곧 필드 목록. 서명·직인 칸은 입력이 아니다. types 로 종류·선택지를 함께 준다
+    const { parseLayout, isSignField } = await import("@/lib/contract-layout");
+    const layout = parseLayout(template.layout);
+    if (!layout) return NextResponse.json({ fields: [] });
+    const fields: string[] = [];
+    const types: Record<string, { type: string; options?: string[] }> = {};
+    for (const f of layout.fields) {
+      if (isSignField(f) || fields.includes(f.name)) continue;
+      fields.push(f.name);
+      types[f.name] = { type: f.type, ...(f.options?.length ? { options: f.options } : {}) };
+    }
+    const employeeFields = await scanEmployeeFillFields(template.fileUrl, id);
+    const settings = parseFieldSettings(template.fieldSettings);
+    const defaults: Record<string, FieldMode> = {};
+    for (const f of fields) defaults[f] = SYSTEM_FIELDS.has(f) ? "auto" : isEmployeeInputField(f) ? "sign" : "hq";
+    return NextResponse.json({ fields, conditions: [], fieldConditions: {}, employeeFields, settings, defaults, types });
+  }
   if (!template.fileUrl.toLowerCase().endsWith(".docx"))
     return NextResponse.json({ fields: [] });
 

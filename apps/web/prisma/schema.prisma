@@ -521,6 +521,7 @@ model ContractTemplate {
   approvalSteps  Json?
   approvalLocked Boolean     @default(true)
   fieldSettings  Json?   // 칸 설정(2026-10-13 QA76 #22 1단계) — {칸: {mode, required, source, text}}. deploy/ddl_template_field_settings.sql
+  layout         Json?   // PDF 양식 칸 배치(2026-10-13 QA76 #22 2단계) — {v:1, fields:[{id,name,type,page,x,y,w,h,role,mode,…}]}. lib/contract-layout.ts, deploy/ddl_template_layout.sql
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

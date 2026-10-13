@@ -106,8 +106,14 @@ export default function ContractListScreen() {
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
   // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
-  const empFieldType = (f: string): "check" | "confirm" | "consent" | "date" | "text" =>
-    f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : f.startsWith("동의_") ? "consent" : isEmpDateField(f) ? "date" : "text";
+  const empFieldType = (f: string): "check" | "confirm" | "consent" | "date" | "text" | "box" | "select" => {
+    // PDF 칸 배치(#22 2단계)는 칸 종류를 안다 — 이름 접두가 없어도 체크박스(기본 해제·선택)·드롭다운·날짜로 그린다
+    const t: string | undefined = signTarget?.fieldTypes?.[f]?.type;
+    if (t === "checkbox" && !/^(체크_|확인_|동의_)/.test(f)) return "box";
+    if (t === "select") return "select";
+    if (t === "date") return "date";
+    return f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : f.startsWith("동의_") ? "consent" : isEmpDateField(f) ? "date" : "text";
+  };
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") || f.startsWith("동의_") ? f.slice(3) : f;
   // 근로자 본인 서명(내 계약의 내 차례) — 비밀번호 재확인·직접 서명(#205-1·#205-2). 외부 계약은 소유자가 작성 관리자라 제외
   const isOwnSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
@@ -180,6 +186,7 @@ export default function ContractListScreen() {
       for (const f of empFields) {
         const type = empFieldType(f);
         if (type === "check") { fields[f] = empFieldInput[f] === "□" ? "□" : "☑"; continue; } // 기본 체크, 명시적 해제만 □
+        if (type === "box") { fields[f] = empFieldInput[f] === "☑" ? "☑" : "□"; continue; } // PDF 체크박스 — 기본 해제, 선택
         if (type === "confirm") { // 설명확인 — 직접 체크해야 서명 가능
           if (empFieldInput[f] !== "☑") { Alert.alert("확인 필요", `"${empFieldLabel(f)}" 항목을 확인하고 체크해주세요.`); return; }
           fields[f] = "☑"; continue;
@@ -498,7 +505,7 @@ export default function ContractListScreen() {
                 }
                 for (const f of empFields) {
                   const type = empFieldType(f);
-                  if (type === "check") continue;
+                  if (type === "check" || type === "box") continue;
                   if (type === "confirm") { if (empFieldInput[f] !== "☑") left.push({ key: `e:${f}`, label: `${empFieldLabel(f)} 확인 체크` }); continue; }
                   // 비었거나(「기타」 칸은 빼고) 날짜 형식이 틀리면 — 제출 검사와 같은 기준(#32 검증 F1)
                   const v = (empFieldInput[f] || "").trim();
@@ -568,6 +575,32 @@ export default function ContractListScreen() {
                           <Ionicons name={checked ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
                           <Text style={{ fontSize: 14, color: "#374151" }}>{empFieldLabel(f)}</Text>
                         </TouchableOpacity>
+                      );
+                    }
+                    if (type === "box") {   // PDF 칸 배치 체크박스 — 기본 해제, 고르면 ☑
+                      const on = empFieldInput[f] === "☑";
+                      return (
+                        <TouchableOpacity key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 3 }}
+                          onPress={() => setEmpFieldInput(p => ({ ...p, [f]: on ? "□" : "☑" }))}>
+                          <Ionicons name={on ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
+                          <Text style={{ fontSize: 14, color: "#374151" }}>{empFieldLabel(f)}</Text>
+                        </TouchableOpacity>
+                      );
+                    }
+                    if (type === "select") {   // PDF 칸 배치 드롭다운 — 본부가 정한 선택지 중 하나
+                      const opts: string[] = signTarget?.fieldTypes?.[f]?.options || [];
+                      return (
+                        <View key={f} style={{ marginBottom: 6 }}>
+                          <Text style={styles.consentLabel}>{empFieldLabel(f)}</Text>
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                            {opts.map(o => (
+                              <TouchableOpacity key={o} onPress={() => setEmpFieldInput(p => ({ ...p, [f]: o }))}
+                                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: empFieldInput[f] === o ? "#4338ca" : "#d1d5db", backgroundColor: empFieldInput[f] === o ? "#eef2ff" : "#fff" }}>
+                                <Text style={{ fontSize: 13, color: empFieldInput[f] === o ? "#3730a3" : "#374151" }}>{o}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
                       );
                     }
                     if (type === "consent") {

@@ -41,6 +41,7 @@ type Contract = {
   isTest?: boolean; // 나에게 테스트 발송(#67) 시험 문서 — 관리자 본인이 서명자
   profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
   employeeFields?: string[] | null; // 직원이 서명 시 직접 입력하는 필드 (퇴사일자/퇴사사유 등)
+  fieldTypes?: Record<string, { type: string; options?: string[] }> | null; // PDF 칸 배치(#22 2단계)의 칸 종류 — 체크박스·드롭다운·날짜
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -236,8 +237,14 @@ export default function ContractsPage() {
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
   // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
-  const empFieldType = (f: string): "check" | "confirm" | "consent" | "date" | "text" =>
-    f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : f.startsWith("동의_") ? "consent" : isEmpDateField(f) ? "date" : "text";
+  const empFieldType = (f: string): "check" | "confirm" | "consent" | "date" | "text" | "box" | "select" => {
+    // PDF 칸 배치(#22 2단계)는 칸 종류를 안다 — 이름 접두가 없어도 체크박스(기본 해제·선택)·드롭다운·날짜로 그린다
+    const t = signTarget?.fieldTypes?.[f]?.type;
+    if (t === "checkbox" && !/^(체크_|확인_|동의_)/.test(f)) return "box";
+    if (t === "select") return "select";
+    if (t === "date") return "date";
+    return f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : f.startsWith("동의_") ? "consent" : isEmpDateField(f) ? "date" : "text";
+  };
   const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") || f.startsWith("동의_") ? f.slice(3) : f;
   // 서명 대상에 선택 동의 항목이 있으면 라벨 매핑
   const CONSENT_LABELS: Record<string, string> = { 동의고유식별: "고유식별정보(외국인등록번호) 수집·이용", 동의채용정보: "채용정보 등 마케팅 정보 수신" };
@@ -373,6 +380,7 @@ export default function ContractsPage() {
       for (const f of empFields) {
         const type = empFieldType(f);
         if (type === "check") { fields[f] = empFieldInput[f] === "□" ? "□" : "☑"; continue; } // 기본 체크, 명시적 해제만 □
+        if (type === "box") { fields[f] = empFieldInput[f] === "☑" ? "☑" : "□"; continue; } // PDF 체크박스 — 기본 해제, 선택
         if (type === "confirm") { // 설명확인 — 직접 체크해야 서명 가능
           if (empFieldInput[f] !== "☑") { toast.error(`"${empFieldLabel(f)}" 항목을 확인하고 체크해주세요.`); return; }
           fields[f] = "☑"; continue;
@@ -790,6 +798,24 @@ export default function ContractsPage() {
                                 onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
                               {empFieldLabel(f)}
                             </label>
+                          );
+                        }
+                        if (type === "box") {   // PDF 칸 배치 체크박스 — 기본 해제, 고르면 ☑
+                          return (
+                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input type="checkbox" checked={empFieldInput[f] === "☑"} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
+                              {empFieldLabel(f)}
+                            </label>
+                          );
+                        }
+                        if (type === "select") {   // PDF 칸 배치 드롭다운 — 본부가 정한 선택지 중 하나
+                          return (
+                            <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
+                              <select className="w-full border rounded px-2 py-1.5 text-sm bg-white" value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))}>
+                                <option value="">선택</option>
+                                {(signTarget?.fieldTypes?.[f]?.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            </div>
                           );
                         }
                         if (type === "consent") {

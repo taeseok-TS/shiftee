@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin, LayoutTemplate } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
@@ -33,6 +33,7 @@ type ContractTemplate = {
   approvalSteps?: { kind: string }[] | null; // 결재 순서(#213-2) — 없으면 본부→원장→근로자
   approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본 true)
   fieldSettings?: unknown;                   // 칸 설정(#22 1단계)
+  layout?: unknown;                          // PDF 칸 배치(#22 2단계)
   labels?: string[];       // 라벨(#78)
   pinned?: boolean;        // 맨 위 고정(#78)
   createdAt: string;
@@ -186,7 +187,7 @@ export default function ContractTemplatesPage() {
       formData.append("labels", form.labels); // 라벨(#78)
       formData.append("approvalSteps", form.approvalSteps ? JSON.stringify(form.approvalSteps) : ""); // 결재 순서(#213-2) — "" 면 지정 안 함(NULL)으로
       formData.append("approvalLocked", String(form.approvalLocked));
-      formData.append("fieldSettings", JSON.stringify(form.fieldSettings)); // 칸 설정(#22 1단계)
+      if (!/\.pdf$/i.test(editTarget.fileUrl)) formData.append("fieldSettings", JSON.stringify(form.fieldSettings)); // 칸 설정(#22 1단계) — PDF 양식은 칸 배치 편집기가 정한다(여기서 보내면 옛 값으로 덮는다)
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
@@ -198,6 +199,8 @@ export default function ContractTemplatesPage() {
         const error = await res.json();
         throw new Error(error.error || "수정 실패");
       }
+      const ok = await res.json().catch(() => ({}));
+      if (ok?.warning) toast.warning(ok.warning, { duration: 8000 });   // 칸 배치가 있는 PDF 파일 교체(#22 2단계)
 
       toast.success("템플릿이 수정되었습니다");
       setForm(emptyForm());
@@ -352,6 +355,11 @@ export default function ContractTemplatesPage() {
                   <a href={template.fileUrl} download className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Download size={12} />원본 내려받기</a>
                   <button type="button" onClick={() => openHistory(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><History size={12} />버전 이력</button>
                   <button type="button" onClick={() => copyTemplate(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Copy size={12} />사본 만들기</button>
+                  {/\.pdf$/i.test(template.fileUrl) && (
+                    <a href={`/admin/contract-templates/${template.id}/layout`} className="inline-flex items-center gap-1 text-violet-700 hover:underline" title="PDF 위에 입력칸·서명칸을 끌어다 놓습니다(#22)">
+                      <LayoutTemplate size={12} />칸 배치 편집기{template.layout ? "" : " (아직 없음)"}
+                    </a>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -491,6 +499,7 @@ export default function ContractTemplatesPage() {
                 {"{직원명} {이메일} {연락처} {지점} {직책} {직급}"}<br />
                 {"{입사일} {제목} {계약시작일} {계약종료일} {연봉} {작성일}"}
               </p>
+              <p className="pt-1 border-t border-blue-200">📐 <b>PDF 템플릿</b>은 만든 뒤 목록의 「칸 배치 편집기」에서 입력칸·서명칸을 PDF 위에 끌어다 놓습니다(모두싸인 방식).</p>
             </div>
 
             <div className="flex gap-2 justify-end">
@@ -562,12 +571,16 @@ export default function ContractTemplatesPage() {
               </div>
               <div className="space-y-2">
                 <Label>칸 설정 <span className="text-xs text-gray-400 font-normal">(칸마다 채우는 방식 · 자동 값 · 필수, #22)</span></Label>
-                <FieldSettingsEditor templateId={editTarget.id} value={form.fieldSettings} onChange={(fieldSettings) => setForm(f => ({ ...f, fieldSettings }))} />
+                {/\.pdf$/i.test(editTarget.fileUrl) ? (
+                  <p className="text-xs text-gray-600">PDF 양식의 칸은 <a href={`/admin/contract-templates/${editTarget.id}/layout`} className="text-violet-700 underline">칸 배치 편집기</a>에서 놓고, 담당·필수도 거기서 정합니다{editTarget.layout ? "" : " (아직 배치한 칸이 없습니다)"}.</p>
+                ) : (
+                  <FieldSettingsEditor templateId={editTarget.id} value={form.fieldSettings} onChange={(fieldSettings) => setForm(f => ({ ...f, fieldSettings }))} />
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label>파일 교체 (선택사항)</Label>
-                <p className="text-xs text-gray-500 mb-2">새 PDF 또는 워드(.docx) 파일을 선택하면 기존 파일이 교체됩니다 (버전 증가)</p>
+                <p className="text-xs text-gray-500 mb-2">새 PDF 또는 워드(.docx) 파일을 선택하면 기존 파일이 교체됩니다 (버전 증가){editTarget.layout ? " — 칸 배치가 있는 양식이라 교체 뒤 편집기에서 칸 자리를 다시 확인해야 합니다" : ""}</p>
                 <div className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50">
                   <input
                     type="file"

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { generateDeterministic } from "@/lib/docx-zip";
 import { PDFDocument, rgb } from "pdf-lib";
 import { embedKoreanFont } from "@/lib/pdf-korean-font";
+import { parseLayout, stampLayoutSignatures, hasSignFields, type TemplateLayout, type LayoutSigner } from "@/lib/contract-layout";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
@@ -503,10 +504,38 @@ function escapeXml(s: string) {
 }
 
 // ── PDF에 서명 페이지 합성 ──
-export async function buildSignedPdf(origPath: string | null, title: string, signers: Signer[]): Promise<Buffer> {
-  const pdf = origPath && origPath.toLowerCase().endsWith(".pdf")
-    ? await PDFDocument.load(await fs.readFile(origPath), { ignoreEncryption: true }).catch(() => null)
-    : null;
+/** 계약의 템플릿이 PDF 칸 배치(#22 2단계)를 가지면 그 배치 — 서명본을 만들 때 서명·직인을 칸에 얹는다 */
+export async function layoutForContractTemplate(templateId: string | null | undefined): Promise<TemplateLayout | null> {
+  if (!templateId) return null;
+  const t = await prisma.contractTemplate.findUnique({ where: { id: templateId }, select: { fileUrl: true, layout: true } })
+    .catch((e: unknown) => { console.error("[signed-doc] 템플릿 배치 조회 실패(layout 컬럼 DDL 확인):", e); return null; });
+  return t && /\.pdf$/i.test(t.fileUrl) ? parseLayout(t.layout) : null;
+}
+
+// 서명자 → 배치 서명 칸 역할. buildSignedDocx 의 마커 배정과 같은 규칙(직원/원장=MANAGER/본부=ADMIN, 본부·대표 자리는 직인이 있으면 직인)
+async function layoutSigners(signers: Signer[]): Promise<LayoutSigner[]> {
+  const employee = signers.find((s) => s.label === "직원 서명") || null;
+  const approvers = signers.filter((s) => s.label !== "직원 서명");
+  const typed = approvers.some((s) => s.role);
+  const mgr = approvers.find((s) => s.role === "MANAGER") || (typed ? null : approvers[0] || null);
+  const hq = approvers.find((s) => s.role === "ADMIN") || (typed ? null : approvers[approvers.length - 1] || null);
+  const rep = approvers[approvers.length - 1] || null;
+  const SEAL_PATH = path.join(process.cwd(), "uploads", "private", "seal.png");
+  const sealExists = await fs.access(SEAL_PATH).then(() => true).catch(() => false);
+  const out: LayoutSigner[] = [];
+  if (employee) out.push({ role: "EMPLOYEE", imagePath: employee.sigPath });
+  if (mgr) out.push({ role: "MANAGER", imagePath: mgr.sigPath });
+  if (hq) out.push({ role: "HQ", imagePath: sealExists ? SEAL_PATH : hq.sigPath });     // 본부 결재는 회사 직인으로 통일(디렉터 확정 2026-08-25)
+  if (rep) out.push({ role: "seal", imagePath: sealExists ? SEAL_PATH : rep.sigPath });  // 대표 (인) — 지금까지의 마지막 결재자(워드 《대표서명》과 같은 규칙, 진행본에도 찍힌다)
+  return out;
+}
+
+export async function buildSignedPdf(origPath: string | null, title: string, signers: Signer[], layout?: TemplateLayout | null): Promise<Buffer> {
+  let srcBuf = origPath && origPath.toLowerCase().endsWith(".pdf") ? await fs.readFile(origPath).catch(() => null) : null;
+  // PDF 칸 배치(#22 2단계): 서명·직인을 서명 칸에 먼저 얹는다. 이미지를 못 읽으면 **던진다** — 삼키면 서명 없는
+  // 완료본이 정본으로 고정된다(10/13 2차 검증 1). 호출부(sign·external-sign)의 catch 가 recordSignedDocFailure 로 남기고 매시 점검이 다시 만든다
+  if (srcBuf && layout && hasSignFields(layout)) srcBuf = await stampLayoutSignatures(srcBuf, layout, await layoutSigners(signers));
+  const pdf = srcBuf ? await PDFDocument.load(srcBuf, { ignoreEncryption: true }).catch(() => null) : null;
   const doc = pdf || (await PDFDocument.create());
 
   let font;
@@ -582,7 +611,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const isDocx = !!orig && orig.toLowerCase().endsWith(".docx");
   const buf = isDocx
     ? await buildSignedDocx(diskPath(orig!), contract.title, signers)
-    : await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers);
+    : await buildSignedPdf(orig ? diskPath(orig) : null, contract.title, signers, await layoutForContractTemplate(contract.templateId));
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-signed.${isDocx ? "docx" : "pdf"}`;
   const dir = path.join(process.cwd(), "uploads", "contracts");
   await fs.mkdir(dir, { recursive: true });

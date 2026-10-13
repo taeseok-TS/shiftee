@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
 
 // 미발송 초안을 최신 템플릿으로 다시 생성 (#109, 2026-08-27).
 // 입력값(extraFields·기간·연봉)은 그대로 두고 문서 파일만 재생성한다.
@@ -25,8 +25,8 @@ export async function POST(
   const tmpl = await prisma.contractTemplate.findUnique({
     where: { id: contract.templateId }, select: { fileUrl: true },
   });
-  if (!tmpl?.fileUrl.toLowerCase().endsWith(".docx"))
-    return NextResponse.json({ error: "워드 템플릿만 재생성을 지원합니다." }, { status: 400 });
+  if (!isFillableTemplate(tmpl?.fileUrl))
+    return NextResponse.json({ error: "워드·PDF 템플릿으로 만든 문서만 재생성을 지원합니다." }, { status: 400 });
 
   try {
     const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,

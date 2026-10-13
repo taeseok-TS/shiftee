@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, buildPlaceholderPdf, type Signer } from "@/lib/signed-doc";
-import { fillDocxTemplate, buildContractMergeData } from "@/lib/contract-fields";
+import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, buildPlaceholderPdf, layoutForContractTemplate, type Signer } from "@/lib/signed-doc";
+import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
 import { bufferCacheKey, mergeCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
@@ -120,7 +120,7 @@ export async function GET(
         try {
           const dd = d as { templateId: string; title: string; userId?: string; startDate?: Date | null; endDate?: Date | null; extraFields?: unknown; externalName?: string | null; externalPhone?: string | null };
           const tmpl = await prisma.contractTemplate.findUnique({ where: { id: dd.templateId }, select: { fileUrl: true } });
-          if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
+          if (isFillableTemplate(tmpl?.fileUrl)) {
             const merge = await buildContractMergeData(dd.userId || contract.userId, { templateId: dd.templateId,
               title: dd.title,
               startDate: dd.startDate ? dd.startDate.toISOString() : null,
@@ -158,7 +158,7 @@ export async function GET(
       if (!usedStored && hasSigned && (srcUrl.toLowerCase().endsWith(".docx") || srcUrl.toLowerCase().endsWith(".pdf"))) {
         try {
           buf = srcUrl.toLowerCase().endsWith(".pdf")
-            ? await buildSignedPdf(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers)
+            ? await buildSignedPdf(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers, await layoutForContractTemplate((d as { templateId?: string | null }).templateId))
             : await buildSignedDocx(diskPath(srcUrl), (d as { title?: string }).title || contract.title, signers);
         } catch (e) {
           // ⚠ 조용히 **서명 없는 원본**으로 넘어가면 "아직 서명 안 됐구나"로 읽힌다 —
