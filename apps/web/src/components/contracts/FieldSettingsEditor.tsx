@@ -3,7 +3,7 @@
 // 계약 양식 칸 설정 편집기(2026-10-13 QA76 #22 1단계) — 템플릿 수정 창 안에서 쓴다.
 // 양식(.docx)의 {칸} 목록을 서버에서 받아, 칸마다 채우는 방식·자동 값·필수를 정한다. 저장은 부모(템플릿 PATCH)가 한다.
 import { useEffect, useState } from "react";
-import { AUTO_SOURCES, FIELD_MODES, type FieldMode, type FieldSettings } from "@/lib/contract-field-settings";
+import { AUTO_SOURCES, FIELD_MODES, PROTECTED_FIELDS, type FieldMode, type FieldSettings } from "@/lib/contract-field-settings";
 
 type FieldsResp = { fields: string[]; defaults: Record<string, FieldMode>; conditions?: string[] };
 
@@ -25,6 +25,8 @@ export default function FieldSettingsEditor({ templateId, value, onChange }: { t
     if (patch === null) delete next[name];
     else {
       const cur = { ...(next[name] ?? {}), ...patch };
+      // 방식을 자동이 아닌 것으로 바꾸면 출처·고정 문구는 비운다(그대로 두면 다시 자동으로 되돌아가던 것, 10/13 검증 3)
+      if ("mode" in patch && patch.mode !== "auto") { delete cur.source; delete cur.text; }
       // 비워진 키는 지운다 — 기본값과 같으면 설정 자체를 없앤다. 단 출처·고정 문구가 있으면 mode "auto" 를 남긴다(서버는 mode 가 auto 인 칸에만 출처를 적용)
       if (!cur.source) delete cur.source;
       if (!cur.text) delete cur.text;
@@ -59,6 +61,12 @@ export default function FieldSettingsEditor({ templateId, value, onChange }: { t
           </thead>
           <tbody>
             {info.fields.map((f) => {
+              if (PROTECTED_FIELDS.has(f)) return (
+                <tr key={f} className="border-b last:border-0 text-gray-400">
+                  <td className="px-2 py-1.5 font-mono whitespace-nowrap">{`{${f}}`}</td>
+                  <td className="px-2 py-1.5" colSpan={3}>시스템 전용(서명 자리·계산 값) — 설정할 수 없습니다</td>
+                </tr>
+              );
               const s = value[f] ?? {};
               const def = info.defaults[f] ?? "hq";
               const mode = s.mode ?? def;

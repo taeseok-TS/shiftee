@@ -25,6 +25,12 @@ export const AUTO_SOURCES: { key: string; label: string }[] = [
   { key: "제목", label: "계약 제목" }, { key: "계약시작일", label: "계약 시작일" }, { key: "계약종료일", label: "계약 종료일" },
 ];
 const MODES = new Set<string>(FIELD_MODES.map((m) => m.value));
+/** 설정으로 건드릴 수 없는 칸 — 서명 이미지 자리 마커와 서버가 다른 값에서 만들어내는 파생 표기(설정 실수 한 번에 서명본이 깨진다, 10/13 검증 7) */
+export const PROTECTED_FIELDS = new Set([
+  "근로자서명", "대표서명", "원장서명", "본부서명",
+  "지점명", "지급기타표기", "동의필수표기", "신규입사", "재계약", "동의고유식별", "동의채용정보",
+  "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자",
+]);
 const SOURCES = new Set(AUTO_SOURCES.map((s) => s.key));
 const MAX_FIELDS = 150;
 
@@ -36,7 +42,7 @@ export function parseFieldSettings(raw: unknown): FieldSettings {
   const out: FieldSettings = {};
   for (const [k, s] of Object.entries(v as Record<string, unknown>).slice(0, MAX_FIELDS)) {
     const name = k.trim();
-    if (!name || name.length > 30 || !s || typeof s !== "object" || Array.isArray(s)) continue;
+    if (!name || name.length > 30 || PROTECTED_FIELDS.has(name) || !s || typeof s !== "object" || Array.isArray(s)) continue;
     const o = s as Record<string, unknown>;
     const fs: FieldSetting = {};
     if (typeof o.mode === "string" && MODES.has(o.mode)) fs.mode = o.mode as FieldMode;
@@ -68,6 +74,9 @@ export function fieldSettingsDiff(before: FieldSettings, after: FieldSettings): 
 /** 칸 이름 집합 — mode 별 */
 export const fieldsWithMode = (settings: FieldSettings, mode: FieldMode) =>
   new Set(Object.entries(settings).filter(([, s]) => s.mode === mode).map(([k]) => k));
+/** 사람이 적는 칸(보내기 전 수정·본부 입력·서명 때 직원 입력) — 자동 칸이라도 입력값이 자동값을 덮는다(10/13 검증 2) */
+export const humanFields = (settings: FieldSettings) =>
+  new Set(Object.entries(settings).filter(([, s]) => s.mode && s.mode !== "auto").map(([k]) => k));
 
 /** auto 칸의 값을 치환 데이터에 넣는다 — 고정 문구가 있으면 그것, 아니면 출처 값. 출처가 없는 auto 칸은 건드리지 않는다 */
 export function applyAutoSources(mergeData: Record<string, string>, settings: FieldSettings): void {

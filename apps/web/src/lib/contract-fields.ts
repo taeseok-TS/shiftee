@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { parseFieldSettings, fieldsWithMode, applyAutoSources, type FieldSettings } from "@/lib/contract-field-settings";
+import { parseFieldSettings, humanFields, applyAutoSources, type FieldSettings } from "@/lib/contract-field-settings";
 import { generateDeterministic } from "@/lib/docx-zip";
 import fs from "fs/promises";
 import path from "path";
@@ -109,7 +109,7 @@ export async function buildContractMergeData(
   }
 ): Promise<Record<string, string>> {
   const settings = await loadFieldSettings(opts.templateId);
-  const editable = fieldsWithMode(settings, "edit");
+  const editable = humanFields(settings);   // 보내기 전 수정·본부 입력·서명 때 직원 입력으로 정한 칸은 입력값이 자동값을 덮는다
   const targetUser = opts.external ? null : await prisma.user.findUnique({
     where: { id: userId },
     select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true, birthDate: true, address: true, empNo: true },

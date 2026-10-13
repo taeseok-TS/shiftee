@@ -808,7 +808,7 @@ export default function ContractsPage() {
   // 칸 설정(#22 1단계): 「보내기 전 수정」 칸은 자동 칸이라도 입력란에 보이고, 「자동 입력」으로 정한 칸은 숨긴다
   const dynamicFields = templateFields
     .filter(f => !FORM_FIELDS.includes(f) && f !== "계약구분" && fieldSettings[f]?.mode !== "auto"
-      && (fieldSettings[f]?.mode === "edit" || !AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))))
+      && (fieldSettings[f]?.mode === "edit" || fieldSettings[f]?.mode === "hq" || !AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))))
     .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
@@ -987,6 +987,12 @@ export default function ContractsPage() {
     return () => { stop = true; };
   }, [createForm.userId]);
 
+  // 「보내기 전 수정」 칸의 자동값(#22 1단계) — 직원 선택 효과와 일괄 작성 루프가 같이 쓴다
+  const empAutoValues = (emp: Employee): Record<string, string> => ({
+    직원명: emp.name, 이름: emp.name, 이메일: emp.email ?? "", 연락처: emp.phone ?? "", 지점: emp.branch ?? "", 직급: emp.position ?? "",
+    입사일: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "", 사원번호: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "",
+    생년월일: emp.birthDate ? String(emp.birthDate).slice(0, 10) : "", 작성일: format(new Date(), "yyyy-MM-dd"),
+  });
   // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 메인 원장) 자동 채움.
   // 직원·지점 목록이 나중에 와도 다시 돈다 — 같은 직원이면 **빈칸만** 채워 직접 고친 값은 두고, 직원이 바뀌면 덮어쓴다(#213-4)
   useEffect(() => {
@@ -1006,11 +1012,7 @@ export default function ContractsPage() {
       if (n) updates["원장명"] = n;
     }
     // 「보내기 전 수정」 칸(#22 1단계) — 직원 정보·오늘 날짜를 미리 채워 두고 본부가 고친다(직군·주소는 화면에 없어 서버가 문서 만들 때 채움)
-    const empAuto: Record<string, string> = {
-      직원명: emp.name, 이름: emp.name, 이메일: emp.email ?? "", 연락처: emp.phone ?? "", 지점: emp.branch ?? "", 직급: emp.position ?? "",
-      입사일: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "", 사원번호: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "",
-      생년월일: emp.birthDate ? String(emp.birthDate).slice(0, 10) : "", 작성일: format(new Date(), "yyyy-MM-dd"),
-    };
+    const empAuto = empAutoValues(emp);
     for (const f of templateFields) if (fieldSettings[f]?.mode === "edit" && empAuto[f]) updates[f] = empAuto[f];
     const sameUser = lastAutoFillUser.current === createForm.userId;
     lastAutoFillUser.current = createForm.userId;
@@ -1265,9 +1267,15 @@ export default function ContractsPage() {
     // 여러 명 작성이면 개인별 표에 모두 연봉을 넣었을 때도 통과(#19)
     const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, ""));
     if (needsSalary && !String(createForm.salary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
-    // 양식에서 필수로 정한 칸(#22 1단계) — 비면 보내지 않는다
-    const missingReq = dynamicFields.filter(f => fieldSettings[f]?.required && !(extraFields[f] || "").trim());
-    if (missingReq.length) { toast.error(`필수 칸을 입력해 주세요: ${missingReq.join(", ")}`); return; }
+    // 양식에서 필수로 정한 칸(#22 1단계) — 비면 보내지 않는다. 여러 명 작성은 공통값이나 개인별 표 둘 중 하나에 있으면 된다
+    {
+      const reqFields = dynamicFields.filter(f => fieldSettings[f]?.required);
+      const has = (uid: string | null, f: string) => !!(extraFields[f] || "").trim() || (uid ? !!(bulkValues[uid]?.[f] || "").trim() : false);
+      const missingReq = bulkMode && !externalMode
+        ? bulkUserIds.flatMap(uid => reqFields.filter(f => !has(uid, f)).map(f => `${employees.find(e => e.id === uid)?.name ?? uid}: ${f}`))
+        : reqFields.filter(f => !has(null, f));
+      if (missingReq.length) { toast.error(`필수 칸을 입력해 주세요: ${[...new Set(missingReq)].slice(0, 6).join(", ")}${missingReq.length > 6 ? ` 외 ${missingReq.length - 6}` : ""}`); return; }
+    }
 
     setUploading(true);
 
@@ -1331,6 +1339,14 @@ export default function ContractsPage() {
           if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
         }
         if (templateFields.includes("원장명")) per["원장명"] = branchManagerName(emp.branch);   // 메인 원장 우선(#213-4)
+        // 「보내기 전 수정」 직원 정보 칸은 **각자 값**으로 — 공통값은 첫 직원 것이라 전원에게 복사되던 것(10/13 검증 1). 작성일은 공통값 유지
+        {
+          const mine = empAutoValues(emp);
+          for (const f of templateFields) {
+            if (fieldSettings[f]?.mode !== "edit" || f === "작성일" || !(f in mine)) continue;
+            if (mine[f]) per[f] = mine[f]; else delete per[f];   // 값이 없으면 서버가 프로필·포털로 채운다
+          }
+        }
         // 개인별 값(#19) — 표에 넣은 칸만, **지금 양식의 열**만 덮는다(양식을 바꾸기 전 값·다른 계약 구분 전용 칸은 넣지 않는다)
         const row = bulkValues[uid] || {};
         for (const [k, v] of Object.entries(row)) {
