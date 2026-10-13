@@ -20,18 +20,19 @@ R = WD_ALIGN_PARAGRAPH.RIGHT
 J = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
-def new_doc():
+def new_doc(compact=False):
+    # compact: 원본이 한 쪽인 양식(개인정보 동의서·퇴직금 동의서)은 글자·줄 간격을 줄여 한 쪽에 맞춘다
     d = Document()
     s = d.sections[0]
     s.page_width, s.page_height = Cm(21.0), Cm(29.7)
-    s.left_margin = s.right_margin = Cm(2.0)
-    s.top_margin, s.bottom_margin = Cm(2.0), Cm(1.8)
+    s.left_margin = s.right_margin = Cm(1.8 if compact else 2.0)
+    s.top_margin, s.bottom_margin = Cm(1.5 if compact else 2.0), Cm(1.2 if compact else 1.8)
     st = d.styles["Normal"]
     st.font.name = FONT
-    st.font.size = Pt(10.5)
+    st.font.size = Pt(9.5 if compact else 10.5)
     st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
-    st.paragraph_format.space_after = Pt(4)
-    st.paragraph_format.line_spacing = 1.25
+    st.paragraph_format.space_after = Pt(3 if compact else 4)
+    st.paragraph_format.line_spacing = 1.1 if compact else 1.25
     return d
 
 
@@ -179,7 +180,7 @@ def t_parental_leave():
 
 # ───────────────────────── 3) [채용] 개인정보 수집·이용 동의서 ─────────────────────────
 def t_privacy_hire():
-    d = new_doc()
+    d = new_doc(compact=True)
     title(d, "개인정보의 수집 ∙ 이용에 관한 동의서", size=16, after=10)
     para(d, "1. {직원명} 은(는) 에듀플렉스 {지점명} 지점 재직근로자로서 인사관리상 개인정보의 수집 ∙ 이용이 필요하다는 것을 이해하고 있고 다음과 같은 개인정보 ∙ 민감정보 ∙ 고유식별정보를 수집 ∙ 이용하는 것에 동의합니다.", align=J)
     table(d, [["개인정보항목", "수집∙ 이용 목적", "보유기간"],
@@ -296,7 +297,7 @@ def t_training_consent():
 
 # ───────────────────────── 7) 퇴직금 일반계좌 지급 요청 및 동의서 ─────────────────────────
 def t_severance_account():
-    d = new_doc()
+    d = new_doc(compact=True)
     appr = d.add_table(rows=2, cols=2); appr.style = "Table Grid"; appr.alignment = WD_TABLE_ALIGNMENT.RIGHT
     set_cell(appr.cell(0, 0), "본인", bold=True, size=9, align=C, shade="EDEDED"); set_cell(appr.cell(0, 1), "본부(부서)", bold=True, size=9, align=C, shade="EDEDED")
     set_cell(appr.cell(1, 0), "{근로자서명}\n(서명/인)", size=8, align=C); set_cell(appr.cell(1, 1), "{본부서명}\n(서명/인)", size=8, align=C)
