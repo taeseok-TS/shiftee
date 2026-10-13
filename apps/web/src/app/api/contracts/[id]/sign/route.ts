@@ -6,7 +6,7 @@ import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
 import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiFields } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
 import bcrypt from "bcryptjs";
@@ -218,6 +218,11 @@ export async function POST(
           ...pick(consent, (k) => k.startsWith("동의")),
           ...pick(fields), // 퇴사일자·퇴사사유 등 직원 직접입력 — 템플릿이 허용한 칸만
         };
+        // 동의_ 칸은 「동의」「미동의」만 받는다 — 구버전 앱·직접 호출이 다른 글자를 보내면 두 네모가 모두 빈 채 서명이 끝나던 것(10/13 검증 4)
+        {
+          const bad = Object.entries(pick(fields)).filter(([k, v]) => k.startsWith("동의_") && v !== "동의" && v !== "미동의").map(([k]) => k.slice(3));
+          if (bad.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `동의 여부를 「동의함」「동의하지 않음」 중 하나로 골라 주세요: ${bad.join(", ")}. 앱이면 최신 버전으로 업데이트해 주세요.` }, { status: 400 });
+        }
         // 본부가 「서명 때 직원 입력 · 필수」로 정한 칸(#22 1단계)이 비면 서명을 받지 않는다
         {
           const { parseFieldSettings } = await import("@/lib/contract-field-settings");
@@ -239,7 +244,7 @@ export async function POST(
         // 옛 입력으로 만든 문서가 새 문서를 덮게 두지 않는다.
         const w = await prisma.contract.updateMany({
           where: { id, version: contract.version },
-          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, maskPiiFields(merged)), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48). 주민등록번호·계좌번호는 가려서 저장(문서에만 원문)
+          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48). 저장은 원문 — 가린 값은 응답(목록·요약)에서만(재생성에 쓰이므로)
         });
         if (w.count === 0)
           return NextResponse.json({ code: "DOC_CHANGED", error: SIGN_FAIL.DOC_CHANGED }, { status: 409 });

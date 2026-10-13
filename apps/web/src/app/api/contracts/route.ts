@@ -5,7 +5,7 @@ import { filterContractData } from "@/lib/api-response";
 import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
 import path from "path";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, scanTemplateProfileFields, scanEmployeeFillFields, templateFieldNames, summaryForTemplate, maskPiiJson } from "@/lib/contract-fields";
 import type { Contract, CreateContractRequest } from "@shiftee/api";
 import { CONTRACT_STATUSES, CONTRACT_TYPES, pick, pickOr } from "@/lib/enums";
 import { isValidMobile } from "@/lib/external-verify";
@@ -191,6 +191,7 @@ export async function GET(request: NextRequest) {
       approvalSteps: template?.approvalSteps ?? null,
       approvalLocked: template?.approvalLocked ?? true,
       summaryFields: summaryForTemplate(contract.extraFields, template?.fileUrl ? namesByTemplate.get(template.fileUrl) : null),
+      extraFields: maskPiiJson(contract.extraFields),   // 주민등록번호·계좌번호는 가려서(수정 창이 가린 값을 돌려보내면 서버가 원문을 유지한다)
       user: {
         id: contract.user.id,
         name: contract.user.name,

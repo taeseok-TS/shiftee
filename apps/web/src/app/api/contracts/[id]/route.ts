@@ -5,7 +5,7 @@ import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { hrBotSendDM } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiJson } from "@/lib/contract-fields";
 import { preserveDecidedSteps, resetApprovalInPlace, type ResetSigner } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { lockSteps } from "@/lib/contract-reset";
@@ -69,6 +69,7 @@ export async function GET(
       tsaToken: undefined, // 시각 도장 원문(약 8KB)은 목록·상세에 싣지 않는다 — 공개 /api/verify/문서번호/tsr 로만
       ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       postSignAccess: access,
+      extraFields: maskPiiJson(rest.extraFields),   // 주민등록번호·계좌번호는 가려서(목록과 같은 규칙)
     },
   });
 }
@@ -218,6 +219,11 @@ export async function PATCH(
   let parsedExtra: Record<string, string> | null = null;
   if (extraFieldsRaw) {
     try { parsedExtra = JSON.parse(extraFieldsRaw); } catch { /* 무시 */ }
+  }
+  // 목록 응답은 주민등록번호·계좌번호를 가려서 내려가므로, 수정 창이 가린 값(*)을 그대로 돌려보내면 저장된 원문을 유지한다(10/13 검증 1)
+  if (parsedExtra) {
+    const prev = (contract.extraFields as Record<string, string> | null) || {};
+    for (const k of Object.keys(parsedExtra)) if ((k === "주민등록번호" || /계좌번호/.test(k)) && /\*/.test(parsedExtra[k] ?? "") && prev[k]) parsedExtra[k] = prev[k];
   }
   let fieldSummary: Record<string, string> | undefined;
   if (salary !== null || parsedExtra) fieldSummary = buildFieldSummary(salary, parsedExtra);

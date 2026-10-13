@@ -253,7 +253,7 @@ const EMPLOYEE_FILL_AT_SIGN = new Set(["주소", "생년월일"]);
 // 관리자가 작성 시 입력. (교육평가시작 등 새 템플릿 필드가 직원에게 잘못 넘어가는 사고 방지)
 // 사유류 자유서술 + 확인_ 체크(설명확인 등 — 직원이 서명하며 직접 체크하는 항목)
 // 퇴사사유는 노무 이슈 방지를 위해 관리자(본사)가 작성 — 직원 입력에서 제외 (2026-08-25 디렉터 확정)
-const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
+const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유", "발령사유"]);   // 발령사유는 회사가 적는다(인사발령통지서, 2026-10-13)
 const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^동의_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보), 동의_ 는 서명 때 고르는 동의 칸
 export const isEmployeeInputField = (name: string) =>
   !EMPLOYEE_INPUT_EXCLUDE.has(name) && EMPLOYEE_INPUT_PATTERN.test(name);
@@ -365,6 +365,14 @@ export async function templateFieldNames(templateFileUrl: string): Promise<strin
 
 /** 요약(extraFields)을 그 템플릿 필드로 거른다. 템플릿을 모르면(직접 올린 계약·읽기 실패) 거르지 않는다 — 빈 요약보다 낫다. */
 export function summaryForTemplate(extra: unknown, names: string[] | null | undefined): Record<string, string> | null {
+  const r = summaryForTemplateRaw(extra, names);
+  return r ? maskPiiFields(r) : r;   // 화면 요약은 주민등록번호·계좌번호를 가린다(저장·재생성은 원문)
+}
+/** 응답용 — extraFields JSON 을 가려서 내려보낸다(객체가 아니면 그대로) */
+export function maskPiiJson(v: unknown): unknown {
+  return v && typeof v === "object" && !Array.isArray(v) ? maskPiiFields(v as Record<string, string>) : v;
+}
+function summaryForTemplateRaw(extra: unknown, names: string[] | null | undefined): Record<string, string> | null {
   if (!extra || typeof extra !== "object") return null;
   const e = extra as Record<string, string>;
   // 모름(null)일 때만 거르지 않는다 — "필드 없음"([])은 빈 요약이 맞다(#206-2 검증 F3: 필드 없는 문서에 공통값이 전부 떴다)

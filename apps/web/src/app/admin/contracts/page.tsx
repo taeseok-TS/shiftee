@@ -199,6 +199,7 @@ export default function ContractsPage() {
   // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
   const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
   const [branchAddresses, setBranchAddresses] = useState<Record<string, string>>({});   // 지점 → 주소(인사발령통지서 발령 근무지 자동)
+  const [transferCustom, setTransferCustom] = useState(false);   // 발령지점 「목록에 없음」 직접 입력 중
   const [mainManagerIds, setMainManagerIds] = useState<Record<string, string>>({});   // 지점 → 메인 원장 id(발송 창 원장 단계 자동 채움)
   const branchManagerName = (branch?: string | null): string => {
     if (!branch) return "";
@@ -2537,18 +2538,20 @@ ${url}`;
                       // 인사발령통지서 — 지점을 고르면 발령 근무지 주소가 지점 표에서 채워진다(직접 입력도 가능)
                       <div key={f} className="space-y-1">
                         <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{required && " *"}{docHint(f)}</Label>
-                        <select className="w-full h-9 rounded-md border px-2 text-sm bg-white" value={Object.keys(branchAddresses).includes(extraFields[f] || "") ? extraFields[f] : (extraFields[f] ? "__custom" : "")}
+                        <select className="w-full h-9 rounded-md border px-2 text-sm bg-white" value={transferCustom ? "__custom" : branchAddresses[extraFields[f] || ""] ? extraFields[f] : (extraFields[f] ? "__custom" : "")}
                           onChange={e => {
                             const v = e.target.value;
-                            if (v === "__custom") { setExtraFields(prev => ({ ...prev, [f]: prev[f] && !branchAddresses[prev[f]] ? prev[f] : "(직접 입력)" })); return; }
+                            // 「목록에 없음」: 자리표시 글자를 넣지 않는다(문서에 「(직접 입력)」이 찍히던 것, 10/13 검증 3). 비어 있으면 필수 검사가 막는다
+                            if (v === "__custom") { setTransferCustom(true); setExtraFields(prev => ({ ...prev, [f]: branchAddresses[prev[f] || ""] ? "" : prev[f] })); return; }
+                            setTransferCustom(false);
                             setExtraFields(prev => ({ ...prev, [f]: v, ...(v && branchAddresses[v] ? { 발령근무지주소: branchAddresses[v] } : {}) }));
                           }}>
                           <option value="">지점 선택</option>
                           {Object.keys(branchAddresses).sort().map(b => <option key={b} value={b}>{b}</option>)}
                           <option value="__custom">(목록에 없음 — 아래 주소를 직접 입력)</option>
                         </select>
-                        {extraFields[f] && !branchAddresses[extraFields[f]] && (
-                          <Input value={extraFields[f] === "(직접 입력)" ? "" : extraFields[f]} placeholder="발령 지점·장소 이름" onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value || "(직접 입력)" }))} />
+                        {(transferCustom || (extraFields[f] && !branchAddresses[extraFields[f]])) && (
+                          <Input value={extraFields[f] || ""} placeholder="발령 지점·장소 이름" onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))} />
                         )}
                       </div>
                     ) :
