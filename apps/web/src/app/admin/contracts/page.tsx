@@ -198,6 +198,7 @@ export default function ContractsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
   const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
+  const [branchAddresses, setBranchAddresses] = useState<Record<string, string>>({});   // 지점 → 주소(인사발령통지서 발령 근무지 자동)
   const [mainManagerIds, setMainManagerIds] = useState<Record<string, string>>({});   // 지점 → 메인 원장 id(발송 창 원장 단계 자동 채움)
   const branchManagerName = (branch?: string | null): string => {
     if (!branch) return "";
@@ -793,6 +794,7 @@ export default function ContractsPage() {
     "연봉한글", "기본급", "월급여합계", "연봉총액", "식대", "연봉숫자", // 연봉에서 자동 계산되는 필드
     "동의고유식별", "동의채용정보", // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
     "지점명", "지급기타표기", "동의필수표기", // 서버가 다른 값에서 만들어내는 파생 표기 필드 (#144·#145)
+    "지점주소", // 지점 표의 주소 — 인사발령통지서 현 근무지(2026-10-13)
     "신규입사", "재계약"]; // 계약 구분 라디오가 담당 — 입력란으로 노출하지 않는다
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
@@ -1000,6 +1002,20 @@ export default function ContractsPage() {
     입사일: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "", 사원번호: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "",
     생년월일: emp.birthDate ? String(emp.birthDate).slice(0, 10) : "", 작성일: format(new Date(), "yyyy-MM-dd"),
   });
+  // 추가 템플릿 8종(2026-10-13) 파생 칸 — 육아휴직원 복직예정일 = 휴직종료일 다음 날, 인사발령통지서 인수인계완료일 = 발령일 전날, 발령사유 기본 문구
+  const autoDerived = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const u: Record<string, string> = {};
+    const nextDay = (ymd: string, delta: number) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ""; const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + delta); return d.toISOString().slice(0, 10); };
+    const keep = (k: string) => { const cur = (extraFields[k] || "").trim(); return !cur || cur === autoDerived.current[k]; };   // 손으로 고친 값은 둔다
+    if (templateFields.includes("복직예정일") && keep("복직예정일")) { const v = nextDay(extraFields["휴직종료일"] || "", 1); if (v !== (extraFields["복직예정일"] || "")) u["복직예정일"] = v; }
+    if (templateFields.includes("인수인계완료일") && keep("인수인계완료일")) { const v = nextDay(extraFields["발령일"] || "", -1); if (v !== (extraFields["인수인계완료일"] || "")) u["인수인계완료일"] = v; }
+    if (templateFields.includes("발령사유") && !(extraFields["발령사유"] || "").trim()) u["발령사유"] = "회사 경영상 필요에 따른 인력 재배치";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (Object.keys(u).length) { Object.assign(autoDerived.current, u); setExtraFields(prev => ({ ...prev, ...u })); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateFields, extraFields["휴직종료일"], extraFields["발령일"], extraFields["복직예정일"], extraFields["인수인계완료일"], extraFields["발령사유"]]);
+
   // 직원 선택 시 생년월일(프로필 있으면)·원장명(지점 메인 원장) 자동 채움.
   // 직원·지점 목록이 나중에 와도 다시 돈다 — 같은 직원이면 **빈칸만** 채워 직접 고친 값은 두고, 직원이 바뀌면 덮어쓴다(#213-4)
   useEffect(() => {
@@ -1166,7 +1182,12 @@ export default function ContractsPage() {
     fetch("/api/employees?includeAdmins=true").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
     fetch("/api/branches").then(r => r.json()).then(d => {
       const m: Record<string, string> = {}; const ids: Record<string, string> = {};
-      for (const b of (d.branches || []) as { name: string; mainManager?: { id: string; name: string } | null }[]) if (b.mainManager?.name) { m[b.name] = b.mainManager.name; ids[b.name] = b.mainManager.id; }
+      const addr: Record<string, string> = {};
+      for (const b of (d.branches || []) as { name: string; address?: string | null; mainManager?: { id: string; name: string } | null }[]) {
+        if (b.mainManager?.name) { m[b.name] = b.mainManager.name; ids[b.name] = b.mainManager.id; }
+        if (b.address) addr[b.name] = b.address;
+      }
+      setBranchAddresses(addr);
       setMainManagers(m); setMainManagerIds(ids);
     }).catch(() => {});
   }, []);
@@ -2498,6 +2519,38 @@ ${url}`;
                   };
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
+                    f.startsWith("동의_") ? (
+                      // 동의 선택 칸(추가 템플릿 8종) — 보통은 서명 때 직원이 고르지만 외부 계약·본부 입력으로 정한 칸은 여기서
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f.slice(3)}{required && " *"}{docHint(f)}</Label>
+                        <div className="flex gap-3 text-sm">
+                          {[["동의", "동의함"], ["미동의", "동의하지 않음"]].map(([v, l]) => (
+                            <label key={v} className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={extraFields[f] === v} onChange={() => setExtraFields(prev => ({ ...prev, [f]: v }))} />{l}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) :
+                    f === "발령지점" ? (
+                      // 인사발령통지서 — 지점을 고르면 발령 근무지 주소가 지점 표에서 채워진다(직접 입력도 가능)
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{required && " *"}{docHint(f)}</Label>
+                        <select className="w-full h-9 rounded-md border px-2 text-sm bg-white" value={Object.keys(branchAddresses).includes(extraFields[f] || "") ? extraFields[f] : (extraFields[f] ? "__custom" : "")}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (v === "__custom") { setExtraFields(prev => ({ ...prev, [f]: prev[f] && !branchAddresses[prev[f]] ? prev[f] : "(직접 입력)" })); return; }
+                            setExtraFields(prev => ({ ...prev, [f]: v, ...(v && branchAddresses[v] ? { 발령근무지주소: branchAddresses[v] } : {}) }));
+                          }}>
+                          <option value="">지점 선택</option>
+                          {Object.keys(branchAddresses).sort().map(b => <option key={b} value={b}>{b}</option>)}
+                          <option value="__custom">(목록에 없음 — 아래 주소를 직접 입력)</option>
+                        </select>
+                        {extraFields[f] && !branchAddresses[extraFields[f]] && (
+                          <Input value={extraFields[f] === "(직접 입력)" ? "" : extraFields[f]} placeholder="발령 지점·장소 이름" onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value || "(직접 입력)" }))} />
+                        )}
+                      </div>
+                    ) :
                     f === "실무지급률" ? (
                       // 실무평가 단계 급여 지급률 — 85% 기본, 튜터 출신 100% (#92)
                       <div key={f} className="space-y-1">

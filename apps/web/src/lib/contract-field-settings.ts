@@ -22,7 +22,7 @@ export const AUTO_SOURCES: { key: string; label: string }[] = [
   { key: "직원명", label: "직원 이름" }, { key: "이메일", label: "이메일" }, { key: "연락처", label: "연락처" }, { key: "지점", label: "지점" },
   { key: "지점명", label: "지점명(「지점」 뺀 이름)" }, { key: "직책", label: "직군(직책)" }, { key: "직급", label: "직급" }, { key: "입사일", label: "입사일" },
   { key: "사원번호", label: "사원번호" }, { key: "생년월일", label: "생년월일" }, { key: "주소", label: "주소" }, { key: "작성일", label: "오늘 날짜(작성일)" },
-  { key: "제목", label: "계약 제목" }, { key: "계약시작일", label: "계약 시작일" }, { key: "계약종료일", label: "계약 종료일" },
+  { key: "제목", label: "계약 제목" }, { key: "계약시작일", label: "계약 시작일" }, { key: "계약종료일", label: "계약 종료일" }, { key: "지점주소", label: "지점 주소(지점 표)" },
 ];
 const MODES = new Set<string>(FIELD_MODES.map((m) => m.value));
 /** 설정으로 건드릴 수 없는 칸 — 서명 이미지 자리 마커와 서버가 다른 값에서 만들어내는 파생 표기(설정 실수 한 번에 서명본이 깨진다, 10/13 검증 7) */

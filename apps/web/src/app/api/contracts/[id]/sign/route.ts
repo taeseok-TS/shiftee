@@ -6,7 +6,7 @@ import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
 import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
-import { fillDocxTemplate, buildContractMergeData, buildFieldSummary } from "@/lib/contract-fields";
+import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiFields } from "@/lib/contract-fields";
 import fs from "fs/promises";
 import path from "path";
 import bcrypt from "bcryptjs";
@@ -239,7 +239,7 @@ export async function POST(
         // 옛 입력으로 만든 문서가 새 문서를 덮게 두지 않는다.
         const w = await prisma.contract.updateMany({
           where: { id, version: contract.version },
-          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, merged), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48)
+          data: { fileUrl: JSON.stringify([newUrl]), extraFields: buildFieldSummary(null, maskPiiFields(merged)), templateVersion: tmpl.version },   // 현재 양식으로 다시 만들었다(#48). 주민등록번호·계좌번호는 가려서 저장(문서에만 원문)
         });
         if (w.count === 0)
           return NextResponse.json({ code: "DOC_CHANGED", error: SIGN_FAIL.DOC_CHANGED }, { status: 409 });

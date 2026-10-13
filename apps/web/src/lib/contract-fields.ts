@@ -66,6 +66,7 @@ export async function fillDocxTemplate(
     nullGetter: (part: { value?: string }) => {
       const tag = part?.value || "";
       if (tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_")) return "□";
+      if (tag.startsWith("동의_")) return consentBox();   // 서명 때 고르는 동의 칸(추가 템플릿 8종) — 고르기 전엔 둘 다 빈 네모
       if (!hl) return "";
       // 계약자(근로자)가 서명 단계에서 채우는 항목은 누락이 아니라 정상 진행 상태다 —
       // 〔미입력〕이 오류처럼 읽혀 결재자가 반려·문의하던 문제 (#190, 2026-08-31 이예지대리)
@@ -119,6 +120,8 @@ export async function buildContractMergeData(
   const hc = targetUser && (!targetUser.phone || !targetUser.birthDate || !targetUser.address)
     ? await (await import("@/lib/portal-hr-contact")).portalHrContactFor({ name: targetUser.name, branch: targetUser.branch }).catch(() => null)
     : null;
+  // 지점 주소(인사발령통지서 등) — 지점 표에서. 없으면 빈 칸
+  const branchRow = targetUser?.branch ? await prisma.branch.findUnique({ where: { name: targetUser.branch }, select: { address: true } }).catch(() => null) : null;
   const now = new Date();
   const mergeData: Record<string, string> = {
     직원명: opts.external?.name ?? targetUser?.name ?? "",
@@ -158,6 +161,7 @@ export async function buildContractMergeData(
     // 지점명 — "…{지점명} 지점" 조합용. 지점 이름에 이미 "지점"이 붙어 있으면(테스트지점 등)
     // "테스트지점 지점"처럼 중복되던 문제 해결 (#96·#116·#120, 2026-08-27)
     지점명: (targetUser?.branch ?? "").replace(/\s*지점$/, ""),
+    지점주소: branchRow?.address ?? "",
   };
   // 계약 구분 — 템플릿의 {#신규입사}/{#재계약} 조건 구간 제어 (빈 문자열=구간 제거)
   const isRenewal = opts.extraFields?.["계약구분"] === "재계약";
@@ -187,6 +191,8 @@ export async function buildContractMergeData(
   }
   // 「자동 입력」 칸의 출처·고정 문구(#22 1단계) — 관리자 입력 뒤에 적용한다(설정이 자동이면 사람이 안 적는 칸)
   applyAutoSources(mergeData, settings);
+  // 동의_ 칸(서명 때 동의함/동의하지 않음 중 하나 고름) — 값을 체크 표기로 바꾼다. 안 골랐으면 둘 다 빈 네모
+  for (const [k, v] of Object.entries(mergeData)) if (k.startsWith("동의_")) mergeData[k] = consentBox(v === "동의" || v === "미동의" ? v : undefined);
   // 근로계약 기간 시작일(제1조) — 재계약은 "이번 계약 시작일"이 아니라 최초 입사일이어야
   // 근속기간이 맞다. 신규입사는 계약시작일과 같다. 관리자가 폼에서 직접 넣으면 그 값 우선.
   // (#169, 2026-08-28 이예지대리 — 재계약자 제1조에 재계약일이 들어가 근속이 잘못 표시)
@@ -237,6 +243,7 @@ export const SYSTEM_FIELDS = new Set([
   "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자", "신규입사", "재계약",
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
+  "지점주소", // 지점 표의 주소(2026-10-13 추가 템플릿 8종 — 인사발령통지서)
 ]);
 
 // 프로필 필드지만 비어 있으면 계약자가 서명 단계에서 직접 채운다 (scanTemplateProfileFields 대상과 동일)
@@ -247,7 +254,7 @@ const EMPLOYEE_FILL_AT_SIGN = new Set(["주소", "생년월일"]);
 // 사유류 자유서술 + 확인_ 체크(설명확인 등 — 직원이 서명하며 직접 체크하는 항목)
 // 퇴사사유는 노무 이슈 방지를 위해 관리자(본사)가 작성 — 직원 입력에서 제외 (2026-08-25 디렉터 확정)
 const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
-const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보)
+const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^동의_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보), 동의_ 는 서명 때 고르는 동의 칸
 export const isEmployeeInputField = (name: string) =>
   !EMPLOYEE_INPUT_EXCLUDE.has(name) && EMPLOYEE_INPUT_PATTERN.test(name);
 
@@ -298,6 +305,17 @@ export function consentBox(choice?: string): string {
 }
 
 // 결재 승인 창 표시용 입력값 요약 (연봉 + 템플릿 동적 필드, 표시용 포맷)
+/** 민감정보 가림(2026-10-13 추가 템플릿 8종) — 주민등록번호는 뒤 6자리, 계좌번호는 가운데를 *로. 문서에는 원문이 들어가고 **저장·화면 요약**에만 가린다 */
+export function maskPiiFields(o: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...o };
+  for (const [k, v] of Object.entries(out)) {
+    if (typeof v !== "string" || !v) continue;
+    if (k === "주민등록번호") { const d = v.replace(/\D/g, ""); if (d.length >= 7) out[k] = `${d.slice(0, 6)}-${d.slice(6, 7)}******`; }
+    else if (/계좌번호/.test(k)) { const d = v.replace(/[^0-9]/g, ""); if (d.length >= 6) out[k] = `${d.slice(0, 3)}${"*".repeat(Math.max(2, d.length - 6))}${d.slice(-3)}`; }
+  }
+  return out;
+}
+
 export function buildFieldSummary(
   salary?: string | null,
   extraFields?: Record<string, string> | null

@@ -106,9 +106,9 @@ export default function ContractListScreen() {
   const isEmpDateField = (f: string) => /일자|날짜|일$/.test(f);
   // 필드명으로 입력 타입 유추: 체크_→체크박스, ~일→날짜, 그 외→텍스트
   // 확인_ = 기본 해제·체크 필수(설명확인) / 체크_ = 기본 체크·해제 가능(지급금품)
-  const empFieldType = (f: string): "check" | "confirm" | "date" | "text" =>
-    f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : isEmpDateField(f) ? "date" : "text";
-  const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") ? f.slice(3) : f;
+  const empFieldType = (f: string): "check" | "confirm" | "consent" | "date" | "text" =>
+    f.startsWith("체크_") ? "check" : f.startsWith("확인_") ? "confirm" : f.startsWith("동의_") ? "consent" : isEmpDateField(f) ? "date" : "text";
+  const empFieldLabel = (f: string) => f.startsWith("체크_") || f.startsWith("확인_") || f.startsWith("동의_") ? f.slice(3) : f;
   // 근로자 본인 서명(내 계약의 내 차례) — 비밀번호 재확인·직접 서명(#205-1·#205-2). 외부 계약은 소유자가 작성 관리자라 제외
   const isOwnSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
   // 문서 열기 전 본인 확인(#20) — 근로자 본인 서명이면 창에서 비밀번호부터. 확인하면 서명 때 다시 묻지 않는다
@@ -183,6 +183,11 @@ export default function ContractListScreen() {
         if (type === "confirm") { // 설명확인 — 직접 체크해야 서명 가능
           if (empFieldInput[f] !== "☑") { Alert.alert("확인 필요", `"${empFieldLabel(f)}" 항목을 확인하고 체크해주세요.`); return; }
           fields[f] = "☑"; continue;
+        }
+        if (type === "consent") { // 동의함/동의하지 않음 중 하나를 반드시 고른다(추가 템플릿 8종)
+          const v = empFieldInput[f];
+          if (v !== "동의" && v !== "미동의") { Alert.alert("알림", `"${empFieldLabel(f)}" 항목의 동의 여부를 선택해주세요.`); return; }
+          fields[f] = v; continue;
         }
         const v = (empFieldInput[f] || "").trim();
         const optional = f.includes("기타");
@@ -563,6 +568,21 @@ export default function ContractListScreen() {
                           <Ionicons name={checked ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
                           <Text style={{ fontSize: 14, color: "#374151" }}>{empFieldLabel(f)}</Text>
                         </TouchableOpacity>
+                      );
+                    }
+                    if (type === "consent") {
+                      return (
+                        <View key={f} style={{ marginBottom: 6 }}>
+                          <Text style={styles.consentLabel}>{empFieldLabel(f)}</Text>
+                          <View style={{ flexDirection: "row", gap: 16, marginTop: 4 }}>
+                            {([["동의", "동의함"], ["미동의", "동의하지 않음"]] as const).map(([v, l]) => (
+                              <TouchableOpacity key={v} style={{ flexDirection: "row", alignItems: "center", gap: 6 }} onPress={() => setEmpFieldInput(p => ({ ...p, [f]: v }))}>
+                                <Ionicons name={empFieldInput[f] === v ? "radio-button-on" : "radio-button-off"} size={18} color="#4338ca" />
+                                <Text style={{ fontSize: 14, color: "#374151" }}>{l}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
                       );
                     }
                     return (
