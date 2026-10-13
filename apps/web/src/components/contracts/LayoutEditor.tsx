@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { acquirePdfRafFallback } from "@/lib/pdf-raf-fallback";
 import { AUTO_SOURCES, FIELD_MODES, type FieldMode } from "@/lib/contract-field-settings";
-import { LAYOUT_ROLES, LAYOUT_TYPES, SIGN_MARKER_NAME, type LayoutField, type LayoutFieldType, type LayoutRole, type TemplateLayout } from "@/lib/contract-layout";
+import { LAYOUT_ROLES, LAYOUT_TYPES, SIGN_MARKER_NAME, type LayoutField, type LayoutFieldType, type LayoutRole, type TemplateLayout } from "@/lib/contract-layout-core";
 import { CheckSquare, ChevronDown, Image as ImageIcon, PenLine, Stamp, Type, Calendar, Trash2, Copy, Undo2, Save, ZoomIn, ZoomOut, Eye } from "lucide-react";
 
 type Props = { templateId: string; fileUrl: string; name: string; initial: TemplateLayout | null };

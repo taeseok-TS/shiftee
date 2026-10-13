@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import LayoutEditor from "@/components/contracts/LayoutEditor";
-import { parseLayout, type TemplateLayout } from "@/lib/contract-layout";
+import { parseLayout, type TemplateLayout } from "@/lib/contract-layout-core";
 
 type Tmpl = { id: string; name: string; fileUrl: string; layout: unknown };
 
