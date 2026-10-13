@@ -25,11 +25,12 @@ export default function FieldSettingsEditor({ templateId, value, onChange }: { t
     if (patch === null) delete next[name];
     else {
       const cur = { ...(next[name] ?? {}), ...patch };
-      // 비워진 키는 지운다 — 기본값과 같으면 설정 자체를 없앤다
-      if (cur.mode === undefined || cur.mode === info?.defaults[name]) delete cur.mode;
-      if (!cur.required) delete cur.required;
+      // 비워진 키는 지운다 — 기본값과 같으면 설정 자체를 없앤다. 단 출처·고정 문구가 있으면 mode "auto" 를 남긴다(서버는 mode 가 auto 인 칸에만 출처를 적용)
       if (!cur.source) delete cur.source;
       if (!cur.text) delete cur.text;
+      if (cur.source || cur.text) cur.mode = "auto";
+      else if (cur.mode === undefined || cur.mode === info?.defaults[name]) delete cur.mode;
+      if (!cur.required) delete cur.required;
       if (Object.keys(cur).length) next[name] = cur; else delete next[name];
     }
     onChange(next);
