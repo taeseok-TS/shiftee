@@ -5,7 +5,7 @@
 //  · 가운데: PDF 쪽(PDF.js 캔버스) 위에 칸 상자. 끌어서 이동, 오른쪽 아래 손잡이로 크기, 방향키로 미세 이동, Delete 로 삭제
 //  · 오른쪽: 선택한 칸의 이름·담당·채우는 방식·필수·글자 크기·정렬·선택지, 수정 기록
 // 좌표는 쪽 비율(0~1)로 저장하므로 화면 배율과 무관하다. 저장은 PATCH /api/contract-templates/[id] { layout }.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { acquirePdfRafFallback } from "@/lib/pdf-raf-fallback";
@@ -351,6 +351,9 @@ export default function LayoutEditor({ templateId, fileUrl, name, initial }: Pro
         </div>
       </div>
 
+      {/* 사용법 — 처음 쓰는 본부 담당자가 화면만 보고 따라 할 수 있게(디렉터 지시 10/14). 접을 수 있고 접은 상태는 브라우저가 기억한다 */}
+      <UsageGuide />
+
       <div className="flex flex-1 min-h-0 gap-3 pt-3">
         {/* 왼쪽: 팔레트 */}
         <aside className="w-52 shrink-0 overflow-auto space-y-4 text-sm">
@@ -560,5 +563,40 @@ function NameInput({ value, onCommit }: { value: string; onCommit: (v: string) =
       onChange={(e) => setV(e.target.value.replace(/[{}]/g, ""))}
       onBlur={() => { const t = v.trim(); if (t && t !== value) onCommit(t); else if (!t) setV(value); }}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+  );
+}
+
+// 편집기 사용법 — 접기/펼치기(접은 상태는 이 브라우저에만 기억). 글만으로 따라 할 수 있게 순서대로
+const GUIDE_KEY = "layout-editor-guide-collapsed";
+// 접힘 여부는 브라우저 저장소를 외부 저장소로 구독(서버 렌더는 항상 펼침 → 하이드레이션 불일치·effect 안 setState 없이)
+const guideListeners = new Set<() => void>();
+const readCollapsed = () => { try { return localStorage.getItem(GUIDE_KEY) === "1"; } catch { return false; } };
+const guideStore = {
+  subscribe: (cb: () => void) => { guideListeners.add(cb); return () => { guideListeners.delete(cb); }; },
+  get: readCollapsed,
+  getServer: () => false,
+  set: (collapsed: boolean) => { try { localStorage.setItem(GUIDE_KEY, collapsed ? "1" : "0"); } catch { /* 사생활 보호 모드 등 — 무시 */ } guideListeners.forEach((cb) => cb()); },
+};
+function UsageGuide() {
+  const collapsed = useSyncExternalStore(guideStore.subscribe, guideStore.get, guideStore.getServer);
+  const open = !collapsed;
+  const toggle = () => guideStore.set(open);
+  return (
+    <section className="mt-2 border border-blue-200 bg-blue-50/70 rounded-lg text-xs text-blue-900">
+      <button type="button" onClick={toggle} className="w-full flex items-center justify-between px-3 py-2 font-semibold text-left">
+        <span>📐 칸 배치 편집기 사용법 {open ? "" : "— 펼치기"}</span>
+        <span className="text-blue-500 font-normal">{open ? "접기 ▲" : "▼"}</span>
+      </button>
+      {open && (
+        <ol className="px-3 pb-3 space-y-1 list-decimal list-inside leading-relaxed">
+          <li><b>칸 놓기</b> — 왼쪽 「입력칸 추가」에서 종류(텍스트·날짜·체크박스·드롭다운·이미지·서명·직인)를 누르면 지금 보고 있는 쪽에 놓입니다. PDF 위 원하는 자리로 끌어다 놓아도 됩니다. 직원명·지점·입사일처럼 시스템이 아는 값은 「자동 입력칸」의 파란 칩을 누르면 바로 놓입니다.</li>
+          <li><b>자리·크기 맞추기</b> — 칸을 끌어서 옮기고, 선택한 칸의 오른쪽 아래 파란 점을 끌어 크기를 바꿉니다. 방향키로 조금씩(Shift 와 함께 크게) 옮길 수 있고, 다른 칸이나 쪽 가장자리와 줄이 맞으면 분홍 보조선이 떠서 달라붙습니다. 양식에 밑줄·네모가 이미 그려져 있으면 그 위에 딱 맞게 놓으세요.</li>
+          <li><b>칸 정하기</b> — 칸을 누르면 오른쪽에 설정이 열립니다. <b>칸 이름</b>(문서에 찍힐 값의 이름 — 같은 이름이면 같은 값이 여러 곳에 찍힘), <b>작성자</b>(직영사업본부가 보낼 때 입력 / 직원이 서명할 때 입력 / 자동 입력 / 자동 뒤 보내기 전 수정), <b>필수</b>, 글자 크기·정렬, 드롭다운 선택지를 정합니다. 서명 칸은 누가 서명하는지(직원·지점 원장·본부)를 고르고, 본부·직인 자리에는 회사 직인이 찍힙니다.</li>
+          <li><b>여러 칸 한꺼번에</b> — Shift+클릭으로 더 고르고(Ctrl+A 는 이 쪽 전부), 함께 끌거나 Delete 로 지우고 Ctrl+D 로 복제합니다. Esc 로 선택을 풀고 Ctrl+Z 로 되돌립니다.</li>
+          <li><b>저장하고 확인</b> — 오른쪽 위 <b>저장</b>을 누른 뒤 <b>시험 미리보기</b>로 시험 값이 채워진 PDF 를 열어 자리와 글자 크기를 확인합니다(노란 바탕이 채워진 값, 붉은 글자는 아직 빈 칸). 바꾼 내용은 오른쪽 「수정 기록」에 누가 언제 무엇을 고쳤는지 남습니다.</li>
+          <li><b>그 다음</b> — 결재 순서(본부→원장→직원 등)는 템플릿 수정 창의 「결재 순서」에서 정합니다. 저장한 배치는 그 뒤에 만드는 계약서부터 적용되고, 이미 만든 문서는 그때 배치 그대로 서명이 찍힙니다. 양식 PDF 파일을 교체했다면 칸 자리가 새 파일과 맞는지 여기서 다시 확인하세요.</li>
+        </ol>
+      )}
+    </section>
   );
 }
