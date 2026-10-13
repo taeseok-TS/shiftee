@@ -7,6 +7,7 @@ import { postSignAccessError } from "@/lib/contract-access";
 import { parseApprovalSteps, validateSteps, stepsLabel } from "@/lib/approval-order";
 import { Prisma } from "@prisma/client";
 import { logAudit } from "@/lib/audit";
+import { parseFieldSettings, fieldSettingsDiff, type FieldSettings } from "@/lib/contract-field-settings";
 
 // 결재 순서(#213-2) 입력 → data 에 반영. "" 또는 "null" 이면 순서 없음(NULL)으로 되돌린다. 모양이 틀리면 오류 문구
 function applyApprovalOrder(data: Record<string, unknown>, stepsRaw: unknown, lockedRaw: unknown): string | null {
@@ -55,6 +56,8 @@ export async function PATCH(
     const file = form.get("file") as File | null;
     const labelsRaw = form.get("labels") as string | null;
     if (labelsRaw != null) data.labels = cleanLabels(labelsRaw);
+    const fsRaw = form.get("fieldSettings");   // 칸 설정(#22 1단계) — JSON 문자열
+    if (typeof fsRaw === "string") data.fieldSettings = parseFieldSettings(fsRaw);
 
     if (name != null) data.name = name;
     if (description != null) data.description = description || null;
@@ -82,6 +85,7 @@ export async function PATCH(
     if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
     {
       const e = applyApprovalOrder(data, body.approvalSteps, body.approvalLocked);
+      if (body.fieldSettings !== undefined) data.fieldSettings = parseFieldSettings(body.fieldSettings);   // 칸 설정(#22 1단계)
       if (e) return NextResponse.json({ error: e }, { status: 400 });
     }
     // 파일 주소는 템플릿 업로드 폴더 안의 것만(#78 검증 F9), 지금과 같으면 버전을 올리지 않는다(F5)
@@ -133,6 +137,10 @@ export async function PATCH(
       if (lab(before) !== lab(after)) changes.push(`결재 순서 「${lab(before)}」→「${lab(after)}」`);
     }
     if (typeof data.approvalLocked === "boolean" && data.approvalLocked !== existing.approvalLocked) changes.push(`발송 때 순서 변경 ${data.approvalLocked ? "불가" : "허용"}`);
+    if ("fieldSettings" in data) {   // 누가·언제·어느 칸을 어떻게 바꿨는지(#22 요구)
+      const d = fieldSettingsDiff(parseFieldSettings(existing.fieldSettings), data.fieldSettings as FieldSettings);
+      if (d.length) changes.push(`칸 설정 ${d.slice(0, 8).join(", ")}${d.length > 8 ? ` 외 ${d.length - 8}칸` : ""}`);
+    }
     if (changes.length) await logAudit({
       actorId: session.userId, actorName: session.name, action: "CONTRACT_TEMPLATE_UPDATE",
       targetType: "ContractTemplate", targetId: id, targetName: existing.name, detail: changes.join(" · "),

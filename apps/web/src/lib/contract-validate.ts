@@ -159,7 +159,7 @@ export async function validateStoredContract(c: {
   const extra = (c.extraFields as Record<string, string>) || {};
   const startDate = iso(c.startDate);
   const endDate = iso(c.endDate);
-  const merge = await buildContractMergeData(c.userId, {
+  const merge = await buildContractMergeData(c.userId, { templateId: c.templateId,
     title: c.title, startDate, endDate,
     salary: ((extra["연봉"] || "").replace(/[^0-9]/g, "")) || null,
     extraFields: extra,

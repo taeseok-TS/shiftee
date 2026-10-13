@@ -194,7 +194,7 @@ export async function POST(
       //   (2026-09-04 검증관 B 실측 — 주소.퇴사사유가 빈 채로 서명 완료되던 상태).
       //   `prisma: any` 라 타입 검사가 이 오타를 못 잡았다(F2, lib/db.ts).
       const tmpl = await prisma.contractTemplate.findUnique({
-        where: { id: contract.templateId }, select: { fileUrl: true, version: true },
+        where: { id: contract.templateId }, select: { fileUrl: true, version: true, fieldSettings: true },
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
@@ -218,7 +218,14 @@ export async function POST(
           ...pick(consent, (k) => k.startsWith("동의")),
           ...pick(fields), // 퇴사일자·퇴사사유 등 직원 직접입력 — 템플릿이 허용한 칸만
         };
-        const mergeData = await buildContractMergeData(contract.userId, {
+        // 본부가 「서명 때 직원 입력 · 필수」로 정한 칸(#22 1단계)이 비면 서명을 받지 않는다
+        {
+          const { parseFieldSettings } = await import("@/lib/contract-field-settings");
+          const st = parseFieldSettings(tmpl.fieldSettings);
+          const missing = Object.entries(st).filter(([k, s]) => s.mode === "sign" && s.required && allowed.has(k) && !String((merged as Record<string, string>)[k] ?? "").trim()).map(([k]) => k);
+          if (missing.length) return NextResponse.json({ code: "MISSING_FIELDS", error: `필수 입력 칸을 채워 주세요: ${missing.join(", ")}` }, { status: 400 });
+        }
+        const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
           title: contract.title,
           startDate: contract.startDate ? contract.startDate.toISOString() : null,
           endDate: contract.endDate ? contract.endDate.toISOString() : null,

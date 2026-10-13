@@ -307,7 +307,7 @@ export async function PATCH(
       });
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         try {
-          const mergeData = await buildContractMergeData(contract.userId, {
+          const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
             title: (title as string) || contract.title,
             startDate: (startDate as string) || (contract.startDate ? contract.startDate.toISOString() : null),
             endDate: (endDate as string) || (contract.endDate ? contract.endDate.toISOString() : null),
@@ -460,7 +460,7 @@ export async function PATCH(
       sendTemplateVersion = tmpl?.version ?? null;
       if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
         const prevExtra = (contract.extraFields as Record<string, string>) || {};
-        const mergeData = await buildContractMergeData(contract.userId, {
+        const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
           title: title || contract.title,
           startDate: startDate ? new Date(startDate).toISOString() : (contract.startDate ? contract.startDate.toISOString() : null),
           endDate: endDate ? new Date(endDate).toISOString() : (contract.endDate ? contract.endDate.toISOString() : null),

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { parseFieldSettings, fieldsWithMode, applyAutoSources, type FieldSettings } from "@/lib/contract-field-settings";
 import { generateDeterministic } from "@/lib/docx-zip";
 import fs from "fs/promises";
 import path from "path";
@@ -103,8 +104,12 @@ export async function buildContractMergeData(
     // 외부(미가입) 계약자 — 직원 정보 대신 관리자가 입력한 이름·연락처 사용,
     // 나머지 개인정보(생년월일·주소·지점 등)는 extraFields로 자동 필드까지 덮어쓸 수 있음
     external?: { name: string; phone?: string | null } | null;
+    // 양식 칸 설정(#22 1단계) — 「보내기 전 수정」 칸은 관리자 입력값이 자동값을 덮고, 「자동 입력」 칸은 출처·고정 문구로 채운다
+    templateId?: string | null;
   }
 ): Promise<Record<string, string>> {
+  const settings = await loadFieldSettings(opts.templateId);
+  const editable = fieldsWithMode(settings, "edit");
   const targetUser = opts.external ? null : await prisma.user.findUnique({
     where: { id: userId },
     select: { name: true, email: true, phone: true, branch: true, jobGroup: true, position: true, hireDate: true, birthDate: true, address: true, empNo: true },
@@ -169,7 +174,7 @@ export async function buildContractMergeData(
     for (const [k, v] of Object.entries(opts.extraFields)) {
       if (typeof v !== "string") continue;
       // 동의 필드는 consentBox 변환값("☒ 동의함…")을 유지 — 외부 계약에서도 원시값("미동의")으로 덮지 않음
-      if (k in mergeData && !(opts.external && v.trim() !== "" && !["직원명", "이름", "제목", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명", "동의고유식별", "동의채용정보"].includes(k))) continue;
+      if (k in mergeData && !(editable.has(k) && v.trim() !== "") && !(opts.external && v.trim() !== "" && !["직원명", "이름", "제목", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명", "동의고유식별", "동의채용정보"].includes(k))) continue;
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
         mergeData[k] = fmtKoreanDate(v);
       } else if (/금액|급여액|월급|수당액|비용/.test(k) && /^[\d,]+$/.test(v.trim()) && v.trim() !== "") {
@@ -180,6 +185,8 @@ export async function buildContractMergeData(
       }
     }
   }
+  // 「자동 입력」 칸의 출처·고정 문구(#22 1단계) — 관리자 입력 뒤에 적용한다(설정이 자동이면 사람이 안 적는 칸)
+  applyAutoSources(mergeData, settings);
   // 근로계약 기간 시작일(제1조) — 재계약은 "이번 계약 시작일"이 아니라 최초 입사일이어야
   // 근속기간이 맞다. 신규입사는 계약시작일과 같다. 관리자가 폼에서 직접 넣으면 그 값 우선.
   // (#169, 2026-08-28 이예지대리 — 재계약자 제1조에 재계약일이 들어가 근속이 잘못 표시)
@@ -237,15 +244,23 @@ const EMPLOYEE_FILL_AT_SIGN = new Set(["주소", "생년월일"]);
 // 퇴사사유는 노무 이슈 방지를 위해 관리자(본사)가 작성 — 직원 입력에서 제외 (2026-08-25 디렉터 확정)
 const EMPLOYEE_INPUT_EXCLUDE = new Set(["퇴사사유"]);
 const EMPLOYEE_INPUT_PATTERN = /사유|^확인_|^주민등록번호$/; // 주민등록번호는 서명 시 본인 입력(민감정보)
-const isEmployeeInputField = (name: string) =>
+export const isEmployeeInputField = (name: string) =>
   !EMPLOYEE_INPUT_EXCLUDE.has(name) && EMPLOYEE_INPUT_PATTERN.test(name);
+
+/** 양식 칸 설정 읽기(#22 1단계) — 템플릿이 없거나 설정이 없으면 빈 객체(종전 규칙) */
+export async function loadFieldSettings(templateId?: string | null): Promise<FieldSettings> {
+  if (!templateId) return {};
+  const t = await prisma.contractTemplate.findUnique({ where: { id: templateId }, select: { fieldSettings: true } });
+  return parseFieldSettings(t?.fieldSettings);
+}
 
 // 템플릿(.docx)에서 "직원이 서명 시 직접 입력하는" 문서 전용 필드 목록 반환.
 // 화이트리스트(선사용사유 등 '사유'류·주민등록번호)만 직원 입력 — 퇴사사유는 관리자 작성 — 나머지는 전부 관리자 작성 폼에 표시.
 // 프로필 필드(주소/생년월일)와 달리 프로필에 저장하지 않고 해당 문서에만 반영한다.
-export async function scanEmployeeFillFields(templateFileUrl: string): Promise<string[]> {
+export async function scanEmployeeFillFields(templateFileUrl: string, templateId?: string | null): Promise<string[]> {
   if (!templateFileUrl.toLowerCase().endsWith(".docx")) return [];
   try {
+    const settings = await loadFieldSettings(templateId);   // 칸 설정(#22 1단계)이 있으면 그것이 우선
     const rel = templateFileUrl.replace(/^\/api\/uploads\//, "");
     const buf = await fs.readFile(path.join(process.cwd(), "uploads", rel));
     const xml = new PizZip(buf).file("word/document.xml")?.asText() || "";
@@ -256,6 +271,9 @@ export async function scanEmployeeFillFields(templateFileUrl: string): Promise<s
       for (const m of text.matchAll(/\{([^{}\n]{1,30})\}/g)) {
         const name = m[1].trim();
         if (name.startsWith("#") || name.startsWith("/")) continue; // 조건 구간 제외
+        const mode = settings[name]?.mode;
+        if (mode === "sign") { if (!found.includes(name)) found.push(name); continue; }   // 본부가 「서명 때 직원 입력」으로 정한 칸
+        if (mode) continue;   // 자동·본부 입력·보내기 전 수정으로 정한 칸은 직원 입력이 아니다
         if (SYSTEM_FIELDS.has(name)) continue;
         if (!isEmployeeInputField(name)) continue; // 화이트리스트 외 전부 관리자 입력 (퇴사사유는 관리자)
         if (!found.includes(name)) found.push(name);

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       const template = await prisma.contractTemplate.findUnique({ where: { id: item.templateId }, select: { fileUrl: true, name: true } });
       if (!template?.fileUrl.toLowerCase().endsWith(".docx")) continue;
-      const mergeData = await buildContractMergeData(userId, {
+      const mergeData = await buildContractMergeData(userId, { templateId: item.templateId,
         title: item.title, startDate: item.startDate ?? null, endDate: item.endDate ?? null, salary: item.salary,
         extraFields: item.extraFields ?? null,
         external: externalName ? { name: externalName, phone: externalPhone } : null,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       let profileFields: string[] = [];
       let employeeFields: string[] = [];
       if (template.fileUrl.toLowerCase().endsWith(".docx")) {
-        const mergeData = await buildContractMergeData(userId, {
+        const mergeData = await buildContractMergeData(userId, { templateId: item.templateId,
           title: item.title,
           startDate: item.startDate ?? null,
           endDate: item.endDate ?? null,
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
         // 외부 계약은 계정이 없어 프로필 보완·직원 직접입력이 불가 — 전부 관리자 입력(extraFields)으로 완성
         if (!externalName) {
           profileFields = await scanTemplateProfileFields(template.fileUrl);
-          employeeFields = await scanEmployeeFillFields(template.fileUrl);
+          employeeFields = await scanEmployeeFillFields(template.fileUrl, item.templateId);
         }
       } else {
         fileUrl = JSON.stringify([template.fileUrl]);

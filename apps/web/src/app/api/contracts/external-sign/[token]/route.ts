@@ -301,7 +301,7 @@ export async function POST(
           const { buildContractMergeData, fillDocxTemplate, buildFieldSummary } = await import("@/lib/contract-fields");
           const prevExtra = (sib.extraFields as Record<string, string>) || {};
           const merged = { ...prevExtra, ...consent };
-          const mergeData = await buildContractMergeData(sib.userId, {
+          const mergeData = await buildContractMergeData(sib.userId, { templateId: sib.templateId,
             title: sib.title,
             startDate: null, endDate: null, salary: null,
             extraFields: merged,

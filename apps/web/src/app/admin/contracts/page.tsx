@@ -19,6 +19,7 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye, Upload, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import type { FieldSettings } from "@/lib/contract-field-settings";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -796,6 +797,7 @@ export default function ContractsPage() {
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
   const [employeeFillFields, setEmployeeFillFields] = useState<string[]>([]); // 직원이 서명 시 직접 입력(퇴사일자 등)
+  const [fieldSettings, setFieldSettings] = useState<FieldSettings>({}); // 양식 칸 설정(#22 1단계) — 보내기 전 수정·자동·필수
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [templateConditions, setTemplateConditions] = useState<string[]>([]); // 템플릿의 {#조건} 이름들
   const [fieldConditions, setFieldConditions] = useState<Record<string, string>>({}); // 필드 → 소속 조건
@@ -803,8 +805,10 @@ export default function ContractsPage() {
   // 외부 계약: 직원 정보가 없어 개인정보류 자동 필드도 관리자가 직접 입력
   const EXTERNAL_INPUT_FIELDS = ["지점", "직책", "직급", "연락처", "이메일", "생년월일", "주소", "입사일", "사원번호"];
   // 계약 구분에 해당하지 않는 조건 구간의 필드 + 직원 직접입력 필드는 관리자 입력란에서 숨김
+  // 칸 설정(#22 1단계): 「보내기 전 수정」 칸은 자동 칸이라도 입력란에 보이고, 「자동 입력」으로 정한 칸은 숨긴다
   const dynamicFields = templateFields
-    .filter(f => (!AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))) && !FORM_FIELDS.includes(f) && f !== "계약구분")
+    .filter(f => !FORM_FIELDS.includes(f) && f !== "계약구분" && fieldSettings[f]?.mode !== "auto"
+      && (fieldSettings[f]?.mode === "edit" || !AUTO_FIELDS.includes(f) || (externalMode && EXTERNAL_INPUT_FIELDS.includes(f))))
     .filter(f => !employeeFillFields.includes(f) || externalMode) // 외부인은 서명 화면 입력이 없어 전부 관리자 입력
     .filter(f => !fieldConditions[f] || fieldConditions[f] === contractKind);
   // "근무종료시각"처럼 시각/시간으로 끝나는 필드는 날짜가 아니라 시간이다 — 시각류를 먼저 가려낸다
@@ -883,7 +887,7 @@ export default function ContractsPage() {
   const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
     setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
     lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
-    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]);
+    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({});
     const ids = [templateId];
     if (includeBundle) {
       if (ndaTemplate) ids.push(ndaTemplate.id);
@@ -900,7 +904,9 @@ export default function ContractsPage() {
     const empFill: string[] = [];
     const fieldConds: Record<string, string> = {};
     const docsMap: Record<string, string> = {}; // 필드 → 출처 문서명 (#113)
+    const settingsMap: FieldSettings = {};   // 칸 설정(#22 1단계) — 묶음이면 문서별 설정을 합친다
     results.forEach((d, i) => {
+      Object.assign(settingsMap, d.settings || {});
       const docName = templates.find(t => t.id === ids[i])?.name || "";
       for (const f of d.fields || []) {
         if (!fields.includes(f)) fields.push(f);
@@ -910,7 +916,7 @@ export default function ContractsPage() {
       for (const f of d.employeeFields || []) if (!empFill.includes(f)) empFill.push(f);
       Object.assign(fieldConds, d.fieldConditions || {});
     });
-    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill); setFieldDocs(docsMap);
+    setTemplateFields(fields); setTemplateConditions(conditions); setFieldConditions(fieldConds); setEmployeeFillFields(empFill); setFieldDocs(docsMap); setFieldSettings(settingsMap);
 
     // 시각 필드 기본값 — 직영 표준 근무가 13~20시라 미리 채워 둔다(수정 가능).
     // 개시·출근·시작류 = 13:00, 종료·퇴근류 = 20:00
@@ -999,6 +1005,13 @@ export default function ContractsPage() {
       const n = branchManagerName(emp.branch);
       if (n) updates["원장명"] = n;
     }
+    // 「보내기 전 수정」 칸(#22 1단계) — 직원 정보·오늘 날짜를 미리 채워 두고 본부가 고친다(직군·주소는 화면에 없어 서버가 문서 만들 때 채움)
+    const empAuto: Record<string, string> = {
+      직원명: emp.name, 이름: emp.name, 이메일: emp.email ?? "", 연락처: emp.phone ?? "", 지점: emp.branch ?? "", 직급: emp.position ?? "",
+      입사일: emp.hireDate ? String(emp.hireDate).slice(0, 10) : "", 사원번호: emp.empNo != null ? String(emp.empNo).padStart(5, "0") : "",
+      생년월일: emp.birthDate ? String(emp.birthDate).slice(0, 10) : "", 작성일: format(new Date(), "yyyy-MM-dd"),
+    };
+    for (const f of templateFields) if (fieldSettings[f]?.mode === "edit" && empAuto[f]) updates[f] = empAuto[f];
     const sameUser = lastAutoFillUser.current === createForm.userId;
     lastAutoFillUser.current = createForm.userId;
     if (!sameUser) autoFilled.current = {};
@@ -1012,7 +1025,7 @@ export default function ContractsPage() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createForm.userId, templateFields, employees, mainManagers]);
+  }, [createForm.userId, templateFields, employees, mainManagers, fieldSettings]);
 
   // 계약직 근로시간 자동 계산 (개선 제안 2026-08-24, 공식은 이예지대리 확정)
   //  일근무시간 = (퇴근-출근) - 휴게   /   월근로시간 = (주 + min(주/40×8, 8)) × 4.345 반올림
@@ -1252,6 +1265,9 @@ export default function ContractsPage() {
     // 여러 명 작성이면 개인별 표에 모두 연봉을 넣었을 때도 통과(#19)
     const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, ""));
     if (needsSalary && !String(createForm.salary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    // 양식에서 필수로 정한 칸(#22 1단계) — 비면 보내지 않는다
+    const missingReq = dynamicFields.filter(f => fieldSettings[f]?.required && !(extraFields[f] || "").trim());
+    if (missingReq.length) { toast.error(`필수 칸을 입력해 주세요: ${missingReq.join(", ")}`); return; }
 
     setUploading(true);
 
@@ -2578,7 +2594,7 @@ ${url}`;
                           )}
                           {/* 데스크톱 2열 (#143) */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {mainFields.map(f => renderDynField(f))}
+                            {mainFields.map(f => renderDynField(f, !!fieldSettings[f]?.required))}
                           </div>
                         </div>
                       )}

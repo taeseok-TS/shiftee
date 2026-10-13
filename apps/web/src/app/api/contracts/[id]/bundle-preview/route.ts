@@ -121,7 +121,7 @@ export async function GET(
           const dd = d as { templateId: string; title: string; userId?: string; startDate?: Date | null; endDate?: Date | null; extraFields?: unknown; externalName?: string | null; externalPhone?: string | null };
           const tmpl = await prisma.contractTemplate.findUnique({ where: { id: dd.templateId }, select: { fileUrl: true } });
           if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
-            const merge = await buildContractMergeData(dd.userId || contract.userId, {
+            const merge = await buildContractMergeData(dd.userId || contract.userId, { templateId: dd.templateId,
               title: dd.title,
               startDate: dd.startDate ? dd.startDate.toISOString() : null,
               endDate: dd.endDate ? dd.endDate.toISOString() : null,

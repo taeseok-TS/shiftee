@@ -520,6 +520,7 @@ model ContractTemplate {
   // approvalLocked true = 발송 때 순서 변경 불가(기본). deploy/ddl_template_approval_order.sql
   approvalSteps  Json?
   approvalLocked Boolean     @default(true)
+  fieldSettings  Json?   // 칸 설정(2026-10-13 QA76 #22 1단계) — {칸: {mode, required, source, text}}. deploy/ddl_template_field_settings.sql
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

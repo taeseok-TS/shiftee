@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       if (!tmpl.fileUrl.toLowerCase().endsWith(".docx"))
         return NextResponse.json({ error: "워드 템플릿만 미리보기를 지원합니다." }, { status: 400 });
       if (!firstName) firstName = tmpl.name;
-      const mergeData = await buildContractMergeData(userId || "", {
+      const mergeData = await buildContractMergeData(userId || "", { templateId: tid,
         title: title || tmpl.name,
         startDate: startDate || null,
         endDate: endDate || null,

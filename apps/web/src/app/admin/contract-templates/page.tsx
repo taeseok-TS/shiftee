@@ -13,6 +13,8 @@ import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin } from "lucid
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
+import FieldSettingsEditor from "@/components/contracts/FieldSettingsEditor";
+import { parseFieldSettings, type FieldSettings } from "@/lib/contract-field-settings";
 import { parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
 import { TEMPLATE_CATEGORIES, templateCategoryOf, type TemplateCategory } from "@/lib/template-category";
 
@@ -30,6 +32,7 @@ type ContractTemplate = {
   postSignAccess: string; // 서명 완료 후 근로자 접근 (#129)
   approvalSteps?: { kind: string }[] | null; // 결재 순서(#213-2) — 없으면 본부→원장→근로자
   approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본 true)
+  fieldSettings?: unknown;                   // 칸 설정(#22 1단계)
   labels?: string[];       // 라벨(#78)
   pinned?: boolean;        // 맨 위 고정(#78)
   createdAt: string;
@@ -71,8 +74,9 @@ export default function ContractTemplatesPage() {
     labels: "",   // 쉼표 구분(#78)
     approvalSteps: null as ApprovalStepSpec[] | null,   // 결재 순서(#213-2) — null = 지정 안 함(기본 3칸·검사 없음)
     approvalLocked: true,
+    fieldSettings: {} as FieldSettings,   // 칸 설정(#22 1단계)
   });
-  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true });
+  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true, fieldSettings: {} as FieldSettings });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState<TemplateCategory | null>(null);   // 묶음으로 거르기(#214-5)
@@ -182,6 +186,7 @@ export default function ContractTemplatesPage() {
       formData.append("labels", form.labels); // 라벨(#78)
       formData.append("approvalSteps", form.approvalSteps ? JSON.stringify(form.approvalSteps) : ""); // 결재 순서(#213-2) — "" 면 지정 안 함(NULL)으로
       formData.append("approvalLocked", String(form.approvalLocked));
+      formData.append("fieldSettings", JSON.stringify(form.fieldSettings)); // 칸 설정(#22 1단계)
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
 
       const res = await fetch(`/api/contract-templates/${editTarget.id}`, {
@@ -238,6 +243,7 @@ export default function ContractTemplatesPage() {
       postSignAccess: template.postSignAccess || "full",
       approvalSteps: parseApprovalSteps(template.approvalSteps),   // 없으면 null(지정 안 함) 그대로 — 수정만 해도 순서가 생기지 않게(검증 F2)
       approvalLocked: template.approvalLocked !== false,
+      fieldSettings: parseFieldSettings(template.fieldSettings),
       file: null,
       labels: (template.labels || []).join(", "),
     });
@@ -499,7 +505,7 @@ export default function ContractTemplatesPage() {
 
       {/* 수정 모달 */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>템플릿 수정</DialogTitle></DialogHeader>
           {editTarget && (
             <div className="space-y-4">
@@ -553,6 +559,10 @@ export default function ContractTemplatesPage() {
               <div className="space-y-2">
                 <Label>결재 순서 <span className="text-xs text-gray-400 font-normal">(이 양식으로 보낼 때의 서명·결재 차례)</span></Label>
                 <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>칸 설정 <span className="text-xs text-gray-400 font-normal">(칸마다 채우는 방식 · 자동 값 · 필수, #22)</span></Label>
+                <FieldSettingsEditor templateId={editTarget.id} value={form.fieldSettings} onChange={(fieldSettings) => setForm(f => ({ ...f, fieldSettings }))} />
               </div>
 
               <div className="space-y-2">

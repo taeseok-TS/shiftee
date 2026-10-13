@@ -29,7 +29,7 @@ export async function POST(
     return NextResponse.json({ error: "워드 템플릿만 재생성을 지원합니다." }, { status: 400 });
 
   try {
-    const mergeData = await buildContractMergeData(contract.userId, {
+    const mergeData = await buildContractMergeData(contract.userId, { templateId: contract.templateId,
       title: contract.title,
       startDate: contract.startDate ? contract.startDate.toISOString() : null,
       endDate: contract.endDate ? contract.endDate.toISOString() : null,

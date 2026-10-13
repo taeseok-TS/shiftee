@@ -141,7 +141,7 @@ export async function POST(
         templateVersion = tmpl?.version ?? null;
         if (tmpl?.fileUrl.toLowerCase().endsWith(".docx")) {
           const extra = (c.extraFields as Record<string, string>) || {};
-          const mergeData = await buildContractMergeData(c.userId, {
+          const mergeData = await buildContractMergeData(c.userId, { templateId: c.templateId,
             title: c.title,
             startDate: c.startDate ? c.startDate.toISOString() : null,
             endDate: c.endDate ? c.endDate.toISOString() : null,

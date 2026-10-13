@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
-import { scanEmployeeFillFields } from "@/lib/contract-fields";
+import { scanEmployeeFillFields, SYSTEM_FIELDS, isEmployeeInputField } from "@/lib/contract-fields";
+import { parseFieldSettings, type FieldMode } from "@/lib/contract-field-settings";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -17,7 +18,7 @@ export async function GET(
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
   const { id } = await params;
-  const template = await prisma.contractTemplate.findUnique({ where: { id }, select: { fileUrl: true } });
+  const template = await prisma.contractTemplate.findUnique({ where: { id }, select: { fileUrl: true, fieldSettings: true } });
   if (!template) return NextResponse.json({ error: "템플릿을 찾을 수 없습니다." }, { status: 404 });
   if (!template.fileUrl.toLowerCase().endsWith(".docx"))
     return NextResponse.json({ fields: [] });
@@ -52,13 +53,17 @@ export async function GET(
       }
     }
     // 직원이 서명 시 직접 입력하는 필드(퇴사일자 등) — 관리자 입력란에서 제외 대상
-    const employeeFields = await scanEmployeeFillFields(template.fileUrl);
+    const employeeFields = await scanEmployeeFillFields(template.fileUrl, id);
+    // 칸 설정(#22 1단계) — 저장된 설정과, 설정이 없을 때의 기본 방식(자동/서명 때 직원/본부)
+    const settings = parseFieldSettings(template.fieldSettings);
+    const defaults: Record<string, FieldMode> = {};
+    for (const f of fields) defaults[f] = SYSTEM_FIELDS.has(f) ? "auto" : isEmployeeInputField(f) ? "sign" : "hq";
     // ⚠️ 여기서 필드를 걸러내지 않는다. 작성 폼은 이 목록으로 "템플릿별 동적 입력란"만 만드는 게 아니라
     //    계약 기간·연봉 입력란과 자동 채움 패널을 띄울지도 판단한다(templateFields.includes("계약시작일") 등).
     //    #144·#145(파생 필드 노출) 때문에 여기서 SYSTEM_FIELDS 를 걸렀더니 계약 기간·연봉 입력란이
     //    통째로 사라져 빈 값으로 계약이 발송될 뻔했다 (#175·#176, 2026-08-31 이예지대리).
     //    파생 필드를 입력란에서 감추는 일은 작성 폼의 AUTO_FIELDS 가 담당한다 — 기준은 한 곳에만 둔다.
-    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields });
+    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields, settings, defaults });
   } catch (e) {
     console.error("템플릿 필드 스캔 오류:", e);
     return NextResponse.json({ fields: [] });
