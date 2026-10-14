@@ -192,6 +192,10 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
   );
 }
 
+// 퇴사 패키지 문서 5종과 기본 체크(#203, 이예지 답 2026-10-14: 사직원·비밀유지서약서 기본, 나머지는 필요할 때)
+const RESIGN_DOC_LABELS = ["사직원", "금품청산 지급기일연장 동의서", "퇴직금 정산 신청서", "연차수당 정산 신청서", "비밀유지서약서(퇴직시)"];
+const RESIGN_PICK_DEFAULT = [true, false, false, false, true];
+
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
@@ -220,8 +224,11 @@ export default function ContractsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [useTemplate, setUseTemplate] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(3종 묶음) 발송
-  const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(5종 묶음) 발송
+  const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(2종 묶음: 근로계약서+개인정보동의서 — 비밀유지서약서는 채용 단계 별도, #202 이예지 답 10/14) 발송
+  // 퇴사 패키지 「문서 고르기」(#203, 이예지 답 10/14) — 사직원은 대표 문서라 항상, 기본 체크는 사직원·비밀유지서약서(퇴직시)
+  const [resignPicks, setResignPicks] = useState<boolean[]>([...RESIGN_PICK_DEFAULT]);
+  const scanSeqRef = useRef(0);   // scanFields 호출 순번 — 마지막 호출만 반영
+  const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(사직원 + 고른 문서, 최대 5종) 발송
   const [codiBundleMode, setCodiBundleMode] = useState(false); // 코디 채용 패키지(계약서 선택 + 3종 묶음) 발송
   const [externalMode, setExternalMode] = useState(false); // 외부(미가입) 계약자 — 게스트 서명 링크 발송
   const [extBundleMode, setExtBundleMode] = useState(false); // 외부 채용 패키지 — 계약서 + 비밀유지 + 개인정보동의서
@@ -851,7 +858,7 @@ export default function ContractsPage() {
   const empTemplate = pkgTemplates.find(t => t.name.includes("에듀플렉스") && t.name.includes("근로계약"))
     || pkgTemplates.find(t => t.name.includes("근로계약") && !t.name.includes("코디") && !t.name.includes("기타직무"))
     || pkgTemplates.find(t => t.type === "EMPLOYMENT" && !t.name.includes("코디") && !t.name.includes("기타직무"));
-  const canBundle = !!ndaTemplate && !!privacyTemplate && !!empTemplate;
+  const canBundle = !!privacyTemplate && !!empTemplate;   // 신규입사 패키지 2종(#202) — 비밀유지서약서는 안 들어간다
 
   // 퇴사 패키지 5종 — 전부 결재라인(비밀유지서약서(퇴직시)도 결재표 신설로 결재라인, 2026-08-25)
   // 코디 채용 패키지 — 코디 계약서 4종(정규직 주40/주35·계약직 일반/단기) 중 선택 + 비밀유지·개인정보동의서
@@ -887,23 +894,32 @@ export default function ContractsPage() {
     return months < 12;
   })();
   const dropSeverance = resignUnderOneYear === true && !forceSeverance;   // 실제로 빼는가
+  // 퇴사 패키지에 실제로 들어가는 문서(#203) — 사직원 고정, 나머지는 고른 것만, 퇴직금은 근속 1년 미만이면 자동 제외
+  const resignIncluded = resignTemplates.map((t, i) => !!t && (i === 0 || resignPicks[i]) && !(i === 2 && dropSeverance));
+  const resignCount = resignIncluded.filter(Boolean).length;
 
   // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
-  const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false) => {
-    setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
-    lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
-    setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setEmployeeFillFields([]); setFieldSettings({}); setFieldTypes({}); setTransferCustom(false);
+  // keepValues: 퇴사 패키지 「문서 고르기」처럼 입력 도중 문서 구성만 바뀔 때 — 입력값(퇴사일자 등)은 지우지 않고 칸 목록만 갈아끼운다(10/14 검증 1)
+  const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false, withNda = true, picks: boolean[] = resignPicks, keepValues = false) => {
+    const seq = ++scanSeqRef.current;   // 연달아 바꾸면 마지막 호출만 반영(먼저 끝난 옛 스캔이 덮지 않게)
+    if (!keepValues) {
+      setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
+      lastAutoEnd.current = ""; // 종료일 자동값 추적도 리셋
+      setExtraFields({}); setContractKind("신규입사"); setTransferCustom(false);
+    }
+    setTemplateFields([]); setTemplateConditions([]); setFieldConditions({}); setEmployeeFillFields([]); setFieldSettings({}); setFieldTypes({});
     const ids = [templateId];
     if (includeBundle) {
-      if (ndaTemplate) ids.push(ndaTemplate.id);
+      if (ndaTemplate && withNda) ids.push(ndaTemplate.id);   // 신규입사 패키지(#202)는 비밀유지서약서를 넣지 않는다(코디·외부 패키지는 넣는다)
       if (privacyTemplate) ids.push(privacyTemplate.id);
     }
     if (resignScan) {
-      for (const t of resignTemplates) if (t && !ids.includes(t.id)) ids.push(t.id);
+      resignTemplates.forEach((t, i) => { if (t && picks[i] && !ids.includes(t.id)) ids.push(t.id); });   // 고른 문서만(#203)
     }
     const results = await Promise.all(
       ids.map(id => fetch(`/api/contract-templates/${id}/fields${externalMode ? "?external=1" : ""}`).then(r => r.json()).catch(() => ({})))
     );
+    if (seq !== scanSeqRef.current) return;   // 그 사이 다른 스캔이 시작됐다
     const fields: string[] = [];
     const conditions: string[] = [];
     const empFill: string[] = [];
@@ -973,7 +989,7 @@ export default function ContractsPage() {
     if (template) {
       setSelectedTemplate(templateId);
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
-      scanFields(templateId, bundleMode || extBundleMode, resignBundleMode);
+      scanFields(templateId, bundleMode || extBundleMode, resignBundleMode, !bundleMode);
     }
   };
 
@@ -1400,13 +1416,11 @@ export default function ContractsPage() {
         const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
         try {
           let res: Response;
-          if (bundleMode && ndaTemplate && privacyTemplate) {
+          if (bundleMode && privacyTemplate) {
             const items = [
               { templateId: selectedTemplate, title, type: "EMPLOYMENT",
                 startDate: rowStart, endDate: rowEnd, salary: rowSalary,
                 extraFields: per, employeeOnly: false },
-              { templateId: ndaTemplate.id, title: `${titlePrefix(emp.id)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
-                extraFields: per, employeeOnly: true },
               { templateId: privacyTemplate.id, title: `${titlePrefix(emp.id)} 개인정보수집이용동의서`, type: "OTHER",
                 extraFields: { ...per, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
             ];
@@ -1432,7 +1446,7 @@ export default function ContractsPage() {
       }
       setUploading(false);
       if (failed.length) toast.error(`${ok}명 작성 완료, 실패: ${failed.join(", ")}`);
-      else toast.success(`${ok}명에게 ${bundleMode ? "신규입사 패키지 3종이" : "계약서가"} 작성되었습니다. 목록에서 각각 발송해주세요.`);
+      else toast.success(`${ok}명에게 ${bundleMode ? "신규입사 패키지 2종이" : "계약서가"} 작성되었습니다. 목록에서 각각 발송해주세요.`);
       // 실패한 사람이 있으면 창을 닫지 않는다 — 개인별 값을 고쳐 그 사람만 다시 작성할 수 있게
       if (failed.length) {
         setBulkUserIds(ids => ids.filter(id => failedIds.includes(id)));   // 실패한 사람만(이름이 아니라 id 로 — 김철/김철수 혼동 방지)
@@ -1546,14 +1560,14 @@ export default function ContractsPage() {
       const empName = resignEmp?.name || "";
       const prefix = `${year}${resignEmp?.branch ? ` ${resignEmp.branch}` : ""} ${empName}`; // 지점 포함 (동명이인 대비)
       const [rSajik, rGeum, rToejikgeum, rYeoncha, rNda] = resignTemplates as NonNullable<typeof resignTemplates[number]>[];
+      // 고른 문서만(#203, 이예지 답 10/14: 기본은 사직원·비밀유지서약서, 나머지는 필요할 때 체크). 퇴직금은 근속 1년 미만이면 자동 제외(#213-7)
       const items = [
         { templateId: rSajik.id, title: `${prefix} 사직원`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        { templateId: rGeum.id, title: `${prefix} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
-        // 근속 1년 미만이면 퇴직금 정산 신청서는 넣지 않는다(#213-7)
-        ...(dropSeverance ? [] : [{ templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }]),
-        { templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false },
+        ...(resignIncluded[1] ? [{ templateId: rGeum.id, title: `${prefix} 금품청산 지급기일연장 동의서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }] : []),
+        ...(resignIncluded[2] ? [{ templateId: rToejikgeum.id, title: `${prefix} 퇴직금 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }] : []),
+        ...(resignIncluded[3] ? [{ templateId: rYeoncha.id, title: `${prefix} 연차수당 정산 신청서`, type: "OTHER", extraFields: allExtra, employeeOnly: false }] : []),
         // 비밀유지서약서(퇴직시) — 결재표(원장·본부)가 서식에 추가되어 결재라인을 태운다 (QA 2026-08-25)
-        { templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false },
+        ...(resignIncluded[4] ? [{ templateId: rNda.id, title: `${prefix} 비밀유지서약서(퇴직)`, type: "CONFIDENTIAL", extraFields: allExtra, employeeOnly: false }] : []),
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1562,11 +1576,11 @@ export default function ContractsPage() {
       const data = await res.json();
       setUploading(false);
       if (!res.ok) { toast.error(data.error || "퇴사 패키지 생성 실패"); return; }
-      toast.success(dropSeverance
-        ? "퇴사 패키지 4종이 작성되었습니다(근속 1년 미만 — 퇴직금 정산 신청서 제외). 사직원에서 발송하면 함께 발송됩니다."
-        : "퇴사 패키지 5종이 작성되었습니다. 사직원에서 발송하면 5종이 함께 발송됩니다.");
+      toast.success(items.length === 1
+        ? "사직원만 작성되었습니다(고른 문서 없음). 사직원에서 발송해 주세요."
+        : `퇴사 패키지 ${items.length}종이 작성되었습니다${resignPicks[2] && dropSeverance ? "(근속 1년 미만 — 퇴직금 정산 신청서 제외)" : ""}. 사직원에서 발송하면 함께 발송됩니다.`);
       setCreateOpen(false);
-      setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setForceSeverance(false); setEmployeeSearchText("");
+      setUseTemplate(false); setSelectedTemplate(""); setResignBundleMode(false); setForceSeverance(false); setResignPicks([...RESIGN_PICK_DEFAULT]); setEmployeeSearchText("");
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
       setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
       fetchContracts();
@@ -1575,7 +1589,7 @@ export default function ContractsPage() {
 
     // 신규입사 패키지: 근로계약서 + 비밀유지 + 개인정보동의서를 한 묶음으로 생성
     // 대표 문서는 반드시 에듀플렉스 근로계약서 (코디 계약서가 섞이지 않도록 서버 전송 직전 재확인)
-    if (bundleMode && useTemplate && selectedTemplate && ndaTemplate && privacyTemplate) {
+    if (bundleMode && useTemplate && selectedTemplate && privacyTemplate) {
       if (empTemplate && selectedTemplate !== empTemplate.id) {
         toast.error("신규입사 패키지는 에듀플렉스 근로계약서로만 발송할 수 있습니다.");
         setUploading(false);
@@ -1592,8 +1606,6 @@ export default function ContractsPage() {
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
           startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
           extraFields: allExtra, employeeOnly: false },
-        { templateId: ndaTemplate.id, title: `${titlePrefix(createForm.userId)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
-          extraFields: allExtra, employeeOnly: true },
         { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} 개인정보수집이용동의서`, type: "OTHER",
           // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
@@ -1605,7 +1617,7 @@ export default function ContractsPage() {
       const data = await res.json();
       setUploading(false);
       if (!res.ok) { toast.error(data.error || "패키지 생성 실패"); return; }
-      toast.success("신규입사 패키지 3종이 작성되었습니다. 근로계약서에서 발송하면 3종이 함께 발송됩니다.");
+      toast.success("신규입사 패키지 2종이 작성되었습니다. 근로계약서에서 발송하면 개인정보수집이용동의서가 함께 발송됩니다.");
       setCreateOpen(false);
       setUseTemplate(false); setSelectedTemplate(""); setBundleMode(false); setEmployeeSearchText("");
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
@@ -2178,17 +2190,17 @@ ${url}`;
                                 const et = empTemplate;
                                 setSelectedTemplate(et.id);
                                 setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, true), type: et.type }));
-                                scanFields(et.id, true);
+                                scanFields(et.id, true, false, false);
                               } else if (!checked && selectedTemplate) {
                                 scanFields(selectedTemplate, false);
                               }
                             }} />
-                          신규입사 패키지로 함께 발송 (3종)
+                          신규입사 패키지로 함께 발송 (2종)
                         </label>
                         {bundleMode && (
                           <p className="text-[11px] text-emerald-700 pl-6">
-                            근로계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
-                            비밀유지·개인정보동의서는 <b>직원 서명만</b> 받으며 해당 직원에게만 표시됩니다.
+                            근로계약서 + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
+                            개인정보동의서는 <b>직원 서명만</b> 받으며 해당 직원에게만 표시됩니다. 비밀유지서약서는 채용 단계 「[채용] 비밀유지서약서」로 따로 보냅니다(2026-10-14 본부 확인).
                           </p>
                         )}
                       </div>
@@ -2201,34 +2213,50 @@ ${url}`;
                           <input type="checkbox" checked={resignBundleMode}
                             onChange={e => {
                               const checked = e.target.checked;
-                              setResignBundleMode(checked); setForceSeverance(false);
+                              setResignBundleMode(checked); setForceSeverance(false); setResignPicks([...RESIGN_PICK_DEFAULT]);
                               if (checked) { setCodiBundleMode(false); setBulkMode(false); setBulkUserIds([]); } // 일괄과 병용 불가 (검증관 2026-08-26)
                               const sajik = resignTemplates[0];
                               if (checked && sajik) {
                                 // 사직원을 대표 문서로 자동 선택 + 5종 필드 합집합 스캔
                                 setSelectedTemplate(sajik.id);
                                 setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, sajik.id, false, true), type: sajik.type }));
-                                scanFields(sajik.id, false, true);
+                                scanFields(sajik.id, false, true, true, [...RESIGN_PICK_DEFAULT]);
                               } else if (selectedTemplate) {
                                 scanFields(selectedTemplate, false, false);
                               }
                             }} />
-                          퇴사 패키지로 함께 발송 ({dropSeverance ? "4종" : "5종"})
+                          퇴사 패키지로 함께 발송 ({resignCount}종)
                         </label>
                         {resignBundleMode && (
+                          <div className="pl-6 space-y-1">
+                            <p className="text-[11px] text-rose-700">보낼 문서를 고르세요(#203). 사직원은 대표 문서라 항상 들어갑니다. 고른 문서는 <b>전부</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.</p>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-rose-900">
+                              {RESIGN_DOC_LABELS.map((label, i) => (
+                                <label key={label} className={`inline-flex items-center gap-1 ${i === 0 ? "opacity-70" : "cursor-pointer"}`}>
+                                  <input type="checkbox" checked={i === 0 ? true : resignPicks[i]} disabled={i === 0}
+                                    onChange={e => {
+                                      const next = resignPicks.map((v, j) => (j === i ? e.target.checked : v));
+                                      setResignPicks(next);
+                                      if (selectedTemplate) scanFields(selectedTemplate, false, true, true, next, true);   // 고른 문서의 입력란만 보이게(입력값은 유지)
+                                    }} />
+                                  {label}{i === 2 && dropSeverance && resignPicks[2] ? " (1년 미만 — 자동 제외)" : ""}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {resignBundleMode && resignPicks[2] && resignUnderOneYear !== false && (
                           <p className="text-[11px] text-rose-700 pl-6">
-                            사직원 + 금품청산 동의서 + {dropSeverance ? "연차수당 정산 신청서" : "퇴직금·연차수당 정산 신청서"} + 비밀유지서약서(퇴직시)를 한 번에 발송합니다.
-                            <b>전부</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.
                             {resignUnderOneYear === true && (
                               <>
-                                <br /><b>근속 1년 미만</b>(입사일 ~ 퇴사일자 다음 날)이라 퇴직금 정산 신청서는 {forceSeverance ? "넣습니다(직접 포함)" : <>빼고 <b>4종</b>으로 작성합니다</>}.
+                                <b>근속 1년 미만</b>(입사일 ~ 퇴사일자 다음 날)이라 퇴직금 정산 신청서는 {forceSeverance ? "넣습니다(직접 포함)" : <>자동으로 뺍니다</>}.
                                 <label className="ml-2 inline-flex items-center gap-1 cursor-pointer">
                                   <input type="checkbox" checked={forceSeverance} onChange={e => setForceSeverance(e.target.checked)} />
                                   그래도 퇴직금 정산 신청서 포함
                                 </label>
                               </>
                             )}
-                            {resignUnderOneYear === null && <><br />퇴사일자를 넣으면 근속 1년 미만 여부를 판정해 퇴직금 정산 신청서를 자동으로 뺍니다.</>}
+                            {resignUnderOneYear === null && <>퇴사일자를 넣으면 근속 1년 미만 여부를 판정해 퇴직금 정산 신청서를 자동으로 뺍니다.</>}
                           </p>
                         )}
                       </div>
@@ -2734,8 +2762,9 @@ ${url}`;
                           if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
                           // 패키지 모드면 포함 문서 전체를 한 PDF 로 이어 미리보기 (#117)
                           const pkgIds =
-                            resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.map(t => t!.id)
-                            : (bundleMode || extBundleMode || codiBundleMode) && ndaTemplate && privacyTemplate ? [selectedTemplate, ndaTemplate.id, privacyTemplate.id]
+                            resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.filter((_, i) => resignIncluded[i]).map(t => t!.id)
+                            : bundleMode && privacyTemplate ? [selectedTemplate, privacyTemplate.id]
+                            : (extBundleMode || codiBundleMode) && ndaTemplate && privacyTemplate ? [selectedTemplate, ndaTemplate.id, privacyTemplate.id]
                             : [selectedTemplate];
                           const res = await fetch("/api/contracts/preview", {
                             method: "POST", headers: { "Content-Type": "application/json" },
