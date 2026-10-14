@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
 
 const workNavItems = [
@@ -16,6 +16,7 @@ const workNavItems = [
   { href: "/work/meeting", label: "화상회의", icon: Video },
   { href: "/work/submissions", label: "자료제출", icon: FileUp }, // 2026-09-13 디렉터 승인 기획 1단계
   { href: "/work/marketing", label: "마케팅 자료", icon: Camera }, // 2026-09-14 본부장 과제 — 지점 마케팅 자료 올리기 → 큐브마케팅 블로그 발행
+  { href: "/work/admission", label: "입학정보", icon: GraduationCap }, // 2026-10-14 디렉터 지시 — 고입 기본계획(2027 서울·경기, 진학입시EX 묶음) 확인용
 ];
 
 // 직영 포털 바로가기 (2026-09-18 직영 주간회의 건의 — 이예지 대리, 본부장 지시).
