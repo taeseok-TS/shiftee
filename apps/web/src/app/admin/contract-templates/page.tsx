@@ -271,6 +271,15 @@ export default function ContractTemplatesPage() {
         </Button>
       </div>
 
+      {/* 편집기 입구 안내(10/14) — PDF 양식은 끌어다 놓는 편집기, 워드 양식은 {칸} 태그+칸 설정 */}
+      <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2 text-xs text-violet-900 flex items-start gap-2">
+        <LayoutTemplate size={14} className="mt-0.5 shrink-0" />
+        <p>
+          <b>PDF 양식</b>은 「새 템플릿 만들기」에서 PDF 를 올린 뒤, 카드의 <b>「칸 배치 편집기」</b>에서 입력칸·서명칸을 PDF 위에 끌어다 놓습니다(모두싸인 방식).
+          <b> 워드(.docx) 양식</b>은 문서 안에 {"{직원명}"} 같은 {"{칸}"} 태그를 쓰고, 「수정 &gt; 칸 설정」에서 칸마다 채우는 방식·필수를 정합니다.
+        </p>
+      </div>
+
       {/* 묶음으로 거르기(#214-5) — 근로계약서 / 입사 서류 / 휴가·근태 신청서 / 퇴사 서류 / 기타(이름으로 자동 분류) */}
       <div className="flex flex-wrap gap-1.5">
         <button type="button" onClick={() => setCatFilter(null)}
@@ -355,10 +364,15 @@ export default function ContractTemplatesPage() {
                   <a href={template.fileUrl} download className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Download size={12} />원본 내려받기</a>
                   <button type="button" onClick={() => openHistory(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><History size={12} />버전 이력</button>
                   <button type="button" onClick={() => copyTemplate(template)} className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Copy size={12} />사본 만들기</button>
-                  {/\.pdf$/i.test(template.fileUrl) && (
+                  {/\.pdf$/i.test(template.fileUrl) ? (
                     <a href={`/admin/contract-templates/${template.id}/layout`} className="inline-flex items-center gap-1 text-violet-700 hover:underline" title="PDF 위에 입력칸·서명칸을 끌어다 놓습니다(#22)">
                       <LayoutTemplate size={12} />칸 배치 편집기{template.layout ? "" : " (아직 없음)"}
                     </a>
+                  ) : (
+                    // 워드 양식에도 자리를 보여 줘야 담당자가 편집기의 존재를 안다(10/14 디렉터 「어디에 있다는 거야?」)
+                    <span className="inline-flex items-center gap-1 text-gray-400 cursor-help" title="끌어다 놓는 편집기는 PDF 양식에서 씁니다. 워드(.docx) 양식은 문서 안 {칸} 태그와 「수정 > 칸 설정」으로 정합니다.">
+                      <LayoutTemplate size={12} />칸 배치 편집기 — PDF 양식에서
+                    </span>
                   )}
                 </div>
                 <div className="flex gap-2">
