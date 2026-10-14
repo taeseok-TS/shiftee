@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import fs from "fs/promises";
 import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, layoutForContractFile, type Signer } from "@/lib/signed-doc";
+import { bufferCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
 
 // Buffer 는 런타임상 Uint8Array 지만 NextResponse 의 BodyInit 타입과 안 맞는다.
 // 복사 없이 같은 메모리를 가리키는 뷰로 넘긴다(큰 PDF 를 두 벌 만들지 않게).
@@ -132,6 +133,10 @@ export async function GET(
         });
       }
       // PDF 로 달라는데 저장본이 워드면 그 저장본을 변환해 준다(재합성이 아니라 변환이다)
+      // 변환 결과 디스크 캐시(#179 잔여, 10/14) — 저장본 바이트가 같으면 변환기를 다시 부르지 않는다(완료본은 불변이라 거의 항상 맞는다)
+      const key0 = bufferCacheKey(sbuf, "docx|signed-stored");
+      const hit0 = await readCachedPdf(key0);
+      if (hit0) return await pdfResponse(hit0, contract.title + suffix + ".pdf");
       const fd0 = new FormData();
       fd0.append("files", new Blob([new Uint8Array(sbuf)]), "document.docx");
       // 변환기가 꺼져 있으면 fetch 가 **예외**를 던진다 — 오류 응답과 똑같이 "변환 실패"로 본다.
@@ -142,7 +147,7 @@ export async function GET(
         // 제한 시간 60초 — 변환기가 응답 없이 멈추면 요청도 같이 멈췄다. 넘기면 예외 → 아래에서 변환 실패로 처리
         const g0 = await fetch(`${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`, { method: "POST", body: fd0, signal: AbortSignal.timeout(60_000) });
         convStatus = g0.status;
-        if (g0.ok) pdf0 = Buffer.from(await g0.arrayBuffer());
+        if (g0.ok) { pdf0 = Buffer.from(await g0.arrayBuffer()); void writeCachedPdf(key0, pdf0); }   // 저장은 응답을 막지 않는다
       } catch (ce) {
         convStatus = ce instanceof Error ? ce.message : String(ce);
       }
@@ -172,13 +177,17 @@ export async function GET(
       const buf = await buildSignedDocx(diskPath(orig!), contract.title, signers);
       if (wantPdf) {
         try {
+          // 변환 결과 디스크 캐시(#179 잔여, 10/14) — 서명을 얹은 워드 바이트가 같으면(generateDeterministic) 변환을 건너뛴다
+          const key = bufferCacheKey(buf, "docx|signed-rebuilt");
+          const hit = await readCachedPdf(key);
+          if (hit) return await pdfResponse(hit, contract.title + suffix + ".pdf");
           const fd = new FormData();
           fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
           const gres = await fetch(
             `${process.env.GOTENBERG_URL || "http://gotenberg:3000"}/forms/libreoffice/convert`,
             { method: "POST", body: fd, signal: AbortSignal.timeout(60_000) } // 제한 시간 — 넘기면 catch 로(워드 또는 503)
           );
-          if (gres.ok) return await pdfResponse(Buffer.from(await gres.arrayBuffer()), contract.title + suffix + ".pdf");
+          if (gres.ok) { const pdf = Buffer.from(await gres.arrayBuffer()); void writeCachedPdf(key, pdf); return await pdfResponse(pdf, contract.title + suffix + ".pdf"); }
           console.error("PDF 변환 실패(gotenberg):", gres.status, await gres.text().catch(() => ""));
         } catch (e) {
           console.error("PDF 변환 오류(gotenberg):", e);
