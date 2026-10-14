@@ -74,12 +74,11 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const branchBox = useRef<HTMLDivElement>(null);
   // 주말 근무 엑셀(본부, #86) — 기본 기간 전월 20일 ~ 당월 19일(KST)
-  // 기본은 **이미 끝난** 정산 기간 — 20일부터는 전월 20일~당월 19일, 그 전엔 전전월 20일~전월 19일
+  // 날짜와 상관없이 늘 전월 20일~당월 19일(2026-10-14 QA 지적으로 확정 — 전엔 20일 전이면 전전월 기간을 보여 줘 헷갈렸다)
   const [wk, setWk] = useState(() => {
     const k = new Date(Date.now() + 9 * 3600_000);
-    const shift = k.getUTCDate() >= 20 ? 0 : -1;
-    const start = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() - 1 + shift, 20));
-    const end = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() + shift, 19));
+    const start = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() - 1, 20));
+    const end = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 19));
     return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
   });
 

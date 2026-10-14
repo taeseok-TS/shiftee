@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   CalendarCheck,
   ChevronDown,
+  History,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ size?: number; className?: string }> };
@@ -65,6 +66,7 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
   ] },
   { key: "settings", title: "설정", items: [
     { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
+    { href: "/admin/audit", label: "변경 로그", icon: History }, // 업무 변경은 모든 관리자, 시스템·보안 탭은 최고관리자(2026-10-14 #66 후속)
     { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
     { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
     { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)

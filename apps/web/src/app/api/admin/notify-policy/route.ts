@@ -55,7 +55,7 @@ export async function PATCH(request: NextRequest) {
     await logAudit({
       actorId: session.userId,
       actorName: session.name || session.email || session.userId,
-      action: "시스템 알림 수신자 변경",
+      action: "NOTIFY_TARGETS_UPDATE",   // 이름표는 lib/audit-labels.ts(2026-10-14 전엔 한글 문장이 코드 자리에 있었다)
       targetType: "AppSetting",
       targetId: "notifyTargets.system",
       detail: ids2.length ? names.map((n) => n.name).join(", ") : "(비움 - 관리자 전원 수신)",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 
 type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null; isContractApprover?: boolean };
-type LogRow = { id: string; actorName: string; action: string; targetName: string | null; detail: string | null; createdAt: string };
 type LoginFailRow = { id: string; email: string; userName: string | null; reason: string; deviceName: string | null; platform: string | null; createdAt: string };
 const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   UNKNOWN_EMAIL: { label: "없는 이메일", tip: "이메일 오타 가능성 — 정확한 주소를 안내" },
@@ -20,44 +20,6 @@ const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   LOCKED: { label: "잠김(여러 번 틀림)", tip: "15분 안에 10번 틀려 최대 15분 잠김 — 본인이 로그인 화면 「비밀번호를 잊으셨나요?」로 재설정하면 바로 풀림(관리자 초기화는 본인 확인 후에만: 남이 잠근 것일 수 있다)" },
 };
 
-const ACTION_LABEL: Record<string, string> = {
-  SCHEDULE_TEMPLATE_CREATE: "근무일정 템플릿 추가",
-  SCHEDULE_TEMPLATE_UPDATE: "근무일정 템플릿 수정",
-  SCHEDULE_SELF_CHANGE: "원장 본인 근무일정 변경",
-  ATTENDANCE_REQUEST_DECISION: "출퇴근 요청 처리",
-  APPROVAL_DELEGATE_CREATE: "원장대행 지정",
-  APPROVAL_DELEGATE_REVOKE: "원장대행 해제",
-  LEAVE_BALANCE_UPDATE: "연차 수정",
-  EMPLOYEE_UPDATE: "직원 정보 수정",
-  EMPLOYEE_CREATE: "직원 생성",
-  EMPLOYEE_DELETE: "직원 비활성화",
-  EMPLOYEE_RESIGN: "퇴사 처리",
-  EMPLOYEE_RESTORE: "직원 복구",
-  LEAVE_DECISION: "휴가 결재",
-  SCHEDULE_DECISION: "근무일정 결재",
-  CONTRACT_DELETE: "계약서 삭제",
-  DEVICE_REREGISTER: "기기 재등록(앱 재설치)",
-  DEVICE_RESET: "기기 초기화",
-  HOLIDAY_ADD: "공휴일 등록",
-  HOLIDAY_DELETE: "공휴일 삭제",
-  // ⚠ 새 action 을 만들면 여기도 함께 늘릴 것 — 빠지면 화면에 영문 코드로 뜬다.
-  BRANCH_RENAME: "지점명 변경",
-  BRANCH_MAIN_MANAGER: "메인 원장 변경",
-  LEAVE_CANCEL: "휴가 취소",
-  LEAVE_CANCEL_REQUEST: "휴가 취소 요청",
-  LEAVE_CANCEL_DECISION: "휴가 취소 결재",
-  LEAVE_PROXY_CREATE: "휴가 대리 등록",
-  CONTRACT_MESSAGE_UPDATE: "전자계약 기본 메시지 변경",
-  CONTRACT_TEMPLATE_COPY: "계약서 템플릿 사본",
-  CONTRACT_TEMPLATE_UPDATE: "계약서 템플릿 수정",
-  LEAVE_TYPE_CREATE: "휴가 유형 추가", LEAVE_TYPE_UPDATE: "휴가 유형 수정", LEAVE_TYPE_DELETE: "휴가 유형 삭제", LEAVE_TYPE_HIDE: "기본 휴가 유형 숨김",
-  CONTRACT_EXPORT: "계약 일괄 내려받기",
-  LEAVE_CANCEL_WITHDRAW: "휴가 취소 요청 철회",
-  LEAVE_CANCEL_EXPIRE: "휴가 취소 요청 기한 만료",
-  LEAVE_LEDGER_PDF: "연차 대장 PDF 내려받기",
-  SCHEDULE_CANCEL: "근무일정 신청 취소",
-  ATTENDANCE_AUTO_CLOSE: "전일 미마감 자동 마감",
-};
 
 /** 9 → "9시간", 9.5 → "9시간 30분" */
 function fmtHours(h: number): string {
@@ -121,15 +83,14 @@ export default function AdminSettingsPage() {
     } finally { setClockOutSaving(false); }
   };
   const [admins, setAdmins] = useState<AdminRow[]>([]);
-  const [logs, setLogs] = useState<LogRow[]>([]);
   const [loginFails, setLoginFails] = useState<LoginFailRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const loadSummary = () => {
     setLoadingData(true);
     fetch("/api/admin/summary")
-      .then((r) => (r.ok ? r.json() : { admins: [], logs: [] }))
-      .then((d) => { setAdmins(d.admins || []); setLogs(d.logs || []); setLoginFails(d.loginFails || []); })
+      .then((r) => (r.ok ? r.json() : { admins: [], loginFails: [] }))
+      .then((d) => { setAdmins(d.admins || []); setLoginFails(d.loginFails || []); })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   };
@@ -375,42 +336,14 @@ export default function AdminSettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 변경 로그 */}
+      {/* 변경 로그는 /admin/audit 로 옮겼다(2026-10-14 #66 후속) — 업무 변경은 모든 관리자, 시스템·보안 탭은 최고관리자 */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>변경 로그 <span className="text-sm font-normal text-gray-500">· 최근 100건</span></CardTitle>
+          <CardTitle>변경 로그</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          {loadingData ? (
-            <p className="p-4 text-sm text-gray-400">불러오는 중…</p>
-          ) : logs.length === 0 ? (
-            <p className="p-4 text-sm text-gray-400">기록된 변경 이력이 없습니다.</p>
-          ) : (
-            <div className="max-h-96 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0">
-                  <tr className="border-b text-xs text-gray-500 bg-gray-50 text-left">
-                    <th className="px-4 py-2 font-medium w-36">시간</th>
-                    <th className="px-4 py-2 font-medium">행위자</th>
-                    <th className="px-4 py-2 font-medium">작업</th>
-                    <th className="px-4 py-2 font-medium">내용</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((l) => (
-                    <tr key={l.id} className="border-b last:border-0 align-top">
-                      <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmt(l.createdAt)}</td>
-                      <td className="px-4 py-2 text-gray-900 whitespace-nowrap">{l.actorName}</td>
-                      <td className="px-4 py-2 whitespace-nowrap">
-                        <span className="text-xs rounded px-2 py-0.5 bg-blue-50 text-blue-700">{ACTION_LABEL[l.action] || l.action}</span>
-                      </td>
-                      <td className="px-4 py-2 text-gray-700">{l.detail || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <CardContent className="text-sm text-gray-600">
+          관리자 변경 기록은 <Link href="/admin/audit" className="text-indigo-600 underline underline-offset-2">설정 › 변경 로그</Link> 화면에서 봅니다.
+          업무 변경 기록은 모든 관리자가 보고, 시스템·보안 기록(비밀번호 재설정·권한 설정·API 키·포털 연동·출퇴근 정책)은 최고관리자에게만 탭으로 보입니다.
         </CardContent>
       </Card>
 

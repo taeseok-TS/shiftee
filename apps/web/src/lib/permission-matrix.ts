@@ -59,7 +59,8 @@ export const PERMISSION_MATRIX: PermSection[] = [
   { title: "지점·설정", rows: [
     { feature: "지점 관리(좌표·통계 포함 여부)", admin: "all", manager: "no", employee: "no", note: "원장은 지점 목록 보기만(직원은 목록도 없음)", basis: "api/branches" },
     { feature: "공휴일 관리(대체휴무 부여 지정 포함)", admin: "all", manager: "no", employee: "no", basis: "api/holidays" },
-    { feature: "시스템 설정·감사 로그·봇 브리핑·이모티콘·API 키", admin: "all", manager: "no", employee: "no", note: "관리자 계정 관리는 메인 관리자만", basis: "app/admin/*" },
+    { feature: "변경 로그(업무 변경)", admin: "all", manager: "no", employee: "no", note: "시스템·보안 기록 탭은 메인 관리자만(2026-10-14 #66 후속)", basis: "app/admin/audit, api/admin/audit" },
+    { feature: "시스템 설정·봇 브리핑·이모티콘·API 키", admin: "all", manager: "no", employee: "no", note: "관리자 계정 관리·로그인 실패 기록은 메인 관리자만", basis: "app/admin/*" },
     { feature: "개선 제안", admin: "제출·관리", manager: "제출", employee: "제출", basis: "api/suggestions" },
   ] },
 ];
