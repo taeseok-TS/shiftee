@@ -125,6 +125,7 @@ export default function AttendancePage() {
   const [selectedUser, setSelectedUser] = useState("me");
   const [selectedBranch, setSelectedBranch] = useState(""); // "" = 지점별 조회 안 함
   const [myRole, setMyRole]           = useState("");   // "" = 아직 모름(역할을 알기 전엔 직원용 안내도 원장용 표도 그리지 않는다)
+  const [selfView, setSelfView]       = useState<boolean | null>(null);   // 직원 본인 열람 허용(권한 설정 #39) — null = 아직 모름
 
   /* 날짜 직접 입력 (input[type=date] 용) */
   const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -163,6 +164,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE")).catch(() => setMyRole("EMPLOYEE"));
+    fetch("/api/me/permissions").then(r => r.json()).then(d => setSelfView(d.permissions?.["employee.viewOwnAttendance"] === true)).catch(() => setSelfView(false));
     fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees || [])).catch(() => {});
   }, []);
 
@@ -270,9 +272,9 @@ export default function AttendancePage() {
 
       {/* 직원은 웹에서 본인 출퇴근 기록을 보지 않는다 — 시프티 설정 「직원 본인 출퇴근기록 열람 OFF」와 같게(2026-10-08 본부 답변 #3).
           출퇴근 찍기·오늘 상태·기록 수정 요청은 앱에서 한다. 원장(담당 지점)·본부 화면은 그대로 */}
-      {myRole === "" ? (
+      {myRole === "" || (myRole === "EMPLOYEE" && selfView === null) ? (
         <div className="py-10 text-center text-sm text-gray-400">불러오는 중…</div>
-      ) : myRole === "EMPLOYEE" ? (
+      ) : myRole === "EMPLOYEE" && !selfView ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-gray-500 space-y-2">
             <p className="font-medium text-gray-700">출퇴근은 큐브티 앱에서 합니다.</p>
@@ -312,7 +314,10 @@ export default function AttendancePage() {
                     </p>
                   </div>
                 </div>
-                {/* 버튼 */}
+                {/* 버튼 — 직원은 등록된 휴대폰 앱에서만 찍는다(기기 잠금). 웹 열람을 켜 줘도(#39) 버튼은 보이지 않는다 */}
+                {myRole === "EMPLOYEE" ? (
+                  <p className="text-xs text-gray-500 self-center">출근·퇴근은 큐브티 앱에서 찍습니다.</p>
+                ) : (
                 <div className="flex gap-3">
                   <Button onClick={() => handleClock("in")} disabled={clockLoading || !!todayRecord?.clockIn}
                     className="bg-green-600 hover:bg-green-700 gap-2" size="lg">
@@ -324,6 +329,7 @@ export default function AttendancePage() {
                     <LogOut size={18} />퇴근
                   </Button>
                 </div>
+                )}
               </div>
               {todayRecord && (
                 <div className="mt-4 pt-4 border-t flex items-center gap-3">

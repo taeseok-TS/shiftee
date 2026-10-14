@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isAllowed } from "@/lib/permission-settings";
 import {
   startOfDay, endOfDay,
   startOfWeek, endOfWeek,
@@ -67,6 +68,8 @@ export async function GET(request: NextRequest) {
   let userWhere: Record<string, unknown>;
   if (session.role === "EMPLOYEE") {
     userWhere = { userId: session.userId };
+  } else if (session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"))) {
+    userWhere = { userId: session.userId };   // 「지점 출퇴근 기록 열람」이 꺼지면 원장도 본인 통계만(권한 설정 #39)
   } else if (session.role === "MANAGER") {
     // 원장: 항상 담당 지점(대표+겸직) 한정. 지점별 조회면 지점 전체, 아니면 지정 직원(담당 지점일 때만)
     const myBranches = await getManagerBranches(session.userId);

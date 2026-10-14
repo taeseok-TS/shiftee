@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { breakHours } from "@/lib/schedule-payload";
+import { isAllowed } from "@/lib/permission-settings";
 
 // ─── 주 근로시간 49시간 경고(2026-10-07 QA #38, 본부 답변 #13) ─────────────────
 //  · 49시간을 **넘으면** 경고만 한다(막지 않는다)
@@ -84,8 +85,10 @@ export async function weeklyMinutes(userIds: string[], mondays: string[], propos
  * 저장(또는 신청)한 날짜가 든 주가 49시간을 넘으면 경고 문구를 돌려준다(빈 배열이면 문제없음).
  * entries: 이번에 바뀐 사람·날짜, proposed: 아직 저장 전이면 그 내용
  */
-export async function over49Warnings(entries: { userId: string; date: string }[], proposed?: Proposed): Promise<string[]> {
+export async function over49Warnings(entries: { userId: string; date: string }[], proposed?: Proposed, viewer?: { role: string }): Promise<string[]> {
   if (!entries.length) return [];
+  // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 원장에게는 실제 근로시간 문구를 보여 주지 않는다(일정 기준 경고만)
+  const hideActual = viewer?.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"));
   const userIds = [...new Set(entries.map((e) => e.userId))];
   const mondays = [...new Set(entries.map((e) => mondayOf(e.date)))];
   const mins = await weeklyMinutes(userIds, mondays, proposed);
@@ -95,10 +98,10 @@ export async function over49Warnings(entries: { userId: string; date: string }[]
   const out: string[] = [];
   for (const key of pairs) {
     const v = mins.get(key);
-    if (!v || (v.sched <= WEEK_LIMIT_MIN && v.actual <= WEEK_LIMIT_MIN)) continue;
+    if (!v || (v.sched <= WEEK_LIMIT_MIN && (hideActual || v.actual <= WEEK_LIMIT_MIN))) continue;
     const [u, mon] = key.split("|");
     const span = `${mon.slice(5).replace("-", "/")}~${plusDays(mon, 6).slice(5).replace("-", "/")}`;
-    const parts = [v.sched > WEEK_LIMIT_MIN ? `근무일정 ${h(v.sched)}` : "", v.actual > WEEK_LIMIT_MIN ? `실제 ${h(v.actual)}` : ""].filter(Boolean);
+    const parts = [v.sched > WEEK_LIMIT_MIN ? `근무일정 ${h(v.sched)}` : "", !hideActual && v.actual > WEEK_LIMIT_MIN ? `실제 ${h(v.actual)}` : ""].filter(Boolean);
     out.push(`${names.get(u) ?? "직원"} · ${span} 주 ${parts.join(", ")} — 주 49시간을 넘습니다`);
   }
   return out;

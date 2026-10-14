@@ -61,6 +61,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   });
 
   await noteManagerSelfChange(session, [schedule.userId], `${schedule.date.toISOString().slice(0, 10)} ${st}~${et}로 수정`);
-  const warnings = await over49Warnings([{ userId: schedule.userId, date: schedule.date.toISOString().slice(0, 10) }]).catch(() => [] as string[]);
+  const warnings = await over49Warnings([{ userId: schedule.userId, date: schedule.date.toISOString().slice(0, 10) }], undefined, session).catch(() => [] as string[]);
   return NextResponse.json({ success: true, schedule, warnings });
 }

@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
           if (branch) patch.branch = branch;
           if (str(row.jobGroup)) patch.jobGroup = str(row.jobGroup);
           if (str(row.position)) patch.position = str(row.position);
-          if (roleParsed) patch.role = roleParsed;
+          if (roleParsed && session.role === "ADMIN") patch.role = roleParsed;   // 원장은 역할을 못 바꾼다 — 개별 수정과 같게(10/14 #39 조사에서 적발)
           const hd = parseHireDate(row.hireDate);
           if (hd) patch.hireDate = hd;
           const bd = parseHireDate(row.birthDate);

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { calcStatus } from "@/lib/attendance-status";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { isAllowed } from "@/lib/permission-settings";
 
 // 출퇴근 기록 수동 생성 (관리자 전용) — 기록이 없는 날짜용
 // body: { userId | userIds: string[], date: "YYYY-MM-DD", clockIn?: string, clockOut?: string, preview?: boolean } (시각은 ISO 8601, 최소 1개)
@@ -98,6 +99,8 @@ export async function GET(request: NextRequest) {
   let userWhere: Record<string, unknown>;
   if (session.role === "EMPLOYEE") {
     userWhere = { userId: session.userId };
+  } else if (session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"))) {
+    userWhere = { userId: session.userId };   // 「지점 출퇴근 기록 열람」이 꺼지면 원장도 본인 기록만(권한 설정 #39)
   } else if (session.role === "MANAGER") {
     // 지정 userId가 담당 지점(대표+겸직) 소속인지 확인
     const myBranches = await getManagerBranches(session.userId);

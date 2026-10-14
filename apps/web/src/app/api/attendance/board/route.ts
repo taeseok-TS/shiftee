@@ -8,6 +8,7 @@ import { breakHours, isRealDate } from "@/lib/schedule-payload";
 import { LEAVE_TYPE_LABEL } from "@/lib/leave-cancel-flow";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { mondayOf, weeklyMinutes, WEEK_LIMIT_MIN } from "@/lib/weekly-hours";
+import { isAllowed } from "@/lib/permission-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role !== "ADMIN" && session.role !== "MANAGER") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"))) return NextResponse.json({ error: "지점 출퇴근 기록 열람이 꺼져 있습니다(본부 > 권한 설정)." }, { status: 403 });   // 권한 설정 #39
 
   const sp = new URL(request.url).searchParams;
   const from = sp.get("from") || "";

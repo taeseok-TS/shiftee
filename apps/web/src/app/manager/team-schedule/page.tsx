@@ -6,7 +6,7 @@ import { MultiPick } from "@/components/schedule/ScheduleControls";
 import { ScheduleEditDialog, ScheduleBulkDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
 import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
 import { sortEmployees, yearsOf } from "@/lib/schedule-view";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,11 +30,17 @@ export default function ManagerSchedulePage() {
   const [selBranches, setSelBranches] = useState<string[]>([]);
   // 일정 관리(2026-10-07 QA #18 #12) — 칸을 누르면 추가, 일정을 누르면 고치기·지우기
   const [edit, setEdit] = useState<EditTarget>(null);
+  const [canEdit, setCanEdit] = useState(true);   // 「원장 근무일정 직접 편집」 권한(#39) — 꺼지면 버튼·칸 편집을 숨긴다(실제 차단은 API)
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkKey, setBulkKey] = useState(0);   // 열 때마다 새 창(이전 선택이 남지 않게)
   const [me, setMe] = useState<{ id: string; name: string; branch: string | null } | null>(null);
 
   // 지점 정보
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/me/permissions").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d?.permissions) setCanEdit(d.permissions["manager.editSchedule"] !== false); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     fetch("/api/auth/me")
       .then(r => r.json())
@@ -136,14 +142,15 @@ export default function ManagerSchedulePage() {
           <h1 className="text-3xl font-bold text-gray-900">팀 근무일정</h1>
           <p className="text-gray-600 mt-1">{branch} - 팀원·본인 근무일정 관리 (칸을 누르면 추가, 일정을 누르면 고치기)</p>
         </div>
-        <div className="flex gap-2">
+        {!canEdit && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">본부가 원장의 근무일정 직접 편집을 꺼 두었습니다 — 변경은 「근무일정 신청」으로 해 주세요.</p>}
+        {canEdit && <div className="flex gap-2">
           <Button variant="outline" className="gap-1" onClick={() => setEdit({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00" })}>
             <Plus size={15} />일정 추가
           </Button>
           <Button className="gap-1" onClick={() => { setBulkKey((k) => k + 1); setBulkOpen(true); }}>
             <CalendarRange size={15} />일괄 생성
           </Button>
-        </div>
+        </div>}
       </div>
 
       {/* 날짜 네비게이션 + 보기 전환(#71) + 검색 */}
@@ -171,8 +178,8 @@ export default function ManagerSchedulePage() {
         <CardContent className="p-0">
           <ScheduleBoard view={view} employees={filteredEmployees} schedules={schedules} loading={loading}
             holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} branchColor={branchColor}
-            onEmptyCell={(userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" })}
-            onSchedule={(s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null })} />
+            onEmptyCell={canEdit ? (userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" }) : undefined}
+            onSchedule={canEdit ? (s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null }) : undefined} />
         </CardContent>
       </Card>
 

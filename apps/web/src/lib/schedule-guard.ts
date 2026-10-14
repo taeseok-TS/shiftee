@@ -18,6 +18,7 @@
 // 동시에 무력화**할 수 있다(00:00~23:59 로 넣으면 상한이 24시간 44분이 된다).
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { isAllowed } from "@/lib/permission-settings";
 
 type Session = { userId: string; role: string };
 
@@ -29,6 +30,8 @@ export async function guardScheduleChange(
 ): Promise<string | null> {
   if (session.role === "ADMIN") return null;
   if (session.role !== "MANAGER") return "권한이 없습니다.";
+  // 본부가 「원장 근무일정 직접 편집」을 끄면(권한 설정 #39, 2026-10-14) 원장도 본인 것까지 신청·결재로만 바꾼다
+  if (!(await isAllowed("manager.editSchedule"))) return "원장의 근무일정 직접 편집이 꺼져 있습니다(본부 > 권한 설정). 근무일정 신청으로 처리해 주세요.";
 
   if (targetUserId === session.userId) return null;   // 본인 일정 — 허용하되 noteManagerSelfChange 로 남긴다
 

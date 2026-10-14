@@ -9,7 +9,7 @@ import { toast } from "sonner";
  *  · <WeekHoursLine>: 「주 일정 Xh · 실제 Yh」, 49시간을 넘으면 빨간색
  *  · showWeekWarnings: 저장 응답의 경고를 토스트로 — 많으면 앞 3건 + 「외 N건」
  */
-export type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sched: number; actual: number }> };
+export type WeekHours = { monday: string; limitMin: number; hours: Record<string, { sched: number; actual: number }>; actualHidden?: boolean };
 
 /** 월요일이 빈 문자열이면(일·월 보기, #71) 부르지 않고 null */
 export function useWeekHours(monday: string, reloadKey = 0) {
@@ -34,7 +34,7 @@ export function WeekHoursLine({ data, userId }: { data: WeekHours | null; userId
   return (
     <div className={`text-[11px] mt-0.5 ${over ? "text-red-600 font-semibold" : "text-gray-500"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
-      주 일정 {h(wh.sched)} · 실제 {h(wh.actual)}{over ? " ⚠49h 초과" : ""}
+      주 일정 {h(wh.sched)}{data.actualHidden ? "" : ` · 실제 ${h(wh.actual)}`}{over ? " ⚠49h 초과" : ""}
     </div>
   );
 }

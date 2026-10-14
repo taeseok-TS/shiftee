@@ -213,7 +213,7 @@ export async function applyScheduleImport(rowsIn: unknown[], actor: Actor, overw
     await logAudit({ actorId: actor.userId, actorName: actor.name, action: "SCHEDULE_IMPORT", targetType: "Schedule", targetId: batch, targetName: "근무일정 엑셀 업로드",
       detail: `새로 ${applied}건 · 덮어씀 ${overwritten}건 · 직원 ${people.length}명 · 기간 ${touched.map((r) => r.date).sort()[0]}~${touched.map((r) => r.date).sort().slice(-1)[0]}` });
   }
-  const warnings = touched.length ? await over49Warnings(touched.map((r) => ({ userId: r.matched!.userId, date: r.date }))).catch(() => [] as string[]) : [];
+  const warnings = touched.length ? await over49Warnings(touched.map((r) => ({ userId: r.matched!.userId, date: r.date })), undefined, actor).catch(() => [] as string[]) : [];
   const final = results.map((r) => (r.status === "ok" || r.status === "overwrite" ? { ...r, status: "applied" as const, message: r.status === "overwrite" ? "덮어씀" : "" } : r));
   return { batch: touched.length ? batch : null, applied, overwritten, skipped: results.length - touched.length, warnings, results: final };
 }

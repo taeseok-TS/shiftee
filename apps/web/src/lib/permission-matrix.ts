@@ -20,7 +20,7 @@ export const PERMISSION_MATRIX: PermSection[] = [
   ] },
   { title: "출퇴근", rows: [
     { feature: "출퇴근 찍기(앱)", admin: "na", manager: "self", employee: "self", note: "본부 직원은 큐브티 출퇴근 대상이 아님", basis: "api/attendance/clock-in·clock-out" },
-    { feature: "출퇴근 기록 보기(달력·목록)", admin: "all", manager: "branch", employee: "오늘 상태만(앱)", note: "직원은 앱에서 오늘 출근·퇴근과 누락만 본다. 웹 /attendance 의 본인 월별 기록 표는 숨김(2026-10-08 본부 답변 — 시프티 「직원 본인 출퇴근기록 열람 OFF」와 같게). 기록 수정은 앱에서 요청", basis: "api/attendance/board, app/(dashboard)/attendance(EMPLOYEE 가림)" },
+    { feature: "출퇴근 기록 보기(달력·목록)", admin: "all", manager: "branch", employee: "오늘 상태만(앱)", note: "직원은 기본으로 앱에서 오늘 출근·퇴근과 누락만 본다(2026-10-08 본부 답변 — 시프티 「직원 본인 출퇴근기록 열람 OFF」와 같게). 권한 설정에서 「본인 출퇴근 기록 열람(웹)」을 켜면 웹에서도 본인 기록·통계를 본다. 기록 수정은 앱에서 요청", basis: "api/attendance/board, app/(dashboard)/attendance(EMPLOYEE 가림)" },
     { feature: "출퇴근 기록 직접 수정·추가·누락 보정", admin: "all", manager: "no", employee: "no", note: "시프티 「원장 직접 수정 OFF」와 같음 — 원장은 수정 요청 승인만", basis: "api/attendance POST·[id] PATCH" },
     { feature: "출퇴근 요청 승인(지점 밖·사진·기록 수정·퇴근 누락)", admin: "all", manager: "branch", employee: "no", note: "본부처리·기기변경 요청은 본부만, 본인 요청은 처리 불가", basis: "lib/attendance-request canDecide" },
     { feature: "출퇴근 통계", admin: "all", manager: "branch", employee: "self", basis: "api/attendance/stats" },
@@ -30,7 +30,7 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "일정 보기", admin: "all", manager: "branch", employee: "self", note: "시프티 「직원 동료 일정 열람 OFF」와 같음", basis: "api/schedule GET" },
     { feature: "일정 추가·수정·삭제", admin: "all", manager: "branch", employee: "no", note: "원장은 같은 지점 다른 원장·본인 일정도(본부 답변 #7), 관리자 일정은 불가. 직원은 신청으로", basis: "lib/schedule-guard" },
     { feature: "일정 일괄 생성", admin: "all", manager: "branch", employee: "no", basis: "api/schedule/bulk" },
-    { feature: "근무일정 템플릿 관리", admin: "all", manager: "no", employee: "no", diff: "시프티는 원장 ON — 큐브티는 본부만(지점 전용 템플릿은 본부가 지점을 지정). 11월 설정 화면에서 결정", basis: "api/schedule-templates POST·PATCH·DELETE" },
+    { feature: "근무일정 템플릿 관리", admin: "all", manager: "no", employee: "no", diff: "시프티는 원장 ON — 큐브티는 본부만(지점 전용 템플릿은 본부가 지점을 지정). 원장용 관리 화면을 만들 때 설정으로 바꿀 수 있다", basis: "api/schedule-templates POST·PATCH·DELETE" },
     { feature: "근무일정 신청·수정/삭제 요청", admin: "self", manager: "self", employee: "self", note: "원장·본부도 신청할 수는 있으나 직접 등록이 기본(원장 신청은 메인 원장 → 본부 결재)", basis: "api/schedule-requests" },
     { feature: "일정 요청 결재", admin: "all", manager: "branch", employee: "no", note: "평일: 원장 1단계 / 주말·공휴일: 원장 → 본부(본부 답변 #4). 사람을 못박은 단계는 그 사람(+원장대행)만", basis: "api/schedule-requests/[id]/approve" },
   ] },

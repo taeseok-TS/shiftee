@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { isAllowed } from "@/lib/permission-settings";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate } from "@/lib/schedule-payload";
@@ -27,7 +28,9 @@ export async function GET(request: NextRequest) {
   ]);
   const ids = [...new Set([...s, ...a].map((x) => x.userId))];
   const mins = await weeklyMinutes(ids, [monday]);
+  // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 실제 근로시간은 내려보내지 않는다(10/14 검증 3)
+  const actualHidden = session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"));
   const hours: Record<string, { sched: number; actual: number }> = {};
-  for (const [key, v] of mins) hours[key.split("|")[0]] = v;
-  return NextResponse.json({ monday, limitMin: WEEK_LIMIT_MIN, hours });
+  for (const [key, v] of mins) hours[key.split("|")[0]] = actualHidden ? { sched: v.sched, actual: 0 } : v;
+  return NextResponse.json({ monday, limitMin: WEEK_LIMIT_MIN, hours, actualHidden });
 }

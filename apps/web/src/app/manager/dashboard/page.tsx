@@ -6,6 +6,7 @@ type TeamStats = {
   teamCount: number;
   attendance: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
   names?: { late: string[]; missing: string[]; earlyLeave: string[] };   // 누구인지(#215-6)
+  attendanceHidden?: boolean;   // 본부가 원장 출퇴근 열람을 꺼 둠(권한 설정 #39)
   pendingContracts: number;
   pendingApprovals: number;
   monthAbsent: number;
@@ -49,24 +50,25 @@ export default function ManagerDashboardPage() {
       {/* 오늘 팀 근무 현황 */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-3">오늘 팀 근무 현황</h3>
+        {stats?.attendanceHidden && <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">본부가 원장의 지점 출퇴근 기록 열람을 꺼 두어 출근·지각·미출근·조퇴는 표시하지 않습니다.</p>}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-gray-500 text-sm font-medium">출근</div>
             <div className="text-3xl font-bold text-blue-600 mt-2">
-              {stats ? stats.attendance.present : "--"}
+              {stats && !stats.attendanceHidden ? stats.attendance.present : "--"}
             </div>
           </div>
           <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">지각</div>
             <div className="text-3xl font-bold text-orange-600 mt-2">
-              {stats ? stats.attendance.late : "--"}
+              {stats && !stats.attendanceHidden ? stats.attendance.late : "--"}
             </div>
             <Names list={stats?.names?.late} />
           </a>
           <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">미출근</div>
             <div className="text-3xl font-bold text-red-600 mt-2">
-              {stats ? stats.attendance.absent : "--"}
+              {stats && !stats.attendanceHidden ? stats.attendance.absent : "--"}
             </div>
             <Names list={stats?.names?.missing} />
             {stats && stats.attendance.absent > 0 && <p className="mt-1 text-[11px] text-gray-400">아직 출근을 찍지 않은 직원(휴가·휴무 일정 제외)</p>}
@@ -74,14 +76,14 @@ export default function ManagerDashboardPage() {
           <a href="/manager/team-attendance" className="bg-white rounded-lg shadow p-5 hover:shadow-md transition block">
             <div className="text-gray-500 text-sm font-medium">조퇴</div>
             <div className="text-3xl font-bold text-yellow-600 mt-2">
-              {stats ? stats.attendance.earlyLeave : "--"}
+              {stats && !stats.attendanceHidden ? stats.attendance.earlyLeave : "--"}
             </div>
             <Names list={stats?.names?.earlyLeave} />
           </a>
           <div className="bg-white rounded-lg shadow p-5">
             <div className="text-gray-500 text-sm font-medium">휴가</div>
             <div className="text-3xl font-bold text-green-600 mt-2">
-              {stats ? stats.attendance.onLeave : "--"}
+              {stats && !stats.attendanceHidden ? stats.attendance.onLeave : "--"}
             </div>
           </div>
         </div>

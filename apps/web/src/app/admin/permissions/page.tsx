@@ -2,10 +2,12 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldCheck } from "lucide-react";
-import { PERMISSION_MATRIX, GRANT_LABEL, type Grant } from "@/lib/permission-matrix";
+import { PERMISSION_MATRIX, GRANT_LABEL, type Grant, type PermRow } from "@/lib/permission-matrix";
+import { PERMISSION_TOGGLES, FIXED_RULES, readPermissions, type PermissionSettings } from "@/lib/permission-settings";
+import PermissionToggles from "@/components/admin/PermissionToggles";
 
-// 권한 현황(2026-10-08 QA76 #39) — 보기 전용. 본부 답변 #9: 10/31까지는 시프티 설정값으로 고정 규칙을 맞추고 현황만 보여 준다.
-// 켜고 끄는 설정 화면은 11월. 표의 원천은 lib/permission-matrix.ts(라우트를 바꾸면 표도 같이 고친다).
+// 권한 설정(2026-10-14 QA76 #39) — 위: 켜고 끄는 토글(원장·직원) + 고정 규칙, 아래: 역할별 권한 현황 표(토글 상태를 반영).
+// 표의 원천은 lib/permission-matrix.ts(라우트를 바꾸면 표도 같이 고친다). 토글이 바꾸는 줄은 applyToggles 가 덮어쓴다.
 export const dynamic = "force-dynamic";
 
 function Cell({ v }: { v: Grant }) {
@@ -15,17 +17,41 @@ function Cell({ v }: { v: Grant }) {
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>;
 }
 
+/** 토글 상태를 현황 표에 반영 — 켜고 끄는 권한이 걸린 줄만 */
+function applyToggles(row: PermRow, s: PermissionSettings): PermRow {
+  const r = { ...row };
+  if (row.feature === "출퇴근 기록 보기(달력·목록)") {
+    r.manager = s["manager.viewAttendance"] ? "branch" : "본인만(설정 끔)";
+    r.employee = s["employee.viewOwnAttendance"] ? "본인(웹·앱)" : "오늘 상태만(앱)";
+  }
+  if (row.feature === "출퇴근 통계") {
+    r.manager = s["manager.viewAttendance"] ? "branch" : "본인만(설정 끔)";
+  }
+  if (row.feature === "일정 추가·수정·삭제" || row.feature === "일정 일괄 생성") {
+    r.manager = s["manager.editSchedule"] ? "branch" : "신청만(설정 끔)";
+  }
+  return r;
+}
+
 export default async function PermissionsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "ADMIN") redirect("/dashboard");
+  const settings = await readPermissions();
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><ShieldCheck size={22} />권한 현황</h1>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><ShieldCheck size={22} />권한 설정</h1>
         <p className="text-sm text-gray-500 mt-1">
-          역할별로 무엇을 볼 수 있고 무엇을 할 수 있는지(보기 전용). 시프티 현재 설정값에 맞춘 고정 규칙이며, 켜고 끄는 설정 화면은 11월에 만듭니다.
+          원장·직원의 권한을 켜고 끕니다. 바꾸면 바로 적용되고 감사 로그에 남습니다. 기본값은 시프티 설정값과 같습니다.
+          설정으로 바꿀 수 없는 규칙은 「고정된 규칙」에 이유와 함께 적혀 있고, 아래 표는 현재 설정이 반영된 역할별 권한 현황입니다.
         </p>
+      </div>
+
+      <PermissionToggles initial={settings} toggles={PERMISSION_TOGGLES} fixed={FIXED_RULES} />
+
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold text-gray-900">역할별 권한 현황</h2>
         <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
           <span><Cell v="all" /> 전체</span><span><Cell v="branch" /> 담당 지점(겸직 포함)만</span><span><Cell v="self" /> 본인 것만</span><span><Cell v="no" /> 불가</span><span><Cell v="na" /> 해당 없음</span>
         </div>
@@ -45,7 +71,7 @@ export default async function PermissionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {sec.rows.map((r) => (
+                {sec.rows.map((row) => { const r = applyToggles(row, settings); return (
                   <tr key={r.feature} className="border-b last:border-0 align-top">
                     <td className="px-4 py-2 text-gray-900">{r.feature}<span className="block text-[11px] text-gray-400 font-mono">{r.basis}</span></td>
                     <td className="px-3 py-2"><Cell v={r.admin} /></td>
@@ -56,7 +82,7 @@ export default async function PermissionsPage() {
                       {r.diff && <span className="block text-amber-700 mt-0.5">⚠ 시프티와 다름: {r.diff}</span>}
                     </td>
                   </tr>
-                ))}
+                ); })}
               </tbody>
             </table>
           </CardContent>

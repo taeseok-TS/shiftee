@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { isAllowed } from "@/lib/permission-settings";
 
 // 오늘 출퇴근한 직원 목록 (관리자=전체, 원장=자기 지점)
 export async function GET() {
@@ -10,6 +11,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role === "EMPLOYEE")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  if (session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance")))
+    return NextResponse.json({ error: "지점 출퇴근 기록 열람이 꺼져 있습니다(본부 > 권한 설정)." }, { status: 403 });   // 권한 설정 #39
 
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
   const now = new Date();

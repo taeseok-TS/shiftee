@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cancelStepWhere } from "@/lib/leave-cancel-flow";
 import { getSession } from "@/lib/auth";
+import { isAllowed } from "@/lib/permission-settings";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
@@ -120,12 +121,15 @@ export async function GET() {
   const earlyLeave = earlyLeaveNames.length;
   const absent = missingNames.length;
 
+  // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 출퇴근 집계·이름은 내려보내지 않는다(10/14 검증 2)
+  const attendanceHidden = session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"));
   return NextResponse.json({
     teamCount,
-    attendance: { present, late, absent, earlyLeave, onLeave },
-    names: { late: lateNames, missing: missingNames, earlyLeave: earlyLeaveNames },
+    attendance: attendanceHidden ? { present: 0, late: 0, absent: 0, earlyLeave: 0, onLeave } : { present, late, absent, earlyLeave, onLeave },
+    names: attendanceHidden ? { late: [], missing: [], earlyLeave: [] } : { late: lateNames, missing: missingNames, earlyLeave: earlyLeaveNames },
+    attendanceHidden,
     pendingContracts,
     pendingApprovals: pendingLeaveSteps + pendingScheduleSteps + pendingCancelSteps,
-    monthAbsent: monthAbsent.length,
+    monthAbsent: attendanceHidden ? 0 : monthAbsent.length,
   });
 }

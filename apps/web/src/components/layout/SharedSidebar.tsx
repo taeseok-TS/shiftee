@@ -22,7 +22,7 @@ import {
 
 const sharedNavItems = [
   { href: "/dashboard", label: "내 대시보드", icon: LayoutDashboard },
-  // 출퇴근(기록 조회)은 관리자·원장만 웹에서 노출. 직원은 앱으로만 출퇴근.
+  // 출퇴근(기록 조회)은 관리자·원장. 직원은 본부가 「본인 출퇴근 기록 열람(웹)」을 켠 경우에만(권한 설정 #39)
   { href: "/attendance", label: "출퇴근 관리", icon: Clock, adminOnly: true },
   { href: "/schedule", label: "근무일정", icon: Calendar },
   { href: "/leave", label: "휴가 관리", icon: UmbrellaOff },
@@ -36,16 +36,20 @@ export function SharedSidebar({ role }: { role?: string }) {
   const router = useRouter();
   // 원장대행으로 지정된 직원에게만 「결재」 메뉴 — 원장·관리자는 각자 모드의 결재 화면을 쓴다(2026-10-07)
   const [delegateBranches, setDelegateBranches] = useState<string[]>([]);
+  const [selfAttendance, setSelfAttendance] = useState(false);   // 직원 본인 출퇴근 열람(웹) 권한(#39)
   useEffect(() => {
     if (role === "ADMIN" || role === "MANAGER") return;
     let alive = true;
     fetch("/api/me/delegate").then((r) => (r.ok ? r.json() : null)).then((d) => {
       if (alive) setDelegateBranches(Array.isArray(d?.branches) ? d.branches : []);
     }).catch(() => {});
+    fetch("/api/me/permissions").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (alive) setSelfAttendance(d?.permissions?.["employee.viewOwnAttendance"] === true);
+    }).catch(() => {});
     return () => { alive = false; };
   }, [role]);
   const navItems = [
-    ...sharedNavItems.filter((it) => !it.adminOnly || role === "ADMIN" || role === "MANAGER"),
+    ...sharedNavItems.filter((it) => !it.adminOnly || role === "ADMIN" || role === "MANAGER" || selfAttendance),
     ...(delegateBranches.length > 0
       ? [{ href: "/approvals", label: `결재 (원장대행 · ${delegateBranches.join(", ")})`, icon: ClipboardCheck }]
       : []),

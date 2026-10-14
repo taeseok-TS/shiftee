@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
   // 주 49시간을 넘는 사람·주가 있으면 경고만(#38)
   const warnings = await over49Warnings(
     ids.flatMap((userId) => dateList.map((d) => ({ userId, date: d.toISOString().slice(0, 10) }))),
+    undefined, session,
   ).catch(() => [] as string[]);
   return NextResponse.json({
     success: true,

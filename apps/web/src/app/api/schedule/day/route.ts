@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { startOfDay, endOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { isAllowed } from "@/lib/permission-settings";
 import { kstHour, kstMinute } from "@/lib/kst";
 
 // 출퇴근 시각은 한국 시각으로 — 서버는 UTC 라 format(…, "HH:mm") 이 9시간 이르게 보였다(2026-10-06 QA 조사)
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
 
   // 본인 정보만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+  // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 원장에게는 출퇴근 시각·상태를 섞지 않는다 — 일정·휴가만(10/14 검증 1)
+  const hideAtt = session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance"));
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   // 현황 명단 = 지점 근무 직원만 (관리자 + "통계 포함" 꺼진 지점 제외)
@@ -45,7 +48,7 @@ export async function GET(request: NextRequest) {
       select: { id: true, userId: true, type: true, startTime: true, endTime: true, note: true },
     }),
     prisma.attendance.findMany({
-      where: { date: { gte: dayStart, lte: dayEnd }, ...recordWhere },
+      where: { date: { gte: dayStart, lte: dayEnd }, ...recordWhere, ...(hideAtt ? { userId: "" } : {}) },   // 열람이 꺼지면 아무 기록도 안 읽는다
       select: { id: true, userId: true, clockIn: true, clockOut: true, status: true },
     }),
     prisma.leaveRequest.findMany({

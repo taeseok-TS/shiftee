@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { isAllowed } from "@/lib/permission-settings";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
 import { isRealDate, toMin, asHhmm, asScheduleType } from "@/lib/schedule-payload";
 import { kstTodayMidnight } from "@/lib/resign";
@@ -53,6 +54,8 @@ export async function GET(request: NextRequest) {
 
   // 본인 일정만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
+  // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 월별 집계의 출퇴근 수치도 내려보내지 않는다(10/14 검증 4)
+  const hideAtt = session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance"));
 
   // 지점 필터 (MANAGER는 담당 지점 — 대표+겸직)
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
       orderBy: { date: "asc" },
     }),
     prisma.attendance.findMany({
-      where: { date: { gte: startDate, lte: endDate }, ...userIdFilter },
+      where: { date: { gte: startDate, lte: endDate }, ...userIdFilter, ...(hideAtt ? { userId: "" } : {}) },
       select: { userId: true, date: true, status: true },
     }),
     prisma.leaveRequest.findMany({
@@ -206,6 +209,6 @@ export async function POST(request: NextRequest) {
   const { noteManagerSelfChange } = await import("@/lib/schedule-guard");
   await noteManagerSelfChange(session, [userId], `${date} ${st}~${et}`);
   // 주 49시간을 넘으면 경고만(막지 않는다, #38)
-  const warnings = await over49Warnings([{ userId, date }]).catch(() => [] as string[]);
+  const warnings = await over49Warnings([{ userId, date }], undefined, session).catch(() => [] as string[]);
   return NextResponse.json({ success: true, schedule, warnings });
 }

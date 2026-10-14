@@ -3,6 +3,7 @@
 import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { WorkUnreadBadge } from "./WorkUnreadBadge";
 import {
@@ -23,14 +24,22 @@ const managerNavItems = [
   { href: "/manager/team-leave", label: "팀 휴가", icon: UmbrellaOff },
   { href: "/manager/team-contracts", label: "팀 계약서", icon: FileSignature },
   { href: "/manager/team-schedule", label: "팀 일정", icon: Calendar },
-  { href: "/manager/team-attendance", label: "팀 출퇴근기록", icon: Calendar },
-  { href: "/manager/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 담당 지점(2026-10-08 #41)
+  { href: "/manager/team-attendance", label: "팀 출퇴근기록", icon: Calendar, needs: "manager.viewAttendance" },   // 본부가 끄면 숨김(권한 설정 #39)
+  { href: "/manager/work-report", label: "근로시간 리포트", icon: BarChart3, needs: "manager.viewAttendance" }, // 담당 지점(2026-10-08 #41)
   { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
 ];
 
 export function ManagerSidebar({ role }: { role?: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  // 원장 권한 토글(#39) — 꺼진 메뉴는 숨긴다(실제 차단은 API 가 한다). 읽기 전엔 모두 보여 준다
+  const [perms, setPerms] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/me/permissions").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d?.permissions) setPerms(d.permissions); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const visibleItems = managerNavItems.filter((it) => !("needs" in it) || !perms || perms[(it as { needs: string }).needs] !== false);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -56,7 +65,7 @@ export function ManagerSidebar({ role }: { role?: string }) {
 
       {/* 네비게이션 */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {managerNavItems.map(({ href, label, icon: Icon }) => (
+        {visibleItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
