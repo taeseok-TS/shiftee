@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
 
 const workNavItems = [
@@ -27,6 +27,8 @@ const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 const useShowPortalLink = useIsDirectHost;
 // EDUCUBE(지점 관리 시스템) 바로가기 — 2026-10-15 디렉터 지시. 직영 포털과 같이 큐브티 전용·새 탭. 넓은 화면(웹·PC앱) 사이드바에만 둔다(폰 폭 상단 바엔 없음)
 const EDUCUBE_URL = "https://branch.educube.co.kr/";
+// New EMS(에듀플렉스 EMS) 바로가기 — 2026-10-15 디렉터 지시. EDUCUBE 바로 아래, 보이는 범위도 EDUCUBE 와 같다
+const NEW_EMS_URL = "https://global.eduplex.net/eduplex/frame/auth/login.html";
 // 우선 디렉터 계정에만 보인다(2026-10-15 디렉터 지시 — 원장용·매니저용 주소가 따로 있어 링크 확인 뒤 전체 공개). 관리자(admin@)·김태석본부장
 const EDUCUBE_PREVIEW_USER_IDS = ["cmqhrexl30000ms154pmi8tau", "cmr1nh48f005mnx0kg4ndkze6"];
 function useShowEducube(showPortal: boolean) {
@@ -215,6 +217,20 @@ export function WorkSidebar() {
         >
           <Box size={18} />
           {!collapsed && <span className="flex-1">EDUCUBE</span>}
+          {!collapsed && <ExternalLink size={13} className="opacity-60" />}
+        </a>}
+        {showEducube && <a
+          href={NEW_EMS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={collapsed ? "New EMS (새 탭)" : "새 탭에서 열립니다"}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-indigo-200 hover:bg-indigo-900 hover:text-white",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <LayoutGrid size={18} />
+          {!collapsed && <span className="flex-1">New EMS</span>}
           {!collapsed && <ExternalLink size={13} className="opacity-60" />}
         </a>}
       </nav>
