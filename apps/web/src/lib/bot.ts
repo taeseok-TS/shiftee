@@ -134,6 +134,8 @@ export async function botNotifyApprovalRequest(step: {
     const { prisma } = await import("@/lib/db");
     const stepTargets: string[] = [];
     const adminTurn = !step.approverId && step.approverRole === "ADMIN";
+    // 차례인 사람 이름표 — 지정 결재자 단계(결재 규칙 #16)는 본부·원장이 아닐 수 있다
+    const turnLabel = step.approverId ? "지정 결재자" : step.approverRole === "ADMIN" ? "본부" : "원장";
 
     if (step.approverId) {
       stepTargets.push(step.approverId);       // 이 단계의 결재자로 지정된 사람(2026-09-09)
@@ -169,7 +171,7 @@ export async function botNotifyApprovalRequest(step: {
     const text = `📋 결재 요청이 도착했습니다
 
 ${opts.kind}: ${opts.requesterName}
-${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" : "기간"}: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → 본부 결재 차례` : ""}
+${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" : "기간"}: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → ${turnLabel} 결재 차례` : ""}
 
 결재함에서 확인해주세요.`;
     for (const id of list) {
@@ -179,7 +181,7 @@ ${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" :
     // 본부 진행 알림 — 결재 요청을 이미 받은 본부 사람은 빼고(같은 내용 두 번 방지)
     if (!list.some((id) => admins.includes(id)) || !adminTurn) {
       await botNotifyAdminsProgress(
-        `${opts.kind === "출퇴근 요청" ? opts.kind : `${opts.kind} ${opts.kind === "휴가" || opts.kind === "근무일정" ? "신청" : "요청"}`} — ${opts.requesterName} (${opts.period})\n원장 결재 대기 중입니다.`,
+        `${opts.kind === "출퇴근 요청" ? opts.kind : `${opts.kind} ${opts.kind === "휴가" || opts.kind === "근무일정" ? "신청" : "요청"}`} — ${opts.requesterName} (${opts.period})\n${turnLabel} 결재 대기 중입니다.`,
         [opts.requesterId, ...list],
       );
     }

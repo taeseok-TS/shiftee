@@ -1,7 +1,8 @@
+import { resolveAttendanceStep } from "@/lib/approval-rules";
 import { prisma } from "@/lib/db";
 import { isHoliday } from "@/lib/holidays";
 import { calcStatus } from "@/lib/attendance-status";
-import { approverScopeFor, isMyStep, branchHasApprover, type ApproverScope } from "@/lib/approval-delegate";
+import { approverScopeFor, isMyStep, type ApproverScope } from "@/lib/approval-delegate";
 
 // ─── 출퇴근 요청(2026-10-07 QA #9 #13 #15, 본부 답변 #5 #6 #10 #11) ─────────────
 // 종류
@@ -58,14 +59,10 @@ export function kstHHmm(t: Date): string {
   return new Date(t.getTime() + KST_MS).toISOString().slice(11, 16);
 }
 
-/** 결재자 — 본부 처리·기기 변경은 본부, 나머지는 신청자 지점 원장(원장 본인·원장 없는 지점은 본부) */
+/** 결재자 — 본부 처리·기기 변경은 본부, 나머지는 신청자 지점 원장(원장 본인·원장 없는 지점은 본부).
+ *  2026-10-15(#16): 직원의 지점 밖·사진·기록 수정·퇴근 누락은 「결재 규칙」 화면에서 본부로 바꿀 수 있다(lib/approval-rules) */
 export async function resolveApprover(user: { id: string; role: string; branch: string | null }, kind: RequestKind) {
-  if (kind === "HQ" || kind === "DEVICE") return { approverRole: "ADMIN", branch: user.branch };
-  if (user.role === "MANAGER" || user.role === "ADMIN" || !user.branch) return { approverRole: "ADMIN", branch: user.branch };
-  // 신청자 본인은 빼고 센다 — 유일한 대행자가 자기 요청을 내면 처리할 원장이 없다
-  return (await branchHasApprover(user.branch, user.id))
-    ? { approverRole: "MANAGER", branch: user.branch }
-    : { approverRole: "ADMIN", branch: user.branch };
+  return resolveAttendanceStep(user, kind);
 }
 
 type ReqLike = { status: string; approverRole: string; branch: string | null; userId: string };

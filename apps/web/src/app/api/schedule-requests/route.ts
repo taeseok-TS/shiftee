@@ -3,8 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { materializeSchedules } from "@/lib/schedule-materialize";
-import { branchHasApprover } from "@/lib/approval-delegate";
-import { branchHasOtherManager, getManagerBranches, branchMainManager } from "@/lib/manager-branches";
+import { resolveRequestSteps } from "@/lib/approval-rules";
 import { getHolidaySet } from "@/lib/holidays";
 import { SCHEDULE_REQUEST_STATUSES, pick } from "@/lib/enums";
 import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
@@ -145,15 +144,9 @@ export async function POST(request: NextRequest) {
 
   if (kind === "DELETE") computedHours = 0;   // 삭제 요청은 근무시간이 늘지 않는다
 
-  // ── 역할/지점 기반 자동 결재 정책 (근무일정) ──
-  //  주말 근무 포함: 연차 2일+ 와 동일 → 직원: 지점원장→관리자, 원장: 관리자
-  //  평일 근무만:    직원: 지점원장(1단계),                원장: 관리자
-  //  관리자 본인: 다른 관리자 1명 결재(없으면 자동 승인)
-  const submitter = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { role: true, branch: true },
-  });
-
+  // ── 결재선(근무일정) — 2026-10-15(#16) 「결재 규칙」 화면의 표·예외에서 만든다(lib/approval-rules) ──
+  //  기본값: 직원 → 지점 원장 1단계(평일·주말·공휴일 모두, 디렉터 결정 10/15 — 종전 휴일근무는 원장 → 본부)
+  //          원장 → 같은 지점 메인 원장(있으면) → 본부, 관리자 본인 → 다른 관리자 1명(없으면 자동 승인)
   // scheduleData(날짜 배열)에 휴일 근무가 포함되는지 판별 (서버 시간대 무관하게 달력 날짜로 계산)
   // 공휴일(추석·설 등) 근무도 주말과 같이 사전 승인 대상이므로 함께 본다
   // 조회 범위는 startDate~endDate 가 아니라 실제 제출된 날짜의 최소~최대로 잡는다.
@@ -170,51 +163,7 @@ export async function POST(request: NextRequest) {
     return dow === 0 || dow === 6;
   });
 
-  const adminStep = { approverRole: "ADMIN", branch: null as string | null };
-  const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
-  const hasBranchManager = submitter?.branch
-    ? await branchHasApprover(submitter.branch, session.userId) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
-    : false;
-
-  let policySteps: { approverRole: string; branch: string | null; approverId?: string }[] = [];
-  if (submitter?.role === "MANAGER") {
-    // ⚠ 원장도 **관리자 승인이 필수**다(디렉터 지시).
-    //
-    //  · **겸직(멀티) 원장이 신청자면 바로 관리자 결재로 간다** (2026-09-09 디렉터 지시).
-    //    여러 지점을 총괄하는 사람이라 같은 급의 원장에게 먼저 받을 이유가 없다.
-    //  · 단일 지점 원장은, 그 지점을 함께 보는 다른 원장이 있으면 그 원장이 먼저 결재한다
-    //    — 한 지점에 원장이 2명이면 서로가 상대의 결재자가 되고, 겸직 원장은 자기가
-    //    관리하는 다른 지점의 원장을 결재한다.
-    //  · 그런 원장이 없으면 관리자 단독.
-    //  (자기 신청을 자기가 결재하는 것은 결재 라우트에서 막는다)
-    const myBranches = await getManagerBranches(session.userId);
-    const isMultiBranch = myBranches.length > 1;
-
-    // 메인 원장이 지정돼 있으면 **방향이 정해진다** — 메인이 두 번째를 결재한다.
-    // 메인 원장 본인이 신청하면 겸직 원장과 같이 관리자에게 바로 간다.
-    const main = !isMultiBranch && submitter.branch
-      ? await branchMainManager(submitter.branch)
-      : null;
-
-    if (main && main.id !== session.userId) {
-      // 두 번째 원장의 신청 → [메인 원장 → 관리자]. 지정 결재자로 못박는다.
-      policySteps = [{ approverRole: "MANAGER", branch: submitter.branch ?? null, approverId: main.id }, adminStep];
-    } else if (main) {
-      policySteps = [adminStep];               // 메인 원장 본인 → 관리자 바로
-    } else {
-      // 메인 지정이 없으면 종전대로 — 같은 지점에 다른 원장이 있으면 그 원장이 먼저.
-      const peer = !isMultiBranch && submitter.branch
-        ? await branchHasOtherManager(submitter.branch, session.userId)
-        : false;
-      policySteps = peer ? [managerStep, adminStep] : [adminStep];
-    }
-  } else if (submitter?.role === "ADMIN") {
-    const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: session.userId } } });
-    policySteps = otherAdmins > 0 ? [adminStep] : [];
-  } else {
-    if (hasWeekend) policySteps = hasBranchManager ? [managerStep, adminStep] : [adminStep];
-    else policySteps = hasBranchManager ? [managerStep] : [adminStep];
-  }
+  const policySteps = await resolveRequestSteps({ kind: "SCHEDULE", userId: session.userId, holiday: hasWeekend });
 
   try {
     // 트랜잭션으로 신청과 결재 단계 생성

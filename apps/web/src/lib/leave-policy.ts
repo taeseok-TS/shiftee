@@ -1,7 +1,7 @@
-import { prisma } from "@/lib/db";
-import { branchHasApprover } from "@/lib/approval-delegate";
+import { resolveRequestSteps } from "@/lib/approval-rules";
 
-export type PolicyStep = { approverRole: string; branch: string | null; approverId?: string };
+export type { PolicyStep } from "@/lib/approval-rules";
+import type { PolicyStep } from "@/lib/approval-rules";
 
 /**
  * 휴가 결재선 — 휴가 신청(POST /api/leave)과 **취소 결재**(POST /api/leave/[id]/cancel-request)가
@@ -12,30 +12,13 @@ export type PolicyStep = { approverRole: string; branch: string | null; approver
  *  원장: [관리자] 1단계 — 겸직·메인 원장 구분 없이(종전 9/9 「메인 원장이 먼저」 규칙은 휴가에서 뺐다)
  *  관리자 본인: 다른 관리자 1명 결재(없으면 자동 승인) — 본부는 큐브티 휴가 대상이 아니지만(#2) 막지는 않는다
  *  **취소 결재(forCancel)**: 신청과 같은 결재선(종전 9/11 「항상 관리자까지」와 결과가 같다).
+ *  2026-10-15(#16): 위는 **기본값**이다. 본부가 관리자 › 결재 › 「결재 규칙」에서 바꾸거나 직원·지점 예외를 둘 수 있다.
  */
 export async function leavePolicySteps(
   userId: string,
   opts: { days: number; forCancel?: boolean }
 ): Promise<PolicyStep[]> {
-  const submitter = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true, branch: true },
-  });
-  const adminStep = { approverRole: "ADMIN", branch: null as string | null };
-  const managerStep = { approverRole: "MANAGER", branch: submitter?.branch ?? null };
-  const hasBranchManager = submitter?.branch
-    ? await branchHasApprover(submitter.branch, userId) // 대표/겸직 원장, 또는 오늘 원장대행(원장 공석 때)
-    : false;
-
-  let policySteps: PolicyStep[] = [];
-  void opts; // 일수·취소 여부와 무관해졌다(10/7) — 호출부 호환을 위해 인자는 그대로 받는다
-  if (submitter?.role === "MANAGER") {
-    policySteps = [adminStep];
-  } else if (submitter?.role === "ADMIN") {
-    const otherAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true, id: { not: userId } } });
-    policySteps = otherAdmins > 0 ? [adminStep] : [];
-  } else {
-    policySteps = hasBranchManager ? [managerStep, adminStep] : [adminStep];
-  }
-  return policySteps;
+  void opts; // 일수·취소 여부와 무관(10/7) — 호출부 호환을 위해 인자는 그대로 받는다
+  // 2026-10-15(#16): 결재선은 「결재 규칙」 화면의 표·예외에서 만든다. 기본값은 위 정책과 같다
+  return resolveRequestSteps({ kind: "LEAVE", userId });
 }

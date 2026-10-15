@@ -30,6 +30,7 @@ import {
   CalendarCheck,
   ChevronDown,
   History,
+  GitBranch,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ size?: number; className?: string }> };
@@ -51,6 +52,7 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
     { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
     { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
+    { href: "/admin/approval-rules", label: "결재 규칙", icon: GitBranch }, // 요청 종류별 결재선·예외·원장대행(2026-10-15 #16)
   ] },
   { key: "contract", title: "전자계약", items: [
     { href: "/admin/contracts", label: "전자계약", icon: FileSignature },

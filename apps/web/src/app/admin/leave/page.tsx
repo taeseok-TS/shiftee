@@ -776,23 +776,16 @@ export default function LeavePage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm text-gray-600 font-medium">
-                  결재는 직원별 설정 없이 아래 정책에 따라 <b>자동</b>으로 진행됩니다.
+                  결재선은 <a href="/admin/approval-rules" className="text-indigo-600 underline underline-offset-2">결재 › 결재 규칙</a> 화면에서 정합니다(요청 종류별 · 직원·지점 예외 · 원장대행).
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div className="rounded-lg border p-4">
-                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />휴가 <span className="text-xs font-normal text-gray-400">(일수와 무관 — 반차·반반차 포함)</span></p>
+                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />기본 규칙 <span className="text-xs font-normal text-gray-400">(결재 규칙 화면에서 바꾸지 않았을 때)</span></p>
                   <ul className="space-y-1 text-gray-600">
-                    <li>· <b>직원</b> 신청 → 소속 지점 <b>원장</b> → <b>관리자</b> <span className="text-gray-400">(2단계)</span></li>
-                    <li>· <b>원장</b> 신청 → <b>관리자</b> <span className="text-gray-400">(1단계)</span></li>
-                    <li>· 휴가 <b>취소 요청</b>도 같은 결재선으로 갑니다.</li>
-                  </ul>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="font-semibold text-gray-800 mb-2 flex items-center gap-1"><GitBranch size={14} />근무일정 신청</p>
-                  <ul className="space-y-1 text-gray-600">
-                    <li>· 평일만: <b>직원</b> → 소속 지점 <b>원장</b> <span className="text-gray-400">(1단계)</span></li>
-                    <li>· 주말·공휴일 포함: <b>직원</b> → <b>원장</b> → <b>관리자</b> <span className="text-gray-400">(2단계)</span></li>
+                    <li>· 휴가: <b>직원</b> → 소속 지점 <b>원장</b> → <b>본부</b> / <b>원장</b> → <b>본부</b> (휴가 취소 요청도 같은 결재선)</li>
+                    <li>· 근무일정 신청: <b>직원</b> → 소속 지점 <b>원장</b> 1단계(평일·주말·공휴일 모두) / <b>원장</b> → 같은 지점 메인 원장(있으면) → <b>본부</b></li>
+                    <li>· 규칙을 바꿔도 이미 결재 대기 중인 건은 신청할 때의 결재선 그대로 갑니다.</li>
                   </ul>
                 </div>
                 <div className="rounded-lg border p-4">

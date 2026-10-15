@@ -278,18 +278,25 @@ export default function ScheduleRequestPage() {
     return dow === 0 || dow === 6;
   });
 
-  // 역할/지점 기반 결재 정책 미리보기 (서버 정책과 동일)
-  const policyPreview: { label: string; sub: string }[] =
+  // 결재선 미리보기 — 서버의 결재 규칙(예외 포함)에서 받는다(2026-10-15 #16). 받기 전·실패 때는 기본 규칙으로 보여 준다
+  const fallbackPreview: { label: string; sub: string }[] =
     myRole === "MANAGER"
       ? [{ label: "관리자", sub: "본사 관리자" }]
       : myRole === "ADMIN"
       ? [{ label: "관리자", sub: "다른 관리자" }]
-      : hasWeekendSel
-      ? [
-          { label: "소속 지점 원장", sub: "지점에 원장이 없으면 관리자에게 전달" },
-          { label: "관리자", sub: "본사 관리자" },
-        ]
       : [{ label: "소속 지점 원장", sub: "지점에 원장이 없으면 관리자에게 전달" }];
+  const [serverPreview, setServerPreview] = useState<{ key: string; steps: { label: string; sub: string }[] } | null>(null);
+  const previewKey = hasWeekendSel ? "1" : "0";
+  useEffect(() => {
+    if (step < 3) return;
+    let alive = true;
+    fetch(`/api/approval-preview?kind=SCHEDULE&holiday=${previewKey}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && Array.isArray(d?.steps)) setServerPreview({ key: previewKey, steps: d.steps }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [step, previewKey]);
+  const policyPreview = serverPreview && serverPreview.key === previewKey ? serverPreview.steps : fallbackPreview;
 
   // 날짜 미선택 시에도 안전한 포맷 (빈 값이면 "-" 표시)
   const fmtDate = (value: string, pattern: string) =>

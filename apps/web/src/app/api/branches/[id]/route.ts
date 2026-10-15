@@ -146,6 +146,8 @@ export async function PATCH(
       // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지
       // 없어진 지점명으로 조회돼 근태.직원 목록이 빈 채로 보인다.
       await bumpTokenVersionMany(affected.map((u) => u.id)).catch(() => {});
+      // 결재 규칙의 지점 예외도 새 이름으로(2026-10-15 #16) — 안 바꾸면 예외가 조용히 끊긴다
+      await import("@/lib/approval-rules").then((m) => m.renameBranchInRules(before.name, name)).catch((e) => console.error("[branches] 결재 규칙 지점명 변경 실패:", e));
 
       await logAudit({
         actorId: session.userId,

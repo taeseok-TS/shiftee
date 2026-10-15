@@ -24,6 +24,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   // 결재 대행
   APPROVAL_DELEGATE_CREATE: "원장대행 지정",
   APPROVAL_DELEGATE_REVOKE: "원장대행 해제",
+  APPROVAL_RULES_UPDATE: "결재 규칙 변경",
   // 휴가
   LEAVE_BALANCE_UPDATE: "연차 수정",
   LEAVE_BALANCE_BULK: "연차 일괄 수정",

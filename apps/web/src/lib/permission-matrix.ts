@@ -32,11 +32,11 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "일정 일괄 생성", admin: "all", manager: "branch", employee: "no", basis: "api/schedule/bulk" },
     { feature: "근무일정 템플릿 관리", admin: "all", manager: "no", employee: "no", diff: "시프티는 원장 ON — 큐브티는 본부만(지점 전용 템플릿은 본부가 지점을 지정). 원장용 관리 화면을 만들 때 설정으로 바꿀 수 있다", basis: "api/schedule-templates POST·PATCH·DELETE" },
     { feature: "근무일정 신청·수정/삭제 요청", admin: "self", manager: "self", employee: "self", note: "원장·본부도 신청할 수는 있으나 직접 등록이 기본(원장 신청은 메인 원장 → 본부 결재)", basis: "api/schedule-requests" },
-    { feature: "일정 요청 결재", admin: "all", manager: "branch", employee: "no", note: "평일: 원장 1단계 / 주말·공휴일: 원장 → 본부(본부 답변 #4). 사람을 못박은 단계는 그 사람(+원장대행)만", basis: "api/schedule-requests/[id]/approve" },
+    { feature: "일정 요청 결재", admin: "all", manager: "branch", employee: "no", note: "결재 규칙 화면을 따른다(기본: 직원 평일·주말·공휴일 모두 원장 1단계 — 10/15 디렉터 결정). 사람을 못박은 단계는 그 사람(+원장대행)만", basis: "api/schedule-requests/[id]/approve, lib/approval-rules" },
   ] },
   { title: "휴가", rows: [
     { feature: "휴가 신청·취소 요청", admin: "na", manager: "self", employee: "self", note: "본부 직원은 큐브티 휴가 대상이 아님(본부 답변 #2)", basis: "api/leave POST, [id]/cancel-request" },
-    { feature: "휴가 결재", admin: "all", manager: "branch", employee: "no", note: "직원: 원장 → 본부 / 원장: 본부 1단계(#1) / 원장대행 가능, 본인 건은 불가", basis: "api/leave/[id]/approve, lib/approval-delegate" },
+    { feature: "휴가 결재", admin: "all", manager: "branch", employee: "no", note: "결재 규칙 화면을 따른다(기본: 직원 원장 → 본부 / 원장 본부 1단계(#1)). 직원·지점 예외 가능, 원장대행 가능, 본인 건은 불가", basis: "api/leave/[id]/approve, lib/approval-rules, lib/approval-delegate" },
     { feature: "남의 휴가 대리 등록", admin: "all", manager: "no", employee: "no", note: "시프티 「원장 휴가 직접 등록 OFF」·본부 답변 #28과 같음", basis: "api/leave POST targetUserId" },
     { feature: "지점 휴가 목록 보기", admin: "all", manager: "branch", employee: "self", note: "시프티 「직원 동료 휴가 열람 OFF」와 같음", basis: "api/leave GET" },
     { feature: "연차 잔여 조정·총 연차·연도 전환·일괄 업로드", admin: "all", manager: "no", employee: "no", note: "10/8 고침: 종전엔 원장도 API 로 아무 직원이나 조정할 수 있었다", basis: "api/leave/balance PATCH·bulk, api/leave/rollover" },
