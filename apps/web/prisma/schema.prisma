@@ -520,6 +520,8 @@ model ContractTemplate {
   // approvalLocked true = 발송 때 순서 변경 불가(기본). deploy/ddl_template_approval_order.sql
   approvalSteps  Json?
   approvalLocked Boolean     @default(true)
+  // 재계약(작성 창 「계약 구분」=재계약)일 때의 결재 순서(2026-10-15 이예지 요청, 디렉터 A안). NULL = 위 순서 그대로. deploy/ddl_template_approval_renewal.sql
+  approvalStepsRenewal Json?
   fieldSettings  Json?   // 칸 설정(2026-10-13 QA76 #22 1단계) — {칸: {mode, required, source, text}}. deploy/ddl_template_field_settings.sql
   layout         Json?   // PDF 양식 칸 배치(2026-10-13 QA76 #22 2단계) — {v:1, fields:[{id,name,type,page,x,y,w,h,role,mode,…}]}. lib/contract-layout.ts, deploy/ddl_template_layout.sql
   createdAt     DateTime     @default(now())

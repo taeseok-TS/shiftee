@@ -79,6 +79,14 @@ export async function POST(request: NextRequest) {
     }
     const lockedRaw = formData.get("approvalLocked") as string | null;
     const approvalLocked = lockedRaw == null ? true : lockedRaw !== "false";
+    // 재계약 결재 순서(2026-10-15) — 있으면 저장, 모양이 틀리면 거절
+    const renewRaw = formData.get("approvalStepsRenewal") as string | null;
+    let approvalStepsRenewal: { kind: string }[] | undefined;
+    if (renewRaw != null && renewRaw.trim() !== "") {
+      const parsed = parseApprovalSteps(renewRaw);
+      if (!parsed) return NextResponse.json({ error: "재계약 결재 순서가 올바르지 않습니다." }, { status: 400 });
+      approvalStepsRenewal = parsed;
+    }
 
     if (!file || !name || !type) {
       return NextResponse.json(
@@ -143,6 +151,7 @@ export async function POST(request: NextRequest) {
         createdBy: session.userId,
         approverIds: "[]", // 기본값: 빈 배열
         ...(approvalSteps ? { approvalSteps } : {}),
+        ...(approvalSteps && approvalStepsRenewal ? { approvalStepsRenewal } : {}),   // 기본 순서 없이 재계약 순서만 두지 않는다
         approvalLocked,
       },
       include: {

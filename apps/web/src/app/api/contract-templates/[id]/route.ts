@@ -11,9 +11,23 @@ import { parseFieldSettings, fieldSettingsDiff, type FieldSettings } from "@/lib
 import { parseLayout, layoutDiff, layoutToFieldSettings, type TemplateLayout } from "@/lib/contract-layout";
 
 // 결재 순서(#213-2) 입력 → data 에 반영. "" 또는 "null" 이면 순서 없음(NULL)으로 되돌린다. 모양이 틀리면 오류 문구
+/** 재계약 결재 순서(2026-10-15) — ""/"null" 이면 지운다(NULL = 기본 순서 그대로), 없으면 안 건드린다 */
+function applyRenewalOrder(data: Record<string, unknown>, raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (raw === "" || raw === "null") { data.approvalStepsRenewal = Prisma.DbNull; return null; }
+  const parsed = parseApprovalSteps(raw);
+  if (!parsed) {
+    let why = "";
+    try { const v = typeof raw === "string" ? JSON.parse(raw) : raw; if (Array.isArray(v)) why = validateSteps(v) ?? ""; } catch { /* 모양 오류 */ }
+    return `재계약 결재 순서가 올바르지 않습니다. ${why}`.trim();
+  }
+  data.approvalStepsRenewal = parsed;
+  return null;
+}
+
 function applyApprovalOrder(data: Record<string, unknown>, stepsRaw: unknown, lockedRaw: unknown): string | null {
   if (stepsRaw !== undefined && stepsRaw !== null) {
-    if (stepsRaw === "" || stepsRaw === "null") data.approvalSteps = Prisma.DbNull;   // 지정 안 함 = SQL NULL
+    if (stepsRaw === "" || stepsRaw === "null") { data.approvalSteps = Prisma.DbNull; data.approvalStepsRenewal = Prisma.DbNull; }   // 지정 안 함 = SQL NULL — 재계약 순서만 남지 않게 같이 지운다(검증 D1)
     else {
       const parsed = parseApprovalSteps(stepsRaw);
       if (!parsed) {
@@ -78,6 +92,8 @@ export async function PATCH(
     {
       const e = applyApprovalOrder(data, form.get("approvalSteps"), form.get("approvalLocked"));
       if (e) return NextResponse.json({ error: e }, { status: 400 });
+      const e2 = applyRenewalOrder(data, form.get("approvalStepsRenewal"));
+      if (e2) return NextResponse.json({ error: e2 }, { status: 400 });
     }
 
     if (file && file.size > 0) {
@@ -105,7 +121,7 @@ export async function PATCH(
     if (body.type != null) data.type = body.type;
     if (body.postSignAccess != null && POST_SIGN_ACCESS.includes(body.postSignAccess)) data.postSignAccess = body.postSignAccess;
     {
-      const e = applyApprovalOrder(data, body.approvalSteps, body.approvalLocked);
+      const e = applyApprovalOrder(data, body.approvalSteps, body.approvalLocked) ?? applyRenewalOrder(data, body.approvalStepsRenewal);   // 재계약 순서(2026-10-15)
       if (body.fieldSettings !== undefined) data.fieldSettings = parseFieldSettings(body.fieldSettings);   // 칸 설정(#22 1단계)
       if (body.layout !== undefined) {   // PDF 칸 배치(#22 2단계, 편집기 저장) — 칸 설정도 배치에서 풀어 같이 저장(작성·서명 화면은 1단계 코드 그대로 돈다)
         if (!/\.pdf$/i.test(existing.fileUrl)) return NextResponse.json({ error: "칸 배치는 PDF 양식에만 저장할 수 있습니다." }, { status: 400 });
@@ -144,6 +160,13 @@ export async function PATCH(
     if (accessErr) return NextResponse.json({ error: accessErr }, { status: 400 });
   }
 
+  // 기본 순서 없이 재계약 순서만 남지 않게(검증 잔여 a·b) — 기본을 지우면 applyApprovalOrder 가 재계약도 지우고, 기본이 없는데 재계약만 오면 거절(저장 전에)
+  {
+    const baseOn = "approvalSteps" in data ? data.approvalSteps !== Prisma.DbNull : existing.approvalSteps != null;
+    if (!baseOn && "approvalStepsRenewal" in data && data.approvalStepsRenewal !== Prisma.DbNull)
+      return NextResponse.json({ error: "재계약 결재 순서는 기본 결재 순서가 있을 때만 둘 수 있습니다." }, { status: 400 });
+  }
+
   const template = await prisma.$transaction(async (tx) => {
     if (data.fileUrl && data.fileUrl !== existing.fileUrl) {
       await tx.contractTemplateVersion.create({
@@ -165,6 +188,11 @@ export async function PATCH(
       const before = parseApprovalSteps(existing.approvalSteps); const after = data.approvalSteps === Prisma.DbNull ? null : parseApprovalSteps(data.approvalSteps);
       const lab = (s: ReturnType<typeof parseApprovalSteps>) => (s ? stepsLabel(s) : "지정 안 함");
       if (lab(before) !== lab(after)) changes.push(`결재 순서 「${lab(before)}」→「${lab(after)}」`);
+    }
+    if ("approvalStepsRenewal" in data) {
+      const before = parseApprovalSteps(existing.approvalStepsRenewal); const after = data.approvalStepsRenewal === Prisma.DbNull ? null : parseApprovalSteps(data.approvalStepsRenewal);
+      const lbl = (v: ReturnType<typeof parseApprovalSteps>) => v ? stepsLabel(v) : "없음(기본 순서)";
+      if (lbl(before) !== lbl(after)) changes.push(`재계약 결재 순서 「${lbl(before)}」→「${lbl(after)}」`);
     }
     if (typeof data.approvalLocked === "boolean" && data.approvalLocked !== existing.approvalLocked) changes.push(`발송 때 순서 변경 ${data.approvalLocked ? "불가" : "허용"}`);
     if ("layout" in data) {   // 칸 배치(#22 2단계) — 추가·삭제·이동·설정 변경을 칸 단위로

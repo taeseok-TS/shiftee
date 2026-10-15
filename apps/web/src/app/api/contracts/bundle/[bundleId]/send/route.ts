@@ -52,7 +52,7 @@ export async function POST(
     const rep = contracts.find((c) => !c.employeeOnly && c.templateId);
     if (rep) {
       const { validateSendOrder } = await import("@/lib/approval-order-server");
-      const orderErr = await validateSendOrder({ approverIds, templateId: rep.templateId, contractUserId: rep.userId, external: isExternalBundle });
+      const orderErr = await validateSendOrder({ approverIds, templateId: rep.templateId, contractUserId: rep.userId, external: isExternalBundle, extraFields: rep.extraFields });
       if (orderErr) return NextResponse.json({ code: "ORDER_MISMATCH", error: orderErr }, { status: 400 });
     }
   }

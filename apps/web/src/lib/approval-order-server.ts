@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { parseApprovalSteps, checkOrder, type ApproverRole } from "@/lib/approval-order";
+import { parseApprovalSteps, checkOrder, isRenewalContract, templateStepsFor, type ApproverRole } from "@/lib/approval-order";
 
 // 발송 시 결재 순서 검사(서버) — 양식의 결재 순서가 고정(approvalLocked)이면 보낸 결재자 목록이 그 순서와 같아야 한다.
 // 단건 발송(contracts/[id] PATCH)과 패키지 발송(bundle/[bundleId]/send)이 같은 함수를 쓴다. 양식이 없거나 순서가 없으면 검사하지 않는다(종전과 같음)
@@ -8,11 +8,12 @@ export async function validateSendOrder(opts: {
   templateId: string | null | undefined;
   contractUserId: string;
   external: boolean;
+  extraFields?: unknown;   // 작성 값 — 「계약구분」이 재계약이면 양식의 재계약 순서를 본다(2026-10-15)
 }): Promise<string | null> {
   if (!opts.templateId) return null;
-  const t = await prisma.contractTemplate.findUnique({ where: { id: opts.templateId }, select: { approvalSteps: true, approvalLocked: true, name: true } });
+  const t = await prisma.contractTemplate.findUnique({ where: { id: opts.templateId }, select: { approvalSteps: true, approvalStepsRenewal: true, approvalLocked: true, name: true } });
   if (!t || !t.approvalLocked) return null;
-  const steps = parseApprovalSteps(t.approvalSteps);
+  const steps = parseApprovalSteps(templateStepsFor(t, isRenewalContract(opts.extraFields)));
   if (!steps) return null;
   const ids = opts.approverIds.filter((id) => id !== "EXTERNAL");
   const users = await prisma.user.findMany({ where: { id: { in: [...new Set([...ids, opts.contractUserId])] } }, select: { id: true, role: true } });

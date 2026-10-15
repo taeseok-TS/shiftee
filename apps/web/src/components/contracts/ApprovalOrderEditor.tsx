@@ -7,19 +7,24 @@ import { KIND_LABEL, PRESETS, STEP_KINDS, MAX_STEPS, validateSteps, type Approva
  * 결재 순서 편집기(2026-10-12 #213-2) — 템플릿 등록·수정 창에서 쓴다.
  * 단계를 위아래로 옮기고 더하고 빼며, 자주 쓰는 순서는 버튼 하나로 채운다. 저장은 부모가 한다.
  */
-export default function ApprovalOrderEditor({ steps, locked, onChange }: {
+export default function ApprovalOrderEditor({ steps, locked, onChange, renewal = false }: {
   steps: ApprovalStepSpec[] | null;   // null = 이 양식은 순서를 정하지 않음(발송 창은 기본 3칸, 서버 검사 없음)
   locked: boolean;
   onChange: (steps: ApprovalStepSpec[] | null, locked: boolean) => void;
+  renewal?: boolean;   // 재계약 순서 편집(2026-10-15) — 문구가 다르고 잠금 칸은 기본 순서 것을 같이 쓴다
 }) {
   if (!steps) {
     return (
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={false} onChange={() => onChange(PRESETS[0].steps.map((s) => ({ ...s })), locked)} />
-          이 양식의 결재 순서를 지정
+          {renewal ? "재계약(기존 근로자)은 다른 순서로 결재" : "이 양식의 결재 순서를 지정"}
         </label>
-        <p className="text-[11px] text-gray-500">지정하지 않으면 발송 창은 지금처럼 「본부 → 원장 → 근로자」 3칸이고 누구든 넣을 수 있습니다(순서 검사 없음).</p>
+        <p className="text-[11px] text-gray-500">
+          {renewal
+            ? "작성 창에서 「계약 구분」을 재계약으로 고른 계약에만 적용됩니다. 지정하지 않으면 재계약도 위 순서대로 갑니다."
+            : "지정하지 않으면 발송 창은 지금처럼 「본부 → 원장 → 근로자」 3칸이고 누구든 넣을 수 있습니다(순서 검사 없음)."}
+        </p>
       </div>
     );
   }
@@ -37,7 +42,9 @@ export default function ApprovalOrderEditor({ steps, locked, onChange }: {
     <div className="space-y-2">
       <label className="flex items-center gap-2 text-sm cursor-pointer">
         <input type="checkbox" checked onChange={() => onChange(null, locked)} />
-        이 양식의 결재 순서를 지정 <span className="text-[11px] text-gray-400">(끄면 기본 3칸·검사 없음으로 돌아갑니다)</span>
+        {renewal
+          ? <>재계약(기존 근로자)은 다른 순서로 결재 <span className="text-[11px] text-gray-400">(끄면 재계약도 위 순서대로)</span></>
+          : <>이 양식의 결재 순서를 지정 <span className="text-[11px] text-gray-400">(끄면 기본 3칸·검사 없음으로 돌아갑니다)</span></>}
       </label>
       <div className="flex flex-wrap gap-1">
         {PRESETS.map((p) => (
@@ -64,6 +71,9 @@ export default function ApprovalOrderEditor({ steps, locked, onChange }: {
         )}
       </div>
       {err && <p className="text-xs text-red-600">{err}</p>}
+      {renewal ? (
+        <p className="text-[11px] text-gray-500">작성 창에서 「계약 구분」을 재계약으로 고른 계약은 이 순서로 발송됩니다(잠금 여부는 위 설정을 같이 씁니다).</p>
+      ) : (<>
       <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
         <input type="checkbox" checked={!locked} onChange={(e) => onChange(steps, !e.target.checked)} />
         발송 때 순서 변경 허용 <span className="text-gray-400">(꺼져 있으면 발송 창은 이 순서대로 칸을 만들고 사람만 고릅니다)</span>
@@ -72,6 +82,7 @@ export default function ApprovalOrderEditor({ steps, locked, onChange }: {
         본부 = 발송 때 사람 선택 · 원장 = 당사자 지점의 메인 원장 자동 · 근로자 = 당사자 본인(외부 계약이면 외부 계약자 링크 서명).
         원장 본인의 계약서는 원장 단계가 자동으로 빠집니다.
       </p>
+      </>)}
     </div>
   );
 }

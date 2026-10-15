@@ -90,9 +90,9 @@ export async function PATCH(
 
   // 양식이 결재 순서를 고정했으면 같은 종류(본부·원장·당사자)끼리만 바꿀 수 있다 — 발송 때만 잠그면 교체로 우회된다(3f2d0d4 검증 F4)
   {
-    const c = await prisma.contract.findUnique({ where: { id }, select: { userId: true, externalName: true, template: { select: { approvalSteps: true, approvalLocked: true } } } });
-    const { parseApprovalSteps, kindOfApprover, KIND_LABEL } = await import("@/lib/approval-order");
-    const steps = c?.template?.approvalLocked ? parseApprovalSteps(c.template.approvalSteps) : null;
+    const c = await prisma.contract.findUnique({ where: { id }, select: { userId: true, externalName: true, extraFields: true, template: { select: { approvalSteps: true, approvalStepsRenewal: true, approvalLocked: true } } } });
+    const { parseApprovalSteps, kindOfApprover, KIND_LABEL, isRenewalContract, templateStepsFor } = await import("@/lib/approval-order");
+    const steps = c?.template?.approvalLocked ? parseApprovalSteps(templateStepsFor(c.template, isRenewalContract(c.extraFields))) : null;
     if (c && steps) {
       const old = step.approverId ? await prisma.user.findUnique({ where: { id: step.approverId }, select: { role: true } }) : null;
       const ctx = { contractUserId: c.userId, external: !!c.externalName };

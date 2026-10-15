@@ -32,6 +32,7 @@ type ContractTemplate = {
   postSignAccess: string; // 서명 완료 후 근로자 접근 (#129)
   approvalSteps?: { kind: string }[] | null; // 결재 순서(#213-2) — 없으면 본부→원장→근로자
   approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본 true)
+  approvalStepsRenewal?: { kind: string }[] | null; // 재계약일 때의 결재 순서(2026-10-15) — 없으면 위 순서
   fieldSettings?: unknown;                   // 칸 설정(#22 1단계)
   layout?: unknown;                          // PDF 칸 배치(#22 2단계)
   labels?: string[];       // 라벨(#78)
@@ -75,9 +76,10 @@ export default function ContractTemplatesPage() {
     labels: "",   // 쉼표 구분(#78)
     approvalSteps: null as ApprovalStepSpec[] | null,   // 결재 순서(#213-2) — null = 지정 안 함(기본 3칸·검사 없음)
     approvalLocked: true,
+    approvalStepsRenewal: null as ApprovalStepSpec[] | null,   // 재계약 결재 순서(2026-10-15) — null = 기본 순서 그대로
     fieldSettings: {} as FieldSettings,   // 칸 설정(#22 1단계)
   });
-  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true, fieldSettings: {} as FieldSettings });
+  const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true, approvalStepsRenewal: null as ApprovalStepSpec[] | null, fieldSettings: {} as FieldSettings });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState<TemplateCategory | null>(null);   // 묶음으로 거르기(#214-5)
@@ -144,6 +146,7 @@ export default function ContractTemplatesPage() {
       formData.append("type", form.type);
       formData.append("file", form.file);
       if (form.approvalSteps) formData.append("approvalSteps", JSON.stringify(form.approvalSteps)); // 결재 순서(#213-2) — 없으면 안 보냄(NULL)
+      if (form.approvalSteps && form.approvalStepsRenewal) formData.append("approvalStepsRenewal", JSON.stringify(form.approvalStepsRenewal)); // 재계약 순서(2026-10-15)
       formData.append("approvalLocked", String(form.approvalLocked));
 
       const res = await fetch("/api/contract-templates", {
@@ -186,6 +189,7 @@ export default function ContractTemplatesPage() {
       formData.append("postSignAccess", form.postSignAccess); // 서명 완료 후 근로자 접근 (#129)
       formData.append("labels", form.labels); // 라벨(#78)
       formData.append("approvalSteps", form.approvalSteps ? JSON.stringify(form.approvalSteps) : ""); // 결재 순서(#213-2) — "" 면 지정 안 함(NULL)으로
+      formData.append("approvalStepsRenewal", form.approvalSteps && form.approvalStepsRenewal ? JSON.stringify(form.approvalStepsRenewal) : ""); // 재계약 순서(2026-10-15) — 기본 순서가 없으면 같이 지운다
       formData.append("approvalLocked", String(form.approvalLocked));
       if (!/\.pdf$/i.test(editTarget.fileUrl)) formData.append("fieldSettings", JSON.stringify(form.fieldSettings)); // 칸 설정(#22 1단계) — PDF 양식은 칸 배치 편집기가 정한다(여기서 보내면 옛 값으로 덮는다)
       if (form.file) formData.append("file", form.file); // 있을 때만 교체
@@ -246,6 +250,7 @@ export default function ContractTemplatesPage() {
       postSignAccess: template.postSignAccess || "full",
       approvalSteps: parseApprovalSteps(template.approvalSteps),   // 없으면 null(지정 안 함) 그대로 — 수정만 해도 순서가 생기지 않게(검증 F2)
       approvalLocked: template.approvalLocked !== false,
+      approvalStepsRenewal: parseApprovalSteps(template.approvalStepsRenewal),
       fieldSettings: parseFieldSettings(template.fieldSettings),
       file: null,
       labels: (template.labels || []).join(", "),
@@ -359,6 +364,7 @@ export default function ContractTemplatesPage() {
                 </p>
                 <p className="text-xs text-gray-500">
                   결재 순서: {stepsLabel(parseApprovalSteps(template.approvalSteps))}{template.approvalSteps ? (template.approvalLocked === false ? " (발송 때 변경 가능)" : " (고정)") : " (기본값 — 수정에서 지정)"}
+                  {template.approvalSteps && template.approvalStepsRenewal ? ` · 재계약: ${stepsLabel(parseApprovalSteps(template.approvalStepsRenewal))}` : ""}
                 </p>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   <a href={template.fileUrl} download className="inline-flex items-center gap-1 text-blue-600 hover:underline"><Download size={12} />원본 내려받기</a>
@@ -469,7 +475,12 @@ export default function ContractTemplatesPage() {
 
             <div className="space-y-2">
               <Label>결재 순서 <span className="text-xs text-gray-400 font-normal">(#213-2 — 이 양식으로 보낼 때의 서명·결재 차례)</span></Label>
-              <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked }))} />
+              <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked, approvalStepsRenewal: approvalSteps ? f.approvalStepsRenewal : null }))} />
+              {form.approvalSteps && (
+                <div className="rounded-md border border-dashed px-3 py-2">
+                  <ApprovalOrderEditor renewal steps={form.approvalStepsRenewal} locked={form.approvalLocked} onChange={(approvalStepsRenewal) => setForm(f => ({ ...f, approvalStepsRenewal }))} />
+                </div>
+              )}
             </div>
 
             <div className="rounded-md bg-gray-50 border px-3 py-2 text-xs text-gray-600">
@@ -581,7 +592,12 @@ export default function ContractTemplatesPage() {
               </div>
               <div className="space-y-2">
                 <Label>결재 순서 <span className="text-xs text-gray-400 font-normal">(이 양식으로 보낼 때의 서명·결재 차례)</span></Label>
-                <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked }))} />
+                <ApprovalOrderEditor steps={form.approvalSteps} locked={form.approvalLocked} onChange={(approvalSteps, approvalLocked) => setForm(f => ({ ...f, approvalSteps, approvalLocked, approvalStepsRenewal: approvalSteps ? f.approvalStepsRenewal : null }))} />
+                {form.approvalSteps && (
+                  <div className="rounded-md border border-dashed px-3 py-2">
+                    <ApprovalOrderEditor renewal steps={form.approvalStepsRenewal} locked={form.approvalLocked} onChange={(approvalStepsRenewal) => setForm(f => ({ ...f, approvalStepsRenewal }))} />
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>칸 설정 <span className="text-xs text-gray-400 font-normal">(칸마다 채우는 방식 · 자동 값 · 필수, #22)</span></Label>

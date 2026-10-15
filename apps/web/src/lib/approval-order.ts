@@ -49,6 +49,18 @@ export function validateSteps(steps: ApprovalStepSpec[]): string | null {
   return null;
 }
 
+/** 작성 값의 「계약 구분」이 재계약인가 — 양식에 {#신규입사}/{#재계약} 구간이 있을 때만 "계약구분" 이 들어 있다(없으면 신규로 본다) */
+export function isRenewalContract(extraFields: unknown): boolean {
+  return !!extraFields && typeof extraFields === "object" && !Array.isArray(extraFields) && (extraFields as Record<string, unknown>)["계약구분"] === "재계약";
+}
+
+/** 이 계약에 실제로 적용되는 양식 순서(저장 JSON 그대로) — 재계약이고 재계약 순서가 있으면 그것, 아니면 기본 순서(2026-10-15) */
+export function templateStepsFor(t: { approvalSteps?: unknown; approvalStepsRenewal?: unknown } | null | undefined, renewal: boolean): unknown {
+  if (!t) return null;
+  if (renewal && t.approvalStepsRenewal != null) return t.approvalStepsRenewal;
+  return t.approvalSteps ?? null;
+}
+
 export function stepsLabel(steps: ApprovalStepSpec[] | null | undefined, external = false): string {
   return (steps && steps.length ? steps : DEFAULT_STEPS).map((s) => KIND_LABEL[effectiveKind(s.kind, external)]).join(" → ");
 }

@@ -33,7 +33,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       data: {
         name, description: src.description, type: src.type, fileUrl: `/api/uploads/templates/${filename}`, version: 1,
         createdBy: session.userId, approverIds: src.approverIds, postSignAccess: src.postSignAccess, labels: src.labels,
-        approvalSteps: src.approvalSteps ?? undefined, approvalLocked: src.approvalLocked,   // 결재 순서(#213-2)도 사본에
+        approvalSteps: src.approvalSteps ?? undefined, approvalStepsRenewal: src.approvalStepsRenewal ?? undefined, approvalLocked: src.approvalLocked,   // 결재 순서(#213-2)·재계약 순서도 사본에
         fieldSettings: src.fieldSettings ?? undefined,   // 칸 설정(#22 1단계)도 사본에
         layout: src.layout ?? undefined,   // PDF 칸 배치(#22 2단계)도 사본에
       },

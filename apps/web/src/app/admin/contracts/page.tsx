@@ -51,7 +51,8 @@ type Contract = {
   signDeadline?: string | null;    // 서명 기한(#45)
   sendMessage?: string | null;     // 본부 발송 메시지(#65)
   isTest?: boolean;                // 나에게 테스트 발송(#67) 시험 문서 — 7일 뒤 자동 삭제
-  approvalSteps?: { kind: string }[] | null; // 양식의 결재 순서(#213-2) — 없으면 본부→원장→근로자
+  approvalSteps?: { kind: string }[] | null; // 양식의 결재 순서(#213-2) — 없으면 본부→원장→근로자. 재계약이면 서버가 재계약 순서로 바꿔 준다(2026-10-15)
+  approvalRenewal?: boolean;                 // 이 계약에 양식의 재계약 순서가 적용됨
   approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본)
   importBatch?: string | null;     // 모두싸인 이관본(#4)
   certificateUrl?: string | null;  // 이관본의 감사추적 인증서(#4)
@@ -85,6 +86,7 @@ function askDuplicate(data: { duplicates?: { title: string; status: string; last
 }
 
 type ContractTemplate = {
+  approvalStepsRenewal?: { kind: string }[] | null; // 재계약일 때의 결재 순서(2026-10-15) — 작성 창 안내용
   id: string;
   name: string;
   createdAt?: string; // 패키지 자동 선택 순서(#78 F1)
@@ -731,12 +733,12 @@ export default function ContractsPage() {
         try {
           const data = await res.json();
           toast.success(data.reset ? "수정했습니다 — 결재를 1단계부터 다시 받습니다." : "계약서가 수정되었습니다.");
+          await fetchContracts().catch(() => {});   // 목록(결재 순서 포함)을 먼저 받고 닫는다 — 계약 구분을 바꾼 직후 옛 순서로 발송 창이 열리지 않게(검증 D2). 재조회 실패는 저장과 무관하니 창은 닫는다
           setEditOpen(false);
           setEditingContract(null);
           setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
           setEditFile(null);
           setEditUploading(false);
-          fetchContracts();
         } catch {
           toast.error("응답 처리 중 오류가 발생했습니다.");
           setEditUploading(false);
@@ -777,12 +779,12 @@ export default function ContractsPage() {
         try {
           const data = await res.json();
           toast.success(data.reset ? "수정했습니다 — 결재를 1단계부터 다시 받습니다." : "계약서가 수정되었습니다.");
+          await fetchContracts().catch(() => {});   // 목록(결재 순서 포함)을 먼저 받고 닫는다 — 계약 구분을 바꾼 직후 옛 순서로 발송 창이 열리지 않게(검증 D2). 재조회 실패는 저장과 무관하니 창은 닫는다
           setEditOpen(false);
           setEditingContract(null);
           setEditForm({ title: "", type: "", startDate: "", endDate: "", salary: "" }); setEditExtraFields({});
           setEditFile(null);
           setEditUploading(false);
-          fetchContracts();
         } catch {
           toast.error("응답 처리 중 오류가 발생했습니다.");
           setEditUploading(false);
@@ -2478,7 +2480,7 @@ ${url}`;
                         </label>
                       ))}
                     </div>
-                    <p className="text-[11px] text-gray-400">재계약을 선택하면 수습기간 조항이 &quot;해당없음&quot;으로 처리되고 관련 입력란이 숨겨집니다.</p>
+                    <p className="text-[11px] text-gray-400">재계약을 선택하면 수습기간 조항이 &quot;해당없음&quot;으로 처리되고 관련 입력란이 숨겨집니다.{templates.find(x => x.id === selectedTemplate)?.approvalStepsRenewal ? " 이 양식은 재계약이면 결재 순서도 양식의 「재계약 순서」로 발송됩니다." : ""}</p>
                   </div>
                 )}
 
@@ -3555,7 +3557,7 @@ ${url}`;
                                     <p className="text-sm text-gray-600">「{sendTarget.title}」의 결재자를 단계별로 지정하세요.</p>
                                     <p className="text-xs text-gray-500">
                                       결재 순서: <b>{stepsLabel(slotSpecs, !!sendTarget.externalName)}</b>
-                                      {sendTarget.approvalSteps ? (slotLocked ? " · 양식에서 정한 순서(고정)" : " · 이 양식은 발송 때 순서를 바꿀 수 있습니다") : " · 양식에 순서가 없어 기본값(템플릿 수정에서 지정할 수 있습니다)"}
+                                      {sendTarget.approvalSteps ? (slotLocked ? (sendTarget.approvalRenewal ? " · 양식에서 정한 재계약 순서(고정)" : " · 양식에서 정한 순서(고정)") : " · 이 양식은 발송 때 순서를 바꿀 수 있습니다") : " · 양식에 순서가 없어 기본값(템플릿 수정에서 지정할 수 있습니다)"}
                                     </p>
                                     {/* 발송 문서 실물 확인 (#100) + 원장·근로자 자동 채움 (#99·#159) */}
                                     {/* min-w-0 이 없으면 flex 항목이 글자 최소폭 밑으로 줄지 않아 모달 밖으로 밀려난다 (#178) */}

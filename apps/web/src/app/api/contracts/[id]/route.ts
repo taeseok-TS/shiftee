@@ -393,7 +393,7 @@ export async function PATCH(
     // 결재 순서 검사(#213-2) — 양식이 순서를 고정했으면 그 순서(종류 기준)대로만 보낼 수 있다. 직원전용 문서는 위에서 이미 1단계로 고정
     if (!contract.employeeOnly) {
       const { validateSendOrder } = await import("@/lib/approval-order-server");
-      const orderErr = await validateSendOrder({ approverIds, templateId: contract.templateId, contractUserId: contract.userId, external: !!contract.externalName });
+      const orderErr = await validateSendOrder({ approverIds, templateId: contract.templateId, contractUserId: contract.userId, external: !!contract.externalName, extraFields: fieldSummary ?? contract.extraFields });   // 같은 요청에 실린 수정값이 있으면 그것으로(검증 D3)
       if (orderErr) return NextResponse.json({ code: "ORDER_MISMATCH", error: orderErr }, { status: 400 });
     }
     // 중복 발송 경고(#47) — 같은 직원·같은 양식이 진행 중이거나 30일 안에 보낸 적이 있으면 먼저 묻는다(확인하면 보낸다)
