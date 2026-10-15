@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
 
 const workNavItems = [
@@ -25,6 +25,20 @@ const JIKYOUNG_PORTAL_URL = "https://jikyoung-portal-one.vercel.app/";
 // 직영 포털은 큐브티(cubetee.co.kr) 전용이다 — 판매용 고객사 인스턴스도 같은 화면을 쓰므로 거기서는 숨긴다(검증관 3).
 // 판별 규칙은 lib/is-direct-host 하나뿐이다(로그인 화면의 EMS 안내도 같은 규칙을 쓴다).
 const useShowPortalLink = useIsDirectHost;
+// EDUCUBE(지점 관리 시스템) 바로가기 — 2026-10-15 디렉터 지시. 직영 포털과 같이 큐브티 전용·새 탭. 넓은 화면(웹·PC앱) 사이드바에만 둔다(폰 폭 상단 바엔 없음)
+const EDUCUBE_URL = "https://branch.educube.co.kr/";
+// 우선 디렉터 계정에만 보인다(2026-10-15 디렉터 지시 — 원장용·매니저용 주소가 따로 있어 링크 확인 뒤 전체 공개). 관리자(admin@)·김태석본부장
+const EDUCUBE_PREVIEW_USER_IDS = ["cmqhrexl30000ms154pmi8tau", "cmr1nh48f005mnx0kg4ndkze6"];
+function useShowEducube(showPortal: boolean) {
+  const [meId, setMeId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!showPortal) return;
+    let alive = true;
+    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive) setMeId(d?.user?.id ?? null); }).catch(() => {});
+    return () => { alive = false; };
+  }, [showPortal]);
+  return showPortal && !!meId && EDUCUBE_PREVIEW_USER_IDS.includes(meId);
+}
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
 // 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수
@@ -101,6 +115,7 @@ function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) 
 export function WorkSidebar() {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
+  const showEducube = useShowEducube(showPortal);
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const badges = useWorkBadges(pathname);
@@ -186,6 +201,20 @@ export function WorkSidebar() {
         >
           <Building2 size={18} />
           {!collapsed && <span className="flex-1">직영 포털</span>}
+          {!collapsed && <ExternalLink size={13} className="opacity-60" />}
+        </a>}
+        {showEducube && <a
+          href={EDUCUBE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={collapsed ? "EDUCUBE (새 탭)" : "새 탭에서 열립니다"}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-indigo-200 hover:bg-indigo-900 hover:text-white",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <Box size={18} />
+          {!collapsed && <span className="flex-1">EDUCUBE</span>}
           {!collapsed && <ExternalLink size={13} className="opacity-60" />}
         </a>}
       </nav>
