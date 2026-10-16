@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     const fileUrl = `/api/uploads/templates/${filename}`;
 
-    // 정책 결정: 명시값 > 같은 이름의 이전 템플릿 승계 > 양식 종류별 기본값(4종 full, 그 외 none — #213-1)
+    // 정책 결정: 명시값 > 같은 이름의 이전 템플릿 승계 > 기본값 full(열람+다운로드 — #220-2)
     const { defaultPostSignAccess, postSignAccessError } = await import("@/lib/contract-access");
     let postSignAccess: string;
     if (accessRaw === "none" || accessRaw === "view" || accessRaw === "full") {

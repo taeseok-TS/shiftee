@@ -153,12 +153,14 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
       ? events.find((e) => e.type === "VERIFY_OK" && e.stepOrder === st.order)   // 처음 뒷자리를 맞힌 때(제출 때 기록이 아니라)
       : lastOf("VERIFY_OK", st);
     const via = (verified?.meta as { via?: string } | null)?.via;
-    const at = verified ? ` (${kst(verified.createdAt)})` : "";
+    const at = verified ? ` · ${kst(verified.createdAt)}` : "";
+    // 사내 결재자(본부·원장 등)도 2026-10-16부터 서명 때 비밀번호를 확인한다(#220-3) — 근로자와 같은 형식으로 적는다.
+    // 확인 기록이 없는 결재자 단계(그 전에 승인한 진행 중 문서)는 사실대로 「로그인 계정」. 이미 고정된 증명서는 다시 만들지 않는다(위 return).
     const method = external
       ? (verified ? `서명 링크 + 연락처 뒷자리 확인${at}` : "서명 링크")
-      : employee
-        ? (verified ? `로그인 + 비밀번호 확인 — ${via === "문서 열기 전 비밀번호" ? "문서 열기 전" : "서명 때"}${at}` : signed ? "로그인 + 비밀번호 재확인" : "로그인 계정")
-        : "로그인 계정";
+      : verified
+        ? `로그인 + 비밀번호 확인 — ${via === "문서 열기 전 비밀번호" ? "문서 열기 전" : "서명 때"}${at}`
+        : employee && signed ? "로그인 + 비밀번호 재확인" : "로그인 계정";
     w.text(`${st.order}. ${role}  ${name}   서명 ${kst(st.decidedAt)}`, 10, dark);
     const viewed = firstViewed(st);
     if (viewed) w.text(`문서 열람: ${kst(viewed.createdAt)}`, 9, gray, 14);

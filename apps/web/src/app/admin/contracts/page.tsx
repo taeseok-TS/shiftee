@@ -312,6 +312,7 @@ export default function ContractsPage() {
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false); // 기본 해제 — 체크한 사람만 저장(#205-2, 2026-09-11)
+  const [signPw, setSignPw] = useState(""); // 결재자 본인 확인 — 승인·서명 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정)
   const [signZoom, setSignZoom] = useState(1); // 서명 모달 문서 확대·축소 0.75~2.0 (#160)
   // 문서 크게 보기 — 새 창 대신 그 자리에서 전체화면으로 (2026-09-02 이예지대리 재확인요청).
   // "새창으로 옮기는거 불편합니다" — 서명하다 창을 옮기면 하던 일이 끊긴다.
@@ -2039,6 +2040,9 @@ ${url}`;
       if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
       body = { signatureData: sigRef.current.toDataURL(), isApprover, saveAsDefault };
     }
+    // 결재자 본인 확인(#220-3) — 서버가 비밀번호를 다시 확인한다(화면 검사는 안내용)
+    if (!signPw) { toast.error("본인 확인을 위해 로그인 비밀번호를 입력해주세요."); return; }
+    body.password = signPw;
     setSignBusy(true);
     try {
     const res = await fetch(`/api/contracts/${id}/sign`, {
@@ -2050,7 +2054,7 @@ ${url}`;
     const data = await res.json();
     if (!res.ok) { toast.error(data.error); return; }
     toast.success(isApprover ? "계약 승인됨" : "서명 완료");
-    setSignOpen(false);
+    setSignOpen(false); setSignPw("");
     // 새로 그린 서명을 기본으로 저장했으면 최신 저장 서명 반영
     if (!useSaved && saveAsDefault) {
       fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
@@ -3267,7 +3271,7 @@ ${url}`;
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignOpen(true); }} className="gap-1">
+                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignPw(""); setSignOpen(true); }} className="gap-1">
                   <PenLine size={14} />승인
                 </Button>
               </div>
@@ -3293,7 +3297,7 @@ ${url}`;
                   <a href={`/api/docs/pdf?src=${encodeURIComponent(getFileUrl(c.fileUrl))}&title=${encodeURIComponent(c.title)}&download=1`} target="_blank" rel="noreferrer" title="PDF로 내려받기">
                     <Button size="sm" variant="outline"><Download size={14} /></Button>
                   </a>
-                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignPw(""); setSignOpen(true); }} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>
@@ -3960,7 +3964,7 @@ ${url}`;
       </Card>
 
       {/* 서명 모달 */}
-      <Dialog open={signOpen} onOpenChange={setSignOpen}>
+      <Dialog open={signOpen} onOpenChange={(o) => { setSignOpen(o); if (!o) setSignPw(""); }}>
         <DialogContent className="max-w-md max-h-[92vh] flex flex-col overflow-hidden">
           {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
               (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
@@ -4055,6 +4059,15 @@ ${url}`;
                   </label>
                 </div>
               )}
+              {/* 결재자 본인 확인 — 승인·서명 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정). 근로자 서명과 같은 확인 */}
+              <div className="space-y-1">
+                <Label>본인 확인 — 비밀번호 *</Label>
+                <Input type="password" autoComplete="current-password" value={signPw}
+                  onChange={e => setSignPw(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && signPw && !signBusy && signTarget) handleSign(signTarget.id, signTarget.status === "APPROVED"); }}
+                  placeholder="로그인 비밀번호" />
+                <p className="text-[11px] text-gray-400">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
+              </div>
               {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125).
                   새 창이 아니라 그 자리에서 크게 연다 (2026-09-02 이예지대리 재확인요청) */}
               {/* 묶음이면 패키지 전체를 **따로** 본다 — 서명 대상 미리보기와 섞지 않는다(#206-2) */}

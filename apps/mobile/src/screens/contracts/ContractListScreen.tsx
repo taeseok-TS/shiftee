@@ -90,7 +90,7 @@ export default function ContractListScreen() {
   const [mySigUrl, setMySigUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveSigDefault, setSaveSigDefault] = useState(false); // 기본 해제 — 체크한 결재자만 저장(#205-2, 2026-09-11)
-  const [signPw, setSignPw] = useState(""); // 근로자 본인 서명 비밀번호 재확인(#205-1)
+  const [signPw, setSignPw] = useState(""); // 서명·승인 비밀번호 재확인 — 근로자 본인(#205-1) + 결재자(#220-3, 2026-10-16 본부 결정)
   const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
   const sigRef = useRef<SignatureViewRef>(null);
   // 휴대폰 서명 진행(#32, 본부 답변 #36 「크게 보기 + 다음 칸·남은 칸 수」) — 입력 칸을 이름으로 찾아 「다음 칸」에서 바로 옮겨 간다
@@ -207,6 +207,9 @@ export default function ContractListScreen() {
     const own = isOwnSign;
     if (own && !unlocked && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     if (own && !signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
+    // 결재자 본인 확인(#220-3) — 결재자는 문서 열기 관문이 없어 승인할 때마다 비밀번호를 받는다. 서버도 다시 확인한다
+    if (!own && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    const approverPw = signPw;
     const ownPw = unlocked ? "" : signPw;   // 문서 열기 전에 확인했으면 비워 보낸다(서버가 확인 기록으로 본다)
     setSignTarget(null);
     setSigning(true);
@@ -216,16 +219,17 @@ export default function ContractListScreen() {
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
         setSignPw("");
       } else if (hasConsent || profile || fields) {
-        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields, ver);
+        await api.signContractWithConsent(id, sig, true, hasConsent ? choices : undefined, profile, fields, ver, approverPw);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
       } else if (isApproverSign && saveSigDefault) {
         // 결재자(원장·본부)가 그린 서명 — 기본 서명으로 저장해 다음부터 원클릭
-        await api.signContractAndSave(id, sig, ver);
+        await api.signContractAndSave(id, sig, ver, approverPw);
         api.getMyProfile().then(p => setMySigUrl(p.signatureUrl || null)).catch(() => {});
       } else {
         // 공유 클라이언트(signContract)는 헤더를 못 실어 같은 요청을 직접 보낸다 — 버전 헤더(#206 검증 F2)
-        await api.signContractWithConsent(id, sig, true, undefined, undefined, undefined, ver);
+        await api.signContractWithConsent(id, sig, true, undefined, undefined, undefined, ver, approverPw);
       }
+      setSignPw("");
       Alert.alert("완료", own ? "서명을 제출했습니다." : "결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
@@ -241,10 +245,14 @@ export default function ContractListScreen() {
     if (!signTarget) return;
     const id = signTarget.id;
     const ver: number | undefined = typeof signTarget.version === "number" ? signTarget.version : undefined; // #206 검증 F2
+    // 결재자 본인 확인(#220-3) — 저장된 서명으로 승인해도 로그인 비밀번호는 다시 받는다. 서버도 다시 확인한다
+    if (!signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
+    const pw = signPw;
     setSignTarget(null);
     setSigning(true);
     try {
-      await api.signContractSaved(id, ver);
+      await api.signContractSaved(id, ver, pw);
+      setSignPw("");
       Alert.alert("완료", "저장된 서명으로 결재를 승인했습니다.");
       await loadContracts();
     } catch (error: any) {
@@ -641,6 +649,15 @@ export default function ContractListScreen() {
                     <Ionicons name={signAgree ? "checkbox" : "square-outline"} size={20} color="#4338ca" />
                     <Text style={{ flex: 1, fontSize: 13, color: "#374151" }}>[필수] 본인은 위 문서의 내용을 모두 확인하였으며, 전자서명 방식으로 서명하는 데 동의합니다.</Text>
                   </TouchableOpacity>
+                </View>
+              )}
+              {/* 결재자 본인 확인 — 승인·서명 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정). 근로자 서명과 같은 확인 */}
+              {isApproverSign && (
+                <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
+                  <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>
+                  <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                    autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />
+                  <Text style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않습니다.</Text>
                 </View>
               )}
               {isApproverSign && mySigUrl && !drawNewSig ? (

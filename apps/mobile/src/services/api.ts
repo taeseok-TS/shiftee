@@ -175,17 +175,21 @@ const signHeaders = async (token: string | null, version?: number) => ({
   "x-device-id": await getDeviceId().catch(() => ""),
 });
 
+// 결재자 본인 확인(#220-3, 2026-10-16 본부 결정) — 본부·원장 등 모든 결재자도 승인·서명 때 로그인 비밀번호를 다시 보낸다.
+// 서버가 근로자 서명과 같은 함수·같은 틀린 횟수 제한으로 확인한다(없으면 400 PASSWORD_REQUIRED — 401 아님, 로그아웃되지 않는다)
+const pwField = (password?: string) => (password ? { password } : {});
+
 // 저장된 결재 서명(관리자·원장)으로 원클릭 승인
-export async function signContractSaved(id: string, version?: number) {
+export async function signContractSaved(id: string, version?: number, password?: string) {
   const token = await getToken();
-  return axios.post(`${API_URL}/contracts/${id}/sign`, { useSaved: true, isApprover: true },
+  return axios.post(`${API_URL}/contracts/${id}/sign`, { useSaved: true, isApprover: true, ...pwField(password) },
     { headers: await signHeaders(token, version) });
 }
 
 // 그린 서명으로 승인 + 기본 서명으로 저장(다음 결재부터 원클릭)
-export async function signContractAndSave(id: string, signatureData: string, version?: number) {
+export async function signContractAndSave(id: string, signatureData: string, version?: number, password?: string) {
   const token = await getToken();
-  return axios.post(`${API_URL}/contracts/${id}/sign`, { signatureData, isApprover: true, saveAsDefault: true },
+  return axios.post(`${API_URL}/contracts/${id}/sign`, { signatureData, isApprover: true, saveAsDefault: true, ...pwField(password) },
     { headers: await signHeaders(token, version) });
 }
 
@@ -196,10 +200,10 @@ export async function rejectContract(id: string, reason: string) {
     { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 }
 
-export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>, version?: number) {
+export async function signContractWithConsent(id: string, signatureData: string, isApprover: boolean, consent?: Record<string, string>, profile?: Record<string, string>, fields?: Record<string, string>, version?: number, password?: string) {
   const token = await getToken();
   return axios.post(`${API_URL}/contracts/${id}/sign`,
-    { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) },
+    { signatureData, isApprover, ...(consent ? { consent } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}), ...pwField(password) },
     { headers: await signHeaders(token, version) });
 }
 

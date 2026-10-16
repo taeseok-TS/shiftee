@@ -120,6 +120,7 @@ export default function ManagerContractsPage() {
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
   const [drawNewSig, setDrawNewSig] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false); // 기본 해제 — 체크한 사람만 저장(#205-2, 2026-09-11)
+  const [signPw, setSignPw] = useState(""); // 결재자 본인 확인 — 승인 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정)
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
@@ -161,6 +162,9 @@ export default function ManagerContractsPage() {
       if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
       body = { signatureData: sigRef.current.toDataURL(), isApprover: true, saveAsDefault };
     }
+    // 결재자 본인 확인(#220-3) — 서버가 비밀번호를 다시 확인한다(화면 검사는 안내용)
+    if (!signPw) { toast.error("본인 확인을 위해 로그인 비밀번호를 입력해주세요."); return; }
+    body.password = signPw;
     setSigning(true);
     try {
       const res = await fetch(`/api/contracts/${signTarget.id}/sign`, {
@@ -174,6 +178,7 @@ export default function ManagerContractsPage() {
       toast.success("계약서를 승인했습니다.");
       setSignOpen(false);
       setSignTarget(null);
+      setSignPw("");
       if (!useSaved && saveAsDefault) {
         fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
       }
@@ -257,7 +262,7 @@ export default function ManagerContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setDrawNewSig(false); setSignOpen(true); }}>
+                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setDrawNewSig(false); setSignPw(""); setSignOpen(true); }}>
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -345,7 +350,7 @@ export default function ManagerContractsPage() {
       </Card>
 
       {/* 승인 다이얼로그 */}
-      <Dialog open={signOpen} onOpenChange={setSignOpen}>
+      <Dialog open={signOpen} onOpenChange={(o) => { setSignOpen(o); if (!o) setSignPw(""); }}>
         <DialogContent className="max-w-3xl sm:max-w-3xl max-h-[94vh] flex flex-col overflow-hidden">
           {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
               (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
@@ -414,6 +419,13 @@ export default function ManagerContractsPage() {
                 <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
               </div>
             )}
+            {/* 결재자 본인 확인 — 승인 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정). 근로자 서명과 같은 확인 */}
+            <div className="space-y-1">
+              <Label>본인 확인 — 비밀번호 *</Label>
+              <Input type="password" autoComplete="current-password" value={signPw}
+                onChange={e => setSignPw(e.target.value)} placeholder="로그인 비밀번호" />
+              <p className="text-[11px] text-gray-400">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
+            </div>
             {/* 스크롤해도 항상 보이도록 하단에 붙인다 */}
             <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
               <Button variant="outline" onClick={() => setSignOpen(false)} disabled={signing}>취소</Button>

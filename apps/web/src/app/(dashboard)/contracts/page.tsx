@@ -319,7 +319,8 @@ export default function ContractsPage() {
   }, [fetchContracts]);
 
   const [signSubmitting, setSignSubmitting] = useState(false); // 서명 처리 중 표시·중복 클릭 방지 (QA 2026-08-25)
-  // 근로자 본인 서명 — 비밀번호 재확인 + 매번 직접 서명(#205-1·#205-2, 2026-09-11 디렉터). 결재자 서명은 지금처럼.
+  // 근로자 본인 서명 — 비밀번호 재확인 + 매번 직접 서명(#205-1·#205-2, 2026-09-11 디렉터).
+  // 결재자 서명도 2026-10-16부터 비밀번호를 다시 확인한다(#220-3 본부 결정 — 저장 서명 원클릭은 그대로)
   const [signPassword, setSignPassword] = useState("");
   // 문서 열기 전 본인 확인(#20) — 확인하면 30분 동안 서명 때 비밀번호를 다시 묻지 않는다(서버가 기록으로 확인)
   const [unlocked, setUnlocked] = useState(false);
@@ -358,7 +359,7 @@ export default function ContractsPage() {
     // 근로자 본인 서명은 저장 서명을 쓰지 않는다(#205-2 — 서버도 막는다)
     const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
     if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
-    if (isEmpSign && (!unlocked || needPw) && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    if ((!isEmpSign || !unlocked || needPw) && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
     if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
@@ -406,11 +407,11 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(isEmpSign ? { ...(signPassword ? { password: signPassword } : {}), agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(signPassword ? { password: signPassword } : {}), ...(isEmpSign ? { agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (data.code === "PASSWORD_REQUIRED") { setNeedPw(true); toast.error("확인한 지 30분이 지났습니다. 아래 비밀번호 칸에 다시 입력하고 서명해 주세요."); return; }
+        if (data.code === "PASSWORD_REQUIRED" && isEmpSign) { setNeedPw(true); toast.error("확인한 지 30분이 지났습니다. 아래 비밀번호 칸에 다시 입력하고 서명해 주세요."); return; }
         toast.error(data.error); return;
       }
       // 입력한 프로필을 로컬에도 반영 (다음 계약서에서 다시 안 묻도록)
@@ -889,13 +890,13 @@ export default function ContractsPage() {
                     </label>
                   </div>
                   )}
-                  {/* 본인 확인 — 근로자 본인 서명만(#205-1). 문서 열기 전에 확인했으면(#20) 다시 묻지 않는다 */}
-                  {isEmpSign && (!unlocked || needPw) && (
+                  {/* 본인 확인 — 근로자 본인 서명(#205-1)과 결재자 승인(#220-3, 2026-10-16) 모두. 근로자는 문서 열기 전에 확인했으면(#20) 다시 묻지 않는다 */}
+                  {(!isEmpSign || !unlocked || needPw) && (
                     <div className="space-y-1">
                       <Label>본인 확인 — 비밀번호 *</Label>
                       <Input type="password" autoComplete="current-password" value={signPassword}
                         onChange={e => setSignPassword(e.target.value)} placeholder="로그인 비밀번호" />
-                      <p className="text-[11px] text-gray-400">본인이 직접 서명하는지 확인합니다. 비밀번호는 저장되지 않습니다.</p>
+                      <p className="text-[11px] text-gray-400">{isEmpSign ? "본인이 직접 서명하는지 확인합니다." : "결재자 본인이 직접 승인하는지 확인합니다."} 비밀번호는 저장되지 않습니다.</p>
                     </div>
                   )}
                   {/* 전자서명 동의(#205-3) — 근로자 본인 서명만. 문구는 서버 기록과 같은 상수 */}

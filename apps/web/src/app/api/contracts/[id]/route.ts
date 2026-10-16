@@ -216,6 +216,10 @@ export async function PATCH(
   //   관리자가 고쳐서(수정) 또는 그대로(재발송) 다시 보내면 결재는 1단계부터 다시 받고, 반려 기록은 이력에 남는다.
   if (status && !["DRAFT", "SENT", "APPROVED", "SIGNED", "EXPIRED"].includes(status))
     return NextResponse.json({ error: "알 수 없는 계약 상태입니다." }, { status: 400 });
+  // 승인(APPROVED)·완료(SIGNED)는 결재자가 서명 라우트에서 비밀번호를 다시 확인하고 서명할 때만 된다(#220-3, 2026-10-16 본부 결정).
+  // 상태만 바꾸는 요청으로 올리면 결재·본인 확인 없이 「완료」가 되고 매시 점검이 완료본·증명서까지 만든다 — 화면은 이 값을 보내지 않는다.
+  if (status === "APPROVED" || status === "SIGNED")
+    return NextResponse.json({ error: "승인·완료 상태는 결재자가 비밀번호를 확인하고 서명해야만 바뀝니다. 상태를 직접 바꿀 수 없습니다." }, { status: 400 });
   // 시험 문서(#67)는 다시 보내거나 고칠 수 없다 — 재발송으로 결재선을 남에게 바꾸면 그 사람에게 알림이 가고(결재함에는 없음),
   // 수정으로 「[테스트] 」 접두어를 지울 수 있다(#67 검증 F1). 기한 변경·회수 숨김은 그대로. 다시 보려면 지우고 새로 테스트 발송
   if (contract.isTest && (status || approverIds || title || type || startDate || endDate || newFileUrl || extraFieldsRaw))

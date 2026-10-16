@@ -10,15 +10,14 @@ import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, isFillable
 import { layoutFieldTypes } from "@/lib/contract-layout";
 import fs from "fs/promises";
 import path from "path";
-import bcrypt from "bcryptjs";
 import type { Prisma } from "@prisma/client";
 import { lockSteps } from "@/lib/contract-reset";
 import { recordContractEvent, requestInfo } from "@/lib/contract-events";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
-import { pwTakeAttempt, pwFails, recentUnlock, sessionMark } from "@/lib/contract-pw";
+import { verifySignPassword, sessionMark } from "@/lib/contract-pw";
 import { approvalProgress } from "@/lib/contract-progress";
 
-// 본인 서명 비밀번호 확인 — 틀린 횟수 제한은 lib/contract-pw(문서 열기 관문 #20 과 같은 표)
+// 서명·승인 비밀번호 확인 — 근로자·사내 결재자 공통(#220-3), 틀린 횟수 제한은 lib/contract-pw(문서 열기 관문 #20 과 같은 표)
 // 서명 확정 실패 사유 — 409 로 돌려준다
 type SignFail = "DOC_CHANGED" | "STEP_CHANGED";
 const SIGN_FAIL: Record<SignFail, string> = {
@@ -105,7 +104,7 @@ export async function POST(
   // ── 근로자 본인 서명 단계 (#205-1·#205-2, 2026-09-11 디렉터 결정) ──
   // 로그인만 돼 있으면 선 하나로 서명이 통과됐다(이예지대리 #205-1). 근로자 본인 서명은 **비밀번호를 다시 확인**하고
   // **매번 직접 그린 서명**만 받는다 — 저장 서명이 자동으로 쓰이면 "문서를 보지 못했다"는 다툼이 생긴다(#205-2).
-  // 결재자(원장·본부) 서명은 지금처럼(저장 서명·원클릭 유지). 외부 계약자는 게스트 링크의 연락처 뒷자리 확인으로.
+  // 결재자(원장·본부)는 저장 서명 원클릭을 유지하되 비밀번호는 2026-10-16부터 함께 확인한다(#220-3, 아래). 외부 계약자는 게스트 링크의 연락처 뒷자리 확인으로.
   // ⚠ 서명 이미지 저장·기본 서명 갱신보다 **먼저** 본다 — 종전에는 권한 판정 전에 파일부터 썼다.
   //   응답은 401 이 아니라 400/429 — 앱은 401 을 "로그인 만료"로 보고 로그아웃시킨다.
   const pendingMine = contract.approvalLine?.steps.find((st) => st.approverId === session.userId && st.status === "PENDING");
@@ -122,23 +121,23 @@ export async function POST(
         code: "CONSENT_REQUIRED",
         error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
-    // 문서 열기 전에 비밀번호를 확인했으면(#20, 30분 안·이번 회차) 서명 때 다시 묻지 않는다
-    const unlocked = !(typeof password === "string" && password) && (await recentUnlock(id, session.userId, pendingMine!.order, requestInfo(request), sessionMark(session)));
-    if (!unlocked && (typeof password !== "string" || !password))
-      return NextResponse.json({
-        code: "PASSWORD_REQUIRED",
-        error: "본인 확인을 위해 비밀번호를 입력해 주세요. 비밀번호 칸이 보이지 않으면 — 웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
-      }, { status: 400 });
-    if (!unlocked) {
-      const lock = pwTakeAttempt(session.userId);
-      if (lock)
-        return NextResponse.json({ code: "PASSWORD_LOCKED", error: `비밀번호를 여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도해 주세요.` }, { status: 429 });
-      const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { password: true } });
-      if (!me?.password || !(await bcrypt.compare(password, me.password)))
-        return NextResponse.json({ code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." }, { status: 400 });
-      pwFails.delete(session.userId);
-      pwCheckedAtSign = true;   // 증명서에 확인 방법·시각을 남긴다(#20 본부 답변 #30) — 서명 확정 뒤에
-    }
+  }
+  // ── 본인 확인 — 비밀번호 재확인 (근로자 #205-1 + 사내 결재자 전원 #220-3, 2026-10-16 본부 결정) ──
+  // 종전에는 근로자만 확인하고 본부·원장 등 결재자는 로그인만으로 승인됐다(이예지 대리 10/16). 이제 **이 계약에서 내 차례인
+  // 사내 단계는 모두** 같은 함수(verifySignPassword)·같은 틀린 횟수 제한으로 확인한다. 내 차례 단계가 없으면 아래에서 거절된다
+  // (케이스 2·마지막 403) — 서명이 확정되는 모든 경로가 이 확인을 거친다. 외부 계약자는 게스트 링크의 연락처 뒷자리 확인(범위 밖).
+  // 근로자는 문서 열기 전에 확인했으면(#20, 30분 안·이번 회차·같은 기기) 다시 묻지 않는다 — 결재자에게는 그 관문이 없어 늘 서명 때 확인한다.
+  if (pendingMine) {
+    const v = await verifySignPassword({
+      contractId: id, userId: session.userId, stepOrder: pendingMine.order, password,
+      req: requestInfo(request), sid: sessionMark(session),
+      // 칸이 없는 옛 화면(앱 업데이트 전·새로고침 전 웹)은 이 문구를 그대로 띄운다
+      requiredMessage: isEmployeeSignStep
+        ? "본인 확인을 위해 비밀번호를 입력해 주세요. 비밀번호 칸이 보이지 않으면 — 웹: 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요."
+        : "결재자 본인 확인을 위해 로그인 비밀번호를 입력해 주세요(2026-10-16부터 본부·원장 등 모든 결재자도 승인·서명 때 비밀번호를 다시 확인합니다). 비밀번호 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 승인해 주세요.",
+    });
+    if (!v.ok) return NextResponse.json({ code: v.code, error: v.error }, { status: v.status });
+    pwCheckedAtSign = v.checked;   // 증명서에 확인 방법·시각을 남긴다(#20 본부 답변 #30) — 서명 확정 뒤에
   }
 
   // 저장된 본인 서명 사용 — **결재자만**(근로자 본인 서명은 위에서 막았다) (개선 제안 #75)

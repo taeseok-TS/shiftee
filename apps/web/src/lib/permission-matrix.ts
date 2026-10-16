@@ -51,7 +51,7 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "계약서 작성·발송", admin: "all", manager: "no", employee: "no", note: "원장은 API 로 담당 지점 직원의 임시저장(초안)만 만들 수 있고 발송은 못 한다(원장 화면에는 작성 버튼 없음)", basis: "api/contracts POST(초안), [id] PATCH·bundle send = 본부" },
     { feature: "외부(미가입) 계약·나에게 테스트 발송", admin: "all", manager: "no", employee: "no", basis: "api/contracts POST" },
     { feature: "계약 목록 보기", admin: "all", manager: "branch", employee: "self", note: "원장은 직원전용 문서(비밀유지·개인정보동의서)·외부 계약 제외", basis: "api/contracts GET" },
-    { feature: "결재·서명", admin: "결재선에 있을 때", manager: "결재선에 있을 때", employee: "본인 서명", note: "본인 서명은 비밀번호 확인 뒤(#20)", basis: "api/contracts/[id]/sign, my-approvals" },
+    { feature: "결재·서명", admin: "결재선에 있을 때", manager: "결재선에 있을 때", employee: "본인 서명", note: "근로자 본인 서명·본부·원장 결재 모두 비밀번호 확인 뒤(#20·#220-3)", basis: "api/contracts/[id]/sign, my-approvals" },
     { feature: "수정·재발송·회수·삭제", admin: "all", manager: "no", employee: "no", note: "완료본은 삭제 불가(시험 문서 제외)", basis: "api/contracts/[id] PATCH·DELETE" },
     { feature: "결재자 바꾸기", admin: "all", manager: "branch", employee: "no", note: "원장은 자기 자신으로 지정 불가", basis: "api/contracts/[id]/approval-steps/[stepId]" },
     { feature: "완료본 ZIP·입력값 엑셀", admin: "all", manager: "no", employee: "no", basis: "api/contracts/export" },

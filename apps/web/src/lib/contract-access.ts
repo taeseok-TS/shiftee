@@ -267,8 +267,8 @@ export async function guestTicketCovers(contractId: string, fileName: string): P
 }
 
 // ── 서명 완료 후 근로자 접근 — 양식 종류별 기본값·금지 규칙(2026-10-08 개선 제안 #213-1, 디렉터 채택) ──
-//  근로자가 열람·다운로드할 수 있는 문서는 **4종**: 근로계약서, 비밀유지서약서(퇴직시 포함), 개인정보수집이용동의서, 금품청산 지급기일연장 동의서.
-//  그 외(사직원·정산 신청서·휴가·근태 신청서 등)는 기본 「접근 불가(none)」. 관리자는 항상 전부 본다.
+//  처음(#213-1)엔 4종(근로계약서·비밀유지서약서·개인정보수집이용동의서·금품청산 지급기일연장 동의서)만 열고 그 외는 「접근 불가」였으나,
+//  2026-10-16 본부 결정(#220-2)으로 **근로자에게 보낸 문서는 모두 열람+다운로드**가 기본이다. 양식별로 바꿀 수는 있다. 관리자는 항상 전부 본다.
 //  근로계약서는 근로자 교부 의무(근로기준법 17조)가 있어 「접근 불가」로 바꿀 수 없다.
 // 이름 표기 변형 허용: 「근로 계약서」「단시간근로계약서」「비밀유지 계약서」「개인정보 수집 및 이용 동의서」「개인정보 수집·이용 동의서」「금품청산 지급기일 연장 동의서」
 export const EMPLOYMENT_NAME_RE = /근로\s*계약서|파트\s*타임\s*계약서/;
@@ -282,7 +282,10 @@ export function isEmployeeDeliverable(name: string, type?: string | null): boole
 }
 /** 새 양식의 기본 접근 — 4종은 full, 그 외 none */
 export function defaultPostSignAccess(name: string, type?: string | null): "full" | "none" {
-  return isEmployeeDeliverable(name, type) ? "full" : "none";
+  // 2026-10-16 본부 결정(#220-2): 근로자에게 보낸 문서는 서명 뒤 근로자가 열람·다운로드 — 새 양식 기본값은 모두 「열람 + 다운로드」.
+  // (종전: 근로계약서·동의서류만 full, 신청서류는 none) 이름·유형 인자는 호출부 호환을 위해 남긴다
+  void name; void type;
+  return "full";
 }
 /** 저장하면 안 되는 조합이면 오류 문구, 아니면 null */
 export function postSignAccessError(name: string, type: string | null | undefined, access: string): string | null {

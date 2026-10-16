@@ -43,7 +43,7 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
   { code: "REWARD", label: "포상휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, notice: "10년 근속 포상 유급 휴가", selectable: true },
   { code: "MATERNITY", label: "출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "출산휴가 신청서·증명서", notice: "출산휴가 신청서 및 증명서 첨부가 필요합니다.", selectable: true },
   { code: "SPOUSE_BIRTH", label: "배우자출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },
-  { code: "FAMILY_CARE", label: "가족돌봄휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },
+  { code: "FAMILY_CARE", label: "가족돌봄휴가", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, notice: "무급휴가입니다(연차는 차감되지 않습니다).", selectable: true },   // 무급(2026-10-16 본부 결정 #220-1, 종전 유급 8h)
   { code: "CIVIL_DEFENSE", label: "민방위 휴가", group: "기타휴가", paidHours: 4, unit: "HALF", deducts: false, attachRequired: "민방위 참여 증빙", notice: "민방위 휴가 참여 증빙서류 제출이 필요합니다.", selectable: true },
   { code: "RESERVE_FORCES", label: "예비군 휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "예비군 훈련 참여 확인증", notice: "예비군 훈련 참여 확인증 제출이 필요합니다.", selectable: true },
   { code: "OTHER_PAID", label: "기타휴가(유급)", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },

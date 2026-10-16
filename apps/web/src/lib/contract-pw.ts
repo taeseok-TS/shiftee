@@ -1,6 +1,9 @@
+import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 
-// 근로자 본인 확인 비밀번호 — 틀린 횟수 제한(5번 → 15분 잠금). 서명 라우트와 문서 열기 관문(#20)이 같은 표를 쓴다.
+// 전자계약 본인 확인 비밀번호 — 틀린 횟수 제한(5번 → 15분 잠금). 서명 라우트와 문서 열기 관문(#20)이 같은 표를 쓴다.
+// 2026-10-16 본부 결정(#220-3): 근로자뿐 아니라 본부·원장 등 **모든 사내 결재자**도 승인·서명 때 이 표·이 함수로 확인한다.
+// (로그인 시도 제한 lib/login-throttle 과는 별개 표 — 로그인 잠금에 영향을 주지 않는다)
 // globalThis 싱글턴(개발 핫리로드에도 한 벌). 서버 1대라 프로세스 메모리로 충분하다.
 const gpw = globalThis as unknown as { __signPwFails?: Map<string, { count: number; until: number }> };
 export const pwFails = (gpw.__signPwFails ??= new Map<string, { count: number; until: number }>());
@@ -46,4 +49,37 @@ export async function recentUnlock(contractId: string, userId: string, stepOrder
   if (!ok?.deviceId && !req.deviceId && (meta?.sid ?? null) !== sid) return false;
   if (ok.deviceId || req.deviceId) return ok.deviceId === req.deviceId;
   return !!ok.userAgent && ok.userAgent === req.userAgent;
+}
+
+// 결과 — 실패면 status·code·error 를 그대로 응답에 싣는다(이 저장소는 strict 가 꺼져 있어 ok 로 좁히는 합집합 대신 한 모양으로)
+export type ContractPwResult = { ok: boolean; checked?: boolean; status?: 400 | 429; code?: string; error?: string };
+
+/** 로그인 비밀번호 대조 — 틀린 횟수 제한 포함. 문서 열기 관문(unlock)과 서명·승인(verifySignPassword)이 이 한 함수를 쓴다.
+ *  ⚠ 시도 계수(pwTakeAttempt)는 비교(DB·bcrypt, 비동기)보다 **먼저**, 사이에 await 없이 — 동시 요청 우회 방지(#205 검증 A4) */
+export async function checkContractPassword(userId: string, password: string): Promise<ContractPwResult> {
+  const lock = pwTakeAttempt(userId);
+  if (lock) return { ok: false, status: 429, code: "PASSWORD_LOCKED", error: `비밀번호를 여러 번 틀렸습니다. ${Math.ceil((lock - Date.now()) / 60000)}분 뒤에 다시 시도해 주세요.` };
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { password: true } });
+  if (!me?.password || !(await bcrypt.compare(password, me.password)))
+    return { ok: false, status: 400, code: "PASSWORD_MISMATCH", error: "비밀번호가 맞지 않습니다." };
+  pwFails.delete(userId);
+  return { ok: true };
+}
+
+/**
+ * 서명·승인 때 본인 확인 — 근로자 본인 서명(#205-1)과 사내 결재자 승인(#220-3, 2026-10-16 본부 결정)이 같은 함수를 쓴다.
+ * 비밀번호를 보냈으면 그것으로 확인하고(checked=true → 호출부가 서명 확정 뒤 VERIFY_OK 「서명 때 비밀번호」를 남긴다),
+ * 안 보냈으면 문서 열기 전 확인(#20, 30분·같은 기기·이번 회차)이 있는지 본다 — 그 기록은 근로자 본인 단계에만 생긴다.
+ * 응답은 401 이 아니라 400/429 — 앱은 401 을 「로그인 만료」로 보고 로그아웃시킨다.
+ */
+export async function verifySignPassword(input: {
+  contractId: string; userId: string; stepOrder: number; password: unknown;
+  req: { userAgent: string | null; deviceId: string | null }; sid: number | null;
+  requiredMessage: string;
+}): Promise<ContractPwResult> {
+  const pw = typeof input.password === "string" && input.password ? input.password : null;
+  if (!pw && (await recentUnlock(input.contractId, input.userId, input.stepOrder, input.req, input.sid))) return { ok: true, checked: false };
+  if (!pw) return { ok: false, status: 400, code: "PASSWORD_REQUIRED", error: input.requiredMessage };
+  const r = await checkContractPassword(input.userId, pw);
+  return r.ok ? { ok: true, checked: true } : r;
 }
