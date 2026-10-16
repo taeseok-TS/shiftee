@@ -19,6 +19,8 @@ import {
 } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import EditedMark from "@/components/attendance/EditedMark";
+import type { AttendanceEditView } from "@/lib/attendance-edit";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -29,6 +31,7 @@ type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
   status: string; minutes: number;
   userName?: string;   // 지점 전체 조회 때 누구 기록인지(서버가 보내 줌)
+  edit?: AttendanceEditView | null;   // 수정 이력 요약(#219-15)
 };
 type Stats = {
   total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number;
@@ -607,6 +610,8 @@ export default function AttendancePage() {
                                 {r.clockIn && r.clockOut && r.minutes === 0 && (
                                   <Badge variant="outline" className="ml-1 border-amber-300 text-amber-700">확인 필요</Badge>
                                 )}
+                                {/* 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15) */}
+                                <EditedMark edit={r.edit} />
                               </td>
                             </tr>
                           );

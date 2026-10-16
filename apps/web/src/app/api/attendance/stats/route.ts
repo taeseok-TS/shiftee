@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
+import { attendanceEditViews, type AttendanceEditView } from "@/lib/attendance-edit";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isAllowed } from "@/lib/permission-settings";
@@ -216,7 +218,12 @@ export async function GET(request: NextRequest) {
     };
   };
 
-  const [curDays, prevDays] = await Promise.all([calcDays(records, start, end), calcDays(prevRecords, prevStart, prevEnd)]);
+  const [curDays, prevDays, edits] = await Promise.all([
+    calcDays(records, start, end), calcDays(prevRecords, prevStart, prevEnd),
+    // 수정 이력 요약(#219-15) — 표가 아직 없는 서버(DDL 전)에서도 통계는 열린다
+    attendanceEditViews({ attendance: { ...(userWhere as Prisma.AttendanceWhereInput), date: { gte: start, lte: end } } })
+      .catch(() => new Map<string, AttendanceEditView>()),
+  ]);
   const current = { ...calcStats(records), ...curDays };
   const previous = { ...calcStats(prevRecords), ...prevDays };
 
@@ -273,6 +280,7 @@ export async function GET(request: NextRequest) {
       status: r.status,
       userName: r.user.name,
       userBranch: r.user.branch,
+      edit: edits.get(r.id) ?? null,   // 수정됨 표시·원래 시각·사유·수정/승인자(#219-15)
       minutes: r.clockIn && r.clockOut
         ? Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000)
         : 0,

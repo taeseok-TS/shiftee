@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { statusForAutoFill } from "@/lib/attendance-policy";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { verifyAttendanceDevice } from "@/lib/device";
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   const att = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: workDate } },
-    select: { id: true, clockIn: true, clockOut: true },
+    select: { id: true, clockIn: true, clockOut: true, status: true },
   });
   if (!att || !att.clockIn) return NextResponse.json({ error: "그 날 출근 기록이 없습니다." }, { status: 404 });
   if (att.clockOut) return NextResponse.json({ error: "이미 퇴근이 기록된 날입니다." }, { status: 409 });
@@ -64,9 +65,21 @@ export async function POST(request: NextRequest) {
   const kst = new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 16).replace("T", " ");
   const status = await statusForAutoFill(att.clockIn, clockOut, date, session.userId, "out", elig.close.basis);
   // ⚠ 조건부로 쓴다 — 그 사이 관리자가 마감했거나 직원이 다른 탭에서 눌렀으면 덮어쓰지 않는다
-  const w = await prisma.attendance.updateMany({
-    where: { id: att.id, clockOut: null },
-    data: { clockOut, status, clockOutPlace: `${hhmm} 퇴근 처리(${elig.close.label}) · 본인 동의 ${kst}` },
+  //   쓴 경우에만 같은 트랜잭션으로 수정 이력을 남긴다(#219-15 — 결재 없이 바로 기록되는 길이라 더더욱)
+  const editorName = await personLabelOf(session.userId, session.name);
+  const w = await prisma.$transaction(async (tx) => {
+    const res = await tx.attendance.updateMany({
+      where: { id: att.id, clockOut: null },
+      data: { clockOut, status, clockOutPlace: `${hhmm} 퇴근 처리(${elig.close.label}) · 본인 동의 ${kst}` },
+    });
+    if (res.count > 0)
+      await recordAttendanceEdit(tx, {
+        attendanceId: att.id, userId: session.userId, workDate, kind: "SELF_CONSENT",
+        before: { clockIn: att.clockIn, clockOut: null, status: att.status },
+        after: { clockIn: att.clockIn, clockOut, status },
+        reason: `퇴근 누락 — ${elig.close.label}로 처리 본인 동의(${kst})`, editorId: session.userId, editorName,
+      });
+    return res;
   });
   if (w.count === 0) return NextResponse.json({ error: "이미 처리된 기록입니다. 화면을 새로고침해 주세요." }, { status: 409 });
 

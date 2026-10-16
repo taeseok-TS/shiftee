@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { autoCloseTime, autoFillSettings, statusForAutoFill, WEEKDAY_CAP_HOURS } from "@/lib/attendance-policy";
 import { kstTodayDateUTC } from "@/lib/kst";
 
@@ -80,9 +81,10 @@ export async function POST(request: NextRequest) {
       clockIn: { not: null }, clockOut: null, date: { lt: kstTodayDateUTC() },
       ...(ids && ids.length ? { id: { in: ids } } : {}),
     },
-    select: { id: true, userId: true, date: true, clockIn: true, user: { select: { name: true } } },
+    select: { id: true, userId: true, date: true, clockIn: true, status: true, user: { select: { name: true } } },
   });
   if (rows.length === 0) return NextResponse.json({ success: true, closed: 0 });
+  const editorName = await personLabelOf(session.userId, session.name);
 
   const settings = await autoFillSettings();
   const pending = await pendingRequestKeys(rows);
@@ -100,12 +102,23 @@ export async function POST(request: NextRequest) {
     // ⚠ 조건부로 쓴다. 그 사이 직원이 찍었거나 관리자가 고쳤으면 덮어쓰지 않는다.
     //   결재 대기 요청이 없는지도 **쓰는 그 문장 안에서** 다시 본다(2026-10-17 검증 P3 — 위 목록 조회와 쓰기 사이에
     //   직원이 요청을 올리면 마감이 요청을 덮었다). 한 UPDATE 의 조건이라 틈이 없다.
-    const w = await prisma.attendance.updateMany({
-      where: {
-        id: r.id, clockOut: null,
-        user: { attendanceRequests: { none: { workDate: r.date, status: "PENDING", kind: { not: "DEVICE" } } } },
-      },
-      data: { clockOut, status },
+    //   쓴 경우에만 같은 트랜잭션으로 수정 이력을 남긴다(#219-15)
+    const w = await prisma.$transaction(async (tx) => {
+      const res = await tx.attendance.updateMany({
+        where: {
+          id: r.id, clockOut: null,
+          user: { attendanceRequests: { none: { workDate: r.date, status: "PENDING", kind: { not: "DEVICE" } } } },
+        },
+        data: { clockOut, status },
+      });
+      if (res.count > 0)
+        await recordAttendanceEdit(tx, {
+          attendanceId: r.id, userId: r.userId, workDate: r.date, kind: "AUTO_CLOSE",
+          before: { clockIn: r.clockIn, clockOut: null, status: r.status },
+          after: { clockIn: r.clockIn, clockOut, status },
+          reason: `전일 미마감 마감 (기준: ${close.label})`, editorId: session.userId, editorName,
+        });
+      return res;
     });
     if (w.count === 0) {
       // 막 올라온 요청 때문이면 건너뜀으로 센다(아니면 그 사이 퇴근이 채워진 것)

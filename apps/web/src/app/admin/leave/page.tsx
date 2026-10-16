@@ -512,6 +512,70 @@ export default function LeavePage() {
   }
 
   /* ── 렌더 ── */
+
+  /* ── 신청 목록 칸(표·카드 공용, #219-16) — 원래 표 칸에 있던 그대로. 모양만 둘이고 내용·조건은 여기 하나 ── */
+  const leavePeriod = (r: LeaveRequest) => (
+    <>
+      {format(new Date(r.startDate), "yyyy.MM.dd")}
+      {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
+    </>
+  );
+  const leaveApproval = (r: LeaveRequest) => (
+    <>
+      {r.approvalSteps && r.approvalSteps.length > 0
+        ? <ApprovalChain steps={r.approvalSteps} />
+        : <span className="text-xs text-gray-400">-</span>}
+      {r.status === "REJECTED" && r.rejectedReason && (
+        <p className="text-xs text-red-500 mt-0.5">반려: {r.rejectedReason}</p>
+      )}
+    </>
+  );
+  const leaveStatus = (r: LeaveRequest) => {
+    const s = STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED;
+    return (
+      <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${s.badge}`}>
+        {s.label}
+      </span>
+    );
+  };
+  const leaveActions = (r: LeaveRequest) => {
+    const show = (isAdmin && r.status === "PENDING") || r.canCancel || r.canRequestCancel || r.pendingCancel;
+    if (!show) return null;   // 카드에서 빈 줄이 생기지 않게
+    return (
+      <div className="flex flex-wrap gap-1">
+        {isAdmin && r.status === "PENDING" && (
+          <>
+            <Button size="sm" className="h-7 gap-1 bg-green-600 hover:bg-green-700"
+              onClick={() => handleApprove(r.id)}><Check size={11} />승인</Button>
+            <Button size="sm" variant="destructive" className="h-7 gap-1"
+              onClick={() => openReject(r.id)}><X size={11} />반려</Button>
+          </>
+        )}
+        {/* 취소 가능 여부는 서버가 판정해 내려준다(lib/leave-cancel.ts) — 화면이 조건을
+            따로 들고 있으면 누르면 403 인 버튼이 생긴다(관리자 본인 승인건이 그랬다).
+            관리자의 대기 건은 여기서 승인·반려만 — 확인창 없는 취소를 그 옆에 두면
+            잘못 누르기 쉽다. 취소는 결재함(확인창 있음)에서 한다 */}
+        {r.canCancel && !(isAdmin && r.status === "PENDING") && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
+            onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
+        )}
+        {/* 승인된 휴가는 **취소 결재로만** — 버튼 표시 여부는 서버 판정(canRequestCancel) */}
+        {r.canRequestCancel && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-red-500"
+            onClick={() => handleRequestCancel(r.id)}>취소 요청</Button>
+        )}
+        {r.pendingCancel && (
+          <span className="inline-flex items-center gap-1 text-xs text-amber-700 whitespace-nowrap">
+            취소 결재 중
+            {r.pendingCancel.mine && (
+              <button type="button" className="underline text-gray-400 hover:text-gray-600"
+                onClick={() => handleWithdrawCancel(r.pendingCancel!.id)}>철회</button>
+            )}
+          </span>
+        )}
+      </div>
+    );
+  };
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -621,7 +685,16 @@ export default function LeavePage() {
             </div>
           </div>
 
-          <Card>
+          {/* 신청 목록 — 넓은 화면은 표, 휴대폰(md 미만)은 카드(2026-10-16 이예지 QA #219-16 — 390px 에서 결재 현황·상태·처리 칸이 잘렸다).
+              두 모양이 같은 칸 함수(leaveApproval·leaveStatus·leaveActions)를 쓴다 — 버튼 동작·조건을 한 곳에서만 고친다 */}
+          {shownRequests.length === 0 ? (
+            <Card>
+              <CardContent className="py-16 text-center text-sm text-gray-400">
+                <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />{requests.length ? "검색에 맞는 신청이 없습니다." : "신청 내역이 없습니다."}
+              </CardContent>
+            </Card>
+          ) : (<>
+          <Card className="hidden md:block">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -637,13 +710,7 @@ export default function LeavePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {shownRequests.length === 0 ? (
-                      <tr><td colSpan={7} className="py-16 text-center text-gray-400">
-                        <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />{requests.length ? "검색에 맞는 신청이 없습니다." : "신청 내역이 없습니다."}
-                      </td></tr>
-                    ) : shownRequests.map(r => {
-                      const s = STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED;
-                      return (
+                    {shownRequests.map(r => (
                         <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50/70 transition-colors">
                           {isAdmin && (
                             <td className="px-4 py-3">
@@ -652,66 +719,35 @@ export default function LeavePage() {
                             </td>
                           )}
                           <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{TYPE_LABEL[r.type] ?? r.type}</td>
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                            {format(new Date(r.startDate), "yyyy.MM.dd")}
-                            {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
-                          </td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{leavePeriod(r)}</td>
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.days}일</td>
-                          <td className="px-4 py-3">
-                            {r.approvalSteps && r.approvalSteps.length > 0
-                              ? <ApprovalChain steps={r.approvalSteps} />
-                              : <span className="text-xs text-gray-400">-</span>}
-                            {r.status === "REJECTED" && r.rejectedReason && (
-                              <p className="text-xs text-red-500 mt-0.5">반려: {r.rejectedReason}</p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border font-medium ${s.badge}`}>
-                              {s.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-1">
-                              {isAdmin && r.status === "PENDING" && (
-                                <>
-                                  <Button size="sm" className="h-7 gap-1 bg-green-600 hover:bg-green-700"
-                                    onClick={() => handleApprove(r.id)}><Check size={11} />승인</Button>
-                                  <Button size="sm" variant="destructive" className="h-7 gap-1"
-                                    onClick={() => openReject(r.id)}><X size={11} />반려</Button>
-                                </>
-                              )}
-                              {/* 취소 가능 여부는 서버가 판정해 내려준다(lib/leave-cancel.ts) — 화면이 조건을
-                                  따로 들고 있으면 누르면 403 인 버튼이 생긴다(관리자 본인 승인건이 그랬다).
-                                  관리자의 대기 건은 여기서 승인·반려만 — 확인창 없는 취소를 그 옆에 두면
-                                  잘못 누르기 쉽다. 취소는 결재함(확인창 있음)에서 한다 */}
-                              {r.canCancel && !(isAdmin && r.status === "PENDING") && (
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-400 hover:text-red-500"
-                                  onClick={() => handleCancel(r.id)}><X size={11} />취소</Button>
-                              )}
-                              {/* 승인된 휴가는 **취소 결재로만** — 버튼 표시 여부는 서버 판정(canRequestCancel) */}
-                              {r.canRequestCancel && (
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-red-500"
-                                  onClick={() => handleRequestCancel(r.id)}>취소 요청</Button>
-                              )}
-                              {r.pendingCancel && (
-                                <span className="inline-flex items-center gap-1 text-xs text-amber-700 whitespace-nowrap">
-                                  취소 결재 중
-                                  {r.pendingCancel.mine && (
-                                    <button type="button" className="underline text-gray-400 hover:text-gray-600"
-                                      onClick={() => handleWithdrawCancel(r.pendingCancel!.id)}>철회</button>
-                                  )}
-                                </span>
-                              )}
-                            </div>
-                          </td>
+                          <td className="px-4 py-3">{leaveApproval(r)}</td>
+                          <td className="px-4 py-3">{leaveStatus(r)}</td>
+                          <td className="px-4 py-3">{leaveActions(r)}</td>
                         </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
             </CardContent>
           </Card>
+          <div className="space-y-2 md:hidden">
+            {shownRequests.map(r => (
+              <div key={r.id} className="rounded-xl border bg-white p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    {isAdmin && <p className="text-xs text-gray-500">{r.user.name}{[r.user.branch, r.user.department].filter(Boolean).length ? ` · ${[r.user.branch, r.user.department].filter(Boolean).join(" · ")}` : ""}</p>}
+                    <p className="font-medium text-gray-900">{TYPE_LABEL[r.type] ?? r.type} <span className="text-sm font-normal text-gray-500">· {r.days}일</span></p>
+                    <p className="text-sm text-gray-600">{leavePeriod(r)}</p>
+                  </div>
+                  <div className="shrink-0">{leaveStatus(r)}</div>
+                </div>
+                <div className="mt-2">{leaveApproval(r)}</div>
+                <div className="mt-2 empty:hidden">{leaveActions(r)}</div>
+              </div>
+            ))}
+          </div>
+          </>)}
         </TabsContent>
 
         {/* ═══ 내 결재함 ═══ */}

@@ -50,6 +50,7 @@ model User {
 
   attendances           Attendance[]
   attendanceRequests    AttendanceRequest[]
+  attendanceEdits       AttendanceEdit[]   // 내 출퇴근 기록이 고쳐진 이력(#219-15)
   schedules             Schedule[]
   leaveRequests         LeaveRequest[]
   leaveBalance          LeaveBalance[] // 연도별 1행 (@@unique([userId, year]))
@@ -120,11 +121,41 @@ model Attendance {
   clockOutPlace String?      // 퇴근 장소
   clockOutLat   Float?       // 퇴근 위치
   clockOutLng   Float?
+  edits     AttendanceEdit[] // 고친 이력(관리자 수정·요청 승인·자동 마감 등, #219-15)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
   @@unique([userId, date])
   @@index([userId, date])
+}
+
+// 출퇴근 기록 수정 이력(2026-10-16 이예지 QA #219-15) — 근로감독 때 「원래 찍힌 시각」과 「고친 이유」를 바로 보여 주려고.
+// 기록을 바꾸는 모든 경로(lib/attendance-edit.ts recordAttendanceEdit)가 **같은 트랜잭션 안에서** 한 줄씩 남긴다.
+// 지우거나 고치지 않는다(덧붙이기만) — 여러 번 고쳐도 칸마다 처음 바뀐 줄의 before 가 「원래 찍힌 시각」이다.
+// 이름은 그 시점 「이름 직급」 문자열로 박아 둔다(계정 이름이 바뀌어도 남게). 운영 DDL: deploy/ddl_attendance_edit.sql
+model AttendanceEdit {
+  id           String     @id @default(cuid())
+  attendanceId String
+  attendance   Attendance @relation(fields: [attendanceId], references: [id])
+  userId       String     // 기록의 주인(직원)
+  user         User       @relation(fields: [userId], references: [id])
+  workDate     DateTime   @db.Date
+  kind         String     // ADMIN_EDIT | ADMIN_CREATE | AUTO_FILL | AUTO_CLOSE | SELF_CONSENT | REQUEST_<요청 종류>(CORRECTION·MISSED_OUT·OUTSIDE·PHOTO·HQ)
+  beforeIn     DateTime?
+  beforeOut    DateTime?
+  afterIn      DateTime?
+  afterOut     DateTime?
+  beforeStatus String?
+  afterStatus  String?
+  reason       String?    // 수정 사유(요청이면 직원이 쓴 사유). 사유가 없는 경로는 null — 화면은 kind 설명 문구로 보인다
+  requestId    String?    // 요청 승인이면 그 AttendanceRequest.id
+  editorId     String?    // 고친 사람(관리자) 또는 요청·동의한 직원
+  editorName   String     // 그 시점 「이름 직급」
+  approverName String?    // 요청 승인이면 승인한 사람 「이름 직급」
+  createdAt    DateTime   @default(now())
+
+  @@index([attendanceId, createdAt])
+  @@index([userId, workDate])
 }
 
 enum AttendanceStatus {

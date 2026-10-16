@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
+import type { AttendanceEditView } from "@/lib/attendance-edit";
 
 /**
  * 전 직원 출퇴근기록 — 달력형·목록형(2026-10-07 QA #27 #28 #17 #52 #68 #82).
@@ -17,6 +19,7 @@ import { toast } from "sonner";
 type Cell = {
   sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null;
   leave?: string; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
+  edit?: AttendanceEditView;   // 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15)
 };
 type BoardUser = { id: string; name: string; empNo: number | null; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean; workDays: number };
 type Board = { from: string; to: string; days: string[]; holidays: Record<string, true>; users: BoardUser[]; cells: Record<string, Record<string, Cell>>; truncated?: boolean;
@@ -166,7 +169,8 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   const exportExcel = () => {
     const src = view === "list" ? listRows : rows;   // 달력형에서는 목록형 열 검색을 적용하지 않는다
     if (!src.length) { toast.error("내보낼 기록이 없습니다"); return; }
-    const data = src.map((r) => Object.fromEntries(COLS.map((c) => [c.label, c.get(r)])));
+    // 수정 여부·원래 출근·원래 퇴근·수정 사유·수정·승인자 열을 뒤에 붙인다(#219-15 — 근로감독 제출용)
+    const data = src.map((r) => ({ ...Object.fromEntries(COLS.map((c) => [c.label, c.get(r)])), ...editExcelColumns(r.c.edit) }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "출퇴근기록");
@@ -285,7 +289,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                     const show = c && kindsOf(c).some((k) => kinds.has(k));
                     return (
                       <td key={d} className={`border px-1 py-1 text-center align-middle ${hol ? "bg-gray-50" : ""} ${show && c?.leave && !c.in ? "bg-green-50" : ""}`}
-                        title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`].filter(Boolean).join("\n") : undefined}>
+                        title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`, ...(c.edit ? ["— 수정됨", ...c.edit.lines] : [])].filter(Boolean).join("\n") : undefined}>
                         {show && c && (
                           c.absent ? <span className="text-red-600 font-medium">✕결근</span>
                           : c.leave && !c.in ? <span className="text-green-700 font-medium">{c.leave}</span>
@@ -294,6 +298,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                               <div className={c.late ? "text-red-600 font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-amber-600">대기</span> : c.missing ? <span className="text-red-600">누락❗</span> : "")}{c.late ? "❗" : ""}</div>
                               <div>{c.out ?? (c.missing ? <span className="text-red-600">누락❗</span> : "")}</div>
                               {c.leave && <div className="text-green-700">{c.leave}</div>}
+                              {c.edit && <div className="text-[10px] text-amber-700">수정됨</div>}
                             </>
                           )
                         )}
@@ -328,7 +333,13 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                   {COLS.map((c) => {
                     const v = c.get(r);
                     const warn = c.key === "status" && (v === "결근" || v === "누락" || v === "지각");
-                    return <td key={c.key} className={`px-2 py-1.5 whitespace-nowrap ${warn ? "text-red-600 font-medium" : ""}`}>{v || "-"}</td>;
+                    return (
+                      <td key={c.key} className={`px-2 py-1.5 whitespace-nowrap ${warn ? "text-red-600 font-medium" : ""}`}>
+                        {v || "-"}
+                        {/* 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15) */}
+                        {c.key === "status" && <EditedMark edit={r.c.edit} />}
+                      </td>
+                    );
                   })}
                 </tr>
               ))}

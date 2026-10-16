@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { autoCloseTime, autoOpenTime, statusForAutoFill, type AutoFillBasis } from "@/lib/attendance-policy";
 
 // 출퇴근 누락 자동 보정
@@ -64,14 +65,26 @@ export async function PATCH(
   // 시스템이 상한·퇴근 가능 시각으로 잘라 넣은 시각은 조퇴(출근 쪽은 지각)로 판정하지 않는다(2026-10-17 검증 F4)
   const status = await statusForAutoFill(clockIn!, clockOut!, dateYmd, record.userId, mode, basis);
 
+  const editorName = await personLabelOf(session.userId, session.name);
   // ⚠ 조건부로 쓴다 — 그 사이 직원이 수정 요청 승인·본인 동의 등으로 채웠으면 덮어쓰지 않는다(전일 미마감과 같은 규칙)
-  const w = await prisma.attendance.updateMany({
-    where: {
-      id, ...(mode === "out" ? { clockOut: null } : { clockIn: null }),
-      // 위 확인과 쓰기 사이에 요청이 올라와도 덮지 않게 — 같은 UPDATE 조건으로 다시 본다(2026-10-17 검증 P3)
-      user: { attendanceRequests: { none: { workDate: record.date, status: "PENDING", kind: { not: "DEVICE" } } } },
-    },
-    data: { clockIn, clockOut, status },
+  //   쓴 경우에만 같은 트랜잭션으로 수정 이력을 남긴다(#219-15)
+  const w = await prisma.$transaction(async (tx) => {
+    const res = await tx.attendance.updateMany({
+      where: {
+        id, ...(mode === "out" ? { clockOut: null } : { clockIn: null }),
+        // 위 확인과 쓰기 사이에 요청이 올라와도 덮지 않게 — 같은 UPDATE 조건으로 다시 본다(2026-10-17 검증 P3)
+        user: { attendanceRequests: { none: { workDate: record.date, status: "PENDING", kind: { not: "DEVICE" } } } },
+      },
+      data: { clockIn, clockOut, status },
+    });
+    if (res.count > 0)
+      await recordAttendanceEdit(tx, {
+        attendanceId: id, userId: record.userId, workDate: record.date, kind: "AUTO_FILL",
+        before: { clockIn: record.clockIn, clockOut: record.clockOut, status: record.status },
+        after: { clockIn, clockOut, status },
+        reason: `${mode === "out" ? "퇴근" : "출근"} 누락 보정 (${label})`, editorId: session.userId, editorName,
+      });
+    return res;
   });
   if (w.count === 0) return NextResponse.json({ error: "이미 처리된 기록입니다. 화면을 새로고침해 주세요." }, { status: 409 });
   const updated = await prisma.attendance.findUnique({ where: { id } });

@@ -9,6 +9,7 @@ import { LEAVE_TYPE_LABEL } from "@/lib/leave-cancel-flow";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { mondayOf, weeklyMinutes, WEEK_LIMIT_MIN } from "@/lib/weekly-hours";
 import { isAllowed } from "@/lib/permission-settings";
+import { attendanceEditViews, type AttendanceEditView } from "@/lib/attendance-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 //  · 결근 = 근무일정이 있는 지난 날에 출근·퇴근 기록이 모두 없고 휴가도 아님(일정 없는 날은 결근으로 보지 않는다 — 본부 답변 #12)
 //  · 누락 = 지난 날에 출근 또는 퇴근 한쪽만 있음
 //  · 휴게·총 시간 = 실제 출퇴근 간격에서 근무일정과 같은 휴게 규칙(4.5h↑ 30분, 9h↑ 1시간)을 뺀 값
+//  · 수정된 기록 = 칸에 edit(원래 시각·사유·수정/승인자 — lib/attendance-edit, #219-15)
 
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
 const dateOf = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };
@@ -70,7 +72,7 @@ export async function GET(request: NextRequest) {
   if (truncated) users.pop();
   const ids = users.map((u) => u.id);
 
-  const [schedules, atts, leaves, holidays, pendings] = await Promise.all([
+  const [schedules, atts, leaves, holidays, pendings, edits] = await Promise.all([
     prisma.schedule.findMany({ where: { userId: { in: ids }, date: { gte: fromD, lte: toD }, type: "WORK" }, select: { userId: true, date: true, startTime: true, endTime: true } }),
     prisma.attendance.findMany({
       where: { userId: { in: ids }, date: { gte: fromD, lte: toD } },
@@ -86,6 +88,8 @@ export async function GET(request: NextRequest) {
       where: { userId: { in: ids }, workDate: { gte: fromD, lte: toD }, status: "PENDING", action: { in: ["IN", "OUT"] } },
       select: { userId: true, workDate: true, action: true, clockOut: true },
     }),
+    // 수정 이력 요약 — 표가 아직 없는 서버(DDL 전)에서도 보드는 연다(수정 표시만 빠진다)
+    attendanceEditViews({ userId: { in: ids }, workDate: { gte: fromD, lte: toD } }).catch(() => new Map<string, AttendanceEditView>()),
   ]);
 
   const days: string[] = [];
@@ -94,6 +98,7 @@ export async function GET(request: NextRequest) {
   type Cell = {
     sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null; attId?: string;
     leave?: string; leaveAm?: boolean; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
+    edit?: AttendanceEditView;
   };
   const cells: Record<string, Record<string, Cell>> = {};
   const cell = (u: string, d: string) => ((cells[u] ??= {})[d] ??= {});
@@ -121,6 +126,8 @@ export async function GET(request: NextRequest) {
     c.inPlace = a.clockInPlace;
     c.outPlace = a.clockOutPlace;
     c.late = a.status === "LATE";
+    const e = edits.get(a.id);
+    if (e) c.edit = e;
     if (a.clockIn && a.clockOut && a.clockOut > a.clockIn) {
       const span = (a.clockOut.getTime() - a.clockIn.getTime()) / 60000;
       const br = Math.round(breakHours(span / 60) * 60);

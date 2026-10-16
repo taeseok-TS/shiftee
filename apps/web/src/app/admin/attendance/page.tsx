@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
+import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
+import type { AttendanceEditView } from "@/lib/attendance-edit";
 import {
   format, startOfDay, isSameDay,
   addDays, addWeeks, addMonths, addYears,
@@ -31,6 +33,7 @@ type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
   clockInPlace?: string | null; clockOutPlace?: string | null;
   status: string; minutes: number; userName?: string; userBranch?: string | null;
+  edit?: AttendanceEditView | null;   // 수정 이력 요약(#219-15) — 원래 시각·사유·수정/승인자
 };
 type Stats = {
   total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number;
@@ -189,9 +192,10 @@ export default function AttendancePage() {
   const [editRec, setEditRec] = useState<AttendanceRecord | null>(null);
   const [editIn, setEditIn] = useState("");   // "HH:mm" (비우면 삭제)
   const [editOut, setEditOut] = useState("");
+  const [editReason, setEditReason] = useState("");   // 수정 사유 — 수정 이력에 원래 시각과 함께 남는다(#219-15)
   const [addOpen, setAddOpen] = useState(false);
   // 여러 명을 같은 시각으로 한꺼번에(#215-5). 저장 전 미리보기로 이미 기록이 있는 사람을 표시한다
-  const [addForm, setAddForm] = useState({ userIds: [] as string[], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" });
+  const [addForm, setAddForm] = useState({ userIds: [] as string[], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "", reason: "" });
   const [addSearch, setAddSearch] = useState("");
   const [addExists, setAddExists] = useState<{ date: string; map: Record<string, boolean> }>({ date: "", map: {} });   // 미리보기 결과(날짜별) — userId → 그 날 기록 있음
   const existsOn = (id: string) => addExists.date === addForm.date && !!addExists.map[id];
@@ -212,20 +216,25 @@ export default function AttendancePage() {
   function openEditRec(r: AttendanceRecord) {
     setEditIn(r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "");
     setEditOut(r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "");
+    setEditReason("");
     setEditRec(r);
   }
 
   // "HH:mm" + 기록 날짜 → KST 오프셋 포함 ISO (타임존 어긋남 방지). 비우면 null(삭제)
   const toKstIso = (dateYmd: string, time: string) => (time ? `${dateYmd}T${time}:00+09:00` : null);
+  const nextYmd = (ymd: string) => new Date(Date.parse(`${ymd}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
 
   async function saveEditRec() {
     if (!editRec) return;
+    // 근로감독 때 「고친 이유」를 보여 줄 수 있게 사유를 꼭 받는다(#219-15)
+    if (!editReason.trim()) { toast.error("수정 사유를 입력해주세요."); return; }
     setEditSaving(true);
     try {
       const dateYmd = editRec.date.slice(0, 10);
       const res = await fetch(`/api/attendance/${editRec.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clockIn: toKstIso(dateYmd, editIn), clockOut: toKstIso(dateYmd, editOut) }),
+        // 퇴근이 출근보다 이른 시각이면 자정을 넘긴 퇴근 — 다음 날로 보낸다(검증 참고: 출근만 고쳐도 400 이 나던 것)
+        body: JSON.stringify({ clockIn: toKstIso(dateYmd, editIn), clockOut: toKstIso(editIn && editOut && editOut < editIn ? nextYmd(dateYmd) : dateYmd, editOut), reason: editReason.trim() }),
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error || "수정 실패"); return; }
@@ -250,6 +259,7 @@ export default function AttendancePage() {
         body: JSON.stringify({
           userIds: addForm.userIds, date: addForm.date,
           clockIn: toKstIso(addForm.date, addForm.clockIn), clockOut: toKstIso(addForm.date, addForm.clockOut),
+          reason: addForm.reason.trim(),
         }),
       });
       const d = await res.json();
@@ -297,6 +307,8 @@ export default function AttendancePage() {
       "근무시간(분)": r.minutes || 0,
       근무시간: r.minutes > 0 ? fmtMin(r.minutes) : "",
       상태: (STATUS_CONFIG[r.status]?.label as string) || r.status,
+      // 수정된 기록 — 수정 여부·원래 출근·원래 퇴근·수정 사유·수정·승인자(#219-15)
+      ...editExcelColumns(r.edit),
     }));
     rows.push({
       날짜: "합계", 요일: "", 이름: empFilter === "all" ? "" : empFilter, 지점: "",
@@ -304,9 +316,11 @@ export default function AttendancePage() {
       "근무시간(분)": visibleTotals.minutes,
       근무시간: fmtMin(visibleTotals.minutes),
       상태: `${visibleTotals.days}일 출근`,
+      ...editExcelColumns(null),
     } as (typeof rows)[number]);
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 12 }, { wch: 5 }, { wch: 10 }, { wch: 12 }, { wch: 7 }, { wch: 7 }, { wch: 11 }, { wch: 11 }, { wch: 10 }];
+    ws["!cols"] = [{ wch: 12 }, { wch: 5 }, { wch: 10 }, { wch: 12 }, { wch: 7 }, { wch: 7 }, { wch: 11 }, { wch: 11 }, { wch: 10 },
+      { wch: 11 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 28 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "출퇴근");
     XLSX.writeFile(wb, `출퇴근_${scopeLabel}_${rangeLabel}.xlsx`);
@@ -873,7 +887,7 @@ export default function AttendancePage() {
                     <div className="flex gap-2">
                       {myRole === "ADMIN" && (
                         <Button variant="outline" size="sm" className="gap-1"
-                          onClick={() => { setAddForm({ userIds: [], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "" }); setAddSearch(""); setAddOpen(true); }}>
+                          onClick={() => { setAddForm({ userIds: [], date: format(new Date(), "yyyy-MM-dd"), clockIn: "", clockOut: "", reason: "" }); setAddSearch(""); setAddOpen(true); }}>
                           <Plus size={13} />기록 추가
                         </Button>
                       )}
@@ -943,6 +957,8 @@ export default function AttendancePage() {
                                 {r.clockIn && r.clockOut && r.minutes === 0 && (
                                   <Badge variant="outline" className="ml-1 border-amber-300 text-amber-700">확인 필요</Badge>
                                 )}
+                                {/* 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15) */}
+                                <EditedMark edit={r.edit} />
                               </td>
                               {myRole === "ADMIN" && (
                                 <td className="py-3 text-right">
@@ -995,7 +1011,16 @@ export default function AttendancePage() {
                   <Input type="time" value={editOut} onChange={(e) => setEditOut(e.target.value)} />
                 </div>
               </div>
-              <p className="text-xs text-gray-400">지각/조퇴 상태는 자동으로 다시 계산됩니다. 수정 내역은 감사 로그에 남습니다.</p>
+              <div>
+                <label className="text-xs text-gray-500">수정 사유 <span className="text-red-500">*</span></label>
+                <Input value={editReason} maxLength={300} onChange={(e) => setEditReason(e.target.value)} placeholder="예: 출근 버튼 누락 — 원장 확인" />
+              </div>
+              {editRec.edit && (
+                <p className="text-xs text-amber-700">
+                  이미 고친 기록입니다{editRec.edit.inChanged ? ` · 원래 출근 ${editRec.edit.origIn}` : ""}{editRec.edit.outChanged ? ` · 원래 퇴근 ${editRec.edit.origOut}` : ""}
+                </p>
+              )}
+              <p className="text-xs text-gray-400">지각/조퇴 상태는 자동으로 다시 계산됩니다. 원래 시각·사유·수정자는 수정 이력에 남아 목록과 엑셀에 「수정됨」으로 보입니다.</p>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditRec(null)}>취소</Button>
                 <Button size="sm" onClick={saveEditRec} disabled={editSaving}>{editSaving ? "저장 중…" : "저장"}</Button>
@@ -1059,7 +1084,11 @@ export default function AttendancePage() {
                 <Input type="time" value={addForm.clockOut} onChange={(e) => setAddForm((f) => ({ ...f, clockOut: e.target.value }))} />
               </div>
             </div>
-            <p className="text-xs text-gray-400">수동 생성 기록은 GPS 좌표 없이 저장되며, 생성 내역은 감사 로그에 남습니다.</p>
+            <div>
+              <label className="text-xs text-gray-500">사유</label>
+              <Input value={addForm.reason} maxLength={300} onChange={(e) => setAddForm((f) => ({ ...f, reason: e.target.value }))} placeholder="예: 앱 오류로 출근 기록 누락" />
+            </div>
+            <p className="text-xs text-gray-400">수동 생성 기록은 GPS 좌표 없이 저장되며, 「원래 기록 없음」으로 수정 이력에 남습니다.</p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>취소</Button>
               <Button size="sm" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : addForm.userIds.length > 1 ? `${addForm.userIds.length - addForm.userIds.filter(existsOn).length}명 추가` : "추가"}</Button>

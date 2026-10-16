@@ -3,6 +3,7 @@ import { getSession, bumpTokenVersion } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { approverScopeFor } from "@/lib/approval-delegate";
+import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { KIND_LABEL, RequestConflict, applyApproved, canDecide, summaryOf, type RequestKind } from "@/lib/attendance-request";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!canDecide(r, session, scope, r.user.role)) return NextResponse.json({ error: "처리 권한이 없습니다." }, { status: 403 });
 
   let deviceChanged = false;
+  // 수정 이력에 박을 이름(그 시점 「이름 직급」) — 요청한 직원과 승인한 사람(#219-15)
+  const [requesterName, deciderName] = approve
+    ? await Promise.all([personLabelOf(r.userId, r.user.name), personLabelOf(session.userId, session.name)])
+    : ["", ""];
   try {
     await prisma.$transaction(async (tx) => {
       // 먼저 잡는다 — 두 사람이 동시에 눌러도 한 번만 반영
@@ -44,7 +49,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: { status: approve ? "APPROVED" : "REJECTED", decidedBy: session.userId, decidedAt: new Date(), rejectReason: approve ? null : reason },
       });
       if (claimed.count === 0) throw new RequestConflict("이미 처리된 요청입니다.");
-      if (approve) deviceChanged = !!(await applyApproved(tx, r, session.role)).deviceChanged;
+      if (!approve) return;
+      const applied = await applyApproved(tx, r, session.role);
+      deviceChanged = !!applied.deviceChanged;
+      // 기록을 바꿨으면 같은 트랜잭션으로 수정 이력 — 원래 시각·직원이 쓴 사유·승인자(#219-15)
+      if (applied.edit)
+        await recordAttendanceEdit(tx, {
+          ...applied.edit, userId: r.userId, workDate: r.workDate, kind: `REQUEST_${r.kind}`,
+          reason: r.reason, requestId: r.id,
+          editorId: r.userId, editorName: requesterName, approverName: deciderName,
+        });
     });
   } catch (e) {
     if (e instanceof RequestConflict) return NextResponse.json({ error: e.message }, { status: 409 });

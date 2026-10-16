@@ -138,13 +138,75 @@ export default function LeaveCancelInbox({
     );
   }
 
+  /* ── 표·카드 공용 칸(2026-10-16 이예지 QA #219-16 — 휴대폰 390px 에서 결재·처리 칸이 잘렸다). 원래 표 칸 내용 그대로이고, 넓은 화면은 표·휴대폰(md 미만)은 카드로 같은 칸을 보인다 — 버튼 동작·조건은 여기 하나 ── */
+  const cancelCells = (row: Row) => {
+    const c = row.cancelRequest;
+    const lr = c.leaveRequest;
+    const range = `${format(new Date(lr.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(lr.endDate), "MM월 dd일", { locale: ko })}`;
+    return [
+      <>
+        <div className="font-medium text-gray-900">{c.user.name}</div>
+        <div className="text-xs text-gray-500">{[c.user.branch, c.user.position].filter(Boolean).join(" · ") || "-"}</div>
+      </>,
+      <>
+        <Badge variant="outline" className="bg-blue-50 mb-1">{TYPE_LABEL[lr.type] || lr.type}</Badge>
+        <div>{range}</div>
+        <div className="text-xs text-gray-500">{lr.days}일</div>
+      </>,
+      <>{c.reason || "-"}</>,
+      <>
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+            {c.approvalSteps.filter((x) => x.status === "APPROVED").length}/{c.approvalSteps.length}
+          </span>
+          {c.approvalSteps.map((s, idx) => (
+            <span key={s.id} className="flex items-center gap-1">
+              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
+                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
+                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
+                "bg-gray-100 text-gray-600"
+              }`}>{stepLabel(s)}{s.comment ? " 💬" : ""}</span>
+            </span>
+          ))}
+        </div>
+        {c.approvalSteps.some((x) => x.comment) && (
+          <div className="mt-1 space-y-0.5">
+            {c.approvalSteps.filter((x) => x.comment).map((x) => (
+              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+            ))}
+          </div>
+        )}
+      </>,
+      <>
+        <div className="flex gap-2 justify-end">
+          <Button size="sm" variant="ghost" className="text-green-600 hover:bg-green-50"
+            disabled={processingId === c.id} onClick={() => decide(c.id, "approve")}>
+            {processingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            승인
+          </Button>
+          <Button size="sm" variant="ghost" className="text-gray-500 hover:bg-gray-100" title="의견을 남기고 승인합니다"
+            disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
+            의견
+          </Button>
+          <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50"
+            disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>
+            <X size={16} />
+            반려
+          </Button>
+        </div>
+      </>,
+    ] as const;
+  };
   return (
     <>
       <p className="text-xs text-gray-500">
         승인된 휴가를 본인이 취소하겠다고 올린 결재입니다. <b>최종 승인되면 휴가가 취소되고 연차가 복구</b>되며,
         반려하면 휴가는 그대로 유지됩니다.
       </p>
-      <Card className="overflow-hidden">
+      <>
+      <Card className="overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b">
@@ -158,64 +220,14 @@ export default function LeaveCancelInbox({
             </thead>
             <tbody className="divide-y">
               {filtered.map((row) => {
-                const c = row.cancelRequest;
-                const lr = c.leaveRequest;
-                const range = `${format(new Date(lr.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(lr.endDate), "MM월 dd일", { locale: ko })}`;
+                const cells = cancelCells(row);
                 return (
                   <tr key={row.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{c.user.name}</div>
-                      <div className="text-xs text-gray-500">{[c.user.branch, c.user.position].filter(Boolean).join(" · ") || "-"}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      <Badge variant="outline" className="bg-blue-50 mb-1">{TYPE_LABEL[lr.type] || lr.type}</Badge>
-                      <div>{range}</div>
-                      <div className="text-xs text-gray-500">{lr.days}일</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 max-w-xs">{c.reason || "-"}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-xs flex-wrap">
-                        <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-                          {c.approvalSteps.filter((x) => x.status === "APPROVED").length}/{c.approvalSteps.length}
-                        </span>
-                        {c.approvalSteps.map((s, idx) => (
-                          <span key={s.id} className="flex items-center gap-1">
-                            {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                              s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                              s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                              "bg-gray-100 text-gray-600"
-                            }`}>{stepLabel(s)}{s.comment ? " 💬" : ""}</span>
-                          </span>
-                        ))}
-                      </div>
-                      {c.approvalSteps.some((x) => x.comment) && (
-                        <div className="mt-1 space-y-0.5">
-                          {c.approvalSteps.filter((x) => x.comment).map((x) => (
-                            <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex gap-2 justify-end">
-                        <Button size="sm" variant="ghost" className="text-green-600 hover:bg-green-50"
-                          disabled={processingId === c.id} onClick={() => decide(c.id, "approve")}>
-                          {processingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                          승인
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-gray-500 hover:bg-gray-100" title="의견을 남기고 승인합니다"
-                          disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
-                          의견
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50"
-                          disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>
-                          <X size={16} />
-                          반려
-                        </Button>
-                      </div>
-                    </td>
+                    <td className="px-6 py-4">{cells[0]}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700">{cells[1]}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 max-w-xs">{cells[2]}</td>
+                    <td className="px-6 py-4">{cells[3]}</td>
+                    <td className="px-6 py-4 text-right">{cells[4]}</td>
                   </tr>
                 );
               })}
@@ -223,6 +235,30 @@ export default function LeaveCancelInbox({
           </table>
         </div>
       </Card>
+      <div className="space-y-2 md:hidden">
+        {filtered.map((row) => {
+          const cells = cancelCells(row);
+          return (
+            <div key={row.id} className="rounded-xl border bg-white p-3">
+              <div className="mb-1">{cells[0]}</div>
+              <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">취소할 휴가</span>
+                <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[1]}</div>
+              </div>
+              <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">취소 사유</span>
+                <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[2]}</div>
+              </div>
+              <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">결재</span>
+                <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[3]}</div>
+              </div>
+              <div className="border-t border-gray-100 pt-2">{cells[4]}</div>
+            </div>
+          );
+        })}
+      </div>
+      </>
 
       <Dialog open={!!noteId} onOpenChange={(o) => { if (!o) setNoteId(null); }}>
         <DialogContent className="max-w-md">

@@ -112,15 +112,20 @@ type FullReq = {
   deviceId: string | null; deviceName: string | null; platform: string | null;
 };
 
+/** 승인으로 바뀐 출퇴근 기록 — 바꾸기 전(없던 기록이면 null)·후 */
+type Snap = { clockIn: Date | null; clockOut: Date | null; status: string | null };
+export type AppliedEdit = { attendanceId: string; before: Snap | null; after: Snap };
+
 /**
  * 승인된 요청을 기록에 반영한다. 호출부가 트랜잭션(tx) 안에서 부른다 — 충돌하면 RequestConflict 를 던져 승인째 되돌린다.
  * 반환: 기기 변경이면 { deviceChanged: true }(호출부가 세션을 끊는다)
+ *       출퇴근 기록을 바꿨으면 edit(바뀐 기록 id·바꾸기 전·후) — 호출부가 같은 tx 로 수정 이력을 남긴다(#219-15)
  */
 export async function applyApproved(
   tx: Pick<typeof prisma, "attendance" | "userDevice">,
   r: FullReq,
   deciderRole: string,
-): Promise<{ deviceChanged?: boolean }> {
+): Promise<{ deviceChanged?: boolean; edit?: AppliedEdit }> {
   const kind = r.kind as RequestKind;
   const ymd = ymdOfDate(r.workDate);
 
@@ -136,8 +141,14 @@ export async function applyApproved(
 
   const existing = await tx.attendance.findUnique({ where: { userId_date: { userId: r.userId, date: r.workDate } } });
   const place = placeLabel(kind, r.reason, deciderRole);
+  const before: Snap | null = existing ? { clockIn: existing.clockIn, clockOut: existing.clockOut, status: existing.status } : null;
+  const done = (a: { id: string; clockIn: Date | null; clockOut: Date | null; status: string }) =>
+    ({ edit: { attendanceId: a.id, before, after: { clockIn: a.clockIn, clockOut: a.clockOut, status: a.status } } });
 
   if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
+    // 지점 밖·사진·본부 처리 승인은 직원이 실제로 누른 시각을 그대로 넣는다 — 고친 기록이 아니라 수정 이력·「수정됨」에서 뺀다
+    // (승인자·사유는 출근/퇴근 장소 문구에 남는다. 검증 4 — 근로감독 때 「없던 기록을 만들었다」로 오해받지 않게)
+    const done = (a: unknown) => (void a, {});
     if (r.action === "IN") {
       if (existing?.clockIn) throw new RequestConflict("이미 출근 기록이 있습니다.");
       // 승인 대기 중에 찍은 퇴근(요청에 담겨 있다)도 함께 반영한다(본부 답변 #10)
@@ -149,20 +160,19 @@ export async function applyApproved(
         clockIn: r.requestedAt, clockInPlace: place, latitude: r.latitude, longitude: r.longitude, status,
         ...(carriedOut ? { clockOut: carriedOut, clockOutPlace: r.clockOutPlace, clockOutLat: r.clockOutLat, clockOutLng: r.clockOutLng } : {}),
       };
-      if (existing) await tx.attendance.update({ where: { id: existing.id }, data });
-      else await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } });
-      return {};
+      return done(existing
+        ? await tx.attendance.update({ where: { id: existing.id }, data })
+        : await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } }));
     }
     // 퇴근만 있는 기록을 만들지 않는다 — 출근(요청)이 먼저 반영돼야 한다
     if (!existing?.clockIn) throw new RequestConflict("출근 기록이 없습니다. 출근 요청을 먼저 처리해 주세요.");
     if (existing.clockOut) throw new RequestConflict("이미 퇴근 기록이 있습니다.");
     if (r.requestedAt <= existing.clockIn) throw new RequestConflict("퇴근 시각이 출근 시각보다 빠릅니다.");
     const status = await calcStatus(existing.clockIn, r.requestedAt, ymd, r.userId);
-    await tx.attendance.update({
+    return done(await tx.attendance.update({
       where: { id: existing.id },
       data: { clockOut: r.requestedAt, clockOutPlace: place, clockOutLat: r.latitude, clockOutLng: r.longitude, status },
-    });
-    return {};
+    }));
   }
 
   if (kind === "MISSED_OUT") {
@@ -170,8 +180,7 @@ export async function applyApproved(
     if (existing.clockOut) throw new RequestConflict("이미 퇴근 기록이 있습니다.");
     if (!r.clockOut) throw new RequestConflict("퇴근 시각이 없는 요청입니다.");
     const status = await calcStatus(existing.clockIn, r.clockOut, ymd, r.userId);
-    await tx.attendance.update({ where: { id: existing.id }, data: { clockOut: r.clockOut, clockOutPlace: place, status } });
-    return {};
+    return done(await tx.attendance.update({ where: { id: existing.id }, data: { clockOut: r.clockOut, clockOutPlace: place, status } }));
   }
 
   // CORRECTION — 넣은 칸만 바꾼다
@@ -185,9 +194,9 @@ export async function applyApproved(
     ...(r.clockOut ? { clockOut: r.clockOut, clockOutPlace: place } : {}),
     status,
   };
-  if (existing) await tx.attendance.update({ where: { id: existing.id }, data });
-  else await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } });
-  return {};
+  return done(existing
+    ? await tx.attendance.update({ where: { id: existing.id }, data })
+    : await tx.attendance.create({ data: { userId: r.userId, date: r.workDate, ...data } }));
 }
 
 /** 주말·공휴일 출근은 승인된 근무일정이 있어야 한다(출근 버튼과 같은 규칙) — 막히면 이유 문구 */

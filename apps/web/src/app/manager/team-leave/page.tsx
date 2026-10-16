@@ -128,7 +128,9 @@ export default function ManagerApprovalsPage() {
   }, []);
   useEffect(() => {
     if (!highlightId) return;
-    const el = document.getElementById("leave-" + highlightId);
+    // 넓은 화면은 표 줄, 휴대폰은 카드 — 보이는 쪽으로(#219-16)
+    const el = [document.getElementById("leave-" + highlightId), document.getElementById("leave-card-" + highlightId)]
+      .find((e) => e && e.offsetParent !== null);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     // 의존성 배열이 없으면 **매 렌더마다** 스크롤한다 — 짝인 admin/leave-approvals 와 같게 둔다
   }, [highlightId, leaveSteps]);
@@ -388,6 +390,177 @@ export default function ManagerApprovalsPage() {
 
   const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount + attReqCount;
 
+  /* ── 표·카드 공용 칸(2026-10-16 이예지 QA #219-16 — 휴대폰 390px 에서 결재·처리 칸이 잘렸다). 원래 표 칸 내용 그대로이고, 넓은 화면은 표·휴대폰(md 미만)은 카드로 같은 칸을 보인다 — 버튼 동작·조건은 여기 하나 ── */
+  const leaveStepCells = (step: LeaveApprovalStep) => {
+    const req = step.leaveRequest;
+    const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
+    const startDate = new Date(req.startDate);
+    const endDate = new Date(req.endDate);
+    const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
+
+    return [
+      <>
+        <div className="font-medium text-gray-900">{req.user.name}</div>
+        <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
+      </>,
+      <>
+        <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
+      </>,
+      <>
+        <div>{dateRange}</div>
+        <div className="text-xs text-gray-500">{req.days}일</div>
+      </>,
+      <>
+        {req.reason || "-"}
+      </>,
+      <>
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+            {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
+          </span>
+          {req.approvalSteps?.map((s, idx) => (
+            <span key={s.id} className="flex items-center gap-1">
+              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
+              <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
+                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
+                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
+                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
+                "bg-gray-100 text-gray-600"
+              }`}>
+                {stepLabel(s)}{s.comment ? " 💬" : ""}
+              </span>
+            </span>
+          ))}
+        </div>
+        {(req.approvalSteps ?? []).some((x) => x.comment) && (
+          <div className="mt-1 space-y-0.5">
+            {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
+              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+            ))}
+          </div>
+        )}
+      </>,
+      <>
+        <div className="flex gap-2 justify-end">
+          {req.canCancel && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-gray-500 hover:bg-gray-100"
+            disabled={processingId === req.id}
+            title="신청 자체를 거둡니다 (반려와 달리 결재 기록에 남지 않습니다)"
+            onClick={() => handleCancelLeave(req.id, req.user.name)}
+          >
+            취소
+          </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-green-600 hover:bg-green-50"
+            disabled={processingId === req.id}
+            onClick={() => handleApprove(req.id, "leave")}
+          >
+            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            승인
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-gray-500 hover:bg-gray-100"
+            disabled={processingId === req.id}
+            title="의견을 남기고 승인합니다"
+            onClick={() => { setNoteTarget({ id: req.id, type: "leave" }); setNoteText(""); }}
+          >
+            의견
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-red-600 hover:bg-red-50"
+            disabled={processingId === req.id}
+            onClick={() => {
+              setRejectingId(req.id);
+              setActiveTab("leave");
+              setRejectOpen(true);
+            }}
+          >
+            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
+            거절
+          </Button>
+        </div>
+      </>,
+    ] as const;
+  };
+  /* ── 진행·예정 휴가 칸 — 위와 같이 표·카드 공용(#219-16) ── */
+  const historyCells = (req: HistoryLeave) => {
+    const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
+    const dateRange = `${format(new Date(req.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(req.endDate), "MM월 dd일", { locale: ko })}`;
+    const approved = req.status === "APPROVED";
+    return [
+      <>
+        <div className="font-medium text-gray-900">{req.user.name}</div>
+        <div className="text-xs text-gray-500">{req.user.branch || "-"}</div>
+      </>,
+      <>
+        <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
+      </>,
+      <>
+        <div>{dateRange}</div>
+        <div className="text-xs text-gray-500">{req.days}일</div>
+      </>,
+      <>
+        <Badge variant="outline" className={approved ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}>
+          {approved ? "승인" : "진행 중"}
+        </Badge>
+        {req.pendingCancel && <div className="text-xs text-amber-700 mt-1">취소 결재 중</div>}
+      </>,
+      <>
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
+            {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
+          </span>
+          {req.approvalSteps?.map((s, idx) => (
+            <span key={s.id} className="flex items-center gap-1">
+              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
+              <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
+                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
+                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
+                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
+                "bg-gray-100 text-gray-600"
+              }`}>
+                {stepLabel(s)}{s.comment ? " 💬" : ""}
+              </span>
+            </span>
+          ))}
+        </div>
+        {(req.approvalSteps ?? []).some((x) => x.comment) && (
+          <div className="mt-1 space-y-0.5">
+            {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
+              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+            ))}
+          </div>
+        )}
+      </>,
+      <>
+        {req.canCancel ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-gray-500 hover:bg-gray-100"
+            disabled={processingId === req.id}
+            title="신청 자체를 거둡니다"
+            onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id)}
+          >
+            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
+            취소
+          </Button>
+        ) : (
+          <span className="text-xs text-gray-400">{CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "-"}</span>
+        )}
+      </>,
+    ] as const;
+  };
   return (
     <div className="space-y-6">
       {/* 헤더 */}
@@ -493,7 +666,8 @@ export default function ManagerApprovalsPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
+            <>
+            <Card className="overflow-hidden hidden md:block">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -509,108 +683,19 @@ export default function ManagerApprovalsPage() {
                   <tbody className="divide-y">
                     {filteredLeaveSteps.map((step) => {
                       const req = step.leaveRequest;
-                      const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
-                      const startDate = new Date(req.startDate);
-                      const endDate = new Date(req.endDate);
-                      const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
-
+                      const cells = leaveStepCells(step);
                       return (
                         <tr
                           key={step.id}
                           id={"leave-" + req.id}
                           className={highlightId === req.id ? "bg-amber-50 ring-2 ring-amber-300" : "hover:bg-gray-50"}
                         >
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900">{req.user.name}</div>
-                            <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-700">
-                            <div>{dateRange}</div>
-                            <div className="text-xs text-gray-500">{req.days}일</div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">
-                            {req.reason || "-"}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-1 text-xs flex-wrap">
-                              <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-                                {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
-                              </span>
-                              {req.approvalSteps?.map((s, idx) => (
-                                <span key={s.id} className="flex items-center gap-1">
-                                  {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                                  <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
-                                    s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                                    s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                                    s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                                    "bg-gray-100 text-gray-600"
-                                  }`}>
-                                    {stepLabel(s)}{s.comment ? " 💬" : ""}
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                            {(req.approvalSteps ?? []).some((x) => x.comment) && (
-                              <div className="mt-1 space-y-0.5">
-                                {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
-                                  <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex gap-2 justify-end">
-                              {req.canCancel && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-gray-500 hover:bg-gray-100"
-                                disabled={processingId === req.id}
-                                title="신청 자체를 거둡니다 (반려와 달리 결재 기록에 남지 않습니다)"
-                                onClick={() => handleCancelLeave(req.id, req.user.name)}
-                              >
-                                취소
-                              </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-green-600 hover:bg-green-50"
-                                disabled={processingId === req.id}
-                                onClick={() => handleApprove(req.id, "leave")}
-                              >
-                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                                승인
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-gray-500 hover:bg-gray-100"
-                                disabled={processingId === req.id}
-                                title="의견을 남기고 승인합니다"
-                                onClick={() => { setNoteTarget({ id: req.id, type: "leave" }); setNoteText(""); }}
-                              >
-                                의견
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-red-600 hover:bg-red-50"
-                                disabled={processingId === req.id}
-                                onClick={() => {
-                                  setRejectingId(req.id);
-                                  setActiveTab("leave");
-                                  setRejectOpen(true);
-                                }}
-                              >
-                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
-                                거절
-                              </Button>
-                            </div>
-                          </td>
+                          <td className="px-6 py-4">{cells[0]}</td>
+                          <td className="px-6 py-4">{cells[1]}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700">{cells[2]}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">{cells[3]}</td>
+                          <td className="px-6 py-4">{cells[4]}</td>
+                          <td className="px-6 py-4 text-right">{cells[5]}</td>
                         </tr>
                       );
                     })}
@@ -618,6 +703,35 @@ export default function ManagerApprovalsPage() {
                 </table>
               </div>
             </Card>
+            <div className="space-y-2 md:hidden">
+              {filteredLeaveSteps.map((step) => {
+                const req = step.leaveRequest;
+                const cells = leaveStepCells(step);
+                return (
+                  <div key={step.id} id={"leave-card-" + req.id} className={`rounded-xl border p-3 ${highlightId === req.id ? "bg-amber-50 ring-2 ring-amber-300" : "bg-white"}`}>
+                    <div className="mb-1">{cells[0]}</div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">유형</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[1]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">기간</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[2]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">사유</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[3]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">결재</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[4]}</div>
+                    </div>
+                    <div className="border-t border-gray-100 pt-2">{cells[5]}</div>
+                  </div>
+                );
+              })}
+            </div>
+            </>
           )}
         </TabsContent>
 
@@ -782,7 +896,8 @@ export default function ManagerApprovalsPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
+            <>
+            <Card className="overflow-hidden hidden md:block">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -797,72 +912,15 @@ export default function ManagerApprovalsPage() {
                   </thead>
                   <tbody className="divide-y">
                     {filteredHistory.map((req) => {
-                      const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
-                      const dateRange = `${format(new Date(req.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(req.endDate), "MM월 dd일", { locale: ko })}`;
-                      const approved = req.status === "APPROVED";
+                      const cells = historyCells(req);
                       return (
                         <tr key={req.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900">{req.user.name}</div>
-                            <div className="text-xs text-gray-500">{req.user.branch || "-"}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-700">
-                            <div>{dateRange}</div>
-                            <div className="text-xs text-gray-500">{req.days}일</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant="outline" className={approved ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}>
-                              {approved ? "승인" : "진행 중"}
-                            </Badge>
-                            {req.pendingCancel && <div className="text-xs text-amber-700 mt-1">취소 결재 중</div>}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-1 text-xs flex-wrap">
-                              <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-                                {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
-                              </span>
-                              {req.approvalSteps?.map((s, idx) => (
-                                <span key={s.id} className="flex items-center gap-1">
-                                  {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                                  <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
-                                    s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                                    s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                                    s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                                    "bg-gray-100 text-gray-600"
-                                  }`}>
-                                    {stepLabel(s)}{s.comment ? " 💬" : ""}
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                            {(req.approvalSteps ?? []).some((x) => x.comment) && (
-                              <div className="mt-1 space-y-0.5">
-                                {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
-                                  <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            {req.canCancel ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-gray-500 hover:bg-gray-100"
-                                disabled={processingId === req.id}
-                                title="신청 자체를 거둡니다"
-                                onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id)}
-                              >
-                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
-                                취소
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-gray-400">{CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "-"}</span>
-                            )}
-                          </td>
+                          <td className="px-6 py-4">{cells[0]}</td>
+                          <td className="px-6 py-4">{cells[1]}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700">{cells[2]}</td>
+                          <td className="px-6 py-4">{cells[3]}</td>
+                          <td className="px-6 py-4">{cells[4]}</td>
+                          <td className="px-6 py-4 text-right">{cells[5]}</td>
                         </tr>
                       );
                     })}
@@ -870,6 +928,34 @@ export default function ManagerApprovalsPage() {
                 </table>
               </div>
             </Card>
+            <div className="space-y-2 md:hidden">
+              {filteredHistory.map((req) => {
+                const cells = historyCells(req);
+                return (
+                  <div key={req.id} className="rounded-xl border bg-white p-3">
+                    <div className="mb-1">{cells[0]}</div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">유형</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[1]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">기간</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[2]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">상태</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[3]}</div>
+                    </div>
+                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">결재</span>
+                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[4]}</div>
+                    </div>
+                    <div className="border-t border-gray-100 pt-2">{cells[5]}</div>
+                  </div>
+                );
+              })}
+            </div>
+            </>
           )}
         </TabsContent>}
         {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
