@@ -102,6 +102,11 @@ export default function ManagerContractsPage() {
   const [search, setSearch] = useState("");
 
   const [signOpen, setSignOpen] = useState(false);
+  // 승인 창 안 본문(2026-10-16 이예지 QA R1) — 본문 PDF 를 실제로 받아 창에 띄운 뒤에만 승인 버튼을 켠다(본문을 안 보고 한 번에 서명하던 것).
+  // iframe 의 load 신호는 오류 화면에도 오므로 쓰지 않는다 — 응답이 정상 PDF 일 때만 docLoaded
+  const [docLoaded, setDocLoaded] = useState(false);
+  const [docBlob, setDocBlob] = useState<string | null>(null);
+  const [docErr, setDocErr] = useState<string | null>(null);
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const [signing, setSigning] = useState(false);
   // ⚠ 원장은 표준 결재선의 1단계 결재자인데 **반려할 수단이 아예 없었다** — 관리자 결재함
@@ -199,6 +204,31 @@ export default function ManagerContractsPage() {
   }
 
   const filteredContracts = useMemo(() => contracts, [contracts]);
+
+  // 승인 창 본문 받기(R1) — docx 는 서버 변환 PDF(/api/docs/pdf), PDF 양식은 파일 그대로. 정상 PDF 일 때만 승인 가능
+  /* eslint-disable react-hooks/set-state-in-effect -- 창을 열고 닫을 때 본문 상태를 초기화하는 것이 목적이다 */
+  useEffect(() => {
+    const raw = signOpen && signTarget ? getFileUrl(signTarget.fileUrl) : "";
+    let alive = true;
+    let made: string | null = null;
+    setDocErr(null); setDocBlob(null);
+    if (!signOpen || !signTarget) { setDocLoaded(false); return; }
+    if (!raw) { setDocLoaded(true); return; }   // 파일 없는 계약(옛 데이터)은 요약만으로
+    setDocLoaded(false);
+    const src = /\.pdf$/i.test(raw) ? raw : `/api/docs/pdf?src=${encodeURIComponent(raw)}`;
+    fetch(src)
+      .then(async (r) => {
+        const ct = r.headers.get("content-type") || "";
+        if (!r.ok || !ct.includes("pdf")) throw new Error(r.status === 403 ? "본문을 열 권한이 없습니다." : "본문을 불러오지 못했습니다.");
+        const b = await r.blob();
+        if (!alive) return;
+        made = URL.createObjectURL(b);
+        setDocBlob(made); setDocLoaded(true);
+      })
+      .catch((e: unknown) => { if (alive) setDocErr(e instanceof Error ? e.message : "본문을 불러오지 못했습니다."); });
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [signOpen, signTarget]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className="space-y-6">
@@ -316,7 +346,7 @@ export default function ManagerContractsPage() {
 
       {/* 승인 다이얼로그 */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
-        <DialogContent className="max-w-md max-h-[92vh] flex flex-col overflow-hidden">
+        <DialogContent className="max-w-3xl sm:max-w-3xl max-h-[94vh] flex flex-col overflow-hidden">
           {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
               (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
               버튼 줄은 아래에 고정해 어떤 화면 크기에서도 항상 손이 닿게 한다. */}
@@ -330,6 +360,22 @@ export default function ManagerContractsPage() {
                 )}
                 <p className="text-gray-500 text-xs">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
                 <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.externalName ? undefined : signTarget.userId} />
+                {/* 본문 — 승인 전에 반드시 보게 창 안에 띄운다(R1). 새 창으로도 열 수 있다 */}
+                {getFileUrl(signTarget.fileUrl) && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-600">계약서 본문</span>
+                      <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">새 창으로 크게 보기</a>
+                    </div>
+                    {docBlob ? (
+                      <iframe key={docBlob} src={docBlob} title="계약서 본문" className="w-full rounded border bg-white" style={{ height: "52vh" }} />
+                    ) : (
+                      <div className="flex items-center justify-center rounded border bg-gray-50 text-xs" style={{ height: "20vh" }}>
+                        {docErr ? <span className="text-red-600">{docErr} 「새 창으로 크게 보기」로 열어 보거나 본부에 알려 주세요.</span> : <span className="text-gray-400">본문을 불러오는 중입니다 — 본문이 열리면 승인 버튼이 켜집니다.</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
                 <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                   <span className="text-gray-400">{signTarget.externalName ? "계약자" : "직원명"}</span><span>{signTarget.externalName ? `${signTarget.externalName} (외부)` : `${signTarget.user.name}${signTarget.user.branch ? ` (${signTarget.user.branch})` : ""}`}</span>
@@ -374,7 +420,7 @@ export default function ManagerContractsPage() {
               {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
               <Button variant="ghost" className="text-red-600 hover:bg-red-50" disabled={signing}
                       onClick={() => { setRejectReason(""); setRejectOpen(true); }}>반려</Button>
-              <Button onClick={handleApprove} disabled={signing}>{signing ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "승인"}</Button>
+              <Button onClick={handleApprove} disabled={signing || !docLoaded} title={!docLoaded ? "본문이 열린 뒤에 승인할 수 있습니다" : undefined}>{signing ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "승인"}</Button>
             </div>
           </div>
         </DialogContent>

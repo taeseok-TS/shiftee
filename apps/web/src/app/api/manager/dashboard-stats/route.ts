@@ -79,9 +79,10 @@ export async function GET() {
         distinct: ["userId"],
       }),
 
-      // 대기 중인 계약 (지점 직원에게 발송되어 서명 대기 중)
-      prisma.contract.count({
-        where: { status: "SENT", user: memberWhere, isTest: false },
+      // 내 계약 결재 대기 — 팀 계약서 「내 결재 대기」(api/contracts/my-approvals)와 같은 조건(2026-10-16 이예지 QA R2:
+      //   종전엔 「지점 직원에게 SENT 상태」를 세서 원장 차례 건(APPROVED)이 빠져 「내 결재 대기 5건」인데 0건으로 보였다)
+      prisma.contractApprovalStep.count({
+        where: { approverId: session.userId, status: "PENDING", approvalLine: { contract: { status: { not: "EXPIRED" }, isTest: false } } },
       }),
 
       // 내가 결재해야 할 휴가/근무일정.

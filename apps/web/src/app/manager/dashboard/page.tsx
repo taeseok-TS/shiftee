@@ -97,11 +97,11 @@ export default function ManagerDashboardPage() {
           </div>
         </a>
         <a href="/manager/team-contracts" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">
-          <div className="text-gray-500 text-sm font-medium">대기 중인 계약</div>
+          <div className="text-gray-500 text-sm font-medium">계약 결재 대기</div>
           <div className="text-3xl font-bold text-purple-600 mt-2">
             {stats ? `${stats.pendingContracts}건` : "--"}
           </div>
-          <p className="text-xs text-gray-400 mt-1">서명 대기</p>
+          <p className="text-xs text-gray-400 mt-1">팀 계약서 › 내 결재 대기</p>
         </a>
         <a href="/manager/team-leave" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">
           <div className="text-gray-500 text-sm font-medium">대기 중인 결재</div>

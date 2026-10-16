@@ -1117,8 +1117,9 @@ export default function ContractsPage() {
   }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
   // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25 → 공식 수정 2026-08-26 #22)
-  //  실무평가 시작 = 입사일부터 15번째 영업일, 교육평가 종료 = 그 전날(캘린더). 영업일 = 주말·공휴일 제외.
-  //  (7/6 입사→실무 7/27, 8/31 입사→실무 9/18 두 확정례 모두 이 공식으로 성립 — 기존 "+2일"은 8/31 케이스에서 이틀 밀렸음)
+  //  2026-10-16 B7(이예지 QA, 근로계약서 제3조 「입사일부터 영업일 기준 14일」): 교육평가 종료 = 입사일부터 영업일 14일째,
+  //  실무평가 시작 = 그다음 날(달력 — 주말일 수 있다). 영업일 = 주말·공휴일 제외. 예) 10/14→11/02, 10/20→11/06·실무 11/07.
+  //  (종전 「15번째 영업일 전날」은 사이에 주말이 끼면 교육평가 종료가 일요일로 밀렸다. 옛 확정례 7/6 입사→실무 7/27 은 새 규칙으로 7/25)
   //  실무평가 종료 = 입사일 + 3개월 - 1일
   const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
   // 기준일 — 담당자가 문서의 {근로시작일}을 직접 넣었으면 그 값이 우선, 없으면 계약 시작일.
@@ -1144,17 +1145,18 @@ export default function ContractsPage() {
       const dow = d.getUTCDay();
       return dow !== 0 && dow !== 6 && !holidaySet.has(fmt(d));
     };
-    // 영업일 15일째 되는 날 = 실무평가 시작 (입사일이 영업일이면 1일째)
+    // 교육평가 종료 = 입사일부터 영업일 기준 14일째(근로계약서 제3조, 입사일이 영업일이면 1일째), 실무평가 시작 = 그다음 날.
+    // 2026-10-16 이예지 QA B7: 종전엔 「15번째 영업일 전날」이라 사이에 주말이 끼면 종료일이 일요일로 밀렸다(10/20 → 11/08)
     const d = new Date(start + "T00:00:00Z");
     let count = 0;
     let guard = 0;
-    while (count < 15 && guard++ < 60) {
+    while (count < 14 && guard++ < 60) {
       if (isBiz(d)) count++;
-      if (count < 15) d.setUTCDate(d.getUTCDate() + 1);
+      if (count < 14) d.setUTCDate(d.getUTCDate() + 1);
     }
-    const pracStart = new Date(d);
-    d.setUTCDate(d.getUTCDate() - 1); // 교육평가 종료 = 실무 시작 전날
     const eduEnd = fmt(d);
+    const pracStart = new Date(d);
+    pracStart.setUTCDate(pracStart.getUTCDate() + 1);
     const p3 = new Date(start + "T00:00:00Z");
     p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1); // +3개월 - 1일
     setExtraFields(prev => {
@@ -3431,10 +3433,11 @@ ${url}`;
                       {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : `${c.user.branch ? `[${c.user.branch}] ` : ""}${c.user.name}`}</p></td>}
                       <td className="py-3 font-medium">
                         {c.title}
-                        {c.bundleId && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span>}
-                        {c.employeeOnly && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span>}
-                        {c.isTest && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle" title="나에게 테스트 발송한 시험 문서 — 7일 뒤 자동 삭제">테스트</span>}
-                        {c.importBatch && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 align-middle" title={`모두싸인 이관본 (${c.importBatch})`}>이관</span>}
+                        {/* 배지 앞 띄어쓰기 — 화면 글자를 그대로 읽으면 「근로계약서패키지」처럼 제목에 붙어 보였다(10/16 A3, 제목 자체는 정상) */}
+                        {c.bundleId && <>{" "}<span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span></>}
+                        {c.employeeOnly && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span></>}
+                        {c.isTest && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle" title="나에게 테스트 발송한 시험 문서 — 7일 뒤 자동 삭제">테스트</span></>}
+                        {c.importBatch && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 align-middle" title={`모두싸인 이관본 (${c.importBatch})`}>이관</span></>}
                         {c.certificateUrl && <a href={c.certificateUrl} target="_blank" rel="noreferrer" className="ml-1 text-[10px] text-sky-700 underline align-middle" title="모두싸인 감사추적 인증서">인증서</a>}
                       </td>
                       <td className="py-3">

@@ -70,6 +70,9 @@ const SIG_OFF_V = -90000;          // 줄 기준 0.25cm 위 — 이름 글자와
 const SIG_OFF_H = 72000;           // 이름 끝에서 0.2cm 띄움
 const SIG_MAX_CX = 2160000;        // 가로 상한 6cm — 길게 흘려 쓴 서명이 칸을 넘지 않게
 export const SIG_AFTER_TW = 500;   // 서명 줄 아래 여백 25pt (서명이 표 선에 닿지 않게)
+// 서명 줄 위 여백 11pt(약 0.39cm) — 서명 그림은 줄 위로 0.25cm 솟아 윗줄 글자를 덮었다
+// (2026-10-16 이예지 QA A1·A2: 근로계약서 6쪽 「대표이사 고승재」·직인, 3쪽 「동의한다」를 근로자 서명이 가림). 이미 더 크면 그대로 둔다
+export const SIG_BEFORE_TW = 220;
 // 우측 정렬 줄에서 서명 오른쪽에 남길 여백.
 // 227(0.4cm)을 줬더니 실물에서 여유가 0 이 되어 서명이 표 선에 닿았다 — 우측 정렬 줄은
 // 끝의 공백이 버려져 글자 끝 위치가 계산과 어긋난다. 실측으로 두 배를 준다(2026-09-01).
@@ -202,15 +205,18 @@ function padSigParagraph(para: string, sigCx: number): string {
   const pprTop = pPrTopChildren(pprInner);
   const spacingTop = pprTop.find((c) => c.name === "w:spacing");
 
-  // ① 아래 여백
+  // ① 아래 여백 + 위 여백(윗줄 글자를 덮지 않게, A1·A2)
   if (spacingTop) {
     const tag = pprInner.slice(spacingTop.start, spacingTop.end);
-    const fixed = /w:after="\d+"/.test(tag)
+    let fixed = /w:after="\d+"/.test(tag)
       ? tag.replace(/w:after="\d+"/, `w:after="${SIG_AFTER_TW}"`)
       : tag.replace(/^<w:spacing/, `<w:spacing w:after="${SIG_AFTER_TW}"`);
+    const before = /w:before="(\d+)"/.exec(fixed);
+    if (!before) fixed = fixed.replace(/^<w:spacing/, `<w:spacing w:before="${SIG_BEFORE_TW}"`);
+    else if (Number(before[1]) < SIG_BEFORE_TW) fixed = fixed.replace(/w:before="\d+"/, `w:before="${SIG_BEFORE_TW}"`);
     out = out.replace(tag, fixed);
   } else {
-    out = putInPPr(out, "w:spacing", `<w:spacing w:after="${SIG_AFTER_TW}"/>`);
+    out = putInPPr(out, "w:spacing", `<w:spacing w:before="${SIG_BEFORE_TW}" w:after="${SIG_AFTER_TW}"/>`);
   }
 
   // ② 우측 정렬일 때만 오른쪽 자리 확보 (가운데 정렬은 이름 뒤에 이미 여유가 있다)

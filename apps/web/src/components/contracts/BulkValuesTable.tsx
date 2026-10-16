@@ -63,7 +63,8 @@ export function deriveHours(v: Record<string, string>, templateFields: string[])
   return out;
 }
 
-/** 교육·실무평가 단계(작성 화면과 같은 공식) — 실무평가 시작 = 기준일부터 15번째 영업일, 교육평가 종료 = 그 전날, 실무평가 종료 = +3개월−1일 */
+/** 교육·실무평가 단계(작성 화면과 같은 공식) — 교육평가 종료 = 기준일부터 영업일 14일째(제3조), 실무평가 시작 = 그다음 날,
+ *  실무평가 종료 = +3개월−1일. 2026-10-16 B7: 종전 「15번째 영업일 전날」은 주말이 끼면 종료일이 일요일로 밀렸다 */
 export function evalPeriods(start: string, holidays: Set<string>): Record<string, string> | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -71,11 +72,12 @@ export function evalPeriods(start: string, holidays: Set<string>): Record<string
   const d = new Date(start + "T00:00:00Z");
   if (Number.isNaN(d.getTime())) return null;
   let count = 0, guard = 0;
-  while (count < 15 && guard++ < 60) { if (isBiz(d)) count++; if (count < 15) d.setUTCDate(d.getUTCDate() + 1); }
+  while (count < 14 && guard++ < 60) { if (isBiz(d)) count++; if (count < 14) d.setUTCDate(d.getUTCDate() + 1); }
+  const eduEnd = fmt(d);
+  d.setUTCDate(d.getUTCDate() + 1);
   const prac = fmt(d);
-  d.setUTCDate(d.getUTCDate() - 1);
   const p3 = new Date(start + "T00:00:00Z"); p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1);
-  return { 교육평가시작: start, 교육평가종료: fmt(d), 실무평가시작: prac, 실무평가종료: fmt(p3) };
+  return { 교육평가시작: start, 교육평가종료: eduEnd, 실무평가시작: prac, 실무평가종료: fmt(p3) };
 }
 
 /** 날짜 칸 정리 — 2026-10-01 / 2026.10.01(.) / 2026/10/01 / 2026. 10. 1. / 2026년 10월 1일 / 엑셀 날짜 숫자(46296). 못 읽으면 null */
