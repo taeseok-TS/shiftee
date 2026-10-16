@@ -19,6 +19,7 @@ import { isSheetUrl, fetchSheetRoster, fetchSheetLeavers, type LeaverRow } from 
 import { findUserIdByEmailCI } from "@/lib/user-email";
 import { generateTempPassword } from "@/lib/temp-password";
 import { sendTempPassword } from "@/lib/email";
+import { kstDate, yearTotalAsOf } from "@/lib/leave-accrual";
 
 export const PORTAL_SETTING = { url: "portalRosterUrl", leaversUrl: "portalLeaversUrl", apikey: "portalRosterApiKey", token: "portalRosterToken", auto: "portalSyncAutoApply" } as const;
 export const SYSTEM_ACTOR = { id: "system:portal-sync", name: "인사명부 연동" };
@@ -489,8 +490,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
           employmentStatus: d.onLeave ? "ON_LEAVE" : "ACTIVE",
         },
       });
-      // 연차 행 — 직원 등록(POST /api/employees)과 같은 방식
-      await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: 15, used: 0, remaining: 15 } });
+      // 연차 행 — 직원 등록(POST /api/employees)과 같은 방식(회계연도 기준 오늘까지 발생, 2026-10-16 #31)
+      const initTotal = created.hireDate ? yearTotalAsOf(kstDate(created.hireDate), currentLeaveYear()) : 15;
+      await tx.leaveBalance.create({ data: { userId: created.id, year: currentLeaveYear(), total: initTotal, accruedAuto: created.hireDate ? initTotal : null, used: 0, remaining: initTotal } });
       return created;
     });
     // 계정이 만들어진 뒤에 보낸다(트랜잭션 밖) — 메일이 실패해도 계정은 남고, 관리자가 직원 관리에서 초기화하면 다시 간다

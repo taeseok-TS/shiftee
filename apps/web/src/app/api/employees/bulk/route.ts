@@ -6,6 +6,7 @@ import { currentLeaveYear } from "@/lib/leave-calc";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches, syncMainManagerFor } from "@/lib/manager-branches";
 import { findUserIdByEmailCI } from "@/lib/user-email";
+import { kstDate, yearTotalAsOf } from "@/lib/leave-accrual";
 
 // 엑셀 셀 값은 숫자/날짜 등 아무 타입이나 올 수 있음 (예: 비밀번호 12345678 → number)
 interface BulkEmployee {
@@ -266,14 +267,16 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // LeaveBalance 초기화 (연차 15일)
+        // LeaveBalance 초기화 — 회계연도 기준 오늘까지 발생(2026-10-16 #31, 입사일 없으면 15)
+        const initTotal = user.hireDate ? yearTotalAsOf(kstDate(user.hireDate), currentLeaveYear()) : 15;
         await prisma.leaveBalance.create({
           data: {
             userId: user.id,
             year: currentLeaveYear(),
-            total: 15,
+            total: initTotal,
+            accruedAuto: user.hireDate ? initTotal : null,
             used: 0,
-            remaining: 15,
+            remaining: initTotal,
           },
         });
 

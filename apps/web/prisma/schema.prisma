@@ -275,6 +275,9 @@ model LeaveBalance {
   total     Float    @default(15)
   used      Float    @default(0)
   remaining Float    @default(15)
+  // 총연차 중 「회계연도 기준 자동 발생」으로 들어간 몫(2026-10-16 #31) — 매시 자동 맞춤이 지금 계산값과의 차이만 더한다.
+  // 비어 있으면(옛 행·일괄 업로드 행) 다음 맞춤 때 기준으로만 적는다. 총연차 − accruedAuto = 본부가 손으로 맞춘 몫
+  accruedAuto Float?
   updatedAt DateTime @updatedAt
 
   // 연도별 이력 보관 — 유저당 연 1행 (연차 연도 전환 지원)

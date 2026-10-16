@@ -678,7 +678,7 @@ export async function runPasswordResetReminders() {
 // - 브리핑: BotBriefing 설정별 time(KST HH:mm)에 발송 (같은 날 중복은 lastSentAt으로 방지)
 // - 중요 공지 재알림: 매일 KST 09:00 고정
 export function startBotScheduler() {
-  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string; __botResignChat?: string; __botLeaveGrant?: string };
+  const g = globalThis as unknown as { __botTicker?: ReturnType<typeof setInterval>; __botRemLastRun?: string; __botContractRemLastRun?: string; __botBeatHour?: string; __botHealthHour?: string; __botDailyReport?: string; __botCancelExpireHour?: string; __botSubmissionDigest?: string; __botPortalSync?: string; __botResignChat?: string; __botLeaveGrant?: string; __botLeaveAccrual?: string };
   if (g.__botTicker) return;
   g.__botTicker = setInterval(async () => {
     const k = kstNow();
@@ -755,6 +755,16 @@ export function startBotScheduler() {
         const n = await purgeTestContracts();
         if (n) console.log(`[bot] 테스트 문서 ${n}건 정리`);
       } catch (e) { console.error("[bot] 테스트 문서 정리 오류:", e); }
+    }
+
+    // 연차 자동 맞춤(월차·1/1 부여) — 매시 5분 뒤 1회(2026-10-16 #31). 차이만 더하는 방식이라 여러 번 돌아도·놓쳐도 결과가 같다(lib/leave-accrual-run)
+    if (k.getUTCMinutes() >= 5 && g.__botLeaveAccrual !== hourKey) {
+      g.__botLeaveAccrual = hourKey;
+      try {
+        const { runAccrualSync } = await import("@/lib/leave-accrual-run");
+        const r = await runAccrualSync();
+        if (r.changed || r.failed) console.log(`[bot] 연차 자동 맞춤: 바뀜 ${r.changed}·처음 기록 ${r.initialized}·실패 ${r.failed}`);
+      } catch (e) { console.error("[bot] 연차 자동 맞춤 오류:", e); }
     }
 
     // 보상휴가·대체휴일 자동 부여 점검 — 매일 KST 23:30경 1회(2026-10-08 QA76 #56). 최근 45일 근무 기록을 다시 읽어 부여·갱신·회수

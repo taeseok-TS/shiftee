@@ -7,6 +7,7 @@ import { getManagerBranches, syncMainManagerFor } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
 import bcrypt from "bcryptjs";
 import { ROLES, pick } from "@/lib/enums";
+import { kstDate } from "@/lib/leave-accrual";
 
 // 변경 내역 요약(감사 로그용)
 function diffSummary(
@@ -54,6 +55,16 @@ export async function PATCH(
 
   // 변경 전 값(감사 로그용)
   const before = await prisma.user.findUnique({ where: { id }, select: { name: true, role: true, branch: true, resignDate: true, employmentStatus: true, deletedAt: true } });
+  // 입사일이 바뀌면 올해 연차를 회계연도 기준으로 다시 맞춘다(2026-10-16 #31 검증 N1 — 입사일 대조표·포털 반영과 같은 재계산)
+  const beforeHire = (await prisma.user.findUnique({ where: { id }, select: { hireDate: true } }))?.hireDate ?? null;
+  const recalcIfHireChanged = async (userName: string) => {
+    if (!hireDate) return;
+    const next = new Date(hireDate);
+    if (Number.isNaN(next.getTime()) || (beforeHire && kstDate(beforeHire) === kstDate(next))) return;
+    const { recalcYearBalanceForHire } = await import("@/lib/leave-recalc");
+    await recalcYearBalanceForHire({ id, name: userName }, next, { id: session.userId, name: session.name }, "직원 수정 입사일 변경 재계산")
+      .catch((e) => console.error("[employees] 연차 재계산 오류:", e));
+  };
   // 휴지통 계정은 수정하지 않는다 — 퇴사일을 지우는 수정이 isActive 를 되살려 삭제한 계정이 다시 켜질 수 있었다.
   // 되살리려면 휴지통의 「복구」를 쓴다(2026-10-07)
   //   원장에게는 삭제 여부도 알려 주지 않는다(담당 지점 밖 직원의 상태가 새지 않게) — 그냥 권한 없음
@@ -90,6 +101,7 @@ export async function PATCH(
       actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
       targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
     });
+    await recalcIfHireChanged(updated.name);
     return NextResponse.json({ success: true, user: updated });
   }
 
@@ -229,6 +241,7 @@ export async function PATCH(
     targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
   });
 
+  await recalcIfHireChanged(updated.name);
   return NextResponse.json({ success: true, user: updated });
 }
 

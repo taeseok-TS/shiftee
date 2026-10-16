@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { tenureLabel, annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
+import { tenureLabel, currentLeaveYear } from "@/lib/leave-calc";
+import { kstDate, yearTotalAsOf, accrualBasisText } from "@/lib/leave-accrual";
 import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { yearBalanceFor } from "@/lib/leave-balance";
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
           ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }, ...(includeAdmins ? [{ role: "ADMIN" as const }] : [])] }
           : {}),
       },
-      select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, leaveNote: true },
+      select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, resignDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     prisma.leaveBalance.findMany({ where: { year } }),
@@ -84,7 +85,9 @@ export async function GET(request: NextRequest) {
       branch:    emp.branch ?? "-",
       hireDate:  emp.hireDate ?? null,
       tenure:    emp.hireDate ? tenureLabel(new Date(emp.hireDate), now) : "-",
-      recommended: emp.hireDate ? annualLeaveDays(new Date(emp.hireDate), now) : null, // 근로기준법 권장 연차
+      // 회계연도 기준 계산값(오늘까지 발생)과 산정 근거(2026-10-16 #31 — 직원별 산정 근거 표시)
+      recommended: emp.hireDate ? yearTotalAsOf(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
+      accrualBasis: emp.hireDate ? accrualBasisText(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
       leaveNote: emp.leaveNote ?? null,
       balanceId: b?.id       ?? null,
       year:      b?.year     ?? year,

@@ -9,6 +9,7 @@ import { currentLeaveYear } from "@/lib/leave-calc";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
 import { findUserIdByEmailCI } from "@/lib/user-email";
+import { kstDate, yearTotalAsOf } from "@/lib/leave-accrual";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -141,11 +142,13 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  // 연차 행 — 회계연도 기준 오늘까지 발생(2026-10-16 #31, 1년 미만은 월차만·입사일 없으면 15)
+  const initTotal = user.hireDate ? yearTotalAsOf(kstDate(user.hireDate), currentLeaveYear()) : 15;
   await prisma.leaveBalance.create({
     data: {
       userId: user.id,
       year: currentLeaveYear(),
-      total: 15, used: 0, remaining: 15,
+      total: initTotal, accruedAuto: user.hireDate ? initTotal : null, used: 0, remaining: initTotal,
     },
   });
 

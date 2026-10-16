@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
-import { annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
+import { currentLeaveYear } from "@/lib/leave-calc";
+import { kstDate, yearTotalAsOf } from "@/lib/leave-accrual";
 
 /**
  * 연차 **차감·복구는 여기 두 함수로만** 한다(2026-09-11). 종전에는 차감이 세 곳(휴가 신청 자동승인 ·
@@ -12,19 +13,24 @@ import { annualLeaveDays, currentLeaveYear } from "@/lib/leave-calc";
  */
 type Db = Prisma.TransactionClient;
 
-/** 그 해 연차 행이 없을 때의 총연차 — 연초 이월과 같은 계산(입사일 없으면 15, 음수는 0) */
+/** 그 해 연차 행이 없을 때의 총연차 — 연도 전환과 같은 계산(회계연도 기준 그 시점까지 발생, 퇴사일까지, 2026-10-16 #31). 입사일 없으면 15 */
 export async function defaultYearTotal(db: Db, userId: string, year: number): Promise<number> {
-  const u = await db.user.findUnique({ where: { id: userId }, select: { hireDate: true } });
-  if (!u?.hireDate) return 15;
-  return Math.max(0, annualLeaveDays(new Date(u.hireDate), new Date(year, 0, 1)));
+  return (await defaultYearRow(db, userId, year)).total;
+}
+/** 새 행 값 — total 과 자동 몫(accruedAuto, 입사일 없으면 null) */
+async function defaultYearRow(db: Db, userId: string, year: number): Promise<{ total: number; accruedAuto: number | null }> {
+  const u = await db.user.findUnique({ where: { id: userId }, select: { hireDate: true, resignDate: true } });
+  if (!u?.hireDate) return { total: 15, accruedAuto: null };
+  const t = Math.max(0, yearTotalAsOf(kstDate(u.hireDate), year, undefined, u.resignDate ? kstDate(u.resignDate) : null));
+  return { total: t, accruedAuto: t };
 }
 
 /** 연차 차감 — 그 해 행에서. 행이 없으면 이월과 같은 총연차로 만든 뒤 차감한다. */
 export async function deductLeaveBalance(db: Db, userId: string, year: number, days: number): Promise<void> {
-  const total = await defaultYearTotal(db, userId, year);   // 행이 있으면 쓰이지 않는다(upsert create 용)
+  const { total, accruedAuto } = await defaultYearRow(db, userId, year);   // 행이 있으면 쓰이지 않는다(upsert create 용)
   await db.leaveBalance.upsert({
     where: { userId_year: { userId, year } },
-    create: { userId, year, total, used: days, remaining: total - days },
+    create: { userId, year, total, accruedAuto, used: days, remaining: total - days },
     update: { used: { increment: days }, remaining: { decrement: days } },
   });
 }

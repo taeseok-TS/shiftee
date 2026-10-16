@@ -56,7 +56,7 @@ type LeaveRequest = {
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
   userId: string; name: string; email?: string; department: string; position: string;
-  branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; leaveNote?: string | null;
+  branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; accrualBasis?: string | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
 type LineStep = { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } };
@@ -894,8 +894,10 @@ export default function LeavePage() {
                           <td className="px-4 py-3 text-gray-700 font-medium">
                             {b.total}일
                             {b.recommended != null && b.recommended !== b.total && (
-                              <span className="text-[11px] text-amber-600 ml-1" title="근로기준법 권장">(권장 {b.recommended})</span>
+                              <span className="text-[11px] text-amber-600 ml-1" title={b.accrualBasis || "회계연도 기준 계산"}>(계산 {b.recommended})</span>
                             )}
+                            {/* 산정 근거(#31) — 회계연도 기준: 월차·첫 해 비례·1/1 기준 근속 가산 */}
+                            {b.accrualBasis && <p className="text-[10px] font-normal text-gray-400 mt-0.5 max-w-[16rem] leading-snug">{b.accrualBasis}</p>}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{b.used}일</td>
                           <td className="px-4 py-3">
