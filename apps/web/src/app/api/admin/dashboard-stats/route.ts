@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
+import { absentUserIds } from "@/lib/attendance-absent";
+import { autoCloseTime, autoOpenTime, autoFillSettings } from "@/lib/attendance-policy";
 
 // 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
 export async function GET() {
@@ -29,13 +31,17 @@ export async function GET() {
     ...(excludedBranches.length > 0
       ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }
       : {}),
+    // 퇴사일이 지난 사람은 뺀다 — 퇴사일 당일까지는 재직(lib/resign isResigned 와 같은 규칙, 2026-10-17 #219 검증 F3).
+    // employmentStatus 는 퇴사일이 지나도 배치 없이 ACTIVE 로 남을 수 있다(퇴사일 처리 — 지나면 화면에서만 퇴직자로 본다)
+    AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: today } }] }],
   };
 
-  const [totalEmployees, todayRecords, onLeave, pendingLeave, pendingSchedule, pendingLeaveItems, pendingScheduleItems, missingRecords] =
+  const [members, todayRecords, onLeave, pendingLeave, pendingSchedule, pendingLeaveItems, pendingScheduleItems, missingRecords] =
     // 관리자 결재함(my-approvals)은 **본인 신청을 뺀다.** 대시보드 숫자도 같아야
     // 카드를 눌렀을 때 빈 화면이 되지 않는다.
     await Promise.all([
-      prisma.user.count({ where: employeeWhere }),
+      // 인원 — 미출근 계산(#219-3)에 id 가 필요하다
+      prisma.user.findMany({ where: employeeWhere, select: { id: true } }),
 
       // 오늘 출퇴근 기록
       prisma.attendance.findMany({
@@ -73,11 +79,13 @@ export async function GET() {
         take: 5,
       }),
 
-      // 최근 7일 출퇴근 누락 (입실 또는 퇴실 누락)
+      // 최근 7일 출퇴근 누락 (출근 또는 퇴근 누락)
+      // 집계 대상 직원만 — 관리자·통계 제외 지점(테스트·본부)은 뺀다. 퇴사자는 이 7일 안에 퇴사한 사람까지는 남긴다(퇴사 직전 누락을 보정할 수 있게, 재검증 N2)
       prisma.attendance.findMany({
         where: {
           date: { gte: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000), lt: today },
           OR: [{ clockIn: null }, { clockOut: null }],
+          user: { ...employeeWhere, AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: new Date(today.getTime() - 7 * 86400000) } }] }] },
         },
         include: { user: { select: { name: true, email: true } } },
         orderBy: { date: "desc" },
@@ -85,10 +93,13 @@ export async function GET() {
       }),
     ]);
 
+  const totalEmployees = members.length;
   const present = todayRecords.filter((r) => r.clockIn).length;
   const late = todayRecords.filter((r) => r.status === "LATE").length;
   const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
-  const absent = Math.max(totalEmployees - present - onLeave, 0);
+  // 미출근 = 오늘 근무일정(WORK)이 있는데 출근 기록이 없고 휴가도 아닌 사람(2026-10-16 #219-3).
+  // 종전 「재직자 − 출근 − 휴가」는 일정 없는 날 전원(115명)을 미출근으로 셌다. 원장 대시보드와 같은 함수.
+  const absent = (await absentUserIds(members.map((m) => m.id), today)).size;
 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
 
@@ -132,13 +143,42 @@ export async function GET() {
     })),
   ].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
 
-  const missingAttendance = missingRecords.map((r) => ({
-    id: r.id,
-    name: r.user.name,
-    email: r.user.email,
-    date: r.date,
-    type: !r.clockIn ? "입실 누락" : "퇴실 누락",
-  }));
+  // 누르면 채워질 시각을 미리 계산해 보여 준다 — 보정 API 와 같은 함수(2026-10-16 #219-4, 종전 문구는 「9시간 기준」 고정).
+  // 그 날 직원이 올린 출퇴근 요청(수정·퇴근 처리 등)이 대기 중이면 표시한다 — 보정 대신 결재로 처리한다
+  //   (보정해 버리면 그 요청 승인이 「이미 퇴근 기록이 있습니다」로 막힌다. auto-fill 도 이 경우 409).
+  const fillSettings = await autoFillSettings();
+  const pendingReqs = missingRecords.length
+    ? await prisma.attendanceRequest.findMany({
+        where: {
+          status: "PENDING",
+          kind: { not: "DEVICE" },
+          OR: missingRecords.map((r) => ({ userId: r.userId, workDate: r.date })),
+        },
+        select: { userId: true, workDate: true },
+      })
+    : [];
+  const pendingKey = new Set(pendingReqs.map((p) => `${p.userId}:${p.workDate.toISOString().slice(0, 10)}`));
+  const missingAttendance = [];
+  for (const r of missingRecords) {
+    const ymd = r.date.toISOString().slice(0, 10);
+    const fill = r.clockIn && !r.clockOut
+      ? await autoCloseTime(r.userId, ymd, r.clockIn, fillSettings)
+      : !r.clockIn && r.clockOut
+        ? await autoOpenTime(r.userId, ymd, r.clockOut, { fallbackHours: fillSettings.fallbackHours })
+        : null;
+    missingAttendance.push({
+      id: r.id,
+      name: r.user.name,
+      email: r.user.email,
+      date: r.date,
+      // 용어는 「출근·퇴근」(2026-10-16 #219-5, 종전 「입실·퇴실 누락」)
+      type: !r.clockIn ? "출근 누락" : "퇴근 누락",
+      mode: !r.clockIn ? "in" : "out",
+      fillAt: fill?.at ?? null,
+      fillLabel: fill?.label ?? null,
+      pendingRequest: pendingKey.has(`${r.userId}:${ymd}`),
+    });
+  }
 
   return NextResponse.json({
     totalEmployees,

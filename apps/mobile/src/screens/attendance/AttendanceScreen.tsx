@@ -38,24 +38,28 @@ export default function AttendanceScreen() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   // 같은 출근(또는 퇴근)에서 연속 실패 횟수 — 3번이면 사진·본부 요청을 안내한다(본부 답변 #11)
   const [fail, setFail] = useState<{ count: number; reason: FailReason; detail?: string; pressedAt: string } | null>(null);
-  const [missed, setMissed] = useState<{ date: string; clockIn: string; can22?: boolean; can22Reason?: string | null } | null>(null);
+  const [missed, setMissed] = useState<attendance.MissedOut | null>(null);
   const [consenting, setConsenting] = useState(false);
-  // 전날 퇴근 누락 → 22:00 퇴근 동의(#215-4). 동의 시각·사람이 서버에 기록되고, 22시가 아니면 「퇴근 처리 요청」으로 고친다
-  const consent22 = (date: string) => {
+  // 전날 퇴근 누락 → 근무일정 퇴근 시각으로 처리 동의(#215-4, 2026-10-17 #219-4 — 종전 22:00 고정).
+  // 시각은 서버가 정한다(관리자 자동 마감과 같은 기준). 동의 시각·사람·기준이 기록되고, 실제와 다르면 「퇴근 처리 요청」으로 고친다
+  const consentOut = (m: attendance.MissedOut) => {
+    if (!m.closeAt || !m.closeHhmm) return;
+    const t = m.closeHhmm;
     Alert.alert(
-      `${md(date)} 퇴근 기록이 없습니다`,
-      "22:00 퇴근으로 처리하는 데 동의합니다.\n(동의한 시각과 이름이 기록됩니다. 실제 퇴근이 22시가 아니면 「퇴근 처리 요청하기」로 시각을 넣어 주세요.)",
+      `${md(m.date)} 퇴근 기록이 없습니다`,
+      `${t} 퇴근(${m.closeLabel || "근무일정 기준"})으로 처리하는 데 동의합니다.\n(동의한 시각과 이름이 기록됩니다. 실제 퇴근이 ${t}가 아니면 「퇴근 처리 요청하기」로 시각을 넣어 주세요.)`,
       [
         { text: "취소", style: "cancel" },
-        { text: "동의하고 22:00 퇴근 처리", onPress: async () => {
+        { text: `동의하고 ${t} 퇴근 처리`, onPress: async () => {
           setConsenting(true);
           try {
-            await attendance.consentMissedOut22(date);
-            Alert.alert("처리됨", `${md(date)} 퇴근을 22:00로 기록했습니다.`);
+            const r = await attendance.consentMissedOut(m.date, m.closeAt!);
+            Alert.alert("처리됨", `${md(m.date)} 퇴근을 ${r.closeHhmm || t}로 기록했습니다.`);
             loadExtras();
           } catch (e: unknown) {
             const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || "처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
             Alert.alert("처리 못 함", msg);
+            loadExtras();   // 처리될 시각이 바뀌었으면(409) 새 시각으로 다시 보여 준다
           } finally { setConsenting(false); }
         } },
       ],
@@ -249,18 +253,18 @@ export default function AttendanceScreen() {
       {missed && (
         <View style={styles.warnCard}>
           <Text style={styles.warnTitle}>{md(missed.date)} 퇴근 기록이 없어요</Text>
-          {missed.can22 !== false ? (
+          {missed.canConsent && missed.closeHhmm ? (
             <>
-              <Text style={styles.warnText}>22:00에 퇴근하셨다면 아래 동의로 바로 처리됩니다. 다른 시각이면 요청으로 넣어 주세요.</Text>
-              <TouchableOpacity style={[styles.consentBtn, consenting && styles.buttonDisabled]} disabled={consenting} onPress={() => consent22(missed.date)}>
-                {consenting ? <ActivityIndicator color="#fff" /> : <Text style={styles.consentText}>22:00 퇴근으로 처리하는 데 동의합니다</Text>}
+              <Text style={styles.warnText}>{missed.closeHhmm}({missed.closeLabel || "근무일정 기준"})에 퇴근하셨다면 아래 동의로 바로 처리됩니다. 다른 시각이면 요청으로 넣어 주세요.</Text>
+              <TouchableOpacity style={[styles.consentBtn, consenting && styles.buttonDisabled]} disabled={consenting} onPress={() => consentOut(missed)}>
+                {consenting ? <ActivityIndicator color="#fff" /> : <Text style={styles.consentText}>{missed.closeHhmm} 퇴근으로 처리하는 데 동의합니다</Text>}
               </TouchableOpacity>
             </>
           ) : (
-            <Text style={styles.warnText}>{missed.can22Reason || "퇴근 시각을 넣어 요청해 주세요."}</Text>
+            <Text style={styles.warnText}>{missed.consentReason || "퇴근 시각을 넣어 요청해 주세요."}</Text>
           )}
           <TouchableOpacity style={styles.outlineBtn} onPress={() => setDraft({ kind: "MISSED_OUT", workDate: missed.date })}>
-            <Text style={styles.outlineText}>{missed.can22 !== false ? "다른 시각이에요 — 퇴근 처리 요청하기" : "퇴근 처리 요청하기"}</Text>
+            <Text style={styles.outlineText}>{missed.canConsent ? "다른 시각이에요 — 퇴근 처리 요청하기" : "퇴근 처리 요청하기"}</Text>
           </TouchableOpacity>
         </View>
       )}

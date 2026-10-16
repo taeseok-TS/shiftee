@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { LEAVE_LABELS } from "../../services/leaveLabels";
-import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance, getLeaveTypes, type LeaveTypeItem } from "../../services/approvals";
-import type { MyLedger } from "../../services/approvals";
+import { cancelLeave, requestLeaveCancel, withdrawLeaveCancel, getMyLedger, getYearBalance, getLeaveTypes, getMyLeaveBalance, getLeaveDaysPreview, type LeaveTypeItem } from "../../services/approvals";
+import type { MyLedger, LeaveDaysPreview } from "../../services/approvals";
 import {
   View,
   Text,
@@ -22,7 +22,7 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { LeaveType, LeaveRequest, LeaveBalance } from "@shiftee/api";
+import { LeaveType, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
 import { uploadFile, fileUri, useUploadsTicketVersion } from "../../services/work";
@@ -113,7 +113,9 @@ export default function LeaveRequestScreen() {
   const [attaching, setAttaching] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const [balance, setBalance] = useState<{ total: number; used: number; remaining: number } | null>(null);
+  // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 balanceHidden 을 주면 숫자 자리에 「연차 정리 중」. 신청·잔여 초과 막기는 그대로
+  const [balanceHidden, setBalanceHidden] = useState(false);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [cancelingId, setCancelingId] = useState("");
   // 연차 대장 — 본인 열람만(9/11 디렉터). 관리자 PDF·원장 열람은 웹에서 한다.
@@ -272,15 +274,16 @@ export default function LeaveRequestScreen() {
     let alive = true;
     getYearBalance(reqYear, leaveType)
       // 연차 미차감 유형(경조사·대체휴무 등)은 띄우지 않는다 — 판정은 서버(9/11 검증 E1)
-      .then((r) => { if (alive) setYearBal(r.deductible ? { year: reqYear, remaining: r.balance ? r.balance.remaining : null } : null); })
+      .then((r) => { if (alive) setYearBal(r.deductible && !r.hidden ? { year: reqYear, remaining: r.balance ? r.balance.remaining : null } : null); })
       .catch(() => { if (alive) setYearBal(null); });
     return () => { alive = false; };
   }, [reqYear, kstYear, leaveType]);
 
   const load = useCallback(async () => {
     try {
-      const [b, r] = await Promise.all([api.getLeaveBalance(), api.getLeaveRequests()]);
-      setBalance(b);
+      const [b, r] = await Promise.all([getMyLeaveBalance(), api.getLeaveRequests()]);
+      setBalance(b.balance);
+      setBalanceHidden(b.hidden);
       setRequests(r);
     } catch (error) {
       console.error("❌ Failed to load leave:", error);
@@ -307,6 +310,26 @@ export default function LeaveRequestScreen() {
     load();
   }, [load]);
 
+  // 신청 일수 미리보기(2026-10-16 #219-10·11·12) — 서버가 신청 검사와 같은 함수(근무일정·공휴일 반영, 잔여 초과)로 센 값.
+  // 날짜를 바꿀 때마다 0.3초 뒤 부르고, 늦게 온 앞 응답은 버린다. 실패하면 막지 않는다(신청 때 서버가 다시 본다)
+  const previewEnd = isSingleDay ? startDate : endDate;
+  const [preview, setPreview] = useState<LeaveDaysPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  useEffect(() => {
+    setPreview(null);
+    if (!startDate || !previewEnd || previewEnd < startDate) { setPreviewing(false); return; }
+    let alive = true;
+    setPreviewing(true);
+    const t = setTimeout(() => {
+      getLeaveDaysPreview(leaveType, startDate, previewEnd)
+        .then((d) => { if (alive) setPreview(d); })
+        .catch(() => { if (alive) setPreview(null); })
+        .finally(() => { if (alive) setPreviewing(false); });
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [leaveType, startDate, previewEnd]);
+  const previewBlocked = !!preview?.blocked;
+
   const handleSubmit = async () => {
     if (!startDate) {
       Alert.alert("오류", isSingleDay ? "날짜를 선택해주세요" : "시작일과 종료일을 입력해주세요");
@@ -322,6 +345,10 @@ export default function LeaveRequestScreen() {
     }
     if (attachRequired && !attachmentUrl) {
       Alert.alert("오류", `${activeOption.label}은(는) ${attachRequired} 첨부가 필요합니다`);
+      return;
+    }
+    if (preview?.blocked) {
+      Alert.alert("신청할 수 없습니다", preview.reason || "신청할 수 없는 기간입니다.");
       return;
     }
     const finalEnd = isSingleDay ? startDate : endDate;
@@ -363,9 +390,10 @@ export default function LeaveRequestScreen() {
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>잔여 연차</Text>
         <Text style={styles.balanceValue}>
-          {balance ? `${balance.remaining}일` : "—"}
+          {balanceHidden ? "연차 정리 중" : balance ? `${balance.remaining}일` : "—"}
         </Text>
-        {balance && (
+        {balanceHidden && <Text style={styles.balanceSub}>시프티 사용 내역을 옮기는 중이라 숫자는 잠시 보이지 않습니다. 휴가 신청은 그대로 할 수 있습니다.</Text>}
+        {!balanceHidden && balance && (
           <Text style={styles.balanceSub}>
             총 {balance.total}일 중 {balance.used}일 사용
           </Text>
@@ -399,14 +427,18 @@ export default function LeaveRequestScreen() {
               <View style={styles.ledgerBox}>
                 <Text style={styles.ledgerBoxLabel}>연차 (휴가를 쓰는 해 기준)</Text>
                 <Text style={styles.ledgerBoxValue}>
-                  {ledger.balance
+                  {ledger.balanceHidden
+                    ? "연차 정리 중"
+                    : ledger.balance
                     ? `총 ${ledger.balance.total}일 · 사용 ${ledger.balance.used}일 · 잔여 ${ledger.balance.remaining}일`
                     : "이 해의 연차 기록이 없습니다"}
                 </Text>
-                <Text style={[styles.ledgerBoxSub, ledger.summary.match === false && { color: "#dc2626" }]}>
-                  승인된 연차 휴가 합계 {ledger.summary.approvedDeductibleDays}일 / 기록된 사용 {ledger.summary.balanceUsed ?? "-"}일
-                  {ledger.summary.match === null ? "" : ledger.summary.match ? " · 일치" : " · 불일치(관리자에게 문의)"}
-                </Text>
+                {!ledger.balanceHidden && (
+                  <Text style={[styles.ledgerBoxSub, ledger.summary.match === false && { color: "#dc2626" }]}>
+                    승인된 연차 휴가 합계 {ledger.summary.approvedDeductibleDays}일 / 기록된 사용 {ledger.summary.balanceUsed ?? "-"}일
+                    {ledger.summary.match === null ? "" : ledger.summary.match ? " · 일치" : " · 불일치(관리자에게 문의)"}
+                  </Text>
+                )}
               </View>
 
               <Text style={styles.ledgerSection}>휴가 {ledger.entries.length}건</Text>
@@ -441,11 +473,16 @@ export default function LeaveRequestScreen() {
                 );
               })}
 
-              <Text style={styles.ledgerSection}>잔여 조정 이력 {ledger.adjustments.length}건</Text>
-              {ledger.adjustments.length === 0 && <Text style={styles.ledgerEmpty}>이 해에 잔여 조정 기록이 없습니다.</Text>}
-              {ledger.adjustments.map((a, i) => (
-                <Text key={i} style={styles.ledgerLine}>{kstStr(a.at)} · {a.actorName} · {a.detail ?? ""}</Text>
-              ))}
+              {/* 잔여 조정 이력은 숫자(「총 15→…일」)라 숨김일 때 서버가 빼고 보낸다 — 칸도 그리지 않는다(#219-1) */}
+              {!ledger.balanceHidden && (
+                <>
+                  <Text style={styles.ledgerSection}>잔여 조정 이력 {ledger.adjustments.length}건</Text>
+                  {ledger.adjustments.length === 0 && <Text style={styles.ledgerEmpty}>이 해에 잔여 조정 기록이 없습니다.</Text>}
+                  {ledger.adjustments.map((a, i) => (
+                    <Text key={i} style={styles.ledgerLine}>{kstStr(a.at)} · {a.actorName} · {a.detail ?? ""}</Text>
+                  ))}
+                </>
+              )}
             </ScrollView>
           ) : null}
         </View>
@@ -510,6 +547,26 @@ export default function LeaveRequestScreen() {
           </View>
         )}
 
+        {/* 신청 일수 — 서버 미리보기 값(근무일정·공휴일 반영). 막히면 이유를 보이고 신청 버튼을 막는다(#219-10·11) */}
+        {previewing && <Text style={styles.previewMuted}>신청 일수 확인 중…</Text>}
+        {preview && preview.days > 0 && (
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>{isSingleDay ? "신청 일수 (고정)" : "신청 일수 (근무일정·공휴일 반영)"}</Text>
+            <Text style={styles.previewValue}>{preview.days}일</Text>
+          </View>
+        )}
+        {preview?.limit?.kind === "grant" && preview.limit.available !== null && (
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>{preview.limit.group} 잔여{preview.limit.pending ? ` (결재 대기 ${preview.limit.pending}일 제외)` : ""}</Text>
+            <Text style={styles.previewValue}>{preview.limit.available}일</Text>
+          </View>
+        )}
+        {previewBlocked && (
+          <View style={styles.previewBlocked}>
+            <Text style={styles.previewBlockedText}>{preview?.reason}</Text>
+          </View>
+        )}
+
         <Text style={styles.label}>신청 사유 *</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
@@ -548,9 +605,9 @@ export default function LeaveRequestScreen() {
         )}
 
         <TouchableOpacity
-          style={[styles.submitButton, isLoading && styles.buttonDisabled]}
+          style={[styles.submitButton, (isLoading || previewBlocked) && styles.buttonDisabled]}
           onPress={handleSubmit}
-          disabled={isLoading}
+          disabled={isLoading || previewBlocked}
         >
           {isLoading ? (
             <ActivityIndicator color="#fff" />
@@ -707,6 +764,12 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 8 },
   label: { fontSize: 14, fontWeight: "600", color: "#1f2937", marginBottom: 8, marginTop: 16 },
+  previewMuted: { marginTop: 12, fontSize: 13, color: "#9ca3af" },
+  previewBox: { marginTop: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  previewLabel: { fontSize: 13, color: "#4b5563", flexShrink: 1 },
+  previewValue: { fontSize: 15, fontWeight: "700", color: "#111827", marginLeft: 8 },
+  previewBlocked: { marginTop: 12, backgroundColor: "#fef2f2", borderColor: "#fecaca", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  previewBlockedText: { fontSize: 13, color: "#b91c1c" },
   yearBalBox: { marginTop: 12, backgroundColor: "#fffbeb", borderColor: "#fde68a", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   yearBalText: { fontSize: 14, fontWeight: "700", color: "#92400e" },
   yearBalSub: { fontSize: 12, color: "#b45309", marginTop: 2 },

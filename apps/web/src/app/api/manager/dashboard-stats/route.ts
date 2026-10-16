@@ -7,6 +7,7 @@ import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { absentUserIds } from "@/lib/attendance-absent";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
 export async function GET() {
@@ -46,9 +47,13 @@ export async function GET() {
   // 휴가 취소 결재도 **결재함과 같은 함수**로 센다(lib/leave-cancel-flow.ts cancelStepWhere)
   const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, scope) });
 
-  const memberWhere = await countableEmployeeWhere(
-    session.role === "MANAGER" ? { branches: myBranches } : {}
-  );
+  // 퇴사일이 지난 사람은 팀 인원·미출근에서 뺀다 — 퇴사일 당일까지는 재직(lib/resign isResigned 와 같은 규칙, 2026-10-17 #219 검증 F3)
+  const baseMemberWhere = await countableEmployeeWhere(session.role === "MANAGER" ? { branches: myBranches } : {});
+  const memberWhere = {
+    ...baseMemberWhere,
+    AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayDateUTC() } }] }],
+  };
+  // 지난 날을 보는 목록(금월 결근자)은 퇴사 거르기를 하지 않는다 — 이달 중 퇴사한 사람의 결근도 남아야 한다(재검증 N2)
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -97,7 +102,7 @@ export async function GET() {
         where: {
           status: "ABSENT",
           date: { gte: monthStart, lte: monthEnd },
-          user: memberWhere,
+          user: baseMemberWhere,
         },
         select: { userId: true },
         distinct: ["userId"],
@@ -112,12 +117,10 @@ export async function GET() {
   const present = presentIds.size;
   const lateNames = todayRecords.filter((r) => r.status === "LATE").map((r) => r.user.name);
   const earlyLeaveNames = todayRecords.filter((r) => r.status === "EARLY_LEAVE").map((r) => r.user.name);
-  // 오늘 일정이 휴무(OFF)·공휴일(HOLIDAY)인 직원은 미출근이 아니다(a59a786 검증 F4). 일정이 없는 직원은 근무로 본다(종전과 같음)
-  const offIds = new Set(
-    (await prisma.schedule.findMany({ where: { date: today, userId: { in: members.map((m) => m.id) }, type: { in: ["OFF", "HOLIDAY"] } }, select: { userId: true } }))
-      .map((s) => s.userId),
-  );
-  const missingNames = members.filter((m) => !presentIds.has(m.id) && !leaveIds.has(m.id) && !offIds.has(m.id)).map((m) => m.name);
+  // 미출근 = 오늘 근무일정(WORK)이 있는데 출근 기록이 없고(출근 요청 대기도 아님) 휴가도 아닌 직원 — 관리자 대시보드와 같은 함수
+  // (2026-10-16 #219-3). 종전에는 휴무·공휴일만 빼고 일정이 없는 직원도 근무로 봐서 미출근으로 셌다(a59a786 검증 F4 의 후속).
+  const absentIds = await absentUserIds(members.map((m) => m.id), today);
+  const missingNames = members.filter((m) => absentIds.has(m.id) && !presentIds.has(m.id) && !leaveIds.has(m.id)).map((m) => m.name);
   const late = lateNames.length;
   const earlyLeave = earlyLeaveNames.length;
   const absent = missingNames.length;

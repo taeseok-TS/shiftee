@@ -9,6 +9,29 @@ import { deductLeaveBalance } from "@/lib/leave-balance";
 import { logAudit } from "@/lib/audit";
 import { botNotifyDecision } from "@/lib/bot";
 import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
+import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
+import { canSeeLeaveBalance } from "@/lib/permission-settings";
+
+/** 최종 승인 때 잔여가 모자라면 던진다 — 트랜잭션이 통째로 되돌아가 결재 단계·상태도 그대로 남는다(#219-11) */
+class ShortBalance extends Error {}
+/** 트랜잭션 오류 중 잔여 부족만 골라 돌려준다(그 밖의 오류는 그대로 던진다) */
+const shortBalanceOf = (e: unknown): ShortBalance => { if (e instanceof ShortBalance) return e; throw e; };
+
+/**
+ * 최종 승인 직전 잔여 재검사(2026-10-16 #219-11) — 신청 뒤 다른 휴가가 먼저 승인되거나 본부가 잔여를 줄였으면 여기서 막는다.
+ * 종전에는 승인 때 다시 보지 않아 잔여가 음수가 될 수 있었다. 이때는 **자기 자신 외의 대기 건은 빼고 지금 잔여만** 본다
+ * (다른 대기 건이 이 승인을 막지 않게). 판정은 신청 검사와 같은 lib/leave-limit. 숫자는 결재자가 볼 수 있을 때만 문구에 넣는다.
+ */
+async function assertBalanceForApproval(
+  tx: Parameters<typeof checkLeaveLimit>[0],
+  req: { id: string; userId: string; type: string; startDate: Date; days: number },
+  approverRole: string,
+) {
+  // 같은 직원의 다른 휴가를 동시에 최종 승인하면 둘 다 같은 잔여를 읽고 통과해 음수가 될 수 있었다(검증 5) — 직원 단위로 줄 세운다
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-bal:" + req.userId}))`;
+  const limit = await checkLeaveLimit(tx, { userId: req.userId, type: req.type, startDate: req.startDate, days: req.days, includePending: false, excludeRequestId: req.id });
+  if (limit.blocked) throw new ShortBalance(limitMessage(limit, { visible: await canSeeLeaveBalance(approverRole), when: "approve" }));
+}
 
 // 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
 async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
@@ -108,7 +131,7 @@ export async function POST(
     let alreadyDone = false;
     let notifyNext: { approverRole: string | null; branch: string | null; approverId: string | null } | null = null;
 
-    await prisma.$transaction(async (tx) => {
+    const short = await prisma.$transaction(async (tx) => {
       // ⚠ **조건부로** 쓴다. 종전에는 무조건 update 라, 결재자가 두 번 누르거나 두 사람이
       //   동시에 처리하면 같은 단계가 두 번 처리되고 마지막 단계면 **연차가 두 번 깎였다**
       //   (2026-09-09 검증에서 적발). 근무일정에는 넣고 휴가만 빠뜨렸다.
@@ -156,7 +179,8 @@ export async function POST(
           notifyNext = nextStep;
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
-          // 모든 단계 승인 완료 → 전체 승인
+          // 모든 단계 승인 완료 → 전체 승인. 그 전에 잔여 재검사(#219-11) — 모자라면 던져 이 결재 전체를 되돌린다
+          await assertBalanceForApproval(tx, leaveRequest, session.role);
           await tx.leaveRequest.update({
             where: { id },
             data:  { status: "APPROVED", approverId: session.userId },
@@ -169,7 +193,8 @@ export async function POST(
           emailAction = "approve";
         }
       }
-    });
+    }).then(() => null, shortBalanceOf);
+    if (short) return NextResponse.json({ error: short.message }, { status: 400 });
 
     if (alreadyDone) {
       return NextResponse.json({ error: "이미 처리된 결재입니다." }, { status: 409 });
@@ -268,7 +293,7 @@ async function adminOverride(
   //   (2026-09-09 검증에서 적발 — 단계별 경로에서 막은 사고가 이 경로에 남아 있었다).
   //   트랜잭션이 없으면 차감만 실패했을 때 "승인됐는데 안 깎임"도 남는다.
   let claimed = false;
-  await prisma.$transaction(async (tx) => {
+  const short = await prisma.$transaction(async (tx) => {
     const won = await tx.leaveRequest.updateMany({
       where: { id, status: "PENDING" },   // 먼저 잡는 쪽만 처리한다
       data: {
@@ -279,6 +304,8 @@ async function adminOverride(
     });
     if (won.count === 0) return;
     claimed = true;
+    // 승인이면 차감 전에 잔여 재검사(#219-11, 단계 최종 승인과 같은 함수) — 모자라면 던져 이 트랜잭션 전체(상태·단계)를 되돌린다
+    if (action === "approve") await assertBalanceForApproval(tx, leaveRequest, role ?? "ADMIN");
 
     // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
     // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
@@ -297,7 +324,8 @@ async function adminOverride(
       // **휴가를 쓰는 해** 행에서(9/11) — 단계 최종승인과 같은 함수
       await deductLeaveBalance(tx, userId, leaveYearOfLeave(leaveRequest.startDate), days);
     }
-  });
+  }).then(() => null, shortBalanceOf);
+  if (short) return NextResponse.json({ error: short.message }, { status: 400 });
 
   if (!claimed) {
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });

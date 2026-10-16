@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deductLeaveBalance, yearBalanceFor } from "@/lib/leave-balance";
+import { deductLeaveBalance } from "@/lib/leave-balance";
 import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } from "@/lib/leave-cancel";
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
@@ -8,11 +8,13 @@ import { botNotifyApprovalRequest, botNotifyDecision } from "@/lib/bot";
 import { logAudit } from "@/lib/audit";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { eachDayOfInterval, getDay } from "date-fns";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOfLeave } from "@/lib/leave-calc";
-import { getHolidaySet, ymdUTC } from "@/lib/holidays";
+import { ymdUTC } from "@/lib/holidays";
+import { countLeaveDays } from "@/lib/leave-days";
+import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
+import { canSeeLeaveBalance } from "@/lib/permission-settings";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 import { LEAVE_STATUSES, pick } from "@/lib/enums";
@@ -226,41 +228,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "휴가 신청 기간은 최대 1년까지 가능합니다." }, { status: 400 });
   }
 
-  // 근무일(평일)만 계산 — 주말과 공휴일(Holiday 테이블) 제외
-  let days: number;
-  if (info.unit === "HALF") {
-    days = 0.5;
-  } else if (info.unit === "QUARTER") {
-    days = 0.25;
-  } else {
-    const allDays = eachDayOfInterval({ start, end });
-    const holidaySet = await getHolidaySet(start, end);
-    days = allDays.filter(d => getDay(d) !== 0 && getDay(d) !== 6 && !holidaySet.has(ymdUTC(d))).length;
-    if (days === 0) {
-      return NextResponse.json({ error: "선택한 기간에 근무일이 없습니다. (주말·공휴일 제외)" }, { status: 400 });
-    }
+  // 일수 = **근무일정 기준**(2026-10-16 #219-10·12, 디렉터 결정 (d)) — lib/leave-days.ts 한 곳에서 센다.
+  // 그날 일정이 있으면 WORK 만 세고 OFF·HOLIDAY 는 빼며, 일정이 없는 날은 종전대로 평일·비공휴일(Holiday 표)만 센다.
+  // 신청 창 미리보기(api/leave/days)도 같은 함수라 화면 일수와 실제 차감이 같다. 반차·반반차는 그날이 근무일이어야 한다.
+  const counted = await countLeaveDays(prisma, subject.id, info.unit, startDate, endDate);
+  if (counted.error) {
+    return NextResponse.json({ error: counted.error }, { status: 400 });
   }
-  // 반차/반반차는 단일 날짜 — 주말·공휴일이면 차감이 무의미하므로 거부
-  if (days === 0.5 || days === 0.25) {
-    const startIsOff =
-      getDay(start) === 0 || getDay(start) === 6 || (await getHolidaySet(start, start)).has(ymdUTC(start));
-    if (startIsOff) {
-      return NextResponse.json({ error: "주말·공휴일에는 반차/반반차를 신청할 수 없습니다." }, { status: 400 });
-    }
-  }
+  const days = counted.days;
 
-  // 잔여 휴가 확인 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감이므로 검사 생략)
-  // **휴가를 쓰는 해**의 잔여로 본다(9/11 디렉터). 그 해 행이 아직 없는 내년 휴가는 연초 이월과 같은
-  // 근속 기준 총연차로 본다. 지난 해 휴가는 종전처럼 행이 없으면 검사하지 않는다.
-  if (isLeaveDeductible(type)) {
-    const year = leaveYearOfLeave(start);
-    // 신청 화면의 "N년 잔여"와 **같은 함수**(lib/leave-balance.ts yearBalanceFor). 행이 없으면 올해·내년은 근속 기준
-    // 총연차로 검사하고(9/11 검증 D2), 지난 해는 종전처럼 검사하지 않는다(null).
-    const remaining = (await yearBalanceFor(prisma, subject.id, year))?.remaining ?? null;
-    if (remaining !== null && remaining < days) {
-      return NextResponse.json({
-        error: `${proxy ? `${subject.name}님의 ` : ""}잔여 휴가가 부족합니다. (${year}년 잔여 ${remaining}일, 신청 ${days}일)`,
-      }, { status: 400 });
+  // 잔여 초과 막기(2026-10-16 #219-7·11) — 판정은 lib/leave-limit.ts 한 곳(신청 창 미리보기·최종 승인과 같은 함수).
+  //  · 연차 차감 유형: **휴가를 쓰는 해**의 잔여(yearBalanceFor, 9/11 디렉터). 그 해 행이 없는 지난 해는 종전처럼 검사하지 않는다.
+  //  · 보상휴가·대체휴일: 그 그룹 부여 합 − 승인된 사용(디렉터 결정 (c) — 10/8 「막지 않음」을 바꿈).
+  //  · **결재 대기 중인 신청까지 합산**한다 — 종전에는 대기분을 안 세어 여러 건을 올리면 잔여를 넘겼다.
+  //  · 잔여 숫자 숨김(#219-1)이면 거절 문구에서 숫자를 뺀다(막기는 그대로). 본부는 숫자를 본다.
+  const balanceVisible = await canSeeLeaveBalance(session.role);
+  {
+    const limit = await checkLeaveLimit(prisma, { userId: subject.id, type: leaveType, startDate: start, days, includePending: true });
+    if (limit.blocked) {
+      return NextResponse.json({ error: limitMessage(limit, { visible: balanceVisible, when: "request", who: proxy ? subject.name : undefined }) }, { status: 400 });
     }
   }
 
@@ -293,11 +279,9 @@ export async function POST(request: NextRequest) {
         ) ?? (subDay && sameDaySum + days > 1 ? overlap[0] : undefined);
         if (clash) throw new ProxyOverlap(`${subject.name}님은 이미 ${leaveInfo(clash.type)?.label ?? clash.type} ${ymdUTC(clash.startDate)}${ymdUTC(clash.startDate) === ymdUTC(clash.endDate) ? "" : ` ~ ${ymdUTC(clash.endDate)}`} 휴가가 있습니다.`);
         // 잔여 검사를 잠금 안에서 한 번 더 — 관리자 둘이 같은 직원에게 동시에 다른 날짜를 넣어도 잔여가 음수가 되지 않게
-        if (isLeaveDeductible(leaveType)) {
-          const y = leaveYearOfLeave(start);
-          const left = (await yearBalanceFor(tx, subject.id, y))?.remaining ?? null;
-          if (left !== null && left < days) throw new ProxyOverlap(`${subject.name}님의 잔여 휴가가 부족합니다. (${y}년 잔여 ${left}일, 신청 ${days}일)`);
-        }
+        // (위와 같은 lib/leave-limit 판정 — 보상휴가·대체휴일도, 대기분 합산도 같다. 대리 등록은 본부라 숫자를 보인다)
+        const limit = await checkLeaveLimit(tx, { userId: subject.id, type: leaveType, startDate: start, days, includePending: true });
+        if (limit.blocked) throw new ProxyOverlap(limitMessage(limit, { visible: true, when: "request", who: subject.name }));
       }
       const created = await tx.leaveRequest.create({
         data: {

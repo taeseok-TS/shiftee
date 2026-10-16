@@ -86,6 +86,10 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  // 직원은 「본인 출퇴근 기록 열람」(권한 설정, 기본 끔)이 꺼져 있으면 API 로도 기록을 볼 수 없다(2026-10-17 #219 검증 P1 —
+  // 종전엔 웹 화면·메뉴만 막혀 있어 주소를 직접 부르면 보였다). 앱의 /api/attendance/today·수정 요청 흐름은 그대로.
+  if (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")))
+    return NextResponse.json({ error: "출퇴근 기록 열람 권한이 없습니다." }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const year   = parseInt(searchParams.get("year")  || String(new Date().getFullYear()));

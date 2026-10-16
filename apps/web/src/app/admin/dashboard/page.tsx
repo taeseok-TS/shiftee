@@ -39,7 +39,11 @@ type MissingAttendance = {
   name: string;
   email: string;
   date: string;
-  type: string;
+  type: string;            // 「출근 누락」·「퇴근 누락」 (#219-5, 종전 입실·퇴실)
+  mode?: "in" | "out";     // 빠진 쪽 — 문구 비교 대신 이 값으로 가른다
+  fillAt?: string | null;  // 보정하면 들어갈 시각(서버가 보정 API 와 같은 함수로 계산, #219-4)
+  fillLabel?: string | null;
+  pendingRequest?: boolean; // 직원 출퇴근 요청 결재 대기 — 보정하지 않는다
 };
 
 type PendingApproval = {
@@ -144,7 +148,7 @@ export default function AdminDashboardPage() {
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // 출퇴근 누락 자동 보정 (퇴실 누락→출근+9h, 입실 누락→퇴근-9h)
+  // 출퇴근 누락 자동 보정 — 그날 근무일정 시각으로(일정 없으면 보정 시간), 전일 미마감과 같은 기준(2026-10-16 #219-4)
   async function handleAutoFill() {
     if (!fillTarget) return;
     setFilling(true);
@@ -218,6 +222,7 @@ export default function AdminDashboardPage() {
             <div className="text-3xl font-bold text-red-600">
               {attendanceStats ? attendanceStats.absent : "--"}
             </div>
+            <p className="text-xs text-gray-500 mt-1">오늘 근무일정이 있는데 출근 전 (휴가·휴무 제외)</p>
           </CardContent>
         </Card>
 
@@ -319,7 +324,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">※ 항목을 클릭하면 9시간 기준으로 출퇴근 시간을 자동 보정할 수 있습니다.</p>
+              <p className="text-xs text-gray-500">※ 항목을 클릭하면 그날 근무일정의 출근·퇴근 시각으로 자동 보정할 수 있습니다. 근무일정이 없는 날은 환경설정의 보정 시간(기본 9시간)을 씁니다.</p>
               {missingAttendance.map(record => (
                 <button
                   key={record.id}
@@ -337,6 +342,9 @@ export default function AdminDashboardPage() {
                     <Badge variant="outline" className="border-orange-300 text-orange-700">
                       {record.type}
                     </Badge>
+                    {record.pendingRequest && (
+                      <Badge variant="outline" className="border-blue-300 text-blue-700">요청 결재 대기</Badge>
+                    )}
                   </div>
                 </button>
               ))}
@@ -542,18 +550,30 @@ export default function AdminDashboardPage() {
                   {format(new Date(fillTarget.date), "yyyy년 M월 d일")} · {fillTarget.type}
                 </p>
               </div>
-              <p className="text-sm text-gray-700">
-                {fillTarget.type === "퇴실 누락"
-                  ? "출근 시각 기준 9시간 뒤 시간으로 퇴근 처리하겠습니까?"
-                  : "퇴근 시각 기준 9시간 전 시간으로 출근 처리하겠습니까?"}
-              </p>
+              {fillTarget.pendingRequest ? (
+                <p className="text-sm text-blue-700">
+                  직원이 올린 출퇴근 요청이 결재 대기 중입니다. 자동 보정 대신 <b>출퇴근 관리 › 요청 결재</b>에서 처리해 주세요.
+                </p>
+              ) : (
+                <div className="text-sm text-gray-700 space-y-1">
+                  {/* 문구 비교 대신 mode 로 가른다(#219-5 에서 「퇴실 누락」→「퇴근 누락」으로 바뀌어도 어긋나지 않게) */}
+                  <p>
+                    {(fillTarget.mode ?? (fillTarget.type === "출근 누락" ? "in" : "out")) === "out" ? "기록될 퇴근" : "기록될 출근"}:{" "}
+                    <b>{fillTarget.fillAt ? format(new Date(fillTarget.fillAt), "M월 d일 HH:mm") : "-"}</b>
+                  </p>
+                  {fillTarget.fillLabel && <p className="text-xs text-gray-500">기준: {fillTarget.fillLabel}</p>}
+                  <p>이대로 기록하겠습니까?</p>
+                </div>
+              )}
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setFillTarget(null)} disabled={filling}>
-                  아니오
+                  {fillTarget.pendingRequest ? "닫기" : "아니오"}
                 </Button>
-                <Button onClick={handleAutoFill} disabled={filling}>
-                  {filling ? "처리 중..." : "네"}
-                </Button>
+                {!fillTarget.pendingRequest && (
+                  <Button onClick={handleAutoFill} disabled={filling}>
+                    {filling ? "처리 중..." : "네"}
+                  </Button>
+                )}
               </div>
             </div>
           )}

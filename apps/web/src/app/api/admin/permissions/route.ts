@@ -25,7 +25,7 @@ export async function PATCH(request: NextRequest) {
     const v = body[t.key];
     if (v === undefined) continue;
     if (typeof v !== "boolean") return NextResponse.json({ error: `${t.label}: 켬/끔 값이어야 합니다.` }, { status: 400 });
-    if (v !== before[t.key]) { next[t.key as PermissionKey] = v; changes.push(`${t.role === "MANAGER" ? "원장" : "직원"} ${t.label} ${before[t.key] ? "켬" : "끔"}→${v ? "켬" : "끔"}`); }
+    if (v !== before[t.key]) { next[t.key as PermissionKey] = v; changes.push(`${t.appliesTo && t.appliesTo.length > 1 ? "" : t.role === "MANAGER" ? "원장 " : "직원 "}${t.label} ${before[t.key] ? "켬" : "끔"}→${v ? "켬" : "끔"}`); }
   }
   if (!changes.length) return NextResponse.json({ success: true, settings: before, changed: false });
   await savePermissions(next);

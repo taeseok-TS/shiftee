@@ -7,9 +7,10 @@ import { prisma } from "@/lib/db";
 // 켜고 끌 수 있는 것은 **게이트가 코드 한두 곳에 모여 있어 설정 하나로 전부 따라오는 권한**만이다.
 // 그 밖의 권한(직원 추가·휴가 대리 등록·출퇴근 직접 수정 = 본부만, 직원의 동료 일정·휴가 열람 = 불가)은
 // 본부 답변·#53·#80 으로 **고정**이며 FIXED_RULES 에 이유와 함께 적어 화면에 보여 준다.
-export type PermissionKey = "manager.editSchedule" | "manager.viewAttendance" | "employee.viewOwnAttendance";
+export type PermissionKey = "manager.editSchedule" | "manager.viewAttendance" | "employee.viewOwnAttendance" | "employee.viewLeaveBalance" | "leave.blockGrantOverdraw";
 export type PermissionRole = "MANAGER" | "EMPLOYEE";
-export type PermissionToggle = { key: PermissionKey; role: PermissionRole; label: string; hint: string; def: boolean; shiftee: boolean; effects: string };
+// appliesTo — 한 토글이 여러 역할에 걸릴 때(예: 잔여 연차 숫자 = 직원·원장). 없으면 role 하나. 화면은 role 칸에 그린다
+export type PermissionToggle = { key: PermissionKey; role: PermissionRole; appliesTo?: PermissionRole[]; label: string; hint: string; def: boolean; shiftee: boolean; effects: string };
 
 export const PERMISSION_TOGGLES: PermissionToggle[] = [
   {
@@ -29,6 +30,21 @@ export const PERMISSION_TOGGLES: PermissionToggle[] = [
     hint: "직원이 웹 [출퇴근 관리]에서 본인 오늘 상태와 기간별 통계를 봅니다. 꺼져 있으면 웹 메뉴가 숨고 앱의 오늘 상태·수정 요청만 씁니다(2026-10-08 본부 답변 #3, 시프티와 같음).",
     def: false, shiftee: false,
     effects: "웹 출퇴근 관리 메뉴·화면(app/(dashboard)/attendance). 앱은 영향 없음",
+  },
+  {
+    // 2026-10-16 #219-1(디렉터 결정 (a)) — 시프티 사용 내역 이관 전에는 잔여 숫자가 시프티와 달라 직원 문의·오신청이 생긴다
+    key: "employee.viewLeaveBalance", role: "EMPLOYEE", appliesTo: ["EMPLOYEE", "MANAGER"], label: "잔여 연차 숫자 보기(직원·원장)",
+    hint: "직원·원장이 본인 잔여 연차(대시보드·휴가 신청 창·연차 대장·앱)와, 원장이 담당 지점 직원 잔여를 숫자로 봅니다. 꺼져 있으면 숫자 자리에 「연차 정리 중」만 보이고, 휴가 신청은 그대로 되며 잔여를 넘는 신청은 숫자 없이 막습니다. 시프티 휴가 사용 내역 이관을 마친 뒤 켜세요. 본부는 언제나 봅니다.",
+    def: false, shiftee: true,
+    effects: "웹 대시보드·휴가 신청 창·연차 대장, 앱 홈·휴가 화면, API me/dashboard-stats·leave/balance·leave/ledger·leave/days·employees(잔여 칸)",
+  },
+  {
+    // 디렉터 결정(10/16): 보상휴가·대체휴일도 잔여를 넘으면 막되, **시프티 부여 내역을 옮긴 뒤부터**. 지금은 부여 기록이 0건이라
+    // 켜면 모든 보상·대체 신청과 결재 대기 건이 막힌다. 연차 잔여 초과 막기는 이 스위치와 관계없이 늘 켜져 있다
+    key: "leave.blockGrantOverdraw", role: "EMPLOYEE", appliesTo: ["EMPLOYEE", "MANAGER"], label: "보상휴가·대체휴일 잔여 초과 신청 막기",
+    hint: "보상휴가·대체휴일을 잔여(부여 합 − 승인된 사용)보다 많이 신청하면 막고, 최종 승인 때도 다시 확인합니다. 시프티 보상·대체 부여 내역을 옮긴 뒤 켜세요(지금 켜면 부여 기록이 없는 직원은 신청할 수 없습니다). 연차 잔여 초과 막기는 늘 켜져 있습니다.",
+    def: false, shiftee: true,
+    effects: "휴가 신청(api/leave)·미리보기(api/leave/days)·최종 승인(api/leave/[id]/approve)의 보상·대체 잔여 판정(lib/leave-limit)",
   },
 ];
 
@@ -94,8 +110,14 @@ export async function isAllowed(key: PermissionKey): Promise<boolean> {
 export async function permissionsForRole(role: string): Promise<Partial<PermissionSettings>> {
   const all = await readPermissions();
   const out: Partial<PermissionSettings> = {};
-  for (const t of PERMISSION_TOGGLES) out[t.key] = role === "ADMIN" ? true : t.role === role ? all[t.key] : false;
+  for (const t of PERMISSION_TOGGLES) out[t.key] = role === "ADMIN" ? true : (t.appliesTo ?? [t.role]).includes(role as PermissionRole) ? all[t.key] : false;
   return out;
+}
+
+/** 잔여 연차 숫자를 이 역할에게 보여도 되나(#219-1) — 본부(ADMIN)는 언제나, 직원·원장은 「잔여 연차 숫자 보기」가 켜졌을 때만 */
+export async function canSeeLeaveBalance(role: string): Promise<boolean> {
+  if (role === "ADMIN") return true;
+  return isAllowed("employee.viewLeaveBalance");
 }
 
 export async function savePermissions(next: PermissionSettings): Promise<void> {

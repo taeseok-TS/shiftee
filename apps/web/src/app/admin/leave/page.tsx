@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useLeaveDaysPreview } from "@/components/leave/useLeaveDaysPreview";
+import LeaveDaysPreviewBox, { previewAllowsSubmit } from "@/components/leave/LeaveDaysPreviewBox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +21,7 @@ import {
   Upload, Download,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { format, eachDayOfInterval, getDay } from "date-fns";
+import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
@@ -55,8 +57,8 @@ type LeaveRequest = {
 };
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
-  userId: string; name: string; email?: string; department: string; position: string;
-  branch?: string; hireDate?: string | null; tenure?: string; recommended?: number | null; accrualBasis?: string | null; leaveNote?: string | null;
+  userId: string; name: string; email?: string; department: string | null; position: string | null;
+  branch?: string | null; hireDate?: string | null; tenure?: string; recommended?: number | null; accrualBasis?: string | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
 };
 type LineStep = { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } };
@@ -98,18 +100,6 @@ const STEP_CFG: Record<string, { dot: string; label: string }> = {
 const CURRENT_YEAR = new Date().getFullYear();
 // 내년도 둔다 — 12월에 승인된 내년 휴가를 1월 전에도 볼 수 있게(휴가를 쓰는 해 기준, 9/11 검증 D3)
 const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
-
-function calcWorkdays(start: string, end: string, type: string) {
-  if (!start) return 0;
-  if (type in FIXED_DAYS) return FIXED_DAYS[type];
-  if (!end) return 0;
-  try {
-    const s = new Date(start), e = new Date(end);
-    if (s > e) return 0;
-    return eachDayOfInterval({ start: s, end: e })
-      .filter(d => getDay(d) !== 0 && getDay(d) !== 6).length;
-  } catch { return 0; }
-}
 
 /* ── 결재 진행 뱃지 ── */
 function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
@@ -166,7 +156,10 @@ export default function LeavePage() {
   const [addOpen, setAddOpen]   = useState(false);
   // targetUserId — 본부 대리 등록(#37). 비우면 본인 신청
   const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
-  const previewDays = useMemo(() => calcWorkdays(form.startDate, form.endDate, form.type), [form]);
+  // 신청 일수·막힘은 서버 미리보기(GET /api/leave/days — 신청 검사와 같은 함수, 근무일정·공휴일 반영, #219-10·11·12).
+  // 대리 등록이면 그 직원의 근무일정·잔여로 센다
+  const daysPreview = useLeaveDaysPreview({ enabled: addOpen, type: form.type, start: form.startDate, end: form.endDate, singleDay: SINGLE_DAY_TYPES.has(form.type), userId: form.targetUserId || undefined });
+  const canSubmit = previewAllowsSubmit(daysPreview);
 
   /* 반려 다이얼로그 */
   const [rejectOpen, setRejectOpen]     = useState(false);
@@ -255,7 +248,8 @@ export default function LeavePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
-    if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
+    if (daysPreview.status === "ok" && daysPreview.data.blocked) { toast.error(daysPreview.data.reason || "신청할 수 없습니다."); return; }
+    if (!canSubmit) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
     { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl && !form.targetUserId) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
     setSubmitting(true);
     let res: Response, data: { error?: string; days?: number; proxy?: boolean };
@@ -886,7 +880,8 @@ export default function LeavePage() {
                         <tr key={b.userId} className="border-b last:border-0 hover:bg-gray-50/70">
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900">{b.name}</p>
-                            <p className="text-xs text-gray-400">{b.department} · {b.position}</p>
+                            {/* 있는 값만(#219-9 — 「- · 주임매니저」로 보였다) */}
+                            <p className="text-xs text-gray-400">{[b.department, b.position].filter(Boolean).join(" · ")}</p>
                             {b.leaveNote && <p className="text-[11px] text-amber-600 mt-0.5">※ {b.leaveNote}</p>}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{b.branch || "-"}</td>
@@ -982,8 +977,9 @@ export default function LeavePage() {
               <Select value={form.type} onValueChange={v =>
                 v && setForm(f => ({ ...f, type: v, endDate: SINGLE_DAY_TYPES.has(v) ? f.startDate : f.endDate }))
               }>
-                <SelectTrigger><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
-                <SelectContent>
+                {/* 목록 폭을 창 폭에 맞춘다(#219-9 — 설명이 잘렸다). 이 화면의 선택칸만 — 공용 select 는 그대로 */}
+                <SelectTrigger className="w-full"><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
+                <SelectContent className="min-w-[min(22rem,calc(100vw-2rem))]">
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
                   {leaveCat.groups.map((g, gi) => {
                     const items = leaveCat.catalog.filter((t) => t.selectable && t.group === g);
@@ -993,9 +989,9 @@ export default function LeavePage() {
                         <div className={`px-2 py-1 text-xs text-gray-400 font-medium ${gi ? "border-t mt-1 pt-2" : ""}`}>{g}</div>
                         {items.map((t) => (
                           <SelectItem key={t.code} value={t.code}>
-                            <span className="flex items-center justify-between w-full gap-8">
+                            <span className="flex items-center justify-between w-full gap-4">
                               <span>{t.label}</span>
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs text-gray-400 whitespace-normal text-right">
                                 {FIXED_DAYS[t.code] ? `${FIXED_DAYS[t.code]}일 ` : ""}{t.paidHours ? `유급 ${t.paidHours}h` : "무급"}{!t.deducts && " · 연차 미차감"}
                               </span>
                             </span>
@@ -1027,12 +1023,7 @@ export default function LeavePage() {
                 </div>
               </div>
             )}
-            {previewDays > 0 && (
-              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm">
-                <span className="text-gray-500">{FIXED_DAYS[form.type] ? "신청 일수 (고정)" : "신청 일수 (평일 기준)"}</span>
-                <span className="font-bold text-gray-800">{previewDays}일</span>
-              </div>
-            )}
+            <LeaveDaysPreviewBox state={daysPreview} fixed={!!FIXED_DAYS[form.type]} />
             <div className="space-y-2">
               <Label>사유 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>
               <Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
@@ -1062,7 +1053,7 @@ export default function LeavePage() {
                 setAddOpen(false);
                 setForm({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "", targetUserId: "" });
               }}>취소</Button>
-              <Button type="submit" disabled={previewDays <= 0 || submitting}>{submitting ? "처리 중..." : form.targetUserId ? "등록·승인" : "신청"}</Button>
+              <Button type="submit" disabled={!canSubmit || submitting}>{submitting ? "처리 중..." : form.targetUserId ? "등록·승인" : "신청"}</Button>
             </div>
           </form>
         </DialogContent>

@@ -51,7 +51,8 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
   const [userId, setUserId] = useState<string | null>(null);   // null = 본인
   const [year, setYear] = useState<number>(() => new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear());
   const [ready, setReady] = useState(false);
-  const [data, setData] = useState<{ ledger: Ledger; canDownloadPdf: boolean } | null>(null);
+  // balanceHidden — 잔여 숫자 숨김(2026-10-16 #219-1). 서버가 총·사용·잔여와 잔여 조정 이력을 빼고 보낸다
+  const [data, setData] = useState<{ ledger: Ledger; canDownloadPdf: boolean; balanceHidden?: boolean } | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -136,7 +137,8 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
           </h1>
           {L && (
             <p className="text-sm text-gray-500 mt-0.5">
-              {L.user.branch ?? "-"} · {L.user.position ?? "-"} · 입사 {L.user.hireDate ? L.user.hireDate.slice(0, 10) : "-"}
+              {/* 없는 값은 빼고 있는 값만(#219-9 — 「- · 주임매니저」로 보였다) */}
+              {[L.user.branch, L.user.position, `입사 ${L.user.hireDate ? L.user.hireDate.slice(0, 10) : "-"}`].filter(Boolean).join(" · ")}
               <span className="ml-2 text-xs text-gray-400">연도 기준: 휴가를 쓰는 해(시작일)</span>
             </p>
           )}
@@ -165,14 +167,16 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
             <Card>
               <CardContent className="pt-5">
                 <p className="text-xs text-gray-500">{year}년 연차</p>
-                {L.balance ? (
+                {data?.balanceHidden ? (
+                  <p className="text-lg font-semibold text-gray-500 mt-1">연차 정리 중</p>
+                ) : L.balance ? (
                   <p className="text-lg font-semibold text-gray-900 mt-1">
                     총 {L.balance.total}일 · 사용 {L.balance.used}일 · <span className="text-blue-700">잔여 {L.balance.remaining}일</span>
                   </p>
                 ) : <p className="text-sm text-gray-500 mt-1">이 해의 연차 기록이 없습니다</p>}
               </CardContent>
             </Card>
-            <Card className={L.summary.match === false ? "border-red-200" : ""}>
+            {!data?.balanceHidden && <Card className={L.summary.match === false ? "border-red-200" : ""}>
               <CardContent className="pt-5">
                 <p className="text-xs text-gray-500">대조 — 승인된 연차 차감 휴가 합계 vs 잔여 기록의 사용</p>
                 <p className={`text-lg font-semibold mt-1 ${L.summary.match === false ? "text-red-600" : "text-gray-900"}`}>
@@ -182,7 +186,7 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
                   </span>
                 </p>
               </CardContent>
-            </Card>
+            </Card>}
           </div>
 
           <Card>
@@ -235,13 +239,14 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
             </CardContent>
           </Card>
 
-          <Card>
+          {/* 잔여 조정 이력은 「총 15→…일」처럼 숫자라 숨김일 때 서버가 빼고 보낸다 — 칸도 그리지 않는다 */}
+          {!data?.balanceHidden && <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-600 font-medium">잔여 조정 이력 {L.adjustments.length}건</CardTitle></CardHeader>
             <CardContent className="text-sm text-gray-700 space-y-1">
               {L.adjustments.length === 0 ? <p className="text-gray-500">이 해에 잔여 조정 기록이 없습니다</p> :
                 L.adjustments.map((a, i) => <p key={i}>{kst(a.at)} · {a.actorName} · {a.detail ?? ""}</p>)}
             </CardContent>
-          </Card>
+          </Card>}
         </>
       ) : null}
     </div>

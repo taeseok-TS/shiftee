@@ -74,7 +74,8 @@ export async function renderLedgerPdf(ledger: Ledger, meta: { issuedBy: string; 
   // ── 머리 ──
   const u = ledger.user;
   line(`연차 대장 — ${u.name} (${ledger.year}년)`, { size: 16, color: rgb(0, 0, 0), gap: 8 });
-  line(`소속 ${u.branch ?? "-"} · 직책 ${u.position ?? "-"} · 입사일 ${u.hireDate ? u.hireDate.slice(0, 10) : "-"}`);
+  // 없는 값은 빼고 있는 값만 잇는다(2026-10-16 #219-9 — 「소속 - · 직책 …」으로 나왔다)
+  line([u.branch && `소속 ${u.branch}`, u.position && `직책 ${u.position}`, `입사일 ${u.hireDate ? u.hireDate.slice(0, 10) : "-"}`].filter(Boolean).join(" · "));
   line(`발행 ${kst(meta.issuedAt.toISOString())} · 발행자 ${meta.issuedBy} · 연도 기준: 휴가를 쓰는 해(시작일)`, { color: rgb(0.45, 0.45, 0.45) });
   rule();
 

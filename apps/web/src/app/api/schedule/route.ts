@@ -55,7 +55,10 @@ export async function GET(request: NextRequest) {
   // 본인 일정만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
   // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 월별 집계의 출퇴근 수치도 내려보내지 않는다(10/14 검증 4)
-  const hideAtt = session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance"));
+  // 직원은 「본인 출퇴근 기록 열람」(권한 설정, 기본 끔)이 꺼져 있으면 달력에도 출근·지각 수치를 내려보내지 않는다
+  // (2026-10-16 #219-14 — 종전엔 웹 출퇴근 화면·메뉴에만 걸려 있어 근무일정 달력에 「출근 1 · 지각 1」이 그대로 보였다)
+  const hideAtt = (session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance")))
+    || (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")));
 
   // 지점 필터 (MANAGER는 담당 지점 — 대표+겸직)
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
@@ -150,7 +153,7 @@ export async function GET(request: NextRequest) {
     branch: s.user?.branch ?? null,
   }));
 
-  return NextResponse.json({ monthData, totalEmployees, schedules: scheduleList });
+  return NextResponse.json({ monthData, totalEmployees, schedules: scheduleList, attendanceHidden: hideAtt });
 }
 
 export async function POST(request: NextRequest) {

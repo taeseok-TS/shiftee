@@ -12,6 +12,8 @@ import {
   subWeeks, subMonths, subQuarters, subYears,
 } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { kstTodayYmd, getHolidaySet } from "@/lib/holidays";
+import { pastDayStatus } from "@/lib/attendance-day";
 
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 
@@ -56,6 +58,9 @@ function getPrevDateRange(period: Period, baseDate: Date) {
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  // 직원은 「본인 출퇴근 기록 열람」이 꺼져 있으면 통계도 못 본다(2026-10-17 #219 검증 P1). 앱은 이 API 를 쓰지 않는다.
+  if (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")))
+    return NextResponse.json({ error: "출퇴근 기록 열람 권한이 없습니다." }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const period = (searchParams.get("period") || "monthly") as Period;
@@ -103,6 +108,92 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  // 출근율·결근·누락·확인 필요 (2026-10-16 #219-6, 이예지 QA — 종전 출근율 = 정상 ÷ 전체라 지각 1일이면 0%)
+  //  · 출근한 날   = 출근 또는 퇴근 기록이 있는 날. 단 0분 기록(출근 = 퇴근)은 빼고 「확인 필요」로 따로 센다
+  //  · 누락       = 지난 날 출근·퇴근 중 한쪽만 있는 날(출근한 날에도 들어간다)
+  //  · 결근       = 지난 날 기록이 하나도 없는데 근무일정(WORK)이 있고 휴가·공휴일·휴직·임시휴무가 아니며 입사일~퇴사일 안인 날.
+  //                 출근·퇴근 요청이 결재 대기인 날은 세지 않는다
+  //    → 누락·결근 판정은 근로시간 리포트(lib/work-report)와 **같은 함수** lib/attendance-day pastDayStatus (2026-10-17 검증 F2)
+  //  · 근무해야 할 날 = 출근한 날 + 결근한 날,  출근율 = 출근한 날 ÷ 근무해야 할 날 (확인 필요인 날은 분자·분모 모두에서 뺀다)
+  //  여러 사람(지점 조회)이면 「사람 × 날」 단위로 센다.
+  const todayYmd = kstTodayYmd();
+  const ymdOf = (d: Date) => d.toISOString().slice(0, 10);   // @db.Date = UTC 자정
+  const isZeroMin = (r: { clockIn: Date | null; clockOut: Date | null }) =>
+    !!r.clockIn && !!r.clockOut && Math.round((r.clockOut.getTime() - r.clockIn.getTime()) / 60000) === 0;
+  const calcDays = async (
+    recs: { userId: string; date: Date; clockIn: Date | null; clockOut: Date | null }[],
+    from: Date, to: Date,
+  ) => {
+    const [scheds, leaves, holidays] = await Promise.all([
+      prisma.schedule.findMany({
+        where: { ...userWhere, date: { gte: from, lte: to }, type: "WORK" },
+        select: { userId: true, date: true },
+      }),
+      prisma.leaveRequest.findMany({
+        where: { ...userWhere, status: "APPROVED", startDate: { lte: to }, endDate: { gte: from } },
+        select: { userId: true, startDate: true, endDate: true },
+      }),
+      getHolidaySet(from, to),
+    ]);
+    const ids = [...new Set([...recs.map((r) => r.userId), ...scheds.map((s) => s.userId)])];
+    const [users, pendings] = ids.length ? await Promise.all([
+      prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, hireDate: true, resignDate: true, employmentStatus: true } }),
+      // 근로시간 리포트와 같은 조건 — 출근·퇴근 요청(지점 밖·사진·본부) 결재 대기
+      prisma.attendanceRequest.findMany({
+        where: { userId: { in: ids }, workDate: { gte: from, lte: to }, status: "PENDING", action: { in: ["IN", "OUT"] } },
+        select: { userId: true, workDate: true },
+      }),
+    ]) : [[], []];
+    const userOf = new Map(users.map((u) => [u.id, u]));
+    const pending = new Set(pendings.map((p) => `${p.userId}:${ymdOf(p.workDate)}`));
+
+    const attended = new Set<string>();
+    const needsCheck = new Set<string>();
+    const attOf = new Map<string, { in: boolean; out: boolean }>();
+    for (const r of recs) {
+      if (!r.clockIn && !r.clockOut) continue;
+      const k = `${r.userId}:${ymdOf(r.date)}`;
+      if (isZeroMin(r)) { needsCheck.add(k); continue; }
+      attended.add(k);
+      attOf.set(k, { in: !!r.clockIn, out: !!r.clockOut });
+    }
+    // 휴가 날 — 근로시간 리포트와 같은 규칙(며칠짜리는 주말·공휴일을 건너뛴다)
+    const onLeave = new Set<string>();
+    for (const l of leaves) {
+      const multi = l.endDate > l.startDate;
+      const s = Math.max(l.startDate.getTime(), from.getTime()), e = Math.min(l.endDate.getTime(), to.getTime());
+      for (let t = s; t <= e; t += 86400_000) {
+        const d = new Date(t), y = ymdOf(d);
+        if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;
+        onLeave.add(`${l.userId}:${y}`);
+      }
+    }
+    const scheduled = new Set(scheds.map((s) => `${s.userId}:${ymdOf(s.date)}`));
+    let missing = 0;
+    const absent = new Set<string>();
+    for (const k of new Set([...scheduled, ...attOf.keys()])) {
+      const [uid, y] = k.split(":");
+      if (y >= todayYmd || needsCheck.has(k)) continue;   // 오늘·앞날은 아직 판정하지 않는다(오늘 출근했으면 attended 에 이미 있다)
+      const u = userOf.get(uid);
+      const st = pastDayStatus({
+        ymd: y, pending: pending.has(k), att: attOf.get(k), scheduled: scheduled.has(k), onLeave: onLeave.has(k),
+        holiday: holidays.has(y), employmentStatus: u?.employmentStatus ?? null,
+        hireYmd: u?.hireDate ? ymdOf(u.hireDate) : null, resignYmd: u?.resignDate ? ymdOf(u.resignDate) : null,
+      });
+      if (st === "MISSING") missing++;
+      else if (st === "ABSENT") absent.add(k);
+    }
+    const requiredDays = attended.size + absent.size;
+    return {
+      attendDays: attended.size,
+      requiredDays,
+      missedDays: absent.size,
+      missingDays: missing,
+      needsCheck: needsCheck.size,
+      attendRate: requiredDays > 0 ? Math.round((attended.size / requiredDays) * 100) : null,
+    };
+  };
+
   // 누적 통계 계산
   // 이 함수는 status/clockIn/clockOut 만 본다. `typeof records`(user 포함)를 요구하면
   // user 없이 조회한 prevRecords 를 못 넘긴다 — 실제로 쓰는 것만 받는다.
@@ -125,8 +216,9 @@ export async function GET(request: NextRequest) {
     };
   };
 
-  const current = calcStats(records);
-  const previous = calcStats(prevRecords);
+  const [curDays, prevDays] = await Promise.all([calcDays(records, start, end), calcDays(prevRecords, prevStart, prevEnd)]);
+  const current = { ...calcStats(records), ...curDays };
+  const previous = { ...calcStats(prevRecords), ...prevDays };
 
   // 일별 차트 데이터 (기간 내 각 날짜별 근무시간)
   const allDays = eachDayOfInterval({ start, end: end > new Date() ? new Date() : end });

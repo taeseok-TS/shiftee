@@ -55,6 +55,8 @@ const STATUS_CFG: Record<string, { label: string; badge: string; dot: string }> 
   HOLIDAY:     { label: "공휴일",  badge: "bg-red-50 text-red-500 border-red-200",          dot: "bg-red-400" },
   NOT_YET:     { label: "미등록",  badge: "bg-slate-100 text-slate-500 border-slate-200",   dot: "bg-slate-400" },
   NO_SCHEDULE: { label: "일정없음", badge: "bg-gray-50 text-gray-400 border-gray-100",      dot: "bg-gray-300" },
+  // 출퇴근 열람이 꺼진 직원의 근무일 — 출근 여부를 말하지 않는다(#219-14)
+  WORK:        { label: "근무",    badge: "bg-sky-50 text-sky-700 border-sky-200",          dot: "bg-sky-400" },
 };
 
 const LEAVE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
@@ -116,6 +118,8 @@ export default function SchedulePage() {
   const [totalEmp,    setTotalEmp]    = useState(0);
   const [employees,   setEmployees]   = useState<Employee[]>([]);
   const [role,        setRole]        = useState("EMPLOYEE");
+  // 「본인 출퇴근 기록 열람」이 꺼진 직원 — 서버가 출퇴근 수치를 빼고 보낸다. 화면도 출근·지각 칸을 그리지 않는다(#219-14)
+  const [attHidden,   setAttHidden]   = useState(false);
 
   /* 날짜 상세 다이얼로그 */
   const [dayOpen,     setDayOpen]     = useState(false);
@@ -146,6 +150,7 @@ export default function SchedulePage() {
     const data = await res.json();
     setMonthData(data.monthData  || []);
     setTotalEmp(data.totalEmployees || 0);
+    setAttHidden(data.attendanceHidden === true);
   }, [year, month]);
 
   useEffect(() => {
@@ -165,6 +170,7 @@ export default function SchedulePage() {
       const data = await res.json();
       setDayRows(data.employees || []);
       setDaySummary(data.summary || null);
+      if (typeof data.attendanceHidden === "boolean") setAttHidden(data.attendanceHidden);
     } finally { setDayLoading(false); }
   }
 
@@ -248,8 +254,8 @@ export default function SchedulePage() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      // 이미 일정이 있는 날·휴가인 날은 건너뛴다(본부 답변 #15)
-      const skipped = [data.skippedExisting ? `일정 있는 날 ${data.skippedExisting}건` : "", data.skippedLeave ? `휴가인 날 ${data.skippedLeave}건` : ""].filter(Boolean).join(", ");
+      // 이미 일정이 있는 날·휴가인 날·공휴일은 건너뛴다(본부 답변 #15, 공휴일 안내 2026-10-17 #219 검증 F5)
+      const skipped = [data.skippedExisting ? `일정 있는 날 ${data.skippedExisting}건` : "", data.skippedLeave ? `휴가인 날 ${data.skippedLeave}건` : "", data.skippedHoliday ? `공휴일 ${data.skippedHoliday}건` : ""].filter(Boolean).join(", ");
       toast.success(`${data.count}개 일정 등록 완료${skipped ? ` · 건너뜀: ${skipped}` : ""}`);
       showWeekWarnings(data.warnings);   // 주 49시간 초과 경고(#38) — 많으면 앞 3건만
       setBulkOpen(false);
@@ -344,8 +350,10 @@ export default function SchedulePage() {
                             : r?.scheduleType ? <span className="text-gray-400">{TYPE_CFG[r.scheduleType] ?? r.scheduleType}</span>
                             : <span className="text-gray-300">일정 없음</span>}
                         </dd></div>
-                        <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">출근</dt><dd className="font-mono text-gray-800">{r?.clockIn ?? <span className="text-gray-300">-</span>}</dd></div>
-                        <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">퇴근</dt><dd className="font-mono text-gray-800">{r?.clockOut ?? <span className="text-gray-300">-</span>}</dd></div>
+                        {!attHidden && (<>
+                          <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">출근</dt><dd className="font-mono text-gray-800">{r?.clockIn ?? <span className="text-gray-300">-</span>}</dd></div>
+                          <div className="flex gap-2"><dt className="w-14 shrink-0 text-gray-400">퇴근</dt><dd className="font-mono text-gray-800">{r?.clockOut ?? <span className="text-gray-300">-</span>}</dd></div>
+                        </>)}
                       </dl>
                     </button>
                   );
@@ -358,11 +366,14 @@ export default function SchedulePage() {
           {/* 범례 */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
             {[
-              { dot: "bg-green-500",  label: "출근" },
-              { dot: "bg-orange-500", label: "지각" },
-              { dot: "bg-purple-500", label: "조퇴" },
-              { dot: "bg-red-500",    label: "결근" },
+              ...(attHidden ? [] : [
+                { dot: "bg-green-500",  label: "출근" },
+                { dot: "bg-orange-500", label: "지각" },
+                { dot: "bg-purple-500", label: "조퇴" },
+                { dot: "bg-red-500",    label: "결근" },
+              ]),
               { dot: "bg-blue-500",   label: "휴가" },
+              { dot: "bg-gray-300",   label: "근무 예정" },
             ].map(({ dot, label }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className={`w-3 h-3 rounded-full ${dot}`} />
@@ -424,18 +435,23 @@ export default function SchedulePage() {
                     {holidayName && <span className="text-xs text-red-400 truncate">{holidayName}</span>}
                   </div>
 
-                  {/* 집계 배지 */}
+                  {/* 집계 배지 — 휴대폰 폭에서는 점(●)과 숫자만(글자가 한 자씩 세로로 깨졌다, #219-16). 뜻은 위 범례로 */}
                   <div className="space-y-1">
                     {stats.slice(0, 4).map(s => (
-                      <div key={s.label} className="flex items-center gap-1.5">
+                      <div key={s.label} className="flex items-center gap-1 sm:gap-1.5 whitespace-nowrap" title={`${s.label} ${s.val}`}>
                         <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot}`} />
-                        <span className="text-base text-gray-600 leading-tight">
-                          {s.label} <span className="font-semibold">{s.val}</span>
+                        <span className="text-sm sm:text-base text-gray-600 leading-tight">
+                          <span className="hidden sm:inline">{s.label} </span><span className="font-semibold">{s.val}</span>
                         </span>
                       </div>
                     ))}
                     {stats.length === 0 && d && (d.work > 0 || d.off > 0) && (
-                      <p className="text-base text-gray-400">예정 {d.work}명</p>
+                      <div className="flex items-center gap-1 sm:gap-1.5 whitespace-nowrap" title={`근무 예정 ${d.work}`}>
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-gray-300" />
+                        <span className="text-sm sm:text-base text-gray-400 leading-tight">
+                          <span className="hidden sm:inline">예정 </span>{d.work}<span className="hidden sm:inline">명</span>
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -511,7 +527,9 @@ export default function SchedulePage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 상태</SelectItem>
-                {Object.entries(STATUS_CFG).map(([k, v]) => (
+                {Object.entries(STATUS_CFG)
+                  .filter(([k]) => attHidden ? !["NORMAL", "LATE", "EARLY_LEAVE", "ABSENT", "NOT_YET"].includes(k) : k !== "WORK")
+                  .map(([k, v]) => (
                   <SelectItem key={k} value={k}>{v.label}</SelectItem>
                 ))}
               </SelectContent>
@@ -538,8 +556,8 @@ export default function SchedulePage() {
                     <th className="px-4 py-2.5 font-medium w-32">이름</th>
                     <th className="px-3 py-2.5 font-medium w-28">부서</th>
                     <th className="px-3 py-2.5 font-medium w-36">근무 예정</th>
-                    <th className="px-3 py-2.5 font-medium w-20">출근</th>
-                    <th className="px-3 py-2.5 font-medium w-20">퇴근</th>
+                    {!attHidden && <th className="px-3 py-2.5 font-medium w-20">출근</th>}
+                    {!attHidden && <th className="px-3 py-2.5 font-medium w-20">퇴근</th>}
                     <th className="px-3 py-2.5 font-medium w-24">상태</th>
                     {isAdmin && <th className="px-3 py-2.5 font-medium w-16"></th>}
                   </tr>
@@ -571,15 +589,19 @@ export default function SchedulePage() {
                                 : <span className="text-gray-300">-</span>}
                         </td>
 
-                        {/* 출근 */}
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
-                          {r.clockIn ?? <span className="text-gray-300">-</span>}
-                        </td>
+                        {/* 출근 — 출퇴근 열람이 꺼진 직원에게는 그리지 않는다(#219-14) */}
+                        {!attHidden && (
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
+                            {r.clockIn ?? <span className="text-gray-300">-</span>}
+                          </td>
+                        )}
 
                         {/* 퇴근 */}
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
-                          {r.clockOut ?? <span className="text-gray-300">-</span>}
-                        </td>
+                        {!attHidden && (
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
+                            {r.clockOut ?? <span className="text-gray-300">-</span>}
+                          </td>
+                        )}
 
                         {/* 상태 뱃지 */}
                         <td className="px-3 py-2.5">

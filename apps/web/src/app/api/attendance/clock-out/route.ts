@@ -157,9 +157,10 @@ export async function POST(request: NextRequest) {
   const holiday = await isHoliday(workDayYmd);
   // 조퇴 판정도 **본인이 승인받은 근무일정 종료 시각** 기준 (2026-09-07 디렉터 지시).
   // 종전에는 18:00 하드코딩이라 오후 10시 퇴근이 정상인 근무자도 판정이 어긋났다.
-  const { workWindowFor } = await import("@/lib/attendance-status");
+  // 근무일정이 없는 날은 조퇴 판정도 하지 않는다(2026-10-16 #219-2 — 종전 18:00 기본값).
+  const { workWindowFor, isEarlyLeaveAt } = await import("@/lib/attendance-status");
   const { endMin } = await workWindowFor(session.userId, workDayYmd);
-  const isEarlyLeave = !holiday && kstHour(now) * 60 + kstMinute(now) < endMin;
+  const isEarlyLeave = !holiday && isEarlyLeaveAt(now, endMin);
   // ⚠ 지각이 조퇴로 **덮여 사라지던** 것을 고친다. 종전에는 지각으로 출근한 사람이 일찍
   //   퇴근하면 EARLY_LEAVE 가 되어 지각 기록이 지워졌는데, 관리자가 그 기록을 한 번만 열어
   //   저장하면 calcStatus(지각 우선)를 타고 LATE 로 뒤집혔다 — 두 경로가 서로 달랐다.

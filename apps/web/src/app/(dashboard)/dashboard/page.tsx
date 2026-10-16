@@ -5,7 +5,8 @@ import { Megaphone, Pin, FileText } from "lucide-react";
 import { format } from "date-fns";
 
 type MyStats = {
-  leaveRemaining: number;
+  leaveRemaining: number | null;
+  balanceHidden?: boolean;   // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 null 로 보낸다
   pendingContracts: number;
   pendingApprovals: number;
   monthWorkHours: number;
@@ -49,7 +50,7 @@ export default function SharedDashboardPage() {
         <a href="/leave" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">
           <div className="text-gray-500 text-sm font-medium">나의 휴가 잔여</div>
           <div className="text-3xl font-bold text-blue-600 mt-2">
-            {stats ? `${stats.leaveRemaining}일` : "--"}
+            {stats ? (stats.balanceHidden || stats.leaveRemaining === null ? <span className="text-xl text-gray-500">연차 정리 중</span> : `${stats.leaveRemaining}일`) : "--"}
           </div>
         </a>
         <a href="/contracts" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">

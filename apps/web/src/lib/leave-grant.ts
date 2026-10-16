@@ -11,7 +11,9 @@ import { logAudit } from "@/lib/audit";
 //  · 5/1 근로자의 날에 실제 출퇴근 기록(휴게 제외)이 있으면 보상휴가 — 8h 이내 ×1.5, 넘는 시간 ×2, 1일 = 8h
 //    (8h → 12h = 1.5일, 4h → 6h = 0.75일, 10h → 12+4 = 16h = 2일). 쉰 사람은 없음(원래 쉬는 날이든 유급휴일로 쉬었든)
 //  · 본부가 「대체휴무 부여」로 지정한 공휴일(Holiday.grantsLeave)에 **평일** 근무 기록이 있으면 대체휴일 1일(#56 요청: 주말 제외)
-//  · 그룹마다 초과 사용 제한 없음(본부 답변 #19) — 잔여가 모자라도 신청은 막지 않는다. 잔여는 본부 화면에서만(#50)
+//  · 잔여를 넘는 신청은 막는다(2026-10-16 #219-7 디렉터 결정 (c) — 10/8 「막지 않음」(본부 답변 #19)을 바꿈). 판정은 lib/leave-limit.ts
+//    (잔여 = 그 그룹 부여 합 전체 − 승인된 그 그룹 사용 합, 신청 때는 결재 대기분까지 합산). 잔여 숫자는 본부 화면 +
+//    권한 설정 「잔여 연차 숫자 보기」가 켜졌을 때만 신청 창에 보인다(#50·#219-1)
 //  · 대상은 큐브티 휴가 신청 대상과 같다 — 원장 포함, 본부 직원(ADMIN) 제외(2026-10-08 본부 답변)
 //  · 유효기간은 부여일이 속한 회계연도 말(12/31). 지나도 자동 소멸시키지 않고 「지난해 이월」로 따로 보이며 잔여에 포함된다(정산은 수동 조정 −)
 //  · 공휴일 「대체휴무 부여」 지정을 끄면 밤 점검이 그 날 부여분을 **회수하지 않는다** — 끄는 화면(api/holidays)이 사용 여부를 확인하고 처리한다
@@ -23,8 +25,8 @@ export const isGrantGroup = (v: unknown): v is GrantGroup => typeof v === "strin
 const WORKERS_DAY = "05-01";
 const LOOKBACK_DAYS = 45;
 // 그룹의 유형 코드 — 본부가 만든 유형(#216-1)도 그룹이 보상휴가·대체휴일이면 같은 잔여에서 센다(allLeaveTypes 는 서버가 적재한 것까지)
-const groupCodes = (g: GrantGroup): string[] => allLeaveTypes().filter((t) => t.group === g).map((t) => t.code);
-const groupOfType = (code: string): GrantGroup | null => (GRANT_GROUPS.find((g) => groupCodes(g).includes(code)) ?? null);
+export const groupCodes = (g: GrantGroup): string[] => allLeaveTypes().filter((t) => t.group === g).map((t) => t.code);
+export const groupOfType = (code: string): GrantGroup | null => (GRANT_GROUPS.find((g) => groupCodes(g).includes(code)) ?? null);
 
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""));
 

@@ -27,6 +27,10 @@ function applyToggles(row: PermRow, s: PermissionSettings): PermRow {
   if (row.feature === "출퇴근 통계") {
     r.manager = s["manager.viewAttendance"] ? "branch" : "본인만(설정 끔)";
   }
+  if (row.feature === "잔여 연차 숫자 보기") {   // #219-1
+    r.manager = s["employee.viewLeaveBalance"] ? "branch" : "숨김(연차 정리 중)";
+    r.employee = s["employee.viewLeaveBalance"] ? "self" : "숨김(연차 정리 중)";
+  }
   if (row.feature === "일정 추가·수정·삭제" || row.feature === "일정 일괄 생성") {
     r.manager = s["manager.editSchedule"] ? "branch" : "신청만(설정 끔)";
   }

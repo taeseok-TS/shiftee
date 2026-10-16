@@ -54,13 +54,19 @@ export async function GET() {
 
   // 그해 잔여 기록이 없으면 휴가 화면·신청 검사와 **같은 함수**로 근속 기준 총연차를 낸다.
   // 종전엔 기록이 없으면 15일로 보여 줘 화면마다 잔여가 달랐다(2026-10-06 QA 조사).
+  // 잔여 숫자 숨김(2026-10-16 #219-1) — 직원·원장은 「잔여 연차 숫자 보기」가 켜졌을 때만 숫자, 아니면 null + balanceHidden(화면 「연차 정리 중」)
+  const { canSeeLeaveBalance } = await import("@/lib/permission-settings");
+  const visible = await canSeeLeaveBalance(session.role);
   const { yearBalanceFor } = await import("@/lib/leave-balance");
-  const leaveRemaining = balance
+  const leaveRemaining = !visible
+    ? null
+    : balance
     ? balance.remaining
     : ((await yearBalanceFor(prisma, session.userId, currentLeaveYear()))?.remaining ?? 0);
 
   return NextResponse.json({
     leaveRemaining,
+    balanceHidden: !visible,
     pendingContracts,
     pendingApprovals: pendingLeave + pendingSchedule + pendingLeaveCancel,
     monthWorkHours: Math.round((monthMinutes / 60) * 10) / 10,

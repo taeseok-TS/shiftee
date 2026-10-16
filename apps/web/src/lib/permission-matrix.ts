@@ -43,7 +43,8 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "연차 자동계산(다시 계산)", admin: "all", manager: "branch", employee: "no", basis: "api/leave/balance/recalc" },
     { feature: "휴가 리포트", admin: "all", manager: "branch", employee: "no", basis: "api/leave/report" },
     { feature: "연차 대장", admin: "all", manager: "branch", employee: "self", note: "대장 PDF 내려받기는 본부만", basis: "api/leave/ledger, ledger/pdf" },
-    { feature: "보상휴가·대체휴일 종류별 잔여·수동 조정", admin: "all", manager: "no", employee: "no", note: "직원 화면에는 없음(#50)", basis: "api/leave/grants" },
+    { feature: "잔여 연차 숫자 보기", admin: "all", manager: "branch", employee: "self", note: "권한 설정 「잔여 연차 숫자 보기(직원·원장)」 — 시프티 사용 내역 이관 전에는 꺼 둔다(#219-1). 꺼도 잔여 초과 신청은 막는다", basis: "lib/permission-settings canSeeLeaveBalance — api/me/dashboard-stats·leave/balance·leave/ledger·leave/days·employees" },
+    { feature: "보상휴가·대체휴일 종류별 잔여·수동 조정", admin: "all", manager: "no", employee: "no", note: "본부 화면만(#50). 잔여를 넘는 신청 막기는 권한 설정 「보상휴가·대체휴일 잔여 초과 신청 막기」(#219-7, 시프티 부여 이관 전에는 꺼 둔다) — 켜졌을 때만 신청 창에 잔여가 보인다(「잔여 연차 숫자 보기」도 켜져야 직원·원장에게 보임)", basis: "api/leave/grants, lib/leave-limit" },
     { feature: "원장대행 지정", admin: "all", manager: "no", employee: "no", basis: "api/approval-delegates" },
   ] },
   { title: "전자계약", rows: [

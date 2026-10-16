@@ -30,7 +30,11 @@ type AttendanceRecord = {
   status: string; minutes: number;
   userName?: string;   // 지점 전체 조회 때 누구 기록인지(서버가 보내 줌)
 };
-type Stats = { total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number };
+type Stats = {
+  total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number;
+  // 출근율 정의(2026-10-16 #219-6): 출근한 날 ÷ 근무해야 할 날(근무일정 있는 날 + 일정 없이 출근한 날, 휴가 제외). 0분 기록은 「확인 필요」
+  attendDays?: number; requiredDays?: number; missedDays?: number; missingDays?: number; needsCheck?: number; attendRate?: number | null;
+};
 type ChartItem = { date: string; hours: number; count?: number };
 type StatsResponse = {
   period: Period; range: { start: string; end: string };
@@ -476,7 +480,8 @@ export default function AttendancePage() {
               {/* 요약 카드 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: "총 출근일",    val: `${c.total}일`,          prev: p?.total ?? 0,        curr: c.total },
+                  // 0분 기록(출근 = 퇴근)은 출근일에 넣지 않는다(#219-6) — 「확인 필요」로 따로 센다
+                  { label: "총 출근일",    val: `${c.attendDays ?? c.total}일`, prev: p?.attendDays ?? p?.total ?? 0, curr: c.attendDays ?? c.total },
                   { label: "누적 근무시간", val: fmtMin(c.totalMinutes),  prev: p?.totalMinutes ?? 0, curr: c.totalMinutes },
                   { label: "평균 근무시간", val: fmtMin(c.avgMinutes),    prev: p?.avgMinutes ?? 0,   curr: c.avgMinutes },
                   { label: "정상 출퇴근",  val: `${c.normal}회`,          prev: p?.normal ?? 0,       curr: c.normal },
@@ -492,20 +497,26 @@ export default function AttendancePage() {
               </div>
 
               {/* 상태 분포 */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* 출근율 = 출근한 날 ÷ 근무해야 할 날, 결근·누락 = 근로시간 리포트와 같은 판정(lib/attendance-day), 확인 필요 = 0분 기록 (#219-6·검증 F2) */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {[
                   { label: "지각",     val: c.late,       color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
                   { label: "조기퇴근", val: c.earlyLeave,  color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200" },
-                  { label: "결근",     val: c.absent,     color: "text-red-600",    bg: "bg-red-50",    border: "border-red-200" },
+                  { label: "결근",     val: c.missedDays ?? c.absent, color: "text-red-600", bg: "bg-red-50", border: "border-red-200",
+                    hint: `근무일정이 있는 지난 날에 기록 없음(휴가·공휴일·휴직 제외)${c.missingDays ? ` · 출근·퇴근 한쪽 누락 ${c.missingDays}일은 따로` : ""}` },
+                  { label: "확인 필요", val: c.needsCheck ?? 0, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200",
+                    hint: "출근과 퇴근이 같은 시각(0분) — 출근일에 넣지 않음" },
                   {
                     label: "출근율",
-                    val: c.total > 0 ? `${Math.round((c.normal / c.total) * 100)}%` : "0%",
+                    val: c.attendRate != null ? `${c.attendRate}%` : "-",
                     color: "text-green-600", bg: "bg-green-50", border: "border-green-200",
+                    hint: c.requiredDays != null ? `출근 ${c.attendDays ?? 0}일 ÷ 근무해야 할 날 ${c.requiredDays}일` : undefined,
                   },
-                ].map(({ label, val, color, bg, border }) => (
-                  <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`}>
+                ].map(({ label, val, color, bg, border, hint }) => (
+                  <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`} title={hint}>
                     <p className="text-xs font-medium text-gray-500">{label}</p>
                     <p className={`text-2xl font-bold mt-1 ${color}`}>{typeof val === "number" ? `${val}회` : val}</p>
+                    {hint && <p className="text-[11px] text-gray-400 mt-1 leading-snug">{hint}</p>}
                   </div>
                 ))}
               </div>
@@ -590,7 +601,13 @@ export default function AttendancePage() {
                               <td className="py-3">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
                               <td className="py-3">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
-                              <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
+                              <td className="py-3">
+                                <Badge variant={s.variant}>{s.label}</Badge>
+                                {/* 0분 기록(출근 = 퇴근) — 출근일에 넣지 않고 따로 표시(#219-6) */}
+                                {r.clockIn && r.clockOut && r.minutes === 0 && (
+                                  <Badge variant="outline" className="ml-1 border-amber-300 text-amber-700">확인 필요</Badge>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -600,7 +617,7 @@ export default function AttendancePage() {
                           <tr className="border-t bg-gray-50">
                             <td colSpan={selectedBranch ? 4 : 3} className="py-2.5 px-0 text-xs font-semibold text-gray-600">합계</td>
                             <td className="py-2.5 text-xs font-semibold text-blue-700">{fmtMin(c.totalMinutes)}</td>
-                            <td className="py-2.5 text-xs text-gray-500">{c.total}일 출근</td>
+                            <td className="py-2.5 text-xs text-gray-500">{c.attendDays ?? c.total}일 출근{c.needsCheck ? ` · 확인 필요 ${c.needsCheck}` : ""}</td>
                           </tr>
                         </tfoot>
                       )}

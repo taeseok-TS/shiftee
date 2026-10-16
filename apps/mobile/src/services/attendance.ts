@@ -122,14 +122,22 @@ export async function attendanceRequestPhotoSource(id: string) {
   return { uri: `${API_URL}/attendance-requests/${id}/photo`, headers: (await authHeaders()) as Record<string, string> };
 }
 
-/** 퇴근 누락 안내 — 최근 7일 중 출근만 있고 퇴근이 없는 날 */
-export async function getMissedOut(): Promise<{ date: string; clockIn: string; can22?: boolean; can22Reason?: string | null } | null> {
+/** 퇴근 누락 안내 — 최근 7일 중 출근만 있고 퇴근이 없는 날.
+ *  closeAt/closeHhmm/closeLabel = 본인 동의로 기록될 퇴근 시각과 기준(서버가 근무일정 퇴근 시각으로 계산, 2026-10-17 #219-4) */
+export type MissedOut = {
+  date: string; clockIn: string;
+  canConsent?: boolean; consentReason?: string | null;
+  closeAt?: string; closeHhmm?: string; closeLabel?: string;
+  can22?: boolean; can22Reason?: string | null;   // 구버전 호환(서버가 계속 준다)
+};
+export async function getMissedOut(): Promise<MissedOut | null> {
   const res = await axios.get(`${API_URL}/attendance-requests/missed-out`, { headers: await authHeaders() });
   return res.data?.missed ?? null;
 }
 
-/** 전날 퇴근 누락 → 22:00 퇴근으로 처리하는 데 동의(#215-4). 동의한 사람·시각이 기록된다 */
-export async function consentMissedOut22(date: string) {
-  const res = await axios.post(`${API_URL}/attendance-requests/missed-out/consent`, { date, agree: true }, { headers: await clockHeaders() });   // 출퇴근과 같은 기기 검증
-  return res.data as { success: boolean; clockOut: string };
+/** 전날 퇴근 누락 → 서버가 알려 준 퇴근 시각(근무일정 기준)으로 처리하는 데 동의(#215-4·#219-4). 동의한 사람·시각·기준이 기록된다.
+ *  expectAt = 화면에 보여 준 시각 — 그 사이 바뀌었으면 서버가 409 로 돌려보낸다 */
+export async function consentMissedOut(date: string, expectAt: string) {
+  const res = await axios.post(`${API_URL}/attendance-requests/missed-out/consent`, { date, agree: true, expectAt }, { headers: await clockHeaders() });   // 출퇴근과 같은 기기 검증
+  return res.data as { success: boolean; clockOut: string; closeHhmm?: string; closeLabel?: string };
 }

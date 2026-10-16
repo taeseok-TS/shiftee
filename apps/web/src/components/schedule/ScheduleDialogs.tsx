@@ -134,7 +134,7 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "만들지 못했습니다."); return; }
-      const skipped = [d.skippedExisting ? `일정 있는 날 ${d.skippedExisting}건` : "", d.skippedLeave ? `휴가인 날 ${d.skippedLeave}건` : ""].filter(Boolean).join(", ");
+      const skipped = [d.skippedExisting ? `일정 있는 날 ${d.skippedExisting}건` : "", d.skippedLeave ? `휴가인 날 ${d.skippedLeave}건` : "", d.skippedHoliday ? `공휴일 ${d.skippedHoliday}건` : ""].filter(Boolean).join(", ");
       toast.success(`${d.count}개 일정을 만들었습니다${skipped ? ` · 건너뜀: ${skipped}` : ""}`);
       showWeekWarnings(d.warnings);
       onSaved();

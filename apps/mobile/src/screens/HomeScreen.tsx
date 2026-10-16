@@ -158,9 +158,11 @@ export default function HomeScreen() {
     ? { value: "승인 대기", label: "출근 요청", icon: "hourglass-outline" as const, color: "#d97706" }
     : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#2563eb" };
 
+  const leaveHidden = !!stats && ((stats as DashboardStats & { balanceHidden?: boolean }).balanceHidden === true || (stats.leaveRemaining as number | null) === null);
   const cards = [
     // 잔여 연차 칸을 누르면 휴가 신청으로 바로(2026-10-07 #14)
-    { key: "leave", label: "잔여 연차", value: `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: (() => navigation.navigate("Leave")) as undefined | (() => void) },
+    // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 leaveRemaining:null + balanceHidden 을 주면 「연차 정리 중」(공용 타입엔 아직 없는 칸)
+    { key: "leave", label: "잔여 연차", value: leaveHidden ? "연차 정리 중" : `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: (() => navigation.navigate("Leave")) as undefined | (() => void) },
     { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
     approver
       ? { key: "approval", label: "대기 결재", value: inbox === null ? "…" : `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",

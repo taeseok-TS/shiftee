@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { yearBalanceFor } from "@/lib/leave-balance";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { canSeeLeaveBalance } from "@/lib/permission-settings";
 
 // 잔여 휴가 조회
 export async function GET(request: NextRequest) {
@@ -17,6 +18,9 @@ export async function GET(request: NextRequest) {
 
   // 조회 연도 — 미지정 시 현재 연도(KST). 연도별 이력이 보존되므로 과거 연도 조회 가능
   const year = Number(searchParams.get("year")) || currentLeaveYear();
+  // 잔여 숫자 숨김(2026-10-16 #219-1, 디렉터 결정 (a)) — 시프티 사용 내역 이관 전까지 직원·원장에게는 **서버 응답에서도** 숫자를 빼고
+  // balanceHidden:true 를 준다(화면은 「연차 정리 중」). 본부(ADMIN)는 언제나 본다. 켜기는 권한 설정 「잔여 연차 숫자 보기」
+  const visible = await canSeeLeaveBalance(session.role);
 
   // 본인 잔여 휴가만: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   if (session.role === "EMPLOYEE" || searchParams.get("scope") === "self") {
@@ -31,13 +35,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         year,
         deductible: type ? isLeaveDeductible(type) : true,
-        balance: await yearBalanceFor(prisma, session.userId, year),
+        balance: visible ? await yearBalanceFor(prisma, session.userId, year) : null,
+        balanceHidden: !visible,
       });
     }
+    if (!visible) return NextResponse.json({ balance: null, balanceHidden: true });
     const balance = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: session.userId, year } },
     });
-    return NextResponse.json({ balance });
+    return NextResponse.json({ balance, balanceHidden: false });
   }
 
   // 관리자/매니저: 직원 잔여 현황
@@ -80,24 +86,26 @@ export async function GET(request: NextRequest) {
       userId:    emp.id,
       name:      emp.name,
       email:     emp.email,
-      department: emp.department ?? "-",
-      position:  emp.position   ?? "-",
-      branch:    emp.branch ?? "-",
+      // 없는 값은 null — 화면이 있는 값만 이어 붙인다(#219-9: 「- · 주임매니저」로 보였다)
+      department: emp.department ?? null,
+      position:  emp.position   ?? null,
+      branch:    emp.branch ?? null,
       hireDate:  emp.hireDate ?? null,
       tenure:    emp.hireDate ? tenureLabel(new Date(emp.hireDate), now) : "-",
       // 회계연도 기준 계산값(오늘까지 발생)과 산정 근거(2026-10-16 #31 — 직원별 산정 근거 표시)
-      recommended: emp.hireDate ? yearTotalAsOf(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
-      accrualBasis: emp.hireDate ? accrualBasisText(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
+      // 숨김(#219-1 — 원장이 볼 때)이면 계산값·근거도 숫자라 뺀다
+      recommended: visible && emp.hireDate ? yearTotalAsOf(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
+      accrualBasis: visible && emp.hireDate ? accrualBasisText(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
       leaveNote: emp.leaveNote ?? null,
       balanceId: b?.id       ?? null,
       year:      b?.year     ?? year,
-      total:     b?.total    ?? 15,
-      used:      b?.used     ?? 0,
-      remaining: b?.remaining ?? 15,
+      total:     visible ? (b?.total    ?? 15) : null,
+      used:      visible ? (b?.used     ?? 0) : null,
+      remaining: visible ? (b?.remaining ?? 15) : null,
     };
   });
 
-  return NextResponse.json({ balances: result });
+  return NextResponse.json({ balances: result, balanceHidden: !visible });
 }
 
 // 관리자: 잔여 휴가 조정 — 본부만(2026-10-08 #39 시프티 설정 「원장 휴가 직접 등록 OFF」에 맞춤).

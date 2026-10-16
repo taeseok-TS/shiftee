@@ -5,6 +5,7 @@ import { kstTodayDateUTC } from "@/lib/kst";
 import { mondayOf } from "@/lib/weekly-hours";
 import { leaveInfo } from "@/lib/leave-catalog";
 import { excludedBranchNames } from "@/lib/employee-scope";
+import { pastDayStatus } from "@/lib/attendance-day";
 
 // ─── 근로시간 리포트(2026-10-08 QA76 #41) ─────────────────────────────────
 // 직원별 기간 집계 — 가산수당 근거·주 52시간 관리용. 본부 전 지점, 원장 담당 지점. 엑셀은 화면이 같은 값으로 만든다.
@@ -156,12 +157,13 @@ export async function workReport(opts: {
       const y = ymdOf(d);
       if (y >= todayYmd) break;
       const k = `${u.id}|${y}`;
-      if (pending.has(k)) continue;
-      const a = attDays.get(k);
-      if (a && a.in !== a.out) { r.missing++; continue; }
-      if (!a?.in && !a?.out && sched.has(k) && !leaveDay.has(k) && !holidays.has(y)
-        && u.employmentStatus !== "ON_LEAVE" && u.employmentStatus !== "TEMPORARY"
-        && (!hire || y >= hire) && (!resign || y <= resign)) r.absent++;
+      // 판정은 출퇴근 통계와 같은 함수(lib/attendance-day, 2026-10-17 #219 검증 F2) — 규칙은 종전과 같다
+      const st = pastDayStatus({
+        ymd: y, pending: pending.has(k), att: attDays.get(k), scheduled: sched.has(k), onLeave: leaveDay.has(k),
+        holiday: holidays.has(y), employmentStatus: u.employmentStatus, hireYmd: hire, resignYmd: resign,
+      });
+      if (st === "MISSING") r.missing++;
+      else if (st === "ABSENT") r.absent++;
     }
   }
   return { rows: [...rows.values()], truncated };

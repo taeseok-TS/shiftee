@@ -29,18 +29,6 @@ const useShowPortalLink = useIsDirectHost;
 const EDUCUBE_URL = "https://branch.educube.co.kr/";
 // New EMS(에듀플렉스 EMS) 바로가기 — 2026-10-15 디렉터 지시. EDUCUBE 바로 아래, 보이는 범위도 EDUCUBE 와 같다
 const NEW_EMS_URL = "https://global.eduplex.net/eduplex/frame/auth/login.html";
-// 우선 디렉터 계정에만 보인다(2026-10-15 디렉터 지시 — 원장용·매니저용 주소가 따로 있어 링크 확인 뒤 전체 공개). 관리자(admin@)·김태석본부장
-const EDUCUBE_PREVIEW_USER_IDS = ["cmqhrexl30000ms154pmi8tau", "cmr1nh48f005mnx0kg4ndkze6"];
-function useShowEducube(showPortal: boolean) {
-  const [meId, setMeId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!showPortal) return;
-    let alive = true;
-    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive) setMeId(d?.user?.id ?? null); }).catch(() => {});
-    return () => { alive = false; };
-  }, [showPortal]);
-  return showPortal && !!meId && EDUCUBE_PREVIEW_USER_IDS.includes(meId);
-}
 
 // 새 글 뱃지 (개선 제안 2026-08-25, 김나현팀장) — 채팅: 안읽은 메시지 합계(채팅 목록과 동일 수치),
 // 공지: 마지막으로 공지 화면을 연 시각(localStorage) 이후 등록된 공지 수
@@ -117,7 +105,8 @@ function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) 
 export function WorkSidebar() {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
-  const showEducube = useShowEducube(showPortal);
+  // 2026-10-17 디렉터 「바로가기 켜자」 — 디렉터 계정에만 보이던 것을 직영(큐브티) 전 직원에게. 범위는 직영 포털 링크와 같다
+  const showEducube = showPortal;
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const badges = useWorkBadges(pathname);

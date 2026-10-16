@@ -476,9 +476,10 @@ export default function AdminSettingsPage() {
 
           <div className="flex items-center justify-between gap-4 p-4 border rounded-lg">
             <div className="min-w-0">
-              <p className="font-medium text-gray-900">누락 보정 시간</p>
+              <p className="font-medium text-gray-900">누락 보정 시간 (근무일정 없는 날)</p>
               <p className="text-sm text-gray-600">
-                출근이나 퇴근 한쪽이 빠진 기록을 관리자가 보정할 때 채워 넣을 근무 시간입니다.
+                출근이나 퇴근 한쪽이 빠진 기록은 <b>그날 근무일정의 출근·퇴근 시각</b>으로 채웁니다.
+                근무일정이 없는 날에만 이 시간을 더하거나 뺍니다.
               </p>
             </div>
             <select
@@ -495,11 +496,11 @@ export default function AdminSettingsPage() {
 
           <p className="text-xs text-gray-400">
             상한(10.5시간)을 넘겨 직원이 퇴근을 못 찍은 기록은 <b>출퇴근 관리</b> 화면의
-            &ldquo;전일 미마감&rdquo;에서 확인합니다. 그쪽은 상한 시간으로 마감합니다.
+            &ldquo;전일 미마감&rdquo;에서 확인합니다. 마감 기준은 위와 같습니다(근무일정 퇴근 시각, 상한·퇴근 가능 시각·23:59 를 넘으면 거기까지). 앱의 &ldquo;퇴근 기록이 없어요&rdquo; 본인 동의도 같은 시각입니다.
           </p>
           <p className="text-xs text-gray-400">
             지각·조퇴는 <b>본인이 승인받은 근무일정 시각</b>을 기준으로 판정합니다.
-            근무일정이 없는 날은 09:00 출근 / 18:00 퇴근 기준입니다.
+            근무일정이 없는 날은 지각·조퇴를 판정하지 않습니다(출근으로 인정).
           </p>
         </CardContent>
       </Card>

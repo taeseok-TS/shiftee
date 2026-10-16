@@ -92,13 +92,18 @@ export async function POST(request: NextRequest) {
     }),
   ]);
   const has = new Set(existing.map((e) => `${e.userId}|${ymd(e.date)}`));
+  // 공휴일(Holiday 표)에는 근무 일정을 깔지 않는다(10/16 #219 — 휴가 일수가 근무일정 기준이라 공휴일 WORK 가 연차로 깎였다).
+  // 공휴일 근무가 필요하면 그날만 따로 넣는다. 휴무·공휴일 일정 일괄 등록은 그대로
+  const { getHolidaySet } = await import("@/lib/holidays");
+  const holidays = kind === "WORK" ? await getHolidaySet(dateList[0], dateList[dateList.length - 1]) : new Set<string>();
   const onLeave = new Set<string>();
   for (const l of leaves) for (let d = new Date(l.startDate); d <= l.endDate; d.setUTCDate(d.getUTCDate() + 1)) onLeave.add(`${l.userId}|${ymd(d)}`);
-  let skippedExisting = 0, skippedLeave = 0;
+  let skippedExisting = 0, skippedLeave = 0, skippedHoliday = 0;
   const rows = ids.flatMap((userId) => dateList.flatMap((date) => {
     const k = `${userId}|${ymd(date)}`;
     if (has.has(k)) { skippedExisting++; return []; }
     if (onLeave.has(k)) { skippedLeave++; return []; }
+    if (holidays.has(ymd(date))) { skippedHoliday++; return []; }
     return [{ userId, date, startTime: st, endTime: et, type: kind, note: typeof note === "string" ? note : null }];
   }));
 
@@ -120,6 +125,7 @@ export async function POST(request: NextRequest) {
     days: dateList.length,
     skippedExisting,
     skippedLeave,
+    skippedHoliday,
     warnings,
   });
 }

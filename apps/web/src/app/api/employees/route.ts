@@ -60,6 +60,9 @@ export async function GET(request: NextRequest) {
   }
 
   // 관리자.원장용 상세 (원장은 위 WHERE 절에서 담당 지점으로 이미 좁혀져 있다)
+  // 원장에게는 잔여 연차 숫자 숨김 설정(2026-10-16 #219-1)을 따른다 — 꺼져 있으면 leaveBalance 를 빼고 null
+  const { canSeeLeaveBalance } = await import("@/lib/permission-settings");
+  const balanceVisible = await canSeeLeaveBalance(session.role);
   const filteredEmployees = employees.map(emp => ({
     id: emp.id,
     name: emp.name,
@@ -77,7 +80,7 @@ export async function GET(request: NextRequest) {
     resignReason: emp.resignReason,
     isContractApprover: emp.isContractApprover, // 전자계약 승인자 노출 토글 (시스템 설정)
     employmentStatus: emp.employmentStatus, // 재직·휴직·임시휴무 — 목록은 화이트리스트라 여기 빠지면 화면이 항상 "재직"으로 보인다(2026-09-16 라이브 확인)
-    leaveBalance: emp.leaveBalance[0] ?? null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
+    leaveBalance: balanceVisible ? (emp.leaveBalance[0] ?? null) : null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
     device: emp.device,
     managerBranches: emp.managerBranches.map(b => b.branchName), // 원장 겸직 지점 목록
   }));

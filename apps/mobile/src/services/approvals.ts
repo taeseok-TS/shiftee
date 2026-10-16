@@ -168,11 +168,35 @@ export type MyLedger = {
   }[];
   adjustments: { at: string; actorName: string; detail: string | null }[];
   summary: { approvedDeductibleDays: number; balanceUsed: number | null; match: boolean | null };
+  // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 총·사용·잔여·잔여 조정 이력을 빼고 보낸다. 화면은 「연차 정리 중」
+  balanceHidden?: boolean;
 };
 
 export async function getMyLedger(year?: number): Promise<MyLedger> {
   const res = await axios.get(`${API_URL}/leave/ledger`, { params: year ? { year } : {}, headers: await authHeaders() });
-  return res.data?.ledger as MyLedger;
+  return { ...(res.data?.ledger as MyLedger), balanceHidden: !!res.data?.balanceHidden };
+}
+
+/**
+ * 내 잔여 연차(올해) + 숨김 여부(2026-10-16 #219-1). 서버: GET /api/leave/balance?scope=self → { balance, balanceHidden }.
+ * 공용 클라이언트(@shiftee/api getLeaveBalance)는 balance 만 돌려줘 숨김(null)과 「기록 없음」(null)을 가를 수 없어 따로 부른다.
+ */
+export async function getMyLeaveBalance(): Promise<{ balance: { total: number; used: number; remaining: number } | null; hidden: boolean }> {
+  const res = await axios.get(`${API_URL}/leave/balance`, { params: { scope: "self" }, headers: await authHeaders() });
+  return { balance: res.data?.balance ?? null, hidden: !!res.data?.balanceHidden };
+}
+
+/**
+ * 휴가 신청 일수 미리보기(2026-10-16 #219-10·11·12) — 서버 신청 검사와 같은 함수(근무일정·공휴일 반영, 잔여 초과 막기)의 값.
+ * 서버: GET /api/leave/days?start&end&type. blocked 면 신청 버튼을 막고 reason 을 보여 준다(숫자 숨김이면 숫자 없는 문구).
+ */
+export type LeaveDaysPreview = {
+  days: number; blocked: boolean; code: "NO_WORKDAY" | "OVER_LIMIT" | null; reason: string | null; balanceHidden: boolean;
+  limit: { kind: "annual" | "grant"; year: number | null; group: string | null; remaining: number | null; pending: number | null; available: number | null } | null;
+};
+export async function getLeaveDaysPreview(type: string, start: string, end: string): Promise<LeaveDaysPreview> {
+  const res = await axios.get(`${API_URL}/leave/days`, { params: { type, start, end }, headers: await authHeaders() });
+  return res.data as LeaveDaysPreview;
 }
 
 /**
@@ -182,13 +206,14 @@ export async function getMyLedger(year?: number): Promise<MyLedger> {
 export async function getYearBalance(
   year: number,
   type: string
-): Promise<{ balance: { total: number; used: number; remaining: number } | null; deductible: boolean }> {
+): Promise<{ balance: { total: number; used: number; remaining: number } | null; deductible: boolean; hidden: boolean }> {
   const res = await axios.get(`${API_URL}/leave/balance`, {
     params: { scope: "self", forLeave: 1, year, type },
     headers: await authHeaders(),
   });
   // deductible — 연차 차감 유형인지(서버 판정). 미차감 유형(경조사·대체휴무 등)엔 안내를 띄우지 않는다(9/11 검증 E1)
-  return { balance: res.data?.balance ?? null, deductible: res.data?.deductible !== false };
+  // hidden — 잔여 숫자 숨김(#219-1)이면 balance 는 null 로 온다
+  return { balance: res.data?.balance ?? null, deductible: res.data?.deductible !== false, hidden: !!res.data?.balanceHidden };
 }
 
 // 단계 라벨: 역할기반 단계는 승인 전 approver가 null → 역할명 표시

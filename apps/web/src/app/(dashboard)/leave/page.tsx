@@ -2,7 +2,9 @@
 
 import { LEAVE_CATALOG, LEAVE_LABELS, leaveInfo, LIVE_SINGLE_DAY, LIVE_FIXED_DAYS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useLeaveDaysPreview } from "@/components/leave/useLeaveDaysPreview";
+import LeaveDaysPreviewBox, { previewAllowsSubmit } from "@/components/leave/LeaveDaysPreviewBox";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +19,7 @@ import {
   ClipboardList, Users, Pencil, GitBranch, Inbox, ChevronRight,
   Trash2, Search, ArrowUp, ArrowDown,
 } from "lucide-react";
-import { format, eachDayOfInterval, getDay } from "date-fns";
+import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
@@ -85,18 +87,6 @@ const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_
 // 매번 계산한다 — 모듈을 불러올 때 한 번만 계산하면 해를 넘겨 열어 둔 탭에서 올해가 "내년"으로 뜬다(9/11 검증 E2)
 const kstYearNow   = () => new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
 
-function calcWorkdays(start: string, end: string, type: string) {
-  if (!start) return 0;
-  if (type in FIXED_DAYS) return FIXED_DAYS[type];
-  if (!end) return 0;
-  try {
-    const s = new Date(start), e = new Date(end);
-    if (s > e) return 0;
-    return eachDayOfInterval({ start: s, end: e })
-      .filter(d => getDay(d) !== 0 && getDay(d) !== 6).length;
-  } catch { return 0; }
-}
-
 /* ── 결재 진행 뱃지 ── */
 function stepLabel(s: ApprovalStepInfo) {
   if (s.approver) return s.approver.name;
@@ -140,6 +130,8 @@ export default function LeavePage() {
 
   /* 잔여 현황 */
   const [balance, setBalance]       = useState<Balance | null>(null);
+  // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 balanceHidden 을 주면 숫자 자리에 「연차 정리 중」. 신청·잔여 초과 막기는 그대로
+  const [balanceHidden, setBalanceHidden] = useState(false);
   const [empBalances, setEmpBalances] = useState<EmpBalance[]>([]);
 
   /* 내 결재함 */
@@ -156,7 +148,10 @@ export default function LeavePage() {
   /* 휴가 신청 */
   const [addOpen, setAddOpen]   = useState(false);
   const [form, setForm]         = useState({ type: "ANNUAL", startDate: "", endDate: "", reason: "", attachmentUrl: "", attachmentName: "" });
-  const previewDays = useMemo(() => calcWorkdays(form.startDate, form.endDate, form.type), [form]);
+  // 신청 일수·막힘은 서버 미리보기(GET /api/leave/days — 신청 검사와 같은 함수, 근무일정·공휴일 반영)로만(#219-10·11·12).
+  // 종전 calcWorkdays 는 주말만 빼서 공휴일이 든 기간이 화면에서 하루 더 많게 보였다
+  const daysPreview = useLeaveDaysPreview({ enabled: addOpen, type: form.type, start: form.startDate, end: form.endDate, singleDay: SINGLE_DAY_TYPES.has(form.type) });
+  const canSubmit = previewAllowsSubmit(daysPreview);
   // 내년 날짜를 고르면 그 해 잔여를 따로 보여준다(9/11 디렉터) — 휴가는 쓰는 해(시작일) 연차에서 차감되고,
   // 서버 신청 검사와 같은 함수(yearBalanceFor)의 값을 받아 온다. 연도를 빨리 바꿔도 늦게 온 응답은 버린다.
   const reqYear = /^\d{4}-/.test(form.startDate) ? Number(form.startDate.slice(0, 4)) : 0;
@@ -167,7 +162,7 @@ export default function LeavePage() {
     fetch(`/api/leave/balance?scope=self&forLeave=1&year=${reqYear}&type=${encodeURIComponent(form.type)}`)
       .then(r => r.json())
       // 연차 미차감 유형(경조사·대체휴무 등)은 띄우지 않는다 — 판정은 서버(9/11 검증 E1)
-      .then(d => { if (alive) setYearBal(d.deductible === false ? null : { year: reqYear, b: d.balance ?? null }); })
+      .then(d => { if (alive) setYearBal(d.deductible === false || d.balanceHidden ? null : { year: reqYear, b: d.balance ?? null }); })
       .catch(() => { if (alive) setYearBal(null); });
     return () => { alive = false; };
   }, [addOpen, reqYear, form.type]);
@@ -208,6 +203,7 @@ export default function LeavePage() {
 
   const fetchBalance = useCallback(async () => {
     const data = await fetch("/api/leave/balance?scope=self").then(r => r.json());
+    setBalanceHidden(!!data.balanceHidden);
     if (data.balance)  setBalance(data.balance);
     if (data.balances) setEmpBalances(data.balances);
   }, []);
@@ -238,7 +234,8 @@ export default function LeavePage() {
   /* ── 휴가 신청 ── */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (previewDays <= 0) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
+    if (daysPreview.status === "ok" && daysPreview.data.blocked) { toast.error(daysPreview.data.reason || "신청할 수 없습니다."); return; }
+    if (!canSubmit) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
     if (!form.reason.trim()) { toast.error("신청 사유를 입력해주세요."); return; }
     { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
     const res  = await fetch("/api/leave", {
@@ -391,8 +388,22 @@ export default function LeavePage() {
         </Button>
       </div>
 
+      {/* 잔여 숫자 숨김(#219-1) — 숫자 대신 「연차 정리 중」 */}
+      {!isAdmin && balanceHidden && (
+        <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <CardContent className="pt-5">
+            <p className="text-sm font-medium text-blue-700">나의 연차 현황</p>
+            <p className="text-xl font-bold text-blue-900 mt-1">연차 정리 중</p>
+            <p className="text-xs text-blue-600 mt-1">시프티 사용 내역을 옮기는 중이라 잔여 연차 숫자는 잠시 보이지 않습니다. 휴가 신청은 그대로 할 수 있습니다.</p>
+            <div className="mt-3 text-right">
+              <a href="/leave/ledger" className="text-xs text-blue-700 hover:underline">연차 대장 보기 →</a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 직원 잔여 카드 */}
-      {!isAdmin && balance && (
+      {!isAdmin && !balanceHidden && balance && (
         <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
           <CardContent className="pt-5">
             <div className="flex items-center justify-between mb-3">
@@ -699,10 +710,10 @@ export default function LeavePage() {
             <DialogTitle className="flex items-center gap-2"><CalendarDays size={18} />휴가 신청</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!isAdmin && balance && (
+            {!isAdmin && (balanceHidden || balance) && (
               <div className="flex items-center justify-between bg-blue-50 rounded-lg px-4 py-2.5">
                 <span className="text-sm text-blue-700">{yearBal ? `${kstYearNow()}년 잔여 연차` : "잔여 연차"}</span>
-                <span className="font-bold text-blue-800">{balance.remaining}일</span>
+                <span className="font-bold text-blue-800">{balanceHidden ? "연차 정리 중" : `${balance?.remaining}일`}</span>
               </div>
             )}
             <div className="space-y-2">
@@ -710,8 +721,9 @@ export default function LeavePage() {
               <Select value={form.type} onValueChange={v =>
                 v && setForm(f => ({ ...f, type: v, endDate: SINGLE_DAY_TYPES.has(v) ? f.startDate : f.endDate }))
               }>
-                <SelectTrigger><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
-                <SelectContent>
+                {/* 목록 폭을 창 폭에 맞춘다(#219-9 — 설명 「유급 8h · 1…」이 잘렸다). 이 화면의 선택칸만 — 공용 select 는 그대로 */}
+                <SelectTrigger className="w-full"><SelectValue>{TYPE_LABEL[form.type] ?? form.type}</SelectValue></SelectTrigger>
+                <SelectContent className="min-w-[min(22rem,calc(100vw-2rem))]">
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
                   {leaveCat.groups.map((g, gi) => {
                     const items = leaveCat.catalog.filter((t) => t.selectable && t.group === g);
@@ -721,9 +733,9 @@ export default function LeavePage() {
                         <div className={`px-2 py-1 text-xs text-gray-400 font-medium ${gi ? "border-t mt-1 pt-2" : ""}`}>{g}</div>
                         {items.map((t) => (
                           <SelectItem key={t.code} value={t.code}>
-                            <span className="flex items-center justify-between w-full gap-8">
+                            <span className="flex items-center justify-between w-full gap-4">
                               <span>{t.label}</span>
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs text-gray-400 whitespace-normal text-right">
                                 {FIXED_DAYS[t.code] ? `${FIXED_DAYS[t.code]}일 ` : ""}{t.paidHours ? `유급 ${t.paidHours}h` : "무급"}{!t.deducts && " · 연차 미차감"}
                               </span>
                             </span>
@@ -764,12 +776,7 @@ export default function LeavePage() {
                 <span className="font-bold text-amber-900">{yearBal.b ? `${yearBal.b.remaining}일` : "—"}</span>
               </div>
             )}
-            {previewDays > 0 && (
-              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm">
-                <span className="text-gray-500">{FIXED_DAYS[form.type] ? "신청 일수 (고정)" : "신청 일수 (평일 기준)"}</span>
-                <span className="font-bold text-gray-800">{previewDays}일</span>
-              </div>
-            )}
+            <LeaveDaysPreviewBox state={daysPreview} fixed={!!FIXED_DAYS[form.type]} />
             <div className="space-y-2">
               <Label>사유 <span className="text-red-500">*</span></Label>
               <Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
@@ -794,7 +801,7 @@ export default function LeavePage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>취소</Button>
-              <Button type="submit" disabled={previewDays <= 0}>신청</Button>
+              <Button type="submit" disabled={!canSubmit}>신청</Button>
             </div>
           </form>
         </DialogContent>

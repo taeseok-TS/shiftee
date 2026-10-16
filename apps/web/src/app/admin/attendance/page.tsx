@@ -32,7 +32,11 @@ type AttendanceRecord = {
   clockInPlace?: string | null; clockOutPlace?: string | null;
   status: string; minutes: number; userName?: string; userBranch?: string | null;
 };
-type Stats = { total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number };
+type Stats = {
+  total: number; normal: number; late: number; earlyLeave: number; absent: number; totalMinutes: number; avgMinutes: number;
+  // 출근율 정의(2026-10-16 #219-6): 출근한 날 ÷ 근무해야 할 날(근무일정 있는 날 + 일정 없이 출근한 날, 휴가 제외). 0분 기록은 「확인 필요」
+  attendDays?: number; requiredDays?: number; missedDays?: number; missingDays?: number; needsCheck?: number; attendRate?: number | null;
+};
 type ChartItem = { date: string; hours: number; count?: number };
 type StatsResponse = {
   period: Period; range: { start: string; end: string };
@@ -139,9 +143,11 @@ export default function AttendancePage() {
   // 전일 미마감 근태 (2026-09-07 디렉터 지시)
   // 근무가 상한(10.5시간)을 넘으면 직원은 앱에서 퇴근을 못 찍는다. 종전에는 그걸로 끝이라
   // 기록이 영원히 열린 채 남았다(실제로 14건이 최장 80일). 관리자가 여기서 마감한다.
-  type Unclosed = { id: string; date: string; name: string; branch: string | null; clockIn: string; willClockOut: string };
+  // 마감 시각 = 그날 근무일정 퇴근 시각(없으면 출근 + 보정 시간) — 대시보드 누락 보정과 같은 기준(2026-10-16 #219-4)
+  type Unclosed = { id: string; date: string; name: string; branch: string | null; clockIn: string; willClockOut: string; basisLabel?: string; pendingRequest?: boolean };
   const [unclosed, setUnclosed] = useState<Unclosed[]>([]);
   const [capHours, setCapHours] = useState(10.5);
+  const [fallbackHours, setFallbackHours] = useState(9);
   const [closing, setClosing] = useState(false);
   const [unclosedOpen, setUnclosedOpen] = useState(false);
   const loadUnclosed = useCallback(async () => {
@@ -151,6 +157,7 @@ export default function AttendancePage() {
       const d = await res.json();
       setUnclosed(d.records || []);
       if (d.capHours) setCapHours(d.capHours);
+      if (d.fallbackHours) setFallbackHours(d.fallbackHours);
     } catch { /* 목록을 못 불러와도 화면이 죽으면 안 된다 */ }
   }, []);
   useEffect(() => { if (myRole === "ADMIN") loadUnclosed(); }, [myRole, loadUnclosed]);
@@ -163,7 +170,8 @@ export default function AttendancePage() {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "마감하지 못했습니다."); return; }
-      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 출근 +${d.capHours}시간으로 기록됩니다.`);
+      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 그날 근무일정 퇴근 시각으로 기록됩니다.`
+        + (d.skipped ? ` (직원 요청 결재 대기 ${d.skipped}건은 건너뜀)` : ""));
       await loadUnclosed();
       fetchTodayList();
     } catch {
@@ -464,8 +472,9 @@ export default function AttendancePage() {
                   전일 미마감 {unclosed.length}건
                 </p>
                 <p className="text-sm text-amber-800 mt-0.5">
-                  근무가 {capHours}시간을 넘겨 직원이 퇴근을 찍지 못한 기록입니다.
-                  확인을 누르면 <b>출근 시각 + {capHours}시간</b>으로 퇴근이 기록됩니다.
+                  어제 이전에 출근만 있고 퇴근이 없는 기록입니다(퇴근 미기록·상한 초과 등).
+                  확인을 누르면 <b>그날 근무일정의 퇴근 시각</b>으로 퇴근이 기록됩니다.
+                  일정이 없는 날은 출근 + {fallbackHours}시간. 상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 잘린 퇴근은 조퇴로 보지 않습니다.
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -487,6 +496,7 @@ export default function AttendancePage() {
                       <th className="px-3 py-2 font-medium">직원</th>
                       <th className="px-3 py-2 font-medium">출근</th>
                       <th className="px-3 py-2 font-medium">마감될 퇴근</th>
+                      <th className="px-3 py-2 font-medium">기준</th>
                       <th className="px-3 py-2 font-medium text-right">처리</th>
                     </tr>
                   </thead>
@@ -503,9 +513,14 @@ export default function AttendancePage() {
                         <td className="px-3 py-2 whitespace-nowrap tabular-nums text-amber-800">
                           {format(new Date(r.willClockOut), "MM/dd HH:mm")}
                         </td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{r.basisLabel ?? "-"}</td>
                         <td className="px-3 py-2 text-right">
-                          <Button variant="ghost" size="sm" disabled={closing}
-                                  onClick={() => closeUnclosed([r.id])}>확인</Button>
+                          {r.pendingRequest ? (
+                            <span className="text-xs text-blue-600 whitespace-nowrap" title="직원이 올린 퇴근 처리·수정 요청을 결재하면 그 시각으로 기록됩니다">요청 결재 대기</span>
+                          ) : (
+                            <Button variant="ghost" size="sm" disabled={closing}
+                                    onClick={() => closeUnclosed([r.id])}>확인</Button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -762,7 +777,8 @@ export default function AttendancePage() {
               {/* 요약 카드 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: "총 출근일",    val: `${c.total}일`,          prev: p?.total ?? 0,        curr: c.total },
+                  // 0분 기록(출근 = 퇴근)은 출근일에 넣지 않는다(#219-6) — 「확인 필요」로 따로 센다
+                  { label: "총 출근일",    val: `${c.attendDays ?? c.total}일`, prev: p?.attendDays ?? p?.total ?? 0, curr: c.attendDays ?? c.total },
                   { label: "누적 근무시간", val: fmtMin(c.totalMinutes),  prev: p?.totalMinutes ?? 0, curr: c.totalMinutes },
                   { label: "평균 근무시간", val: fmtMin(c.avgMinutes),    prev: p?.avgMinutes ?? 0,   curr: c.avgMinutes },
                   { label: "정상 출퇴근",  val: `${c.normal}회`,          prev: p?.normal ?? 0,       curr: c.normal },
@@ -778,20 +794,26 @@ export default function AttendancePage() {
               </div>
 
               {/* 상태 분포 */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* 출근율 = 출근한 날 ÷ 근무해야 할 날, 결근·누락 = 근로시간 리포트와 같은 판정(lib/attendance-day), 확인 필요 = 0분 기록 (#219-6·검증 F2) */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {[
                   { label: "지각",     val: c.late,       color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
                   { label: "조기퇴근", val: c.earlyLeave,  color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200" },
-                  { label: "결근",     val: c.absent,     color: "text-red-600",    bg: "bg-red-50",    border: "border-red-200" },
+                  { label: "결근",     val: c.missedDays ?? c.absent, color: "text-red-600", bg: "bg-red-50", border: "border-red-200",
+                    hint: `근무일정이 있는 지난 날에 기록 없음(휴가·공휴일·휴직 제외)${c.missingDays ? ` · 출근·퇴근 한쪽 누락 ${c.missingDays}일은 따로` : ""}` },
+                  { label: "확인 필요", val: c.needsCheck ?? 0, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200",
+                    hint: "출근과 퇴근이 같은 시각(0분) — 출근일에 넣지 않음" },
                   {
                     label: "출근율",
-                    val: c.total > 0 ? `${Math.round((c.normal / c.total) * 100)}%` : "0%",
+                    val: c.attendRate != null ? `${c.attendRate}%` : "-",
                     color: "text-green-600", bg: "bg-green-50", border: "border-green-200",
+                    hint: c.requiredDays != null ? `출근 ${c.attendDays ?? 0}일 ÷ 근무해야 할 날 ${c.requiredDays}일` : undefined,
                   },
-                ].map(({ label, val, color, bg, border }) => (
-                  <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`}>
+                ].map(({ label, val, color, bg, border, hint }) => (
+                  <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`} title={hint}>
                     <p className="text-xs font-medium text-gray-500">{label}</p>
                     <p className={`text-2xl font-bold mt-1 ${color}`}>{typeof val === "number" ? `${val}회` : val}</p>
+                    {hint && <p className="text-[11px] text-gray-400 mt-1 leading-snug">{hint}</p>}
                   </div>
                 ))}
               </div>
@@ -915,7 +937,13 @@ export default function AttendancePage() {
                               <td className="py-3">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "-"}</td>
                               <td className={`py-3 text-xs ${placeCls(r.clockOutPlace)}`}>{r.clockOutPlace || "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
-                              <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
+                              <td className="py-3">
+                                <Badge variant={s.variant}>{s.label}</Badge>
+                                {/* 0분 기록(출근 = 퇴근) — 출근일에 넣지 않고 따로 표시(#219-6) */}
+                                {r.clockIn && r.clockOut && r.minutes === 0 && (
+                                  <Badge variant="outline" className="ml-1 border-amber-300 text-amber-700">확인 필요</Badge>
+                                )}
+                              </td>
                               {myRole === "ADMIN" && (
                                 <td className="py-3 text-right">
                                   <button onClick={() => openEditRec(r)} className="text-gray-400 hover:text-blue-600" title="출퇴근 시각 수정">

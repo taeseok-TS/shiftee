@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
   // 본인 정보만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
   // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 원장에게는 출퇴근 시각·상태를 섞지 않는다 — 일정·휴가만(10/14 검증 1)
-  const hideAtt = session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance"));
+  // 직원은 「본인 출퇴근 기록 열람」(기본 끔)이 꺼져 있으면 출근·퇴근 시각·지각 상태를 섞지 않는다 — 일정·휴가만(2026-10-16 #219-14)
+  const hideAtt = (session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance")))
+    || (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")));
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   // 현황 명단 = 지점 근무 직원만 (관리자 + "통계 포함" 꺼진 지점 제외)
@@ -77,6 +79,7 @@ export async function GET(request: NextRequest) {
     else if (!sched)                     status = "NO_SCHEDULE";
     else if (sched.type === "OFF")       status = "OFF";
     else if (sched.type === "HOLIDAY")   status = "HOLIDAY";
+    else if (hideAtt)                    status = "WORK";              // 출퇴근 열람이 꺼짐 — 「미등록」이라 하지 않고 근무 예정만(#219-14)
     else if (att)                        status = att.status;          // NORMAL/LATE/EARLY_LEAVE/ABSENT
     else                                 status = "NOT_YET";           // 근무 예정이나 미입력
 
@@ -110,5 +113,5 @@ export async function GET(request: NextRequest) {
     off:         result.filter(r => ["OFF","NO_SCHEDULE"].includes(r.status)).length,
   };
 
-  return NextResponse.json({ date: dateStr, employees: result, summary });
+  return NextResponse.json({ date: dateStr, employees: result, summary, attendanceHidden: hideAtt });
 }
