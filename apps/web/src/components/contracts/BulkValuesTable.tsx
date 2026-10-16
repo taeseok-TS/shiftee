@@ -116,13 +116,14 @@ function parseTsv(text: string): string[][] {
   return rows;
 }
 
-export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common }: {
+export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon }: {
   userIds: string[];
   employees: Emp[];
   columns: string[];
   values: BulkRowValues;
   onChange: (v: BulkRowValues) => void;
   common: Record<string, string>; // 비었을 때 회색으로 보여 줄 공통값
+  rowCommon?: Record<string, Record<string, string>>; // 사람마다 달리 들어가는 값(근로시작일=각자 입사일·평가 기간) — 공통값보다 먼저 보인다(10/16 이예지 재확인 2)
 }) {
   const [paste, setPaste] = useState("");
   const emp = (id: string) => employees.find((e) => e.id === id);
@@ -208,7 +209,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
                     const bad = DATE_COLS.includes(c) && v && normDate(v) === null;
                     return (
                       <td key={c} className="px-1 py-0.5">
-                        <input value={v} placeholder={common[c] ?? ""}
+                        <input value={v} placeholder={rowCommon?.[uid]?.[c] ?? common[c] ?? ""}
                           onChange={(ev) => set(uid, c, ev.target.value)}
                           className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                       </td>

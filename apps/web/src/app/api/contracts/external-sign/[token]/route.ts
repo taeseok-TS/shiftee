@@ -48,6 +48,23 @@ async function findBundleSiblings(bundleId: string | null, excludeId: string) {
   });
 }
 
+// 개인정보동의서 양식에 있는 선택 동의 칸(10/16 이예지 QA 9) — 화면이 양식과 관계없이 「고유식별·채용 정보」를 늘 물었다.
+// 양식 칸 이름에 동의고유식별·동의채용정보가 있는지만 본다. 못 읽으면 종전처럼 둘 다 묻는다
+async function consentOptionsOf(templateId: string | null): Promise<{ unique: boolean; recruit: boolean }> {
+  const both = { unique: true, recruit: true };
+  if (!templateId) return both;
+  try {
+    const t = await prisma.contractTemplate.findUnique({ where: { id: templateId }, select: { fileUrl: true } });
+    if (!t?.fileUrl) return both;
+    const { templateFieldNames } = await import("@/lib/contract-fields");
+    const names = await templateFieldNames(t.fileUrl);   // 워드·PDF 칸 배치 모두(검증 9). 모르면 null
+    if (!names) return both;
+    return { unique: names.includes("동의고유식별"), recruit: names.includes("동의채용정보") };
+  } catch {
+    return both;
+  }
+}
+
 // 서명 페이지 초기 정보 — 계약 제목·문서·현재 상태 (+패키지 동반 문서)
 export async function GET(
   request: NextRequest,
@@ -106,6 +123,8 @@ export async function GET(
       fileTicket: open ? issueUploadTicket(`c:${contract.id}`, 2 * 3600 * 1000) : null,
     // 개인정보동의서가 포함된 패키지면 게스트가 선택 항목 동의/미동의 선택 가능
     consentDoc: open && siblings.some((s) => s.status !== "SIGNED" && s.title.includes("개인정보")),
+    // 선택 동의 항목 — 양식에 있는 것만 묻는다(9)
+    consentOptions: open ? await consentOptionsOf(siblings.find((s) => s.status !== "SIGNED" && s.title.includes("개인정보"))?.templateId ?? null) : null,
     state,
     // 본인 확인 전이면 문서 대신 확인 화면 — 안내에는 앞 3자리만(뒷자리를 보여주면 확인이 무의미하다)
     needVerify: needVerify && !verified,

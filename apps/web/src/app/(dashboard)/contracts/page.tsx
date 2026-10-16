@@ -149,9 +149,9 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
         ) : (
           <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
         )}
-        {/* 해당 단계가 직원이면 "직원"으로, 아니면 승인자 이름으로 표시 */}
+        {/* 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames) */}
         <span className="text-xs font-medium">
-          {step.approverId === userId ? "직원" : step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}
+          {step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자")}
         </span>
       </div>
     );

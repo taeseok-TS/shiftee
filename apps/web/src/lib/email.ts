@@ -205,7 +205,9 @@ export async function sendApprovalRequest(
   // 본인 확인 관문용 (#140) — 링크 수신자
   recipientId?: string,
   message?: string | null, // 본부 발송 메시지(#65)
-  deadline?: Date | null // 서명 기한(#45)
+  deadline?: Date | null, // 서명 기한(#45)
+  // 진행 문구(10/16 이예지 QA 8) — 예) 「본부 서명 완료 → 원장님 차례」. 없으면 종전 「N단계」
+  progress?: { turn: string; text: string } | null
 ): Promise<void> {
   const { messageEmailHtml } = await import("@/lib/contract-send-meta");
   // 종전 「○○이(가) 서명한 계약서의 승인이 필요합니다」는 아직 서명 전인데 「서명한」으로 읽히고 조사도 그대로 나갔다(#217-3)
@@ -216,7 +218,7 @@ export async function sendApprovalRequest(
       <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #f59e0b;">
         <p><strong>문서:</strong> ${contractTitle}</p>
         <p><strong>계약 당사자:</strong> ${employeeName}</p>
-        <p><strong>결재 단계:</strong> ${stepOrder}단계</p>
+        <p><strong>${progress ? "진행" : "결재 단계"}:</strong> ${progress ? progress.text : `${stepOrder}단계`}</p>
         <p><strong>상태:</strong> 결재 대기 중</p>
         ${kstYmd(deadline) ? `<p><strong>서명 기한:</strong> ${kstYmd(deadline)}</p>` : ""}
       </div>
@@ -232,7 +234,7 @@ export async function sendApprovalRequest(
   const snd = contractSender();
   await sendEmail({
     to: approverEmail,
-    subject: `${snd.prefix}[결재 요청] ${contractTitle} - ${stepOrder}단계 결재(서명) 필요`,
+    subject: `${snd.prefix}[결재 요청] ${contractTitle} - ${progress ? `${progress.turn} 결재(서명) 차례` : `${stepOrder}단계 결재(서명) 필요`}`,
     html,
     fromName: snd.fromName,
   });

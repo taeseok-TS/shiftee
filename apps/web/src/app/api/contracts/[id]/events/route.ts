@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
+import { personLabel } from "@/lib/person-label";
 
 // 계약 이벤트(감사 기록, #205-4) — 관리자 화면에서 바로 본다(이예지대리 요청). 조회는 관리자만.
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -13,12 +14,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     where: { contractId: id },
     orderBy: { createdAt: "desc" }, // 최근 500건 — 열람이 쌓여도 서명·완료가 잘리지 않게, 보낼 때 오래된 순으로 뒤집는다
     take: 500,
-    select: { id: true, type: true, actorName: true, stepOrder: true, ip: true, userAgent: true, deviceId: true, meta: true, createdAt: true },
+    select: { id: true, type: true, actorId: true, actorName: true, stepOrder: true, ip: true, userAgent: true, deviceId: true, meta: true, createdAt: true },
   });
   events.reverse();
+  // 사내 사용자는 「이름 직급」으로(10/16 이예지 재확인 3 — 「발송 · 박정인」에 직급이 없었다). 기록된 이름은 그대로 두고 보여 줄 때만 바꾼다
+  const ids = [...new Set(events.map((e) => e.actorId).filter((x): x is string => !!x))];
+  const people = new Map((await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, position: true } })).map((u) => [u.id, personLabel(u)]));
+  const shown = events.map(({ actorId, ...e }) => ({ ...e, actorName: (actorId && people.get(actorId)) || e.actorName }));
   // 완료본 고정(#205-5) — 문서번호·해시
   const frozen = await prisma.contract.findUnique({ where: { id }, select: { docNo: true, signedSha256: true, signedPdfAt: true, tsaAt: true, tsaUrl: true } });
-  return NextResponse.json({ events, frozen: frozen?.docNo ? frozen : null });
+  return NextResponse.json({ events: shown, frozen: frozen?.docNo ? frozen : null });
 }
 
 // 열람·내려받기 알림 — 화면이 문서를 열거나 받으면 POST 로 알린다(GET 에 기록을 넣지 않는 규칙). 볼 권한이 있는 사람만, 10분 안 중복은 한 번.

@@ -544,7 +544,7 @@ export async function PATCH(
       user: { select: { id: true, name: true, email: true, department: true } },
       approvalLine: {
         include: {
-          steps: { include: { approver: { select: { id: true, name: true, email: true, role: true, position: true } } } },
+          steps: { orderBy: { order: "asc" }, include: { approver: { select: { id: true, name: true, email: true, role: true, position: true } } } },
         },
       },
     },
@@ -626,7 +626,8 @@ export async function PATCH(
           appUrl,
           firstPendingStep.approverId || undefined,
           updated.sendMessage,
-          updated.signDeadline
+          updated.signDeadline,
+          (await import("@/lib/contract-progress")).approvalProgress(updated.approvalLine?.steps || [], firstPendingStep.order, updated.userId, !!updated.externalName)
         );
       }
     }

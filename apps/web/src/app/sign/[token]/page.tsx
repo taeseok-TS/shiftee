@@ -2,9 +2,10 @@
 
 // 외부(미가입) 계약자 게스트 서명 페이지 — 로그인 없이 링크 토큰으로 문서 확인 + 서명
 // 패키지(계약서+비밀유지서약서+개인정보동의서)면 문서 탭으로 전환하며 확인 후 한 번의 서명으로 함께 서명
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
+import { isDirectHost } from "@/lib/is-direct-host";
 
 type Doc = { title: string; fileUrl: string | null };
 type Info = {
@@ -18,6 +19,7 @@ type Info = {
   version?: number; // 문서 버전 — 제출 때 x-doc-version 으로 되돌려 보낸다(#206 검증 F2)
   fileTicket?: string | null; // 게스트 파일 접근 티켓 — 뷰어 URL 에 ?t= 로 부착
   needVerify?: boolean;       // 본인 확인(연락처 뒷자리) 전 — 문서 대신 확인 화면(#205-1)
+  consentOptions?: { unique: boolean; recruit: boolean } | null;   // 개인정보동의서에 있는 선택 동의 칸(10/16 QA 9)
   phoneHint?: string | null;  // 안내용(앞 3자리만)
 };
 
@@ -39,6 +41,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [verifyToken, setVerifyToken] = useState("");
   const [agree, setAgree] = useState(false); // 전자서명 동의(#205-3) — 명시적으로 체크해야 제출
   const viewedSent = useRef(false);          // 열람 알림은 한 번만(#205-4)
+  // 직영(cubetee.co.kr)이면 머리글을 메일과 같은 「에듀플렉스 직영사업본부」로(10/16 QA 6). 서버 렌더에서는 false → 화면에서 맞춘다
+  const direct = useSyncExternalStore(() => () => {}, () => isDirectHost(window.location.host), () => false);
 
   const load = (vt?: string) =>
     fetch(`/api/contracts/external-sign/${token}`, vt ? { headers: { "x-sign-verify": vt } } : undefined)
@@ -84,7 +88,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   async function submit() {
     if (info?.consentDoc) {
       if (!consentRequired) { alert("필수 항목 동의에 체크해주세요."); return; }
-      if (!consentUnique || !consentRecruit) { alert("선택 항목의 동의 여부를 각각 선택해주세요."); return; }
+      if ((askUnique && !consentUnique) || (askRecruit && !consentRecruit)) { alert("선택 항목의 동의 여부를 각각 선택해주세요."); return; }
     }
     if (!agree) { alert("전자서명 동의에 체크해주세요."); return; }
     if (!sigRef.current || sigRef.current.isEmpty()) { alert("서명을 입력해주세요."); return; }
@@ -94,8 +98,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
       if (info?.consentDoc) {
         body.consent = {
           동의필수: "동의",
-          동의고유식별: consentUnique,
-          동의채용정보: consentRecruit,
+          ...(askUnique ? { 동의고유식별: consentUnique } : {}),
+          ...(askRecruit ? { 동의채용정보: consentRecruit } : {}),
         };
       }
       const res = await fetch(`/api/contracts/external-sign/${token}`, {
@@ -110,6 +114,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     } finally { setSubmitting(false); }
   }
 
+  const askUnique = info?.consentOptions ? info.consentOptions.unique : true;
+  const askRecruit = info?.consentOptions ? info.consentOptions.recruit : true;
   // 문서는 서명 차례(ready)일 때만 서버가 내려줌 — 그 외 상태는 안내문만 표시
   const docs: Doc[] = info?.documents?.length ? info.documents : info?.fileUrl ? [{ title: info.title, fileUrl: info.fileUrl }] : [];
   const currentDoc = docs[Math.min(docIdx, Math.max(docs.length - 1, 0))];
@@ -121,7 +127,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
     <div className="min-h-screen bg-gray-100">
       <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
         <div className="bg-white rounded-xl shadow-sm border p-4">
-          <p className="text-xs text-gray-400">큐브티 전자계약</p>
+          <p className="text-xs text-gray-400">{direct ? "에듀플렉스 직영사업본부 · 전자계약" : "큐브티 전자계약"}</p>
           <h1 className="text-lg font-bold mt-0.5">{info?.title || "전자계약 서명"}</h1>
           {info?.externalName && <p className="text-sm text-gray-500 mt-0.5">서명자: {info.externalName}</p>}
           {info?.sendMessage && (
@@ -203,7 +209,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                       <input type="checkbox" className="mt-0.5" checked={consentRequired} onChange={(e) => setConsentRequired(e.target.checked)} />
                       <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 동의합니다 (미동의 시 채용이 취소·제한될 수 있습니다)</span>
                     </label>
-                    {([["고유식별정보 수집·이용 (선택)", consentUnique, setConsentUnique], ["채용 관련 정보 수신 (선택)", consentRecruit, setConsentRecruit]] as const).map(([label, val, setter]) => (
+                    {([["고유식별정보 수집·이용 (선택)", consentUnique, setConsentUnique, askUnique], ["채용 관련 정보 수신 (선택)", consentRecruit, setConsentRecruit, askRecruit]] as const).filter((x) => x[3]).map(([label, val, setter]) => (
                       <div key={label} className="text-xs text-gray-600">
                         <p className="mb-1">{label}</p>
                         <div className="flex gap-4">

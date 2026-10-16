@@ -174,9 +174,9 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
         ) : (
           <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
         )}
-        {/* 해당 단계가 직원이면 "직원"으로, 아니면 승인자 이름으로 표시 */}
+        {/* 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames) */}
         <span className="text-xs font-medium">
-          {step.approverId === userId ? "직원" : step.approver?.name || (step as { externalName?: string }).externalName || "외부 서명자"}
+          {step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자")}
         </span>
       </div>
     );
@@ -986,25 +986,14 @@ export default function ContractsPage() {
     return `${year}${branchPart} ${empName} ${docName}`;
   };
 
-  // 연봉 기본값 3,400만 원(#213-5, 2026-10-16 이예지 QA) — 에듀플렉스 근로계약서 신규입사를 한 명씩 작성할 때만, 연봉이 비어 있으면 채운다(고친 값은 그대로).
+  // 연봉 기본값 3,400만 원(#213-5, 2026-10-16 이예지 QA) — 에듀플렉스 근로계약서 신규입사를 한 명씩 작성할 때만, 연봉 칸이 비어 있으면 이 값으로 본다.
   // 여러 명 작성·재계약·코디·다른 양식엔 넣지 않는다 — 「연봉 꼭 입력」 막기(9/16)가 살아 있어야 하고, 연봉 칸 없는 양식으로 값이 새면 안 된다(검증 M3).
-  // 조건이 풀리면(양식·구분·여러 명 전환) 자동으로 넣은 값만 지운다
+  // 10/16 이예지 재확인 「직원을 고르면 빈칸이 된다」 — 상태에 한 번 써 넣던 방식은 화면 갱신 순서에 따라 지워졌다. 이제 상태에 쓰지 않고
+  // 화면 표시·검사·저장이 모두 effSalary 를 쓴다(조건이 풀리면 저절로 빈칸, 고친 값은 그대로)
   const SALARY_DEFAULT = "34000000";
-  const autoSalaryRef = useRef(false);
-  useEffect(() => {
-    const want = useTemplate && !bulkMode && !!empTemplate && selectedTemplate === empTemplate.id && contractKind === "신규입사"
-      && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
-    if (!want) {
-      if (autoSalaryRef.current) {
-        autoSalaryRef.current = false;
-        setCreateForm((f) => (String(f.salary || "").trim() === SALARY_DEFAULT ? { ...f, salary: "" } : f));
-      }
-      return;
-    }
-    autoSalaryRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCreateForm((f) => (String(f.salary || "").trim() ? f : { ...f, salary: SALARY_DEFAULT }));
-  }, [useTemplate, bulkMode, empTemplate, selectedTemplate, contractKind, templateFields]);
+  const salaryDefaultOn = useTemplate && !bulkMode && !!empTemplate && selectedTemplate === empTemplate.id && contractKind === "신규입사"
+    && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+  const effSalary = String(createForm.salary || "").trim() || (salaryDefaultOn ? SALARY_DEFAULT : "");
 
   // 작성 종류 고르기(#87) — 각 체크박스가 하던 일을 한 번에(입사=신규입사 패키지, 재계약=근로계약서+계약 구분 재계약, 퇴사=퇴사 패키지)
   const startKind = (k: "hire" | "renew" | "resign" | "other") => {
@@ -1182,10 +1171,29 @@ export default function ContractsPage() {
   //  (종전 「15번째 영업일 전날」은 사이에 주말이 끼면 교육평가 종료가 일요일로 밀렸다. 옛 확정례 7/6 입사→실무 7/27 은 새 규칙으로 7/25)
   //  실무평가 종료 = 입사일 + 3개월 - 1일
   const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
+
   // 기준일 — 담당자가 문서의 {근로시작일}을 직접 넣었으면 그 값이 우선, 없으면 계약 시작일.
   // 재계약의 근로시작일은 "최초 입사일"이라 평가 단계 기준으로 쓰면 안 된다 (#175, 2026-08-31)
   const evalBaseDate =
     (contractKind === "신규입사" && (extraFields["근로시작일"] || "").trim()) || createForm.startDate;
+  // 여러 명 작성 표의 사람별 회색 값(10/16 이예지 재확인 2) — 실제로 들어갈 값과 같은 규칙: 공통 칸에 손으로 적은 근로시작일이면 모두에게,
+  // 아니면 각자 입사일(첫 직원 입사일이 자동으로 들어간 공통값은 손으로 적은 것으로 보지 않는다). 신규입사면 그 사람 기준 평가 기간도
+  const bulkRowCommon: Record<string, Record<string, string>> = {};
+  if (bulkMode && templateFields.includes("근로시작일")) {
+    const hireOf = (uid: string) => { const e = employees.find(x => x.id === uid); return e?.hireDate ? String(e.hireDate).slice(0, 10) : ""; };
+    const commonStart = (extraFields["근로시작일"] || "").trim();
+    const manual = commonStart && commonStart !== hireOf(createForm.userId) ? commonStart : "";
+    for (const uid of bulkUserIds) {
+      const rowStart = normDate(bulkValues[uid]?.["계약시작일"] || "") || createForm.startDate;   // 그 사람 계약 시작일(표 값 우선)
+      const start = manual || hireOf(uid);
+      // 실제 저장: 근로시작일이 비면 서버가 계약 시작일로 채우고, 평가 기준일도 계약 시작일이 된다(검증 2)
+      const base = normDate(bulkValues[uid]?.["근로시작일"] || "") || start || rowStart;
+      const row: Record<string, string> = { 근로시작일: start || rowStart };
+      // 기준일이 공통 기준일과 같으면 공통 평가값(손으로 고친 값 포함)이 그대로 들어간다 — 다를 때만 그 사람 기준으로 다시 센 값
+      if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base, holidaySet) || {});
+      bulkRowCommon[uid] = row;
+    }
+  }
   useEffect(() => {
     if (!templateFields.includes("교육평가시작") || !evalBaseDate) return;
     const y = Number(evalBaseDate.slice(0, 4));
@@ -1336,7 +1344,7 @@ export default function ContractsPage() {
     if (!useTemplate && files.length === 0) { toast.error("파일을 선택하거나 템플릿을 고르세요."); return; }
     if (useTemplate && !selectedTemplate) { toast.error("템플릿을 선택해주세요."); return; }
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
-    if (needsSalary && !String(createForm.salary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    if (needsSalary && !String(effSalary || "").trim()) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
     if (testSending) return;
     setTestSending(true);
     try {
@@ -1348,7 +1356,7 @@ export default function ContractsPage() {
       formData.append("type", createForm.type);
       formData.append("startDate", createForm.startDate);
       formData.append("endDate", createForm.endDate);
-      formData.append("salary", createForm.salary);
+      formData.append("salary", effSalary);
       const allExtra = buildSingleExtra();
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
       const res = await fetch("/api/contracts", { method: "POST", body: formData });
@@ -1379,7 +1387,7 @@ export default function ContractsPage() {
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
     // 여러 명 작성이면 개인별 표에 모두 연봉을 넣었을 때도 통과(#19)
     const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, ""));
-    if (needsSalary && !String(createForm.salary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    if (needsSalary && !String(effSalary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
     // 양식에서 필수로 정한 칸(#22 1단계) — 비면 보내지 않는다. 여러 명 작성은 공통값이나 개인별 표 둘 중 하나에 있으면 된다
     {
       const reqFields = dynamicFields.filter(f => fieldSettings[f]?.required);
@@ -1500,7 +1508,7 @@ export default function ContractsPage() {
         }
         // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
         if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
-        const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || createForm.salary;
+        const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || effSalary;
         const rowStart = rowDate(uid, "계약시작일", createForm.startDate) || "";
         const rowEnd = rowDate(uid, "계약종료일", createForm.endDate) || "";
         // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
@@ -1584,7 +1592,7 @@ export default function ContractsPage() {
       const extName = externalForm.name.trim();
       const items = [
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
-          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: effSalary,
           extraFields: allExtra, employeeOnly: false },
         { templateId: ndaTemplate.id, title: `${new Date().getFullYear()} ${extName} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
@@ -1619,7 +1627,7 @@ export default function ContractsPage() {
       const empName = employees.find(e => e.id === createForm.userId)?.name || "";
       const items = [
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
-          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: effSalary,
           extraFields: allExtra, employeeOnly: false },
         { templateId: ndaTemplate.id, title: `${titlePrefix(createForm.userId)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
@@ -1703,7 +1711,7 @@ export default function ContractsPage() {
       const empName = employees.find(e => e.id === createForm.userId)?.name || "";
       const items = [
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
-          startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
+          startDate: createForm.startDate, endDate: createForm.endDate, salary: effSalary,
           extraFields: allExtra, employeeOnly: false },
         { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} ${privacyTemplate.name}`, type: "OTHER",
           // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
@@ -1745,7 +1753,7 @@ export default function ContractsPage() {
     formData.append("type", createForm.type);
     formData.append("startDate", createForm.startDate);
     formData.append("endDate", createForm.endDate);
-    formData.append("salary", createForm.salary);
+    formData.append("salary", effSalary);
     {
       const allExtra = buildSingleExtra();
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
@@ -2581,14 +2589,14 @@ ${url}`;
                   <Input
                     type="text"
                     inputMode="numeric"
-                    placeholder="예: 34,000,000"
-                    value={wonView(createForm.salary, salaryFocus)}
+                    placeholder={salaryDefaultOn ? "34,000,000 (기본값 — 비워 두면 이 값)" : "예: 34,000,000"}
+                    value={wonView(salaryFocus ? createForm.salary : effSalary, salaryFocus)}
                     onFocus={() => setSalaryFocus(true)}
                     onBlur={() => setSalaryFocus(false)}
                     onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                   />
-                  {createForm.salary && (
-                    <p className="text-xs text-gray-500">{Number(createForm.salary).toLocaleString()}원 · 문서 표기: <b>金 {koreanMoney(Number(createForm.salary))}</b></p>
+                  {effSalary && (
+                    <p className="text-xs text-gray-500">{Number(effSalary).toLocaleString()}원 · 문서 표기: <b>金 {koreanMoney(Number(effSalary))}</b></p>
                   )}
                 </div>
                 )}
@@ -2868,7 +2876,8 @@ ${url}`;
                     columns={bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind)}
                     values={bulkValues}
                     onChange={setBulkValues}
-                    common={{ ...extraFields, 연봉: createForm.salary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
+                    common={{ ...extraFields, 연봉: effSalary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
+                    rowCommon={bulkRowCommon}
                   />
                 )}
                 <div className="flex gap-2 justify-end">
@@ -2901,7 +2910,7 @@ ${url}`;
                               externalName: externalMode ? externalForm.name.trim() : undefined,
                               externalPhone: externalMode ? externalForm.phone.trim() : undefined,
                               title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate,
-                              salary: createForm.salary, extraFields: allExtra,
+                              salary: effSalary, extraFields: allExtra,
                               highlight: true, // 입력값 노랑·미입력 붉은 표시 (#100)
                             }),
                           });

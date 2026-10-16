@@ -16,6 +16,7 @@ import { lockSteps } from "@/lib/contract-reset";
 import { recordContractEvent, requestInfo } from "@/lib/contract-events";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { pwTakeAttempt, pwFails, recentUnlock, sessionMark } from "@/lib/contract-pw";
+import { approvalProgress } from "@/lib/contract-progress";
 
 // 본인 서명 비밀번호 확인 — 틀린 횟수 제한은 lib/contract-pw(문서 열기 관문 #20 과 같은 표)
 // 서명 확정 실패 사유 — 409 로 돌려준다
@@ -324,7 +325,8 @@ export async function POST(
         appUrl,
         nextStep.approverId || undefined,
         contract.sendMessage,
-        contract.signDeadline
+        contract.signDeadline,
+        approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
       );
     } else if (!nextStep && updated.user.email) {
       // 계약 완료 — 메일이 실제로 나갔을 때만 교부 기록(#21)
@@ -408,7 +410,8 @@ export async function POST(
           appUrl,
           finalContract.user.id, // 본인 확인 관문(#140)
           contract.sendMessage,
-          contract.signDeadline
+          contract.signDeadline,
+          approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
         );
       } else if (nextStep.approver?.email) {
         // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
@@ -421,7 +424,8 @@ export async function POST(
           appUrl,
           nextStep.approverId || undefined, // 본인 확인 관문(#140)
           contract.sendMessage,
-          contract.signDeadline
+          contract.signDeadline,
+          approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
         );
       }
     } else if (!nextStep && finalContract.user.email) {
