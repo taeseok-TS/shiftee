@@ -67,6 +67,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   CONTRACT_ORDER_OVERRIDE: "패키지 서류별 결재 순서 변경(그 발송만)",
   CONTRACT_TEMPLATE_COPY: "계약서 템플릿 사본",
   CONTRACT_TEMPLATE_UPDATE: "계약서 템플릿 수정",
+  CONTRACT_TEMPLATE_PURPOSE: "계약서 양식 용도 변경",   // 계약서 보내기 화면의 용도 카드(2026-10-17)
   CONTRACT_TEST_SEND: "시험 계약 발송",
   CONTRACT_TEST_PURGE: "시험 계약 정리",
   // 공휴일·지점

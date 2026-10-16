@@ -17,6 +17,7 @@ import FieldSettingsEditor from "@/components/contracts/FieldSettingsEditor";
 import { parseFieldSettings, type FieldSettings } from "@/lib/contract-field-settings";
 import { parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
 import { TEMPLATE_CATEGORIES, templateCategoryOf, type TemplateCategory } from "@/lib/template-category";
+import { CONTRACT_PURPOSES, OTHER_PURPOSE, defaultPurposesOf, parsePurposeMap, purposeLabel, purposesOf, type ContractPurpose } from "@/lib/contract-purpose";
 
 type ContractTemplate = {
   id: string;
@@ -107,6 +108,12 @@ export default function ContractTemplatesPage() {
   };
 
   const [uploading, setUploading] = useState(false);
+  // 양식 용도(2026-10-17 「계약서 보내기」 화면의 용도 카드) — 본부가 고친 값 맵. 수정 창에서 고친다(AppSetting 저장, lib/contract-purpose)
+  const [purposeMap, setPurposeMap] = useState<Record<string, ContractPurpose[]>>({});
+  // 맵을 다 받기 전(loading)·못 받으면(error) 수정 창의 용도 칸을 막는다 — 기본값으로 보이는 걸 그대로 저장해 본부가 정한 용도를 되돌리지 않게(검증 2)
+  const [purposeState, setPurposeState] = useState<"loading" | "ok" | "error">("loading");
+  // 수정 창에서 용도를 **실제로 바꿨을 때만** 값이 있다(null = 손대지 않음 → 저장 때 용도는 건드리지 않는다)
+  const [editPurposes, setEditPurposes] = useState<ContractPurpose[] | null>(null);
 
   // 템플릿 목록 조회
   const fetchTemplates = useCallback(async () => {
@@ -115,6 +122,10 @@ export default function ContractTemplatesPage() {
       const res = await fetch("/api/contract-templates");
       const data = await res.json();
       setTemplates(data.templates || []);
+      // 용도는 못 받아도 목록은 보인다(이름 기준 기본 용도로)
+      fetch("/api/admin/contract-purposes").then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d) { setPurposeMap(parsePurposeMap(d.purposes)); setPurposeState("ok"); } else setPurposeState(s => (s === "ok" ? s : "error")); })
+        .catch(() => setPurposeState(s => (s === "ok" ? s : "error")));
     } catch (error) {
       console.error("템플릿 로드 실패:", error);
       toast.error("템플릿 로드 실패");
@@ -205,6 +216,16 @@ export default function ContractTemplatesPage() {
       }
       const ok = await res.json().catch(() => ({}));
       if (ok?.warning) toast.warning(ok.warning, { duration: 8000 });   // 칸 배치가 있는 PDF 파일 교체(#22 2단계)
+      // 용도(2026-10-17) — 바꿨을 때만 저장. 새 이름의 기본값과 같으면 「기본값」으로 둔다(이름을 또 바꾸면 기본 분류가 따라가게)
+      const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x));
+      // 사용자가 용도 칸을 건드렸을 때만 저장한다(같은 값이어도 — 「기본값으로」를 눌러 직접 정한 값을 지우는 경우, 재검증 10/17)
+      if (editPurposes && purposeState === "ok") {
+        const purposes = sameSet(editPurposes, defaultPurposesOf({ name: form.name, type: form.type })) ? null : editPurposes;
+        const pr = await fetch("/api/admin/contract-purposes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ templateId: editTarget.id, purposes }) });
+        const pd = await pr.json().catch(() => ({}));
+        if (!pr.ok) toast.error(pd.error || "용도를 저장하지 못했습니다(나머지는 저장됨).");
+        else setPurposeMap(parsePurposeMap(pd.purposes));
+      }
 
       toast.success("템플릿이 수정되었습니다");
       setForm(emptyForm());
@@ -255,6 +276,7 @@ export default function ContractTemplatesPage() {
       file: null,
       labels: (template.labels || []).join(", "),
     });
+    setEditPurposes(null);   // 손대기 전에는 저장값(맵)을 그대로 보여 준다
     setEditOpen(true);
   };
 
@@ -359,6 +381,10 @@ export default function ContractTemplatesPage() {
                 {(template.labels || []).length > 0 && (
                   <div className="flex flex-wrap gap-1">{(template.labels || []).map(l => <Badge key={l} variant="secondary" className="text-[11px]">{l}</Badge>)}</div>
                 )}
+                <p className="text-xs text-gray-500">
+                  보내기 용도: {(() => { const ps = purposesOf(template, purposeMap); return ps.length ? ps.map(purposeLabel).join(" · ") : OTHER_PURPOSE.label; })()}
+                  {Object.prototype.hasOwnProperty.call(purposeMap, template.id) ? " (직접 정함)" : ""}
+                </p>
                 <p className="text-xs text-gray-500">
                   v{template.version} · 서명 완료 후 근로자 접근: {postSignAccessLabel[template.postSignAccess] || postSignAccessLabel.full}
                 </p>
@@ -583,6 +609,29 @@ export default function ContractTemplatesPage() {
                   서명 완료 후 근로자(계약 당사자)에게 완료본을 어디까지 열어줄지 정합니다.
                   &quot;접근 불가&quot;는 근로자 화면에 &quot;제출 완료&quot;만 표시됩니다. 관리자는 항상 무제한입니다.
                   <br />규칙(#213-1): 근로자가 볼 수 있는 문서는 <b>근로계약서·비밀유지서약서·개인정보수집이용동의서·금품청산 지급기일연장 동의서</b> 4종이며 그 외 양식은 「접근 불가」가 기본입니다. 근로계약서는 「접근 불가」로 둘 수 없습니다.
+                </p>
+              </div>
+
+              {/* 보내기 용도(2026-10-17) — 「계약서 보내기」 화면에서 이 양식이 어느 용도 카드에 나오는지. 여러 개 가능, 하나도 안 고르면 「기타」 */}
+              <div className="space-y-2">
+                <Label>보내기 용도 <span className="text-xs text-gray-400 font-normal">(계약서 보내기 화면의 용도 카드 · 여러 개 가능)</span></Label>
+                <div className="flex flex-wrap gap-2">
+                  {purposeState !== "ok" && <p className="text-xs text-gray-500">{purposeState === "loading" ? "용도를 불러오는 중…" : "용도를 불러오지 못했습니다 — 이번 저장에서는 용도를 바꾸지 않습니다."}</p>}
+                  {purposeState === "ok" && CONTRACT_PURPOSES.map(p => {
+                    // 손대기 전 표시도 저장 뒤와 같게 — 직접 정한 값이 없으면 **바뀐 이름·종류** 기준 기본값(재검증 10/17)
+                    const shown = editPurposes ?? purposesOf({ ...editTarget, name: form.name, type: form.type }, purposeMap);
+                    const on = shown.includes(p.key);
+                    return (
+                      <label key={p.key} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm cursor-pointer ${on ? "border-emerald-600 bg-emerald-50 text-emerald-900" : "bg-white text-gray-600"}`}>
+                        <input type="checkbox" checked={on} onChange={e => setEditPurposes(e.target.checked ? [...shown.filter(x => x !== p.key), p.key] : shown.filter(x => x !== p.key))} />
+                        {p.label}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-500">
+                  하나도 고르지 않으면 「기타」 카드에 나옵니다. 이름 기준 기본값: {(() => { const d = defaultPurposesOf({ name: form.name, type: form.type }); return d.length ? d.map(purposeLabel).join(" · ") : OTHER_PURPOSE.label; })()}
+                  {purposeState === "ok" && <button type="button" className="ml-2 text-blue-600 hover:underline" onClick={() => setEditPurposes(defaultPurposesOf({ name: form.name, type: form.type }))}>기본값으로</button>}
                 </p>
               </div>
 

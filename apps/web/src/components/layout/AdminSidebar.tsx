@@ -2,7 +2,7 @@
 
 import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import Link from "next/link";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { WorkUnreadBadge } from "./WorkUnreadBadge";
@@ -31,11 +31,16 @@ import {
   ChevronDown,
   History,
   GitBranch,
+  Send,
+  Upload,
+  Search,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ size?: number; className?: string }> };
-// 관리자 메뉴 5묶음(2026-10-12 개선 제안 #214-5, 디렉터 채택): 근태 / 결재 / 전자계약 / 인사 / 설정. 대시보드는 맨 위에 그대로.
-// 묶음은 접었다 펼 수 있고 상태는 브라우저에 기억한다. 지금 보고 있는 화면이 든 묶음은 늘 펼친다
+// 관리자 메뉴 묶음 — 근태 / 결재 / 전자계약 / 휴가 / 인사 / 설정(2026-10-17 본부 박정인 님 개선 시안 1, 디렉터 채택. 그 전 5묶음은 2026-10-12 #214-5).
+// 대시보드는 맨 위에 그대로. 메뉴 항목(주소·권한 조건)은 바꾸지 않고 묶음만 옮겼다 — 빠진 메뉴 없음.
+// 전자계약만 이름을 시안대로: 전자계약 → 「보낸 계약서」, 계약 템플릿 → 「양식 관리」, + 「계약서 보내기」(새 화면)·「체결본 가져오기」(보낸 계약서 화면 버튼과 같은 곳).
+// 묶음은 접었다 펼 수 있고 상태는 브라우저에 기억한다. 지금 보고 있는 화면이 든 묶음은 늘 펼친다. 맨 위 「메뉴 찾기」로 이름 거르기
 const DASHBOARD: NavItem = { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard };
 const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
   { key: "attendance", title: "근태", items: [
@@ -44,9 +49,6 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 연장·야간·휴일·주 52시간(2026-10-08 #41)
     { href: "/admin/schedule", label: "근무일정", icon: Calendar },
     { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
-    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
-    { href: "/admin/leave-types", label: "휴가 유형 관리", icon: UmbrellaOff }, // 본부가 유형을 만들고 기본 유형을 숨김(2026-10-12 #216-1)
-    { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
   ] },
   { key: "approval", title: "결재", items: [
     { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
@@ -55,8 +57,14 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/approval-rules", label: "결재 규칙", icon: GitBranch }, // 요청 종류별 결재선·예외·원장대행(2026-10-15 #16)
   ] },
   { key: "contract", title: "전자계약", items: [
-    { href: "/admin/contracts", label: "전자계약", icon: FileSignature },
-    { href: "/admin/contract-templates", label: "계약 템플릿", icon: FileText },
+    { href: "/admin/contracts/send", label: "계약서 보내기", icon: Send },          // 용도별로 고르기(2026-10-17 시안 1·2)
+    { href: "/admin/contracts", label: "보낸 계약서", icon: FileSignature },        // 종전 「전자계약」 — 목록·작성 창·외부 계약
+    { href: "/admin/contract-templates", label: "양식 관리", icon: FileText },      // 종전 「계약 템플릿」
+    { href: "/admin/contract-import", label: "체결본 가져오기", icon: Upload },     // 모두싸인 체결본(#4) — 보낸 계약서 화면 버튼과 같은 곳
+  ] },
+  { key: "leave", title: "휴가", items: [
+    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
+    { href: "/admin/leave-types", label: "휴가 유형 관리", icon: UmbrellaOff }, // 본부가 유형을 만들고 기본 유형을 숨김(2026-10-12 #216-1)
   ] },
   { key: "hr", title: "인사", items: [
     { href: "/admin/employees", label: "직원 관리", icon: Users },
@@ -64,17 +72,23 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
     { href: "/admin/hire-dates", label: "입사일 대조", icon: CalendarCheck }, // 큐브티·포털·시프티 입사일 대조·반영(2026-10-08 #5)
     { href: "/admin/branches", label: "지점 관리", icon: Building2 },
-    { href: "/admin/permissions", label: "권한 설정", icon: ShieldCheck }, // 역할별 권한 켜고 끄기 + 현황(2026-10-14 #39)
   ] },
   { key: "settings", title: "설정", items: [
-    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
+    { href: "/admin/permissions", label: "권한 설정", icon: ShieldCheck }, // 역할별 권한 켜고 끄기 + 현황(2026-10-14 #39)
+    { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
     { href: "/admin/audit", label: "변경 로그", icon: History }, // 업무 변경은 모든 관리자, 시스템·보안 탭은 최고관리자(2026-10-14 #66 후속)
+    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
     { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
     { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
     { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
     { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
   ] },
 ];
+// 메뉴 찾기 — 띄어쓰기·대소문자 무시, 메뉴 이름이나 묶음 이름에 들어 있으면
+const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
+// 지금 화면에 맞는 메뉴 하나 — 가장 길게 맞는 주소(「/admin/contracts/send」에서 「보낸 계약서(/admin/contracts)」까지 켜지지 않게)
+const SETTINGS_ITEM: NavItem = { href: "/admin/settings", label: "환경설정", icon: Settings };   // 최고관리자 전용(아래 고정 링크와 같은 곳) — 메뉴 찾기에도 그 조건으로만
+const ALL_HREFS = [DASHBOARD, SETTINGS_ITEM, ...adminNavGroups.flatMap(g => g.items)].map(it => it.href.split("?")[0]);
 const COLLAPSE_KEY = "adminNav.collapsed";
 
 export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
@@ -92,10 +106,21 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { /* 무시 */ }
     return next;
   });
-  const isActive = (href: string) => {
-    const path = href.split("?")[0];
-    return pathname === path || pathname.startsWith(path + "/");
-  };
+  const [menuQuery, setMenuQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  // 휴대폰 서랍(MobileDashboardNav)은 ESC 를 document 캡처 단계에서 받아 서랍을 닫는다 — 검색칸에 글자가 있으면 그보다 먼저(window 캡처) 받아 검색어만 지운다
+  useEffect(() => {
+    if (!menuQuery) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || document.activeElement !== searchRef.current) return;
+      e.stopPropagation(); e.preventDefault();
+      setMenuQuery("");
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [menuQuery]);
+  const activePath = ALL_HREFS.filter(p => pathname === p || pathname.startsWith(p + "/")).sort((a, b) => b.length - a.length)[0];
+  const isActive = (href: string) => href.split("?")[0] === activePath;
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -120,10 +145,36 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
         </div>
       </div>
 
-      {/* 네비게이션 — 5묶음(#214-5). 묶음 머리를 누르면 접히고, 보고 있는 화면이 든 묶음은 늘 펼친다 */}
+      {/* 메뉴 찾기(2026-10-17 시안 1) — 이름 일부만 쳐도 그 메뉴만 남는다(찾는 동안은 묶음을 모두 펼침) */}
+      <div className="px-3 pt-3">
+        <label className="flex items-center gap-2 rounded-lg bg-slate-800 px-2.5 py-1.5 text-slate-300 focus-within:ring-1 focus-within:ring-slate-500">
+          <Search size={14} className="shrink-0 text-slate-500" />
+          <input ref={searchRef} value={menuQuery} onChange={e => setMenuQuery(e.target.value)} placeholder="메뉴 찾기 (예: 체결본)"
+            onKeyDown={e => { if (e.key === "Escape") setMenuQuery(""); }}
+            className="w-full min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none" aria-label="메뉴 찾기" />
+          {menuQuery && <button type="button" onClick={() => setMenuQuery("")} className="text-xs text-slate-400 hover:text-white" aria-label="지우기">✕</button>}
+        </label>
+      </div>
+
+      {/* 네비게이션 — 6묶음(2026-10-17). 묶음 머리를 누르면 접히고, 보고 있는 화면이 든 묶음은 늘 펼친다 */}
       <nav className="flex-1 px-3 py-3 space-y-0.5">
-        <NavLink item={DASHBOARD} active={isActive(DASHBOARD.href)} />
-        {adminNavGroups.map(g => {
+        {(() => {
+          const mq = norm(menuQuery);
+          if (!mq) return null;
+          // 찾는 중 — 맞는 메뉴만 묶음 이름과 함께
+          const hits = [{ title: "", items: isSuperAdmin ? [DASHBOARD, SETTINGS_ITEM] : [DASHBOARD] }, ...adminNavGroups]
+            .map(g => ({ title: g.title, items: norm(g.title).includes(mq) ? g.items : g.items.filter(it => norm(it.label).includes(mq)) }))
+            .filter(g => g.items.length > 0);
+          if (hits.length === 0) return <p className="px-3 py-2 text-xs text-slate-500">「{menuQuery.trim()}」 메뉴가 없습니다</p>;
+          return hits.map(g => (
+            <div key={g.title || "dash"} className="pt-1">
+              {g.title && <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{g.title}</p>}
+              {g.items.map(it => <NavLink key={it.href} item={it} active={isActive(it.href)} onClick={() => setMenuQuery("")} />)}
+            </div>
+          ));
+        })()}
+        {!norm(menuQuery) && <NavLink item={DASHBOARD} active={isActive(DASHBOARD.href)} />}
+        {!norm(menuQuery) && adminNavGroups.map(g => {
           const hasActive = g.items.some(it => isActive(it.href));
           const open = hasActive || !collapsed[g.key];
           return (
@@ -188,11 +239,12 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
   );
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: () => void }) {
   const Icon = item.icon;
   return (
     <Link
       href={item.href}
+      onClick={onClick}
       className={cn(
         "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
         active ? "bg-red-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"

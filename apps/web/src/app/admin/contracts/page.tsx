@@ -1298,6 +1298,50 @@ export default function ContractsPage() {
     fetchTemplates();
   }, [fetchContracts, fetchTemplates]);
 
+  // 「계약서 보내기」(/admin/contracts/send, 2026-10-17 박정인 님 시안)에서 고른 양식·받는 사람으로 이 화면의 작성 창을 연다 — 한 번만.
+  // 작성·검사·발송은 이 창 그대로(그 화면은 고르기만). ?compose=tpl|hire|resign|test &tpl=양식 id &kind=renew &to=직원id,… &picks=10001(퇴사 문서 고르기)
+  const composeHandled = useRef(false);
+  useEffect(() => {
+    if (composeHandled.current || role === "EMPLOYEE" || templates.length === 0 || employees.length === 0) return;
+    composeHandled.current = true;
+    const q = new URLSearchParams(window.location.search);
+    const mode = q.get("compose");
+    if (!mode) return;
+    window.history.replaceState(null, "", window.location.pathname);   // 새로고침·뒤로가기로 창이 또 열리지 않게
+    // 받는 사람 — 같은 id 는 한 번만, 목록에 있는 직원·원장만, 최대 200명(주소를 손으로 고쳐 넣은 값 막기)
+    const to = [...new Set((q.get("to") || "").split(","))].filter(id => employees.some(e => e.id === id && e.role !== "ADMIN")).slice(0, 200);
+    const tpl = templates.find(t => t.id === q.get("tpl"));
+    if (mode === "hire") {
+      if (!canBundle) { toast.error("신규입사 묶음 양식이 다 등록돼 있지 않습니다."); return; }
+      // 주소에서 한 번 읽어 작성 창을 여는 것이라 effect 안에서 상태를 바꾼다(목록·직원이 다 온 뒤에야 양식을 고를 수 있다)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      startKind("hire");
+    } else if (mode === "resign") {
+      if (!canResignBundle || !resignTemplates[0]) { toast.error("퇴사 서류 양식이 다 등록돼 있지 않습니다."); return; }
+      startKind("resign");
+      const raw = q.get("picks") || "";
+      const picks = RESIGN_PICK_DEFAULT.map((d, i) => (i === 0 ? true : /^[01]{5}$/.test(raw) ? raw[i] === "1" : d));
+      if (picks.some((v, i) => v !== RESIGN_PICK_DEFAULT[i])) { setResignPicks(picks); scanFields(resignTemplates[0].id, false, true, true, picks); }
+    } else {
+      if (!tpl) { toast.error("고른 양식을 찾지 못했습니다. 다시 골라 주세요."); return; }
+      if (q.get("kind") === "renew" && empTemplate && tpl.id === empTemplate.id) startKind("renew");
+      else {
+        setUseTemplate(true);
+        handleTemplateSelect(tpl.id);
+        if (q.get("kind") === "renew") setContractKind("재계약");   // scanFields 가 「신규입사」로 되돌린 뒤에(startKind 재계약과 같은 순서)
+      }
+    }
+    if (mode !== "test" && to.length) {
+      // 퇴사 패키지는 여러 명 작성이 안 된다(작성 창 규칙) — 첫 사람만
+      if (to.length > 1 && mode !== "resign") { setBulkMode(true); setBulkUserIds(to); }
+      setCreateForm(f => ({ ...f, userId: to[0] }));
+    }
+    setSalaryFocus(false);
+    setCreateOpen(true);
+    if (mode === "test") toast.info("내용을 채운 뒤 아래 「나에게 테스트 발송」을 누르세요. 서명자는 나 자신이고 다른 사람에게는 알림이 가지 않습니다.", { duration: 8000 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, templates, employees]);
+
   async function handleDeleteTemplate(templateId: string) {
     setDeletingTemplateId(templateId);
     try {
