@@ -61,7 +61,12 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   for (const c of targets) {
     try {
       const url = await generateAndStoreSignedDoc(c.id);
-      if (url) { out.healed++; continue; }
+      if (url) {
+        out.healed++;
+        // 외부 계약자 완료본 메일(10/16 QA 7) — 완료 때 만들기가 실패했던 건(검증 F2). 한 벌에 한 번만 보낸다
+        (await import("@/lib/external-delivery")).deliverExternalSignedCopyLater(c.id);   // 기다리지 않음, 오류는 기록(재검증 R3)
+        continue;
+      }
       // ⚠ null 은 두 가지다: 일시적 실패와 **원래 만들 수 없는 것**(서명 단계가 하나도 없는
       //   계약 — signed-doc.ts 의 `signers.length === 0`). 후자는 재시도해도 영원히 실패하고
       //   updatedAt 도 안 바뀌어 **매일 같은 id 를 알린다**(2026-09-04 검증관 A S-1).
@@ -91,7 +96,12 @@ export async function healMissingSignedDocs(): Promise<HealResult> {
   const { freezeSignedPdf } = await import("@/lib/signed-freeze");
   for (const c of toFreeze) {
     try {
-      if (await freezeSignedPdf(c.id)) { out.frozen++; continue; }
+      if (await freezeSignedPdf(c.id)) {
+        out.frozen++;
+        // 고정이 늦게 끝난 외부 계약 — 이제 완료본 PDF 메일을 보낸다(검증 F2)
+        (await import("@/lib/external-delivery")).deliverExternalSignedCopyLater(c.id);   // 기다리지 않음, 오류는 기록(재검증 R3)
+        continue;
+      }
       // null = 그 사이 완료가 풀렸다(경쟁) — 실패로 세지 않는다
     } catch (e) {
       out.freezeFailed++; out.freezeFailedIds.push(c.id);

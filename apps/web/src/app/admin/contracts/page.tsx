@@ -38,6 +38,7 @@ type Contract = {
   employeeOnly?: boolean; // 직원 서명만·직원전용 문서
   externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 외부 계약
   externalPhone?: string | null;
+  externalEmail?: string | null;   // 외부 계약자 받을 이메일(10/16 QA 7)
   employeeSignedAt?: string | null;
   signedAt: string | null;
   createdAt: string;
@@ -264,9 +265,14 @@ export default function ContractsPage() {
   // 발송 메시지(#65) — 발송 창을 열 때 본부 기본 문구로 채운다. 「기본으로 저장」하면 다음 발송부터 이 문구
   const [sendMsg, setSendMsg] = useState("");
   const [deadlineDays, setDeadlineDays] = useState("14");   // 서명 기한(#45, 본부 답변 #35 기본 2주)
+  // 패키지 서류별 결재 순서(10/16 이예지 QA 5) — 서류 id → 결재자 id 순서. 없으면 공통 순서. 이 발송에만 적용
+  const [docOrdersRaw, setDocOrders] = useState<Record<string, string[]>>({});
+  const [docOrdersKey, setDocOrdersKey] = useState("");   // 서류별 순서를 정할 때의 공통 결재자 — 결재자를 바꾸면 서류별 순서는 처음부터(검증 F4)
+  // 외부 계약 받을 이메일(10/16 이예지 QA 7) — 발송 때 필수. 링크 본인 확인(뒷자리와 함께)·완료본 PDF 받는 곳
+  const [sendExtEmail, setSendExtEmail] = useState("");
   const [savingMsg, setSavingMsg] = useState(false);
   async function openSendDialog(c: Contract) {
-    setSendTarget(c); resetApproverSlots(c); setApproverSearch(""); setSendMsg(""); setDeadlineDays("14"); setSendOpen(true);
+    setSendTarget(c); resetApproverSlots(c); setApproverSearch(""); setSendMsg(""); setDeadlineDays("14"); setDocOrders({}); setSendExtEmail(c.externalEmail || ""); setSendOpen(true);
     try {
       const d = await fetch("/api/admin/contract-message").then(r => (r.ok ? r.json() : null));
       if (d?.message) setSendMsg(m => (m ? m : d.message));
@@ -288,6 +294,7 @@ export default function ContractsPage() {
   const [slotSpecs, setSlotSpecs] = useState<ApprovalStepSpec[]>(DEFAULT_STEPS);   // 칸마다의 종류(본부·원장·근로자·외부) — 양식 순서(#213-2)
   const [activeSlot, setActiveSlot] = useState<number | null>(null); // 슬롯을 먼저 눌러 "지금 채울 칸" 지정
   const approverIds = approverSlots.filter((x): x is string => !!x);
+  const docOrders = docOrdersKey === approverIds.join(",") ? docOrdersRaw : {};
   // 양식에 순서가 있고 고정이면(기본) 칸 종류대로만 사람을 넣고 순서를 못 바꾼다. 순서 변경 허용 양식은 ▲▼·추가·삭제.
   // 순서가 없는(레거시) 양식은 종전 그대로 — 3칸(본부·원장·근로자)에 아무나 넣을 수 있고 서버도 검사하지 않는다(3f2d0d4 검증 F1)
   const slotLocked = !!sendTarget?.approvalSteps && sendTarget.approvalLocked !== false;
@@ -1815,6 +1822,10 @@ ${url}`;
 
   async function handleSend(id: string) {
     if (approverIds.length === 0) { toast.error("승인자를 선택해주세요."); return; }
+    if (sendTarget?.externalName && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(sendExtEmail.trim())) {
+      toast.error("외부 계약자가 계약서를 받을 이메일을 입력해주세요. 링크 본인 확인과 완료본 PDF 전달에 쓰입니다."); return;
+    }
+    const extEmailPart = sendTarget?.externalName ? { externalEmail: sendExtEmail.trim() } : {};
     if (sendingRef.current) return; // 두 번 누름 방지(요청이 끝날 때까지)
     sendingRef.current = true;
     setSending(true);
@@ -1837,7 +1848,13 @@ ${url}`;
 
     const bundleId = sendTarget?.bundleId;
     if (bundleId && sendTarget?.status !== "REJECTED") {
-      const r = await post(`/api/contracts/bundle/${bundleId}/send`, "POST", { approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14 });
+      // 서류별 순서 — 공통 순서와 다르게 바꾼 서류만(공통 결재자에서 빠진 사람은 뺀다)
+      const docOrdersPayload: Record<string, string[]> = {};
+      for (const [cid, ord] of Object.entries(docOrders)) {
+        const o = ord.filter((x) => approverIds.includes(x));
+        if (o.length > 0 && o.join(",") !== approverIds.join(",")) docOrdersPayload[cid] = o;
+      }
+      const r = await post(`/api/contracts/bundle/${bundleId}/send`, "POST", { approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14, ...extEmailPart, ...(Object.keys(docOrdersPayload).length ? { docOrders: docOrdersPayload } : {}) });
       if (!r) return;
       const { res, data } = r;
       if (!res.ok) { toast.error(data.error || "패키지 발송 실패"); return; }
@@ -1860,7 +1877,7 @@ ${url}`;
       return;
     }
 
-    const r = await post(`/api/contracts/${id}`, "PATCH", { status: "SENT", approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14 });
+    const r = await post(`/api/contracts/${id}`, "PATCH", { status: "SENT", approverIds, sendMessage: sendMsg, deadlineDays: Number(deadlineDays) || 14, ...extEmailPart });
     if (!r) return;
     const { res, data } = r;
     if (!res.ok) { toast.error(data.error || "발송하지 못했습니다."); return; }
@@ -3793,6 +3810,61 @@ ${url}`;
                                         })}
                                       </div>
                                     )}
+                                    {/* 서류별 결재 순서(10/16 이예지 QA 5) — 퇴사 패키지처럼 서류마다 서명하는 사람이 다를 때. 고른 결재자 안에서 순서 바꾸기·빼기, 이 발송에만 */}
+                                    {(() => {
+                                      if (!sendTarget.bundleId || sendTarget.externalName || approverIds.length < 2) return null;
+                                      const docs = contracts.filter(x => x.bundleId === sendTarget.bundleId && !x.employeeOnly && x.status !== "SIGNED" && x.status !== "REJECTED");
+                                      if (docs.length < 2) return null;
+                                      const orderOf = (cid: string) => (docOrders[cid] ?? approverIds).filter(x => approverIds.includes(x));
+                                      const setOrder = (cid: string, next: string[]) => { setDocOrdersKey(approverIds.join(",")); setDocOrders(() => ({ ...docOrders, [cid]: next })); };
+                                      return (
+                                        <div className="rounded-md border p-2 space-y-2">
+                                          <p className="text-[11px] font-semibold text-gray-500">서류별 결재 순서 <span className="font-normal text-gray-400">(◀▶로 옮기기·✕로 빼기 — 이 발송에만 적용, 바꾸면 변경 로그에 남음)</span></p>
+                                          {docs.map(d => {
+                                            const ord = orderOf(d.id);
+                                            const removed = approverIds.filter(x => !ord.includes(x));
+                                            const custom = ord.join(",") !== approverIds.join(",");
+                                            return (
+                                              <div key={d.id} className="text-xs">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <span className={`truncate ${custom ? "font-semibold text-indigo-700" : "text-gray-700"}`}>{d.title.replace(/^\d{4}\s+/, "")}</span>
+                                                  {custom && (
+                                                    <button type="button" className="shrink-0 text-[11px] text-indigo-600 hover:underline"
+                                                      onClick={() => setDocOrders(() => { const n = { ...docOrders }; delete n[d.id]; return n; })}>기본 순서로</button>
+                                                  )}
+                                                </div>
+                                                <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                                  {ord.map((sid, i) => (
+                                                    <span key={sid} className="inline-flex items-center gap-0.5 rounded border bg-white px-1 py-0.5">
+                                                      <button type="button" aria-label="앞으로" disabled={i === 0} className="px-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                                                        onClick={() => { const n = [...ord]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; setOrder(d.id, n); }}>◀</button>
+                                                      <span>{i + 1}. {approverName(sid)}</span>
+                                                      <button type="button" aria-label="뒤로" disabled={i === ord.length - 1} className="px-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                                                        onClick={() => { const n = [...ord]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; setOrder(d.id, n); }}>▶</button>
+                                                      <button type="button" aria-label="이 서류에서 빼기" disabled={ord.length <= 1 || sid === sendTarget.userId} title={sid === sendTarget.userId ? "근로자(계약 당사자) 서명은 뺄 수 없습니다" : undefined} className="px-0.5 text-red-400 hover:text-red-600 disabled:opacity-30"
+                                                        onClick={() => setOrder(d.id, ord.filter(x => x !== sid))}>✕</button>
+                                                    </span>
+                                                  ))}
+                                                  {removed.map(sid => (
+                                                    <button key={sid} type="button" className="rounded border border-dashed px-1 py-0.5 text-gray-500 hover:bg-gray-50"
+                                                      onClick={() => setOrder(d.id, [...ord, sid])}>+ {approverName(sid)}</button>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+                                    {/* 외부 계약 받을 이메일(10/16 이예지 QA 7) — 필수. 링크를 열 때 이 이메일과 휴대폰 뒷자리를 함께 확인하고, 완료본 PDF 를 이 주소로 보낸다 */}
+                                    {sendTarget.externalName && (
+                                      <div className="space-y-1">
+                                        <span className="text-xs font-medium text-gray-600">계약서 받을 이메일 <span className="text-red-500">*</span> <span className="font-normal text-gray-400">(링크 본인 확인·완료본 PDF 전달)</span></span>
+                                        <input type="email" value={sendExtEmail} onChange={e => setSendExtEmail(e.target.value)}
+                                          placeholder="예) hong@example.com"
+                                          className={`w-full rounded-md border px-2 py-1.5 text-sm ${sendExtEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(sendExtEmail.trim()) ? "border-red-400" : ""}`} />
+                                      </div>
+                                    )}
                                     {/* 서명 기한(#45) — 기본 14일, 지나면 자동 만료·본부 알림. 미서명 알림은 3일마다 */}
                                     <div className="flex items-center gap-2 text-xs text-gray-600">
                                       <span className="font-medium">서명 기한</span>
@@ -3864,7 +3936,10 @@ ${url}`;
                                           .map((id, i) => (id ? `${i + 1}단계 ${slotLabel(i)} ${approverName(id)}` : null))
                                           .filter(Boolean)
                                           .join(" → ");
-                                        if (!confirm(`${names}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
+                                        const changedDocs = sendTarget.bundleId ? contracts.filter(x => x.bundleId === sendTarget.bundleId && docOrders[x.id]
+                                          && docOrders[x.id].filter(i => approverIds.includes(i)).join(",") !== approverIds.join(","))
+                                          .map(x => `· ${x.title.replace(/^\d{4}\s+/, "")}: ${docOrders[x.id].filter(i => approverIds.includes(i)).map(approverName).join(" → ")}`) : [];
+                                        if (!confirm(`${names}${changedDocs.length ? `\n\n서류별로 바꾼 순서(이 발송에만):\n${changedDocs.join("\n")}` : ""}\n\n발송 후에는 문서를 수정할 수 없습니다. 발송할까요?`)) return;
                                         handleSend(sendTarget.id);
                                       }}>{sending ? "발송 중…" : "발송"}</Button>
                                     </div>

@@ -22,6 +22,7 @@ interface EmailOptions {
   subject: string;
   html: string;
   fromName?: string;   // 발신 이름(없으면 SMTP_FROM_NAME 또는 「큐브티」)
+  attachments?: { filename: string; path: string; contentType?: string }[];   // 완료본 PDF(외부 계약자, 10/16 QA 7)
 }
 
 // 계약 메일의 발신 이름(2026-10-16 이예지 QA A5) — 처음 받는 직원이 「큐브티」만 보고 스팸·피싱으로 오해하지 않게
@@ -133,7 +134,7 @@ export async function sendPasswordReset(email: string, name: string, resetUrl: s
 
 // 전자계약 메일 공통 틀(2026-10-08 #217-3) — 발신 표시·기한·보안 안내. 로고 파일이 없어 글자 머리말로 둔다
 const kstYmd = (d?: Date | null) => (d ? new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : null);
-function contractMailShell(title: string, body: string): string {
+function contractMailShell(title: string, body: string, opts?: { external?: boolean }): string {
   // 직영은 「에듀플렉스 직영사업본부」, 판매용 고객사는 발신 이름(SMTP_FROM_NAME) 또는 큐브티(검증 L6)
   const org = contractSender().direct ? "에듀플렉스 직영사업본부" : escapeHtml(process.env.SMTP_FROM_NAME || "큐브티");
   return `
@@ -146,7 +147,9 @@ function contractMailShell(title: string, body: string): string {
       ${body}
       <p style="margin-top: 30px; color: #666; font-size: 12px; line-height: 1.6;">
         발신: ${org} · 큐브티 전자계약(자동 발송, 회신 불가)<br>
-        🔒 이 메일의 링크는 본인 전용입니다. 다른 사람에게 전달하지 마세요. 문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
+        ${opts?.external
+          ? "문의는 계약서를 보낸 담당자에게 해 주세요."
+          : "🔒 이 메일의 링크는 본인 전용입니다. 다른 사람에게 전달하지 마세요. 문의는 큐브티워크 메신저로 담당자에게 남겨 주세요."}
       </p>
     </div>
   `;
@@ -275,6 +278,29 @@ export async function sendContractCompletion(
     subject: snd.direct ? `${snd.prefix}[완료] ${contractTitle} - 서명·결재가 모두 끝났습니다` : `[완료] ${contractTitle} - 모든 승인이 완료되었습니다`,
     html,
     fromName: snd.fromName,
+  });
+}
+
+/** 외부(미가입) 계약자에게 완료본 PDF(10/16 이예지 QA 7) — 발송 때 받은 이메일로(lib/external-delivery 가 부른다) */
+export async function sendExternalSignedCopy(
+  to: string, name: string, title: string, pdf: { filename: string; path: string }
+): Promise<boolean> {
+  const html = contractMailShell("서명 완료 — 계약서 완료본", `
+      <p>안녕하세요 ${escapeHtml(name)}님,</p>
+      <p>아래 계약서의 서명·결재가 모두 끝났습니다. 완료본(PDF)을 이 메일에 붙여 보내 드립니다.</p>
+      <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #10b981;">
+        <p><strong>문서:</strong> ${escapeHtml(title)}</p>
+        <p><strong>상태:</strong> 모든 서명·결재 완료</p>
+      </div>
+      <p style="color:#6b7280;font-size:12px;">보안을 위해 서명 링크로는 더 이상 계약서가 열리지 않습니다. 이 메일의 첨부 파일을 보관해 주세요.</p>
+  `, { external: true });
+  const snd = contractSender();
+  return sendEmail({
+    to,
+    subject: `${snd.prefix}[완료] ${title} - 계약서 완료본`,
+    html,
+    fromName: snd.fromName,
+    attachments: [{ filename: pdf.filename, path: pdf.path, contentType: "application/pdf" }],
   });
 }
 

@@ -16,6 +16,28 @@ const TTL_MS = 2 * 3600 * 1000;
 const MAX_FAILS = 5;
 const LOCK_MS = 30 * 60 * 1000;
 
+/** 이메일 비교용 — 앞뒤 공백 제거·소문자 */
+export function normEmail(v: string | null | undefined): string {
+  return (v || "").trim().toLowerCase();
+}
+
+/** 외부 계약자 이메일 형식 — 발송 때 필수(10/16 이예지 QA 7) */
+export function isValidEmail(v: string | null | undefined): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((v || "").trim());
+}
+
+/** 화면·기록용 가림 — ab***@do***.com */
+export function maskEmail(v: string | null | undefined): string {
+  const e = (v || "").trim();
+  const at = e.indexOf("@");
+  if (at <= 0) return "";
+  const [user, domain] = [e.slice(0, at), e.slice(at + 1)];
+  const dot = domain.lastIndexOf(".");
+  const host = dot > 0 ? domain.slice(0, dot) : domain;
+  const tld = dot > 0 ? domain.slice(dot) : "";
+  return `${user.slice(0, 2)}***@${host.slice(0, 2)}***${tld}`;
+}
+
 /** 연락처에서 숫자만 — 4자리 미만이면 확인할 수 없다(null) */
 export function phoneLast4(phone: string | null | undefined): string | null {
   const d = (phone || "").replace(/\D/g, "");
@@ -63,7 +85,7 @@ export type Last4Result = { result: "ok" } | { result: "wrong" } | { result: "lo
  * 뒷자리 확인 — 시도를 **비교 전에 한 문장으로** 센다: 잠겨 있지 않을 때만 틀린 횟수 +1(잠겨 있으면 0행).
  * 확인과 계수 사이에 틈이 없어 동시 요청으로 5회 제한을 넘지 못한다. 맞으면 기록을 지우고, 5번째까지 틀리면 잠근다.
  */
-export async function tryLast4(stepId: string, phone: string | null | undefined, input: string): Promise<Last4Result> {
+export async function tryLast4(stepId: string, phone: string | null | undefined, input: string, email?: { want: string | null | undefined; got: string | null | undefined }): Promise<Last4Result> {
   // 잠금 시각은 UTC 로 저장된다(timestamp). DB 시계를 UTC 로 바꿔 비교 — DB 세션 시간대 설정과 무관하게(묶음 ① 검증 권고)
   const rows = await prisma.$queryRaw<{ verifyFails: number; verifyLocks: number }[]>`
     UPDATE "ContractApprovalStep" SET "verifyFails" = "verifyFails" + 1
@@ -77,7 +99,9 @@ export async function tryLast4(stepId: string, phone: string | null | undefined,
   const want = phoneLast4(phone);
   const got = (input || "").replace(/\D/g, "");
   // 한도를 넘겨 센 요청(동시 요청의 6번째 이후)은 비교하지 않는다
-  const ok = verifyFails <= MAX_FAILS && !!want && got.length === 4 &&
+  // 이메일 확인(10/16 이예지 QA 7) — 발송 때 받을 이메일을 적은 계약은 뒷자리와 **함께** 맞아야 열린다(한 번의 시도로 센다 — 5번 틀리면 잠금)
+  const emailOk = !email || !normEmail(email.want) || normEmail(email.got) === normEmail(email.want);
+  const ok = verifyFails <= MAX_FAILS && !!want && got.length === 4 && emailOk &&
     crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
   if (ok) {
     await prisma.contractApprovalStep.update({ where: { id: stepId }, data: { verifyFails: 0, verifyLocks: 0, verifyLockedUntil: null } });

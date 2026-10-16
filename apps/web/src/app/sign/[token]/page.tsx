@@ -20,6 +20,7 @@ type Info = {
   fileTicket?: string | null; // 게스트 파일 접근 티켓 — 뷰어 URL 에 ?t= 로 부착
   needVerify?: boolean;       // 본인 확인(연락처 뒷자리) 전 — 문서 대신 확인 화면(#205-1)
   consentOptions?: { unique: boolean; recruit: boolean } | null;   // 개인정보동의서에 있는 선택 동의 칸(10/16 QA 9)
+  needEmail?: boolean;        // 받을 이메일도 함께 확인(10/16 QA 7)
   phoneHint?: string | null;  // 안내용(앞 3자리만)
 };
 
@@ -37,6 +38,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const sigRef = useRef<SignaturePadHandle>(null);
   // 본인 확인(#205-1) — 연락처 뒷자리 4자리를 맞히면 서버가 2시간짜리 증표를 준다. 증표로 다시 불러와야 문서가 열린다.
   const [last4, setLast4] = useState("");
+  const [email, setEmail] = useState("");   // 받을 이메일(10/16 QA 7)
+  // 서명 직후 완료본 받기(10/16 QA 7 ①) — 증표(2시간) 안에서만
+  const [copies, setCopies] = useState<{ email: string | null; docs: { id: string; title: string; ready: boolean }[] } | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyToken, setVerifyToken] = useState("");
   const [agree, setAgree] = useState(false); // 전자서명 동의(#205-3) — 명시적으로 체크해야 제출
@@ -70,19 +74,33 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   }, [info, token, verifyToken]);
 
   async function verify() {
+    if (info?.needEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) { alert("계약서를 받을 이메일을 입력해주세요."); return; }
     if (!/^\d{4}$/.test(last4)) { alert("연락처 뒷자리 4자리를 입력해주세요."); return; }
     setVerifying(true);
     try {
       const res = await fetch(`/api/contracts/external-sign/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify", last4 }),
+        body: JSON.stringify({ action: "verify", last4, ...(info?.needEmail ? { email: email.trim() } : {}) }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { alert(d.error || "확인에 실패했습니다."); return; }
       setVerifyToken(d.verifyToken);
       await load(d.verifyToken);
     } finally { setVerifying(false); }
+  }
+
+  async function downloadCopy(docId: string, title: string) {
+    try {
+      const r = await fetch(`/api/contracts/external-sign/${token}/signed?doc=${encodeURIComponent(docId)}`, { headers: { "x-sign-verify": verifyToken } });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "완료본을 받지 못했습니다."); return; }
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${title}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch { alert("네트워크 오류로 받지 못했습니다."); }
   }
 
   async function submit() {
@@ -111,6 +129,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
       if (!res.ok) { alert(d.error || "서명 처리에 실패했습니다."); return; }
       if (d.warning) alert(d.warning);
       setFinished(true);
+      // 완료본 목록(10/16 QA 7 ①) — 이미 완료된 문서는 바로 받을 수 있다
+      if (verifyToken) fetch(`/api/contracts/external-sign/${token}/signed`, { headers: { "x-sign-verify": verifyToken } })
+        .then((r) => (r.ok ? r.json() : null)).then((x) => { if (x) setCopies(x); }).catch(() => {});
     } finally { setSubmitting(false); }
   }
 
@@ -167,7 +188,21 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
               <div className="bg-white rounded-xl border p-6 text-center space-y-1">
                 <p className="text-2xl">✅</p>
                 <p className="font-semibold">서명이 완료되었습니다</p>
-                <p className="text-xs text-gray-500">서명된 계약서는 회사에서 보관하며, 필요 시 담당자에게 사본을 요청하실 수 있습니다.</p>
+                {copies?.docs.some((x) => x.ready) && (
+                  <div className="pt-2 space-y-1.5">
+                    {copies.docs.filter((x) => x.ready).map((x) => (
+                      <button key={x.id} type="button" onClick={() => downloadCopy(x.id, x.title)}
+                        className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-100">
+                        📄 {x.title} 완료본 받기
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">
+                  {copies?.email
+                    ? `모든 서명·결재가 끝나면 완료본 PDF 를 ${copies.email} 로 보내 드립니다. 이 링크로는 더 이상 계약서가 열리지 않습니다.`
+                    : "서명된 계약서는 회사에서 보관하며, 필요 시 담당자에게 사본을 요청하실 수 있습니다."}
+                </p>
               </div>
             ) : info.state === "rejected" ? (
               <div className="bg-white rounded-xl border p-6 text-center text-sm text-red-500">
@@ -185,8 +220,13 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
               <div className="bg-white rounded-xl shadow-sm border p-5 space-y-3">
                 <p className="text-sm font-semibold">본인 확인</p>
                 <p className="text-xs text-gray-500">
-                  계약서를 보시기 전에, 담당자가 등록한 연락처{info.phoneHint ? ` (${info.phoneHint})` : ""}의 뒷자리 4자리를 입력해 주세요.
+                  계약서를 보시기 전에, {info.needEmail ? "계약서를 받을 이메일과 " : ""}담당자가 등록한 연락처{info.phoneHint ? ` (${info.phoneHint})` : ""}의 뒷자리 4자리를 입력해 주세요.
                 </p>
+                {info.needEmail && (
+                  <input type="email" inputMode="email" autoComplete="email" value={email} aria-label="계약서를 받을 이메일"
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="계약서를 받을 이메일 (담당자에게 알려 준 주소)" />
+                )}
                 <div className="flex gap-2">
                   <input inputMode="numeric" maxLength={4} value={last4} aria-label="연락처 뒷자리 4자리"
                     onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}

@@ -98,6 +98,7 @@ export async function PATCH(
   let confirmReset = false;
   // 발송 메시지(#65)·중복 발송 확인(#47) — JSON 발송 요청만 보낸다
   let sendMessageRaw: unknown = undefined;
+  let externalEmailRaw: unknown = undefined;   // 외부 계약 받을 이메일(10/16 QA 7) — 발송 요청에 실려 온다
   let confirmDuplicate = false;
   let deadlineDays: unknown = undefined;      // 발송 기한(#45) — 일 수(기본 14)
   let signDeadlineRaw: unknown = undefined;   // 기한 변경(#45) — "YYYY-MM-DD"
@@ -165,6 +166,7 @@ export async function PATCH(
       hideRevoked = body.hideRevoked;
       confirmReset = body.confirmReset === true;
       sendMessageRaw = body.sendMessage;
+      externalEmailRaw = body.externalEmail;
       confirmDuplicate = body.confirmDuplicate === true;
       deadlineDays = body.deadlineDays;
       signDeadlineRaw = body.signDeadline;
@@ -181,7 +183,7 @@ export async function PATCH(
 
   const contract = await prisma.contract.findUnique({
     where: { id },
-    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, extraFields: true, employeeSignedAt: true, employeeOnly: true, bundleId: true, isTest: true },
+    select: { status: true, version: true, title: true, type: true, fileUrl: true, startDate: true, endDate: true, userId: true, templateId: true, externalName: true, externalPhone: true, externalEmail: true, extraFields: true, employeeSignedAt: true, employeeOnly: true, bundleId: true, isTest: true },
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -311,6 +313,13 @@ export async function PATCH(
   // 작성 때 필수로 받지만 옛 계약·직접 호출에 대비한 안전망(2026-09-11 기준 운영 외부 계약은 모두 번호 있음).
   if ((status === "SENT" || needsReset) && contract.externalName && !isValidMobile(contract.externalPhone))
     return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
+  // 외부 계약 발송은 받을 이메일이 꼭 있어야 한다(10/16 이예지 QA 7) — 링크 본인 확인(뒷자리와 함께)·완료본 PDF 전달에 쓴다
+  const { isValidEmail } = await import("@/lib/external-verify");
+  const sendExternalEmail = contract.externalName
+    ? (typeof externalEmailRaw === "string" && externalEmailRaw.trim() ? externalEmailRaw.trim() : contract.externalEmail || "")
+    : "";
+  if (status === "SENT" && contract.externalName && !isValidEmail(sendExternalEmail))
+    return NextResponse.json({ error: "외부 계약자가 계약서를 받을 이메일을 입력해주세요. 링크 본인 확인과 완료본 PDF 전달에 필요합니다." }, { status: 400 });
 
   let editTemplateVersion: number | null = null;   // 내용 수정으로 다시 만든 문서의 양식 버전(#48)
   if (fieldSummary && contentChanged) {
@@ -536,6 +545,7 @@ export async function PATCH(
       // 발송이면 발송 당시 양식 버전·메시지를 남긴다(#48 #65). 파일을 직접 바꿔 보낸 건은 양식 버전이 없다
       ...(status === "SENT"
         ? { templateVersion: sendTemplateVersion ?? editTemplateVersion, ...(sendMessageRaw !== undefined ? { sendMessage: sendMessage ?? null } : {}),
+            ...(contract.externalName && sendExternalEmail ? { externalEmail: sendExternalEmail } : {}),
             signDeadline: sendDeadline }
         // 서명·반려 뒤 내용 수정은 현재 양식으로 다시 만들어 처음부터 받는다 — 사실상 재발송이라 양식 버전도 맞춘다(검증 F4)
         : editTemplateVersion != null && contract.status !== "DRAFT" ? { templateVersion: editTemplateVersion } : {}),
@@ -558,6 +568,10 @@ export async function PATCH(
           error: "방금 서명이 들어왔습니다. 저장하면 서명이 초기화되고 1단계부터 다시 받습니다(옛 서명 기록은 이력에 남습니다). 저장할까요?",
         }, { status: 409 });
   }
+
+  // 패키지의 대표 문서만 다시 보낼 때 이메일을 바꾸면, 같은 패키지의 외부 문서에도 같은 주소를 쓴다(검증 F6 — 문서끼리 주소가 어긋났다). 발송이 실제로 저장된 뒤에만(재검증 R1 — 검사·중복 경고 앞에서 바꾸면 취소한 발송에도 바뀌었다)
+  if (status === "SENT" && contract.externalName && contract.bundleId && sendExternalEmail)
+    await prisma.contract.updateMany({ where: { bundleId: contract.bundleId, externalName: { not: null }, id: { not: id }, status: { notIn: ["SIGNED", "REJECTED"] } }, data: { externalEmail: sendExternalEmail } });
 
   // 감사 기록(#205-4) — 수정·결재 초기화·발송/재발송
   const evActor = { contractId: id, actorId: session.userId, actorName: session.name, request };

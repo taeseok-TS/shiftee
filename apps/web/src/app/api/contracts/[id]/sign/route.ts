@@ -302,6 +302,7 @@ export async function POST(
       try {
         const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
         await generateAndStoreSignedDoc(id);
+      void import("@/lib/external-delivery").then((m) => m.deliverExternalSignedCopyLater(id));   // 10/16 QA 7 — 기다리지 않음
       } catch (e) {
         // ⚠ 종전에는 console.error 로 끝났다. 컨테이너 로그는 아무도 안 보고, 계약은
         //   "완료"인데 원본 저장본만 없는 상태로 조용히 남는다(2026-09-04 검증관 A F1).
@@ -385,6 +386,7 @@ export async function POST(
       try {
         const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
         await generateAndStoreSignedDoc(id);
+      void import("@/lib/external-delivery").then((m) => m.deliverExternalSignedCopyLater(id));   // 10/16 QA 7 — 기다리지 않음
       } catch (e) {
         // ⚠ 종전에는 console.error 로 끝났다. 컨테이너 로그는 아무도 안 보고, 계약은
         //   "완료"인데 원본 저장본만 없는 상태로 조용히 남는다(2026-09-04 검증관 A F1).

@@ -308,6 +308,7 @@ model Contract {
   employeeFields   Json? // 직원이 서명 시 직접 입력하는 문서 전용 필드(["퇴사일자","퇴사사유"]) — 프로필 저장 X, 문서에만 반영
   externalName     String? // 외부(미가입) 계약자 이름 — 있으면 외부 계약(userId는 작성 관리자)
   externalPhone    String? // 외부 계약자 연락처(링크 전달 참고용)
+  externalEmail    String? // 외부 계약자 이메일(10/16 이예지 QA 7) — 발송 때 필수, 링크 본인 확인(뒷자리와 함께)·완료본 PDF 받는 곳
   createdBy        String? // 작성자(발송 관리자) userId — 단계·완료 알림 대상 (#136). 기존 계약은 null(작성자 알림 생략)
   // 발송 당시 양식 버전(#48)·발송 메시지(#65) — 2026-10-07 QA76 묶음 7-가. deploy/ddl_contract_send_meta.sql
   templateVersion  Int?

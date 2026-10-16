@@ -19,7 +19,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true, sendMessage: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, externalEmail: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true, sendMessage: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -128,6 +128,8 @@ export async function GET(
     state,
     // 본인 확인 전이면 문서 대신 확인 화면 — 안내에는 앞 3자리만(뒷자리를 보여주면 확인이 무의미하다)
     needVerify: needVerify && !verified,
+    // 이메일도 함께 확인(10/16 QA 7) — 발송 때 받은 이메일이 있는 계약만. 어떤 주소인지는 알려 주지 않는다
+    needEmail: needVerify && !verified && !!contract.externalEmail,
     phoneHint: needVerify && !verified ? phoneHint(contract.externalPhone) : null,
   });
 }
@@ -150,7 +152,8 @@ export async function POST(
   if (step.status !== "PENDING")
     return NextResponse.json({ error: "아직 서명 차례가 아닙니다. 앞 단계 결재가 끝나면 서명할 수 있습니다." }, { status: 400 });
 
-  const { signatureData, consent, action, last4, verifyToken, agree } = (await request.json().catch(() => ({}))) as {
+  const { signatureData, consent, action, last4, verifyToken, agree, email } = (await request.json().catch(() => ({}))) as {
+    email?: string;       // 받을 이메일(10/16 QA 7) — 발송 때 적은 것과 같아야 한다
     agree?: boolean;      // 전자서명 동의(#205-3)
     signatureData?: string;
     consent?: Record<string, string> | null; // 개인정보동의서 선택 항목 (동의고유식별/동의채용정보)
@@ -179,13 +182,14 @@ export async function POST(
   if (action === "verify") {
     if (!phoneLast4(extPhone)) return NextResponse.json({ verifyToken: issueExternalVerify(step.id) }); // 연락처 없는 옛 계약
     // 잠금 확인과 계수를 한 문장으로(잠금 상태는 DB — 재배포에도 유지)
-    const r = await tryLast4(step.id, extPhone, String(last4 ?? ""));
+    const extEmail = step.approvalLine.contract.externalEmail;
+    const r = await tryLast4(step.id, extPhone, String(last4 ?? ""), extEmail ? { want: extEmail, got: String(email ?? "") } : undefined);
     if (r.result === "locked")
       return NextResponse.json({ code: "VERIFY_LOCKED", error: `여러 번 틀렸습니다. ${Math.max(1, Math.ceil((r.until - Date.now()) / 60000))}분 뒤에 다시 시도하거나 담당자에게 문의해 주세요.` }, { status: 429 });
     if (r.result === "wrong") {
       // 틀린 시도만 남긴다(잠긴 뒤 두드리는 요청까지 남기면 기록이 넘친다 — 틀림은 잠금 한 번에 최대 5건)
       await recordContractEvent({ ...evBase, type: "VERIFY_FAIL" });
-      return NextResponse.json({ code: "VERIFY_FAILED", error: "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
+      return NextResponse.json({ code: "VERIFY_FAILED", error: extEmail ? "이메일 또는 연락처 뒷자리가 맞지 않습니다." : "연락처 뒷자리가 맞지 않습니다." }, { status: 400 });
     }
     await recordOnce("VERIFY_OK");
     return NextResponse.json({ verifyToken: issueExternalVerify(step.id) });
@@ -297,6 +301,7 @@ export async function POST(
     try {
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(contractId);
+      void import("@/lib/external-delivery").then((m) => m.deliverExternalSignedCopyLater(contractId));   // 10/16 QA 7 — 기다리지 않음
     } catch (e) {
       console.error("외부 서명 완료본 생성 오류:", e);
       // 시스템 로그에 바로 남긴다(sign 라우트와 같게, 10/14) — 매시 점검(signed-doc-heal)이 다시 만든다
@@ -356,6 +361,7 @@ export async function POST(
       await recordContractEvent({ ...evBase, contractId: sib.id, stepOrder: sibStep.order, type: "COMPLETED" });
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(sib.id);
+      void import("@/lib/external-delivery").then((m) => m.deliverExternalSignedCopyLater(sib.id));   // 10/16 QA 7 — 기다리지 않음
     } catch (e) {
       console.error("패키지 동반 문서 서명 오류:", sib.title, e);
       failedDocs.push(sib.title);

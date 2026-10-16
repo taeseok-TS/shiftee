@@ -64,6 +64,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   CONTRACT_IMPORT: "계약 엑셀 업로드",
   CONTRACT_IMPORT_ROLLBACK: "계약 엑셀 업로드 되돌림",
   CONTRACT_MESSAGE_UPDATE: "전자계약 기본 메시지 변경",
+  CONTRACT_ORDER_OVERRIDE: "패키지 서류별 결재 순서 변경(그 발송만)",
   CONTRACT_TEMPLATE_COPY: "계약서 템플릿 사본",
   CONTRACT_TEMPLATE_UPDATE: "계약서 템플릿 수정",
   CONTRACT_TEST_SEND: "시험 계약 발송",

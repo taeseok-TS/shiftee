@@ -7,6 +7,7 @@ import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/
 import { preserveDecidedSteps, lockSteps } from "@/lib/contract-reset";
 import { isValidMobile, relayToken } from "@/lib/external-verify";
 import { recordContractEvent } from "@/lib/contract-events";
+import { logAudit } from "@/lib/audit";
 import { normalizeSendMessage, findDuplicateSends, messageDmLine, SEND_MESSAGE_MAX } from "@/lib/contract-send-meta";
 
 // 패키지 일괄 발송 — 근로계약서는 설정한 결재라인(원장→직원→본부장)으로,
@@ -22,7 +23,7 @@ export async function POST(
     return NextResponse.json({ error: "패키지 발송은 관리자만 가능합니다." }, { status: 403 });
 
   const { bundleId } = await params;
-  const body = (await request.json().catch(() => ({}))) as { approverIds?: string[]; sendMessage?: unknown; confirmDuplicate?: boolean; deadlineDays?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { approverIds?: string[]; sendMessage?: unknown; confirmDuplicate?: boolean; deadlineDays?: unknown; docOrders?: unknown; externalEmail?: unknown };
   const { approverIds } = body;
   if (!Array.isArray(approverIds) || approverIds.length === 0)
     return NextResponse.json({ error: "승인자를 선택해주세요." }, { status: 400 });
@@ -32,7 +33,7 @@ export async function POST(
 
   const contracts = await prisma.contract.findMany({
     where: { bundleId },
-    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true, type: true, bundleId: true },
+    select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, externalEmail: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true, type: true, bundleId: true },
     orderBy: { createdAt: "asc" },   // 대표 문서(결재 순서 기준)가 늘 같게(3f2d0d4 검증 F6)
   });
   if (contracts.length === 0)
@@ -43,10 +44,40 @@ export async function POST(
   // 외부 패키지는 휴대폰 번호가 있어야 보낸다(디렉터 9/11) — 게스트 링크 본인 확인이 이 번호로 한다(안전망)
   if (contracts.some((c) => c.externalName && !isValidMobile(c.externalPhone)))
     return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });
+  // 외부 패키지는 받을 이메일 필수(10/16 이예지 QA 7) — 링크 본인 확인·완료본 PDF 전달
+  const { isValidEmail } = await import("@/lib/external-verify");
+  const bundleEmail = isExternalBundle
+    ? (typeof body.externalEmail === "string" && body.externalEmail.trim() ? body.externalEmail.trim() : contracts.find((c) => c.externalEmail)?.externalEmail || "")
+    : "";
+  if (isExternalBundle && !isValidEmail(bundleEmail))
+    return NextResponse.json({ error: "외부 계약자가 계약서를 받을 이메일을 입력해주세요. 링크 본인 확인과 완료본 PDF 전달에 필요합니다." }, { status: 400 });
   if (approverIds.includes("EXTERNAL") && !isExternalBundle)
     return NextResponse.json({ error: "패키지 발송에는 외부 서명 단계를 넣을 수 없습니다." }, { status: 400 });
   if (approverIds.filter((a) => a === "EXTERNAL").length > 1)
     return NextResponse.json({ error: "외부 서명 단계는 하나만 넣을 수 있습니다." }, { status: 400 });
+  // 서류별 결재 순서(10/16 이예지 QA 5 — 퇴사 패키지는 서류마다 서명하는 사람이 다르다) — 발송 창에서 서류마다 단계를
+  // 옮기거나 뺄 수 있다. 그 발송 건에만 적용하고 변경 로그에 남긴다. 고른 결재자(approverIds) 안에서만 — 새 사람을 넣을 수는 없다.
+  // 사내 패키지만(외부 패키지는 게스트 링크 하나로 함께 서명하는 구조라 서류마다 순서를 달리할 수 없다)
+  const docOrders = new Map<string, string[]>();
+  if (body.docOrders !== undefined && body.docOrders !== null) {
+    if (typeof body.docOrders !== "object" || Array.isArray(body.docOrders))
+      return NextResponse.json({ error: "서류별 결재 순서 형식이 올바르지 않습니다." }, { status: 400 });
+    if (isExternalBundle && Object.keys(body.docOrders as object).length)
+      return NextResponse.json({ error: "외부 계약 패키지는 서류별 결재 순서를 바꿀 수 없습니다." }, { status: 400 });
+    const allowed = new Set(approverIds);
+    for (const [cid, raw] of Object.entries(body.docOrders as Record<string, unknown>)) {
+      const doc = contracts.find((c) => c.id === cid);
+      if (!doc || doc.employeeOnly)
+        return NextResponse.json({ error: "이 패키지에 없는 서류의 순서가 들어 있습니다." }, { status: 400 });
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((x) => typeof x !== "string" || !allowed.has(x)) || new Set(raw).size !== raw.length)
+        return NextResponse.json({ error: `「${doc.title}」의 결재 순서가 올바르지 않습니다 — 고른 결재자 안에서 한 번씩, 한 단계 이상.` }, { status: 400 });
+      // 계약 당사자(근로자) 서명은 뺄 수 없다 — 빼면 근로자 서명 없는 완료본이 생긴다(검증 F3, 디렉터 보고)
+      if (allowed.has(doc.userId) && !(raw as string[]).includes(doc.userId))
+        return NextResponse.json({ error: `「${doc.title}」에서 근로자(계약 당사자) 서명 단계는 뺄 수 없습니다.` }, { status: 400 });
+      docOrders.set(cid, raw as string[]);
+    }
+  }
+
   // 결재 순서 검사(#213-2) — 패키지는 대표 문서(직원전용이 아닌 첫 문서)의 양식 순서를 따른다
   {
     const rep = contracts.find((c) => !c.employeeOnly && c.templateId);
@@ -79,6 +110,9 @@ export async function POST(
   const { deadlineFromDays } = await import("@/lib/contract-deadline");
   const tokenExpiresAt = deadlineFromDays(body.deadlineDays);
 
+  if (isExternalBundle && bundleEmail)
+    await prisma.contract.updateMany({ where: { bundleId, externalName: { not: null }, status: { notIn: ["SIGNED", "REJECTED"] } }, data: { externalEmail: bundleEmail } });
+
   let sent = 0;
   // 발송 후 봇 DM 대상 — 문서별 첫 결재 단계의 내부 인원 (개선 제안 2026-08-24)
   const dmTargets = new Map<string, { isEmployee: boolean; titles: string[] }>();
@@ -101,7 +135,7 @@ export async function POST(
             ? { approverId: null as string | null, externalName: c.externalName, signToken: mkToken(), tokenExpiresAt, order: 1, status: "PENDING" as const }
             : { approverId: c.userId as string | null, order: 1, status: "PENDING" as const },
         ]
-      : approverIds.map((approverId, idx) => {
+      : (docOrders.get(c.id) ?? approverIds).map((approverId, idx) => {
           const status = idx === 0 ? ("PENDING" as const) : ("WAITING" as const);
           return approverId === "EXTERNAL"
             ? { approverId: null as string | null, externalName: c.externalName || "외부 서명자", signToken: mkToken(), tokenExpiresAt, order: idx + 1, status }
@@ -168,7 +202,17 @@ export async function POST(
         },
     });
     // 감사 기록(#205-4)
-    await recordContractEvent({ contractId: c.id, type: c.status === "DRAFT" ? "SENT" : "RESEND", actorId: session.userId, actorName: session.name, request, meta: { bundleId, templateVersion, ...(body.confirmDuplicate === true ? { duplicateConfirmed: true } : {}) } });
+    const custom = docOrders.get(c.id);
+    const changed = !!custom && custom.join(",") !== approverIds.join(",");
+    await recordContractEvent({ contractId: c.id, type: c.status === "DRAFT" ? "SENT" : "RESEND", actorId: session.userId, actorName: session.name, request, meta: { bundleId, templateVersion, ...(body.confirmDuplicate === true ? { duplicateConfirmed: true } : {}), ...(changed ? { customOrder: custom } : {}) } });
+    if (changed) {
+      const nm = new Map((await prisma.user.findMany({ where: { id: { in: approverIds.filter((a) => a !== "EXTERNAL") } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+      const names = (ids: string[]) => ids.map((a) => nm.get(a) || "?").join(" → ");
+      await logAudit({
+        actorId: session.userId, actorName: session.name, action: "CONTRACT_ORDER_OVERRIDE", targetType: "CONTRACT", targetId: c.id, targetName: c.title,
+        detail: `${c.title}: 기본 ${names(approverIds)} → 이 발송 ${names(custom!)}`,
+      });
+    }
     sent++;
 
     // 첫 단계가 내부 인원이면 봇 DM 대상으로 수집 (개선 제안 2026-08-24)
