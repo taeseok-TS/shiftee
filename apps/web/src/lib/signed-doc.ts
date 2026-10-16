@@ -606,24 +606,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   });
   if (!contract || contract.status !== "SIGNED") return null;
 
-  const steps = contract.approvalLine?.steps || [];
-  const signers: Signer[] = [];
-  for (const st of steps) {
-    if (!st.signatureUrl) continue;
-    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급.
-    // 외부 계약은 소유자(userId)가 작성 관리자라, 그 관리자의 결재 스텝까지 직원 서명으로
-    // 오인하면 결재자 0명 → 대표 직인 미삽입. externalName 계약에서는 approverId 있는 스텝 전부 결재자.
-    const isEmployeeStep = st.approverId
-      ? st.approverId === contract.userId && !contract.externalName
-      : true;
-    signers.push({
-      label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
-      name: personLabel(st.approver) || st.externalName || "외부 서명자",   // 「이름 직급」(10/16 N1)
-      date: st.decidedAt,
-      sigPath: diskPath(st.signatureUrl),
-      role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
-    });
-  }
+  const signers = collectSigners(contract);
   if (signers.length === 0) return null;
 
   const orig = firstFile(contract.fileUrl);
@@ -647,6 +630,33 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
     await recordSignedDocFailure(contractId, new Error(`완료본 고정 실패 — ${e instanceof Error ? e.message : String(e)}`));
   }
   return url;
+}
+
+// 결재 단계 → 서명자 목록 (완료본 생성·외부 계약자 서명 반영본이 같은 규칙을 쓴다, 2026-10-17)
+type StepForSigners = {
+  order: number; approverId: string | null; externalName: string | null; signatureUrl: string | null; decidedAt: Date | null;
+  approver: { name: string; role?: string | null; position?: string | null } | null;
+};
+export function collectSigners(contract: { userId: string; externalName: string | null; approvalLine: { steps: StepForSigners[] } | null }): Signer[] {
+  const steps = contract.approvalLine?.steps || [];
+  const signers: Signer[] = [];
+  for (const st of steps) {
+    if (!st.signatureUrl) continue;
+    // 외부(미가입) 서명 단계는 approver가 없음 — 외부 계약자 = 근로자 서명으로 취급.
+    // 외부 계약은 소유자(userId)가 작성 관리자라, 그 관리자의 결재 스텝까지 직원 서명으로
+    // 오인하면 결재자 0명 → 대표 직인 미삽입. externalName 계약에서는 approverId 있는 스텝 전부 결재자.
+    const isEmployeeStep = st.approverId
+      ? st.approverId === contract.userId && !contract.externalName
+      : true;
+    signers.push({
+      label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
+      name: personLabel(st.approver) || st.externalName || "외부 서명자",   // 「이름 직급」(10/16 N1)
+      date: st.decidedAt,
+      sigPath: diskPath(st.signatureUrl),
+      role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
+    });
+  }
+  return signers;
 }
 
 /**

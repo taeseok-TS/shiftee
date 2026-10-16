@@ -99,10 +99,11 @@ export async function GET(
   const siblings = await findBundleSiblings(contract.bundleId, contract.id);
   const documents = open
     ? [
-        { title: contract.title, fileUrl: firstFileUrl(contract.fileUrl) },
+        // id — 서명 직후 화면이 「서명 반영본」(view 라우트)을 문서별로 부른다(2026-10-17)
+        { id: contract.id, title: contract.title, fileUrl: firstFileUrl(contract.fileUrl) },
         ...siblings
           .filter((s) => s.status !== "SIGNED")
-          .map((s) => ({ title: s.title, fileUrl: firstFileUrl(s.fileUrl) })),
+          .map((s) => ({ id: s.id, title: s.title, fileUrl: firstFileUrl(s.fileUrl) })),
       ]
     : [];
 
@@ -316,6 +317,7 @@ export async function POST(
   // 패키지 동반 문서(비밀유지·개인정보동의서) — 같은 서명으로 함께 완료
   const siblings = await findBundleSiblings(contract.bundleId, contractId);
   const failedDocs: string[] = [];
+  const signedDocIds: string[] = [contractId];   // 이번 서명이 반영된 문서(서명 직후 뷰어용)
   for (const sib of siblings) {
     const sibStep = sib.approvalLine?.steps.find((s) => s.approverId === null && s.status === "PENDING");
     if (!sibStep) continue;
@@ -362,15 +364,25 @@ export async function POST(
       const { generateAndStoreSignedDoc } = await import("@/lib/signed-doc");
       await generateAndStoreSignedDoc(sib.id);
       void import("@/lib/external-delivery").then((m) => m.deliverExternalSignedCopyLater(sib.id));   // 10/16 QA 7 — 기다리지 않음
+      signedDocIds.push(sib.id);
     } catch (e) {
       console.error("패키지 동반 문서 서명 오류:", sib.title, e);
       failedDocs.push(sib.title);
     }
   }
 
+  // 서명 직후 뷰어가 「내 서명이 반영된 문서」를 열 수 있는 문서(2026-10-17) — 서명 뒤 정책이 「접근 불가」인 문서는 뺀다
+  const { judgeGuestContract } = await import("@/lib/contract-access");
+  // 서명은 됐지만 정책상 화면 보기를 주지 않는 문서(blockedViews) — 화면이 「제출 완료」로 안내한다. 둘 다 없으면 처리 실패 문서
+  const signedViews: string[] = [];
+  const blockedViews: string[] = [];
+  for (const id of signedDocIds) ((await judgeGuestContract(id)).allowed ? signedViews : blockedViews).push(id);
+
   return NextResponse.json({
     success: true,
     completed: !nextStep,
+    signedViews,
+    blockedViews,
     ...(failedDocs.length
       ? { warning: `일부 문서(${failedDocs.map((t) => t.replace(/ - .*$/, "")).join(", ")}) 처리에 실패했습니다. 담당자에게 문의해주세요.` }
       : {}),

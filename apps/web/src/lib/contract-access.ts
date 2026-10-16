@@ -233,17 +233,36 @@ export async function judgeGuestFile(contractId: string, fileName: string): Prom
   // 이 파일이 걸린 계약 중 가장 제한적인 판정을 따른다(파일명이 여러 계약에 걸릴 수 있다)
   let worst: ContractAccess | null = null;
   for (const row of rows) {
-    const raw = row.hasTemplate ? row.access : "full";
-    const access = raw === "full" || raw === "view" || raw === "none" ? raw : "none";
-    const r: ContractAccess = !row.employeeSignedAt
-      ? OK(access !== "full")
-      : access === "none"
-        ? DENY_NONE
-        : OK(access === "view");
+    const r = guestRule(row);
     if (!r.allowed) return r;
     if (!worst || (r.viewOnly && !worst.viewOnly)) worst = r;
   }
   return worst ?? DENY_OTHER;
+}
+
+// 게스트 = 서명하러 온 당사자 규칙: 서명 전이면 열람(full 만 다운로드), 서명 뒤에는 문서 정책대로
+function guestRule(row: Row): ContractAccess {
+  const raw = row.hasTemplate ? row.access : "full";
+  const access = raw === "full" || raw === "view" || raw === "none" ? raw : "none";
+  return !row.employeeSignedAt
+    ? OK(access !== "full")
+    : access === "none"
+      ? DENY_NONE
+      : OK(access === "view");
+}
+
+/**
+ * 게스트가 계약 한 건(파일이 아니라 계약 단위 — 서명 반영본처럼 메모리에서 만든 문서)을 볼 수 있는가.
+ * 범위(이 링크의 계약·같은 묶음인가)는 부르는 쪽이 먼저 확인한다. 여기서는 judgeGuestFile 과 같은 정책만 본다(2026-10-17)
+ */
+export async function judgeGuestContract(contractId: string): Promise<ContractAccess> {
+  let rows: Row[];
+  try { rows = await findContracts({ contractId }); }
+  catch (e) {
+    console.error("[contract-access] 게스트 권한 조회 실패:", e);
+    return { allowed: false, viewOnly: false, status: 403, error: "접근 권한을 확인할 수 없습니다." };
+  }
+  return rows[0] ? guestRule(rows[0]) : { allowed: false, viewOnly: false, status: 404, error: "문서를 찾을 수 없습니다." };
 }
 
 /**

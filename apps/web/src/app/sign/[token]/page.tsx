@@ -7,7 +7,7 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { isDirectHost } from "@/lib/is-direct-host";
 
-type Doc = { title: string; fileUrl: string | null };
+type Doc = { id?: string; title: string; fileUrl: string | null };
 type Info = {
   title: string;
   externalName: string | null;
@@ -30,6 +30,9 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [finished, setFinished] = useState(false);
+  // 서명 직후 뷰어가 「내 서명이 반영된 문서」를 열 문서 id(2026-10-17) — 서버가 서명 뒤 열람 정책까지 보고 내려 준다
+  const [signedViews, setSignedViews] = useState<string[] | null>(null);
+  const [blockedViews, setBlockedViews] = useState<string[]>([]);   // 서명은 됐지만 정책상 화면 보기를 주지 않는 문서
   const [docIdx, setDocIdx] = useState(0);
   // 개인정보동의서 — 사전 체크 금지(개인정보보호법), 게스트가 직접 선택 (#104, 2026-08-27)
   const [consentRequired, setConsentRequired] = useState(false); // 필수 항목 명시 동의
@@ -128,6 +131,8 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
       const d = await res.json();
       if (!res.ok) { alert(d.error || "서명 처리에 실패했습니다."); return; }
       if (d.warning) alert(d.warning);
+      setSignedViews(Array.isArray(d.signedViews) ? d.signedViews : []);
+      setBlockedViews(Array.isArray(d.blockedViews) ? d.blockedViews : []);
       setFinished(true);
       // 완료본 목록(10/16 QA 7 ①) — 이미 완료된 문서는 바로 받을 수 있다
       if (verifyToken) fetch(`/api/contracts/external-sign/${token}/signed`, { headers: { "x-sign-verify": verifyToken } })
@@ -142,7 +147,21 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const currentDoc = docs[Math.min(docIdx, Math.max(docs.length - 1, 0))];
   // 게스트는 세션이 없어 파일 접근 티켓을 URL 에 부착 (uploads 게이트와 세트)
   const ticketQs = info?.fileTicket ? `?t=${info.fileTicket}` : "";
-  const viewerSrc = currentDoc?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(currentDoc.fileUrl + ticketQs)}` : "";
+  // 서명을 마친 뒤에는 서명 전 원본이 아니라 **내 서명이 들어간 문서**를 보여 준다(2026-10-17 디렉터 지적).
+  // 완료면 완료본, 아니면 지금까지의 서명 반영본 — 같은 게스트 티켓(본인 확인 뒤 2시간)으로만 열린다.
+  // 서명 뒤 「접근 불가」 문서(목록에 없음)는 뷰어를 닫는다 — 사내 근로자 화면의 「제출 완료」와 같은 규칙
+  const signedView = finished && signedViews !== null;
+  const showSigned = signedView && !!currentDoc?.id && signedViews.includes(currentDoc.id) && !!info?.fileTicket;
+  const viewerSrc = signedView
+    ? (showSigned ? `/api/contracts/external-sign/${token}/view?doc=${encodeURIComponent(currentDoc!.id!)}&t=${encodeURIComponent(info!.fileTicket!)}` : "")
+    : currentDoc?.fileUrl ? `/docs/viewer?src=${encodeURIComponent(currentDoc.fileUrl + ticketQs)}` : "";
+  const currentReady = !!copies?.docs.find((x) => x.id === currentDoc?.id)?.ready;
+  // 서명 뒤 반영본을 못 여는 탭 — 정책상 보기 제한이면 「제출 완료」, 그 외(동반 문서 처리 실패 등)는 담당자 문의
+  const signedNotice = signedView && !showSigned && currentDoc
+    ? (currentDoc.id && blockedViews.includes(currentDoc.id)
+        ? "이 문서는 제출 완료되었습니다. 화면 보기는 제공하지 않습니다."
+        : "이 문서는 지금 화면에 표시할 수 없습니다. 담당자에게 문의해 주세요.")
+    : "";
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -178,9 +197,19 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
             )}
 
             {/* 문서 뷰어 */}
+            {signedNotice && (
+              <div className="bg-white rounded-xl shadow-sm border p-6 text-center text-sm text-gray-500">{signedNotice}</div>
+            )}
             {viewerSrc && (
               <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                <iframe src={viewerSrc} title="계약서" className="w-full border-0" style={{ height: "62vh" }} />
+                {showSigned && (
+                  <p className="text-xs text-indigo-800 bg-indigo-50 border-b border-indigo-100 px-3 py-2">
+                    {currentReady
+                      ? "모든 서명·결재가 끝난 완료본입니다."
+                      : `내 서명이 반영된 문서입니다. 최종 완료본은 모든 결재가 끝난 뒤 ${copies?.email ? "메일로 보내 드립니다" : "회사에서 보관합니다"}.`}
+                  </p>
+                )}
+                <iframe key={viewerSrc} src={viewerSrc} title="계약서" className="w-full border-0" style={{ height: "62vh" }} />
               </div>
             )}
 
@@ -200,7 +229,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                 )}
                 <p className="text-xs text-gray-500">
                   {copies?.email
-                    ? `모든 서명·결재가 끝나면 완료본 PDF 를 ${copies.email} 로 보내 드립니다. 이 링크로는 더 이상 계약서가 열리지 않습니다.`
+                    ? `모든 서명·결재가 끝나면 완료본 PDF 를 ${copies.email} 로 보내 드립니다. 지금 화면을 닫으면 이 링크로는 계약서가 다시 열리지 않습니다.`
                     : "서명된 계약서는 회사에서 보관하며, 필요 시 담당자에게 사본을 요청하실 수 있습니다."}
                 </p>
               </div>
