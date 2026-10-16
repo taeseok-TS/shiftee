@@ -1,3 +1,4 @@
+import { personLabel } from "@/lib/person-label";
 import { prisma } from "@/lib/db";
 import { generateDeterministic } from "@/lib/docx-zip";
 import { PDFDocument, rgb } from "pdf-lib";
@@ -447,7 +448,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
 
     // 말미에 서명 일시 텍스트 (증빙용, 이미지는 본문 (인) 자리에 배치됨)
     const stamp = signers
-      .map((s) => `${escapeXml(s.label)}\u00A0${escapeXml(s.name)}\u00A0(${fmt(s.date).replace(" ", "\u00A0")})`)   // 이름·날짜·시각은 한 덩어리로(#217)
+      .map((s) => `${escapeXml(s.label)}\u00A0${escapeXml(s.name).replace(/ /g, "\u00A0")}\u00A0(${fmt(s.date).replace(" ", "\u00A0")})`)   // 이름·날짜·시각은 한 덩어리로(#217)
       .join(" · ");
     const footer = `<w:p><w:pPr><w:spacing w:before="240"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr><w:t xml:space="preserve">전자 서명 완료 — ${stamp}</w:t></w:r></w:p>`;
     const sIdx = docXml.lastIndexOf("<w:sectPr");
@@ -600,7 +601,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
     include: {
-      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true } } } } } },
+      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true, position: true } } } } } },
     },
   });
   if (!contract || contract.status !== "SIGNED") return null;
@@ -617,7 +618,7 @@ export async function generateAndStoreSignedDoc(contractId: string): Promise<str
       : true;
     signers.push({
       label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
-      name: st.approver?.name || st.externalName || "외부 서명자",
+      name: personLabel(st.approver) || st.externalName || "외부 서명자",   // 「이름 직급」(10/16 N1)
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
       role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,

@@ -1,3 +1,4 @@
+import { personLabel } from "@/lib/person-label";
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
@@ -97,7 +98,7 @@ function writer(doc: PDFDocument, font: PDFFont) {
 export async function freezeSignedPdf(contractId: string): Promise<{ docNo: string; sha256: string } | null> {
   const c = await prisma.contract.findUnique({
     where: { id: contractId },
-    include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true } } } } } } },
+    include: { approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, position: true } } } } } } },
   });
   if (!c || c.status !== "SIGNED" || !c.signedUrl) return null;
   if (c.isTest) return null;   // 시험 문서(#67)는 문서번호·고정본·공개 검증 쪽을 만들지 않는다(본부 답변 2026-10-08, 6722cfb 검증 F1)
@@ -144,7 +145,7 @@ export async function freezeSignedPdf(contractId: string): Promise<{ docNo: stri
     const external = !st.approverId;
     const employee = external ? false : st.approverId === c.userId && !c.externalName;
     const role = external ? "외부 계약자" : employee ? "근로자 본인" : `${st.order}단계 결재자`;
-    const name = st.approver?.name || st.externalName || c.externalName || "외부 서명자";
+    const name = personLabel(st.approver) || st.externalName || c.externalName || "외부 서명자";   // 「이름 직급」(10/16 N1)
     const signed = lastOf("SIGNED", st);
     const consent = lastOf("CONSENT", st);
     // 본인 확인 방법·시각(#20, 본부 답변 #30 「증명서에는 본인 확인 방법·시각을 적어 주세요」)

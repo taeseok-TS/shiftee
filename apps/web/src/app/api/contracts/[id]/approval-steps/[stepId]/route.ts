@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { labelApproverNames } from "@/lib/person-label";
 
 /** 자기 자신을 결재자로 앉히려는가 — 원장이 스스로 전 단계를 처리하는 것을 막는다 */
 function approverIdIsSelf(me: string, target: unknown): boolean {
@@ -109,7 +110,7 @@ export async function PATCH(
     where: { id: stepId },
     data: { approverId, signToken: null, tokenExpiresAt: null, externalName: null },
     include: {
-      approver: { select: { id: true, name: true, branch: true } },
+      approver: { select: { id: true, name: true, branch: true, position: true } },
     },
   });
 
@@ -121,7 +122,7 @@ export async function PATCH(
       approvalLine: {
         include: {
           steps: {
-            include: { approver: { select: { id: true, name: true, branch: true } } },
+            include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
             orderBy: { order: "asc" },
           },
         },
@@ -133,6 +134,6 @@ export async function PATCH(
     success: true,
     message: `${updatedStep.order}단계 결재자가 ${newApprover.name}으로 변경되었습니다.`,
     step: updatedStep,
-    contract: updatedContract,
+    contract: updatedContract ? labelApproverNames(updatedContract) : updatedContract,   // 결재 상세 창 이름 「이름 직급」(10/16 N1)
   });
 }

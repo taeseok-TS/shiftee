@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { isDirectHost } from "@/lib/is-direct-host";
 
 // Configure SMTP transporter
 const transporter = nodemailer.createTransport({
@@ -20,6 +21,18 @@ interface EmailOptions {
   to: string;
   subject: string;
   html: string;
+  fromName?: string;   // 발신 이름(없으면 SMTP_FROM_NAME 또는 「큐브티」)
+}
+
+// 계약 메일의 발신 이름(2026-10-16 이예지 QA A5) — 처음 받는 직원이 「큐브티」만 보고 스팸·피싱으로 오해하지 않게
+// 직영(cubetee.co.kr)은 「에듀플렉스 직영사업본부」가 먼저 보이게 한다. 판매용 고객사 인스턴스는 종전대로
+// 직영 판별 규칙은 lib/is-direct-host 하나(검증 L6). 주소가 비었거나 못 읽으면 직영으로 보지 않는다
+function contractSender(): { direct: boolean; fromName?: string; prefix: string } {
+  try {
+    const raw = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "";
+    if (raw && isDirectHost(new URL(raw).host)) return { direct: true, fromName: "에듀플렉스 직영사업본부", prefix: "[에듀플렉스 직영사업본부] " };
+  } catch { /* 주소를 못 읽으면 종전대로 */ }
+  return { direct: false, prefix: "" };
 }
 
 /**
@@ -43,9 +56,10 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
       return false;
     }
 
+    const { fromName, ...mail } = options;
     const result = await transporter.sendMail({
-      from: `${process.env.SMTP_FROM_NAME || "큐브티"} <${fromEmail}>`,
-      ...options,
+      from: `${fromName || process.env.SMTP_FROM_NAME || "큐브티"} <${fromEmail}>`,
+      ...mail,
     });
 
     console.log(`✅ Email sent to ${options.to}: ${result.messageId}`);
@@ -120,16 +134,18 @@ export async function sendPasswordReset(email: string, name: string, resetUrl: s
 // 전자계약 메일 공통 틀(2026-10-08 #217-3) — 발신 표시·기한·보안 안내. 로고 파일이 없어 글자 머리말로 둔다
 const kstYmd = (d?: Date | null) => (d ? new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10) : null);
 function contractMailShell(title: string, body: string): string {
+  // 직영은 「에듀플렉스 직영사업본부」, 판매용 고객사는 발신 이름(SMTP_FROM_NAME) 또는 큐브티(검증 L6)
+  const org = contractSender().direct ? "에듀플렉스 직영사업본부" : escapeHtml(process.env.SMTP_FROM_NAME || "큐브티");
   return `
     <div style="font-family: Arial, 'Malgun Gothic', sans-serif; color: #333; max-width: 600px;">
       <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 8px; margin-bottom: 16px;">
-        <span style="font-weight: bold; color: #1e3a8a; font-size: 15px;">에듀플렉스 직영점</span>
-        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">큐브티 전자계약</span>
+        <span style="font-weight: bold; color: #1e3a8a; font-size: 15px;">${org}</span>
+        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">${org === "큐브티" ? "전자계약" : "큐브티 전자계약"}</span>
       </div>
       <h2 style="margin: 0 0 12px 0; font-size: 18px;">${title}</h2>
       ${body}
       <p style="margin-top: 30px; color: #666; font-size: 12px; line-height: 1.6;">
-        발신: 에듀플렉스 직영점 본부 · 큐브티 전자계약(자동 발송, 회신 불가)<br>
+        발신: ${org} · 큐브티 전자계약(자동 발송, 회신 불가)<br>
         🔒 이 메일의 링크는 본인 전용입니다. 다른 사람에게 전달하지 마세요. 문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
       </p>
     </div>
@@ -167,10 +183,12 @@ export async function sendContractNotification(
       </p>
   `);
 
+  const snd = contractSender();
   await sendEmail({
     to: employeeEmail,
-    subject: `[${contractTitle}] 계약서 서명 요청`,
+    subject: snd.direct ? `${snd.prefix}${contractTitle} 서명 요청` : `[${contractTitle}] 계약서 서명 요청`,
     html,
+    fromName: snd.fromName,
   });
 }
 
@@ -211,10 +229,12 @@ export async function sendApprovalRequest(
       </p>
   `);
 
+  const snd = contractSender();
   await sendEmail({
     to: approverEmail,
-    subject: `[결재 요청] ${contractTitle} - ${stepOrder}단계 결재(서명) 필요`,
+    subject: `${snd.prefix}[결재 요청] ${contractTitle} - ${stepOrder}단계 결재(서명) 필요`,
     html,
+    fromName: snd.fromName,
   });
 }
 
@@ -230,35 +250,29 @@ export async function sendContractCompletion(
   // 본인 확인 관문용 (#140) — 링크 수신자
   recipientId?: string
 ): Promise<boolean> {   // 실제로 보냈는가 — 교부 기록(#21)에 쓴다
-  const html = `
-    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
-      <h2>계약서 완료</h2>
+  const html = contractMailShell("계약서 완료", `
       <p>안녕하세요 ${recipientName}님,</p>
       <p>다음 계약서가 모든 승인을 완료했습니다.</p>
 
       <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #10b981;">
-        <p><strong>계약서명:</strong> ${contractTitle}</p>
-        <p><strong>신청자:</strong> ${employeeName}</p>
-        <p><strong>상태:</strong> 모든 승인 완료</p>
+        <p><strong>문서:</strong> ${contractTitle}</p>
+        <p><strong>계약 당사자:</strong> ${employeeName}</p>
+        <p><strong>상태:</strong> 모든 서명·결재 완료</p>
       </div>
 
       <p>
-        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
           계약서 확인하기
         </a>
       </p>
+  `);
 
-      <p style="margin-top: 30px; color: #666; font-size: 12px;">
-        이 이메일은 자동 발송된 메일입니다. 회신하셔도 답변받으실 수 없습니다.<br>
-        문의는 큐브티워크 메신저로 담당자에게 남겨 주세요.
-      </p>
-    </div>
-  `;
-
+  const snd = contractSender();
   return sendEmail({
     to: recipientEmail,
-    subject: `[완료] ${contractTitle} - 모든 승인이 완료되었습니다`,
+    subject: snd.direct ? `${snd.prefix}[완료] ${contractTitle} - 서명·결재가 모두 끝났습니다` : `[완료] ${contractTitle} - 모든 승인이 완료되었습니다`,
     html,
+    fromName: snd.fromName,
   });
 }
 

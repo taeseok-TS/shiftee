@@ -25,7 +25,7 @@ export async function GET(_request: NextRequest) {
             },
           },
           steps: {
-            include: { approver: { select: { id: true, name: true, branch: true } } },
+            include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
             orderBy: { order: "asc" },
           },
         },
@@ -33,6 +33,10 @@ export async function GET(_request: NextRequest) {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  // 결재자 이름 「이름 직급」(10/16 N1)
+  const { labelApproverNames } = await import("@/lib/person-label");
+  for (const s of pendingSteps) labelApproverNames(s);
 
   // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2)
   const namesByTemplate = new Map<string, string[] | null>();

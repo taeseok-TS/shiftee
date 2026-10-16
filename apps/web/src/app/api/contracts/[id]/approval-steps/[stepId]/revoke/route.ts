@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
+import { labelApproverNames } from "@/lib/person-label";
 import { lockSteps } from "@/lib/contract-reset";
 
 export async function POST(
@@ -138,7 +139,7 @@ export async function POST(
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, branch: true } } },
+              include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
               orderBy: { order: "asc" },
             },
           },
@@ -200,6 +201,6 @@ ${who} 님의 「${title}」에서 ${revokedFrom}단계 이후 결재가 회수�
     success: true,
     message: `${revokeStep.order}단계 이후의 모든 결재가 회수되었습니다. 다시 승인을 진행해주세요.`,
     step: result.revokedStep,
-    contract: result.contract,
+    contract: result.contract ? labelApproverNames(result.contract) : result.contract,   // 「이름 직급」(10/16 N1)
   });
 }

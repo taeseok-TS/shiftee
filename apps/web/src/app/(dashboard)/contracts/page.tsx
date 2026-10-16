@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
-import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, History, Eye, Loader2 } from "lucide-react";
+import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, Eye, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
@@ -634,18 +634,7 @@ export default function ContractsPage() {
                         ) : (
                         <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7"
-                          onClick={() => {
-                            setVersionsTarget(c);
-                            fetchVersions(c.id);
-                            setVersionsOpen(true);
-                          }}
-                        >
-                          <History size={12} />
-                        </Button>
+                        {/* 버전 히스토리 아이콘은 뺐다(2026-10-16 이예지 QA E3 — 근로자에게는 「버전 정보가 없습니다」만 떠 의미가 없었다) */}
                       </td>
                     </tr>
                   );

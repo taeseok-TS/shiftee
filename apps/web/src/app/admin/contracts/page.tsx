@@ -986,6 +986,60 @@ export default function ContractsPage() {
     return `${year}${branchPart} ${empName} ${docName}`;
   };
 
+  // 연봉 기본값 3,400만 원(#213-5, 2026-10-16 이예지 QA) — 에듀플렉스 근로계약서 신규입사를 한 명씩 작성할 때만, 연봉이 비어 있으면 채운다(고친 값은 그대로).
+  // 여러 명 작성·재계약·코디·다른 양식엔 넣지 않는다 — 「연봉 꼭 입력」 막기(9/16)가 살아 있어야 하고, 연봉 칸 없는 양식으로 값이 새면 안 된다(검증 M3).
+  // 조건이 풀리면(양식·구분·여러 명 전환) 자동으로 넣은 값만 지운다
+  const SALARY_DEFAULT = "34000000";
+  const autoSalaryRef = useRef(false);
+  useEffect(() => {
+    const want = useTemplate && !bulkMode && !!empTemplate && selectedTemplate === empTemplate.id && contractKind === "신규입사"
+      && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    if (!want) {
+      if (autoSalaryRef.current) {
+        autoSalaryRef.current = false;
+        setCreateForm((f) => (String(f.salary || "").trim() === SALARY_DEFAULT ? { ...f, salary: "" } : f));
+      }
+      return;
+    }
+    autoSalaryRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCreateForm((f) => (String(f.salary || "").trim() ? f : { ...f, salary: SALARY_DEFAULT }));
+  }, [useTemplate, bulkMode, empTemplate, selectedTemplate, contractKind, templateFields]);
+
+  // 작성 종류 고르기(#87) — 각 체크박스가 하던 일을 한 번에(입사=신규입사 패키지, 재계약=근로계약서+계약 구분 재계약, 퇴사=퇴사 패키지)
+  const startKind = (k: "hire" | "renew" | "resign" | "other") => {
+    setUseTemplate(true); setExternalMode(false); setExtBundleMode(false); setCodiBundleMode(false);
+    if (k === "hire" && empTemplate) {
+      const et = empTemplate;
+      setResignBundleMode(false); setBundleMode(canBundle); setContractKind("신규입사");
+      setSelectedTemplate(et.id);
+      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, canBundle), type: et.type }));
+      scanFields(et.id, canBundle, false, false);
+    } else if (k === "renew" && empTemplate) {
+      const et = empTemplate;
+      setBundleMode(false); setResignBundleMode(false);
+      setSelectedTemplate(et.id);
+      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, false), type: et.type }));
+      scanFields(et.id, false);
+      setContractKind("재계약");   // scanFields 가 첫 await 전에 「신규입사」로 되돌리므로 반드시 그 뒤(검증 H1)
+    } else if (k === "resign" && canResignBundle && resignTemplates[0]) {
+      const sajik = resignTemplates[0];
+      setBundleMode(false); setResignBundleMode(true); setForceSeverance(false); setResignPicks([...RESIGN_PICK_DEFAULT]);
+      setBulkMode(false); setBulkUserIds([]);
+      setSelectedTemplate(sajik.id);
+      setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, sajik.id, false, true), type: sajik.type }));
+      scanFields(sajik.id, false, true, true, [...RESIGN_PICK_DEFAULT]);
+    } else {
+      setBundleMode(false); setResignBundleMode(false); setContractKind("신규입사");
+      setSelectedTemplate("");
+      // 앞 양식의 칸·입력값·제목이 남지 않게(검증 L2) — 진행 중이던 칸 읽기도 버린다
+      scanSeqRef.current++;
+      setTemplateFields([]); setTemplateConditions([]); setFieldConditions({}); setEmployeeFillFields([]); setFieldSettings({}); setFieldTypes({});
+      setExtraFields({});
+      setCreateForm(f => ({ ...f, title: "" }));
+    }
+  };
+
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
     if (template) {
@@ -1052,6 +1106,12 @@ export default function ContractsPage() {
       const hire = String(emp.hireDate).slice(0, 10);
       if (templateFields.includes("근무시작일")) updates["근무시작일"] = hire;
       if (templateFields.includes("연차시작일")) updates["연차시작일"] = hire;
+      // 근로계약 기간 시작(제1조 {근로시작일}) = 직원 관리 입사일(포털 인사카드와 대조한 값, 재입사자는 재입사일)(2026-10-16 이예지 QA 3순위)
+      if (templateFields.includes("근로시작일")) updates["근로시작일"] = hire;
+    } else {
+      // 입사일이 없는 직원으로 바꾸면 앞 직원의 입사일(자동값)이 남지 않게 비운다(검증 M1 — 평가 기준일까지 따라갔다).
+      // 같은 직원에서 손으로 적은 값은 아래 규칙(빈칸·자동값만 바꿈)대로 그대로 둔다
+      for (const k of ["근무시작일", "연차시작일", "근로시작일"]) if (templateFields.includes(k)) updates[k] = "";
     }
     if (templateFields.includes("원장명") && emp.branch) {
       const n = branchManagerName(emp.branch);
@@ -1356,6 +1416,24 @@ export default function ContractsPage() {
         .filter(k => { const raw = bulkValues[uid]?.[k] || ""; return raw.trim() !== "" && normDate(raw) === null; })
         .map(k => `${employees.find(x => x.id === uid)?.name ?? "?"} ${k}`));
       if (badDates.length) { toast.error(`날짜를 읽지 못했습니다: ${badDates.join(", ")} — 2026-10-01 형식으로 고쳐 주세요.`); setUploading(false); return; }
+      // 근로시작일 — 공통 칸에 손으로 적었으면(자동으로 넣은 첫 직원 입사일이 아니면) 모두에게, 아니면 각자 입사일(검증 M2)
+      const commonStart = (extraFields["근로시작일"] || "").trim();
+      const manualStart = commonStart && commonStart !== (autoFilled.current["근로시작일"] || "") ? commonStart : "";
+      const startOf = (uid: string) => {
+        const e = employees.find(x => x.id === uid);
+        return normDate(bulkValues[uid]?.["근로시작일"] || "") || manualStart || (e?.hireDate ? String(e.hireDate).slice(0, 10) : "");
+      };
+      // 신규입사 평가 기간은 근로시작일부터라, 근로시작일이 계약 시작일보다 앞이면 평가 기간이 계약 기간 밖으로 나가 서버가 거절한다 — 미리 알린다
+      if (contractKind === "신규입사" && templateFields.includes("근로시작일") && templateFields.includes("교육평가시작")) {
+        const early = bulkUserIds
+          .map(uid => ({ e: employees.find(x => x.id === uid), base: startOf(uid), st: rowDate(uid, "계약시작일", createForm.startDate) || "" }))
+          .filter(x => x.base && x.st && x.base < x.st)
+          .map(x => `${x.e?.name ?? "?"}(근로시작 ${x.base} / 계약시작 ${x.st})`);
+        if (early.length) {
+          toast.error(`근로시작일(입사일)이 계약 시작일보다 앞인 직원이 있습니다: ${early.join(", ")} — 신규입사 평가 기간은 근로시작일부터라 계약 기간 밖으로 나갑니다. 표의 계약시작일을 입사일로 맞추거나 근로시작일을 고쳐 주세요.`, { duration: 10000 });
+          setUploading(false); return;
+        }
+      }
       // 계약시작일(사람별)과 입사일이 다르면 확인 — 신규입사 평가 단계는 각자 시작일로 다시 계산한다
       {
         const mismatch = bulkUserIds
@@ -1372,7 +1450,7 @@ export default function ContractsPage() {
         const years = new Set<number>();
         for (const uid of bulkUserIds) {
           // 사람별 근로시작일이 다른 해일 수 있다 — 그해 공휴일도 받는다(10/16)
-          for (const st of [rowDate(uid, "계약시작일", createForm.startDate) || "", normDate(bulkValues[uid]?.["근로시작일"] || "") || ""]) {
+          for (const st of [rowDate(uid, "계약시작일", createForm.startDate) || "", startOf(uid)]) {
             const y = Number(st.slice(0, 4)); if (y > 2000) { years.add(y); years.add(y + 1); }
           }
         }
@@ -1399,6 +1477,9 @@ export default function ContractsPage() {
           const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : "";
           if (templateFields.includes("근무시작일")) per["근무시작일"] = hire;
           if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
+          // 근로시작일도 각자 입사일(10/16) — 공통값(첫 직원 것)이 새지 않게. 공통 칸에 손으로 적은 값은 모두에게(검증 M2).
+          // 둘 다 없으면 비워 서버가 계약 시작일로 채운다. 표에 적으면 그 값이 우선(아래 개인별 값)
+          if (templateFields.includes("근로시작일")) per["근로시작일"] = manualStart || hire;
         }
         if (templateFields.includes("원장명")) per["원장명"] = branchManagerName(emp.branch);   // 메인 원장 우선(#213-4)
         // 「보내기 전 수정」 직원 정보 칸은 **각자 값**으로 — 공통값은 첫 직원 것이라 전원에게 복사되던 것(10/13 검증 1). 작성일은 공통값 유지
@@ -1439,7 +1520,7 @@ export default function ContractsPage() {
               { templateId: selectedTemplate, title, type: "EMPLOYMENT",
                 startDate: rowStart, endDate: rowEnd, salary: rowSalary,
                 extraFields: per, employeeOnly: false },
-              { templateId: privacyTemplate.id, title: `${titlePrefix(emp.id)} 개인정보수집이용동의서`, type: "OTHER",
+              { templateId: privacyTemplate.id, title: `${titlePrefix(emp.id)} ${privacyTemplate.name}`, type: "OTHER",
                 extraFields: { ...per, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
             ];
             res = await fetch("/api/contracts/bundle", {
@@ -1507,7 +1588,7 @@ export default function ContractsPage() {
           extraFields: allExtra, employeeOnly: false },
         { templateId: ndaTemplate.id, title: `${new Date().getFullYear()} ${extName} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
-        { templateId: privacyTemplate.id, title: `${new Date().getFullYear()} ${extName} 개인정보수집이용동의서`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${new Date().getFullYear()} ${extName} ${privacyTemplate.name}`, type: "OTHER",
           // 선택 항목은 기본 동의 — 외부 계약자가 서명 페이지에서 미동의로 바꿀 수 있음
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
@@ -1542,7 +1623,7 @@ export default function ContractsPage() {
           extraFields: allExtra, employeeOnly: false },
         { templateId: ndaTemplate.id, title: `${titlePrefix(createForm.userId)} 비밀유지서약서(입사)`, type: "CONFIDENTIAL",
           extraFields: allExtra, employeeOnly: true },
-        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} 개인정보수집이용동의서`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} ${privacyTemplate.name}`, type: "OTHER",
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
       const res = await fetch("/api/contracts/bundle", {
@@ -1624,7 +1705,7 @@ export default function ContractsPage() {
         { templateId: selectedTemplate, title: createForm.title, type: "EMPLOYMENT",
           startDate: createForm.startDate, endDate: createForm.endDate, salary: createForm.salary,
           extraFields: allExtra, employeeOnly: false },
-        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} 개인정보수집이용동의서`, type: "OTHER",
+        { templateId: privacyTemplate.id, title: `${titlePrefix(createForm.userId)} ${privacyTemplate.name}`, type: "OTHER",
           // 선택 항목은 기본 동의 — 직원이 서명 시 미동의로 바꿀 수 있음
           extraFields: { ...allExtra, 동의고유식별: "미선택", 동의채용정보: "미선택" }, employeeOnly: true },
       ];
@@ -2005,6 +2086,34 @@ ${url}`;
             <DialogContent className="w-[95vw] sm:!max-w-[880px] max-h-[85vh] overflow-y-auto">
               <DialogHeader><DialogTitle>계약서 작성</DialogTitle></DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4">
+                {/* 작성 종류(#87, 2026-10-16 이예지 QA) — 처음에 입사·재계약·퇴사 중 고르면 양식·패키지·계약 구분이 한 번에 맞춰진다. 아래에서 그대로 바꿀 수도 있다 */}
+                {templates.length > 0 && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-500">무엇을 작성하나요?</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ["hire", "신규 입사", canBundle ? "근로계약서 + 개인정보동의서" : "근로계약서"],
+                        ["renew", "재계약", "근로계약서(기존 근로자)"],
+                        ["resign", "퇴사", "사직원 + 퇴사 서류"],
+                        ["other", "그 밖의 서류", "양식을 직접 고르기"],
+                      ] as const).map(([k, label, sub]) => {
+                        const isEmpDoc = !!empTemplate && selectedTemplate === empTemplate.id && !resignBundleMode;
+                        const on = k === "hire" ? useTemplate && (bundleMode || (isEmpDoc && contractKind !== "재계약"))
+                          : k === "renew" ? useTemplate && isEmpDoc && !bundleMode && contractKind === "재계약"
+                          : k === "resign" ? useTemplate && resignBundleMode
+                          : useTemplate && !bundleMode && !resignBundleMode && !isEmpDoc;
+                        const disabled = (k === "hire" || k === "renew") ? !empTemplate : k === "resign" ? !canResignBundle : false;
+                        return (
+                          <button key={k} type="button" disabled={disabled} onClick={() => startKind(k)}
+                            className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40 ${on ? "border-indigo-500 bg-indigo-50 text-indigo-800" : "border-gray-200 hover:bg-gray-50"}`}>
+                            <span className="block font-medium">{label}</span>
+                            <span className="block text-[11px] text-gray-500">{sub}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송 */}
                 <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-2">
                   <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800">

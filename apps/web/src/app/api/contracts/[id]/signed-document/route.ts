@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stampTestPdf } from "@/lib/pdf-stamp";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { personLabel } from "@/lib/person-label";
 import fs from "fs/promises";
 import { buildSignedDocx, buildSignedPdf, firstFile, diskPath, layoutForContractFile, type Signer } from "@/lib/signed-doc";
 import { bufferCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
@@ -25,7 +26,7 @@ export async function GET(
     where: { id },
     include: {
       user: { select: { id: true, name: true, branch: true } },
-      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true } } } } } },
+      approvalLine: { include: { steps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true, role: true, position: true } } } } } },
     },
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
@@ -74,7 +75,7 @@ export async function GET(
       : true;
     signers.push({
       label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
-      name: st.approver?.name || st.externalName || "외부 서명자",
+      name: personLabel(st.approver) || st.externalName || "외부 서명자",   // 완료본과 같은 「이름 직급」(10/16 N1)
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
       role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,

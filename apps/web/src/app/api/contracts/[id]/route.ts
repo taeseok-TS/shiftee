@@ -30,7 +30,7 @@ export async function GET(
       approvalLine: {
         include: {
           steps: {
-            include: { approver: { select: { id: true, name: true, email: true, branch: true } } },
+            include: { approver: { select: { id: true, name: true, email: true, branch: true, position: true } } },
             orderBy: { order: "asc" },
           },
         },
@@ -39,6 +39,7 @@ export async function GET(
   });
 
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+  (await import("@/lib/person-label")).labelApproverNames(contract);   // 결재자 이름 「이름 직급」(10/16 N1)
 
   if (session.role !== "ADMIN" && session.userId !== contract.userId)
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
@@ -543,7 +544,7 @@ export async function PATCH(
       user: { select: { id: true, name: true, email: true, department: true } },
       approvalLine: {
         include: {
-          steps: { include: { approver: { select: { id: true, name: true, email: true, role: true } } } },
+          steps: { include: { approver: { select: { id: true, name: true, email: true, role: true, position: true } } } },
         },
       },
     },
@@ -656,7 +657,8 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ success: true, contract: updated, reset: needsReset });
+  // 메일은 위에서 원래 이름으로 이미 보냈다 — 응답(결재 상세 창)만 「이름 직급」(10/16 N1)
+  return NextResponse.json({ success: true, contract: updated ? (await import("@/lib/person-label")).labelApproverNames(updated) : updated, reset: needsReset });
 }
 
 export async function DELETE(

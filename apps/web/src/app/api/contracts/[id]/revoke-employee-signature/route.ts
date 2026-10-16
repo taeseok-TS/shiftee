@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { lockSteps } from "@/lib/contract-reset";
 import { recordContractEvent } from "@/lib/contract-events";
+import { labelApproverNames } from "@/lib/person-label";
 
 export async function POST(
   request: NextRequest,
@@ -38,7 +39,7 @@ export async function POST(
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, branch: true } } },
+              include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
               orderBy: { order: "asc" },
             },
           },
@@ -94,7 +95,7 @@ export async function POST(
           approvalLine: {
             include: {
               steps: {
-                include: { approver: { select: { id: true, name: true, branch: true } } },
+                include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
                 orderBy: { order: "asc" },
               },
             },
@@ -131,7 +132,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "직원 서명이 회수되었습니다. 다시 서명을 진행해주세요.",
-      contract: result,
+      contract: result ? labelApproverNames(result) : result,   // 「이름 직급」(10/16 N1)
     });
   } catch (error) {
     console.error("직원 서명 회수 중 오류:", error);

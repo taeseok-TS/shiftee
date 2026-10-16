@@ -3,6 +3,7 @@ import { requiredHqMissing } from "@/lib/contract-field-settings";
 import { layoutFieldTypes, type LayoutFieldTypes } from "@/lib/contract-layout";
 import { getSession } from "@/lib/auth";
 import { partyCanSee, PARTY_HIDDEN_STATUSES } from "@/lib/contract-visibility";
+import { labelApproverNames } from "@/lib/person-label";
 import { isRenewalContract, templateStepsFor } from "@/lib/approval-order";
 import { prisma } from "@/lib/db";
 import { filterContractData } from "@/lib/api-response";
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, email: true, branch: true } } },
+              include: { approver: { select: { id: true, name: true, email: true, branch: true, position: true } } },
               orderBy: { order: "asc" },
             },
           },
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
       // 원장 지점 보기 — 남이 만든 초안은 보이지 않는다(자기가 만든 초안은 보인다)
       if (session.role === "MANAGER" && c.status === "DRAFT" && c.createdBy !== session.userId) return false;
       return true;
-    }));
+    }).map((c) => labelApproverNames(c)));   // 결재자 이름 「이름 직급」(10/16 N1)
 
     // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2). 템플릿마다 한 번만 읽는다(파일 캐시는 lib 에 있다)
     const namesByTemplate = new Map<string, string[] | null>();

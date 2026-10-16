@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { personLabel } from "@/lib/person-label";
 import { firstFile, diskPath, buildSignedDocx, buildSignedPdf, buildPlaceholderPdf, layoutForContractFile, type Signer } from "@/lib/signed-doc";
 import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
 import fs from "fs/promises";
@@ -52,7 +53,7 @@ export async function GET(
     approvalLine: {
       include: {
         steps: {
-          include: { approver: { select: { id: true, name: true, role: true } } },
+          include: { approver: { select: { id: true, name: true, role: true, position: true } } },
           orderBy: { order: "asc" as const },
         },
       },
@@ -95,7 +96,7 @@ export async function GET(
       // 다른 문서를 본다. 계약서에서 이건 표시 문제가 아니라 진본성 문제다.
       const line = (d as { approvalLine?: { steps?: { order: number; approverId: string | null;
         signatureUrl: string | null; decidedAt: Date | null; externalName?: string | null;
-        approver?: { name: string; role?: string } | null }[] } | null }).approvalLine;
+        approver?: { name: string; role?: string; position?: string | null } | null }[] } | null }).approvalLine;
       const signers: Signer[] = [];
       for (const st of line?.steps ?? []) {
         if (!st.signatureUrl) continue;
@@ -105,7 +106,7 @@ export async function GET(
           : true;
         signers.push({
           label: isEmployeeStep ? "직원 서명" : `${st.order}단계 결재`,
-          name: st.approver?.name || st.externalName || "외부 서명자",
+          name: personLabel(st.approver) || st.externalName || "외부 서명자",   // 「이름 직급」(10/16 N1)
           date: st.decidedAt,
           sigPath: diskPath(st.signatureUrl),
           role: isEmployeeStep ? null : st.approver?.role ?? null,
