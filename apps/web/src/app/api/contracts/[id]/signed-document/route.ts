@@ -31,10 +31,29 @@ export async function GET(
   });
   if (!contract) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
 
-  // 권한: 관리자 / 계약 당사자 본인 (원장 등 결재자는 서명본 보관 불가 — 개인정보 보호).
-  // 계약 단위 티켓(st)은 발급 때 이미 권한을 확인했으므로 통과시킨다.
-  const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId;
-  if (!allowed) return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 받을 수 있습니다." }, { status: 403 });
+  // 권한: 관리자 / 계약 당사자 본인 / 원장(아래 — **화면 열람만**, 보관(다운로드)은 여전히 불가 — 개인정보 보호).
+  // 계약 단위 티켓(st)은 발급 때 이미 권한을 확인했으므로 통과시킨다(티켓은 관리자·당사자에게만 발급된다 — signed-link).
+  //
+  // 원장(2026-10-17 디렉터 결정 「원장도 서명 진행본 열람 열어, 원장님도 지점의 관리자잖아」) —
+  // 그 계약의 결재자(내 단계가 있는 원장)이거나 당사자 지점(대표+겸직, getManagerBranches)을 담당하면 진행본·완료본을 연다.
+  // 범위는 원장 계약 목록(api/contracts GET 원장 필터)과 **똑같이** — 직원전용 문서(비밀유지·개인정보동의서)·
+  // 외부 계약·시험 문서·남이 만든 초안은 목록에서 못 보므로 진행본도 못 연다. 문서 정책(접근 불가 등)은 아래 canAccessContractFile 이 함께 본다.
+  let managerView = false;
+  if (!ticketOk && session!.role === "MANAGER" && contract.userId !== session!.userId) {
+    const listable =
+      !contract.employeeOnly && !contract.externalName && !contract.isTest &&
+      !(contract.status === "DRAFT" && contract.createdBy !== session!.userId);
+    if (listable) {
+      const isApprover = (contract.approvalLine?.steps || []).some((s) => s.approverId === session!.userId);
+      if (isApprover) managerView = true;
+      else if (contract.user?.branch) {
+        const { getManagerBranches } = await import("@/lib/manager-branches");
+        managerView = (await getManagerBranches(session!.userId)).includes(contract.user.branch);
+      }
+    }
+  }
+  const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId || managerView;
+  if (!allowed) return NextResponse.json({ error: "서명본은 관리자·계약 당사자·담당 원장만 볼 수 있습니다." }, { status: 403 });
 
   // 문서별 정책은 lib/contract-access 에서 판정한다.
   // ⚠ 티켓(st)은 "당사자임"의 증명일 뿐 **정책 면제가 아니다**. 면제하면 앱이 받은 링크에서
@@ -50,6 +69,8 @@ export async function GET(
     if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
     viewOnly = acc.viewOnly;
   }
+  // 원장은 문서 정책과 상관없이 **열람만**(inline=1 + PDF 강제) — 결재자·원장은 서명본을 보관하지 않는다
+  if (managerView) viewOnly = true;
   if (viewOnly && new URL(_request.url).searchParams.get("inline") !== "1")
     return NextResponse.json({ error: "이 문서는 화면 열람만 가능합니다." }, { status: 403 });
 
@@ -79,6 +100,7 @@ export async function GET(
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
       role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
+      ...(!st.approverId ? { shown: "외부 계약자 서명" } : {}),   // 완료본(collectSigners)과 같은 표기(10/17)
     });
   }
   // 이관 계약(모두싸인 체결본, #4)은 결재선이 없고 저장된 완료본만 있다 — 서명자가 없어도 아래 고정 완료본 지름길로 간다

@@ -20,6 +20,7 @@ type Step = {
   status: string;
   approverId: string;
   approver: { id: string; name: string; branch?: string | null };
+  hasSignature?: boolean; // 서명이 있는가(주소는 서버가 안 준다) — 진행본으로 열지 판정
 };
 type Contract = {
   id: string;
@@ -30,6 +31,8 @@ type Contract = {
   fileUrl: string;
   userId: string;
   externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 소유자는 작성 관리자라 당사자 표기가 다르다
+  employeeOnly?: boolean; // 직원전용 문서(비밀유지·개인정보동의서) — 원장은 진행본을 못 연다
+  isTest?: boolean;
   startDate: string | null;
   endDate: string | null;
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
@@ -71,6 +74,22 @@ function viewHref(fileUrl: string): string {
   return fileUrl;
 }
 
+// 서명 진행본·완료본(2026-10-17 디렉터 결정 「원장도 지점의 관리자」) — 서명이 하나라도 있는 진행 중 계약(반려 제외)·완료 계약.
+// 서버(signed-document)와 같은 범위: 직원전용 문서·외부 계약·시험 문서는 원장이 진행본을 못 연다 → 원본 보기 그대로.
+// 원장은 열람만(inline) — 내려받기 버튼은 두지 않는다
+function progressHref(c: Contract): string | null {
+  if (c.externalName || c.employeeOnly || c.isTest) return null;
+  const signed = c.status === "SIGNED" || (c.status !== "REJECTED" && (c.approvalLine?.steps || []).some((s) => !!s.hasSignature));
+  return signed ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : null;
+}
+
+// 열람 기록(#205-4) — 화면이 문서를 열면 POST 로 알린다(서버가 10분 안 중복은 하나로)
+function recordViewed(id: string) {
+  fetch(`/api/contracts/${id}/events`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "VIEWED" }),
+  }).catch(() => {});
+}
+
 function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
   if (!steps || steps.length === 0) return <span className="text-xs text-gray-400">결재선 없음</span>;
   return (
@@ -107,6 +126,7 @@ export default function ManagerContractsPage() {
   const [docLoaded, setDocLoaded] = useState(false);
   const [docBlob, setDocBlob] = useState<string | null>(null);
   const [docErr, setDocErr] = useState<string | null>(null);
+  const [docIsProgress, setDocIsProgress] = useState(false); // 창에 뜬 본문이 서명 진행본인가(못 받아 원본으로 넘어가면 false)
   const [signTarget, setSignTarget] = useState<Contract | null>(null);
   const [signing, setSigning] = useState(false);
   // ⚠ 원장은 표준 결재선의 1단계 결재자인데 **반려할 수단이 아예 없었다** — 관리자 결재함
@@ -211,24 +231,29 @@ export default function ManagerContractsPage() {
   const filteredContracts = useMemo(() => contracts, [contracts]);
 
   // 승인 창 본문 받기(R1) — docx 는 서버 변환 PDF(/api/docs/pdf), PDF 양식은 파일 그대로. 정상 PDF 일 때만 승인 가능
+  // 앞 단계 서명이 이미 있으면 서명 반영본(진행본)을 띄운다(2026-10-17). 진행본을 못 받으면 원본으로 — 승인 조건(정상 PDF)은 같다
   /* eslint-disable react-hooks/set-state-in-effect -- 창을 열고 닫을 때 본문 상태를 초기화하는 것이 목적이다 */
   useEffect(() => {
     const raw = signOpen && signTarget ? getFileUrl(signTarget.fileUrl) : "";
     let alive = true;
     let made: string | null = null;
-    setDocErr(null); setDocBlob(null);
+    setDocErr(null); setDocBlob(null); setDocIsProgress(false);
     if (!signOpen || !signTarget) { setDocLoaded(false); return; }
     if (!raw) { setDocLoaded(true); return; }   // 파일 없는 계약(옛 데이터)은 요약만으로
     setDocLoaded(false);
     const src = /\.pdf$/i.test(raw) ? raw : `/api/docs/pdf?src=${encodeURIComponent(raw)}`;
-    fetch(src)
-      .then(async (r) => {
-        const ct = r.headers.get("content-type") || "";
-        if (!r.ok || !ct.includes("pdf")) throw new Error(r.status === 403 ? "본문을 열 권한이 없습니다." : "본문을 불러오지 못했습니다.");
-        const b = await r.blob();
+    const prog = progressHref(signTarget);
+    const load = (u: string) => fetch(u).then(async (r) => {
+      const ct = r.headers.get("content-type") || "";
+      if (!r.ok || !ct.includes("pdf")) throw new Error(r.status === 403 ? "본문을 열 권한이 없습니다." : "본문을 불러오지 못했습니다.");
+      return { b: await r.blob(), isProg: u === prog };
+    });
+    (prog ? load(prog).catch(() => load(src)) : load(src))
+      .then(({ b, isProg }) => {
         if (!alive) return;
         made = URL.createObjectURL(b);
-        setDocBlob(made); setDocLoaded(true);
+        setDocBlob(made); setDocLoaded(true); setDocIsProgress(isProg);
+        recordViewed(signTarget.id);   // 열람 기록(#205-4) — 본문이 실제로 열렸을 때
       })
       .catch((e: unknown) => { if (alive) setDocErr(e instanceof Error ? e.message : "본문을 불러오지 못했습니다."); });
     return () => { alive = false; if (made) URL.revokeObjectURL(made); };
@@ -257,8 +282,8 @@ export default function ManagerContractsPage() {
                   <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
                 </div>
                 <div className="flex gap-2">
-                  {getFileUrl(c.fileUrl) && (
-                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                  {(progressHref(c) || getFileUrl(c.fileUrl)) && (
+                    <a href={progressHref(c) || viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
@@ -331,12 +356,15 @@ export default function ManagerContractsPage() {
                         <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} /></td>
                         <td className="py-3 text-right">
                           <div className="flex gap-2 justify-end">
-                            {getFileUrl(c.fileUrl) && (
-                              <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
+                            {/* 서명이 있으면 지금까지의 서명 반영본(진행본)·완료본으로 — 원본을 열면 원장이 서명한 뒤에도 서명이 안 보였다(2026-10-17).
+                                원장은 열람만(서버가 inline·PDF 로만 준다) — 내려받기 버튼은 두지 않는다(개인정보 보관 방지) */}
+                            {(progressHref(c) || getFileUrl(c.fileUrl)) && (
+                              <a href={progressHref(c) || viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"
+                                 title={progressHref(c) ? (c.status === "SIGNED" ? "완료본 보기" : "서명 진행본 보기") : "원본 보기"}
+                                 onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>
                                 <Button size="sm" variant="outline"><Eye size={14} /></Button>
                               </a>
                             )}
-                            {/* 서명본은 관리자·계약 당사자만 접근 (개인정보 보관 방지) */}
                           </div>
                         </td>
                       </tr>
@@ -369,8 +397,8 @@ export default function ManagerContractsPage() {
                 {getFileUrl(signTarget.fileUrl) && (
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-gray-600">계약서 본문</span>
-                      <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">새 창으로 크게 보기</a>
+                      <span className="text-xs font-semibold text-gray-600">계약서 본문{docIsProgress ? " (지금까지의 서명 반영본)" : ""}</span>
+                      <a href={(docIsProgress && progressHref(signTarget)) || viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">새 창으로 크게 보기</a>
                     </div>
                     {docBlob ? (
                       <iframe key={docBlob} src={docBlob} title="계약서 본문" className="w-full rounded border bg-white" style={{ height: "52vh" }} />

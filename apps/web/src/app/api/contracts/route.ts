@@ -230,6 +230,8 @@ export async function GET(request: NextRequest) {
           // 외부(미가입) 서명 단계는 approver가 없음(null) — externalName으로 표시
           // 서명 이미지 주소는 본인 것만 — 남의 서명 PNG 를 받아 재사용하는 것을 막는다
           signatureUrl: session.role === "ADMIN" || step.approverId === session.userId ? step.signatureUrl : null,
+          // 서명이 있는가만(주소는 안 준다) — 원장 화면이 서명 진행본으로 열지 판정한다(2026-10-17)
+          hasSignature: !!step.signatureUrl,
           approver: step.approver ? {
             id: step.approver.id,
             name: step.approver.name,

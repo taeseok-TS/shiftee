@@ -110,6 +110,7 @@ export async function GET(
           date: st.decidedAt,
           sigPath: diskPath(st.signatureUrl),
           role: isEmployeeStep ? null : st.approver?.role ?? null,
+          ...(!st.approverId ? { shown: "외부 계약자 서명" } : {}),   // 완료본(collectSigners)과 같은 표기(10/17)
         });
       }
       // 볼 자격이 없거나 발송 전 확인이면 서명을 얹지 않는다

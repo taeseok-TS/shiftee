@@ -30,7 +30,7 @@ const fmt = (d: Date | null) => {
   return `${k.getUTCFullYear()}-${pad2(k.getUTCMonth() + 1)}-${pad2(k.getUTCDate())} ${pad2(k.getUTCHours())}:${pad2(k.getUTCMinutes())}`;
 };
 
-export type Signer = { label: string; name: string; date: Date | null; sigPath: string; role?: string | null };
+export type Signer = { label: string; name: string; date: Date | null; sigPath: string; role?: string | null; shown?: string };   // shown = 바닥글·증명서에 보일 이름(없으면 label)
 
 // 이미지 픽셀 크기 읽기 (PNG IHDR / JPEG SOF) — 서명 이미지의 실제 가로세로비를 알아야
 // 줄 높이에 맞춰 넣어도 눌리거나 늘어나지 않는다. 외부 라이브러리 없이 헤더만 파싱한다.
@@ -448,7 +448,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
 
     // 말미에 서명 일시 텍스트 (증빙용, 이미지는 본문 (인) 자리에 배치됨)
     const stamp = signers
-      .map((s) => `${escapeXml(s.label)}\u00A0${escapeXml(s.name).replace(/ /g, "\u00A0")}\u00A0(${fmt(s.date).replace(" ", "\u00A0")})`)   // 이름·날짜·시각은 한 덩어리로(#217)
+      .map((s) => `${escapeXml(s.shown ?? s.label)}\u00A0${escapeXml(s.name).replace(/ /g, "\u00A0")}\u00A0(${fmt(s.date).replace(" ", "\u00A0")})`)   // 이름·날짜·시각은 한 덩어리로(#217)
       .join(" · ");
     const footer = `<w:p><w:pPr><w:spacing w:before="240"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="888888"/></w:rPr><w:t xml:space="preserve">전자 서명 완료 — ${stamp}</w:t></w:r></w:p>`;
     const sIdx = docXml.lastIndexOf("<w:sectPr");
@@ -475,7 +475,7 @@ export async function buildSignedDocx(origPath: string, title: string, signers: 
     // 라벨 문단 + 서명 이미지 문단 (이미지 약 200x70px → EMU)
     const cx = 1905000, cy = 666750;
     drawings.push(
-      `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXml(s.label)} : ${escapeXml(s.name)}  (서명일 ${fmt(s.date)})</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXml(s.shown ?? s.label)} : ${escapeXml(s.name)}  (서명일 ${fmt(s.date)})</w:t></w:r></w:p>` +
       `<w:p><w:r><w:drawing>` +
       `<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" distT="0" distB="0" distL="0" distR="0">` +
       `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${100 + i}" name="sig${i + 1}"/>` +
@@ -578,7 +578,7 @@ export async function buildSignedPdf(origPath: string | null, title: string, sig
   y -= 24;
 
   for (const s of signers) {
-    page.drawText(`${s.label} : ${s.name}   (서명일 ${fmt(s.date)})`, { x: 50, y, size: 11, font, color: rgb(0.1, 0.1, 0.1) });
+    page.drawText(`${s.shown ?? s.label} : ${s.name}   (서명일 ${fmt(s.date)})`, { x: 50, y, size: 11, font, color: rgb(0.1, 0.1, 0.1) });
     y -= 12;
     try {
       const png = await doc.embedPng(await fs.readFile(s.sigPath));
@@ -654,6 +654,8 @@ export function collectSigners(contract: { userId: string; externalName: string 
       date: st.decidedAt,
       sigPath: diskPath(st.signatureUrl),
       role: isEmployeeStep ? null : (st.approver as { role?: string } | null)?.role ?? null,
+      // 외부 계약자는 배치는 근로자 자리 그대로, 글로는 「외부 계약자 서명」(10/17 실물 시험: 「직원 서명 테스트외부」로 나왔다)
+      ...(!st.approverId ? { shown: "외부 계약자 서명" } : {}),
     });
   }
   return signers;
