@@ -60,6 +60,8 @@ export default function AdminBotPage() {
   // 시스템 알림 수신자 (2026-09-03) — 담당자가 바뀌면 여기서 체크만 바꾸면 된다
   const [admins, setAdmins] = useState<{ id: string; name: string; email: string }[]>([]);
   const [sysTargets, setSysTargets] = useState<string[] | null>(null); // null = 미지정(관리자 전원)
+  // 화면에 안 보이는 수신자(개발자 영역 계정)가 지정에 들어 있다 — 보이는 체크가 비어도 「전원」이 아니다(2026-10-17)
+  const [sysHidden, setSysHidden] = useState(false);
   const [sysSaving, setSysSaving] = useState(false); // 저장 중 연타하면 옛 값으로 계산돼 토글이 유실된다
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("09:00");
@@ -103,6 +105,7 @@ export default function AdminBotPage() {
       setForceNotify(d.forceApprovalNotify || false);
       setAdmins(d.admins || []);
       setSysTargets(d.systemTargets ?? null);
+      setSysHidden(!!d.hiddenTargets);
     }
     setLoading(false);
   }, []);
@@ -125,8 +128,10 @@ export default function AdminBotPage() {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemTargets: next }),
     });
     if (res.ok) {
-      setSysTargets((await res.json()).systemTargets ?? next);
-      toast.success(next.length ? `${next.length}명이 시스템 알림을 받습니다.` : "아무도 고르지 않아 관리자 전원에게 갑니다.");
+      const d = await res.json();
+      setSysTargets(d.systemTargets ?? next);
+      setSysHidden(!!d.hiddenTargets);
+      toast.success(next.length ? `${next.length}명이 시스템 알림을 받습니다.` : d.hiddenTargets ? "지정된 수신자만 받습니다(일부는 표시 안 됨)." : "아무도 고르지 않아 관리자 전원에게 갑니다.");
     } else toast.error("변경 실패");
     } finally { setSysSaving(false); }
   }
@@ -261,8 +266,11 @@ export default function AdminBotPage() {
             })}
             {admins.length === 0 && <span className="text-xs text-gray-400">불러오는 중…</span>}
           </div>
-          {sysTargets !== null && sysTargets.length === 0 && (
+          {sysTargets !== null && sysTargets.length === 0 && !sysHidden && (
             <p className="text-xs text-amber-600">아무도 고르지 않아 관리자 전원에게 갑니다.</p>
+          )}
+          {sysTargets !== null && sysHidden && (
+            <p className="text-xs text-gray-500">지정된 수신자만 받습니다(일부는 표시 안 됨).</p>
           )}
         </CardContent>
       </Card>

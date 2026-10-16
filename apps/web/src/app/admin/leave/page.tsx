@@ -29,6 +29,7 @@ import DelegateManager from "@/components/leave/DelegateManager";
 import LeaveReport from "@/components/leave/LeaveReport";
 import LeaveGrantBoard from "@/components/leave/LeaveGrantBoard";
 import LeaveImport from "@/components/leave/LeaveImport";
+import LeaveSettlement from "@/components/leave/LeaveSettlement";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -610,7 +611,8 @@ export default function LeavePage() {
 
       {/* ── 탭 ── */}
       <Tabs defaultValue="list">
-        <TabsList>
+        {/* 탭이 많아(최대 9개) 휴대폰 폭에서 넘친다 — 이 목록만 가로로 밀어 보게 한다 */}
+        <TabsList className="w-full max-w-full md:w-fit justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="list" className="gap-1.5">
             <ClipboardList size={14} />신청 관리
           </TabsTrigger>
@@ -642,6 +644,11 @@ export default function LeavePage() {
               {role === "ADMIN" && (
                 <TabsTrigger value="import" className="gap-1.5">
                   <Upload size={14} />휴가 가져오기
+                </TabsTrigger>
+              )}
+              {role === "ADMIN" && (
+                <TabsTrigger value="settlement" className="gap-1.5">
+                  <Calculator size={14} />연차 정산
                 </TabsTrigger>
               )}
             </>
@@ -855,6 +862,13 @@ export default function LeavePage() {
         {role === "ADMIN" && (
           <TabsContent value="import" className="mt-4">
             <LeaveImport />
+          </TabsContent>
+        )}
+
+        {/* ═══ 연차 정산(#57 #58 #59 #60) — 재직자 미사용·퇴사자 정산 + 엑셀 3종. 본부(ADMIN)만 ═══ */}
+        {role === "ADMIN" && (
+          <TabsContent value="settlement" className="mt-4">
+            <LeaveSettlement />
           </TabsContent>
         )}
 

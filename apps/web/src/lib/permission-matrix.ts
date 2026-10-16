@@ -45,6 +45,7 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "연차 대장", admin: "all", manager: "branch", employee: "self", note: "대장 PDF 내려받기는 본부만", basis: "api/leave/ledger, ledger/pdf" },
     { feature: "잔여 연차 숫자 보기", admin: "all", manager: "branch", employee: "self", note: "권한 설정 「잔여 연차 숫자 보기(직원·원장)」 — 시프티 사용 내역 이관 전에는 꺼 둔다(#219-1). 꺼도 잔여 초과 신청은 막는다", basis: "lib/permission-settings canSeeLeaveBalance — api/me/dashboard-stats·leave/balance·leave/ledger·leave/days·employees" },
     { feature: "보상휴가·대체휴일 종류별 잔여·수동 조정", admin: "all", manager: "no", employee: "no", note: "본부 화면만(#50). 잔여를 넘는 신청 막기는 권한 설정 「보상휴가·대체휴일 잔여 초과 신청 막기」(#219-7, 시프티 부여 이관 전에는 꺼 둔다) — 켜졌을 때만 신청 창에 잔여가 보인다(「잔여 연차 숫자 보기」도 켜져야 직원·원장에게 보임)", basis: "api/leave/grants, lib/leave-limit" },
+    { feature: "연차 정산(재직자 미사용·퇴사자)·정산 엑셀", admin: "all", manager: "no", employee: "no", note: "휴가 관리 「연차 정산」 탭(#57~#60) — 재직자 = 그해 회계 기준 발생 − 사용, 퇴사자 = 입사일 기준 총 발생 − 회계 기준 전년도까지 누적 − 당해 사용. 일수까지만(금액 없음). 엑셀: 연차 발생 내역·미사용 연차·퇴사자 정산", basis: "api/leave/settlement" },
     { feature: "원장대행 지정", admin: "all", manager: "no", employee: "no", basis: "api/approval-delegates" },
   ] },
   { title: "전자계약", rows: [

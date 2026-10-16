@@ -73,6 +73,11 @@ export async function POST(
         });
         eligible = members.filter((m) => m.user.isActive).map((m) => m.userId);
       }
+      // 개발자 영역(메인 관리자)은 투표 대상 수에서 뺀다 — 명단에 안 보이는 사람이 안 찍어 마감이 영영 안 되던 것(2026-10-17).
+      // 숨김 계정이 실제로 찍은 표는 득표에 그대로 센다(여기서는 「전원이 찍었나」 판정에서만 뺀다)
+      const { getHiddenUserIds } = await import("@/lib/hidden-accounts");
+      const hiddenIds = await getHiddenUserIds();
+      if (hiddenIds.length) eligible = eligible.filter((uid) => !hiddenIds.includes(uid));
       const votes = await prisma.workPollVote.findMany({ where: { pollId: id }, select: { userId: true } });
       const voters = new Set(votes.map((v) => v.userId));
       if (eligible.length > 0 && eligible.every((uid) => voters.has(uid))) {

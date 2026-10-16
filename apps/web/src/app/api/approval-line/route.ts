@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { hiddenWhere } from "@/lib/hidden-accounts";
 
 const stepInclude = {
   steps: {
@@ -27,7 +28,9 @@ export async function GET() {
   }
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
-  const branchWhere = session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
+  // 개발자 영역(메인 관리자)은 직원 목록·결재자 후보에서 뺀다(보는 사람만 본다 — 2026-10-17 디렉터).
+  // 이미 걸려 있는 결재라인 단계의 결재자 이름(stepInclude)은 그대로 둔다
+  const branchWhere = { ...(session.role === "MANAGER" ? { branch: { in: myBranches } } : {}), ...(await hiddenWhere(session)) };
 
   const employeesRaw: any = await prisma.user.findMany({
     where: { isActive: true, ...branchWhere },

@@ -165,7 +165,9 @@ export async function sendContractNotification(
   appUrl: string,
   recipientId?: string, // 본인 확인 관문용 (#140) — 남의 세션으로 열리는 것 방지
   message?: string | null, // 본부 발송 메시지(#65)
-  deadline?: Date | null // 서명 기한(#45) — 메일에 보여 준다(#217-3)
+  deadline?: Date | null, // 서명 기한(#45) — 메일에 보여 준다(#217-3)
+  // 진행 문구 — 앞 단계(본부·원장) 서명 뒤 근로자 차례로 올 때(10/17 캡처 점검: 근로자에게 결재자용 문안이 갔다)
+  progress?: { turn: string; text: string } | null
 ): Promise<void> {
   const { messageEmailHtml } = await import("@/lib/contract-send-meta");
   const html = contractMailShell("계약서 서명 요청", `
@@ -175,6 +177,7 @@ export async function sendContractNotification(
       <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #2563eb;">
         <p><strong>문서:</strong> ${contractTitle}</p>
         <p><strong>상태:</strong> 근로자 서명 대기</p>
+        ${progress?.text ? `<p><strong>진행:</strong> ${progress.text}</p>` : ""}
         ${kstYmd(deadline) ? `<p><strong>서명 기한:</strong> ${kstYmd(deadline)}</p>` : ""}
       </div>
       ${messageEmailHtml(message)}

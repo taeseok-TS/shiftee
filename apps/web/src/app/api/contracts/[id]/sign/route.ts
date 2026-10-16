@@ -2,7 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
-import { sendApprovalRequest, sendContractCompletion } from "@/lib/email";
+import { sendApprovalRequest, sendContractCompletion, sendContractNotification } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
 import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
@@ -314,7 +314,14 @@ export async function POST(
 
     // 이메일 알림 발송
     const appUrl = getAppUrl();
-    if (nextStep?.approver?.email) {
+    if (nextStep?.approver?.email && nextStep.approverId === contract.userId && !contract.externalName) {
+      // 다음이 근로자(당사자) 서명이면 근로자용 「서명 요청」 문안으로 — 결재자 문안(「홍길동님의 계약서에 홍길동님의 결재」·「승인하기」)이 갔다(10/17)
+      await sendContractNotification(
+        nextStep.approver.email, nextStep.approver.name, updated.title, appUrl, contract.userId,
+        contract.sendMessage, contract.signDeadline,
+        approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
+      );
+    } else if (nextStep?.approver?.email) {
       // 다음 승인자에게 알림
       await sendApprovalRequest(
         nextStep.approver.email,
@@ -401,13 +408,11 @@ export async function POST(
     if (nextStep?.approver?.email) {
       // 다음 단계가 직원 서명인지 확인
       if (nextStep.approverId === finalContract.userId && !finalContract.externalName) {
-        // 직원에게 서명 요청 알림
-        await sendApprovalRequest(
+        // 직원에게 서명 요청 알림 — 근로자용 문안(10/17: 결재자 문안이 가던 것)
+        await sendContractNotification(
           finalContract.user.email,
           finalContract.user.name,
           finalContract.title,
-          finalContract.externalName || finalContract.user.name, // 계약 당사자
-          nextStep.order,
           appUrl,
           finalContract.user.id, // 본인 확인 관문(#140)
           contract.sendMessage,

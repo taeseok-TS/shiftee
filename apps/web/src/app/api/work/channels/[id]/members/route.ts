@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { channelCanManage, isChannelMember } from "@/lib/work-perms";
 import { invalidateChannelAudience } from "@/lib/work-access";
 import { emitWork } from "@/lib/work-events";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
 // 내보내기(강퇴) 권한: 전체(기본) 채널은 관리자(ADMIN)만, 그 외는 생성자/방장/관리자
 async function canManageMembers(channelId: string, isDefault: boolean, userId: string, role: string) {
@@ -32,14 +33,17 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   const { id } = await params;
-  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { createdBy: true, isDefault: true } });
+  const channel = await prisma.workChannel.findUnique({ where: { id }, select: { createdBy: true, isDefault: true, type: true } });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   // 누가 그 방에 있는지도 그 방 사람만 본다(전체 채널·본부 관리자는 예외) — 종전에는 로그인만 하면 아무 방이나 조회됐다
   if (!channel.isDefault && session.role !== "ADMIN" && !(await isChannelMember(id, session.userId)))
     return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
 
+  // 개발자 영역(메인 관리자)은 보는 사람에게만 명단에 나온다 — 멘션 자동완성(웹·앱)도 이 목록을 쓴다(2026-10-17 디렉터).
+  // DM 은 거르지 않는다 — 이미 있는 DM 방 상대는 그대로 둔다(디렉터 결정)
+  const hidden = channel.type === "DM" ? [] : await hiddenIdsFor(session);
   const members = await prisma.workChannelMember.findMany({
-    where: { channelId: id },
+    where: { channelId: id, ...(hidden.length ? { userId: { notIn: hidden } } : {}) },
     include: { user: { select: { id: true, name: true, branch: true, position: true, avatarUrl: true } } },
     orderBy: { joinedAt: "asc" },
   });

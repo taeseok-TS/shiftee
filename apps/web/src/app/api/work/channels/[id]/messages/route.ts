@@ -5,6 +5,7 @@ import { emitWork } from "@/lib/work-events";
 import { sendPushToUsers } from "@/lib/push";
 import { isMentioned } from "@/lib/mention";
 import { findSendableEmoticon } from "@/lib/emoticons";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 import type { Prisma } from "@prisma/client";
 
 async function assertAccess(channelId: string, userId: string) {
@@ -86,8 +87,11 @@ export async function GET(
   if ("error" in acc) return NextResponse.json({ error: acc.error }, { status: acc.status });
 
   // 멤버들의 lastReadAt (읽음 워터마크 + 메시지별 안 읽은 사람 수 계산에 사용)
+  // 개발자 영역(메인 관리자)은 셈에서 뺀다 — 읽음 명단(messages/[id]/readers)·공지 확인 명단과 숫자가 어긋나지 않게(2026-10-17 디렉터).
+  // DM 은 그대로 센다(이미 있는 DM 방 상대는 그대로 — 디렉터 결정)
+  const hiddenIds = acc.channel.type === "DM" ? [] : await hiddenIdsFor(session);
   const allMembers = await prisma.workChannelMember.findMany({
-    where: { channelId: id },
+    where: { channelId: id, ...(hiddenIds.length ? { userId: { notIn: hiddenIds } } : {}) },
     select: { userId: true, lastReadAt: true },
   });
   const otherReads = allMembers.filter((m) => m.userId !== session.userId).map((m) => m.lastReadAt);
@@ -305,11 +309,12 @@ async function finishSend(
   emitWork({ type: "message", channelId: id, senderId: senderId, msgId: message.id });
 
   // 전송 직후에도 안읽음 "1"이 바로 보이게 응답에 unreadBy 포함 (개선 제안 2026-08-24)
-  // GET 의 계산식과 동일: 발신자 제외, lastReadAt 이 메시지 시각보다 이전이면 안 읽음
+  // GET 의 계산식과 동일: 발신자 제외, lastReadAt 이 메시지 시각보다 이전이면 안 읽음, 개발자 영역 계정 제외(DM 은 그대로 — 2026-10-17)
+  const hiddenIds = channel.type === "DM" ? [] : await hiddenIdsFor({ userId: senderId });
   const unreadBy = await prisma.workChannelMember.count({
     where: {
       channelId: id,
-      userId: { not: senderId },
+      userId: { notIn: [senderId, ...hiddenIds] },
       OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
     },
   });

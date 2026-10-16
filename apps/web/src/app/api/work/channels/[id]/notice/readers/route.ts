@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
 // 채널 공지 확인/미확인 멤버 명단 (기준: 공지 등록 시각 이후 채널을 열었는지 = lastReadAt >= noticeAt)
 export async function GET(
@@ -15,6 +16,7 @@ export async function GET(
     where: { id },
     select: {
       isDefault: true,
+      type: true,
       noticeAt: true,
       members: { select: { userId: true, lastReadAt: true, user: { select: { name: true, branch: true, avatarUrl: true } } } },
     },
@@ -26,9 +28,12 @@ export async function GET(
   if (!channel.noticeAt)
     return NextResponse.json({ error: "등록된 공지가 없습니다." }, { status: 400 });
 
+  // 개발자 영역(메인 관리자)은 명단에서 뺀다 — 공지 미확인 숫자(channels/[id]/messages notice.unreadCount)도 같은 기준(2026-10-17 디렉터). DM 은 그대로
+  const hidden = channel.type === "DM" ? [] : await hiddenIdsFor(session);
   const read: { userId: string; name: string; branch: string | null; avatarUrl: string | null }[] = [];
   const unread: typeof read = [];
   for (const m of channel.members) {
+    if (hidden.includes(m.userId)) continue;
     const entry = { userId: m.userId, name: m.user.name, branch: m.user.branch, avatarUrl: m.user.avatarUrl };
     if (m.lastReadAt && m.lastReadAt >= channel.noticeAt) read.push(entry);
     else unread.push(entry);

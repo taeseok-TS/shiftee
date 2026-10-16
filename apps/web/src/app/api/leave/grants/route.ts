@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { grantSummary, addManualGrant, isGrantGroup } from "@/lib/leave-grant";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(request: NextRequest) {
   const sp = new URL(request.url).searchParams;
   const asOfRaw = sp.get("asOf");
   const asOf = ymdOk(asOfRaw) ? new Date(`${asOfRaw}T00:00:00Z`) : new Date(new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) + "T00:00:00Z");
-  const rows = await grantSummary({ asOf, includeAdmins: sp.get("includeAdmins") === "true", includeTest: sp.get("includeTest") === "true" });
+  // 「관리자 포함」을 켜도 개발자 영역(메인 관리자)은 보는 사람에게만(2026-10-17 디렉터)
+  const rows = await grantSummary({ asOf, includeAdmins: sp.get("includeAdmins") === "true", includeTest: sp.get("includeTest") === "true", excludeIds: await hiddenIdsFor(session) });
   return NextResponse.json({ asOf: asOf.toISOString().slice(0, 10), rows });
 }
 

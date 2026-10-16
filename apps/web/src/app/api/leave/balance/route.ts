@@ -58,6 +58,9 @@ export async function GET(request: NextRequest) {
   const includeTest = searchParams.get("includeTest") === "true";
   const { excludedBranchNames } = await import("@/lib/employee-scope");
   const excludedBranches = session.role === "ADMIN" && !includeTest ? await excludedBranchNames() : [];
+  // 「관리자 포함」을 켜도 개발자 영역(메인 관리자)은 보는 사람에게만(2026-10-17 디렉터)
+  const { hiddenWhere } = await import("@/lib/hidden-accounts");
+  const hideWhere = await hiddenWhere(session);
 
   const [employees, balances] = await Promise.all([
     prisma.user.findMany({
@@ -70,6 +73,7 @@ export async function GET(request: NextRequest) {
         ...(excludedBranches.length > 0
           ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }, ...(includeAdmins ? [{ role: "ADMIN" as const }] : [])] }
           : {}),
+        ...hideWhere,
       },
       select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, resignDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],

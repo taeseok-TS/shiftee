@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { kstTodayMidnight } from "@/lib/resign";
 import { readApprovalRules, saveApprovalRules } from "@/lib/approval-rules";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 import {
   RULE_ROWS, ROW_BY_KEY, rowSteps, validateRow, validateException, cleanException, cleanSteps, duplicateExceptionError, describeSteps,
   EXCEPTION_KIND_LABEL, MAX_EXCEPTIONS, type ApprovalRules, type RuleStep, type RuleException,
@@ -26,7 +27,17 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 볼 수 있습니다." }, { status: 403 });
-  const [rules, lk] = await Promise.all([readApprovalRules(), lookups()]);
+  const [rules, lk, hidden] = await Promise.all([readApprovalRules(), lookups(), hiddenIdsFor(session)]);
+  // 개발자 영역(메인 관리자)은 사람 목록(지정 결재자 후보)에서 뺀다 — 보는 사람만 본다(2026-10-17 디렉터).
+  // 단 **이미 규칙에 걸려 있는 사람은 남긴다** — 빠지면 화면이 「(없는 사람)」으로 그려 멀쩡한 규칙을 다시 고르게 만든다.
+  // 저장(PUT) 검사는 lookups() 전체 명단으로 하므로 결재 동작은 그대로다
+  if (hidden.length) {
+    const used = new Set<string>([
+      ...Object.values(rules.rows).flat().map((st) => st.userId),
+      ...rules.exceptions.flatMap((x) => [x.userId, ...x.steps.map((st) => st.userId)]),
+    ].filter((v): v is string => !!v));
+    lk.people = lk.people.filter((p) => !hidden.includes(p.id) || used.has(p.id));
+  }
   return NextResponse.json({ rules, rows: RULE_ROWS, ...lk });
 }
 

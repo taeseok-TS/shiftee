@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { isResigned, kstTodayMidnight } from "@/lib/resign";
+import { getHiddenUserIds, getHiddenViewerIds } from "@/lib/hidden-accounts";
 
 /**
  * 퇴사자 채팅방 정리 (2026-09-23 디렉터 지시).
@@ -58,7 +59,9 @@ function pickSuccessor(members: Candidate[]): { id: string; alreadyManager: bool
 }
 
 /**
- * 기록을 맡아 둘 관리자 — 메인 관리자 우선, 없으면 가장 오래된 관리자. 봇 계정은 isActive=false 라 빠진다.
+ * 기록을 맡아 둘 관리자 — 개발자 영역 열람자(김태석 본부장 계정, lib/hidden-accounts) 우선, 없으면 메인 관리자 →
+ * 가장 오래된 관리자 순인데 **숨김 계정(개발자 영역)은 뺀다** — 직원 눈에 그 방 멤버로 남지 않게(2026-10-17 디렉터).
+ * 봇 계정은 isActive=false 라 빠진다.
  * ⚠ 정리 대상 본인과 퇴사(예정)한 관리자는 제외한다. 본인을 고르면 방금 넣은 멤버행을 이어지는
  *   삭제가 그대로 지워 **0명짜리 휴지통 방**이 된다(검증 resignchat1 [U1]).
  */
@@ -71,9 +74,14 @@ async function findKeeperAdmin(excludeId: string): Promise<string | null> {
     employmentStatus: { not: "RESIGNED" as const },
     OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }],
   };
+  const [viewerIds, hiddenIds] = await Promise.all([getHiddenViewerIds(), getHiddenUserIds()]);
+  const notHidden = hiddenIds.length ? { AND: [{ id: { notIn: hiddenIds } }] } : {};
   const admin =
-    (await prisma.user.findFirst({ where: { ...guard, isSuperAdmin: true }, select: { id: true } })) ??
-    (await prisma.user.findFirst({ where: guard, select: { id: true }, orderBy: { createdAt: "asc" } }));
+    (viewerIds.length
+      ? await prisma.user.findFirst({ where: { ...guard, AND: [{ id: { in: viewerIds } }] }, select: { id: true }, orderBy: { createdAt: "asc" } })
+      : null) ??
+    (await prisma.user.findFirst({ where: { ...guard, ...notHidden, isSuperAdmin: true }, select: { id: true } })) ??
+    (await prisma.user.findFirst({ where: { ...guard, ...notHidden }, select: { id: true }, orderBy: { createdAt: "asc" } }));
   return admin?.id ?? null;
 }
 
@@ -150,6 +158,8 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
     }).catch(() => { /* 기록 실패가 정리를 되돌리지는 못한다 */ });
   };
 
+  // 개발자 영역(메인 관리자) 숨김 계정 — 방장 승계 후보에서 뺀다(직원 눈에 그 방 방장으로 보이지 않게, 2026-10-17 디렉터)
+  const hiddenIds = await getHiddenUserIds();
   try {
     for (const row of rows) {
       const needsSuccessor = row.isManager || row.channel.createdBy === userId;
@@ -173,7 +183,11 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
           // 같은 트랜잭션에서 만들어진 멤버행은 joinedAt 이 모두 같다 — id 로 순서를 확정한다
           orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
         });
-        successor = pickSuccessor(others.filter((m) => !isResigned(m.user.resignDate)));
+        const alive = others.filter((m) => !isResigned(m.user.resignDate));
+        successor = pickSuccessor(alive.filter((m) => !hiddenIds.includes(m.userId)));
+        // 남은 사람이 숨김 계정뿐 — 그 방을 볼 직원이 없으니 종전처럼 숨김 계정에게 넘긴다
+        // (보는 사람 계정을 새로 끌어들이면 개발 계정끼리의 방에 들어가 DM 만 받는다 — 재검증 10/17)
+        if (!successor && alive.length) successor = pickSuccessor(alive);
       }
 
       const pickId = successor?.id;
@@ -186,7 +200,7 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
       let keptBy: string | null = null;
       let swept: { channelId: string; userId: string; row: Omit<RemovedRow, "c"> }[] = [];
       // 기록을 열 수 있어야 한다 — 멤버가 0명인 방은 복구해도 목록·검색 어디에도 안 뜬다.
-      // 휴지통으로 보낼 때 메인 관리자를 방장으로 남겨 둔다(평소에는 휴지통에 있으니 목록을 어지럽히지 않는다).
+      // 휴지통으로 보낼 때 보관자(보는 사람 계정 → 숨기지 않은 메인 관리자 → 가장 오래된 관리자)를 방장으로 남겨 둔다(평소에는 휴지통에 있으니 목록을 어지럽히지 않는다).
       if (toTrash && keeperId === undefined) {
         keeperId = await findKeeperAdmin(userId);
         if (!keeperId) console.error("[퇴사 채팅 정리] 기록을 맡을 관리자를 찾지 못했다 — 0명 방이 생긴다:", userId);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isMentioned } from "@/lib/mention";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
 // 채널 목록 조회 (기본 '전체' 채널 자동 보장 + 본인 참여 채널)
 export async function GET() {
@@ -45,6 +46,8 @@ export async function GET() {
     return !!last && last.createdAt > me.hiddenAt;
   });
 
+  // 인원 수는 멤버 명단(channels/[id]/members)과 같은 기준 — 개발자 영역(메인 관리자)은 그룹·전체 채널에서 뺀다(2026-10-17 디렉터)
+  const hiddenIds = await hiddenIdsFor(session);
   // 채널별 안읽음 개수 계산 (내 멤버 행의 lastReadAt 기준, 내가 보낸 건 제외)
   const result = await Promise.all(
     visibleChannels.map(async (c) => {
@@ -99,7 +102,7 @@ export async function GET() {
         avatarUrl,
         type: c.type,
         isDefault: c.isDefault,
-        memberCount: c.members.length,
+        memberCount: c.type === "DM" ? c.members.length : c.members.filter((m) => !hiddenIds.includes(m.userId)).length,
         unread,
         notify,
         pinned: myMember?.pinned ?? false,

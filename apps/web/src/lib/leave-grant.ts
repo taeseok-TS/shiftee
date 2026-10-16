@@ -128,11 +128,13 @@ export type GrantRow = {
 };
 
 /** 직원별 종류별 올해 부여·사용, 지난해 이월, 전체 순잔여(#50). 대상 직원 범위는 「직원별 잔여 현황」과 같은 규칙 */
-export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; includeTest: boolean }): Promise<GrantRow[]> {
+export async function grantSummary(opts: { asOf: Date; includeAdmins: boolean; includeTest: boolean; excludeIds?: string[] }): Promise<GrantRow[]> {
   const excluded = opts.includeTest ? [] : await excludedBranchNames();
   const users = await prisma.user.findMany({
     where: {
       isActive: true, deletedAt: null,
+      // 개발자 영역(메인 관리자) — 부르는 쪽이 lib/hidden-accounts hiddenIdsFor 로 넘긴다(2026-10-17 디렉터)
+      ...(opts.excludeIds?.length ? { id: { notIn: opts.excludeIds } } : {}),
       ...(opts.includeAdmins ? {} : { role: { not: "ADMIN" as const } }),
       ...(excluded.length > 0
         ? { OR: [{ branch: null }, { branch: { notIn: excluded } }, ...(opts.includeAdmins ? [{ role: "ADMIN" as const }] : [])] }

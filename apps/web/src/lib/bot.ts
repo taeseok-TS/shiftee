@@ -5,6 +5,7 @@ import { sendPushToUsers } from "@/lib/push";
 import { kstTodayMidnight } from "@/lib/resign";
 import type { Prisma } from "@prisma/client";
 import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachments";
+import { getHiddenUserIds } from "@/lib/hidden-accounts";
 
 /**
  * 큐브티 봇 — 자동 알림 (아침 브리핑, 결재 결과 DM, 중요 공지 재알림)
@@ -277,7 +278,12 @@ async function buildBriefingContent(cfg: BriefingConfig): Promise<string | null>
   const { start, end } = kstTodayRange();
   // 오늘 날짜 (@db.Date 컬럼과 동일한 UTC 자정 규칙)
   const todayDate = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
-  const branchUserWhere = cfg.branch ? { branch: cfg.branch } : {};
+  // 개발자 영역(메인 관리자)은 브리핑에 넣지 않는다 — 채널에 올라가는 전사 공개 글이라 보는 사람 예외도 없다(2026-10-17 디렉터)
+  const hiddenIds = await getHiddenUserIds();
+  const branchUserWhere = {
+    ...(cfg.branch ? { branch: cfg.branch } : {}),
+    ...(hiddenIds.length ? { id: { notIn: hiddenIds } } : {}),
+  };
 
   const [leaves, events, users] = await Promise.all([
     cfg.showLeaves

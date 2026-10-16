@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { excludedBranchNames } from "@/lib/employee-scope";
+import { hiddenWhere } from "@/lib/hidden-accounts";
 import { endOfMonth, endOfYear } from "date-fns";
 
 export async function GET(request: NextRequest) {
@@ -91,6 +92,8 @@ export async function GET(request: NextRequest) {
                 }]
               : []),
             ...(branchFilter ? [{ branch: branchFilter }] : []),
+            // 「관리자 포함」을 켜도 개발자 영역(메인 관리자)은 보는 사람에게만(2026-10-17 디렉터)
+            await hiddenWhere(session),
           ],
         },
         select: {

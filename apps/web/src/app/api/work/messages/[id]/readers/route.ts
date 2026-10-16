@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
 // 메시지 읽음/안읽음 멤버 명단 (unreadBy 숫자 탭 → 상세)
 // 기준은 unreadBy 계산과 동일: 발신자 제외, lastReadAt >= 메시지 시각이면 읽음
@@ -25,17 +26,20 @@ export async function GET(
   // 요청자가 채널 멤버인지 확인 (기본 채널은 전체 공개)
   const channel = await prisma.workChannel.findUnique({
     where: { id: message.channelId },
-    select: { isDefault: true, members: { select: { userId: true, lastReadAt: true, user: { select: { id: true, name: true, branch: true, avatarUrl: true } } } } },
+    select: { isDefault: true, type: true, members: { select: { userId: true, lastReadAt: true, user: { select: { id: true, name: true, branch: true, avatarUrl: true } } } } },
   });
   if (!channel) return NextResponse.json({ error: "채널을 찾을 수 없습니다." }, { status: 404 });
   const isMember = channel.members.some((m) => m.userId === session.userId);
   if (!channel.isDefault && !isMember)
     return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
 
+  // 개발자 영역(메인 관리자)은 명단에서 뺀다 — 안읽음 숫자(channels/[id]/messages unreadBy)도 같은 기준이다(2026-10-17 디렉터). DM 은 그대로
+  const hidden = channel.type === "DM" ? [] : await hiddenIdsFor(session);
   const read: { userId: string; name: string; branch: string | null; avatarUrl: string | null }[] = [];
   const unread: typeof read = [];
   for (const m of channel.members) {
     if (m.userId === message.userId) continue; // 발신자 제외
+    if (hidden.includes(m.userId)) continue;
     const entry = { userId: m.userId, name: m.user.name, branch: m.user.branch, avatarUrl: m.user.avatarUrl };
     if (m.lastReadAt && m.lastReadAt >= message.createdAt) read.push(entry);
     else unread.push(entry);

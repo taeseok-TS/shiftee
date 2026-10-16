@@ -10,6 +10,7 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
 import { findUserIdByEmailCI } from "@/lib/user-email";
 import { kstDate, yearTotalAsOf } from "@/lib/leave-accrual";
+import { hiddenWhere } from "@/lib/hidden-accounts";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -34,8 +35,10 @@ export async function GET(request: NextRequest) {
     ? {}
     : { OR: [{ resignDate: null }, { resignDate: { gte: todayMidnight } }] };
 
+  // 개발자 영역(메인 관리자)은 보는 사람에게만 — 관리자 포함 목록(계약 승인자 검색·계약 직원 필터·API 키 후보)에서도 빠진다(2026-10-17 디렉터)
+  const hideWhere = await hiddenWhere(session);
   const employees = await prisma.user.findMany({
-    where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere, ...resignWhere },
+    where: { isActive: true, deletedAt: null, ...(includeAdmins ? {} : { role: { not: "ADMIN" } }), ...branchWhere, ...resignWhere, ...hideWhere },
     select: {
       id: true, name: true, email: true, role: true, empNo: true,
       department: true, jobGroup: true, position: true, branch: true, hireDate: true, birthDate: true, phone: true,
