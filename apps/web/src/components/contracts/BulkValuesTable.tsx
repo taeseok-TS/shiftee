@@ -19,16 +19,22 @@ type Emp = { id: string; name: string; branch?: string | null; empNo?: number | 
 const AUTO = new Set([
   "직원명", "이름", "지점", "지점명", "사원번호", "작성일", "근로자서명", "대표서명", "원장서명", "본부서명",
   "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자", "식대", "생년월일", "근무시작일", "연차시작일", "원장명",
-  "교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료", "일근무시간", "월근로시간", "근로시작일", "이메일", "연락처",
+  "일근무시간", "월근로시간", "이메일", "연락처",
   "입사일", "직책", "직급", "제목", "주소",
 ]);
 const KEY_NAMES = new Set(["사번", "사원번호", "이름", "직원명", "직원", "성명"]);
+// 사람마다 다를 수 있는 날짜 칸 — 근로시작일·교육/실무평가 기간(2026-10-16 이예지 QA: 입사일이 다른 신규입사자를 한 번에 만들면 평가 기간이 모두 같아졌다).
+// 평가 4칸은 비워 두면 그 사람 근로시작일(없으면 계약시작일)로 자동 계산하고, 적으면 적은 값이 우선이다
+export const PERSON_DATE_COLS = ["근로시작일", "교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료"] as const;
+export const EVAL_COLS = ["교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료"] as const;
+export const DATE_COLS: readonly string[] = ["계약시작일", "계약종료일", ...PERSON_DATE_COLS];
 
 /** 표에 보일 열 — 연봉(필요한 양식만) + 계약 기간 + 그 양식의 나머지 입력 칸 */
 export function bulkColumns(templateFields: string[], needsSalary: boolean): string[] {
   const cols: string[] = [];
   if (needsSalary) cols.push("연봉");
   cols.push("계약시작일", "계약종료일");
+  for (const f of PERSON_DATE_COLS) if (templateFields.includes(f)) cols.push(f);
   for (const f of templateFields) {
     if (AUTO.has(f) || cols.includes(f) || f.startsWith("#") || f.startsWith("/") || f.startsWith("체크_") || f.startsWith("선택_") || f.startsWith("동의")) continue;
     cols.push(f);
@@ -169,7 +175,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
     }
     // 날짜 칸은 바로 확인 — 못 읽는 날짜는 표에 그대로 두되 알려 준다
     for (const [uid, row] of Object.entries(next)) {
-      for (const k of ["계약시작일", "계약종료일"]) if (row[k] && normDate(row[k]) === null) problems.push(`${emp(uid)?.name}: ${k} 「${row[k]}」을(를) 날짜로 읽지 못했습니다`);
+      for (const k of DATE_COLS) if (columns.includes(k) && row[k] && normDate(row[k]) === null) problems.push(`${emp(uid)?.name}: ${k} 「${row[k]}」을(를) 날짜로 읽지 못했습니다`);
     }
     onChange(next);
     if (problems.length) toast.warning(`${used}명 넣음 — 확인할 것: ${problems.slice(0, 5).join(" / ")}${problems.length > 5 ? ` 외 ${problems.length - 5}건` : ""}`, { duration: 15000 });
@@ -180,7 +186,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
   if (!userIds.length || !columns.length) return null;
   return (
     <div className="space-y-2 border border-blue-200 rounded-lg p-3 bg-blue-50/40">
-      <p className="text-xs font-semibold text-blue-800">개인별 값 — 비워 두면 위 공통 입력값이 들어갑니다</p>
+      <p className="text-xs font-semibold text-blue-800">개인별 값 — 비워 두면 위 공통 입력값이 들어갑니다{columns.some((c) => (EVAL_COLS as readonly string[]).includes(c)) ? " · 평가 기간을 비우면 그 사람 근로시작일로 자동 계산" : ""}</p>
       <div className="overflow-x-auto max-h-72 overflow-y-auto rounded border bg-white">
         <table className="text-xs w-full">
           <thead className="sticky top-0 bg-gray-50">
@@ -197,7 +203,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
                   <td className="px-2 py-1 whitespace-nowrap">{e?.name}{e?.empNo != null ? <span className="text-gray-400"> {String(e.empNo).padStart(5, "0")}</span> : null}{e?.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}</td>
                   {columns.map((c) => {
                     const v = values[uid]?.[c] ?? "";
-                    const bad = (c === "계약시작일" || c === "계약종료일") && v && normDate(v) === null;
+                    const bad = DATE_COLS.includes(c) && v && normDate(v) === null;
                     return (
                       <td key={c} className="px-1 py-0.5">
                         <input value={v} placeholder={common[c] ?? ""}

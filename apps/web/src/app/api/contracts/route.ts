@@ -2,6 +2,7 @@
 import { requiredHqMissing } from "@/lib/contract-field-settings";
 import { layoutFieldTypes, type LayoutFieldTypes } from "@/lib/contract-layout";
 import { getSession } from "@/lib/auth";
+import { partyCanSee, PARTY_HIDDEN_STATUSES } from "@/lib/contract-visibility";
 import { isRenewalContract, templateStepsFor } from "@/lib/approval-order";
 import { prisma } from "@/lib/db";
 import { filterContractData } from "@/lib/api-response";
@@ -128,7 +129,21 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: { createdAt: "desc" },
-    });
+    }).then((rows) => rows.filter((c) => {
+      // 2026-10-16 E1·E4(이예지 QA, 디렉터 「급함」) — lib/contract-visibility 와 파일 판정(lib/contract-access)이 같은 규칙
+      if (session.role === "ADMIN") return true;   // 관리자는 파일 판정(judgeOne)과 같게 늘 본다
+      const steps = (c.approvalLine?.steps || []).map((s) => ({ order: s.order, approverId: s.approverId, status: s.status }));
+      // 내가 당사자인 계약 — 본인 목록이든 원장 지점 목록이든 초안·차례 전은 숨긴다(원장 본인 계약이 지점 목록에 딸려 오는 경우, 검증 지적)
+      if (c.userId === session.userId && !partyCanSee({ status: c.status, userId: c.userId, steps })) return false;
+      if (selfOnly) {
+        // 반려·만료는 「숨겨진 결재 포함」을 켜거나 상태를 그것으로 골랐을 때만
+        if (!showHiddenRevoked && status !== c.status && PARTY_HIDDEN_STATUSES.includes(c.status)) return false;
+        return true;
+      }
+      // 원장 지점 보기 — 남이 만든 초안은 보이지 않는다(자기가 만든 초안은 보인다)
+      if (session.role === "MANAGER" && c.status === "DRAFT" && c.createdBy !== session.userId) return false;
+      return true;
+    }));
 
     // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2). 템플릿마다 한 번만 읽는다(파일 캐시는 lib 에 있다)
     const namesByTemplate = new Map<string, string[] | null>();

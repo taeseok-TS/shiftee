@@ -12,6 +12,7 @@
 // 서명이 끝난 문서(SIGNED)에만 적용한다. 진행 중에는 본인이 무엇에 서명하는지 봐야 하므로 연다.
 import { prisma } from "@/lib/db";
 import { isResigned } from "@/lib/resign";
+import { partyCanSee, type VisStep } from "@/lib/contract-visibility";
 
 export type AccessPrincipal = {
   userId: string | null;
@@ -42,6 +43,8 @@ type Row = {
   access: string | null;
   hasTemplate: boolean;
   approverIds: string[] | null;
+  createdBy: string | null;
+  steps: VisStep[] | null;   // 결재 단계(순서·결재자·상태) — 당사자 차례 판정(2026-10-16 E1)
 };
 
 /** 파일명(또는 계약 id)이 어느 계약의 것인지 찾는다. 파일명은 여러 계약에 걸릴 수 있어 전부 본다. */
@@ -50,14 +53,16 @@ async function findContracts(target: { fileName?: string; contractId?: string })
     return prisma.$queryRaw<Row[]>`
       SELECT c.id, c."userId", c.status::text AS status, c."employeeSignedAt", u."branch",
              t."postSignAccess" AS access, (c."templateId" IS NOT NULL) AS "hasTemplate",
-             array_remove(array_agg(s."approverId"), NULL) AS "approverIds"
+             array_remove(array_agg(s."approverId"), NULL) AS "approverIds",
+             c."createdBy" AS "createdBy",
+             COALESCE(json_agg(json_build_object('order', s."order", 'approverId', s."approverId", 'status', s.status::text)) FILTER (WHERE s.id IS NOT NULL), '[]'::json) AS steps
       FROM "Contract" c
       LEFT JOIN "User" u ON u.id = c."userId"
       LEFT JOIN "ContractTemplate" t ON t.id = c."templateId"
       LEFT JOIN "ContractApprovalLine" l ON l."contractId" = c.id
       LEFT JOIN "ContractApprovalStep" s ON s."approvalLineId" = l.id
       WHERE c.id = ${target.contractId}
-      GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
+      GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId", c."createdBy"`;
   }
   const name = (target.fileName || "").trim();
   if (!name) return [];
@@ -66,7 +71,9 @@ async function findContracts(target: { fileName?: string; contractId?: string })
   return prisma.$queryRaw<Row[]>`
     SELECT c.id, c."userId", c.status::text AS status, c."employeeSignedAt", u."branch",
            t."postSignAccess" AS access, (c."templateId" IS NOT NULL) AS "hasTemplate",
-           array_remove(array_agg(s."approverId"), NULL) AS "approverIds"
+           array_remove(array_agg(s."approverId"), NULL) AS "approverIds",
+             c."createdBy" AS "createdBy",
+             COALESCE(json_agg(json_build_object('order', s."order", 'approverId', s."approverId", 'status', s.status::text)) FILTER (WHERE s.id IS NOT NULL), '[]'::json) AS steps
     FROM "Contract" c
     LEFT JOIN "User" u ON u.id = c."userId"
     LEFT JOIN "ContractTemplate" t ON t.id = c."templateId"
@@ -88,7 +95,7 @@ async function findContracts(target: { fileName?: string; contractId?: string })
             WHERE v."contractId" = c.id
               AND (v."fileUrl" = ${url} OR (v."fileUrl" IS JSON ARRAY AND v."fileUrl"::jsonb ? ${url}))
           )
-    GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId"`;
+    GROUP BY c.id, c."userId", c.status, c."employeeSignedAt", u."branch", t."postSignAccess", c."templateId", c."createdBy"`;
 }
 
 /** 계약 한 건에 대한 판정 */
@@ -106,6 +113,11 @@ async function judgeOne(row: Row, who: AccessPrincipal): Promise<ContractAccess>
   const access = raw === "full" || raw === "view" || raw === "none" ? raw : "none";
 
   const isOwner = row.userId === who.userId;
+  // 초안·차례 전(2026-10-16 E1, 이예지 QA 「급함」) — 당사자는 초안도, 자기 차례가 오기 전 문서도 못 연다.
+  // 당사자가 아닌 사람(원장·결재자)은 자기가 만든 초안만 연다. 화면만 숨기면 파일 주소로 열리므로 파일 문 전부가 지나는 여기서 막는다
+  const NOT_YET: ContractAccess = { allowed: false, viewOnly: false, status: 403, error: "아직 열람할 수 없는 문서입니다." };
+  if (isOwner && !partyCanSee({ status: row.status, userId: row.userId, steps: row.steps })) return NOT_YET;
+  if (!isOwner && row.status === "DRAFT" && row.createdBy !== who.userId) return NOT_YET;
   if (isOwner) {
     // ⚠ 근로자는 자기 "서명" 단계 때문에 결재 스텝에도 잡힌다. 결재자로 쳐서 정책을 건너뛰면
     //   사직원(none)이 본인에게 그대로 열린다. 당사자 판정을 먼저 본다.

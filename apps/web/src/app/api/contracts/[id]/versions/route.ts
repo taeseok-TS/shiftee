@@ -57,6 +57,15 @@ export async function GET(
         { status: 403 }
       );
     }
+    // 초안·자기 차례 전 문서(2026-10-16 E1) — 당사자는 lib/contract-visibility, 원장은 남이 만든 초안을 못 본다
+    if (!isAdmin) {
+      const c2 = await prisma.contract.findUnique({ where: { id }, select: { status: true, userId: true, createdBy: true, approvalLine: { select: { steps: { select: { order: true, approverId: true, status: true } } } } } });
+      const { partyCanSee } = await import("@/lib/contract-visibility");
+      if (c2 && isOwner && !partyCanSee({ status: c2.status, userId: c2.userId, steps: c2.approvalLine?.steps ?? [] }))
+        return NextResponse.json({ error: "아직 열람할 수 없는 문서입니다." }, { status: 403 });
+      if (c2 && !isOwner && c2.status === "DRAFT" && c2.createdBy !== session.userId)
+        return NextResponse.json({ error: "아직 열람할 수 없는 문서입니다." }, { status: 403 });
+    }
 
     // 열람 금지(none) 문서는 서명을 마친 뒤 구버전 주소도 감춘다 — 목록.상세와 같은 규칙.
     // 바이트는 contract-access 가 막지만, 여기만 규칙이 달라 주소가 새면 그 방어에 의존하게 된다.

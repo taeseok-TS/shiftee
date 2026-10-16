@@ -19,9 +19,10 @@ export async function GET() {
         where: { userId_year: { userId: session.userId, year: currentLeaveYear() } },
       }),
 
-      // 대기 중인 계약 (내게 발송되어 서명 대기 중)
-      prisma.contract.count({
-        where: { userId: session.userId, status: "SENT" },
+      // 서명 대기 계약 — **내 서명 차례가 온 것만**(2026-10-16 E1). 상태 SENT 로 세면 본부 서명 전(차례 전) 문서까지 세어
+      //   목록은 비었는데 「서명 대기 1건」이 뜨고, 반대로 내 차례에 APPROVED 가 된 문서는 빠졌다
+      prisma.contractApprovalStep.count({
+        where: { approverId: session.userId, status: "PENDING", approvalLine: { contract: { userId: session.userId, status: { in: ["SENT", "APPROVED"] } } } },
       }),
 
       // 내가 신청한 결재 대기 (휴가 + 근무일정)

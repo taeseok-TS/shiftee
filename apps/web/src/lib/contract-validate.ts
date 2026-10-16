@@ -11,6 +11,8 @@ import { buildContractMergeData, templateFieldNames, isFillableTemplate } from "
 //    본부가 기본급만으로 보길 원하면 여기 한 곳만 바꾸면 된다.
 //  · 소정근로시간: 주 40시간·하루 8시간 이하(근로기준법 제50조)
 //  · 계약 기간: 시작일 ≤ 종료일
+//  · 신규입사 평가 기간(2026-10-16 이예지 QA): 근로시작일·교육/실무평가 시작·종료가 양식에 있으면 빈칸 금지,
+//    시작 ≤ 종료, 교육평가가 실무평가보다 먼저, 계약 기간 안. 재계약은 평가 구간이 문서에서 빠지므로 보지 않는다
 // 최저임금(시급)은 연도별 — 계약 시작일의 해. 새 해 금액은 AppSetting `minWage:YYYY` 로 넣으면 코드 수정 없이 반영된다.
 const MIN_WAGE: Record<number, number> = { 2024: 9860, 2025: 10030, 2026: 10320 };
 
@@ -84,6 +86,37 @@ export async function validateContractMerge(
   const sd = opts.startDate ? opts.startDate.slice(0, 10) : "";
   const ed = opts.endDate ? opts.endDate.slice(0, 10) : "";
   if (sd && ed && sd > ed) errors.push(`계약 종료일(${ed})이 시작일(${sd})보다 빠릅니다.`);
+
+  // 신규입사 평가 기간
+  if (merge["재계약"] !== "1" && ["교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료"].some(has)) {
+    const iso = (v: string | undefined) => {
+      const t = (v || "").trim();
+      const m = /^(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일$/.exec(t) || /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+      return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
+    };
+    const label: Record<string, string> = { 근로시작일: "근로시작일", 교육평가시작: "교육평가 시작일", 교육평가종료: "교육평가 종료일", 실무평가시작: "실무평가 시작일", 실무평가종료: "실무평가 종료일" };
+    const d: Record<string, string | null> = {};
+    const missing: string[] = [];
+    for (const k of ["근로시작일", "교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료"]) {
+      if (!has(k)) continue;
+      d[k] = iso(merge[k]);
+      if (!(merge[k] || "").trim()) missing.push(label[k]);
+      else if (!d[k]) errors.push(`${label[k]}「${merge[k]}」을(를) 날짜로 읽지 못했습니다.`);
+    }
+    if (missing.length) errors.push(`${missing.join("·")}을(를) 입력해 주세요 — 신규입사 계약서에 꼭 들어가는 칸입니다.`);
+    const pair = (a: string, b: string, msg: string) => { if (d[a] && d[b] && d[a]! > d[b]!) errors.push(msg.replace("{a}", d[a]!).replace("{b}", d[b]!)); };
+    pair("교육평가시작", "교육평가종료", "교육평가 종료일({b})이 시작일({a})보다 빠릅니다.");
+    pair("실무평가시작", "실무평가종료", "실무평가 종료일({b})이 시작일({a})보다 빠릅니다.");
+    if (d["교육평가종료"] && d["실무평가시작"] && d["교육평가종료"]! >= d["실무평가시작"]!)
+      errors.push(`교육평가 종료일(${d["교육평가종료"]})은 실무평가 시작일(${d["실무평가시작"]}) 전이어야 합니다.`);
+    // 계약 기간 밖 — 시작은 계약 시작일 이전, 끝은 계약 종료일 이후면 막는다(기간 없는 계약은 끝을 보지 않는다)
+    for (const k of ["교육평가시작", "교육평가종료", "실무평가시작", "실무평가종료"]) {
+      const v = d[k];
+      if (!v) continue;
+      if (sd && v < sd) { errors.push(`${label[k]}(${v})이 계약 시작일(${sd})보다 앞입니다 — 평가 기간은 계약 기간 안이어야 합니다.`); break; }
+      if (ed && v > ed) { errors.push(`${label[k]}(${v})이 계약 종료일(${ed})보다 뒤입니다 — 평가 기간은 계약 기간 안이어야 합니다.`); break; }
+    }
+  }
 
   // 소정근로시간
   const week = hoursNum(merge["주근무시간"]);

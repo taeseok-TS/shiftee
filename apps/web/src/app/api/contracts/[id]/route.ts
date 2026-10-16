@@ -42,6 +42,13 @@ export async function GET(
 
   if (session.role !== "ADMIN" && session.userId !== contract.userId)
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  // 당사자도 초안·자기 차례 전 문서는 못 본다(2026-10-16 E1, lib/contract-visibility)
+  if (session.role !== "ADMIN") {
+    const { partyCanSee } = await import("@/lib/contract-visibility");
+    const steps = (contract.approvalLine?.steps || []).map((st) => ({ order: st.order, approverId: st.approverId, status: st.status }));
+    if (!partyCanSee({ status: contract.status, userId: contract.userId, steps }))
+      return NextResponse.json({ error: "아직 열람할 수 없는 문서입니다." }, { status: 403 });
+  }
 
   const { template, ...rest } = contract;
   // 목록 API 와 같은 규칙 — 열람 금지 문서는 서명을 마친 뒤 파일 주소를 감춘다

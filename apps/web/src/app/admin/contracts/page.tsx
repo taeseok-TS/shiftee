@@ -1,7 +1,7 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
-import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
+import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import { koreanMoney } from "@/lib/korean-money";
 import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
@@ -1347,8 +1347,12 @@ export default function ContractsPage() {
         const raw = bulkValues[uid]?.[k] || "";
         return raw.trim() ? normDate(raw) : fallback;
       };
-      const badDates = bulkUserIds.flatMap(uid => (["계약시작일", "계약종료일"] as const)
-        .filter(k => rowDate(uid, k, "") === null).map(k => `${employees.find(x => x.id === uid)?.name ?? "?"} ${k}`));
+      // 계약 기간 + 근로시작일·평가 기간(사람별 날짜 칸, 10/16) 모두 — 표에 적은 날짜를 못 읽으면 멈춘다
+      const curCols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
+      const badDates = bulkUserIds.flatMap(uid => DATE_COLS
+        .filter(k => curCols.includes(k))
+        .filter(k => { const raw = bulkValues[uid]?.[k] || ""; return raw.trim() !== "" && normDate(raw) === null; })
+        .map(k => `${employees.find(x => x.id === uid)?.name ?? "?"} ${k}`));
       if (badDates.length) { toast.error(`날짜를 읽지 못했습니다: ${badDates.join(", ")} — 2026-10-01 형식으로 고쳐 주세요.`); setUploading(false); return; }
       // 계약시작일(사람별)과 입사일이 다르면 확인 — 신규입사 평가 단계는 각자 시작일로 다시 계산한다
       {
@@ -1364,11 +1368,16 @@ export default function ContractsPage() {
       const evalHolidays = new Set<string>(holidaySet);
       if (templateFields.includes("교육평가시작")) {
         const years = new Set<number>();
-        for (const uid of bulkUserIds) { const st = rowDate(uid, "계약시작일", createForm.startDate) || ""; const y = Number(st.slice(0, 4)); if (y > 2000) { years.add(y); years.add(y + 1); } }
+        for (const uid of bulkUserIds) {
+          // 사람별 근로시작일이 다른 해일 수 있다 — 그해 공휴일도 받는다(10/16)
+          for (const st of [rowDate(uid, "계약시작일", createForm.startDate) || "", normDate(bulkValues[uid]?.["근로시작일"] || "") || ""]) {
+            const y = Number(st.slice(0, 4)); if (y > 2000) { years.add(y); years.add(y + 1); }
+          }
+        }
         const got = await Promise.all([...years].map(y => fetch(`/api/holidays?year=${y}`).then(r => r.json()).catch(() => ({ holidays: [] }))));
         for (const d of got) for (const h of (d.holidays || []) as { date: string }[]) evalHolidays.add(h.date);
       }
-      const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f)));
+      const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
       const common: Record<string, string> = {};
       for (const [k, v] of Object.entries(extraFields)) {
         if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
@@ -1403,7 +1412,8 @@ export default function ContractsPage() {
         for (const [k, v] of Object.entries(row)) {
           if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일" || !cols.includes(k)) continue;
           if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
-          per[k] = v.trim();
+          // 사람별 날짜 칸은 2026-10-01 꼴로 맞춘다(위에서 못 읽는 날짜는 이미 멈췄다) — 서버가 한국식 날짜로 바꾸려면 이 꼴이어야 한다
+          per[k] = (PERSON_DATE_COLS as readonly string[]).includes(k) ? (normDate(v) || v.trim()) : v.trim();
         }
         // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
         if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
@@ -1413,7 +1423,11 @@ export default function ContractsPage() {
         // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
         if (templateFields.includes("교육평가시작")) {
           const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
-          if (base && base !== evalBaseDate) { const ev = evalPeriods(base, evalHolidays); if (ev) Object.assign(per, ev); }
+          if (base && base !== evalBaseDate) {
+            const ev = evalPeriods(base, evalHolidays);
+            // 표에 사람별로 적은 평가 날짜는 그대로 둔다 — 비운 칸만 그 사람 기준일로 계산(10/16)
+            if (ev) for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
+          }
         }
         const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
         try {
@@ -2740,7 +2754,7 @@ ${url}`;
                   <BulkValuesTable
                     userIds={bulkUserIds}
                     employees={employees}
-                    columns={bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f)))}
+                    columns={bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind)}
                     values={bulkValues}
                     onChange={setBulkValues}
                     common={{ ...extraFields, 연봉: createForm.salary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
@@ -3062,7 +3076,10 @@ ${url}`;
               {Object.keys(editExtraFields).length > 0 && (
                 <div className="space-y-3 border rounded-lg p-3 bg-indigo-50/40">
                   <p className="text-xs font-semibold text-indigo-700">이 템플릿의 추가 입력 필드</p>
-                  {Object.entries(editExtraFields).map(([k, v]) => (
+                  {Object.entries(editExtraFields)
+                    // 재계약이면 평가 기간 칸은 문서에서 빠지므로 빈 칸은 숨긴다(10/16)
+                    .filter(([k, v]) => !(editExtraFields["계약구분"] === "재계약" && (EVAL_COLS as readonly string[]).includes(k) && !v))
+                    .map(([k, v]) => (
                     <div key={k} className="space-y-1">
                       <Label className="text-sm">{k}</Label>
                       {k === "계약구분" ? (
@@ -3506,6 +3523,7 @@ ${url}`;
                                   // 값이 비어 있는(null) 옛 데이터는 빈칸으로 — 글자 "null" 이 칸에 보이지 않게(칸 종류 판정과도 맞춤)
                                   if (k !== "연봉") extras[k] = koreanToIso(v == null ? "" : String(v));
                                 });
+                                if ("계약구분" in extras) for (const k of EVAL_COLS) if (!(k in extras)) extras[k] = "";
                                 setEditExtraFields(extras);
                                 setEditSalaryFocus(false); setEditOpen(true);
                               }}
