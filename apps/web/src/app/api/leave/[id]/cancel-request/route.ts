@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const steps = await leavePolicySteps(session.userId, { days: leave.days, forCancel: true });
 
   // 트랜잭션 콜백 안에서 채우는 값 — let 으로 두면 TS 가 null 로 좁혀 버린다
-  const out: { id: string; restored: { restoredDays: number; year: number } | null } = { id: "", restored: null };
+  const out: { id: string; restored: { restoredDays: number; year: number; yearText: string } | null } = { id: "", restored: null };
   try {
     await prisma.$transaction(async (tx) => {
       const cr = await tx.leaveCancelRequest.create({
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_CANCEL",
       targetType: "LEAVE", targetId: leave.id, targetName: leave.user?.name ?? null,
-      detail: `휴가 취소 확정(결재선 없음·자동) (${period}, ${leave.days}일) — 연차 ${out.restored.restoredDays}일 복구(${out.restored.year}년)`,
+      detail: `휴가 취소 확정(결재선 없음·자동) (${period}, ${leave.days}일) — 연차 실제 복구 ${out.restored.restoredDays}일 (${out.restored.yearText})`,
     });
   }
 

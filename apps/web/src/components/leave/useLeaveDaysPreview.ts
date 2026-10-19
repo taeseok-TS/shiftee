@@ -13,7 +13,11 @@ export type LeaveDaysPreview = {
   code: "NO_WORKDAY" | "OVER_LIMIT" | null;
   reason: string | null;         // 막힌 이유(서버 문구 — 숫자 숨김이면 숫자 없음)
   balanceHidden: boolean;        // 잔여 숫자 숨김(#219-1)
-  limit: { kind: "annual" | "grant"; year: number | null; group: string | null; remaining: number | null; pending: number | null; available: number | null } | null;
+  limit: {
+    kind: "annual" | "grant"; year: number | null; group: string | null; remaining: number | null; pending: number | null; available: number | null;
+    /** 연차 — 해마다 몫(연도를 걸친 휴가면 둘 이상, 2026-10-19). 옛 서버는 보내지 않는다 */
+    years?: { year: number; days: number; remaining: number | null; available: number | null; blocked: boolean }[] | null;
+  } | null;
 };
 export type LeaveDaysState =
   | { status: "idle" }

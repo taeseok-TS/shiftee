@@ -3,7 +3,8 @@
 // 신청 화면(웹·앱)·서버 검증·일수 계산·연차 차감·엑셀(유급 시간)이 모두 여기를 본다.
 //  · 연차휴가 그룹만 연차에서 차감한다. 나머지는 차감하지 않는다. 보상휴가·대체휴일은 부여 잔여를 넘으면 신청을 막는다
 //    (2026-10-16 #219-7 디렉터 결정 — 종전 「초과 사용 제한 없음」을 바꿈, lib/leave-limit.ts).
-//  · 병가는 신청 목록에서 뺐다(연차로 쓴다). 이미 있는 병가 기록은 종전대로 연차 차감으로 둔다.
+//  · 병가는 신청 목록에서 뺐다(병가 없음 — 아프면 연차로 신청, 2026-10-07 #19 · 10-19 본부 재확인). 이미 있는 병가 기록·시프티에서 가져온
+//    병가는 기록 표시용으로 SICK 그대로 두고 종전대로 연차 차감으로 센다(selectable:false — 웹·앱 신청 목록과 서버 신청 검사에서 빠진다).
 //  · 옛 경조 세부 유형(결혼·출산·사망)·특별휴가도 신청 목록에서 빠졌다 — 기록은 그대로 보인다.
 // 단위: FULL = 기간의 근무일 수(근무일정 기준 — 일정 WORK 는 셈·OFF/HOLIDAY 는 안 셈, 일정 없는 날은 평일·비공휴일, lib/leave-days.ts), HALF = 0.5일, QUARTER = 0.25일.
 
@@ -47,7 +48,7 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
   { code: "CIVIL_DEFENSE", label: "민방위 휴가", group: "기타휴가", paidHours: 4, unit: "HALF", deducts: false, attachRequired: "민방위 참여 증빙", notice: "민방위 휴가 참여 증빙서류 제출이 필요합니다.", selectable: true },
   { code: "RESERVE_FORCES", label: "예비군 휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "예비군 훈련 참여 확인증", notice: "예비군 훈련 참여 확인증 제출이 필요합니다.", selectable: true },
   { code: "OTHER_PAID", label: "기타휴가(유급)", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },
-  { code: "OTHER_UNPAID", label: "기타휴가(무급)", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, notice: "무급휴가 — 그달 급여에서 공제되거나 미사용 연차 정산 때 차감됩니다.", selectable: true },
+  { code: "OTHER_UNPAID", label: "기타휴가(무급)", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, notice: "무급휴가 — 그달 급여에서 공제됩니다.", selectable: true },   // 「미사용 연차 정산 때 차감」 문구 삭제(2026-10-19 본부 답 — 정산에는 넣지 않는다, deducts:false 그대로)
 
   // ── 옛 유형(새 신청 목록에는 없음 — 기록 표시·계산용) ──
   { code: "SICK", label: "병가", group: "연차휴가", paidHours: 8, unit: "FULL", deducts: true, selectable: false },

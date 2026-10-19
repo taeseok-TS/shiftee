@@ -42,10 +42,10 @@ export function leaveYearOf(d: Date): number {
 }
 
 /**
- * **휴가가 속한 연차 연도 = 시작일의 연도**(2026-09-11 디렉터 "휴가를 쓰는 해 기준").
- * 차감·복구·잔여 확인이 모두 이 함수를 쓴다(lib/leave-balance.ts). 12월에 승인한 1월 휴가는 **새해** 연차에서
- * 깎이고, 취소하면 새해로 돌아온다 — 종전(승인한 해 기준)에는 1월에 취소하면 이미 마감된 작년 행으로 복구돼
- * 새해 잔여가 늘지 않았다. 해를 걸친 휴가(12/30~1/2)는 시작일의 해로 한꺼번에 센다.
+ * 휴가 **시작일의 연도**(2026-09-11 디렉터 "휴가를 쓰는 해 기준" — 승인한 해가 아니라 휴가 날짜의 해).
+ * ⚠ 2026-10-19 부터 차감·복구·잔여·대장·정산은 이 함수가 아니라 **날짜별 해마다 몫**(lib/leave-days leaveDaysByYear,
+ *   lib/leave-balance deductLeave/restoreLeave)을 쓴다 — 연도를 걸친 휴가(12/31~1/2)는 12/31 몫 그해, 1/2 몫 다음 해(본부 이예지 답).
+ *   한 해 안 휴가는 둘이 같다. 이 함수는 「시작일 연도」 표시용으로만 남았다.
  * startDate 는 @db.Date(UTC 자정)라 UTC 연도가 곧 그 날짜의 연도다.
  */
 export function leaveYearOfLeave(startDate: Date | string): number {

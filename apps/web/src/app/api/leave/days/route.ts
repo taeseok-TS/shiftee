@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { leaveInfo } from "@/lib/leave-catalog";
 import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { isRealDate } from "@/lib/schedule-payload";
-import { countLeaveDays } from "@/lib/leave-days";
+import { countLeaveDays, splitWorkdaysByYear } from "@/lib/leave-days";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
 import { canSeeLeaveBalance } from "@/lib/permission-settings";
 import { ledgerAccess } from "@/lib/leave-ledger";
@@ -54,7 +54,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...base, days: 0, blocked: true, code: "NO_WORKDAY", reason: counted.error, limit: null });
   }
 
-  const limit = await checkLeaveLimit(prisma, { userId, type, startDate: new Date(start), days: counted.days, includePending: true });
+  // 연도를 걸친 휴가는 해마다 몫으로 그 해 잔여를 본다(신청 검사와 같은 나눔 — 2026-10-19)
+  const byYear = splitWorkdaysByYear(counted.workdays, counted.days, start);
+  const limit = await checkLeaveLimit(prisma, { userId, type, startDate: new Date(start), endDate: new Date(end), days: counted.days, byYear, includePending: true });
   const who = userId !== session.userId ? (await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name : undefined;
   const limitOut =
     limit.kind === "none" ? null
@@ -66,6 +68,10 @@ export async function GET(request: NextRequest) {
           remaining: visible ? limit.remaining : null,
           pending: visible ? limit.pending : null,
           available: visible ? limit.available : null,
+          // 해마다 몫(연도를 걸친 휴가만 둘 이상) — 「2026년 1일 · 2027년 1일」 안내용. 숫자 숨김이면 몫만
+          years: limit.kind === "annual"
+            ? limit.years.map((y) => ({ year: y.year, days: y.requested, remaining: visible ? y.remaining : null, available: visible ? y.available : null, blocked: y.blocked }))
+            : null,
         };
   return NextResponse.json({
     ...base,

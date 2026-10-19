@@ -76,7 +76,7 @@ type RowBase = {
   userId: string; empNo: number | null; name: string; branch: string | null; position: string | null; role: string;
   hireDate: string | null;      // 없으면 계산 안 함(「입사일 없음」)
   balanceUsed: number | null;   // 그해 연차 행의 「사용」(대조용 — 승인 휴가 합(자르는 날 뒤 몫 포함)과 다르면 화면에 표시)
-  crossYear: boolean;           // 정산 연도와 다른 해에 걸친 승인 휴가가 있음(시작일 연도에 통째로 넣었다 — 확인)
+  crossYear: boolean;           // 정산 연도와 다른 해에 걸친 승인 휴가가 있음(날짜별로 나눠 이 해 몫만 넣었다 — 2026-10-19)
 } & GrantLeft;
 
 // usedAfterAsOf = 기준일 뒤에 시작하는 그해 승인 휴가(참고 — 정산에 넣지 않음) · crossAsOf = 기준일을 걸친 휴가(통째로 사용에 넣었다 — 확인)

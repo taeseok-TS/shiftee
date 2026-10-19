@@ -75,7 +75,7 @@ const noteOf = (r: ActiveRow | ResignedRow): string => {
   if (r.calc?.negative) out.push("초과 사용");
   const after = "usedAfterAsOf" in r ? r.usedAfterAsOf : r.usedAfterResignInYear;   // 잔여 행 대조 — 그해 몫만
   if ("usedAfterResign" in r && r.usedAfterResign > 0) out.push(`퇴사일 뒤 승인 휴가 ${num(r.usedAfterResign)}일 — 취소 필요(정산에 넣지 않음)`);
-  if (r.crossYear) out.push("연도를 걸친 휴가 있음 — 확인(시작일 연도에 통째로 넣음)");
+  if (r.crossYear) out.push("연도를 걸친 휴가 있음 — 날짜별로 나눠 이 해 몫만 넣음");
   if ("crossAsOf" in r && r.crossAsOf) out.push("기준일을 걸친 휴가 있음 — 확인(사용에 통째로 넣음)");
   if ("crossResign" in r && r.crossResign) out.push("퇴사일을 걸친 휴가 있음 — 확인(사용에 통째로 넣음)");
   // 잔여 행 「사용」은 자르는 날 뒤 승인분까지 들어 있으므로 그 몫을 더해 대조한다

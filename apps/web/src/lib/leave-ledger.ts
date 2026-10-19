@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { leaveDaysByYear, approvedDaysByYear, parseByYear } from "@/lib/leave-days";
 
 /**
  * 직원별 **연차 대장** — "저 연차 이렇게 안 썼는데요?" 같은 분쟁 때 보여줄 근거를 한 곳에 모은다(디렉터 9/11).
- * 그 해(= 휴가를 쓰는 해, 시작일 연도 — lib/leave-calc.ts leaveYearOfLeave 와 같은 기준)의 휴가 **전부**
+ * 그 해에 **하루라도 걸친** 휴가 **전부**(연도를 걸친 휴가는 날짜별로 해마다 차감 — 2026-10-19, lib/leave-days leaveDaysByYear)
  * (승인·반려·취소·대기)와 단계별 결재자·시각, 취소 결재와 그 결재선, 잔여 조정 이력(감사 로그), 잔여 행을 묶는다.
  * 기록은 지우지 않는다 — 휴가는 상태만 바뀌고, 감사 로그는 삭제 경로가 없다(9/11 확인).
  *
@@ -53,6 +54,8 @@ export type Ledger = {
     startDate: string;
     endDate: string;
     days: number;
+    /** 그 해 몫(일) — 연도를 걸친 휴가는 그 해 몫(승인 = 차감 때 저장한 몫), 아니면 days 와 같다 */
+    yearDays: number;
     status: string;
     deductible: boolean;
     reason: string | null;
@@ -75,7 +78,7 @@ export type Ledger = {
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
 export async function buildLedger(userId: string, year: number): Promise<Ledger | null> {
-  // 휴가 연도 = 시작일(@db.Date, UTC 자정)의 연도 — [그 해 1/1, 다음 해 1/1)
+  // 그 해 = [그 해 1/1, 다음 해 1/1) — 휴가는 그 해에 하루라도 걸친 것(@db.Date, UTC 자정)
   const from = new Date(Date.UTC(year, 0, 1));
   const to = new Date(Date.UTC(year + 1, 0, 1));
   // 감사 로그 시각은 실제 시각이라 KST 달력 연도로 자른다
@@ -92,7 +95,7 @@ export async function buildLedger(userId: string, year: number): Promise<Ledger 
       select: { total: true, used: true, remaining: true },
     }),
     prisma.leaveRequest.findMany({
-      where: { userId, startDate: { gte: from, lt: to } },
+      where: { userId, startDate: { lt: to }, endDate: { gte: from } },
       orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
       include: {
         approvalSteps: { orderBy: { order: "asc" }, include: { approver: { select: { name: true } } } },
@@ -121,12 +124,24 @@ export async function buildLedger(userId: string, year: number): Promise<Ledger 
       comment: s.comment,
     }));
 
+  // 그 해 몫 — 연차 차감 유형의 승인 휴가는 **차감 때 저장한 몫**(deductedByYear, 없으면 옛 규칙: 시작 해에 days — 잔여 행과 맞게).
+  // 차감 유형의 대기·반려·취소는 저장값이 있으면 그것, 없으면 지금 나눔(표시용 — 대조 합계에는 승인만 들어간다).
+  // 차감하지 않는 유형(무급·예비군·대체휴일 등)은 deductLeave 를 안 거쳐 저장값이 없다 — 날짜 몫(근무일정 기준) 그대로. 한 해 안 휴가는 DB 를 보지 않는다
+  const yearDaysOf = new Map<string, number>();
+  for (const l of leaves) {
+    const split = !isLeaveDeductible(l.type)
+      ? await leaveDaysByYear(prisma, l)
+      : l.status === "APPROVED" ? approvedDaysByYear(l) : (parseByYear(l.deductedByYear, l.days) ?? (await leaveDaysByYear(prisma, l)));
+    yearDaysOf.set(l.id, split.get(year) ?? 0);
+  }
+
   const entries = leaves.map((l) => ({
     id: l.id,
     type: l.type,
     startDate: l.startDate.toISOString().slice(0, 10),
     endDate: l.endDate.toISOString().slice(0, 10),
     days: l.days,
+    yearDays: yearDaysOf.get(l.id) ?? 0,
     status: l.status,
     deductible: isLeaveDeductible(l.type),
     reason: l.reason,
@@ -143,9 +158,9 @@ export async function buildLedger(userId: string, year: number): Promise<Ledger 
     })),
   }));
 
-  // 대조 — 승인된 차감 휴가 합계와 잔여 행의 "사용"이 맞는가(다르면 잔여 조정 이력으로 설명돼야 한다)
+  // 대조 — 승인된 차감 휴가의 **그 해 몫** 합계와 잔여 행의 "사용"이 맞는가(다르면 잔여 조정 이력으로 설명돼야 한다)
   const approvedDeductibleDays = Math.round(
-    entries.filter((e) => e.status === "APPROVED" && e.deductible).reduce((a, e) => a + e.days, 0) * 100
+    entries.filter((e) => e.status === "APPROVED" && e.deductible).reduce((a, e) => a + e.yearDays, 0) * 100
   ) / 100;
   const balanceUsed = balance ? balance.used : null;
 

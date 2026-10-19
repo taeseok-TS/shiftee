@@ -810,7 +810,10 @@ export default function LeavePage() {
               <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
                 <span className="text-sm text-amber-800">
                   {yearBal.year}년 잔여 연차
-                  <span className="block text-xs text-amber-600">{yearBal.year}년 휴가는 {yearBal.year}년 연차에서 차감됩니다</span>
+                  {/* 연도를 걸친 휴가면 이 줄은 숨긴다 — 아래 신청 일수 칸의 「날짜별로 그 해 연차에서 차감」 안내 하나만(2026-10-19) */}
+                  {!(form.endDate && form.endDate.slice(0, 4) !== form.startDate.slice(0, 4)) && (
+                    <span className="block text-xs text-amber-600">{yearBal.year}년 휴가는 {yearBal.year}년 연차에서 차감됩니다</span>
+                  )}
                 </span>
                 <span className="font-bold text-amber-900">{yearBal.b ? `${yearBal.b.remaining}일` : "—"}</span>
               </div>

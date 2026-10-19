@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     include: {
       user: { select: { id: true, name: true, role: true } },
       leaveRequest: {
-        select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true },
+        select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true, deductedByYear: true },
       },
       approvalSteps: { orderBy: { order: "asc" } },
     },
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     done: boolean;
     final: boolean;
     next: { approverRole: string | null; branch: string | null; approverId: string | null } | null;
-    restored: { restoredDays: number; year: number } | null;
+    restored: { restoredDays: number; year: number; yearText: string } | null;
   } = { done: false, final: false, next: null, restored: null };
   const decidedAt = new Date();
   const stepStatus = action === "approve" ? ("APPROVED" as const) : ("REJECTED" as const);
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_CANCEL",
       targetType: "LEAVE", targetId: lr.id, targetName: cr.user.name,
-      detail: `휴가 취소 확정(취소 결재 최종 승인) (${period}, ${lr.days}일) — 연차 ${out.restored.restoredDays}일 복구(${out.restored.year}년)`,
+      detail: `휴가 취소 확정(취소 결재 최종 승인) (${period}, ${lr.days}일) — 연차 실제 복구 ${out.restored.restoredDays}일 (${out.restored.yearText})`,
     });
   }
 

@@ -263,6 +263,9 @@ model LeaveRequest {
   status         LeaveStatus         @default(PENDING)
   rejectedReason String?
   importBatch    String? // 시프티 이관 배치(2026-10-08 QA76 #2) — 가져오기 한 묶음의 표식, 되돌리기·중복 방지용. deploy/ddl_leave_import.sql
+  // 승인 때 실제로 차감한 해마다 몫(2026-10-19 연도를 걸친 휴가 날짜별 귀속) — 예 {"2026":1,"2027":1}. lib/leave-balance deductLeave 가
+  // 차감과 같은 트랜잭션에서 쓴다. 복구·연차 대장·정산·리포트는 이 값을 먼저 쓴다(없으면 옛 규칙: 시작 해에 days). deploy/ddl_leave_deducted_by_year.sql
+  deductedByYear Json?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   approvalSteps  LeaveApprovalStep[]

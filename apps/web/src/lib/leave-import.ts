@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/db";
 import { allLeaveTypes, leaveInfo, leaveLabel } from "@/lib/leave-catalog";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { leaveYearOfLeave } from "@/lib/leave-calc";
-import { deductLeaveBalance, restoreLeaveBalance } from "@/lib/leave-balance";
+import { deductLeave, restoreLeave } from "@/lib/leave-balance";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
 import { logAudit } from "@/lib/audit";
 
@@ -174,7 +173,8 @@ export async function applyLeaveImport(rows: unknown[], opts: { deduct: boolean 
         // 본부 승인 단계 하나 — 목록·연차 대장에 「관리자 승인(시프티 이관)」으로 보이게(대리 등록 #37 과 같은 방식).
         // 차감 여부를 이 단계 comment 에 남긴다 — 되돌리기가 행마다 이것으로 복구 여부를 정한다(감사 로그는 실패를 삼키므로 믿지 않는다, 검증 A)
         await tx.leaveApprovalStep.create({ data: { leaveRequestId: created.id, order: 1, approverRole: "ADMIN", approverId: actor.userId, status: "APPROVED", comment: opts.deduct ? IMPORT_MARK_DEDUCTED : IMPORT_MARK_RECORD_ONLY, decidedAt: new Date() } });
-        if (opts.deduct && isLeaveDeductible(r.typeCode!)) await deductLeaveBalance(tx, r.matched!.userId, leaveYearOfLeave(dateOf(r.startDate)), r.days!);
+        // 연도를 걸친 휴가는 날짜별로 해마다(휴가 신청·결재와 같은 lib/leave-balance deductLeave — 2026-10-19)
+        if (opts.deduct && isLeaveDeductible(r.typeCode!)) await deductLeave(tx, { id: created.id, userId: r.matched!.userId, startDate: dateOf(r.startDate), endDate: dateOf(r.endDate), days: r.days! });
       });
       r.status = "applied"; r.message = "";
       applied++;
@@ -195,9 +195,10 @@ export async function applyLeaveImport(rows: unknown[], opts: { deduct: boolean 
 export async function rollbackLeaveImport(batch: string, actor: { userId: string; name: string }) {
   const rows = await prisma.leaveRequest.findMany({
     where: { importBatch: batch },
-    select: { id: true, userId: true, type: true, days: true, startDate: true, status: true, approvalSteps: { select: { comment: true } }, _count: { select: { cancelRequests: { where: { status: "PENDING" } } } } },
+    select: { id: true, userId: true, type: true, days: true, startDate: true, endDate: true, deductedByYear: true, status: true, approvalSteps: { select: { comment: true } }, _count: { select: { cancelRequests: { where: { status: "PENDING" } } } } },
   });
   let removed = 0, kept = 0, restored = 0;
+  const odd: string[] = [];   // 연차 기록 없음·0 하한으로 다 못 돌린 해(감사 기록에 남긴다)
   for (const r of rows) {
     if (r._count.cancelRequests > 0) { kept++; continue; }
     // 「차감 없음」 표식이 없으면 차감한 것으로 보고 복구한다(표식이 없는 쪽으로 기울이지 않는다 — 검증 A)
@@ -205,11 +206,16 @@ export async function rollbackLeaveImport(batch: string, actor: { userId: string
     await prisma.$transaction(async (tx) => {
       await tx.leaveApprovalStep.deleteMany({ where: { leaveRequestId: r.id } });
       await tx.leaveRequest.delete({ where: { id: r.id } });
-      if (deducted && r.status === "APPROVED" && isLeaveDeductible(r.type)) { await restoreLeaveBalance(tx, r.userId, leaveYearOfLeave(r.startDate), r.days); restored++; }
+      // 차감 때 저장한 해마다 몫으로(없으면 옛 규칙 — 시작 해에 days, lib/leave-days approvedDaysByYear)
+      if (deducted && r.status === "APPROVED" && isLeaveDeductible(r.type)) {
+        const out = await restoreLeave(tx, r);
+        if (out.restored > 0) restored++;
+        for (const o of out.outcomes) if (o.status !== "ok") odd.push(`${ymdUTC(r.startDate)} 휴가: ${o.status === "missing" ? `${o.year}년 연차 기록 없음(복구 안 함)` : `${o.year}년 ${o.restored}일만 복구(${o.wanted}일 중, 0 하한)`}`);
+      }
     });
     removed++;
   }
-  await logAudit({ actorId: actor.userId, actorName: actor.name, action: "LEAVE_IMPORT_ROLLBACK", targetType: "LeaveRequest", targetId: batch, detail: `시프티 휴가 가져오기 되돌리기 ${batch}: ${removed}건 삭제·${restored}건 연차 복구${kept ? `, 취소 요청이 진행 중인 ${kept}건은 둠` : ""}` });
+  await logAudit({ actorId: actor.userId, actorName: actor.name, action: "LEAVE_IMPORT_ROLLBACK", targetType: "LeaveRequest", targetId: batch, detail: `시프티 휴가 가져오기 되돌리기 ${batch}: ${removed}건 삭제·${restored}건 연차 복구${kept ? `, 취소 요청이 진행 중인 ${kept}건은 둠` : ""}${odd.length ? ` — 다 못 돌린 몫 ${odd.length}건: ${odd.slice(0, 10).join(" / ")}${odd.length > 10 ? " 외" : ""}` : ""}` });
   return { removed, kept, restored };
 }
 

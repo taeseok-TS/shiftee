@@ -3,7 +3,7 @@ import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import type { Prisma } from "@prisma/client";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { leaveYearOfLeave } from "@/lib/leave-calc";
-import { restoreLeaveBalance } from "@/lib/leave-balance";
+import { restoreLeave } from "@/lib/leave-balance";
 import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 import { logAudit } from "@/lib/audit";
@@ -30,15 +30,16 @@ export class CancelConflict extends Error {}
  * 최종 승인 — ① 취소 결재를 잡고 ② 원 휴가를 CANCELLED 로 ③ 차감된 연도 행에 연차 복구.
  * ①②는 조건부(CAS)라 두 사람이 동시에 최종 승인해도 한 번만 복구된다. 어느 하나라도 못 잡으면 던진다.
  *
- * 복구 연도 = **휴가를 쓰는 해**(시작일 기준, 9/11 디렉터) — 차감과 같은 함수(leaveYearOfLeave)로 정한다.
+ * 복구 연도 = 차감 때 저장한 해마다 몫(LeaveRequest.deductedByYear — lib/leave-balance restoreLeave, 2026-10-19). 없으면 시작일 연도.
  * 종전에는 승인 시각(updatedAt)에서 역산해 "휴가 행을 고치는 경로는 승인·취소뿐"이라는 전제에 기댔다.
+ * year = 시작일 연도(종전 호환), yearText = 해마다 실제 복구 결과(「2026년 1일 복구 · 2027년 1일 복구」, 행 없음·0 하한 포함 — 감사 기록용).
  */
 export async function applyLeaveCancel(
   tx: Tx,
   cancelRequestId: string,
-  leave: { id: string; userId: string; type: string; days: number; startDate: Date },
+  leave: { id: string; userId: string; type: string; days: number; startDate: Date; endDate: Date; deductedByYear?: unknown },
   approverId: string
-): Promise<{ restoredDays: number; year: number }> {
+): Promise<{ restoredDays: number; year: number; yearText: string }> {
   await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {});   // 본부 유형 차감 여부(#216-1)
   const won = await tx.leaveCancelRequest.updateMany({
     where: { id: cancelRequestId, status: "PENDING" },
@@ -58,11 +59,13 @@ export async function applyLeaveCancel(
   }
 
   // 차감과 **같은 함수**로 차감 유형인지 본다(대체휴무·특별휴가 등은 차감도 복구도 없다)
-  let restoredDays = 0;
+  let restoredDays = 0, yearText = "연차 미차감 유형";
   if (isLeaveDeductible(leave.type)) {
-    restoredDays = await restoreLeaveBalance(tx, leave.userId, year, leave.days);   // 차감과 같은 파일의 짝 함수
+    const r = await restoreLeave(tx, leave);   // 차감(deductLeave)과 같은 파일의 짝 함수 — 저장한 해마다 몫으로 복구
+    restoredDays = r.restored;
+    yearText = r.text || "복구할 몫 없음";
   }
-  return { restoredDays, year };
+  return { restoredDays, year, yearText };
 }
 
 /**

@@ -6,6 +6,7 @@ import { isRealDate } from "@/lib/schedule-payload";
 import { ymdUTC } from "@/lib/holidays";
 import { kstDate, kstToday, accrualAsOf, roundTo } from "@/lib/leave-accrual";
 import { isLeaveDeductible } from "@/lib/leave-types";
+import { approvedDaysByYear } from "@/lib/leave-days";
 import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { groupCodes, groupOfType, isGrantGroup, type GrantGroup } from "@/lib/leave-grant";
 import { excludedBranchNames } from "@/lib/employee-scope";
@@ -22,11 +23,14 @@ export const dynamic = "force-dynamic";
 //      대상 = 퇴사일이 없거나 퇴사일 > 기준일(퇴사일 ≤ 기준일이면 퇴사자 정산 쪽 — 양쪽에 같은 사람이 나오지 않게) · 입사일이 기준일 이전(없으면 「입사일 없음」 행)
 //  GET ?mode=resigned&from=YYYY-MM-DD&to=YYYY-MM-DD[&branches=…][&includeAdmins=true][&includeTest=true]
 //      퇴사자 정산(#60) — 본부가 직원 관리에 적은 퇴사일(resignDate)이 from~to 안인 직원. 마지막 출근일로 판단하지 않는다
-// 「사용」 = 승인된 연차 차감 휴가(isLeaveDeductible — 반차 0.5·반반차 0.25, 시프티 가져오기 휴가 포함)의 일수 합, 휴가 연도 = 시작일 연도
-//   (연차 대장 lib/leave-ledger buildLedger 의 approvedDeductibleDays 와 같은 기준). 시간(일 × 8) ÷ 8 로 소수 둘째 자리.
+// 「사용」 = 승인된 연차 차감 휴가(isLeaveDeductible — 반차 0.5·반반차 0.25, 시프티 가져오기 휴가 포함)의 **그 해 몫** 합
+//   (연도를 걸친 휴가는 날짜별로 해마다 — lib/leave-days, 차감·연차 대장 lib/leave-ledger approvedDeductibleDays 와 같은 나눔, 2026-10-19).
+//   시간(일 × 8) ÷ 8 로 소수 둘째 자리.
 //   사용은 자르는 날(재직자 = 기준일, 퇴사자 = 퇴사일)까지 시작한 휴가만 — 그 뒤로 잡힌 승인 휴가는 정산에 넣지 않고 따로 알린다
 //   (재직자: 「기준일 뒤 승인 휴가」 참고 칸 · 퇴사자: 「퇴사일 뒤 승인 휴가 — 취소 필요」 비고). 보상·대체 잔여와 같은 기준일로 맞춰진다.
-//   연도를 걸친 휴가(12/31~1/2)·퇴사일을 걸친 휴가(3/30~4/2, 퇴사 3/31)는 대장·잔여와 같은 관례대로 시작일 쪽에 통째로 넣고, 비고로 확인을 알린다.
+//   연도를 걸친 휴가(12/31~1/2)는 그 해 몫만 넣는다(12/31 몫 그해, 1/2 몫 다음 해 — 2026-10-19 본부 답). 몫 = 차감 때 저장한 값
+//   (LeaveRequest.deductedByYear, 없으면 옛 규칙 — 시작 해에 통째로). 비고 crossYear 는 「나눠 넣음」 알림.
+//   자르는 날(기준일·퇴사일)을 걸친 휴가(3/30~4/2, 퇴사 3/31)는 종전대로 그 해 몫을 통째로 사용에 넣고, 비고로 확인을 알린다.
 // 「입사일」 = 직원 관리의 입사일(User.hireDate — 연차 자동 맞춤 lib/leave-accrual-run 과 같은 값, 인사명부 동기화가 루트입과일 규칙으로 채운다).
 // 보상휴가·대체휴일 남은 시간 = (부여 합 − 승인된 그 그룹 휴가 합) × 8 — 자동 소멸 없음, 본부가 따로 정산(lib/leave-limit·leave-grant 와 같은 계산).
 //   재직자는 기준일까지(종류별 잔여 화면 grantSummary 와 같은 자름), 퇴사자는 지금까지 전부(퇴사 뒤 본부 수동 조정까지 반영).
@@ -62,12 +66,12 @@ async function scopeWhere(sp: URLSearchParams): Promise<Prisma.UserWhereInput> {
   };
 }
 
-type UseAgg = { hours: number; afterCut: number; afterCutInYear: number; crossYear: boolean; crossCut: boolean };   // afterCutInYear = afterCut 중 정산 연도에 시작한 몫(잔여 행 대조용)
+type UseAgg = { hours: number; afterCut: number; afterCutInYear: number; crossYear: boolean; crossCut: boolean };   // afterCutInYear = afterCut 중 정산 연도 몫(잔여 행 대조용)
 
 /**
  * 사람마다(그 사람의 정산 연도·자르는 날) 승인된 연차 차감 휴가를 모은다. key = userId
- *  hours = 정산 연도에 시작하고 자르는 날까지 시작한 휴가 시간 합(일 × 8) · afterCut = 자르는 날 뒤에 시작한 그해 승인 휴가 일수
- *  crossYear = 정산 연도와 다른 해에 걸친 휴가가 있음 · crossCut = 자르는 날을 걸친 휴가가 있음(시작은 그 전, 끝은 그 뒤)
+ *  hours = 정산 연도 몫 중 자르는 날까지 시작한 휴가 시간 합(일 × 8) · afterCut = 자르는 날 뒤에 시작한 그해 몫 승인 휴가 일수
+ *  crossYear = 정산 연도와 다른 해에 걸친 휴가가 있음(그 해 몫만 넣었다) · crossCut = 자르는 날을 걸친 휴가가 있음(시작은 그 전, 끝은 그 뒤)
  *  afterAll(퇴사자) = 자르는 날 뒤 승인 휴가를 해와 관계없이 전부 afterCut 에 센다(퇴사 다음 해로 잡힌 휴가도 「취소 필요」로). 사용 합계는 그대로
  */
 async function usedBy(cuts: Map<string, { year: number; cut: string; afterAll?: boolean }>): Promise<Map<string, UseAgg>> {
@@ -77,25 +81,29 @@ async function usedBy(cuts: Map<string, { year: number; cut: string; afterAll?: 
   const range = { gte: new Date(Date.UTC(Math.min(...years), 0, 1)), lt: new Date(Date.UTC(Math.max(...years) + 1, 0, 1)) };
   const afterCuts = [...cuts.values()].filter((c) => c.afterAll).map((c) => c.cut).sort();
   const rows = await prisma.leaveRequest.findMany({
-    // 시작이 그해이거나 끝이 그해인 것(지난해 말에 시작해 그해로 넘어온 휴가도 「걸침」 표시용으로 본다) + 퇴사자는 퇴사일 뒤 전부
+    // 그해에 하루라도 걸친 것(지난해 말에 시작해 그해로 넘어온 휴가의 그해 몫도 넣는다) + 퇴사자는 퇴사일 뒤 전부
     where: {
       userId: { in: [...cuts.keys()] }, status: "APPROVED",
-      OR: [{ startDate: range }, { endDate: range }, ...(afterCuts.length ? [{ startDate: { gt: dayStart(afterCuts[0]) } }] : [])],
+      OR: [{ startDate: { lt: range.lt }, endDate: { gte: range.gte } }, ...(afterCuts.length ? [{ startDate: { gt: dayStart(afterCuts[0]) } }] : [])],
     },
-    select: { userId: true, type: true, days: true, startDate: true, endDate: true },
+    select: { userId: true, type: true, days: true, startDate: true, endDate: true, deductedByYear: true },
   });
   for (const r of rows) {
     if (!isLeaveDeductible(r.type)) continue;
     const c = cuts.get(r.userId), a = out.get(r.userId);
     if (!c || !a) continue;
     const sy = r.startDate.getUTCFullYear(), ey = r.endDate.getUTCFullYear();
-    if (c.afterAll && ymdUTC(r.startDate) > c.cut) { a.afterCut += r.days; if (sy === c.year) a.afterCutInYear += r.days; continue; }
-    if (sy !== c.year && ey !== c.year) continue;
+    // 그 해 몫 — **차감 때 저장한 몫**(deductedByYear). 없으면 옛 규칙(시작 해에 days 통째로 — 그때 그렇게 차감했다)이라
+    // 2025-12 에 시작한 옛 걸친 휴가의 2026 몫은 0 — 이중 계산이 없다. 자르는 날과는 그 해 안의 기간(시작·끝을 그 해로 자름)으로 비교한다
+    const inYear = approvedDaysByYear(r).get(c.year) ?? 0;
+    const s = sy < c.year ? `${c.year}-01-01` : ymdUTC(r.startDate);
+    const e = ey > c.year ? `${c.year}-12-31` : ymdUTC(r.endDate);
+    if (c.afterAll && ymdUTC(r.startDate) > c.cut) { a.afterCut += r.days; a.afterCutInYear += inYear; continue; }
+    if (sy > c.year || ey < c.year) continue;   // 그 해에 걸치지 않음
     if (sy !== ey) a.crossYear = true;
-    if (sy !== c.year) continue;   // 지난해에 시작한 휴가는 지난해 사용(시작일 연도 귀속)
-    const s = ymdUTC(r.startDate), e = ymdUTC(r.endDate);
-    if (s > c.cut) { a.afterCut += r.days; a.afterCutInYear += r.days; continue; }
-    a.hours += r.days * 8;
+    if (inYear <= 0) continue;   // 그 해에 걸친 날이 근무일이 아니면 그 해 몫 없음
+    if (s > c.cut) { a.afterCut += inYear; a.afterCutInYear += inYear; continue; }
+    a.hours += inYear * 8;
     if (e > c.cut) a.crossCut = true;
   }
   for (const a of out.values()) { a.afterCut = r2(a.afterCut); a.afterCutInYear = r2(a.afterCutInYear); }

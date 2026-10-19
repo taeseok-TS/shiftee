@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deductLeaveBalance } from "@/lib/leave-balance";
+import { deductLeave } from "@/lib/leave-balance";
 import { leaveCancelDenial, cancelFlags, cancelRequestDenial, requestFlags } from "@/lib/leave-cancel";
 import { leavePolicySteps } from "@/lib/leave-policy";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
@@ -10,9 +10,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { filterLeaveData } from "@/lib/api-response";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { leaveYearOfLeave } from "@/lib/leave-calc";
 import { ymdUTC } from "@/lib/holidays";
-import { countLeaveDays } from "@/lib/leave-days";
+import { countLeaveDays, splitWorkdaysByYear } from "@/lib/leave-days";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
 import { canSeeLeaveBalance } from "@/lib/permission-settings";
 import { getManagerBranches } from "@/lib/manager-branches";
@@ -50,9 +49,9 @@ export async function GET(request: NextRequest) {
     const end   = new Date(year, month, 0, 23, 59, 59); // month의 0일 = 전달 말일
     dateFilter = { startDate: { gte: start, lte: end } };
   } else if (year) {
-    // **휴가를 쓰는 해(시작일)** 기준 — 차감·복구·대장과 같은 기준(9/11). 종전(시작 ≥ 1/1 AND 종료 ≤ 12/31)은
-    // 해를 걸친 휴가(12/30~1/2)가 어느 해 목록에도 나오지 않았다(9/11 검증 D3). @db.Date 는 UTC 자정.
-    dateFilter = { startDate: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } };
+    // 그 해에 **하루라도 걸친** 휴가 — 연도를 걸친 휴가는 날짜별로 해마다 차감하므로(2026-10-19) 두 해 목록에 다 나온다
+    // (연차 대장과 같은 기준). 종전 9/11 은 시작일 연도만, 그 전(시작 ≥ 1/1 AND 종료 ≤ 12/31)은 어느 해에도 안 나왔다(검증 D3). @db.Date 는 UTC 자정.
+    dateFilter = { startDate: { lt: new Date(Date.UTC(year + 1, 0, 1)) }, endDate: { gte: new Date(Date.UTC(year, 0, 1)) } };
   }
 
   // 본인 휴가만 조회: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
@@ -236,15 +235,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: counted.error }, { status: 400 });
   }
   const days = counted.days;
+  // 연도를 걸친 휴가는 날짜별로 그 해에(2026-10-19 본부 답) — 방금 센 근무일로 해마다 몫을 나눈다(잔여 판정·차감이 같은 몫)
+  const byYear = splitWorkdaysByYear(counted.workdays, days, startDate);
 
   // 잔여 초과 막기(2026-10-16 #219-7·11) — 판정은 lib/leave-limit.ts 한 곳(신청 창 미리보기·최종 승인과 같은 함수).
-  //  · 연차 차감 유형: **휴가를 쓰는 해**의 잔여(yearBalanceFor, 9/11 디렉터). 그 해 행이 없는 지난 해는 종전처럼 검사하지 않는다.
+  //  · 연차 차감 유형: 해마다 그 해 잔여(yearBalanceFor) — 연도를 걸친 휴가는 그해 몫·다음 해 몫을 각 해 잔여로(2026-10-19). 그 해 행이 없는 지난 해는 종전처럼 검사하지 않는다.
   //  · 보상휴가·대체휴일: 그 그룹 부여 합 − 승인된 사용(디렉터 결정 (c) — 10/8 「막지 않음」을 바꿈).
   //  · **결재 대기 중인 신청까지 합산**한다 — 종전에는 대기분을 안 세어 여러 건을 올리면 잔여를 넘겼다.
   //  · 잔여 숫자 숨김(#219-1)이면 거절 문구에서 숫자를 뺀다(막기는 그대로). 본부는 숫자를 본다.
   const balanceVisible = await canSeeLeaveBalance(session.role);
   {
-    const limit = await checkLeaveLimit(prisma, { userId: subject.id, type: leaveType, startDate: start, days, includePending: true });
+    const limit = await checkLeaveLimit(prisma, { userId: subject.id, type: leaveType, startDate: start, endDate: end, days, byYear, includePending: true });
     if (limit.blocked) {
       return NextResponse.json({ error: limitMessage(limit, { visible: balanceVisible, when: "request", who: proxy ? subject.name : undefined }) }, { status: 400 });
     }
@@ -264,7 +265,9 @@ export async function POST(request: NextRequest) {
       if (proxy) {
         // 대리 등록은 곧바로 승인·차감이라 두 번 누르면 피해가 바로 확정된다(검증 #1) — 같은 직원 등록을 줄 세우고,
         // 그 직원의 대기·승인 휴가와 기간이 겹치면 막는다. 반차끼리(오전+오후 등 하루 미만 유형끼리)는 겹쳐도 된다.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-proxy:" + subject.id}))`;
+        // 잠금 키는 최종 승인(api/leave/[id]/approve assertBalanceForApproval)과 **같은** leave-bal:<직원> — 대리 등록끼리의 중복 막기와
+        // 「대리 등록 ↔ 같은 직원 최종 승인」 잔여 경쟁을 한 잠금으로 줄 세운다(2026-10-19 검증). 한 트랜잭션에 이 잠금 하나만 잡아 교착 없음.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-bal:" + subject.id}))`;
         const overlap = await tx.leaveRequest.findMany({
           where: { userId: subject.id, status: { in: ["PENDING", "APPROVED"] }, startDate: { lte: end }, endDate: { gte: start } },
           select: { type: true, startDate: true, endDate: true, days: true },
@@ -280,7 +283,7 @@ export async function POST(request: NextRequest) {
         if (clash) throw new ProxyOverlap(`${subject.name}님은 이미 ${leaveInfo(clash.type)?.label ?? clash.type} ${ymdUTC(clash.startDate)}${ymdUTC(clash.startDate) === ymdUTC(clash.endDate) ? "" : ` ~ ${ymdUTC(clash.endDate)}`} 휴가가 있습니다.`);
         // 잔여 검사를 잠금 안에서 한 번 더 — 관리자 둘이 같은 직원에게 동시에 다른 날짜를 넣어도 잔여가 음수가 되지 않게
         // (위와 같은 lib/leave-limit 판정 — 보상휴가·대체휴일도, 대기분 합산도 같다. 대리 등록은 본부라 숫자를 보인다)
-        const limit = await checkLeaveLimit(tx, { userId: subject.id, type: leaveType, startDate: start, days, includePending: true });
+        const limit = await checkLeaveLimit(tx, { userId: subject.id, type: leaveType, startDate: start, endDate: end, days, byYear, includePending: true });
         if (limit.blocked) throw new ProxyOverlap(limitMessage(limit, { visible: true, when: "request", who: subject.name }));
       }
       const created = await tx.leaveRequest.create({
@@ -318,7 +321,7 @@ export async function POST(request: NextRequest) {
         }
         if (isLeaveDeductible(leaveType)) {
           // 결재 단계 없음(관리자 본인 + 다른 관리자 없음, 또는 본부 대리 등록) → 자동 승인 + 즉시 차감
-          await deductLeaveBalance(tx, subject.id, leaveYearOfLeave(start), days);   // 휴가를 쓰는 해
+          await deductLeave(tx, { id: created.id, userId: subject.id, startDate: start, endDate: end, days }, byYear);   // 날짜별로 해마다(연도를 걸치면 나눠) + 몫 저장
         }
       }
 

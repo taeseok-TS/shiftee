@@ -22,7 +22,7 @@ type Ledger = {
   year: number;
   balance: { total: number; used: number; remaining: number } | null;
   entries: {
-    id: string; type: string; startDate: string; endDate: string; days: number; status: string; deductible: boolean;
+    id: string; type: string; startDate: string; endDate: string; days: number; yearDays?: number; status: string; deductible: boolean;
     reason: string | null; rejectedReason: string | null; createdAt: string; steps: Step[];
     cancelRequests: { id: string; status: string; reason: string | null; rejectedReason: string | null; createdAt: string; steps: Step[] }[];
   }[];
@@ -212,6 +212,7 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
                         </td>
                         <td className="px-4 py-3 text-gray-700">
                           {TYPE_LABEL[e.type] ?? e.type} · {e.days}일
+                          {e.yearDays !== undefined && e.yearDays !== e.days && <div className="text-[11px] text-amber-700">연도를 걸침 — {L.year}년 몫 {e.yearDays}일</div>}
                           {!e.deductible && <div className="text-[11px] text-gray-400">연차 미차감</div>}
                         </td>
                         <td className="px-4 py-3">

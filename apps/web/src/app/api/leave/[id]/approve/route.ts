@@ -4,8 +4,7 @@ import { botNotifyApprovalRequest } from "@/lib/bot";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isLeaveDeductible } from "@/lib/leave-types";
-import { leaveYearOfLeave } from "@/lib/leave-calc";
-import { deductLeaveBalance } from "@/lib/leave-balance";
+import { deductLeave } from "@/lib/leave-balance";
 import { logAudit } from "@/lib/audit";
 import { botNotifyDecision } from "@/lib/bot";
 import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
@@ -24,12 +23,14 @@ const shortBalanceOf = (e: unknown): ShortBalance => { if (e instanceof ShortBal
  */
 async function assertBalanceForApproval(
   tx: Parameters<typeof checkLeaveLimit>[0],
-  req: { id: string; userId: string; type: string; startDate: Date; days: number },
+  req: { id: string; userId: string; type: string; startDate: Date; endDate: Date; days: number },
   approverRole: string,
 ) {
-  // 같은 직원의 다른 휴가를 동시에 최종 승인하면 둘 다 같은 잔여를 읽고 통과해 음수가 될 수 있었다(검증 5) — 직원 단위로 줄 세운다
+  // 같은 직원의 다른 휴가를 동시에 최종 승인하면 둘 다 같은 잔여를 읽고 통과해 음수가 될 수 있었다(검증 5) — 직원 단위로 줄 세운다.
+  // 본부 대리 등록(api/leave POST)도 같은 키(leave-bal:<직원>)를 잡는다(2026-10-19 통일)
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-bal:" + req.userId}))`;
-  const limit = await checkLeaveLimit(tx, { userId: req.userId, type: req.type, startDate: req.startDate, days: req.days, includePending: false, excludeRequestId: req.id });
+  // 연도를 걸친 휴가는 해마다 그 해 잔여로(차감과 같은 나눔 — lib/leave-days leaveDaysByYear, 2026-10-19)
+  const limit = await checkLeaveLimit(tx, { userId: req.userId, type: req.type, startDate: req.startDate, endDate: req.endDate, days: req.days, includePending: false, excludeRequestId: req.id });
   if (limit.blocked) throw new ShortBalance(limitMessage(limit, { visible: await canSeeLeaveBalance(approverRole), when: "approve" }));
 }
 
@@ -187,8 +188,8 @@ export async function POST(
           });
           // 잔여 휴가 차감 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감)
           if (isLeaveDeductible(leaveRequest.type)) {
-            // **휴가를 쓰는 해** 행에서(9/11). 차감은 lib/leave-balance.ts 한 곳 — 행이 없으면 이월과 같은 계산
-            await deductLeaveBalance(tx, leaveRequest.userId, leaveYearOfLeave(leaveRequest.startDate), leaveRequest.days);
+            // 날짜별로 해마다(연도를 걸치면 나눠, 2026-10-19). 차감은 lib/leave-balance.ts 한 곳 — 행이 없으면 이월과 같은 계산
+            await deductLeave(tx, leaveRequest);
           }
           emailAction = "approve";
         }
@@ -321,8 +322,8 @@ async function adminOverride(
 
     // 잔여 휴가 차감 (연차 차감 유형만)
     if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
-      // **휴가를 쓰는 해** 행에서(9/11) — 단계 최종승인과 같은 함수
-      await deductLeaveBalance(tx, userId, leaveYearOfLeave(leaveRequest.startDate), days);
+      // 날짜별로 해마다(2026-10-19) — 단계 최종승인과 같은 함수
+      await deductLeave(tx, { id, userId, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, days });
     }
   }).then(() => null, shortBalanceOf);
   if (short) return NextResponse.json({ error: short.message }, { status: 400 });

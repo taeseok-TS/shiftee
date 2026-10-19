@@ -23,12 +23,19 @@ export default function LeaveDaysPreviewBox({ state, fixed }: { state: LeaveDays
   }
   const d = state.data;
   const grant = d.limit?.kind === "grant" && d.limit.remaining !== null ? d.limit : null;
+  // 연도를 걸친 연차 — 날짜별로 그 해 연차에서 차감된다(2026-10-19 본부 답)
+  const split = d.limit?.kind === "annual" && (d.limit.years?.length ?? 0) > 1 ? d.limit.years! : null;
   return (
     <div className="space-y-2">
       {d.days > 0 && (
         <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm">
           <span className="text-gray-500">{fixed ? "신청 일수 (고정)" : "신청 일수 (근무일정·공휴일 반영)"}</span>
           <span className="font-bold text-gray-800">{d.days}일</span>
+        </div>
+      )}
+      {split && (
+        <div className="bg-amber-50 rounded-lg px-4 py-2 text-xs text-amber-800">
+          연도를 걸친 휴가라 날짜별로 그 해 연차에서 차감됩니다 — {split.map((y) => `${y.year}년 ${y.days}일`).join(" · ")}
         </div>
       )}
       {grant && (

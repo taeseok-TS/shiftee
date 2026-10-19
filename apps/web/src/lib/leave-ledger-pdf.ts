@@ -97,6 +97,7 @@ export async function renderLedgerPdf(ledger: Ledger, meta: { issuedBy: string; 
     y -= 2;
     line(
       `${i + 1}. ${e.startDate}${e.startDate !== e.endDate ? ` ~ ${e.endDate}` : ""} · ${leaveLabel(e.type)} · ${e.days}일` +
+        `${e.yearDays !== e.days ? `(연도를 걸침 — ${ledger.year}년 몫 ${e.yearDays}일)` : ""}` +
         `${e.deductible ? "" : "(연차 미차감)"} · ${STATUS_LABEL[e.status] ?? e.status}`,
       { size: 10, color: rgb(0, 0, 0) }
     );

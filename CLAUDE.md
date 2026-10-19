@@ -140,7 +140,8 @@ packages/db    — (레거시) 실제 활성 스키마는 apps/web/prisma/schema
   대표 지점 + 겸직 지점(ManagerBranch)을 합쳐서 봐야 함. `session.branch` 단독 사용 금지
   (토큰에 박제된 값이라 지점명 변경·겸직 반영이 안 됨)
 - 연차는 `LeaveBalance` **(userId, year) 복합 유니크** — "지금" 잔여 조회는 `currentLeaveYear()`,
-  **차감·복구는 휴가를 쓰는 해**(`leaveYearOfLeave(시작일)`)로 `lib/leave-balance.ts` 두 함수에서만(2026-09-11).
+  **차감·복구는 `lib/leave-balance.ts` 의 `deductLeave`/`restoreLeave` 에서만** — 연도를 걸친 휴가는 날짜별로 그 해에 나누고
+  (2026-10-19 본부), 승인 때 나눈 몫을 `LeaveRequest.deductedByYear` 에 저장해 복구·대장·정산은 그 값을 쓴다(없으면 시작 해 통째로).
   그 해 행이 없으면 연초 이월과 같은 근속 계산으로 만든다 — 기본값 15로 만들면 1월 이월이 건너뛴다
 - 봇 스케줄러: `src/instrumentation.ts` register() → 60초 틱 (globalThis 싱글턴)
 - 오류 로그: `onRequestError` → SystemErrorLog. 알려진 무해 패턴은 `lib/monitor.ts`의
