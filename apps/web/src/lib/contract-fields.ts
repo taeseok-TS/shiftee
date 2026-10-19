@@ -95,6 +95,7 @@ export async function fillDocxTemplate(
       const tag = part?.value || "";
       if (tag.startsWith("체크_") || tag.startsWith("선택_") || tag.startsWith("확인_")) return "□";
       if (tag.startsWith("동의_")) return consentBox();   // 서명 때 고르는 동의 칸(추가 템플릿 8종) — 고르기 전엔 둘 다 빈 네모
+      if (tag.startsWith("선택됨_")) return "";   // 조건 구간용 짝 — 원 칸이 없으면 거짓(미리보기에 두 문구가 함께 찍히지 않게, #214 검증)
       if (!hl) return "";
       // 계약자(근로자)가 서명 단계에서 채우는 항목은 누락이 아니라 정상 진행 상태다 —
       // 〔미입력〕이 오류처럼 읽혀 결재자가 반려·문의하던 문제 (#190, 2026-08-31 이예지대리)
@@ -223,6 +224,10 @@ export async function buildContractMergeData(
   applyAutoSources(mergeData, settings);
   // 동의_ 칸(서명 때 동의함/동의하지 않음 중 하나 고름) — 값을 체크 표기로 바꾼다. 안 골랐으면 둘 다 빈 네모
   for (const [k, v] of Object.entries(mergeData)) if (k.startsWith("동의_")) mergeData[k] = consentBox(v === "동의" || v === "미동의" ? v : undefined);
+  // 선택_ 칸(여럿 중 하나, ☑/□)은 값이 늘 채워져 있어 조건 구간 {#…} 으로 못 가른다 — 고른 칸만 참("1")인 짝 「선택됨_X」를 만든다.
+  // 양식에 {#선택됨_12주이내} (12주 이내){/선택됨_12주이내} 처럼 쓰면 고른 문구만 남는다(#214 임신기 신청서, 2026-10 박정인).
+  // 빈 문자열이면 nullGetter 를 타지 않아 미리보기의 〔미입력〕 표시도 끼지 않는다
+  for (const [k, v] of Object.entries(mergeData)) if (k.startsWith("선택_")) mergeData[`선택됨_${k.slice(3)}`] = v === "☑" ? "1" : "";
   // 근로계약 기간 시작일(제1조) — 재계약은 "이번 계약 시작일"이 아니라 최초 입사일이어야
   // 근속기간이 맞다. 신규입사는 계약시작일과 같다. 관리자가 폼에서 직접 넣으면 그 값 우선.
   // (#169, 2026-08-28 이예지대리 — 재계약자 제1조에 재계약일이 들어가 근속이 잘못 표시)

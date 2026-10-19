@@ -66,7 +66,10 @@ export async function GET(
           stack.pop();
         } else if (!fields.includes(name)) {
           fields.push(name);
-          if (stack.length) fieldConditions[name] = stack[stack.length - 1];
+          // 작성 화면은 이 값을 「계약 구분」(신규입사/재계약)과 비교해 입력란을 숨긴다 — 계약 구분 구간만 기록한다.
+          // 다른 조건 구간(예: 유급휴가 선사용의 {#2차발생예정일}…)까지 넣으면 그 칸이 늘 숨었다(#214 준비 중 발견, 10/19)
+          const kind = [...stack].reverse().find((c) => c === "신규입사" || c === "재계약");
+          if (kind) fieldConditions[name] = kind;
         }
       }
     }
