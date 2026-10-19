@@ -110,6 +110,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   PORTAL_SYNC_DISMISS: "포털 연동 차이 무시",
   MARKETING_PUBLISHED: "마케팅 배포",
   NOTIFY_TARGETS_UPDATE: "시스템 알림 수신자 변경",
+  JINHAK_INFO_ENTER: "입학정보실 입장권 발급",   // 2026-10-19 — 누가 언제 열었는지만(입장권 값은 안 남긴다)
   API_CHAT_POST: "API 키로 채팅 전송(과거 기록)",
   "시스템 알림 수신자 변경": "시스템 알림 수신자 변경",   // 2026-10-14 전 기록은 한글 문장이 코드 자리에 있었다 — 과거 호환
 };
@@ -125,6 +126,7 @@ export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
   "MARKETING_PUBLISHED",
   "NOTIFY_TARGETS_UPDATE",
   "API_CHAT_POST",
+  "JINHAK_INFO_ENTER",   // 외부 연동 입장 기록 — 직원이 누를 때마다 쌓여 업무 변경 목록을 덮지 않게 시스템 쪽에
   "시스템 알림 수신자 변경",   // 과거 호환(위 참고)
 ];
 const SYSTEM_SET = new Set(SYSTEM_AUDIT_ACTIONS);

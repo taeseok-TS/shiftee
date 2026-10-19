@@ -6,8 +6,9 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid, School } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
+import { openJinhakInfo } from "@/components/layout/openJinhakInfo";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
@@ -222,6 +223,20 @@ export function WorkSidebar() {
           {!collapsed && <span className="flex-1">New EMS</span>}
           {!collapsed && <ExternalLink size={13} className="opacity-60" />}
         </a>}
+        {/* 입학정보실(진학입시EX) — 2026-10-19 디렉터 결정: 큐브티 직원 전체. 주소에 입장권이 붙어야 해서 링크가 아니라 단추(서버에서 받아 새 탭) */}
+        {showPortal && <button
+          type="button"
+          onClick={() => { void openJinhakInfo(); }}
+          title={collapsed ? "입학정보실 (새 탭)" : "새 탭에서 열립니다"}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-indigo-200 hover:bg-indigo-900 hover:text-white w-full text-left",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <School size={18} />
+          {!collapsed && <span className="flex-1">입학정보실</span>}
+          {!collapsed && <ExternalLink size={13} className="opacity-60" />}
+        </button>}
       </nav>
 
       <div className={cn("py-4 border-t border-indigo-800 space-y-1", collapsed ? "px-2" : "px-3")}>
@@ -297,6 +312,13 @@ export function WorkMobileNav() {
           className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
           <Building2 size={18} />
         </a>
+      )}
+      {/* 입학정보실 — 폰 폭도 아이콘만(누르면 새 탭, 입장권은 서버에서 받아 바로 연다) */}
+      {showPortal && (
+        <button type="button" onClick={() => { void openJinhakInfo(); }} title="입학정보실 (새 탭)" aria-label="입학정보실"
+          className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
+          <School size={18} />
+        </button>
       )}
     </div>
   );

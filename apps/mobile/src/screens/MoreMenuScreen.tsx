@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { canApproveNow } from "../services/approvals";
+import { openJinhakInfo } from "../services/jinhakInfo";
 
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { route: "Contracts", label: "계약서", icon: "document-text-outline", color: "#2563eb" },
@@ -37,6 +38,15 @@ export default function MoreMenuScreen() {
             <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
           </TouchableOpacity>
         ))}
+      </View>
+      {/* 바로가기(밖으로 나가는 것) — 입학정보실(진학입시EX), 2026-10-19 디렉터 결정: 큐브티 직원 전체.
+          누르면 서버에서 60초짜리 입장 주소를 받아 브라우저로 연다. 위 묶음과 떼어 둬 「결재」가 붙어도 자리가 안 밀린다 */}
+      <View style={styles.group}>
+        <TouchableOpacity style={styles.row} onPress={() => { void openJinhakInfo(); }}>
+          <Ionicons name="school-outline" size={22} color="#059669" />
+          <Text style={styles.label}>입학정보실</Text>
+          <Ionicons name="open-outline" size={18} color="#9ca3af" />
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
