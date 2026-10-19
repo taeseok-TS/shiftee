@@ -193,6 +193,9 @@ export async function POST(request: NextRequest) {
   }
   // 증빙도 판정 근거(신청자·결재자)가 된다 — 신청하는 사람이 볼 수 있는 파일만(2026-10-06)
   if (attachmentUrl) {
+    // 증빙은 업로드(api/work/upload)로 받은 파일만 — 외부 주소가 관리자·원장 목록 링크로 열리지 않게(10/19 검증)
+    if (!attachmentUrl.startsWith("/api/uploads/work/"))
+      return NextResponse.json({ error: "첨부 파일은 업로드한 파일만 넣을 수 있습니다." }, { status: 400 });
     const { canAttachWorkUrl, UNATTACHABLE_MSG } = await import("@/lib/work-file-access");
     if (!(await canAttachWorkUrl(attachmentUrl, { userId: session.userId, role: session.role })))
       return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });

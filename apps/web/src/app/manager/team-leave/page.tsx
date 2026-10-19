@@ -50,6 +50,8 @@ type LeaveRequest = {
   user: { name: string; department: string | null; position: string | null };
   canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
   approvalSteps?: ApprovalStep[];
+  attachmentUrl?: string | null;   // 신청 때 붙인 증빙(선택) — /api/leave/my-approvals 가 그대로 내려준다
+  attachmentName?: string | null;
 };
 
 type LeaveApprovalStep = {
@@ -72,7 +74,22 @@ type HistoryLeave = {
   pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재(9/11)
   user: { id: string; name: string; branch: string | null };
   approvalSteps?: ApprovalStep[];
+  attachmentUrl?: string | null;   // 증빙 — GET /api/leave 가 그대로 내려준다(승인된 뒤에도 연다, 2026-10-19)
+  attachmentName?: string | null;
 };
+
+// 휴가 증빙 링크(결재 대기·진행 중 목록 공용) — 결재 화면과 같은 주소를 그대로 연다(2026-10-19 디렉터).
+// 열람 권한은 /uploads 쪽 lib/work-file-access 가 판정한다 — 담당 지점 밖 직원의 첨부는 원장에게 열리지 않는다.
+// 휴가 한 건에 첨부는 하나다.
+function LeaveAttachLink({ url, name }: { url?: string | null; name?: string | null }) {
+  if (!url) return null;
+  return (
+    <div className="mt-1">
+      <a href={url} target="_blank" rel="noreferrer" title={name || "첨부 보기"}
+        className="text-xs text-blue-600 hover:underline whitespace-nowrap">📎 첨부 1</a>
+    </div>
+  );
+}
 
 type ScheduleRequest = {
   id: string;
@@ -405,6 +422,7 @@ export default function ManagerApprovalsPage() {
       </>,
       <>
         <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
+        <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
       </>,
       <>
         <div>{dateRange}</div>
@@ -504,6 +522,7 @@ export default function ManagerApprovalsPage() {
       </>,
       <>
         <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
+        <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
       </>,
       <>
         <div>{dateRange}</div>

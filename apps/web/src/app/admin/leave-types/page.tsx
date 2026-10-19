@@ -107,7 +107,7 @@ export default function LeaveTypesPage() {
               <div key={c.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
                 <span className="font-medium">{c.label}</span>
                 <Badge variant="outline">{c.group}</Badge>
-                <span className="text-xs text-gray-500">{UNIT_LABEL[c.unit] ?? c.unit} · 유급 {c.paidHours}h · {c.deducts ? "연차 차감" : "차감 없음"}{c.attachRequired ? ` · 첨부 ${c.attachRequired}` : ""}</span>
+                <span className="text-xs text-gray-500">{UNIT_LABEL[c.unit] ?? c.unit} · {c.paidHours > 0 ? `유급 ${c.paidHours}h` : "무급"} · {c.deducts ? "연차 차감" : "차감 없음"}{c.attachRequired ? ` · 첨부 ${c.attachRequired}` : ""}</span>
                 {!c.selectable && <Badge variant="secondary" className="text-[11px]">숨김</Badge>}
                 <span className="text-xs text-gray-400">사용 {c.used}건</span>
                 <span className="flex-1" />
@@ -134,7 +134,7 @@ export default function LeaveTypesPage() {
                     {list.map((b) => (
                       <div key={b.code} className="flex flex-wrap items-center gap-2 text-sm">
                         <span className={b.hidden || !b.selectableDefault ? "text-gray-400" : ""}>{b.label}</span>
-                        <span className="text-xs text-gray-400">{UNIT_LABEL[b.unit] ?? b.unit} · 유급 {b.paidHours}h · {b.deducts ? "연차 차감" : "차감 없음"} · 사용 {b.used}건</span>
+                        <span className="text-xs text-gray-400">{UNIT_LABEL[b.unit] ?? b.unit} · {b.paidHours > 0 ? `유급 ${b.paidHours}h` : "무급"} · {b.deducts ? "연차 차감" : "차감 없음"} · 사용 {b.used}건</span>
                         {!b.selectableDefault && <Badge variant="secondary" className="text-[11px]">옛 유형(기록만)</Badge>}
                         <span className="flex-1" />
                         {b.selectableDefault && (

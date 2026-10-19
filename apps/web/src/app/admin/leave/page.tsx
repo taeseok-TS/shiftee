@@ -55,6 +55,8 @@ type LeaveRequest = {
   canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts)
   canRequestCancel?: boolean;   // 취소 결재를 올릴 수 있나(본인·승인건·시작 전날까지 — 서버 판정)
   pendingCancel?: { id: string; mine: boolean } | null;   // 진행 중인 취소 결재
+  attachmentUrl?: string | null;    // 신청 때 붙인 증빙(선택) — GET /api/leave 가 그대로 내려준다
+  attachmentName?: string | null;
 };
 type Balance  = { total: number; used: number; remaining: number };
 type EmpBalance = {
@@ -531,6 +533,12 @@ export default function LeavePage() {
       )}
     </>
   );
+  // 첨부 증빙 — 결재가 끝난 뒤에도 여기서 연다(2026-10-19 디렉터). 결재 화면과 같은 주소를 그대로 연다:
+  // 열람 권한은 /uploads 쪽 lib/work-file-access 가 판정한다(본부·신청자·결재자·담당 원장). 휴가 한 건에 첨부는 하나다.
+  const leaveAttach = (r: LeaveRequest) => r.attachmentUrl ? (
+    <a href={r.attachmentUrl} target="_blank" rel="noreferrer" title={r.attachmentName || "첨부 보기"}
+      className="inline-block text-xs text-blue-600 hover:underline whitespace-nowrap">📎 첨부 1</a>
+  ) : null;
   const leaveStatus = (r: LeaveRequest) => {
     const s = STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED;
     return (
@@ -725,7 +733,10 @@ export default function LeavePage() {
                               <p className="text-xs text-gray-400">{[r.user.branch, r.user.department].filter(Boolean).join(" · ")}</p>
                             </td>
                           )}
-                          <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{TYPE_LABEL[r.type] ?? r.type}</td>
+                          <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">
+                            {TYPE_LABEL[r.type] ?? r.type}
+                            {r.attachmentUrl && <div>{leaveAttach(r)}</div>}
+                          </td>
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{leavePeriod(r)}</td>
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.days}일</td>
                           <td className="px-4 py-3">{leaveApproval(r)}</td>
@@ -746,6 +757,7 @@ export default function LeavePage() {
                     {isAdmin && <p className="text-xs text-gray-500">{r.user.name}{[r.user.branch, r.user.department].filter(Boolean).length ? ` · ${[r.user.branch, r.user.department].filter(Boolean).join(" · ")}` : ""}</p>}
                     <p className="font-medium text-gray-900">{TYPE_LABEL[r.type] ?? r.type} <span className="text-sm font-normal text-gray-500">· {r.days}일</span></p>
                     <p className="text-sm text-gray-600">{leavePeriod(r)}</p>
+                    {leaveAttach(r)}
                   </div>
                   <div className="shrink-0">{leaveStatus(r)}</div>
                 </div>
