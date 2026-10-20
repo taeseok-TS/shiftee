@@ -273,7 +273,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [addSearch, setAddSearch] = useState("");
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const precheckSeq = useRef(0);   // 겹친 확인 중 마지막 것만 화면에 반영
-  const precheckAbort = useRef<AbortController | null>(null);   // 새 확인이 시작되면 앞선 요청은 끊는다(서버 부담)
+  const precheckAbort = useRef<AbortController | null>(null);
+  const flowChecking = useRef(false);        // 「다음」이 확인하는 중 — 자동 확인이 끼어들지 않게
+  const precheckKeyRef = useRef("");         // 지금 화면 값의 열쇠(「다음」 확인 뒤 값이 바뀌었는지 본다)   // 새 확인이 시작되면 앞선 요청은 끊는다(서버 부담)
   const precheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);   // 자동 확인 대기 — 「다음」을 누르면 지운다(끊김 경쟁 방지, 재검증)   // 확인이 끝날 때 계산해 둔 상태(렌더 중에 ref 를 읽지 않게)
   const [nowMs] = useState(() => Date.now());   // 기수 범위 기준 시각(화면을 연 때)
   // 여러 명 작성 — 개인별 값(#19 #34). 비우면 공통 입력값
@@ -1672,25 +1674,29 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       : ids.map(tid => ({ templateId: tid, title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate, salary: effSalary, extraFields: extra }));
     return [{ userId: createForm.userId, items }];
   }
-  /** 사전 점검 실행 — 결과를 돌려준다(실패하면 null) */
-  async function runPrecheck(): Promise<Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | null> {
+  /** 사전 점검 실행 — 결과를 돌려준다. 실패(서버 오류·20초 넘김)는 null, 뒤에 시작한 확인에 밀려 끊긴 것은 "aborted"(재검증 F1: 둘을 구분) */
+  async function runPrecheck(): Promise<Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | null | "aborted"> {
     const rows = precheckRows();
-    if (!rows.length) { setRowStatus(statusOf({})); return {}; }
-    setPrechecking(true);
     const seq = ++precheckSeq.current;
     precheckAbort.current?.abort();
+    if (!rows.length) { precheckAbort.current = null; setPrechecking(false); setPrecheckFailed(false); setRowStatus(statusOf({})); return {}; }   // 앞선 요청이 늦게 와 덮지 않게(F4d)
+    setPrechecking(true);
     const ac = new AbortController();
     precheckAbort.current = ac;
+    const limit = setTimeout(() => ac.abort(), 20000);   // 서버가 대답 없이 걸려도 「확인하는 중」이 남지 않게(F4c)
     try {
       const res = await fetch("/api/contracts/precheck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }), signal: ac.signal });
       const d = await res.json().catch(() => null);
-      if (!res.ok || !d?.results) { if (seq === precheckSeq.current) setPrecheckFailed(true); return null; }
+      if (seq !== precheckSeq.current) return "aborted";
+      if (!res.ok || !d?.results) { setPrecheckFailed(true); return null; }
       const byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> = {};
       for (const r of d.results) byUser[r.userId] = { errors: r.errors || [], duplicates: r.duplicates || [] };
-      if (seq === precheckSeq.current) { setPrecheckFailed(false); setRowStatus(statusOf(byUser)); }
+      setPrecheckFailed(false); setRowStatus(statusOf(byUser));
       return byUser;
-    } catch { if (seq === precheckSeq.current) setPrecheckFailed(true); return null; }
-    finally { if (seq === precheckSeq.current) setPrechecking(false); }
+    } catch {
+      if (seq !== precheckSeq.current) return "aborted";
+      setPrecheckFailed(true); return null;
+    } finally { clearTimeout(limit); if (seq === precheckSeq.current) setPrechecking(false); }
   }
   /** 사람마다 상태 — 서버 점검 + 화면에서만 아는 것(인사카드 입사일 없음) */
   function statusOf(byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | undefined): Record<string, RowStatus> {
@@ -1715,10 +1721,13 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     return out;
   }
   // 입력이 멈추면 1.2초 뒤 다시 확인한다(2단계에서만)
-  const precheckKey = flow && flowStep === 2 ? JSON.stringify({ r: flowRecipients(), v: bulkValues, x: extraFields, f: createForm, t: selectedTemplate, b: customBundle, k: contractKind, s: effSalary, m: [bundleMode, resignBundleMode, codiBundleMode], p: resignPicks }) : "";
+  const precheckKey = flow && flowStep === 2 ? JSON.stringify({ r: flowRecipients(), v: bulkValues, x: extraFields, f: createForm, t: selectedTemplate, b: customBundle, k: contractKind, s: effSalary, m: [bundleMode, resignBundleMode, codiBundleMode], p: resignPicks, fs: forceSeverance }) : "";   // 퇴직금 정산 신청서 직접 포함도 서류 구성을 바꾼다(N2)
+  useEffect(() => { precheckKeyRef.current = precheckKey; }, [precheckKey]);
+  useEffect(() => { const r = precheckAbort; const k = precheckKeyRef; return () => { r.current?.abort(); k.current = ""; }; }, []);   // 떠난 뒤 「다음」 확인이 엉뚱한 화면에 묻지 않게(N1)   // 화면을 떠나면 진행 중 확인도 끊는다(F4a)
   useEffect(() => {
     if (!precheckKey) return;
-    const t = setTimeout(() => { precheckTimer.current = null; void runPrecheck(); }, 1200);
+    // 「다음」이 확인하는 동안은 자동 확인을 걸지 않는다 — 그 확인을 끊어 「서버 응답 없음」으로 잘못 안내하던 것(재검증 F1)
+    const t = setTimeout(() => { precheckTimer.current = null; if (!flowChecking.current) void runPrecheck(); }, 1200);
     precheckTimer.current = t;
     return () => { clearTimeout(t); if (precheckTimer.current === t) precheckTimer.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1726,17 +1735,23 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const shownStatus: Record<string, RowStatus> = Object.fromEntries(Object.entries(rowStatus).map(([u, x]) => [u, x.level === "warn" ? { ...x, acked: ackDup.has(u) } : x]));
   /** 2단계 「다음」 — 확인을 다시 돌려 막을 것이 없을 때만 만든다 */
   async function flowNext() {
-    if (uploading) return;
+    if (uploading || flowChecking.current) return;
     // 남은 자동 확인을 지운다 — 그 타이머가 「다음」의 확인을 끊어 「확인 실패」로 잘못 안내하던 것(재검증)
     if (precheckTimer.current) { clearTimeout(precheckTimer.current); precheckTimer.current = null; }
-    const byUser = await runPrecheck();
-    if (byUser === null) {
-      if (!confirm("보내기 전 확인을 하지 못했습니다(서버 응답 없음). 그래도 진행할까요? 만들 때 서버가 다시 검사합니다.")) return;
-    } else {
-      const st = statusOf(byUser);
-      const bad = flowRecipients().filter(uid => { const x = st[uid]; return !x || x.level === "error" || (x.level === "warn" && !ackDup.has(uid)); });
-      if (bad.length) { setOnlyIssues(true); toast.error(`확인 필요 ${bad.length}명 — 빨간 줄을 고치거나 빼 주세요(같은 양식을 보낸 사람은 「그래도 보내기」).`, { duration: 8000 }); return; }
+    const key = precheckKey;   // 누른 순간의 값 — 확인하는 동안 바뀌면 만들지 않는다
+    flowChecking.current = true;
+    let byUser: Awaited<ReturnType<typeof runPrecheck>>;
+    try { byUser = await runPrecheck(); } finally { flowChecking.current = false; }
+    // 확인하는 동안 받는 사람·값을 고쳤거나 단계를 옮겼으면, 확인한 값과 만들 값이 다르다 — 만들지 않고 새 값으로 다시 확인(재검증 F2)
+    if (byUser === "aborted" || precheckKeyRef.current !== key) {
+      if (precheckKeyRef.current) { toast.info("확인하는 동안 내용이 바뀌어 다시 확인합니다. 확인이 끝나면 「다음」을 다시 눌러 주세요."); void runPrecheck(); }
+      return;
     }
+    // 서버 확인이 실패해도 화면에서만 하는 검사(인사카드 입사일 없음 등)는 막는다 — 그건 서버가 다시 보지 않는다(재검증 F3)
+    const st = statusOf(byUser ?? undefined);
+    const bad = flowRecipients().filter(uid => { const x = st[uid]; return byUser ? (!x || x.level === "error" || (x.level === "warn" && !ackDup.has(uid))) : x?.level === "error"; });
+    if (bad.length) { setRowStatus(st); setOnlyIssues(true); toast.error(`확인 필요 ${bad.length}명 — 빨간 줄을 고치거나 빼 주세요(같은 양식을 보낸 사람은 「그래도 보내기」).`, { duration: 8000 }); return; }
+    if (byUser === null && !confirm("보내기 전 확인을 하지 못했습니다(서버 응답 없음). 그래도 진행할까요? 최저임금·기간·필수 칸·같은 양식 발송은 만들기·발송 때 서버가 다시 검사합니다.")) return;
     (document.getElementById("compose-form") as HTMLFormElement | null)?.requestSubmit();
   }
 
