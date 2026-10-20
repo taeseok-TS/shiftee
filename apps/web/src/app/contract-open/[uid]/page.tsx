@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { isDirectHost } from "@/lib/is-direct-host";
 import LogoutAndLogin from "./LogoutAndLogin";
+import Arrival from "./Arrival";
 
 // 이메일 서명·결재 안내 링크의 본인 확인 관문 (#140, 2026-08-27)
 //
@@ -10,17 +13,45 @@ import LogoutAndLogin from "./LogoutAndLogin";
 // 서명될 수 있다 (이예지대리 QA). 이제 링크에 수신자를 실어 보내고 여기서 대조한다.
 export default async function ContractOpenPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ uid: string }>;
+  searchParams: Promise<{ for?: string }>;
 }) {
   const { uid } = await params;
+  const forSign = (await searchParams).for === "sign";   // 서명 요청 메일만 — 결재 요청·완료 메일은 종전처럼 계약서 화면으로(검증)
   const session = await getSession();
 
-  // 미로그인 → 로그인 화면 (로그인 후 이 링크를 다시 누르면 통과)
-  if (!session) redirect("/login");
+  // 미로그인 → 로그인 화면, 로그인하면 이 링크로 돌아온다
+  if (!session) redirect(`/login?next=${encodeURIComponent(`/contract-open/${uid}${forSign ? "?for=sign" : ""}`)}`);
 
-  // 본인이면 바로 계약서 화면으로
-  if (session.userId === uid) redirect("/contracts");
+  // 본인이면 「계약서가 도착했어요」 첫 화면(시안 v2 5번) — 지금 내 서명 차례인 서류만. 없으면 계약서 화면으로
+  if (session.userId === uid && !forSign) redirect("/contracts");
+  if (session.userId === uid) {
+    const pending = await prisma.contract.findMany({
+      where: {
+        userId: uid, externalName: null, status: { in: ["SENT", "APPROVED"] },
+        approvalLine: { steps: { some: { approverId: uid, status: "PENDING" } } },
+      },
+      select: { id: true, title: true, signDeadline: true, createdBy: true, createdAt: true },
+      orderBy: [{ signDeadline: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
+      take: 20,
+    });
+    if (!pending.length) redirect("/contracts");
+    const senderId = pending.find((c) => c.createdBy)?.createdBy;
+    const sender = senderId ? await prisma.user.findUnique({ where: { id: senderId }, select: { name: true, role: true, branch: true } }) : null;
+    const deadline = pending.map((c) => c.signDeadline).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0];
+    const host = (await headers()).get("host") || "";
+    return (
+      <Arrival
+        org={isDirectHost(host) ? "에듀플렉스 직영" : "전자계약"}
+        name={session.name}
+        items={pending.map((c) => ({ id: c.id, title: c.title }))}
+        sender={!sender?.name ? "본부" : sender.role === "MANAGER" ? `${sender.branch ? `${sender.branch} ` : ""}원장 ${sender.name}` : `본부 ${sender.name}`}
+        deadline={deadline ? deadline.toISOString() : null}
+      />
+    );
+  }
 
   // 다른 계정으로 로그인된 상태 — 누구 앞으로 온 링크인지 알려주고 전환을 유도
   const target = await prisma.user.findUnique({

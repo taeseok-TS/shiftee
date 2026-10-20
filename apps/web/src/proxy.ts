@@ -27,7 +27,10 @@ export function proxy(request: NextRequest) {
   // 쿠키 존재 여부만 확인 (JWT 검증은 서버 컴포넌트에서)
   const token = request.cookies.get("token")?.value;
   if (!token) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const to = new URL("/login", request.url);
+    // 계약서 받은 첫 화면(메일 링크)은 로그인 뒤 그 화면으로 돌아온다(시안 v2 5번) — LoginForm 이 같은 출처만 따른다
+    if (pathname.startsWith("/contract-open/")) to.searchParams.set("next", pathname + request.nextUrl.search);
+    return NextResponse.redirect(to);
   }
 
   return NextResponse.next();

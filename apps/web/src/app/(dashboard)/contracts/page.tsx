@@ -328,6 +328,29 @@ export default function ContractsPage() {
   const [unlocking, setUnlocking] = useState(false);
   // 확인 뒤 30분이 지나 서버가 비밀번호를 다시 요구하면 — 창(그린 서명·입력값)은 그대로 두고 비밀번호 칸만 다시 보인다(#20 검증 D3)
   const [needPw, setNeedPw] = useState(false);
+  // 내 서명 창 열기 — 목록의 [서명]과 첫 화면(/contract-open)에서 넘어온 ?sign= 이 같은 길(시안 v2 5번)
+  function openEmpSign(c: Contract) {
+    setUnlocked(false);   // 앞 창의 확인 상태를 물려받지 않게(검증)
+    setApproverMode(false); setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true);
+    // 첫 화면에서(또는 30분 안에 같은 기기에서) 이미 확인했으면 비밀번호 칸을 건너뛴다 — 서명 때 서버가 같은 기준으로 다시 본다
+    fetch(`/api/contracts/${c.id}/unlock`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.unlocked && openTargetRef.current === c.id) setUnlocked(true); }).catch(() => {});
+    openTargetRef.current = c.id;
+  }
+  const openTargetRef = useRef<string | null>(null);
+  // 첫 화면에서 넘어온 서류(?sign=) — 한 번만, 목록(올해 작성분 필터)과 상관없이 그 서류를 직접 불러와 연다(검증)
+  const deepLinkDone = useRef(false);
+  useEffect(() => {
+    if (deepLinkDone.current || !myId) return;
+    deepLinkDone.current = true;
+    const want = new URLSearchParams(window.location.search).get("sign");
+    if (!want) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    fetch(`/api/contracts?ids=${encodeURIComponent(want)}&scope=self`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      const c = ((d?.contracts || []) as Contract[]).find((x) => x.id === want && (x.status === "SENT" || x.status === "APPROVED") && x.userId === myId && !x.externalName && x.approvalLine?.steps?.some((st) => st.approverId === myId && st.status === "PENDING"));
+      if (c) openEmpSign(c); else toast.info("그 서류는 지금 서명할 차례가 아닙니다. 아래 목록에서 확인해 주세요.");
+    }).catch(() => {});
+  }, [myId]);
   async function unlockDoc() {
     if (!signTarget || !unlockPw) return;
     setUnlocking(true);
@@ -483,7 +506,7 @@ export default function ContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" onClick={() => { setApproverMode(false); setSignTarget(c); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "", 동의채용정보: c.extraFields?.동의채용정보 || "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }} className="gap-1">
+                  <Button size="sm" onClick={() => openEmpSign(c)} className="gap-1">
                     <PenLine size={14} />서명
                   </Button>
                 </div>

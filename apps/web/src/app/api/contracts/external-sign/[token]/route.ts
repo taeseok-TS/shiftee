@@ -19,7 +19,7 @@ async function findStepByToken(token: string) {
     include: {
       approvalLine: {
         include: {
-          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, externalEmail: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true, sendMessage: true } },
+          contract: { select: { id: true, title: true, fileUrl: true, status: true, externalName: true, externalPhone: true, externalEmail: true, signedUrl: true, bundleId: true, userId: true, createdBy: true, version: true, sendMessage: true, signDeadline: true } },
           steps: { orderBy: { order: "asc" } },
         },
       },
@@ -107,6 +107,10 @@ export async function GET(
       ]
     : [];
 
+  // 첫 화면(시안 v2 5번) — 무슨 서류가 왔는지·보낸 곳·기한. 서류 이름은 본인 확인 전에도 보이던 것이고, 보낸 곳은 본부 담당자 이름뿐
+  const sender = ready && contract.createdBy ? await prisma.user.findUnique({ where: { id: contract.createdBy }, select: { name: true, role: true, branch: true } }) : null;
+  const pendingTitles = [contract.title, ...siblings.filter((s) => s.status !== "SIGNED").map((s) => s.title)];
+
   // 게스트는 세션이 없으므로 파일 접근 티켓을 함께 발급 — 뷰어가 문서를 열 때 ?t= 로 사용.
   // uploads 게이트(contracts/)와 세트 (2026-08-24)
   const { issueUploadTicket } = await import("@/lib/upload-ticket");
@@ -132,6 +136,12 @@ export async function GET(
     // 이메일도 함께 확인(10/16 QA 7) — 발송 때 받은 이메일이 있는 계약만. 어떤 주소인지는 알려 주지 않는다
     needEmail: needVerify && !verified && !!contract.externalEmail,
     phoneHint: needVerify && !verified ? phoneHint(contract.externalPhone) : null,
+    // 첫 화면용 — 서명 차례일 때만
+    arrival: ready ? {
+      titles: pendingTitles,
+      sender: !sender?.name ? "본부" : sender.role === "MANAGER" ? `${sender.branch ? `${sender.branch} ` : ""}원장 ${sender.name}` : `본부 ${sender.name}`,
+      deadline: (contract.signDeadline ?? step.tokenExpiresAt)?.toISOString() ?? null,
+    } : null,
   });
 }
 

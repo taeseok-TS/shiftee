@@ -6,6 +6,7 @@ import { use, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 import { isDirectHost } from "@/lib/is-direct-host";
+import { ArrivalCard, arrivalHeading, deadlineLabel } from "@/components/contracts/ArrivalCard";
 
 type Doc = { id?: string; title: string; fileUrl: string | null };
 type Info = {
@@ -22,6 +23,7 @@ type Info = {
   consentOptions?: { unique: boolean; recruit: boolean } | null;   // 개인정보동의서에 있는 선택 동의 칸(10/16 QA 9)
   needEmail?: boolean;        // 받을 이메일도 함께 확인(10/16 QA 7)
   phoneHint?: string | null;  // 안내용(앞 3자리만)
+  arrival?: { titles: string[]; sender: string | null; deadline: string | null } | null;   // 첫 화면(시안 v2 5번)
 };
 
 export default function ExternalSignPage({ params }: { params: Promise<{ token: string }> }) {
@@ -50,6 +52,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
   const viewedSent = useRef(false);          // 열람 알림은 한 번만(#205-4)
   // 직영(cubetee.co.kr)이면 머리글을 메일과 같은 「에듀플렉스 직영사업본부」로(10/16 QA 6). 서버 렌더에서는 false → 화면에서 맞춘다
   const direct = useSyncExternalStore(() => () => {}, () => isDirectHost(window.location.host), () => false);
+  const [nowMs] = useState(() => Date.now());   // 서명 기한 「n일 남음」 기준
 
   const load = (vt?: string) =>
     fetch(`/api/contracts/external-sign/${token}`, vt ? { headers: { "x-sign-verify": vt } } : undefined)
@@ -162,6 +165,38 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
         ? "이 문서는 제출 완료되었습니다. 화면 보기는 제공하지 않습니다."
         : "이 문서는 지금 화면에 표시할 수 없습니다. 담당자에게 문의해 주세요.")
     : "";
+
+  // 계약서를 받았을 때 맨 처음 보는 화면(시안 v2 5번) — 본인 확인 전에는 서류·보낸 곳·기한과 확인 칸만
+  if (info && !error && info.state === "ready" && info.needVerify) {
+    const titles = info.arrival?.titles?.length ? info.arrival.titles : [info.title];
+    return (
+      <ArrivalCard
+        org={direct ? "에듀플렉스 직영" : "전자계약"}
+        heading={arrivalHeading(titles)}
+        greeting={`${info.externalName ? `${info.externalName} 님, ` : ""}아래 서류를 확인하고 서명해 주세요.`}
+        titles={titles}
+        sender={info.arrival?.sender ?? null}
+        deadline={deadlineLabel(info.arrival?.deadline, nowMs)}
+      >
+        <form onSubmit={(e) => { e.preventDefault(); void verify(); }} className="space-y-2">
+          {info.needEmail && (
+            <input type="email" inputMode="email" autoComplete="email" value={email} aria-label="계약서를 받을 이메일"
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-xl border px-4 py-3 text-sm" placeholder="계약서를 받을 이메일 (담당자에게 알려 준 주소)" />
+          )}
+          <input inputMode="numeric" maxLength={4} value={last4} aria-label="연락처 뒷자리 4자리" autoFocus={!info.needEmail}
+            onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            className="w-full rounded-xl border px-4 py-3 text-lg tracking-[0.5em]" placeholder="0000" />
+          <p className="text-xs text-gray-500">휴대폰 뒷자리 4자리{info.phoneHint ? ` (${info.phoneHint})` : ""}{info.needEmail ? " · 이메일은 완료본을 받을 주소" : ""}</p>
+          <button type="submit" disabled={verifying || last4.length !== 4}
+            className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
+            {verifying ? "확인 중…" : "계약서 열기"}
+          </button>
+          <p className="text-center text-[11px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
+        </form>
+      </ArrivalCard>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">

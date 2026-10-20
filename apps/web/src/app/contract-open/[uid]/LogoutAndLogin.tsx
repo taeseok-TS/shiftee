@@ -19,7 +19,7 @@ export default function LogoutAndLogin() {
         } catch {
           /* 실패해도 로그인 화면으로 이동 — 거기서 다시 로그인하면 세션이 교체된다 */
         }
-        window.location.href = "/login";
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;   // 본인 계정으로 로그인하면 이 링크로 돌아온다
       }}
     >
       {busy ? "로그아웃 중..." : "로그아웃하고 본인 계정으로 로그인"}

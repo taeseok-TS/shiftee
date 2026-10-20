@@ -183,7 +183,7 @@ export async function sendContractNotification(
       ${messageEmailHtml(message)}
 
       <p>
-        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}` : `${appUrl}/contracts`}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
+        <a href="${recipientId ? `${appUrl}/contract-open/${recipientId}?for=sign` : `${appUrl}/contracts`}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
           계약서 확인하고 서명하기
         </a>
       </p>
