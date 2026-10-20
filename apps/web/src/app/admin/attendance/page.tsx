@@ -146,7 +146,7 @@ export default function AttendancePage() {
   // 전일 미마감 근태 (2026-09-07 디렉터 지시)
   // 근무가 상한(10.5시간)을 넘으면 직원은 앱에서 퇴근을 못 찍는다. 종전에는 그걸로 끝이라
   // 기록이 영원히 열린 채 남았다(실제로 14건이 최장 80일). 관리자가 여기서 마감한다.
-  // 마감 시각 = 그날 근무일정 퇴근 시각(없으면 출근 + 보정 시간) — 대시보드 누락 보정과 같은 기준(2026-10-16 #219-4)
+  // 마감 시각 = 설정 › 근태 규칙(기본 22:00, 2026-10-20) — 대시보드 누락 보정·앱 본인 동의와 같은 기준(lib/attendance-policy autoCloseTime)
   type Unclosed = { id: string; date: string; name: string; branch: string | null; clockIn: string; willClockOut: string; basisLabel?: string; pendingRequest?: boolean };
   const [unclosed, setUnclosed] = useState<Unclosed[]>([]);
   const [capHours, setCapHours] = useState(10.5);
@@ -173,7 +173,7 @@ export default function AttendancePage() {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "마감하지 못했습니다."); return; }
-      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 그날 근무일정 퇴근 시각으로 기록됩니다.`
+      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 설정 › 근태 규칙에 따라 기록됩니다(시각은 목록의 「기준」 칸).`
         + (d.skipped ? ` (직원 요청 결재 대기 ${d.skipped}건은 건너뜀)` : ""));
       await loadUnclosed();
       fetchTodayList();
@@ -487,8 +487,8 @@ export default function AttendancePage() {
                 </p>
                 <p className="text-sm text-amber-800 mt-0.5">
                   어제 이전에 출근만 있고 퇴근이 없는 기록입니다(퇴근 미기록·상한 초과 등).
-                  확인을 누르면 <b>그날 근무일정의 퇴근 시각</b>으로 퇴근이 기록됩니다.
-                  일정이 없는 날은 출근 + {fallbackHours}시간. 상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 잘린 퇴근은 조퇴로 보지 않습니다.
+                  확인을 누르면 <b>설정 › 근태 규칙</b>에 따라 퇴근이 기록됩니다(건마다 「기준」 칸에 적힌 시각, 보정 시간 {fallbackHours}시간).
+                  상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 시스템이 넣은 퇴근은 조퇴로 보지 않습니다.
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

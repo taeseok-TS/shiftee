@@ -60,7 +60,43 @@ export async function saveAutoFillHours(hours: number): Promise<void> {
   });
 }
 
-// ─── 자동 마감·보정 시각 — 단일 기준 (2026-10-16 #219-4, 디렉터 결정 · 10-17 보완) ─────────
+// ─── 근태 규칙: 퇴근 기록이 없는 날 처리 (2026-10-20 본부 박정인 시안 v2 7번 · 디렉터 「추천대로」) ─────────
+//
+// 설정 › 「근태 규칙」에서 하나만 고른다. 아래 autoCloseTime 이 이 값을 읽으므로 대시보드 누락 보정·출퇴근 관리 전일 미마감·
+// 직원 앱 「어제 퇴근 기록이 없어요」 본인 동의가 모두 같은 규칙을 쓴다(근로시간 리포트는 그렇게 마감된 기록을 센다).
+//   FIXED_2200  — 22:00 퇴근(본부 안, 기본값). 다음 출근 때 본인이 동의하면 22:00 으로 기록, 22시가 아니면 보정 요청
+//   SCHEDULE    — 그날 근무일정 퇴근 시각(없으면 출근 + 보정 시간) — 2026-10-17 디렉터 결정 방식
+//   IN_10_5     — 출근 + 10시간 30분(평일 상한과 같은 시간)
+//   IN_FALLBACK — 출근 + 보정 시간(환경설정, 기본 9시간)
+// 어느 규칙이든 상한(평일 10.5시간 / 주말·공휴일 승인 근무 + 45분)과 퇴근 가능 시각·23:59 자르기는 그대로다.
+export const MISSING_OUT_RULE_KEY = "attendance.missingOutRule";
+export type MissingOutRule = "FIXED_2200" | "SCHEDULE" | "IN_10_5" | "IN_FALLBACK";
+export const MISSING_OUT_RULES: readonly MissingOutRule[] = ["FIXED_2200", "SCHEDULE", "IN_10_5", "IN_FALLBACK"];
+export const DEFAULT_MISSING_OUT_RULE: MissingOutRule = "FIXED_2200";
+export const FIXED_CLOSE_HHMM = "22:00";
+
+export function isMissingOutRule(v: unknown): v is MissingOutRule {
+  return typeof v === "string" && (MISSING_OUT_RULES as readonly string[]).includes(v);
+}
+
+export async function readMissingOutRule(): Promise<MissingOutRule> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: MISSING_OUT_RULE_KEY } });
+    return isMissingOutRule(row?.value) ? row!.value as MissingOutRule : DEFAULT_MISSING_OUT_RULE;
+  } catch {
+    return DEFAULT_MISSING_OUT_RULE;
+  }
+}
+
+export async function saveMissingOutRule(rule: MissingOutRule): Promise<void> {
+  await prisma.appSetting.upsert({
+    where: { key: MISSING_OUT_RULE_KEY },
+    create: { key: MISSING_OUT_RULE_KEY, value: rule },
+    update: { value: rule },
+  });
+}
+
+// ─── 자동 마감·보정 시각 — 단일 기준 (2026-10-16 #219-4, 디렉터 결정 · 10-17 보완 · 10-20 근태 규칙) ─────────
 //
 // 종전에는 기준이 셋이었다: 관리자 대시보드 누락 보정 = 설정 시간(9h, 화면 문구는 「9시간」 고정),
 // 출퇴근 관리 「전일 미마감」 = 출근 + 10.5시간, 앱 「퇴근 기록이 없어요」 동의 = 22:00 고정. 셋 다 근무일정을 보지 않아,
@@ -77,11 +113,11 @@ export async function saveAutoFillHours(hours: number): Promise<void> {
 // 3)·4) 로 잘리면 basis = "CAP" — 시스템이 자른 시각이라 「조퇴」로 판정하지 않는다(statusForAutoFill, 검증 F4).
 // 출근이 빠진 기록(퇴근만 있음)은 거울처럼: 일정 출근 시각 → 없으면 퇴근 − 보정 시간 → 상한 → 그날 00:00 보다 앞이면 00:00(검증 P4).
 
-export type AutoFillBasis = "SCHEDULE" | "FALLBACK" | "CAP";
+export type AutoFillBasis = "SCHEDULE" | "FALLBACK" | "CAP" | "RULE";
 export type AutoFillResult = {
   /** 채워 넣을 시각 */
   at: Date;
-  /** SCHEDULE=근무일정 시각, FALLBACK=일정 없음(보정 시간), CAP=상한·퇴근 가능 시각·날짜 경계로 자름 */
+  /** SCHEDULE=근무일정 시각, FALLBACK=일정 없음(보정 시간), RULE=근태 규칙 고정값(22:00·출근+10.5h), CAP=상한·퇴근 가능 시각·날짜 경계로 자름 */
   basis: AutoFillBasis;
   /** 그날 근무일정 "HH:mm~HH:mm" (없으면 null) — 화면·감사 기록용 */
   schedule: string | null;
@@ -147,14 +183,27 @@ const schedText = (s: DaySched | null) => (s?.start && s.end ? `${s.start}~${s.e
  * fallbackHours·lastOut 을 주면 설정을 다시 읽지 않는다(목록에서 여러 건을 계산할 때).
  */
 export async function autoCloseTime(
-  userId: string, dateYmd: string, clockIn: Date, opts: { fallbackHours?: number; lastOut?: string } = {},
+  userId: string, dateYmd: string, clockIn: Date, opts: { fallbackHours?: number; lastOut?: string; rule?: MissingOutRule } = {},
 ): Promise<AutoFillResult> {
   const fallbackHours = opts.fallbackHours ?? (await readAutoFillHours());
+  const rule = opts.rule ?? (await readMissingOutRule());
   const sched = await workScheduleOf(userId, dateYmd).catch(() => null);
   let at: Date | null = null;
   let basis: AutoFillBasis = "FALLBACK";
   let label = `근무일정 없음 → 출근 + ${fbText(fallbackHours)}`;
-  if (sched?.end) {
+  if (rule === "FIXED_2200") {
+    const fixed = kstAt(dateYmd, FIXED_CLOSE_HHMM);
+    if (fixed.getTime() > clockIn.getTime()) {
+      at = fixed; basis = "RULE"; label = `근태 규칙 ${FIXED_CLOSE_HHMM} 퇴근`;
+    } else {
+      label = `출근이 ${FIXED_CLOSE_HHMM} 이후 → 출근 + ${fbText(fallbackHours)}`;
+    }
+  } else if (rule === "IN_10_5") {
+    at = new Date(clockIn.getTime() + WEEKDAY_CAP_MS); basis = "RULE"; label = `근태 규칙 출근 + ${fmtHourMin(WEEKDAY_CAP_HOURS * 60)}`;
+  } else if (rule === "IN_FALLBACK") {
+    // 규칙이 정한 시각이라 RULE(조퇴로 보지 않음 — 재검증 지적). 일정 없는 날의 대체값(FALLBACK)과 구분한다
+    at = new Date(clockIn.getTime() + fallbackHours * HOUR_MS); basis = "RULE"; label = `근태 규칙 출근 + ${fbText(fallbackHours)}`;
+  } else if (sched?.end) {
     let end = kstAt(dateYmd, sched.end);
     // 야간 일정(퇴근 ≤ 출근 시각, 예: 22:00~06:00)은 다음 날 퇴근이다
     if (sched.startMin != null && sched.endMin != null && sched.endMin <= sched.startMin) end = new Date(end.getTime() + 24 * HOUR_MS);
@@ -212,12 +261,12 @@ export async function autoOpenTime(
 }
 
 /** 목록에서 여러 건을 계산할 때 한 번만 읽는다 — autoCloseTime 의 opts 로 넘긴다 */
-export async function autoFillSettings(): Promise<{ fallbackHours: number; lastOut: string }> {
-  return { fallbackHours: await readAutoFillHours(), lastOut: await lastOutHhmm().catch(() => "23:59") };
+export async function autoFillSettings(): Promise<{ fallbackHours: number; lastOut: string; rule: MissingOutRule }> {
+  return { fallbackHours: await readAutoFillHours(), lastOut: await lastOutHhmm().catch(() => "23:59"), rule: await readMissingOutRule() };
 }
 
 /**
- * 자동으로 채운 기록의 상태. 시스템이 잘라 넣은 시각(basis = CAP)으로는 판정하지 않는다(검증 F4):
+ * 자동으로 채운 기록의 상태. 시스템이 잘라 넣은 시각(basis = CAP)·근태 규칙 고정 시각(RULE)으로는 판정하지 않는다(검증 F4):
  *  · 퇴근을 잘라 넣었으면 「조퇴」가 아니다(지각이었으면 지각은 그대로)
  *  · 출근을 잘라 넣었으면 「지각」이 아니다(조퇴 여부만 본다)
  */
@@ -225,7 +274,8 @@ export async function statusForAutoFill(
   clockIn: Date, clockOut: Date, dateYmd: string, userId: string, filled: "in" | "out", basis: AutoFillBasis,
 ): Promise<"NORMAL" | "LATE" | "EARLY_LEAVE"> {
   const status = await calcStatus(clockIn, clockOut, dateYmd, userId);
-  if (basis !== "CAP") return status;
+  // RULE(근태 규칙 고정 시각) 도 시스템이 정한 시각이라 CAP 과 같이 본다(2026-10-20 검증 — 22:00 규칙 + 23:00 일정이 「조퇴」로 찍혔다)
+  if (basis !== "CAP" && basis !== "RULE") return status;
   if (filled === "out") return status === "EARLY_LEAVE" ? "NORMAL" : status;
   if (status !== "LATE") return status;
   const { endMin } = await workWindowFor(userId, dateYmd);

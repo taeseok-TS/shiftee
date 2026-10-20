@@ -39,7 +39,7 @@ export async function GET() {
       // 구버전 앱(OTA 전)은 「22:00 퇴근 동의」라고만 보여 준다 — 실제로 22:00 일 때만 버튼을 켠다(보이는 시각과 기록이 어긋나지 않게)
       can22: elig.ok && closeHhmm === "22:00",
       can22Reason: elig.ok && closeHhmm === "22:00" ? null
-        : (elig.reason ?? `근무일정 기준 퇴근 시각이 ${closeHhmm}입니다. 앱을 최신으로 업데이트하거나 「퇴근 처리 요청하기」로 넣어 주세요.`),
+        : (elig.reason ?? `근태 규칙에 따른 퇴근 시각이 ${closeHhmm}입니다. 앱을 최신으로 업데이트하거나 「퇴근 처리 요청하기」로 넣어 주세요.`),
     },
   });
 }

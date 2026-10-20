@@ -478,8 +478,8 @@ export default function AdminSettingsPage() {
             <div className="min-w-0">
               <p className="font-medium text-gray-900">누락 보정 시간 (근무일정 없는 날)</p>
               <p className="text-sm text-gray-600">
-                출근이나 퇴근 한쪽이 빠진 기록은 <b>그날 근무일정의 출근·퇴근 시각</b>으로 채웁니다.
-                근무일정이 없는 날에만 이 시간을 더하거나 뺍니다.
+                퇴근이 빠진 기록은 <b>설정 › 근태 규칙</b>을 따르고(「보정 시간 기준」 규칙, 또는 「근무일정 퇴근 시각」 규칙에서 일정이 없는 날 이 시간을 더함),
+                출근이 빠진 기록은 그날 근무일정 출근 시각, 일정이 없으면 퇴근에서 이 시간을 뺍니다.
               </p>
             </div>
             <select
@@ -496,7 +496,7 @@ export default function AdminSettingsPage() {
 
           <p className="text-xs text-gray-400">
             상한(10.5시간)을 넘겨 직원이 퇴근을 못 찍은 기록은 <b>출퇴근 관리</b> 화면의
-            &ldquo;전일 미마감&rdquo;에서 확인합니다. 마감 기준은 위와 같습니다(근무일정 퇴근 시각, 상한·퇴근 가능 시각·23:59 를 넘으면 거기까지). 앱의 &ldquo;퇴근 기록이 없어요&rdquo; 본인 동의도 같은 시각입니다.
+            &ldquo;전일 미마감&rdquo;에서 확인합니다. 마감 기준은 <b>설정 › 근태 규칙</b>입니다(상한·퇴근 가능 시각·23:59 를 넘으면 거기까지). 앱의 &ldquo;퇴근 기록이 없어요&rdquo; 본인 동의도 같은 규칙입니다.
           </p>
           <p className="text-xs text-gray-400">
             지각·조퇴는 <b>본인이 승인받은 근무일정 시각</b>을 기준으로 판정합니다.

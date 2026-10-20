@@ -324,7 +324,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">※ 항목을 클릭하면 그날 근무일정의 출근·퇴근 시각으로 자동 보정할 수 있습니다. 근무일정이 없는 날은 환경설정의 보정 시간(기본 9시간)을 씁니다.</p>
+              <p className="text-xs text-gray-500">※ 항목을 클릭하면 자동 보정할 수 있습니다. 퇴근 누락은 설정 › 근태 규칙(기본 22:00)을, 출근 누락은 그날 근무일정 출근 시각(없으면 퇴근 − 보정 시간)을 씁니다.</p>
               {missingAttendance.map(record => (
                 <button
                   key={record.id}

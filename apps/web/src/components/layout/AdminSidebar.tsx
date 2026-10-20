@@ -75,6 +75,7 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
   ] },
   { key: "settings", title: "설정", items: [
     { href: "/admin/permissions", label: "권한 설정", icon: ShieldCheck }, // 역할별 권한 켜고 끄기 + 현황(2026-10-14 #39)
+    { href: "/admin/attendance-rules", label: "근태 규칙", icon: Clock }, // 퇴근 기록이 없는 날 처리 — 모든 화면 같은 규칙(2026-10-20 시안 v2 7번)
     { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
     { href: "/admin/audit", label: "변경 로그", icon: History }, // 업무 변경은 모든 관리자, 시스템·보안 탭은 최고관리자(2026-10-14 #66 후속)
     { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },

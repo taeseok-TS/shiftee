@@ -63,20 +63,26 @@ export function deriveHours(v: Record<string, string>, templateFields: string[])
   return out;
 }
 
-/** 교육·실무평가 단계(작성 화면과 같은 공식) — 교육평가 종료 = 기준일부터 영업일 14일째(제3조), 실무평가 시작 = 그다음 날,
- *  실무평가 종료 = +3개월−1일. 2026-10-16 B7: 종전 「15번째 영업일 전날」은 주말이 끼면 종료일이 일요일로 밀렸다 */
-export function evalPeriods(start: string, holidays: Set<string>): Record<string, string> | null {
+/** 루트코스 수료일 = 입과일 + 17일(달력). 10/20 입과 → 11/06 수료 */
+export const ROUTE_COURSE_DAYS = 17;
+
+/** 교육·실무평가 단계(작성 화면·여러 명 표·발송이 모두 이 함수) — 2026-10-20 본부 박정인 시안 v2 3번(디렉터 「추천대로」):
+ *  교육평가 = 루트코스 입과일 ~ 수료일(입과일 + 17일), 실무평가 시작 = 그다음 날(주말이어도 그대로, 10/16 이예지), 실무평가 종료 = +3개월−1일.
+ *  기준일 = 근로시작일(7월 이후 입사자는 인사명부 루트입과일이 곧 입사일 — lib/roster-sheet ROUTE_RULE_FROM).
+ *  종전(10/16 B7)은 「영업일 14일째」였다 — 공휴일이 끼면 수료일과 어긋났다 */
+export function evalPeriods(start: string): Record<string, string> | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const isBiz = (d: Date) => { const w = d.getUTCDay(); return w !== 0 && w !== 6 && !holidays.has(fmt(d)); };
   const d = new Date(start + "T00:00:00Z");
-  if (Number.isNaN(d.getTime())) return null;
-  let count = 0, guard = 0;
-  while (count < 14 && guard++ < 60) { if (isBiz(d)) count++; if (count < 14) d.setUTCDate(d.getUTCDate() + 1); }
+  if (Number.isNaN(d.getTime()) || fmt(d) !== start) return null;   // 2026-02-30 같은 없는 날짜는 받지 않는다(검증)
+  d.setUTCDate(d.getUTCDate() + ROUTE_COURSE_DAYS);
   const eduEnd = fmt(d);
   d.setUTCDate(d.getUTCDate() + 1);
   const prac = fmt(d);
-  const p3 = new Date(start + "T00:00:00Z"); p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1);
+  // 실무평가 종료 = 시작 + 3개월의 전날. 3개월 뒤 달에 같은 날짜가 없으면 그 달 말일(민법 기간 계산 — 11/30 → 2/28, 종전 3/1 로 넘쳤다)
+  const [y, m, day] = start.split("-").map(Number);
+  const lastOfTarget = new Date(Date.UTC(y, m - 1 + 3 + 1, 0)).getUTCDate();
+  const p3 = day > lastOfTarget ? new Date(Date.UTC(y, m - 1 + 3, lastOfTarget)) : new Date(Date.UTC(y, m - 1 + 3, day - 1));
   return { 교육평가시작: start, 교육평가종료: eduEnd, 실무평가시작: prac, 실무평가종료: fmt(p3) };
 }
 

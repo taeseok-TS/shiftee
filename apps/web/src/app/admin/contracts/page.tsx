@@ -1175,11 +1175,11 @@ export default function ContractsPage() {
   }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
   // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25 → 공식 수정 2026-08-26 #22)
+  //  2026-10-20 시안 v2 3번: 교육평가 = 루트코스 입과일 ~ 수료일(입과일 + 17일) — evalPeriods 하나로. 아래는 그 전 기록.
   //  2026-10-16 B7(이예지 QA, 근로계약서 제3조 「입사일부터 영업일 기준 14일」): 교육평가 종료 = 입사일부터 영업일 14일째,
   //  실무평가 시작 = 그다음 날(달력 — 주말일 수 있다). 영업일 = 주말·공휴일 제외. 예) 10/14→11/02, 10/20→11/06·실무 11/07.
   //  (종전 「15번째 영업일 전날」은 사이에 주말이 끼면 교육평가 종료가 일요일로 밀렸다. 옛 확정례 7/6 입사→실무 7/27 은 새 규칙으로 7/25)
   //  실무평가 종료 = 입사일 + 3개월 - 1일
-  const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
 
   // 기준일 — 담당자가 문서의 {근로시작일}을 직접 넣었으면 그 값이 우선, 없으면 계약 시작일.
   // 재계약의 근로시작일은 "최초 입사일"이라 평가 단계 기준으로 쓰면 안 된다 (#175, 2026-08-31)
@@ -1199,55 +1199,21 @@ export default function ContractsPage() {
       const base = normDate(bulkValues[uid]?.["근로시작일"] || "") || start || rowStart;
       const row: Record<string, string> = { 근로시작일: start || rowStart };
       // 기준일이 공통 기준일과 같으면 공통 평가값(손으로 고친 값 포함)이 그대로 들어간다 — 다를 때만 그 사람 기준으로 다시 센 값
-      if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base, holidaySet) || {});
+      if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base) || {});
       bulkRowCommon[uid] = row;
     }
   }
-  useEffect(() => {
-    if (!templateFields.includes("교육평가시작") || !evalBaseDate) return;
-    const y = Number(evalBaseDate.slice(0, 4));
-    if (!y || y < 2000) return;
-    // 3개월 범위가 다음 해로 넘어갈 수 있어 두 해 로드
-    Promise.all([y, y + 1].map(yy => fetch(`/api/holidays?year=${yy}`).then(r => r.json()).catch(() => ({ holidays: [] }))))
-      .then(res => setHolidaySet(new Set(res.flatMap(d => (d.holidays || []).map((h: { date: string }) => h.date)))));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateFields, evalBaseDate?.slice(0, 4)]);
 
   useEffect(() => {
     if (!templateFields.includes("교육평가시작")) return;
-    const start = evalBaseDate;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || "") || holidaySet.size === 0) return;
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    const isBiz = (d: Date) => {
-      const dow = d.getUTCDay();
-      return dow !== 0 && dow !== 6 && !holidaySet.has(fmt(d));
-    };
-    // 교육평가 종료 = 입사일부터 영업일 기준 14일째(근로계약서 제3조, 입사일이 영업일이면 1일째), 실무평가 시작 = 그다음 날.
-    // 2026-10-16 이예지 QA B7: 종전엔 「15번째 영업일 전날」이라 사이에 주말이 끼면 종료일이 일요일로 밀렸다(10/20 → 11/08)
-    const d = new Date(start + "T00:00:00Z");
-    let count = 0;
-    let guard = 0;
-    while (count < 14 && guard++ < 60) {
-      if (isBiz(d)) count++;
-      if (count < 14) d.setUTCDate(d.getUTCDate() + 1);
-    }
-    const eduEnd = fmt(d);
-    const pracStart = new Date(d);
-    pracStart.setUTCDate(pracStart.getUTCDate() + 1);
-    const p3 = new Date(start + "T00:00:00Z");
-    p3.setUTCMonth(p3.getUTCMonth() + 3); p3.setUTCDate(p3.getUTCDate() - 1); // +3개월 - 1일
+    // 교육평가 = 입과일 ~ 수료일(+17일), 실무평가 = 그다음 날 ~ +3개월−1일 — 여러 명 표·발송과 같은 함수(evalPeriods, 2026-10-20 시안 v2 3번)
+    const ev = evalPeriods(evalBaseDate || "");
+    if (!ev) return;
     setExtraFields(prev => {
-      const u = {
-        ...prev,
-        교육평가시작: start,
-        교육평가종료: eduEnd,
-        실무평가시작: fmt(pracStart),
-        실무평가종료: fmt(p3),
-      };
+      const u = { ...prev, ...ev };
       return u.교육평가종료 === prev.교육평가종료 && u.실무평가종료 === prev.실무평가종료 && u.교육평가시작 === prev.교육평가시작 && u.실무평가시작 === prev.실무평가시작 ? prev : u;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateFields, evalBaseDate, holidaySet]);
+  }, [templateFields, evalBaseDate]);
 
   // 퇴사일자 입력 시 근무종료일·연차종료일 + 지급희망일 자동 기입 (이후 수동 수정 가능)
   // 지급희망일 규칙 (#115, 이예지대리 확정 2026-08-27): 임금은 항상 해당 월 말일,
@@ -1505,19 +1471,6 @@ export default function ContractsPage() {
           setUploading(false); return;
         }
       }
-      // 사람별 시작일이 공통과 다르면 평가 단계를 그 사람 시작일로 다시 센다 — 그해·다음 해 공휴일을 먼저 받는다(#19 검증 F1)
-      const evalHolidays = new Set<string>(holidaySet);
-      if (templateFields.includes("교육평가시작")) {
-        const years = new Set<number>();
-        for (const uid of bulkUserIds) {
-          // 사람별 근로시작일이 다른 해일 수 있다 — 그해 공휴일도 받는다(10/16)
-          for (const st of [rowDate(uid, "계약시작일", createForm.startDate) || "", startOf(uid)]) {
-            const y = Number(st.slice(0, 4)); if (y > 2000) { years.add(y); years.add(y + 1); }
-          }
-        }
-        const got = await Promise.all([...years].map(y => fetch(`/api/holidays?year=${y}`).then(r => r.json()).catch(() => ({ holidays: [] }))));
-        for (const d of got) for (const h of (d.holidays || []) as { date: string }[]) evalHolidays.add(h.date);
-      }
       const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
       const common: Record<string, string> = {};
       for (const [k, v] of Object.entries(extraFields)) {
@@ -1568,7 +1521,7 @@ export default function ContractsPage() {
         if (templateFields.includes("교육평가시작")) {
           const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
           if (base && base !== evalBaseDate) {
-            const ev = evalPeriods(base, evalHolidays);
+            const ev = evalPeriods(base);   // 사람별 기준일이 공통과 다르면 그 사람 기준(#19 검증 F1)
             // 표에 사람별로 적은 평가 날짜는 그대로 둔다 — 비운 칸만 그 사람 기준일로 계산(10/16)
             if (ev) for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
           }
