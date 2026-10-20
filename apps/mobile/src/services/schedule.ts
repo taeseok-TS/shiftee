@@ -21,6 +21,8 @@ export type WorkCalendarEvent = {
   description: string | null;
   startDate: string;
   endDate: string;
+  startTime?: string | null; // "HH:MM" — 없으면 종일(#221, 옛 서버는 안 보냄)
+  endTime?: string | null;
   branch: string | null; // null = 전사
   managersOnly?: boolean; // 원장 전용 (서버가 원장·관리자에게만 내려줌)
   color: string | null;

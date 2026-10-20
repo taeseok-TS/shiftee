@@ -1057,6 +1057,8 @@ model WorkCalendarEvent {
   description String?
   startDate   DateTime @db.Date
   endDate     DateTime @db.Date
+  startTime   String? // "HH:MM" — 비우면 종일(#221, 2026-10-20)
+  endTime     String? // "HH:MM" — 시작 시각이 있을 때만
   branch       String? // null = 전사 공통, 값 있으면 해당 지점 전용
   managersOnly Boolean  @default(false) // 원장 전용 일정 (원장·관리자만 조회, 직원 비노출)
   color        String   @default("indigo")
@@ -1065,6 +1067,20 @@ model WorkCalendarEvent {
   updatedAt   DateTime @updatedAt
 
   @@index([startDate])
+}
+
+// 캘린더 오른쪽 「이달의 지점 공유」 메모 — 지점·달마다 하나(#222, 2026-10-20). 원장(담당 지점)·관리자가 쓰고 그 지점 구성원이 본다
+model WorkCalendarNote {
+  id            String   @id @default(cuid())
+  branch        String // Branch.name 문자열 매핑(User.branch 와 같은 관례)
+  ym            String // "2026-10"
+  content       String   @default("")
+  updatedBy     String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([branch, ym])
 }
 
 // ─── 시프티워크: 공지 ─────────────────────────────────────────

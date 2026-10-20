@@ -44,7 +44,7 @@ type Employee = {
 const HQ_BRANCH = "본부";
 const JOBGROUP_DEFAULT = ["원장", "CM", "TM", "코디", "학습실장", "튜터"];
 const JOBGROUP_HQ = ["본부", "대표이사", "본부장", "팀장"];
-const POSITION_DEFAULT = ["매니저", "주임매니저", "선임매니저", "부원장", "수석부원장", "교실장", "주임교실장", "선임교실장"];
+const POSITION_DEFAULT = ["매니저", "주임매니저", "선임매니저", "부원장", "수석부원장", "교실장", "주임교실장", "선임교실장", "코디"]; // 코디 — #223(10/20 이예지: 신규 코디 직급 설정 불가)
 const POSITION_HQ = ["사원", "주임", "대리", "과장", "차장", "부장", "팀장", "본부장", "대표이사", "본부"];
 const jobGroupOptions = (branch: string | null | undefined) => (branch === HQ_BRANCH ? JOBGROUP_HQ : JOBGROUP_DEFAULT);
 const positionOptions = (branch: string | null | undefined) => (branch === HQ_BRANCH ? POSITION_HQ : POSITION_DEFAULT);

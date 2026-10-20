@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
+import { myBranch, parseEventTimes } from "@/lib/work-calendar";
 
 // 일정 수정 (관리자 / 등록자 본인 / 해당 지점 원장)
 export async function PATCH(
@@ -22,15 +23,21 @@ export async function PATCH(
     (session.role === "MANAGER" && !event.managersOnly && !!event.branch && myBranches.includes(event.branch));
   if (!canEdit) return NextResponse.json({ error: "수정 권한이 없습니다." }, { status: 403 });
 
-  const { title, description, startDate, endDate, branch, color, managersOnly } = await request.json();
+  const { title, description, startDate, endDate, branch, color, managersOnly, startTime, endTime } = await request.json();
   if (!title?.trim() || !startDate)
     return NextResponse.json({ error: "제목과 시작일을 입력해주세요." }, { status: 400 });
+  const times = parseEventTimes(startTime, endTime, !endDate || endDate === startDate); // #221 시각(선택) — 비워 보내면 종일로 바뀐다
+  if ("error" in times) return NextResponse.json({ error: times.error }, { status: 400 });
 
   // 대상 변경 규칙은 등록과 동일: 원장 전용은 branch 없음, 원장의 일반 일정은 자기 지점 고정
-  const isManagersOnly = !!managersOnly;
+  const isManagersOnly = session.role !== "EMPLOYEE" && !!managersOnly; // 직원은 원장 전용으로 바꿀 수 없다
   let finalBranch: string | null = branch || null;
   if (isManagersOnly) finalBranch = null;
   else if (session.role === "MANAGER") finalBranch = session.branch;
+  else if (session.role === "EMPLOYEE") {
+    finalBranch = await myBranch(session.userId); // 직원은 자기 지점 고정(2026-10-20)
+    if (!finalBranch) return NextResponse.json({ error: "소속 지점이 없어 일정을 고칠 수 없습니다." }, { status: 403 });
+  }
 
   const updated = await prisma.workCalendarEvent.update({
     where: { id },
@@ -39,6 +46,8 @@ export async function PATCH(
       description: description?.trim() || null,
       startDate: new Date(startDate),
       endDate: new Date(endDate || startDate),
+      startTime: times.startTime,
+      endTime: times.endTime,
       branch: finalBranch,
       managersOnly: isManagersOnly,
       color: color || "indigo",

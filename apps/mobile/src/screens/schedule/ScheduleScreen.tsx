@@ -394,7 +394,10 @@ export default function ScheduleScreen() {
     const s = new Date(ev.startDate);
     const e = new Date(ev.endDate);
     const f = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
-    return f(s) === f(e) ? f(s) : `${f(s)} ~ ${f(e)}`;
+    const range = f(s) === f(e) ? f(s) : `${f(s)} ~ ${f(e)}`;
+    // 시각이 있으면 붙인다(#221) — 「10/21 10:00~11:30」
+    const time = ev.startTime ? (ev.endTime ? `${ev.startTime}~${ev.endTime}` : ev.startTime) : "";
+    return time ? `${range} ${time}` : range;
   };
 
   return (
