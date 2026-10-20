@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { NOTE_MAX, YM, noteScope } from "@/lib/work-calendar";
 
 // 캘린더 오른쪽 「이달의 지점 공유」 메모(#222, 2026-10-20 권경욱 제안 · 디렉터 「처리하자」)
-// 지점·달마다 하나. 원장(담당 지점)·관리자가 쓰고, 그 지점 구성원은 읽기만 한다.
+// 지점·달마다 하나. 원장(담당 지점)·관리자·원장이 지정한 직원이 쓰고, 그 지점 구성원은 읽는다(다른 지점엔 안 보임).
 
 // GET ?ym=2026-10&branch=대치 — branch 를 안 주면(또는 볼 수 없는 지점이면) 볼 수 있는 첫 지점
 export async function GET(request: NextRequest) {
@@ -15,10 +15,10 @@ export async function GET(request: NextRequest) {
   const ym = searchParams.get("ym") || "";
   if (!YM.test(ym)) return NextResponse.json({ error: "달 형식이 올바르지 않습니다." }, { status: 400 });
 
-  const { branches, canEdit } = await noteScope(session);
+  const { branches, canEdit, canManage } = await noteScope(session);
   const asked = searchParams.get("branch");
   const branch = asked && branches.includes(asked) ? asked : branches[0] ?? null;
-  if (!branch) return NextResponse.json({ branches: [], branch: null, content: "", updatedAt: null, updatedByName: null, canEdit: false });
+  if (!branch) return NextResponse.json({ branches: [], branch: null, content: "", updatedAt: null, updatedByName: null, canEdit: false, canManage: false });
 
   const note = await prisma.workCalendarNote.findUnique({ where: { branch_ym: { branch, ym } } });
   return NextResponse.json({
@@ -28,10 +28,11 @@ export async function GET(request: NextRequest) {
     updatedAt: note?.content ? note.updatedAt : null,
     updatedByName: note?.content ? note.updatedByName : null,
     canEdit,
+    canManage, // 작성자 지정 단추(원장·관리자)
   });
 }
 
-// PUT { ym, branch, content } — 원장은 담당 지점만, 관리자는 모든 지점
+// PUT { ym, branch, content } — 원장은 담당 지점만, 관리자는 모든 지점, 직원은 원장이 지정했을 때 자기 지점만
 export async function PUT(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });

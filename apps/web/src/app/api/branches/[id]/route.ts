@@ -147,6 +147,8 @@ export async function PATCH(
         prisma.workCalendarEvent.updateMany({ where: { branch: before.name }, data: { branch: name } }),
         // 겸직 원장의 담당 지점(ManagerBranch.branchName)도 — 같은 사람에게 새 이름이 이미 있으면 그 줄은 두고 넘어간다(유일 키 충돌 방지)
         prisma.$executeRaw`UPDATE "ManagerBranch" o SET "branchName" = ${name} WHERE o."branchName" = ${before.name} AND NOT EXISTS (SELECT 1 FROM "ManagerBranch" n WHERE n."userId" = o."userId" AND n."branchName" = ${name})`,
+        // 메모 작성자 지정(AppSetting 「calendarNote.editors:<지점>」)도 새 이름 키로
+        prisma.$executeRaw`UPDATE "AppSetting" SET "key" = ${"calendarNote.editors:" + name}, "updatedAt" = now() WHERE "key" = ${"calendarNote.editors:" + before.name} AND NOT EXISTS (SELECT 1 FROM "AppSetting" n WHERE n."key" = ${"calendarNote.editors:" + name})`,
         prisma.$executeRaw`UPDATE "WorkCalendarNote" o SET "branch" = ${name}, "updatedAt" = now() WHERE o."branch" = ${before.name} AND NOT EXISTS (SELECT 1 FROM "WorkCalendarNote" n WHERE n."branch" = ${name} AND n."ym" = o."ym")`,
       ]);
       // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지

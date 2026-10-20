@@ -1,15 +1,16 @@
 "use client";
 
 // 캘린더 오른쪽 「이달의 지점 공유」(#222, 2026-10-20 권경욱 제안 · 디렉터 「처리하자」)
-// 지점·달마다 메모 하나 — 그 지점 구성원(직원·원장)과 관리자가 쓰고 본다. 다른 지점에는 안 보인다(2026-10-20 디렉터). 링크는 눌러서 연다.
+// 지점·달마다 메모 하나 — 그 지점 구성원이 보고(다른 지점에는 안 보임), 원장·관리자와 원장이 지정한 직원이 쓴다
+// (2026-10-20 디렉터 정정: 「지점 메모는 원장이나 원장이 지정한 사람이 작성」). 링크는 눌러서 연다.
 // 달이 바뀌면 부모가 key 로 새로 그린다(편집 중 상태가 다른 달로 넘어가지 않게).
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Megaphone, Pencil } from "lucide-react";
+import { Megaphone, Pencil, UserCog } from "lucide-react";
 import { toast } from "sonner";
 
-type Note = { branches: string[]; branch: string | null; content: string; updatedAt: string | null; updatedByName: string | null; canEdit: boolean };
+type Note = { branches: string[]; branch: string | null; content: string; updatedAt: string | null; updatedByName: string | null; canEdit: boolean; canManage?: boolean };
 const NOTE_MAX = 5000;
 const URL_RE = /(https?:\/\/[^\s<>"'ㄱ-ㅎㅏ-ㅣ가-힣]+)/gi; // 주소 바로 뒤에 붙은 한글은 링크에서 뺀다
 let lastBranch: string | null = null; // 달을 넘겨(다시 그려져)도 고른 지점을 이어 본다
@@ -30,6 +31,80 @@ function Linkified({ text }: { text: string }) {
         );
       })}
     </>
+  );
+}
+
+type Cand = { id: string; name: string; position: string | null; jobGroup: string | null };
+
+// 메모 작성자 지정 — 원장(담당 지점)·관리자만. 그 지점 재직 직원 중에서 고른다
+function NoteEditors({ branch }: { branch: string }) {
+  const [open, setOpen] = useState(false);
+  const [cands, setCands] = useState<Cand[] | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const res = await fetch(`/api/work/calendar/note/editors?${new URLSearchParams({ branch })}`, { cache: "no-store" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "직원 목록을 불러오지 못했습니다."); return; }
+    setCands(d.candidates || []);
+    setSel(new Set(d.editorIds || []));
+    setSaved(d.editorIds || []);
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/work/calendar/note/editors", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch, userIds: Array.from(sel) }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "저장하지 못했습니다."); return; }
+      setSaved(d.editorIds || []);
+      setOpen(false);
+      toast.success("작성자를 저장했습니다.");
+    } finally { setBusy(false); }
+  }
+
+  const names = (cands ?? []).filter((c) => saved.includes(c.id)).map((c) => c.name);
+  return (
+    <div className="mt-4 pt-3 border-t">
+      {!open ? (
+        <button className="text-xs text-gray-500 hover:text-indigo-600 flex items-center gap-1" onClick={() => { setOpen(true); if (!cands) void load(); }}>
+          <UserCog size={13} />작성자 지정{names.length ? ` · ${names.join(", ")}` : ""}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-600">원장·관리자 말고도 이 메모를 쓸 수 있는 직원을 고르세요.</p>
+          {!cands ? (
+            <p className="text-xs text-gray-400">불러오는 중…</p>
+          ) : cands.length === 0 ? (
+            <p className="text-xs text-gray-400">이 지점에 지정할 수 있는 직원이 없습니다.</p>
+          ) : (
+            <div className="max-h-56 overflow-y-auto space-y-1 border rounded-md p-2">
+              {cands.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={sel.has(c.id)}
+                    onChange={(e) => setSel((prev) => { const n = new Set(prev); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })}
+                  />
+                  <span>{c.name}</span>
+                  <span className="text-[11px] text-gray-400">{[c.jobGroup, c.position].filter(Boolean).join(" · ")}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => { setOpen(false); setSel(new Set(saved)); }} disabled={busy}>취소</Button>
+            <Button size="sm" onClick={save} disabled={busy || !cands}>{busy ? "저장 중..." : "저장"}</Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -88,7 +163,7 @@ export default function CalendarNotePanel({ ym }: { ym: string }) {
           </Button>
         )}
       </div>
-      <p className="text-[11px] text-gray-400 mb-3">{Number(y)}년 {Number(m)}월 · 우리 지점 구성원만 봅니다</p>
+      <p className="text-[11px] text-gray-400 mb-3">{Number(y)}년 {Number(m)}월 · 우리 지점 구성원만 봅니다{note && !note.canManage && note.branch ? (note.canEdit ? " · 작성자로 지정됨" : " · 원장·지정된 분이 씁니다") : ""}</p>
 
       {note && note.branches.length > 1 && (
         <select
@@ -138,6 +213,8 @@ export default function CalendarNotePanel({ ym }: { ym: string }) {
       ) : (
         <p className="text-sm text-gray-400">이번 달 공유할 내용이 아직 없습니다.{note.canEdit ? " 「쓰기」를 눌러 지점 구성원에게 알릴 내용을 남겨 주세요." : ""}</p>
       )}
+      {/* 작성자 지정(원장·관리자) — 지점을 바꾸면 새로 그린다 */}
+      {!loading && !failed && note?.canManage && note.branch && !editing && <NoteEditors key={note.branch} branch={note.branch} />}
     </aside>
   );
 }
