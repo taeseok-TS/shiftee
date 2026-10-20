@@ -1069,18 +1069,22 @@ model WorkCalendarEvent {
   @@index([startDate])
 }
 
-// 캘린더 오른쪽 「이달의 지점 공유」 메모 — 지점·달마다 하나(#222, 2026-10-20). 원장(담당 지점)·관리자가 쓰고 그 지점 구성원이 본다
-model WorkCalendarNote {
-  id            String   @id @default(cuid())
-  branch        String // Branch.name 문자열 매핑(User.branch 와 같은 관례)
-  ym            String // "2026-10"
-  content       String   @default("")
-  updatedBy     String?
-  updatedByName String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+// 캘린더 오른쪽 「이달의 지점 공유」 — 글이 한 건씩 쌓인다(#222, 2026-10-20 디렉터 「쌓이는 방식으로」).
+// 지점·달별로 모인다. 쓰기 = 관리자·원장(담당 지점)·원장이 지정한 직원(AppSetting calendarNote.editors:<지점>), 보기 = 그 지점 구성원.
+// (처음 만든 한 칸짜리 WorkCalendarNote 표는 운영에 빈 채로 남아 있다 — 쓰지 않는다)
+model WorkCalendarPost {
+  id         String   @id @default(cuid())
+  branch     String // Branch.name 문자열 매핑(User.branch 와 같은 관례)
+  ym         String // "2026-10"
+  content    String
+  pinned     Boolean  @default(false) // 원장·관리자가 맨 위에 고정
+  authorId   String
+  authorName String?
+  editedAt   DateTime? // 내용을 고친 때만 — 「(수정됨)」 표시(고정·지점명 변경은 updatedAt 만 바뀐다)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  @@unique([branch, ym])
+  @@index([branch, ym])
 }
 
 // ─── 시프티워크: 공지 ─────────────────────────────────────────

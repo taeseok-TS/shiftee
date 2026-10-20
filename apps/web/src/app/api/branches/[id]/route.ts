@@ -142,14 +142,13 @@ export async function PATCH(
         prisma.approvalDelegate.updateMany({ where: { branch: before.name }, data: { branch: name } }),
         // 근무일정 템플릿의 지점 목록도 — 안 바꾸면 그 지점 전용 템플릿이 신청 화면에서 사라진다(5-가 검증)
         prisma.$executeRaw`UPDATE "ScheduleTemplate" SET "branches" = array_replace("branches", ${before.name}, ${name}), "updatedAt" = now() WHERE ${before.name} = ANY("branches")`,
-        // 캘린더 지점 일정·「이달의 지점 공유」 메모도(#222, 2026-10-20) — 안 바꾸면 그 지점 사람들에게서 사라진다.
-        // 메모는 (지점, 달) 하나뿐이라 새 이름에 같은 달 메모가 (옛 기록으로) 이미 있으면 그 달은 옮기지 않는다 — 충돌로 이름 변경 전체가 실패하지 않게
+        // 캘린더 지점 일정·「이달의 지점 공유」 글도(#222, 2026-10-20) — 안 바꾸면 그 지점 사람들에게서 사라진다.
         prisma.workCalendarEvent.updateMany({ where: { branch: before.name }, data: { branch: name } }),
         // 겸직 원장의 담당 지점(ManagerBranch.branchName)도 — 같은 사람에게 새 이름이 이미 있으면 그 줄은 두고 넘어간다(유일 키 충돌 방지)
         prisma.$executeRaw`UPDATE "ManagerBranch" o SET "branchName" = ${name} WHERE o."branchName" = ${before.name} AND NOT EXISTS (SELECT 1 FROM "ManagerBranch" n WHERE n."userId" = o."userId" AND n."branchName" = ${name})`,
         // 메모 작성자 지정(AppSetting 「calendarNote.editors:<지점>」)도 새 이름 키로
         prisma.$executeRaw`UPDATE "AppSetting" SET "key" = ${"calendarNote.editors:" + name}, "updatedAt" = now() WHERE "key" = ${"calendarNote.editors:" + before.name} AND NOT EXISTS (SELECT 1 FROM "AppSetting" n WHERE n."key" = ${"calendarNote.editors:" + name})`,
-        prisma.$executeRaw`UPDATE "WorkCalendarNote" o SET "branch" = ${name}, "updatedAt" = now() WHERE o."branch" = ${before.name} AND NOT EXISTS (SELECT 1 FROM "WorkCalendarNote" n WHERE n."branch" = ${name} AND n."ym" = o."ym")`,
+        prisma.workCalendarPost.updateMany({ where: { branch: before.name }, data: { branch: name } }),
       ]);
       // 옛 지점명이 박힌 토큰을 끊는다. 안 끊으면 그 사람들은 다시 로그인할 때까지
       // 없어진 지점명으로 조회돼 근태.직원 목록이 빈 채로 보인다.

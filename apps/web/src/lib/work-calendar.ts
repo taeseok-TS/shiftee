@@ -20,7 +20,26 @@ export function parseEventTimes(
   return { startTime: s, endTime: e };
 }
 
-export const NOTE_MAX = 5000;
+export const POST_MAX = 2000; // 「이달의 지점 공유」 한 건 글자 수
+export const POSTS_PER_MONTH_MAX = 200; // 지점·달마다 글 수 상한
+
+/** 글 한 건을 화면에 내려 보낼 모양 — 고치기·지우기 가능 여부를 함께(쓴 사람이면서 지금도 쓸 권한, 또는 원장·관리자) */
+export function postView(
+  p: { id: string; content: string; pinned: boolean; authorId: string; authorName: string | null; createdAt: Date; editedAt: Date | null },
+  userId: string,
+  canEdit: boolean,
+  canManage: boolean
+) {
+  return {
+    id: p.id,
+    content: p.content,
+    pinned: p.pinned,
+    authorName: p.authorName,
+    createdAt: p.createdAt,
+    edited: p.editedAt !== null,
+    canModify: canManage || (canEdit && p.authorId === userId),
+  };
+}
 export const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /**
