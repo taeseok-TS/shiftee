@@ -1220,6 +1220,23 @@ model ApiKey {
   @@index([userId])
 }
 
+// 외부 DM 발송 기록(2026-10-20 이예지 요청) — 회사 연동 키(dm:send)로 POST /api/v1/dm 이 보낸 건.
+// (키, refId, 사번) 이 같으면 다시 보내지 않는다(같은 알림 두 번 방지). refId 가 없으면 기록만 남고 중복 방지는 하지 않는다.
+model ExternalDm {
+  id        String   @id @default(cuid())
+  keyId     String
+  refId     String?
+  empNo     Int
+  userId    String?
+  status    String // PENDING | SENT | FAILED
+  reason    String? // NOT_FOUND | RESIGNED | INACTIVE | SEND_ERROR
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([keyId, refId, empNo])
+  @@index([createdAt])
+}
+
 // ─── 시프티워크: 화상회의 ─────────────────────────────────────
 model WorkMeeting {
   id        String    @id @default(cuid())

@@ -12,11 +12,12 @@ import { isResigned } from "@/lib/resign";
 import { maskIp } from "@/lib/mask-ip";
 import type { ApiKey } from "@prisma/client";
 
-export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish"] as const;
+export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish", "dm:send"] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 /** 직원 본인이 만드는 개인 키에 허용되는 범위 — marketing:* 는 본부가 발급하는 회사 연동 키(ORG)에만 */
 export const PERSONAL_SCOPES: readonly ApiScope[] = ["submissions:read", "submissions:write", "chat:read", "chat:write"];
-export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish"];
+/** dm:send — 직영 포털 서버가 사번으로 직원에게 1:1 알림을 보낸다(2026-10-20 이예지 요청 「START SETTING 완료 → 담당 매니저 DM」) */
+export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish", "dm:send"];
 export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "submissions:read": "자료제출 읽기 — 내야 할 것·내 제출·공유 자료",
   "submissions:write": "자료제출 쓰기 — 파일 올리고 제출",
@@ -24,6 +25,7 @@ export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "chat:write": "채팅 쓰기 — 고른 방에 메시지 올리기",
   "marketing:read": "마케팅 자료 읽기 — 지점이 올린 마케팅 자료·파일 가져가기 (회사 연동)",
   "marketing:publish": "마케팅 발행 결과 — 블로그 발행 주소 되돌려주기 (회사 연동)",
+  "dm:send": "DM 보내기 — 사번으로 직원에게 1:1 알림(「에듀플렉스 알림」 계정, 회사 연동)",
 };
 export const KEY_PREFIX = "cbt_pk_";
 export const MAX_TTL_DAYS = 365;

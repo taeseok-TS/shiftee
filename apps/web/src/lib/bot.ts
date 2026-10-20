@@ -40,6 +40,23 @@ export async function ensureHrBot(): Promise<string> {
   return HR_BOT_ID;
 }
 
+// 에듀플렉스 알림 — 외부 시스템(직영 포털 등)이 회사 연동 키(dm:send)로 보내는 1:1 알림의 발신자(2026-10-20 이예지 요청).
+// 큐브티 봇·인사봇과 방을 나눠, 직원이 「포털이 보낸 업무 알림」을 따로 모아 본다. 로그인·목록에는 안 나온다(isActive=false).
+const NOTICE_BOT_ID = "eduplex-notice-bot";
+export const NOTICE_BOT_NAME = "에듀플렉스 알림";
+
+let noticeBotReady = false;   // 프로세스당 한 번만 upsert(받는 사람마다 돌지 않게 — 검증 지적)
+export async function ensureNoticeBot(): Promise<string> {
+  if (noticeBotReady) return NOTICE_BOT_ID;
+  await prisma.user.upsert({
+    where: { id: NOTICE_BOT_ID },
+    update: {},
+    create: { id: NOTICE_BOT_ID, email: "notice-bot@cubetee.co.kr", password: "LOCKED", name: NOTICE_BOT_NAME, role: "EMPLOYEE", isActive: false },
+  });
+  noticeBotReady = true;
+  return NOTICE_BOT_ID;
+}
+
 type DMOpts = {
   respectWorkMute?: boolean;
   // 봇 방에는 남기되 푸시만 보내지 않는다 — 결재 결과 알림을 본인이 끈 경우.
@@ -50,6 +67,11 @@ type DMOpts = {
 // 인사봇 → 사용자 1:1 DM (전자계약 안내 전용)
 export async function hrBotSendDM(userId: string, content: string, opts?: DMOpts) {
   return sendDMAs(await ensureHrBot(), "큐브티 인사봇", userId, content, opts);
+}
+
+// 에듀플렉스 알림 → 사용자 1:1 DM (+ 푸시) — 보냈으면 true
+export async function noticeBotSendDM(userId: string, content: string, opts?: DMOpts) {
+  return sendDMAs(await ensureNoticeBot(), NOTICE_BOT_NAME, userId, content, opts);
 }
 
 // 봇 → 사용자 1:1 DM (+ 푸시)
@@ -85,11 +107,12 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
     }
     await prisma.workMessage.create({ data: { channelId: dm.id, userId: botId, content } });
     emitWork({ type: "message", channelId: dm.id });
+    // 메시지는 남았다 — 여기서부터의 실패(푸시)는 「보냄」으로 친다. 「못 보냄」으로 돌려주면 호출한 쪽이 다시 보내 같은 메시지가 두 번 간다(2026-10-20 검증)
     if (!opts?.noPush) await sendPushToUsers([userId], {
       title: botName,
       body: content.length > 120 ? content.slice(0, 120) + "…" : content,
       data: { channelId: dm.id, type: "work-message" },
-    }, { withWorkBadge: true, ...(opts?.respectWorkMute ? { respectWorkMute: true } : {}) });
+    }, { withWorkBadge: true, ...(opts?.respectWorkMute ? { respectWorkMute: true } : {}) }).catch((e) => console.error("[bot] DM 푸시 오류(메시지는 보냄):", e));
     return true;
   } catch (e) {
     console.error("[bot] DM 발송 오류:", e);

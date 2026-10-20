@@ -123,6 +123,7 @@ export default function AdminApiKeysPage() {
 const ORG_SCOPE_OPTS = [
   { id: "marketing:read", label: "마케팅 자료 읽기", hint: "지점이 올린 마케팅 자료·파일 가져가기" },
   { id: "marketing:publish", label: "발행 결과 되돌려주기", hint: "블로그 발행 주소를 기록하고 올린 직원에게 알림" },
+  { id: "dm:send", label: "DM 보내기", hint: "사번으로 직원에게 1:1 알림 — 「에듀플렉스 알림」 계정으로(직영 포털 등)" },
 ];
 function OrgKeyCard({ keys, onChanged, onRevoke }: { keys: KeyRow[]; onChanged: () => void; onRevoke: (k: KeyRow) => void }) {
   const [open, setOpen] = useState(false);
