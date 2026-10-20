@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { koreanMoney } from "@/lib/korean-money";
 
 /**
  * 여러 명 계약서 — 개인별 값 표(2026-10-07 QA #19 #34).
@@ -122,7 +123,10 @@ function parseTsv(text: string): string[][] {
   return rows;
 }
 
-export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon }: {
+/** 사람마다 「보내기 전 확인」 결과(계약서 보내기 2단계, 2026-10-20 시안 v2 3번) — error = 고치거나 빼야 넘어감, warn = 「그래도 보내기」 또는 빼기 */
+export type RowStatus = { level: "ok" | "warn" | "error"; text: string; acked?: boolean };
+
+export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon, status, onRemove, onAck, onlyIssues }: {
   userIds: string[];
   employees: Emp[];
   columns: string[];
@@ -130,6 +134,10 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
   onChange: (v: BulkRowValues) => void;
   common: Record<string, string>; // 비었을 때 회색으로 보여 줄 공통값
   rowCommon?: Record<string, Record<string, string>>; // 사람마다 달리 들어가는 값(근로시작일=각자 입사일·평가 기간) — 공통값보다 먼저 보인다(10/16 이예지 재확인 2)
+  status?: Record<string, RowStatus>;   // 있으면 「상태」 열·빨간 줄(계약서 보내기)
+  onRemove?: (uid: string) => void;     // 줄 빼기(×)
+  onAck?: (uid: string) => void;        // 경고 줄 「그래도 보내기」
+  onlyIssues?: boolean;                 // 「확인 필요」만 보기
 }) {
   const [paste, setPaste] = useState("");
   const emp = (id: string) => employees.find((e) => e.id === id);
@@ -192,7 +200,9 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
     setPaste("");
   };
 
-  if (!userIds.length || !columns.length) return null;
+  if (!userIds.length || (!columns.length && !status)) return null;
+  const issue = (uid: string) => { const st = status?.[uid]; return !!st && (st.level === "error" || (st.level === "warn" && !st.acked)); };
+  const shown = onlyIssues ? userIds.filter(issue) : userIds;
   return (
     <div className="space-y-2 border border-blue-200 rounded-lg p-3 bg-blue-50/40">
       <p className="text-xs font-semibold text-blue-800">개인별 값 — 비워 두면 위 공통 입력값이 들어갑니다{columns.some((c) => (EVAL_COLS as readonly string[]).includes(c)) ? " · 평가 기간을 비우면 그 사람 근로시작일로 자동 계산" : ""}</p>
@@ -202,38 +212,65 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
             <tr>
               <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">직원</th>
               {columns.map((c) => <th key={c} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{c}</th>)}
+              {status && <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">상태</th>}
+              {onRemove && <th className="px-1 py-1.5" />}
             </tr>
           </thead>
           <tbody>
-            {userIds.map((uid) => {
+            {shown.map((uid) => {
               const e = emp(uid);
+              const st = status?.[uid];
               return (
-                <tr key={uid} className="border-t">
+                <tr key={uid} id={`bulk-row-${uid}`} className={`border-t scroll-mt-24 ${issue(uid) ? "bg-red-50/70" : ""}`}>
                   <td className="px-2 py-1 whitespace-nowrap">{e?.name}{e?.empNo != null ? <span className="text-gray-400"> {String(e.empNo).padStart(5, "0")}</span> : null}{e?.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}</td>
                   {columns.map((c) => {
                     const v = values[uid]?.[c] ?? "";
                     const bad = DATE_COLS.includes(c) && v && normDate(v) === null;
+                    // 노란 칸 = 공통 값과 다르게 고친 칸(시안 v2) · 연봉은 한글 금액을 붙여 자릿수 실수를 막는다
+                    const base = rowCommon?.[uid]?.[c] ?? common[c] ?? "";
+                    const shownVal = v || base;
+                    const diff = !!v && v.trim() !== String(base).trim();   // 공통 값과 다르게 고친 칸만 노랗게(재검증)
+                    const won = c === "연봉" ? Number(shownVal.replace(/[^0-9]/g, "")) : 0;
                     return (
-                      <td key={c} className="px-1 py-0.5">
+                      <td key={c} className="px-1 py-0.5 align-top">
                         <input value={v} placeholder={rowCommon?.[uid]?.[c] ?? common[c] ?? ""}
                           onChange={(ev) => set(uid, c, ev.target.value)}
-                          className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
+                          className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : diff ? "border-amber-300 bg-amber-50" : "border-gray-200"}`} />
+                        {c === "연봉" && won > 0 && <div className="pl-1 text-[10px] font-semibold text-indigo-600 whitespace-nowrap">{koreanMoney(won)}</div>}
                       </td>
                     );
                   })}
+                  {status && (
+                    <td className="px-2 py-1 text-xs align-top min-w-[160px]">
+                      {!st ? <span className="text-gray-400">확인 중…</span>
+                        : st.level === "ok" ? <span className="text-indigo-700">✓ 준비됨</span>
+                        : st.level === "warn" && st.acked ? <span className="text-gray-600">✓ 그래도 보냄 <span className="text-gray-400">({st.text})</span></span>
+                        : (
+                          <span className={st.level === "error" ? "text-red-600" : "text-amber-700"}>
+                            ! {st.text}
+                            {st.level === "warn" && onAck && <button type="button" onClick={() => onAck(uid)} className="ml-1 underline">그래도 보내기</button>}
+                          </span>
+                        )}
+                    </td>
+                  )}
+                  {onRemove && (
+                    <td className="px-1 py-1 align-top">
+                      <button type="button" onClick={() => onRemove(uid)} title="이 사람 빼기" aria-label={`${e?.name ?? "이 사람"} 빼기`} className="text-gray-400 hover:text-red-600 px-1">×</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <div className="flex gap-2 items-start">
+      {columns.length > 0 && <div className="flex gap-2 items-start">
         <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={2}
           placeholder={`엑셀에서 여러 줄을 복사해 붙여넣기 — 첫 줄에 열 이름(사번·${columns.slice(0, 3).join("·")}…)을 넣으면 그 순서로`}
           className="flex-1 rounded border px-2 py-1 text-xs resize-none" />
         <button type="button" onClick={applyPaste} disabled={!paste.trim()}
           className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:bg-gray-300">표에 넣기</button>
-      </div>
+      </div>}
     </div>
   );
 }

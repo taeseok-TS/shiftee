@@ -1,7 +1,7 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
-import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues } from "@/components/contracts/BulkValuesTable";
+import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import SendPicker, { type SendSelection } from "@/components/contracts/SendPicker";
 import FlowSteps from "@/components/contracts/FlowSteps";
@@ -263,6 +263,19 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 일괄 발송 (개선 제안 #80, 김가산·디렉터 확정 2026-08-26): 같은 조건의 신입 여러 명에게 동시 작성
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkUserIds, setBulkUserIds] = useState<string[]>([]);
+  // 계약서 보내기 2단계 「보내기 전 확인」(시안 v2 3번) — 사람마다 서버 사전 점검 결과(만들기와 같은 검사), 경고를 「그래도 보내기」 한 사람, 확인 필요만 보기
+  const [prechecking, setPrechecking] = useState(false);
+  const [precheckFailed, setPrecheckFailed] = useState(false);
+  const [ackDup, setAckDup] = useState<Set<string>>(new Set());
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [addSearch, setAddSearch] = useState("");
+  const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
+  const precheckSeq = useRef(0);   // 겹친 확인 중 마지막 것만 화면에 반영
+  const precheckAbort = useRef<AbortController | null>(null);   // 새 확인이 시작되면 앞선 요청은 끊는다(서버 부담)
+  const precheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);   // 자동 확인 대기 — 「다음」을 누르면 지운다(끊김 경쟁 방지, 재검증)   // 확인이 끝날 때 계산해 둔 상태(렌더 중에 ref 를 읽지 않게)
+  const [nowMs] = useState(() => Date.now());   // 기수 범위 기준 시각(화면을 연 때)
   // 여러 명 작성 — 개인별 값(#19 #34). 비우면 공통 입력값
   const [bulkValues, setBulkValues] = useState<BulkRowValues>({});
   // 목록에서 초안 여러 건 골라 한꺼번에 발송(#34)
@@ -1349,6 +1362,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     setExternalMode(false); setExtBundleMode(false); setExternalForm({ name: "", phone: "" });
     setBulkMode(false); setBulkUserIds([]); setBulkValues({});
     setCustomBundle(null);
+    setPrecheckFailed(false); setAckDup(new Set()); setRowStatus({}); setOnlyIssues(false); setPasteOpen(false); setPasteText(""); setAddSearch("");
   }
 
   // 1단계 → 2단계. 같은 서류·같은 받는 사람이면 입력한 값을 그대로 두고 넘어간다(이전 단계로 갔다 와도 입력값이 남게)
@@ -1490,6 +1504,79 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
   }
 
+  // 여러 명 작성 — 사람마다 들어갈 값(만들기와 「보내기 전 확인」이 같은 계산을 쓴다, 2026-10-20 시안 v2 3번)
+  const bulkBuilder = () => {
+    const rowDate = (uid: string, k: "계약시작일" | "계약종료일", fallback: string) => {
+      const raw = bulkValues[uid]?.[k] || "";
+      return raw.trim() ? normDate(raw) : fallback;
+    };
+    // 근로시작일 — 공통 칸에 손으로 적었으면(자동으로 넣은 첫 직원 입사일이 아니면) 모두에게, 아니면 각자 입사일(검증 M2)
+    const commonStart = (extraFields["근로시작일"] || "").trim();
+    const manualStart = commonStart && commonStart !== (autoFilled.current["근로시작일"] || "") ? commonStart : "";
+    const startOf = (uid: string) => {
+      const e = employees.find(x => x.id === uid);
+      return normDate(bulkValues[uid]?.["근로시작일"] || "") || manualStart || (e?.hireDate ? String(e.hireDate).slice(0, 10) : "");
+    };
+    const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
+    const common: Record<string, string> = {};
+    for (const [k, v] of Object.entries(extraFields)) {
+      if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+      common[k] = v;
+    }
+    for (const f of templateFields) if (f.startsWith("체크_") && !(f in common)) common[f] = f.includes("기타") ? "□" : "☑";
+    for (const f of templateFields) if (f.startsWith("선택_") && !(f in common)) common[f] = "□";
+    if (templateConditions.includes("신규입사")) common["계약구분"] = contractKind;
+    const payload = (uid: string) => {
+      const emp = employees.find(x => x.id === uid);
+      if (!emp) return null;
+      const per = { ...common };
+      if (templateFields.includes("생년월일")) per["생년월일"] = emp.birthDate ? String(emp.birthDate).slice(0, 10) : "";
+      {
+        // hireDate 없는 직원에게 공통값(첫 직원 것)이 새어 들어가지 않게 항상 덮어쓴다 (검증관 2026-08-26)
+        const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : "";
+        if (templateFields.includes("근무시작일")) per["근무시작일"] = hire;
+        if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
+        // 근로시작일도 각자 입사일(10/16) — 공통값(첫 직원 것)이 새지 않게. 공통 칸에 손으로 적은 값은 모두에게(검증 M2).
+        // 둘 다 없으면 비워 서버가 계약 시작일로 채운다. 표에 적으면 그 값이 우선(아래 개인별 값)
+        if (templateFields.includes("근로시작일")) per["근로시작일"] = manualStart || hire;
+      }
+      if (templateFields.includes("원장명")) per["원장명"] = branchManagerName(emp.branch);   // 메인 원장 우선(#213-4)
+      // 「보내기 전 수정」 직원 정보 칸은 **각자 값**으로 — 공통값은 첫 직원 것이라 전원에게 복사되던 것(10/13 검증 1). 작성일은 공통값 유지
+      {
+        const mine = empAutoValues(emp);
+        for (const f of templateFields) {
+          if (fieldSettings[f]?.mode !== "edit" || f === "작성일" || !(f in mine)) continue;
+          if (mine[f]) per[f] = mine[f]; else delete per[f];   // 값이 없으면 서버가 프로필·포털로 채운다
+        }
+      }
+      // 개인별 값(#19) — 표에 넣은 칸만, **지금 양식의 열**만 덮는다(양식을 바꾸기 전 값·다른 계약 구분 전용 칸은 넣지 않는다)
+      const row = bulkValues[uid] || {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일" || !cols.includes(k)) continue;
+        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
+        // 사람별 날짜 칸은 2026-10-01 꼴로 맞춘다(위에서 못 읽는 날짜는 이미 멈췄다) — 서버가 한국식 날짜로 바꾸려면 이 꼴이어야 한다
+        per[k] = (PERSON_DATE_COLS as readonly string[]).includes(k) ? (normDate(v) || v.trim()) : v.trim();
+      }
+      // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
+      if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
+      const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || effSalary;
+      const rowStart = rowDate(uid, "계약시작일", createForm.startDate) || "";
+      const rowEnd = rowDate(uid, "계약종료일", createForm.endDate) || "";
+      // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
+      if (templateFields.includes("교육평가시작")) {
+        const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
+        if (base && base !== evalBaseDate) {
+          const ev = evalPeriods(base);   // 사람별 기준일이 공통과 다르면 그 사람 기준(#19 검증 F1)
+          // 표에 사람별로 적은 평가 날짜는 그대로 둔다 — 비운 칸만 그 사람 기준일로 계산(10/16)
+          if (ev) for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
+        }
+      }
+      const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
+      return { emp, per, rowSalary, rowStart, rowEnd, title };
+    };
+    return { rowDate, startOf, cols, payload };
+  };
+
   // 직접 만든 묶음의 문서들 — 사람 한 명분. 「근로자 한 단계」 양식(동의서류)은 근로자 전용, 나머지는 대표(첫 서류) 결재 순서로 함께 간다(서버 bundle/send)
   //  · 개인정보 동의서에는 동의 확인 키(미선택)를 심고, 다른 서류에서는 뺀다 — 서명 화면이 이 키로 동의 단계를 띄운다(#104, 검증 지적)
   //  · 근로자 전용 서류에는 연봉을 넣지 않는다
@@ -1509,6 +1596,149 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   };
   /** 묶음으로 보낼 수 없으면 이유 — 결재 순서가 다른 서류가 섞임(서버는 대표 순서 하나만 쓴다) */
   const customBundleProblem = () => customBundle ? bundleProblem(customBundle.ids.map(id => templates.find(t => t.id === id)).filter((t): t is ContractTemplate => !!t)) : null;
+
+  // ── 계약서 보내기 2단계: 받는 사람 추가·보내기 전 확인(시안 v2 3번) ──
+  const flowRecipients = (): string[] => (bulkMode ? bulkUserIds : createForm.userId ? [createForm.userId] : []);
+  /** 받는 사람 더하기 — 둘 이상이면 여러 명 작성으로 바꾼다. 관리자·없는 사람·퇴사 서류(한 명)는 막는다 */
+  function addRecipients(ids: string[]) {
+    const ok = ids.filter(id => employees.some(e => e.id === id && e.role !== "ADMIN"));
+    const merged = [...new Set([...flowRecipients(), ...ok])].slice(0, 200);
+    if (!ok.length) return 0;
+    if ((resignBundleMode || codiBundleMode) && merged.length > 1) { toast.error(resignBundleMode ? "퇴사 서류는 한 명씩 보냅니다." : "코디 채용 패키지는 한 명씩 보냅니다."); return 0; }
+    if (bulkMode || merged.length > 1) { setBulkMode(true); setBulkUserIds(merged); }   // 전원을 뺀 뒤 한 명을 넣어도 목록에 남게(재검증)
+    setCreateForm(f => ({ ...f, userId: f.userId || merged[0] }));
+    return merged.length - flowRecipients().length;
+  }
+  function removeRecipient(uid: string) {
+    if (bulkMode) {
+      const next = bulkUserIds.filter(x => x !== uid);
+      setBulkUserIds(next);
+      if (createForm.userId === uid) setCreateForm(f => ({ ...f, userId: next[0] || "" }));
+    } else if (createForm.userId === uid) setCreateForm(f => ({ ...f, userId: "" }));
+  }
+  // 루트코스 기수 — 최근 60일·앞으로 30일 사이 입사(=입과)일별 직원(7월 이후 입사자는 입사일이 루트입과일, lib/roster-sheet)
+  const cohorts = (() => {
+    const now = nowMs;
+    const m = new Map<string, string[]>();
+    for (const e of employees) {
+      if (e.role === "ADMIN" || !e.hireDate) continue;
+      const d = String(e.hireDate).slice(0, 10);
+      const t = new Date(`${d}T00:00:00Z`).getTime();
+      if (t < now - 60 * 86400_000 || t > now + 30 * 86400_000) continue;
+      m.set(d, [...(m.get(d) || []), e.id]);
+    }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  })();
+  /** 이름·사번 붙여넣기 — 줄마다(탭·쉼표로 나뉘면 첫 칸) 사번 또는 이름. 이름이 겹치면 넣지 않고 알린다 */
+  function addFromPaste() {
+    const keys = pasteText.split(/\r?\n/).map(l => l.split(/[\t,]/)[0].trim()).filter(Boolean);
+    const found: string[] = []; const miss: string[] = [];
+    for (const k of keys) {
+      const byNo = /^\d+$/.test(k) ? employees.filter(e => e.empNo != null && e.empNo === Number(k)) : [];
+      const byName = byNo.length ? [] : employees.filter(e => e.name === k);
+      const hit = byNo.length === 1 ? byNo[0] : byName.length === 1 ? byName[0] : null;
+      if (!hit || hit.role === "ADMIN") miss.push(byName.length > 1 ? `${k}(이름이 같은 사람 — 사번으로)` : k);
+      else found.push(hit.id);
+    }
+    const n = addRecipients(found);
+    setPasteText(""); setPasteOpen(false);
+    if (miss.length) toast.warning(`${n}명 추가 · 못 찾음: ${miss.slice(0, 8).join(", ")}${miss.length > 8 ? ` 외 ${miss.length - 8}` : ""}`, { duration: 12000 });
+    else toast.success(`${n}명을 추가했습니다.`);
+  }
+  /** 사전 점검에 보낼 서류 — 지금 고른 양식·묶음 그대로 */
+  const checkTemplateIds = (): string[] =>
+    customBundle ? customBundle.ids
+      : resignBundleMode ? resignTemplates.filter((t, i) => !!t && resignIncluded[i]).map(t => t!.id)
+      : codiBundleMode && ndaTemplate && privacyTemplate ? [selectedTemplate, ndaTemplate.id, privacyTemplate.id]
+      : bundleMode && privacyTemplate ? [selectedTemplate, privacyTemplate.id]
+      : selectedTemplate ? [selectedTemplate] : [];
+  /** 사람마다 점검할 값 — 만들기와 같은 계산(bulkBuilder·buildSingleExtra) */
+  function precheckRows() {
+    const ids = checkTemplateIds();
+    if (!ids.length) return [];
+    if (bulkMode) {
+      const { payload } = bulkBuilder();
+      return bulkUserIds.filter(uid => !flowDoneUids.current.has(uid)).flatMap(uid => {
+        const p = payload(uid);
+        if (!p) return [];
+        const items = customBundle ? customBundleItems(uid, p.per, p.rowStart, p.rowEnd, p.rowSalary)
+          : ids.map(tid => ({ templateId: tid, title: p.title, startDate: p.rowStart, endDate: p.rowEnd, salary: p.rowSalary, extraFields: p.per }));
+        return [{ userId: uid, items }];
+      });
+    }
+    if (!createForm.userId) return [];
+    const extra = buildSingleExtra();
+    const items = customBundle ? customBundleItems(createForm.userId, extra, createForm.startDate, createForm.endDate, effSalary)
+      : ids.map(tid => ({ templateId: tid, title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate, salary: effSalary, extraFields: extra }));
+    return [{ userId: createForm.userId, items }];
+  }
+  /** 사전 점검 실행 — 결과를 돌려준다(실패하면 null) */
+  async function runPrecheck(): Promise<Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | null> {
+    const rows = precheckRows();
+    if (!rows.length) { setRowStatus(statusOf({})); return {}; }
+    setPrechecking(true);
+    const seq = ++precheckSeq.current;
+    precheckAbort.current?.abort();
+    const ac = new AbortController();
+    precheckAbort.current = ac;
+    try {
+      const res = await fetch("/api/contracts/precheck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }), signal: ac.signal });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.results) { if (seq === precheckSeq.current) setPrecheckFailed(true); return null; }
+      const byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> = {};
+      for (const r of d.results) byUser[r.userId] = { errors: r.errors || [], duplicates: r.duplicates || [] };
+      if (seq === precheckSeq.current) { setPrecheckFailed(false); setRowStatus(statusOf(byUser)); }
+      return byUser;
+    } catch { if (seq === precheckSeq.current) setPrecheckFailed(true); return null; }
+    finally { if (seq === precheckSeq.current) setPrechecking(false); }
+  }
+  /** 사람마다 상태 — 서버 점검 + 화면에서만 아는 것(인사카드 입사일 없음) */
+  function statusOf(byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | undefined): Record<string, RowStatus> {
+    const out: Record<string, RowStatus> = {};
+    const commonStart = (extraFields["근로시작일"] || "").trim();
+    for (const uid of flowRecipients()) {
+      if (flowDoneUids.current.has(uid)) { out[uid] = { level: "ok", text: "만듦" }; continue; }
+      const e = employees.find(x => x.id === uid);
+      const r = byUser?.[uid];
+      const noHire = templateFields.includes("근로시작일") && contractKind === "신규입사" && !e?.hireDate && !(bulkValues[uid]?.["근로시작일"] || "").trim() && !(commonStart && commonStart !== (autoFilled.current["근로시작일"] || ""));
+      if (noHire) { out[uid] = { level: "error", text: "인사카드 입사일 없음 — 표의 근로시작일에 넣어 주세요" }; continue; }
+      if (!r) continue;   // 아직 확인 전
+      if (r.errors.length) { out[uid] = { level: "error", text: r.errors.join(" · ") }; continue; }
+      if (r.duplicates.length) {
+        const d = r.duplicates[0];
+        const md = d.lastSentAt ? (() => { const k = new Date(new Date(d.lastSentAt).getTime() + 9 * 3600_000); return `${k.getUTCMonth() + 1}/${String(k.getUTCDate()).padStart(2, "0")}`; })() : "";
+        out[uid] = { level: "warn", text: md ? `${md}에 같은 양식 보냄` : "같은 양식이 진행 중" };
+        continue;
+      }
+      out[uid] = { level: "ok", text: "준비됨" };
+    }
+    return out;
+  }
+  // 입력이 멈추면 1.2초 뒤 다시 확인한다(2단계에서만)
+  const precheckKey = flow && flowStep === 2 ? JSON.stringify({ r: flowRecipients(), v: bulkValues, x: extraFields, f: createForm, t: selectedTemplate, b: customBundle, k: contractKind, s: effSalary, m: [bundleMode, resignBundleMode, codiBundleMode], p: resignPicks }) : "";
+  useEffect(() => {
+    if (!precheckKey) return;
+    const t = setTimeout(() => { precheckTimer.current = null; void runPrecheck(); }, 1200);
+    precheckTimer.current = t;
+    return () => { clearTimeout(t); if (precheckTimer.current === t) precheckTimer.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precheckKey]);
+  const shownStatus: Record<string, RowStatus> = Object.fromEntries(Object.entries(rowStatus).map(([u, x]) => [u, x.level === "warn" ? { ...x, acked: ackDup.has(u) } : x]));
+  /** 2단계 「다음」 — 확인을 다시 돌려 막을 것이 없을 때만 만든다 */
+  async function flowNext() {
+    if (uploading) return;
+    // 남은 자동 확인을 지운다 — 그 타이머가 「다음」의 확인을 끊어 「확인 실패」로 잘못 안내하던 것(재검증)
+    if (precheckTimer.current) { clearTimeout(precheckTimer.current); precheckTimer.current = null; }
+    const byUser = await runPrecheck();
+    if (byUser === null) {
+      if (!confirm("보내기 전 확인을 하지 못했습니다(서버 응답 없음). 그래도 진행할까요? 만들 때 서버가 다시 검사합니다.")) return;
+    } else {
+      const st = statusOf(byUser);
+      const bad = flowRecipients().filter(uid => { const x = st[uid]; return !x || x.level === "error" || (x.level === "warn" && !ackDup.has(uid)); });
+      if (bad.length) { setOnlyIssues(true); toast.error(`확인 필요 ${bad.length}명 — 빨간 줄을 고치거나 빼 주세요(같은 양식을 보낸 사람은 「그래도 보내기」).`, { duration: 8000 }); return; }
+    }
+    (document.getElementById("compose-form") as HTMLFormElement | null)?.requestSubmit();
+  }
 
   // 계약서 보내기 — 만든 초안을 3단계로 넘긴다(작성 폼 값은 지우지 않는다: 3단계에서 「이전」이면 그대로 고칠 수 있게)
   function flowCreatedGo(ids: unknown) {
@@ -1561,11 +1791,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
         toast.error("묶음의 첫 서류가 바뀌었습니다. 1단계에서 묶음을 다시 골라 주세요."); setUploading(false); return;
       }
       { const bp = customBundleProblem(); if (bp) { toast.error(bp); setUploading(false); return; } }
-      // 개인별 날짜(#19) — 못 읽는 날짜가 있으면 만들기 전에 멈춘다
-      const rowDate = (uid: string, k: "계약시작일" | "계약종료일", fallback: string) => {
-        const raw = bulkValues[uid]?.[k] || "";
-        return raw.trim() ? normDate(raw) : fallback;
-      };
+      // 개인별 날짜(#19) — 못 읽는 날짜가 있으면 만들기 전에 멈춘다. 사람마다 값 만들기는 bulkBuilder 하나(보내기 전 확인과 같다)
+      const { rowDate, startOf, payload } = bulkBuilder();
       // 계약 기간 + 근로시작일·평가 기간(사람별 날짜 칸, 10/16) 모두 — 표에 적은 날짜를 못 읽으면 멈춘다
       const curCols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
       const badDates = bulkUserIds.flatMap(uid => DATE_COLS
@@ -1573,13 +1800,6 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
         .filter(k => { const raw = bulkValues[uid]?.[k] || ""; return raw.trim() !== "" && normDate(raw) === null; })
         .map(k => `${employees.find(x => x.id === uid)?.name ?? "?"} ${k}`));
       if (badDates.length) { toast.error(`날짜를 읽지 못했습니다: ${badDates.join(", ")} — 2026-10-01 형식으로 고쳐 주세요.`); setUploading(false); return; }
-      // 근로시작일 — 공통 칸에 손으로 적었으면(자동으로 넣은 첫 직원 입사일이 아니면) 모두에게, 아니면 각자 입사일(검증 M2)
-      const commonStart = (extraFields["근로시작일"] || "").trim();
-      const manualStart = commonStart && commonStart !== (autoFilled.current["근로시작일"] || "") ? commonStart : "";
-      const startOf = (uid: string) => {
-        const e = employees.find(x => x.id === uid);
-        return normDate(bulkValues[uid]?.["근로시작일"] || "") || manualStart || (e?.hireDate ? String(e.hireDate).slice(0, 10) : "");
-      };
       // 신규입사 평가 기간은 근로시작일부터라, 근로시작일이 계약 시작일보다 앞이면 평가 기간이 계약 기간 밖으로 나가 서버가 거절한다 — 미리 알린다
       if (contractKind === "신규입사" && templateFields.includes("근로시작일") && templateFields.includes("교육평가시작")) {
         const early = bulkUserIds
@@ -1601,63 +1821,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
           setUploading(false); return;
         }
       }
-      const cols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
-      const common: Record<string, string> = {};
-      for (const [k, v] of Object.entries(extraFields)) {
-        if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
-        common[k] = v;
-      }
-      for (const f of templateFields) if (f.startsWith("체크_") && !(f in common)) common[f] = f.includes("기타") ? "□" : "☑";
-      for (const f of templateFields) if (f.startsWith("선택_") && !(f in common)) common[f] = "□";
-      if (templateConditions.includes("신규입사")) common["계약구분"] = contractKind;
       let ok = 0; const failed: string[] = []; const failedIds: string[] = []; const createdIds: string[] = [];
       for (const uid of bulkUserIds) {
         if (flow && flowDoneUids.current.has(uid)) continue;   // 앞서 만든 사람은 건너뛴다(계약서 보내기)
-        const emp = employees.find(x => x.id === uid);
-        if (!emp) continue;
-        const per = { ...common };
-        if (templateFields.includes("생년월일")) per["생년월일"] = emp.birthDate ? String(emp.birthDate).slice(0, 10) : "";
-        {
-          // hireDate 없는 직원에게 공통값(첫 직원 것)이 새어 들어가지 않게 항상 덮어쓴다 (검증관 2026-08-26)
-          const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : "";
-          if (templateFields.includes("근무시작일")) per["근무시작일"] = hire;
-          if (templateFields.includes("연차시작일")) per["연차시작일"] = hire;
-          // 근로시작일도 각자 입사일(10/16) — 공통값(첫 직원 것)이 새지 않게. 공통 칸에 손으로 적은 값은 모두에게(검증 M2).
-          // 둘 다 없으면 비워 서버가 계약 시작일로 채운다. 표에 적으면 그 값이 우선(아래 개인별 값)
-          if (templateFields.includes("근로시작일")) per["근로시작일"] = manualStart || hire;
-        }
-        if (templateFields.includes("원장명")) per["원장명"] = branchManagerName(emp.branch);   // 메인 원장 우선(#213-4)
-        // 「보내기 전 수정」 직원 정보 칸은 **각자 값**으로 — 공통값은 첫 직원 것이라 전원에게 복사되던 것(10/13 검증 1). 작성일은 공통값 유지
-        {
-          const mine = empAutoValues(emp);
-          for (const f of templateFields) {
-            if (fieldSettings[f]?.mode !== "edit" || f === "작성일" || !(f in mine)) continue;
-            if (mine[f]) per[f] = mine[f]; else delete per[f];   // 값이 없으면 서버가 프로필·포털로 채운다
-          }
-        }
-        // 개인별 값(#19) — 표에 넣은 칸만, **지금 양식의 열**만 덮는다(양식을 바꾸기 전 값·다른 계약 구분 전용 칸은 넣지 않는다)
-        const row = bulkValues[uid] || {};
-        for (const [k, v] of Object.entries(row)) {
-          if (!v.trim() || k === "연봉" || k === "계약시작일" || k === "계약종료일" || !cols.includes(k)) continue;
-          if (fieldConditions[k] && fieldConditions[k] !== contractKind) continue;
-          // 사람별 날짜 칸은 2026-10-01 꼴로 맞춘다(위에서 못 읽는 날짜는 이미 멈췄다) — 서버가 한국식 날짜로 바꾸려면 이 꼴이어야 한다
-          per[k] = (PERSON_DATE_COLS as readonly string[]).includes(k) ? (normDate(v) || v.trim()) : v.trim();
-        }
-        // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
-        if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
-        const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || effSalary;
-        const rowStart = rowDate(uid, "계약시작일", createForm.startDate) || "";
-        const rowEnd = rowDate(uid, "계약종료일", createForm.endDate) || "";
-        // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
-        if (templateFields.includes("교육평가시작")) {
-          const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
-          if (base && base !== evalBaseDate) {
-            const ev = evalPeriods(base);   // 사람별 기준일이 공통과 다르면 그 사람 기준(#19 검증 F1)
-            // 표에 사람별로 적은 평가 날짜는 그대로 둔다 — 비운 칸만 그 사람 기준일로 계산(10/16)
-            if (ev) for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
-          }
-        }
-        const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
+        const p = payload(uid);
+        if (!p) continue;
+        const { emp, per, rowSalary, rowStart, rowEnd, title } = p;
         try {
           let res: Response;
           if (customBundle) {
@@ -2232,6 +2401,47 @@ ${url}`;
   // 작성 폼 — 「보낸 계약서」 팝업과 「계약서 보내기」 2단계가 같은 폼·같은 검사·같은 만들기(handleCreate)를 쓴다
   const composeForm = (
               <form id="compose-form" onSubmit={handleCreate} className="space-y-4">
+                {flow && !resignBundleMode && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-gray-900"><span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] text-white">1</span>받는 사람 추가 <span className="text-xs font-normal text-gray-400">— 셋 중 편한 방법 하나</span></p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1">
+                        <p className="text-sm font-semibold text-indigo-700">+ 루트코스 기수 전원</p>
+                        <select className="w-full rounded border px-2 py-1 text-xs bg-white" value="" onChange={(e) => { const c = cohorts.find(x => x[0] === e.target.value); if (c) { const n = addRecipients(c[1]); toast.success(`${e.target.value.slice(5).replace("-", "/")} 입과 ${n}명을 추가했습니다.`); } }}>
+                          <option value="">기수 고르기(입사일)</option>
+                          {cohorts.map(([d, ids]) => <option key={d} value={d}>{d.slice(5).replace("-", "/")} 입과 · {ids.length}명</option>)}
+                        </select>
+                      </div>
+                      <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1">
+                        <button type="button" onClick={() => setPasteOpen(o => !o)} className="text-sm font-semibold text-indigo-700">+ 이름·사번 붙여넣기</button>
+                        {pasteOpen ? (
+                          <div className="space-y-1">
+                            <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={3} placeholder={"엑셀에서 여러 줄 복사 → 붙여넣기\n06582\n김가산"} className="w-full rounded border px-2 py-1 text-xs" />
+                            <button type="button" onClick={addFromPaste} disabled={!pasteText.trim()} className="rounded bg-indigo-600 px-2 py-1 text-xs text-white disabled:bg-gray-300">추가</button>
+                          </div>
+                        ) : <p className="text-[11px] text-gray-500">엑셀에서 여러 줄 복사 → 붙여넣기</p>}
+                      </div>
+                      <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1 relative">
+                        <p className="text-sm font-semibold text-indigo-700">+ 검색해서 추가</p>
+                        <input value={addSearch} onChange={(e) => setAddSearch(e.target.value)} placeholder="이름·지점 입력" className="w-full rounded border px-2 py-1 text-xs" />
+                        {addSearch.trim() && (
+                          <div className="absolute left-2 right-2 z-20 mt-1 max-h-48 overflow-y-auto rounded border bg-white shadow">
+                            {employees.filter(e => e.role !== "ADMIN" && (e.name.includes(addSearch.trim()) || (e.branch || "").includes(addSearch.trim()))).slice(0, 20).map(e => (
+                              <button key={e.id} type="button" onClick={() => { addRecipients([e.id]); setAddSearch(""); }} className="block w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{e.name}{e.branch ? ` · ${e.branch}` : ""}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {templateFields.includes("작성일") && (
+                      <label className="flex items-center gap-2 text-sm">
+                        <span className="text-gray-600">작성일</span>
+                        <input type="date" value={extraFields["작성일지정"] || ""} onChange={(e) => setExtraFields(p => ({ ...p, 작성일지정: e.target.value }))} className="rounded border px-2 py-1 text-sm" />
+                        <span className="text-[11px] text-gray-400">{extraFields["작성일지정"] ? "모두에게 같은 날" : "비우면 보내는 날(종전과 같음)"}</span>
+                      </label>
+                    )}
+                  </div>
+                )}
                 {/* 작성 종류(#87, 2026-10-16 이예지 QA) — 처음에 입사·재계약·퇴사 중 고르면 양식·패키지·계약 구분이 한 번에 맞춰진다. 아래에서 그대로 바꿀 수도 있다 */}
                 {templates.length > 0 && !flow && (
                   <div className="space-y-1">
@@ -3023,6 +3233,11 @@ ${url}`;
                     onChange={setBulkValues}
                     common={{ ...extraFields, 연봉: effSalary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
                     rowCommon={bulkRowCommon}
+                    {...(flow ? {
+                      status: shownStatus, onlyIssues,
+                      onRemove: removeRecipient,
+                      onAck: (uid: string) => setAckDup(s => new Set([...s, uid])),
+                    } : {})}
                   />
                 )}
                 <div className="flex gap-2 justify-end">
@@ -3077,7 +3292,7 @@ ${url}`;
                     </Button>
                   )}
                   {!flow && <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>}
-                  <Button type="submit" disabled={uploading} className={flow ? "bg-indigo-600 hover:bg-indigo-700" : undefined}>
+                  <Button type={flow ? "button" : "submit"} onClick={flow ? () => { void flowNext(); } : undefined} disabled={uploading || (flow && prechecking)} className={flow ? "bg-indigo-600 hover:bg-indigo-700" : undefined}>
                     {uploading ? (flow ? "만드는 중..." : "업로드") : flow ? "다음: 결재자·발송" : "작성"}
                   </Button>
                 </div>
@@ -3123,11 +3338,40 @@ ${url}`;
                   <p className="font-bold text-gray-900 break-keep">{flowTitle}</p>
                   <p className="text-xs text-gray-500">{nPeople}명{bulkMode ? " · 사람마다 1건씩" : ""}</p>
                 </div>
-                <button type="submit" form="compose-form" disabled={uploading}
-                  className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
-                  {uploading ? "만드는 중…" : "다음: 결재자 · 발송"}
-                </button>
-                <p className="text-center text-[11px] text-gray-500">누르면 초안을 만들고 결재자·발송으로 넘어갑니다(아직 보내지 않음)</p>
+                {(() => {
+                  const st = shownStatus;
+                  const ids = flowRecipients();
+                  const ready = ids.filter(uid => st[uid] && (st[uid].level === "ok" || (st[uid].level === "warn" && st[uid].acked))).length;
+                  const issues = ids.filter(uid => st[uid] && (st[uid].level === "error" || (st[uid].level === "warn" && !st[uid].acked)));
+                  const empName = (uid: string) => employees.find(e => e.id === uid)?.name ?? "?";
+                  return (
+                    <>
+                      <div className="rounded-xl border bg-white p-4 space-y-2">
+                        <p className="font-semibold text-gray-900">보내기 전 확인</p>
+                        <p className="text-2xl font-bold text-gray-900">{ready} / {ids.length}명 준비됨</p>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden"><div className="h-full bg-indigo-600" style={{ width: `${ids.length ? (ready / ids.length) * 100 : 0}%` }} /></div>
+                        {prechecking && <p className="text-xs text-gray-400">확인하는 중…</p>}
+                        {precheckFailed && <p className="text-xs text-amber-700">확인을 하지 못했습니다 — 만들 때 서버가 다시 검사합니다.</p>}
+                        <ul className="space-y-1 text-xs">
+                          {!issues.length && ids.length > 0 && ready === ids.length && <li className="text-gray-700">✓ 최저임금·기간·평가 기간·필수 칸 이상 없음</li>}
+                          {issues.slice(0, 8).map(uid => (
+                            <li key={uid} className={st[uid].level === "error" ? "text-red-600" : "text-amber-700"}>
+                              ! {empName(uid)} — {st[uid].text}{" "}
+                              {st[uid].level === "warn" && <button type="button" className="underline mr-1" onClick={() => setAckDup(s => new Set([...s, uid]))}>그래도 보내기</button>}
+                              {bulkMode && <button type="button" className="underline" onClick={() => { setOnlyIssues(false); document.getElementById(`bulk-row-${uid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>바로 가기</button>}
+                            </li>
+                          ))}
+                        </ul>
+                        {bulkMode && <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} />확인 필요만 표에 보기</label>}
+                      </div>
+                      <button type="button" onClick={() => { void flowNext(); }} disabled={uploading || prechecking || ids.length === 0}
+                        className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500">
+                        {uploading ? "만드는 중…" : issues.length ? `다음: 결재자 · 발송 (${issues.length}명 확인 필요)` : "다음: 결재자 · 발송"}
+                      </button>
+                      <p className="text-center text-[11px] text-gray-500">{issues.length ? `확인 필요 ${issues.length}명을 고치거나 빼면 켜져요` : "누르면 초안을 만들고 결재자·발송으로 넘어갑니다(아직 보내지 않음)"}</p>
+                    </>
+                  );
+                })()}
               </aside>
             </div>
           </div>
