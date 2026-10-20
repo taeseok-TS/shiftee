@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { personLabel } from "@/lib/person-label";
-import { jinhakInfoSecret, signJinhakInfoPass, jinhakInfoEnterUrl } from "@/lib/jinhak-info-pass";
+import { jinhakInfoSecret, jinhakInfoEnabled, signJinhakInfoPass, jinhakInfoEnterUrl } from "@/lib/jinhak-info-pass";
 
 // 입학정보실(진학입시EX) 입장권 발급 — 2026-10-19 디렉터 결정: 큐브티에 속한 직원 전체(직원·원장·관리자, 숨김 계정 포함 예외 없음).
 // 로그인 세션(getSession — 서명·무효화·재직·퇴사까지 본다)이 있는 사람에게만 60초짜리 입장권을 만들어 입장 주소를 돌려준다.
@@ -16,6 +16,8 @@ export async function POST() {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401, headers: NO_STORE });
 
   const secret = jinhakInfoSecret();
+  // 단추를 숨겨 둔 동안(INFO_PASS_ENABLED≠1)은 발급도 하지 않는다 — 옛 화면·앱에 남은 단추로 들어오는 것까지 막는다
+  if (!jinhakInfoEnabled()) return NextResponse.json({ error: "입학정보실 연결 준비 중입니다." }, { status: 503, headers: NO_STORE });
   if (!secret) {
     // 열쇠가 아직 안 들어갔거나 짧다 — 값은 찍지 않는다
     console.warn("[jinhak-info] INFO_PASS_SECRET 미설정 또는 32자 미만 — 입장권 발급 안 함");

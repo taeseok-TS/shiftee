@@ -57,6 +57,8 @@ services:
       PORTAL_HR_CONTACT_KEY: ${PORTAL_HR_CONTACT_KEY:-}
       # 진학입시EX 입학정보실 입장권 서명 열쇠(2026-10-19) — 진학입시EX 와 같은 값. 비우면 단추가 「연결 준비 중」
       INFO_PASS_SECRET: ${INFO_PASS_SECRET:-}
+      # 입학정보실 단추 켜기(2026-10-19 「잠깐 숨겨놔」) — 1 일 때만 보인다. 바꾼 뒤 web 컨테이너만 다시 만들면 된다(빌드·앱 업데이트 불필요)
+      INFO_PASS_ENABLED: ${INFO_PASS_ENABLED:-}
       FONT_PATH: /usr/share/fonts/truetype/nanum/NanumGothic.ttf
       # 워드→PDF 변환기 주소 (완료 계약서 PDF 다운로드)
       GOTENBERG_URL: http://gotenberg:3000

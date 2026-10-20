@@ -8,7 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid, School } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
-import { openJinhakInfo } from "@/components/layout/openJinhakInfo";
+import { openJinhakInfo, useJinhakInfoEnabled } from "@/components/layout/openJinhakInfo";
 
 const workNavItems = [
   { href: "/work/chat", label: "채팅", icon: MessageSquare },
@@ -106,6 +106,7 @@ function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) 
 export function WorkSidebar() {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
+  const jinhakOn = useJinhakInfoEnabled();
   // 2026-10-17 디렉터 「바로가기 켜자」 — 디렉터 계정에만 보이던 것을 직영(큐브티) 전 직원에게. 범위는 직영 포털 링크와 같다
   const showEducube = showPortal;
   const router = useRouter();
@@ -224,7 +225,7 @@ export function WorkSidebar() {
           {!collapsed && <ExternalLink size={13} className="opacity-60" />}
         </a>}
         {/* 입학정보실(진학입시EX) — 2026-10-19 디렉터 결정: 큐브티 직원 전체. 주소에 입장권이 붙어야 해서 링크가 아니라 단추(서버에서 받아 새 탭) */}
-        {showPortal && <button
+        {showPortal && jinhakOn && <button
           type="button"
           onClick={() => { void openJinhakInfo(); }}
           title={collapsed ? "입학정보실 (새 탭)" : "새 탭에서 열립니다"}
@@ -271,6 +272,7 @@ export function WorkSidebar() {
 export function WorkMobileNav() {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
+  const jinhakOn = useJinhakInfoEnabled();
   const badges = useWorkBadges(pathname);
   const navRef = useRef<HTMLElement>(null);
   // 지금 화면의 메뉴가 옆으로 가려진 쪽에 있으면 보이게 굴린다(검증관 4 — 예: 마케팅 자료 화면)
@@ -314,7 +316,7 @@ export function WorkMobileNav() {
         </a>
       )}
       {/* 입학정보실 — 폰 폭도 아이콘만(누르면 새 탭, 입장권은 서버에서 받아 바로 연다) */}
-      {showPortal && (
+      {showPortal && jinhakOn && (
         <button type="button" onClick={() => { void openJinhakInfo(); }} title="입학정보실 (새 탭)" aria-label="입학정보실"
           className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900 shrink-0">
           <School size={18} />

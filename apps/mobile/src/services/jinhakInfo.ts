@@ -12,6 +12,20 @@ import { getToken } from "./storage";
 
 let busy = false;
 
+/** 단추를 보일지 — 서버 INFO_PASS_ENABLED=1 일 때만 true(2026-10-19 「잠깐 숨겨놔」). 실패·옛 서버는 숨김 */
+export async function jinhakInfoEnabled(): Promise<boolean> {
+  try {
+    const token = await getToken();
+    const res = await axios.get(`${API_URL}/integrations/jinhak-info/status`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      timeout: 10000,
+    });
+    return res.data?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function openJinhakInfo(): Promise<void> {
   if (busy) return; // 연달아 눌러 두 번 열리지 않게
   busy = true;

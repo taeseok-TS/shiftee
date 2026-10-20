@@ -18,6 +18,11 @@ export function jinhakInfoSecret(): string | null {
   return s.length >= MIN_SECRET_LEN ? s : null;
 }
 
+/** 단추를 보일지 — 열쇠가 있고 INFO_PASS_ENABLED=1 일 때만(2026-10-19 디렉터 「잠깐 숨겨놔」 — 진학입시EX 쪽 열쇠가 들어가면 .env 만 바꿔 켠다) */
+export function jinhakInfoEnabled(): boolean {
+  return process.env.INFO_PASS_ENABLED === "1" && jinhakInfoSecret() !== null;
+}
+
 const b64url = (buf: Buffer) => buf.toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 const enc = (o: unknown) => b64url(Buffer.from(JSON.stringify(o), "utf8"));
 

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { canApproveNow } from "../services/approvals";
-import { openJinhakInfo } from "../services/jinhakInfo";
+import { jinhakInfoEnabled, openJinhakInfo } from "../services/jinhakInfo";
 
 const MENU: { route: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { route: "Contracts", label: "계약서", icon: "document-text-outline", color: "#2563eb" },
@@ -20,11 +20,13 @@ const APPROVAL_ITEM = { route: "Approvals", label: "결재", icon: "checkmark-do
 export default function MoreMenuScreen() {
   const navigation = useNavigation<any>();
   const [canApprove, setCanApprove] = useState(false);
+  const [jinhakOn, setJinhakOn] = useState(false);
   // 대행 기간이 시작·끝날 수 있어 메뉴에 들어올 때마다 다시 판정한다.
   // 「결재」는 맨 아래에 붙인다 — 맨 위에 늦게 끼어들면 줄이 밀려 다른 메뉴를 누르려다 잘못 누른다(검증 지적)
   useFocusEffect(
     useCallback(() => {
       canApproveNow().then((ok) => { if (ok !== null) setCanApprove(ok); }).catch(() => {});   // 실패(null)면 이전 판정 유지
+      jinhakInfoEnabled().then(setJinhakOn).catch(() => {});   // 입학정보실 — 서버가 켜 둔 때만 보인다
     }, [])
   );
   const items = canApprove ? [...MENU, APPROVAL_ITEM] : MENU;
@@ -41,13 +43,13 @@ export default function MoreMenuScreen() {
       </View>
       {/* 바로가기(밖으로 나가는 것) — 입학정보실(진학입시EX), 2026-10-19 디렉터 결정: 큐브티 직원 전체.
           누르면 서버에서 60초짜리 입장 주소를 받아 브라우저로 연다. 위 묶음과 떼어 둬 「결재」가 붙어도 자리가 안 밀린다 */}
-      <View style={styles.group}>
+      {jinhakOn && <View style={styles.group}>
         <TouchableOpacity style={styles.row} onPress={() => { void openJinhakInfo(); }}>
           <Ionicons name="school-outline" size={22} color="#059669" />
           <Text style={styles.label}>입학정보실</Text>
           <Ionicons name="open-outline" size={18} color="#9ca3af" />
         </TouchableOpacity>
-      </View>
+      </View>}
     </ScrollView>
   );
 }
