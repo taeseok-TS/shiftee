@@ -1,6 +1,6 @@
 // 묶음(패키지) 발송에 쓰이는 양식 찾기 — 「계약서 보내기」 화면(/admin/contracts/send, 2026-10-17)이 묶음 카드에 **구성 문서 이름을 보여 주려고** 쓴다. 순수 모듈.
 //
-// ⚠ 실제 묶음 구성·작성·발송은 지금도 「보낸 계약서」 화면(app/admin/contracts/page.tsx)의 작성 창이 정한다(이 화면은 ?compose=hire|resign 으로 그 창을 열 뿐).
+// ⚠ 실제 묶음 구성·작성·발송은 지금도 작성 폼(app/admin/contracts/ContractsScreen.tsx — 「보낸 계약서」 작성 창과 「계약서 보내기」 2단계가 같은 폼)이 정한다.
 //   아래 규칙은 그 화면의 pkgTemplates·privacyTemplate·empTemplate·resignTemplates 정의와 **글자 하나까지 같게** 옮겨 둔 것 —
 //   작성 창의 규칙을 바꾸면 여기도 같이 바꾼다(다르면 카드에 보이는 이름과 실제로 나가는 문서가 달라진다).
 export type PkgTemplate = { id: string; name: string; type: string; createdAt?: string };

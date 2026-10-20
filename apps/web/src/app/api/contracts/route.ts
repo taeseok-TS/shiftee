@@ -113,6 +113,13 @@ export async function GET(request: NextRequest) {
     const pkg = searchParams.get("pkg");
     if (pkg === "bundle") whereBase.bundleId = { not: null };
     else if (pkg === "single") whereBase.bundleId = null;
+    // 계약서 보내기 3단계(2026-10-20) — 방금 만든 초안만. 권한 조건(whereBase)은 그대로 두고 id 로만 좁힌다, 작성 연·월은 보지 않는다
+    // ⚠ 값이 비어 있어도(ids=) 거른다 — 빈 값을 「조건 없음」으로 보면 모든 초안이 딸려 와 3단계에서 남의 초안까지 발송·삭제된다(검증 F3)
+    if (searchParams.has("ids")) {
+      const ids = [...new Set((searchParams.get("ids") || "").split(","))].filter((x) => /^[a-z0-9]{10,40}$/i.test(x)).slice(0, 400);
+      delete whereBase.createdAt;
+      whereBase.id = { in: ids };
+    }
 
     const contracts = await prisma.contract.findMany({
       where: whereBase,
