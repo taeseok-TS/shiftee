@@ -22,6 +22,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   ATTENDANCE_CLOSE_22: "퇴근 누락 처리(본인 동의)",   // 2026-10-17 근무일정 퇴근 시각 기준(종전 22시 고정 — 시각은 내용에 남는다)
   ATTENDANCE_POLICY_UPDATE: "출퇴근 정책 변경",
   ATTENDANCE_RULE_UPDATE: "근태 규칙 변경",   // 2026-10-20 퇴근 기록이 없는 날 처리 — 업무 변경(모든 관리자가 본다)
+  CONTRACT_SEND_LAYOUT: "계약서 보내기 묶음 변경",   // 2026-10-20 시안 v2 — 묶음 만들기·고치기·지우기(순서·즐겨찾기는 남기지 않음)
   // 결재 대행
   APPROVAL_DELEGATE_CREATE: "원장대행 지정",
   APPROVAL_DELEGATE_REVOKE: "원장대행 해제",

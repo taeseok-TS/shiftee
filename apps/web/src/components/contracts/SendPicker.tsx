@@ -1,40 +1,44 @@
 "use client";
 
-// 계약서 보내기 1단계 — 서류 고르기(2026-10-17 본부 박정인 님 개선 시안 1·2 → 2026-10-20 시안 v2: 한 화면 3단계의 첫 단계).
+// 계약서 보내기 1단계 — 서류 고르기(2026-10-17 본부 박정인 님 개선 시안 1·2 → 2026-10-20 시안 v2 1·2·11번: 한 화면 3단계의 첫 단계).
 //
-// **고르기만** 한다: 용도 → 양식 카드(또는 묶음) → 받는 사람. [다음: 내용 입력]을 누르면 같은 화면(ContractsScreen flow)의
-// 2단계로 넘어가 「보낸 계약서」 작성 창과 같은 폼이 펼쳐진다. 작성·검사·미리보기는 그 폼 그대로 — 여기서 복제하지 않는다.
-// 외부(미가입) 계약·코디/외부 채용 패키지 같은 특수 흐름은 「보낸 계약서」 → 「계약서 작성」에 그대로 있다(아래 안내 링크).
+// 두 화면이다.
+//  ① 고르기: ★ 즐겨찾기 줄(서류·묶음) → 전체 서류(알약 용도 탭 · 카드 체크로 여러 장 · 카드를 포개면 묶음 · ⋮⋮ 로 순서 · 많이 쓴 순/내가 정한 순)
+//  ② 보낼 준비: 들어 있는 서류(결재 순서·미리보기·이 묶음에서 빼기·끌어서 보내는 순서) + 받는 사람(한 명/여러 명) + 「n명 × m종 = k건」
+// [다음: 내용 입력]을 누르면 같은 화면(ContractsScreen flow)의 2단계로 넘어가 「보낸 계약서」 작성 창과 같은 폼이 펼쳐진다 — 규칙 복제 없음.
+// 즐겨찾기·묶음·순서는 본부 전체가 같이 본다(lib/contract-send-layout, /api/admin/contract-send-layout).
+// 외부(미가입) 계약·코디/외부 채용 패키지 같은 특수 흐름은 「보낸 계약서」 → 「계약서 작성」에 그대로 있다.
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Check, X } from "lucide-react";
+import { Check, GripVertical, Plus, Star, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { parseApprovalSteps, stepsLabel, templateStepsFor } from "@/lib/approval-order";
 import { CONTRACT_PURPOSES, OTHER_PURPOSE, parsePurposeMap, purposesOf, type ContractPurpose } from "@/lib/contract-purpose";
 import { RESIGN_DOC_LABELS, RESIGN_PICK_DEFAULT, findPackageTemplates } from "@/lib/contract-packages";
+import { DEFAULT_LAYOUT, MAX_BUNDLES, MAX_BUNDLE_DOCS, MAX_FAVORITES, bundleProblem, isEmployeeOnlyDoc, normalizeLayout, type FavRef, type SendLayout } from "@/lib/contract-send-layout";
 
 type Template = {
-  id: string; name: string; description?: string | null; type: string; createdAt?: string;
+  id: string; name: string; description?: string | null; type: string; createdAt?: string; fileUrl?: string;
   postSignAccess?: string; approvalSteps?: unknown; approvalStepsRenewal?: unknown; pinned?: boolean;
 };
 type Employee = { id: string; name: string; branch?: string | null; department?: string | null; role?: string };
 type PurposeKey = ContractPurpose | "other";
-// 고른 서류 — 양식 하나, 신규입사 묶음, 퇴사 서류 고르기. purpose 는 고를 때의 용도(재계약 카드에서 고르면 작성 창의 계약 구분이 재계약)
-export type Pick = { kind: "tpl"; id: string; purpose: PurposeKey } | { kind: "hire" } | { kind: "resign" } | null;
-/** 1단계에서 고른 것 — 2단계 작성 폼을 여는 값(종전 ?compose= 주소와 같은 뜻) */
+// 고른 서류 — 양식 하나, 신규입사 묶음, 퇴사 서류 고르기, 묶음(직접 만든 것 또는 이번만 고른 여러 장 — id 가 null 이면 저장 안 된 묶음).
+// purpose 는 고를 때의 용도(재계약 탭에서 고르면 작성 폼의 계약 구분이 재계약)
+export type Pick =
+  | { kind: "tpl"; id: string; purpose: PurposeKey }
+  | { kind: "hire" } | { kind: "resign" }
+  | { kind: "bundle"; id: string | null; name: string; templateIds: string[] }
+  | null;
+/** 1단계에서 고른 것 — 2단계 작성 폼을 여는 값 */
 export type SendSelection = { pick: NonNullable<Pick>; recipients: string[]; resignPicks: boolean[]; purpose: PurposeKey; multi: boolean };
 
-// 서명 완료 후 근로자 접근(#129) — 시안 표기
-const ACCESS_LABEL: Record<string, string> = { full: "근로자 열람·다운로드", view: "열람만", none: "보관만" };
-const ACCESS_CLASS: Record<string, string> = {
-  full: "bg-indigo-50 text-indigo-600 border-indigo-200",
-  view: "bg-sky-50 text-sky-800 border-sky-200",
-  none: "bg-gray-100 text-gray-600 border-gray-200",
-};
+const ACCESS_LABEL: Record<string, string> = { full: "열람·다운로드", view: "열람만", none: "보관만" };
+// 용도 탭 점 색(묶음마다 다른 색 — 시안 v2 톤 안내)
+const PURPOSE_DOT: Record<string, string> = { recruit: "bg-rose-500", hire: "bg-indigo-500", renew: "bg-violet-500", resign: "bg-slate-500", leave: "bg-amber-600", other: "bg-gray-400" };
 
-// 날짜를 KST 「10/14」 꼴로(서버 시각은 UTC)
 const kstMd = (iso?: string | null) => {
   if (!iso) return "";
   const d = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
@@ -42,52 +46,66 @@ const kstMd = (iso?: string | null) => {
   return `${d.getUTCMonth() + 1}/${String(d.getUTCDate()).padStart(2, "0")}`;
 };
 
-function DocThumb() {
+function DocThumb({ small }: { small?: boolean }) {
   return (
-    <div className="hidden sm:flex w-14 h-[70px] shrink-0 flex-col gap-1.5 rounded border border-gray-200 bg-white p-2" aria-hidden>
-      <span className="h-0.5 w-7 bg-gray-700" />
-      {[0, 1, 2, 3].map(i => <span key={i} className="h-0.5 w-full bg-gray-200" />)}
-      <span className="h-0.5 w-6 bg-gray-200" />
+    <div className={cn("hidden sm:flex shrink-0 flex-col gap-1.5 rounded border border-gray-200 bg-white p-2", small ? "w-10 h-12" : "w-14 h-[70px]")} aria-hidden>
+      <span className="h-0.5 w-6 bg-gray-700" />
+      {[0, 1, 2].map(i => <span key={i} className="h-0.5 w-full bg-gray-200" />)}
     </div>
   );
 }
 
+// 묶음 id — 누를 때만 만든다(렌더 중에 부르지 않는다)
+function newBundleId() { return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
+
+// 끌기 — 어떤 것을 끌고 있는지(카드 순서 바꾸기·카드 포개기·즐겨찾기 순서·묶음 안 순서·탭 순서)
+type Drag = { kind: "reorder" | "stack"; id: string } | { kind: "fav"; key: string } | { kind: "doc"; id: string } | { kind: "tab"; key: string } | null;
+
 export default function SendPicker({ initial, onNext, onTest, stepper }: {
   initial?: SendSelection | null;
-  stepper?: ReactNode;   // 「1 서류 고르기 — 2 내용 입력 — 3 결재자·발송」 표시(제목 오른쪽 위)
   onNext: (sel: SendSelection) => void;
   onTest: (pick: Extract<NonNullable<Pick>, { kind: "tpl" }>) => void;
+  stepper?: ReactNode;   // 「1 서류 고르기 — 2 내용 입력 — 3 결재자·발송」 표시(제목 오른쪽 위)
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [purposeMap, setPurposeMap] = useState<Record<string, ContractPurpose[]>>({});
   const [lastUsed, setLastUsed] = useState<Record<string, string>>({});
+  const [monthCount, setMonthCount] = useState<Record<string, number>>({});
+  const [layout, setLayout] = useState<SendLayout>(DEFAULT_LAYOUT);
+  const [layoutOk, setLayoutOk] = useState(false);   // 서버 배치를 받았는가 — 못 받았으면 저장하지 않는다(기본값으로 본부 배치를 덮지 않게)
   const [loading, setLoading] = useState(true);
-  // 양식 id → {#신규입사}/{#재계약} 구간이 있는가. 재계약 순서는 실제 발송처럼 이 구간이 있는 양식에만 적용된다
-  // (작성 창이 「계약구분」 값을 넣는 조건 = lib/approval-order isRenewalContract). 재계약 순서가 있는 양식만 물어본다
+  // 양식 id → {#신규입사}/{#재계약} 구간이 있는가 — 재계약 순서는 이 구간이 있는 양식에만 쓰인다(작성 폼·발송과 같은 판정)
   const [hasKindCond, setHasKindCond] = useState<Record<string, boolean>>({});
 
-  // 2·3단계에서 「이전」으로 돌아오면 고른 값이 그대로 남는다(initial)
+  // 2·3단계에서 「이전」으로 돌아오면 고른 값이 그대로(initial)
   const [purpose, setPurpose] = useState<PurposeKey>(initial?.purpose ?? "hire");
   const [pick, setPick] = useState<Pick>(initial?.pick ?? null);
   const [resignPicks, setResignPicks] = useState<boolean[]>(initial?.resignPicks ?? [...RESIGN_PICK_DEFAULT]);
   const [multi, setMulti] = useState(initial?.multi ?? false);
   const [recipients, setRecipients] = useState<string[]>(initial?.recipients ?? []);
   const [search, setSearch] = useState("");
+  const [checked, setChecked] = useState<string[]>([]);   // 전체 서류에서 체크한 양식(순서 = 체크한 순서)
+  const [addOpen, setAddOpen] = useState(false);           // 「이 묶음에 서류 더 넣기」
+  const drag = useRef<Drag>(null);
+  const handleDown = useRef(false);                         // ⋮⋮ 손잡이에서 시작한 끌기인가(순서) — 아니면 카드 포개기(묶음)
+  const [dropKey, setDropKey] = useState<string | null>(null);
 
   useEffect(() => {
     let stop = false;
     Promise.all([
       fetch("/api/contract-templates").then(r => (r.ok ? r.json() : { templates: [] })).catch(() => ({ templates: [] })),
-      // includeAdmins: 「보낸 계약서」 작성 창과 같은 목록(받는 사람에서는 관리자를 뺀다)
       fetch("/api/employees?includeAdmins=true").then(r => (r.ok ? r.json() : { employees: [] })).catch(() => ({ employees: [] })),
-      fetch("/api/admin/contract-purposes").then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ purposes?: unknown; lastUsed?: Record<string, string> }>,
-    ]).then(([t, e, p]) => {
+      fetch("/api/admin/contract-purposes").then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ purposes?: unknown; lastUsed?: Record<string, string>; monthCount?: Record<string, number> }>,
+      fetch("/api/admin/contract-send-layout", { cache: "no-store" }).then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ layout?: unknown }>,
+    ]).then(([t, e, p, l]) => {
       if (stop) return;
       setTemplates(t.templates || []);
       setEmployees(e.employees || []);
       setPurposeMap(parsePurposeMap(p.purposes));
       setLastUsed(p.lastUsed || {});
+      setMonthCount(p.monthCount || {});
+      if (l.layout) { setLayout(normalizeLayout(l.layout)); setLayoutOk(true); }
       setLoading(false);
       const withRenewal = ((t.templates || []) as Template[]).filter(x => x.approvalStepsRenewal != null);
       Promise.all(withRenewal.map(x => fetch(`/api/contract-templates/${x.id}/fields`).then(r => (r.ok ? r.json() : {})).catch(() => ({}))
@@ -97,25 +115,68 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     return () => { stop = true; };
   }, []);
 
+  // 배치 저장 — 화면은 먼저 바꾸고(낙관적) 서버에 통째로 저장. 실패하면 서버 값으로 되돌린다
+  const saving = useRef(false);
+  const saveLayout = async (next: SendLayout, okMsg?: string): Promise<SendLayout | null> => {
+    if (!layoutOk) { toast.error("즐겨찾기·묶음 배치를 아직 불러오지 못했습니다. 새로고침한 뒤 다시 해 주세요."); return null; }
+    if (saving.current) { toast.info("앞의 저장을 마치는 중입니다. 잠시 뒤 다시 해 주세요."); return null; }
+    saving.current = true;
+    const prev = layout;
+    setLayout(next);
+    try {
+      const res = await fetch("/api/admin/contract-send-layout", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout: next }) });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 409 && d.layout) { setLayout(normalizeLayout(d.layout)); toast.error(d.error || "다른 관리자가 방금 바꿨습니다. 다시 해 주세요."); return null; }
+      if (!res.ok) throw new Error(d.error || "저장하지 못했습니다.");
+      const saved = normalizeLayout(d.layout);
+      setLayout(saved);
+      if (okMsg) toast.success(okMsg);
+      return saved;
+    } catch (e) {
+      setLayout(prev);
+      toast.error(e instanceof Error ? e.message : "저장하지 못했습니다.");
+      return null;
+    } finally { saving.current = false; }
+  };
+
+  const tplOf = (id: string) => templates.find(t => t.id === id);
   const pkg = useMemo(() => findPackageTemplates(templates), [templates]);
   const purposeOfTpl = (t: Template) => purposesOf(t, purposeMap);
   const listFor = (k: PurposeKey) => templates.filter(t => {
     const ps = purposeOfTpl(t);
     return k === "other" ? ps.length === 0 : ps.includes(k);
   });
-  const hasOther = templates.some(t => purposeOfTpl(t).length === 0);
-  const purposeCards = [...CONTRACT_PURPOSES, ...(hasOther ? [OTHER_PURPOSE] : [])];
-  const list = listFor(purpose);
+  const allTabs = [...CONTRACT_PURPOSES, OTHER_PURPOSE] as { key: PurposeKey; label: string; hint: string }[];
+  const tabs = layout.purposeOrder.map(k => allTabs.find(t => t.key === k)).filter((t): t is (typeof allTabs)[number] => !!t)
+    .filter(t => t.key !== "other" || listFor("other").length > 0);
+  // 카드 순서 — 많이 쓴 순(이번 달 건수 → 최근 사용) 또는 내가 정한 순(tplOrder, 없는 것은 뒤에 많이 쓴 순)
+  const usageSort = (a: Template, b: Template) => (monthCount[b.id] || 0) - (monthCount[a.id] || 0) || (lastUsed[b.id] || "").localeCompare(lastUsed[a.id] || "") || a.name.localeCompare(b.name);
+  const ordered = (list: Template[]) => {
+    if (layout.orderMode === "usage") return [...list].sort(usageSort);
+    const pos = new Map(layout.tplOrder.map((id, i) => [id, i]));
+    return [...list].sort((a, b) => (pos.get(a.id) ?? 1e6) - (pos.get(b.id) ?? 1e6) || usageSort(a, b));
+  };
+  const list = ordered(listFor(purpose));
 
-  // 받는 사람 — 계약 대상은 직원·원장(관리자 제외). 「보낸 계약서」 작성 창과 같은 거르기
+  const isFav = (ref: FavRef) => layout.favorites.some(f => f.t === ref.t && f.id === ref.id);
+  const toggleFav = (ref: FavRef) => {
+    const on = isFav(ref);
+    if (!on && layout.favorites.length >= MAX_FAVORITES) { toast.error(`즐겨찾기는 ${MAX_FAVORITES}개까지입니다.`); return; }
+    void saveLayout({ ...layout, favorites: on ? layout.favorites.filter(f => !(f.t === ref.t && f.id === ref.id)) : [...layout.favorites, ref] });
+  };
+
+  const stepsOf = (t: Template, renewCard: boolean) =>
+    stepsLabel(parseApprovalSteps(templateStepsFor(t, renewCard && t.approvalStepsRenewal != null && hasKindCond[t.id] === true)));
+  const hireDocs = [pkg.empTemplate, pkg.privacyTemplate].filter(Boolean) as Template[];
+
+  // ── 받는 사람 ──
   const candidates = employees.filter(e => e.role !== "ADMIN");
   const q = search.trim().toLowerCase();
   const found = q ? candidates.filter(e => e.name.toLowerCase().includes(q) || (e.branch || "").toLowerCase().includes(q) || (e.department || "").toLowerCase().includes(q)).slice(0, 30) : [];
   const empOf = (id: string) => employees.find(e => e.id === id);
-  // 퇴사 서류는 한 명씩만(작성 창이 퇴사 패키지 여러 명 작성을 막는다 — 상태 꼬임 사고, 2026-08-26 검증)
+  // 퇴사 서류는 한 명씩만(작성 폼이 퇴사 패키지 여러 명 작성을 막는다 — 상태 꼬임 사고, 2026-08-26 검증)
   const multiAllowed = pick?.kind !== "resign";
   const multiOn = multi && multiAllowed;
-
   const toggleRecipient = (id: string) => {
     setRecipients(prev => {
       if (!multiOn) return prev[0] === id ? [] : [id];
@@ -123,172 +184,300 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     });
     if (!multiOn) setSearch("");
   };
+
+  // ── 고르기 ──
   const choose = (p: Pick) => {
     setPick(p);
+    setAddOpen(false);
     if (p?.kind === "resign") {
       setResignPicks([...RESIGN_PICK_DEFAULT]);
       if (recipients.length > 1) { setRecipients(r => r.slice(0, 1)); toast.info("퇴사 서류는 한 명씩 보냅니다. 첫 번째 받는 사람만 남겼습니다."); }
     }
+    window.scrollTo({ top: 0 });
+  };
+  const chooseFav = (f: FavRef) => {
+    if (f.t === "hire") { if (!pkg.canBundle) { toast.error("신규입사 묶음 양식이 다 등록돼 있지 않습니다(양식 관리에서 확인)."); return; } choose({ kind: "hire" }); return; }
+    if (f.t === "resign") { if (!pkg.canResignBundle) { toast.error("퇴사 서류 양식이 다 등록돼 있지 않습니다."); return; } choose({ kind: "resign" }); return; }
+    if (f.t === "bundle") { const b = layout.bundles.find(x => x.id === f.id); if (b) choose({ kind: "bundle", id: b.id, name: b.name, templateIds: b.templateIds }); return; }
+    const t = tplOf(f.id);
+    if (t) { const ps = purposeOfTpl(t); choose({ kind: "tpl", id: t.id, purpose: (ps[0] as PurposeKey) ?? "other" }); }
+  };
+  const sendChecked = () => {
+    const ids = checked.filter(id => tplOf(id));
+    if (!ids.length) return;
+    if (ids.length === 1) choose({ kind: "tpl", id: ids[0], purpose });
+    else choose({ kind: "bundle", id: null, name: `고른 서류 ${ids.length}종`, templateIds: ids.slice(0, MAX_BUNDLE_DOCS) });
+    setChecked([]);
+  };
+  const saveBundle = (ids: string[], suggest: string) => {
+    const uniqIds = [...new Set(ids)].filter(id => tplOf(id));
+    if (uniqIds.length < 2) { toast.error("묶음은 서류 2종 이상이어야 합니다."); return; }
+    if (uniqIds.length > MAX_BUNDLE_DOCS) { toast.error(`묶음에는 ${MAX_BUNDLE_DOCS}종까지 넣을 수 있습니다.`); return; }
+    if (layout.bundles.length >= MAX_BUNDLES) { toast.error(`묶음은 ${MAX_BUNDLES}개까지입니다. 안 쓰는 묶음을 지운 뒤 만들어 주세요.`); return; }
+    const bp = bundleProblem(uniqIds.map(id => tplOf(id)!).filter(Boolean));
+    if (bp) { toast.error(bp, { duration: 9000 }); return; }
+    const name = window.prompt("묶음 이름을 정해 주세요(예: 교실장 승진 묶음)", suggest)?.trim().slice(0, 40);
+    if (!name) return;
+    const id = newBundleId();
+    const favRoom = layout.favorites.length < MAX_FAVORITES;
+    const favs = favRoom ? [...layout.favorites, { t: "bundle" as const, id }] : layout.favorites;
+    void saveLayout({ ...layout, bundles: [...layout.bundles, { id, name, templateIds: uniqIds }], favorites: favs },
+      favRoom ? `「${name}」 묶음을 만들고 즐겨찾기에 올렸습니다.` : `「${name}」 묶음을 만들었습니다(즐겨찾기가 가득 차 「내 묶음」에 있습니다).`);
+    setChecked([]);
+  };
+  const deleteBundle = (id: string) => {
+    const b = layout.bundles.find(x => x.id === id);
+    if (!b || !window.confirm(`「${b.name}」 묶음을 지울까요? 서류(양식)는 지워지지 않습니다.`)) return;
+    void saveLayout({ ...layout, bundles: layout.bundles.filter(x => x.id !== id), favorites: layout.favorites.filter(f => !(f.t === "bundle" && f.id === id)) }, "묶음을 지웠습니다.");
+    if (pick?.kind === "bundle" && pick.id === id) setPick(null);
+  };
+  // 보낼 준비 화면에서 묶음 구성을 바꾼다 — 저장된 묶음이면 그 묶음에도 저장(시안: 바꾼 내용은 「묶음」에 저장돼요)
+  const updatePickedBundle = (ids: string[]) => {
+    if (pick?.kind !== "bundle") return;
+    if (ids.length === 0) { setPick(null); return; }
+    if (ids.length === 1) { choose({ kind: "tpl", id: ids[0], purpose }); return; }   // 한 장만 남으면 서류 한 장 보내기
+    { const bp = bundleProblem(ids.map(id => tplOf(id)!).filter(Boolean)); if (bp) { toast.error(bp, { duration: 9000 }); return; } }   // 결재 순서가 다른 서류는 넣지 않는다
+    setPick({ ...pick, templateIds: ids });
+    if (pick.id) {
+      const bid = pick.id;
+      const bundles = layout.bundles.map(b => (b.id === bid ? { ...b, templateIds: ids } : b));
+      void saveLayout({ ...layout, bundles }).then((saved) => {
+        if (saved && !saved.bundles.some(b => b.id === bid)) setPick(p => (p?.kind === "bundle" && p.id === bid ? { ...p, id: null } : p));
+      });
+    }
   };
 
-  const pickedTpl = pick?.kind === "tpl" ? templates.find(t => t.id === pick.id) : undefined;
-  // 재계약 카드에서 고르면 작성 창이 계약 구분을 재계약으로 연다 — 양식에 그 구간이 있고 재계약 순서가 있을 때만 재계약 순서가 실제로 쓰인다(발송과 같은 판정)
-  const stepsOf = (t: Template, renewCard: boolean) =>
-    stepsLabel(parseApprovalSteps(templateStepsFor(t, renewCard && t.approvalStepsRenewal != null && hasKindCond[t.id] === true)));
-  const hireDocs = [pkg.empTemplate?.name, pkg.privacyTemplate?.name].filter(Boolean) as string[];
-  const resignDocNames = RESIGN_DOC_LABELS.filter((_, i) => i === 0 || resignPicks[i]);
+  // ── 끌기 ──
+  const moveBefore = <T,>(arr: T[], from: number, to: number) => { const a = [...arr]; const [x] = a.splice(from, 1); a.splice(to > from ? to - 1 : to, 0, x); return a; };
+  const onCardDrop = (targetId: string) => {
+    const d = drag.current; drag.current = null; setDropKey(null);
+    if (!d || (d.kind !== "reorder" && d.kind !== "stack") || d.id === targetId) return;
+    if (d.kind === "stack") { saveBundle([targetId, d.id], `${tplOf(targetId)?.name ?? "새"} 묶음`); return; }
+    // 순서 바꾸기 — 지금 보이는 순서를 기준으로 「내가 정한 순」을 만든다(다른 용도 탭의 순서는 그대로)
+    const visible = list.map(t => t.id);
+    const base = [...visible, ...layout.tplOrder.filter(id => !visible.includes(id))];
+    const from = base.indexOf(d.id), to = base.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    void saveLayout({ ...layout, orderMode: "manual", tplOrder: moveBefore(base, from, to) });
+  };
+  const favKey = (f: FavRef) => `${f.t}:${f.id}`;
+  const onFavDrop = (target: FavRef) => {
+    const d = drag.current; drag.current = null; setDropKey(null);
+    if (!d || d.kind !== "fav") return;
+    const from = layout.favorites.findIndex(f => favKey(f) === d.key), to = layout.favorites.findIndex(f => favKey(f) === favKey(target));
+    if (from < 0 || to < 0 || from === to) return;
+    void saveLayout({ ...layout, favorites: moveBefore(layout.favorites, from, to) });
+  };
+  const onTabDrop = (targetKey: string) => {
+    const d = drag.current; drag.current = null; setDropKey(null);
+    if (!d || d.kind !== "tab") return;
+    const from = layout.purposeOrder.indexOf(d.key), to = layout.purposeOrder.indexOf(targetKey);
+    if (from < 0 || to < 0 || from === to) return;
+    void saveLayout({ ...layout, purposeOrder: moveBefore(layout.purposeOrder, from, to) });
+  };
 
-  // 오른쪽 패널의 「고른 서류」
-  const pickedTitle = pick?.kind === "hire" ? "신규입사 묶음" : pick?.kind === "resign" ? "퇴사 서류 고르기" : pickedTpl?.name ?? "";
-  const pickedSub = pick?.kind === "hire" ? hireDocs.join(" · ")
-    : pick?.kind === "resign" ? `${resignDocNames.join(" · ")} — 1년 미만이면 퇴직금 정산 자동 제외`
-    : pickedTpl ? `결재 ${stepsOf(pickedTpl, pick?.kind === "tpl" && pick.purpose === "renew")}` : "";
-
+  // ── 다음 ──
   const goCompose = () => {
     if (!pick) { toast.error("보낼 서류를 먼저 고르세요."); return; }
     if (!recipients.length) { toast.error("받는 사람을 고르세요."); return; }
+    if (pick.kind === "bundle") { const bp = bundleProblem(pickedDocs); if (bp) { toast.error(bp, { duration: 9000 }); return; } }
     onNext({ pick, recipients: multiOn ? recipients : recipients.slice(0, 1), resignPicks, purpose, multi: multiOn });
   };
-  // 나에게 테스트 발송(#67) — 작성 폼의 기능 그대로. 서명자는 나라 받는 사람은 쓰지 않고, 묶음·여러 명은 테스트 발송이 없다
   const goTest = () => {
-    if (pick?.kind !== "tpl") { toast.error("테스트 발송은 양식 하나를 고른 뒤에 할 수 있습니다(묶음은 테스트 발송이 없습니다)."); return; }
+    if (pick?.kind !== "tpl") { toast.error("테스트 발송은 서류 한 장을 고른 뒤에 할 수 있습니다(묶음은 테스트 발송이 없습니다)."); return; }
     onTest(pick);
   };
 
-  const bundleCard = (kind: "hire" | "resign") => {
-    const on = pick?.kind === kind;
-    const can = kind === "hire" ? pkg.canBundle : pkg.canResignBundle;
+  // 보낼 준비 화면의 서류 목록
+  const pickedDocs: Template[] = !pick ? []
+    : pick.kind === "tpl" ? [tplOf(pick.id)].filter(Boolean) as Template[]
+    : pick.kind === "hire" ? hireDocs
+    : pick.kind === "resign" ? (pkg.resignTemplates.filter((t, i) => !!t && (i === 0 || resignPicks[i])) as Template[])
+    : pick.templateIds.map(id => tplOf(id)).filter(Boolean) as Template[];
+  const pickTitle = !pick ? "" : pick.kind === "hire" ? "신규입사 묶음" : pick.kind === "resign" ? "퇴사 서류" : pick.kind === "bundle" ? pick.name : (tplOf(pick.id)?.name ?? "");
+  const nDocs = pickedDocs.length;
+  const nPeople = multiOn ? recipients.length : Math.min(recipients.length, 1);
+
+  // ── 카드 ──
+  const favCard = (f: FavRef, i: number) => {
+    const b = f.t === "bundle" ? layout.bundles.find(x => x.id === f.id) : undefined;
+    const t = f.t === "tpl" ? tplOf(f.id) : undefined;
+    const name = f.t === "hire" ? "신규입사 묶음" : f.t === "resign" ? "퇴사 서류" : b?.name ?? t?.name ?? "";
+    if (!name) return null;
+    const docs = f.t === "hire" ? hireDocs.map(d => d.name) : f.t === "resign" ? ["사직원", "비밀유지서약서(퇴직시)", "+ 필요할 때 3종"] : b ? b.templateIds.map(id => tplOf(id)?.name).filter(Boolean) as string[] : [];
+    const count = f.t === "tpl" ? (monthCount[f.id] || 0) : f.t === "bundle" && b ? Math.max(0, ...b.templateIds.map(id => monthCount[id] || 0)) : f.t === "hire" && pkg.empTemplate ? (monthCount[pkg.empTemplate.id] || 0) : 0;
+    const k = favKey(f);
     return (
-      <div className={cn("rounded-xl border bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-3", on ? "border-indigo-600 ring-1 ring-indigo-600" : "border-gray-200")}>
-        <div className="flex-1 min-w-0 space-y-1">
-          <p className="text-[11px] font-semibold text-amber-700">묶음으로 한 번에</p>
-          <p className="font-bold text-gray-900">{kind === "hire" ? "신규입사 묶음" : "퇴사 서류 고르기"}</p>
-          <p className="text-xs text-gray-500">
-            {kind === "hire" ? `첫 출근일 오전에 함께 보내는 ${hireDocs.length}종` : "사직원 항상 포함 · 1년 미만이면 퇴직금 정산 자동 제외"}
-          </p>
-          {!can && <p className="text-xs text-rose-600">묶음에 들어갈 양식이 다 등록돼 있지 않아 지금은 쓸 수 없습니다(양식 관리에서 확인).</p>}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {kind === "hire" ? hireDocs.map(n => (
-              <span key={n} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700">{n}</span>
-            )) : on ? RESIGN_DOC_LABELS.map((label, i) => (
-              // 고른 뒤에는 문서마다 넣고 빼기(작성 창의 「문서 고르기」와 같은 값으로 넘어간다). 사직원은 대표 문서라 항상
-              <label key={label} className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
-                (i === 0 || resignPicks[i]) ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-gray-200 bg-white text-gray-500",
-                i === 0 ? "opacity-80" : "cursor-pointer")}>
-                <input type="checkbox" className="h-3 w-3" checked={i === 0 || resignPicks[i]} disabled={i === 0}
-                  onChange={e => setResignPicks(p => p.map((v, j) => (j === i ? e.target.checked : v)))} />
-                {label}
-              </label>
-            )) : (
-              <>
-                {RESIGN_DOC_LABELS.filter((_, i) => RESIGN_PICK_DEFAULT[i]).map(n => (
-                  <span key={n} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700">{n}</span>
-                ))}
-                <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700">+ 필요할 때 금품청산·퇴직금·연차수당</span>
-              </>
-            )}
-          </div>
+      <div key={k} draggable onDragStart={(e) => { drag.current = { kind: "fav", key: k }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
+        onDragOver={(e) => { if (drag.current?.kind === "fav") { e.preventDefault(); setDropKey(`fav:${k}`); } }}
+        onDragLeave={() => setDropKey(null)} onDrop={(e) => { e.preventDefault(); onFavDrop(f); }}
+        className={cn("group rounded-xl border bg-white p-4 flex flex-col gap-2 min-w-0", dropKey === `fav:${k}` ? "border-indigo-400 ring-2 ring-indigo-200" : "border-gray-200")}>
+        <div className="flex items-start gap-2">
+          <button type="button" onClick={() => toggleFav(f)} title="즐겨찾기에서 빼기" className="text-amber-400 hover:text-amber-500 shrink-0 mt-0.5"><Star size={16} fill="currentColor" /></button>
+          <p className="flex-1 min-w-0 font-bold text-gray-900 leading-snug break-keep">{name}</p>
+          {docs.length > 1 && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{f.t === "resign" ? "2~5종" : `${docs.length}종`}</span>}
+          <GripVertical size={14} className="shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab" aria-label="끌어서 순서 바꾸기" />
         </div>
-        <button type="button" disabled={!can} onClick={() => choose(on ? null : { kind })} aria-pressed={on}
-          aria-label={`${kind === "hire" ? "신규입사 묶음" : "퇴사 서류 고르기"} ${on ? "고름(누르면 취소)" : "고르기"}`}
-          className={cn("shrink-0 self-start sm:self-center rounded-lg px-3 py-2 text-sm font-medium border disabled:opacity-40",
-            on ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-900 border-gray-300 hover:bg-gray-50")}>
-          {on ? "고름" : "묶음 고르기"}
-        </button>
+        <p className="text-xs text-gray-500 line-clamp-2 break-keep">{docs.length ? docs.join(" · ") : (t?.description || " ")}{count ? ` · 이번 달 ${count}건` : ""}</p>
+        <div className="mt-auto flex gap-2">
+          <button type="button" onClick={() => chooseFav(f)}
+            className={cn("flex-1 rounded-lg py-2 text-sm font-semibold border", i === 0 ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700" : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50")}>보내기</button>
+          {b && <button type="button" onClick={() => deleteBundle(b.id)} title="묶음 지우기" className="rounded-lg border border-gray-200 px-2 text-xs text-gray-400 hover:text-rose-600">지우기</button>}
+        </div>
       </div>
     );
   };
 
-  return (
-    <div className={cn("space-y-5", pick && "pb-24 lg:pb-0")}>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs text-gray-500">전자계약 › 계약서 보내기</p>
-          <h1 className="text-2xl font-bold text-gray-900">어떤 서류를 보내시나요?</h1>
-          <div className="mt-1 flex gap-3 text-xs">
-            <Link href="/admin/contracts" className="text-gray-500 underline hover:text-indigo-600">보낸 계약서</Link>
-            <button type="button" onClick={goTest} title="양식 하나를 고른 뒤 누르면 내용 입력이 열립니다. 내용을 채우고 「나에게 테스트 발송」을 누르세요"
-              className="text-gray-500 underline hover:text-indigo-600">나에게 테스트 발송</button>
-          </div>
-        </div>
-        {stepper}
-      </div>
-
-      {/* 용도 카드 — 고르면 그 용도 양식만 아래에 */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-        {purposeCards.map(p => {
-          const on = purpose === p.key;
-          return (
-            <button key={p.key} type="button" onClick={() => setPurpose(p.key)} aria-pressed={on}
-              className={cn("rounded-xl border p-3 text-left transition-colors",
-                on ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white hover:border-indigo-300")}>
-              <span className={cn("block text-[11px]", on ? "text-indigo-100" : "text-gray-500")}>{p.hint}</span>
-              <span className="block text-lg font-bold leading-tight mt-0.5">{p.label}</span>
-              <span className={cn("block text-xs mt-1", on ? "text-indigo-100" : "text-gray-500")}>양식 {loading ? "…" : listFor(p.key).length}개</span>
+  const tplCard = (t: Template) => {
+    const on = checked.includes(t.id);
+    const fav = isFav({ t: "tpl", id: t.id });
+    const used = lastUsed[t.id];
+    const n = monthCount[t.id] || 0;
+    return (
+      <div key={t.id} draggable
+        onDragStart={(e) => { drag.current = { kind: handleDown.current ? "reorder" : "stack", id: t.id }; handleDown.current = false; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
+        onDragEnd={() => { drag.current = null; setDropKey(null); handleDown.current = false; }}
+        onDragOver={(e) => { const d = drag.current; if ((d?.kind === "reorder" || d?.kind === "stack") && d.id !== t.id) { e.preventDefault(); setDropKey(`tpl:${t.id}:${d.kind}`); } }}
+        onDragLeave={() => setDropKey(null)} onDrop={(e) => { e.preventDefault(); onCardDrop(t.id); }}
+        className={cn("rounded-xl border bg-white p-3 flex gap-3 items-start transition-colors",
+          on ? "border-indigo-400 bg-indigo-50/30" : "border-gray-200",
+          dropKey === `tpl:${t.id}:stack` && "ring-2 ring-amber-300 border-amber-400",
+          dropKey === `tpl:${t.id}:reorder` && "ring-2 ring-indigo-200 border-indigo-400")}>
+        <span onPointerDown={() => { handleDown.current = true; }} onPointerUp={() => { handleDown.current = false; }}
+          className="self-center text-gray-300 hover:text-gray-500 cursor-grab" title="끌어서 순서 바꾸기" aria-label="끌어서 순서 바꾸기"><GripVertical size={16} /></span>
+        <input type="checkbox" checked={on} onChange={() => setChecked(c => (c.includes(t.id) ? c.filter(x => x !== t.id) : [...c, t.id]))}
+          className="mt-1 h-4 w-4 accent-indigo-600 shrink-0" aria-label={`${t.name} 고르기`} />
+        <DocThumb />
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex items-start gap-2">
+            <button type="button" onClick={() => choose({ kind: "tpl", id: t.id, purpose })} className="flex-1 min-w-0 text-left font-bold text-gray-900 leading-snug break-keep hover:text-indigo-700">
+              {t.name}{t.description ? <span className="font-normal text-gray-500 text-sm"> {t.description.length > 24 ? t.description.slice(0, 24) + "…" : t.description}</span> : null}
             </button>
-          );
-        })}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
-        {/* 왼쪽 — 묶음 + 양식 카드 2열 */}
-        <div className="space-y-3 min-w-0">
-          {purpose === "hire" && bundleCard("hire")}
-          {purpose === "resign" && bundleCard("resign")}
-          {loading ? (
-            <p className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">양식을 불러오는 중…</p>
-          ) : list.length === 0 ? (
-            <p className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
-              이 용도의 양식이 없습니다. <Link href="/admin/contract-templates" className="text-indigo-600 underline">양식 관리</Link>에서 양식의 용도를 정할 수 있습니다.
-            </p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {list.map(t => {
-                const on = pick?.kind === "tpl" && pick.id === t.id;
-                const access = t.postSignAccess || "full";
-                const used = lastUsed[t.id];
-                return (
-                  <div key={t.id} className={cn("rounded-xl border bg-white p-3 flex gap-3", on ? "border-indigo-600 ring-1 ring-indigo-600" : "border-gray-200")}>
-                    <DocThumb />
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-start gap-2">
-                        <p className="flex-1 min-w-0 font-bold text-gray-900 leading-snug break-keep">{t.name}</p>
-                        <button type="button" onClick={() => choose(on ? null : { kind: "tpl", id: t.id, purpose })} aria-pressed={on}
-                          aria-label={`${t.name} ${on ? "고름(누르면 취소)" : "고르기"}`}
-                          className={cn("shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium border",
-                            on ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-900 border-gray-300 hover:bg-gray-50")}>
-                          {on ? "고름" : "고르기"}
-                        </button>
-                      </div>
-                      {t.description && <p className="text-xs text-gray-500 line-clamp-1">{t.description}</p>}
-                      <p className="text-xs font-semibold text-gray-800">결재 {stepsOf(t, purpose === "renew")}</p>
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", ACCESS_CLASS[access] || ACCESS_CLASS.full)}>{ACCESS_LABEL[access] || ACCESS_LABEL.full}</span>
-                        <span className="text-[11px] text-gray-500">{used ? `${kstMd(used)} 사용` : `${kstMd(t.createdAt)} 등록`}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            <button type="button" onClick={() => toggleFav({ t: "tpl", id: t.id })} title={fav ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
+              className={cn("shrink-0", fav ? "text-amber-400" : "text-gray-200 hover:text-amber-300")}><Star size={18} fill="currentColor" /></button>
+          </div>
+          <p className="text-xs text-gray-700">결재 {stepsOf(t, purpose === "renew")}</p>
+          <p className="text-[11px] text-gray-500">{used ? `최근 ${kstMd(used)}` : `등록 ${kstMd(t.createdAt)}`}{` · 이번 달 ${n}건`}{` · 근로자 ${ACCESS_LABEL[t.postSignAccess || "full"] ?? ACCESS_LABEL.full}`}</p>
         </div>
+      </div>
+    );
+  };
 
-        {/* 오른쪽 — 고른 서류·받는 사람 */}
-        <aside id="send-panel" className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-4 space-y-4 lg:sticky lg:top-4">
-          <div className="border-b border-gray-100 pb-3">
-            <p className="text-[11px] text-gray-500">고른 서류</p>
-            {pick ? (
-              <>
-                <p className="font-bold text-gray-900 break-keep">{pickedTitle}</p>
-                <p className="text-xs text-gray-500 break-keep">{pickedSub}</p>
-              </>
-            ) : <p className="text-sm text-gray-400">왼쪽에서 서류를 고르세요</p>}
+  const customNonFav = layout.bundles.filter(b => !isFav({ t: "bundle", id: b.id }));
+  const pkgCard = (kind: "hire" | "resign") => {
+    const can = kind === "hire" ? pkg.canBundle : pkg.canResignBundle;
+    const ref: FavRef = { t: kind, id: kind };
+    const fav = isFav(ref);
+    return (
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 flex gap-3 items-start">
+        <DocThumb />
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex items-start gap-2">
+            <p className="flex-1 min-w-0 font-bold text-gray-900 leading-snug">
+              {kind === "hire" ? "신규입사 묶음" : "퇴사 서류"} <span className="text-xs font-semibold text-amber-700">{kind === "hire" ? `${hireDocs.length}종` : "2~5종"}</span>
+            </p>
+            <button type="button" onClick={() => toggleFav(ref)} title={fav ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
+              className={cn("shrink-0", fav ? "text-amber-400" : "text-gray-200 hover:text-amber-300")}><Star size={18} fill="currentColor" /></button>
+          </div>
+          <p className="text-xs text-gray-600">{kind === "hire" ? hireDocs.map(d => d.name).join(" · ") : "사직원 · 비밀유지서약서(퇴직시) + 필요할 때 금품청산·퇴직금·연차수당"}</p>
+          {!can && <p className="text-xs text-rose-600">묶음에 들어갈 양식이 다 등록돼 있지 않습니다(양식 관리에서 확인).</p>}
+          <button type="button" disabled={!can} onClick={() => chooseFav(ref)}
+            className="mt-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">보내기</button>
+        </div>
+      </div>
+    );
+  };
+  const header = (title: string, sub?: ReactNode) => (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <p className="text-xs text-gray-500">전자계약 › 계약서 보내기{pick ? ` › ${pickTitle}` : ""}</p>
+        <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+        {sub}
+      </div>
+      {stepper}
+    </div>
+  );
+
+  // ══ ② 보낼 준비 ══
+  if (pick) {
+    const isBundle = pick.kind === "bundle";
+    const editable = isBundle;
+    const orderDocs = (from: number, to: number) => { if (pick.kind === "bundle") updatePickedBundle(moveBefore(pick.templateIds, from, to)); };
+    const addables = templates.filter(t => !pickedDocs.some(d => d.id === t.id));
+    return (
+      <div className={cn("space-y-5", "pb-24 lg:pb-0")}>
+        {header(`${pickTitle} 보내기`, (
+          <div className="mt-1 flex gap-3 text-xs">
+            <button type="button" onClick={() => setPick(null)} className="text-gray-500 underline hover:text-indigo-600">← 다른 서류 고르기</button>
+            {pick.kind === "tpl" && <button type="button" onClick={goTest} className="text-gray-500 underline hover:text-indigo-600">나에게 테스트 발송</button>}
+            {isBundle && !pick.id && <button type="button" onClick={() => saveBundle(pick.templateIds, "새 묶음")} className="text-gray-500 underline hover:text-indigo-600">이 구성을 묶음으로 저장</button>}
+          </div>
+        ))}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
+          <div className="space-y-3 min-w-0">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">들어 있는 서류 <span className="text-sm font-normal text-gray-500">· {nDocs}종</span></h2>
+              {editable && <span className="text-xs text-gray-400">⋮⋮ 끌어서 보내는 순서 변경</span>}
+            </div>
+            {pick.kind === "resign" && (
+              <div className="rounded-xl border bg-white p-3 flex flex-wrap gap-1.5">
+                {RESIGN_DOC_LABELS.map((label, i) => (
+                  <label key={label} className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs",
+                    (i === 0 || resignPicks[i]) ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-gray-200 bg-white text-gray-500", i === 0 ? "opacity-80" : "cursor-pointer")}>
+                    <input type="checkbox" className="h-3 w-3" checked={i === 0 || resignPicks[i]} disabled={i === 0}
+                      onChange={e => setResignPicks(p => p.map((v, j) => (j === i ? e.target.checked : v)))} />
+                    {label}
+                  </label>
+                ))}
+                <span className="w-full text-[11px] text-gray-500">사직원은 늘 들어가고, 근속 1년 미만이면 퇴직금 정산 신청서는 자동으로 빠집니다.</span>
+              </div>
+            )}
+            {pickedDocs.map((d, i) => (
+              <div key={d.id} draggable={editable}
+                onDragStart={(e) => { if (!editable) return; drag.current = { kind: "doc", id: d.id }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
+                onDragOver={(e) => { if (drag.current?.kind === "doc" && drag.current.id !== d.id) { e.preventDefault(); setDropKey(`doc:${d.id}`); } }}
+                onDragLeave={() => setDropKey(null)}
+                onDrop={(e) => {
+                  e.preventDefault(); const dd = drag.current; drag.current = null; setDropKey(null);
+                  if (dd?.kind !== "doc" || pick.kind !== "bundle") return;
+                  orderDocs(pick.templateIds.indexOf(dd.id), pick.templateIds.indexOf(d.id));
+                }}
+                className={cn("rounded-xl border bg-white p-4 flex gap-4", dropKey === `doc:${d.id}` ? "border-indigo-400 ring-2 ring-indigo-200" : "border-gray-200")}>
+                {editable && <span className="self-center text-gray-300 cursor-grab" aria-label="끌어서 순서 바꾸기"><GripVertical size={16} /></span>}
+                <DocThumb />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <p className="font-bold text-gray-900 break-keep"><span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-50 text-[11px] text-indigo-700">{i + 1}</span>{d.name}</p>
+                  {d.description && <p className="text-xs text-gray-500">{d.description}</p>}
+                  <dl className="grid grid-cols-[72px_1fr] gap-y-1 text-sm">
+                    <dt className="text-gray-500">결재 순서</dt><dd className="font-semibold text-gray-900">{isBundle && isEmployeeOnlyDoc(d) ? "근로자만 서명" : stepsOf(d, purpose === "renew" || (pick.kind === "tpl" && pick.purpose === "renew"))}</dd>
+                    <dt className="text-gray-500">근로자</dt><dd className="font-semibold text-gray-900">{ACCESS_LABEL[d.postSignAccess || "full"] ?? ACCESS_LABEL.full}</dd>
+                  </dl>
+                  <div className="flex gap-2 pt-1">
+                    {d.fileUrl && <a href={`/api/docs/pdf?src=${encodeURIComponent(d.fileUrl)}`} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50">미리보기</a>}
+                    {editable && <button type="button" onClick={() => pick.kind === "bundle" && updatePickedBundle(pick.templateIds.filter(x => x !== d.id))} className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50">이 묶음에서 빼기</button>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {editable && (
+              <div className="text-xs text-gray-500">
+                {!addOpen ? (
+                  <button type="button" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-1 hover:text-indigo-600"><Plus size={13} />이 묶음에 서류 더 넣기</button>
+                ) : (
+                  <select autoFocus className="rounded-md border px-2 py-1.5 text-sm" defaultValue=""
+                    onChange={(e) => { const id = e.target.value; setAddOpen(false); if (id && pick.kind === "bundle") { if (pick.templateIds.length >= MAX_BUNDLE_DOCS) { toast.error(`묶음에는 ${MAX_BUNDLE_DOCS}종까지입니다.`); return; } updatePickedBundle([...pick.templateIds, id]); } }}>
+                    <option value="">넣을 서류 고르기</option>
+                    {addables.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
+                {pick.kind === "bundle" && pick.id ? <span className="ml-2">· 바꾼 내용은 「{pick.name}」에 저장돼요</span> : <span className="ml-2">· 이번 보내기에만 쓰는 구성입니다</span>}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-2">
-            <p className="font-semibold text-gray-900 text-sm">받는 사람</p>
-            {/* 한 명 / 여러 명 — 작은 체크 대신 큰 버튼(시안 v2 1번). 퇴사 서류는 한 명씩 */}
+          {/* 오른쪽 — 받는 사람 */}
+          <aside id="send-panel" className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-4 space-y-4 lg:sticky lg:top-4">
+            <p className="font-semibold text-gray-900">받는 사람</p>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="받는 사람 수">
               {([[false, "한 명"], [true, multiOn && recipients.length > 1 ? `여러 명 (${recipients.length})` : "여러 명"]] as const).map(([v, label]) => {
                 const on = multiOn === v;
@@ -324,53 +513,128 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
             </div>
             {recipients.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {recipients.map(id => {
+                {(multiOn ? recipients : recipients.slice(0, 1)).map(id => {
                   const e = empOf(id);
                   return (
                     <span key={id} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-xs text-indigo-800">
                       {e?.name ?? "?"}{e?.branch ? ` · ${e.branch}` : ""}
-                      <button type="button" aria-label={`${e?.name ?? "받는 사람"} 빼기`} onClick={() => setRecipients(r => r.filter(x => x !== id))} className="text-indigo-400 hover:text-indigo-600"><X size={12} /></button>
+                      <button type="button" aria-label={`${e?.name ?? "받는 사람"} 빼기`} onClick={() => setRecipients(r => r.filter(x => x !== id))} className="text-indigo-400 hover:text-indigo-800"><X size={12} /></button>
                     </span>
                   );
                 })}
-                {multiOn && recipients.length > 1 && <span className="self-center text-xs text-gray-500">총 {recipients.length}명</span>}
               </div>
             )}
-          </div>
-
-          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
-            <p><b>원장 자동</b> · 지점 메인 원장</p>
-            <p><b>인사카드 값 자동</b> · 입사일·생년월일·주소</p>
-            <p>사람마다 1건씩, 개인별 값은 다음 화면 표에서</p>
-          </div>
-
-          <button type="button" onClick={goCompose} disabled={!pick || !recipients.length}
-            className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
-            다음: 내용 입력
-          </button>
-          {(!pick || !recipients.length) && (
-            <p className="text-[11px] text-gray-500 text-center">{!pick ? "서류를 고르면" : "받는 사람을 고르면"} 다음으로 넘어갈 수 있습니다</p>
-          )}
-          <p className="text-[11px] text-gray-500 border-t border-gray-100 pt-3">
-            외부(미가입) 계약자 링크 서명·코디/외부 채용 패키지는 <Link href="/admin/contracts" className="text-indigo-600 underline">보낸 계약서</Link> → 「계약서 작성」에서 보냅니다.
-          </p>
-        </aside>
-      </div>
-
-      {/* 휴대폰·좁은 화면 — 오른쪽 패널이 양식 카드 맨 아래로 밀리므로, 서류를 고르면 아래에 고정 바를 띄운다 */}
-      {pick && (
-        <div className="lg:hidden fixed inset-x-0 md:left-64 bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-          <div className="flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-gray-900">{pickedTitle}</p>
-              <p className="truncate text-xs text-gray-500">{recipients.length ? `받는 사람 ${recipients.length}명` : "받는 사람을 고르세요"}</p>
+            <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
+              {nPeople > 0 && <p className="font-semibold text-gray-900">{nPeople}명 × {nDocs}종 = {nPeople * nDocs}건이 한 번에 나갑니다</p>}
+              <p>원장 자동 · 지점 메인 원장 · 인사카드 값 자동</p>
             </div>
-            {recipients.length ? (
-              <button type="button" onClick={goCompose} className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">다음: 내용 입력</button>
-            ) : (
-              <button type="button" onClick={() => document.getElementById("send-panel")?.scrollIntoView({ behavior: "smooth" })}
-                className="shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium">받는 사람 고르기</button>
-            )}
+            <button type="button" onClick={goCompose} disabled={!recipients.length || nDocs === 0}
+              className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
+              다음: 내용 입력{nPeople > 0 ? ` (${nPeople}명 · ${nPeople * nDocs}건)` : ""}
+            </button>
+            {!recipients.length && <p className="text-[11px] text-gray-500 text-center">받는 사람을 고르면 다음으로 넘어갈 수 있습니다</p>}
+            <p className="text-[11px] text-gray-500 border-t border-gray-100 pt-3">
+              외부(미가입) 계약자 링크 서명·코디/외부 채용 패키지는 <Link href="/admin/contracts" className="text-indigo-600 underline">보낸 계약서</Link> → 「계약서 작성」에서 보냅니다.
+            </p>
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
+  // ══ ① 고르기 ══
+  return (
+    <div className={cn("space-y-6", checked.length > 0 && "pb-28")}>
+      {header("어떤 서류를 보내시나요?", (
+        <div className="mt-1 flex gap-3 text-xs">
+          <Link href="/admin/contracts" className="text-gray-500 underline hover:text-indigo-600">보낸 계약서</Link>
+        </div>
+      ))}
+
+      {/* ★ 즐겨찾기 — 서류 한 장도, 묶음도 */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">즐겨찾기</h2>
+          <span className="text-xs text-gray-400">서류 한 장도, 묶음도 ★ 로 모아 둬요 · 끌어서 순서 변경</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {loading ? <p className="rounded-xl border bg-white p-4 text-sm text-gray-400">불러오는 중…</p> : layout.favorites.map(favCard)}
+          <div className="rounded-xl border border-dashed border-indigo-200 bg-white p-4 flex flex-col justify-center gap-1">
+            <button type="button" onClick={() => checked.length >= 2 ? saveBundle(checked, "새 묶음") : toast.info("아래 전체 서류에서 2종 이상 체크한 뒤 누르세요. 카드를 다른 카드 위로 끌어 포개도 묶음이 됩니다.")}
+              className="text-left font-bold text-indigo-600 inline-flex items-center gap-1"><Plus size={16} />묶음 만들기</button>
+            <p className="text-xs text-gray-500">서류를 체크해 저장 · 카드끼리 포개도 돼요</p>
+          </div>
+        </div>
+        {customNonFav.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1 text-xs">
+            <span className="text-gray-400 self-center">내 묶음</span>
+            {customNonFav.map(b => (
+              <span key={b.id} className="inline-flex items-center gap-1 rounded-full border bg-white px-2.5 py-1">
+                <button type="button" onClick={() => chooseFav({ t: "bundle", id: b.id })} className="hover:text-indigo-700">{b.name} · {b.templateIds.length}종</button>
+                <button type="button" onClick={() => toggleFav({ t: "bundle", id: b.id })} title="즐겨찾기에 넣기" className="text-gray-300 hover:text-amber-400"><Star size={12} fill="currentColor" /></button>
+                <button type="button" onClick={() => deleteBundle(b.id)} title="묶음 지우기" className="text-gray-300 hover:text-rose-500"><X size={12} /></button>
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 전체 서류 */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-gray-900">전체 서류</h2>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-gray-400">⋮⋮ 끌어서 순서 변경 · 카드끼리 포개면 묶음</span>
+            <div className="flex rounded-lg border bg-white p-0.5">
+              {([["usage", "많이 쓴 순"], ["manual", "내가 정한 순"]] as const).map(([v, label]) => (
+                <button key={v} type="button" onClick={() => layout.orderMode !== v && void saveLayout({ ...layout, orderMode: v })}
+                  className={cn("rounded-md px-2.5 py-1", layout.orderMode === v ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-50")}>{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {/* 용도 탭 — 작은 알약(카드와 헷갈리지 않게). 끌어서 순서를 바꾸면 본부 전체에 같은 순서로 저장 */}
+        <div className="flex flex-wrap gap-2">
+          {tabs.map(p => {
+            const on = purpose === p.key;
+            return (
+              <button key={p.key} type="button" draggable onClick={() => setPurpose(p.key)} aria-pressed={on} title={`${p.hint} · 끌어서 순서 변경`}
+                onDragStart={(e) => { drag.current = { kind: "tab", key: p.key }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
+                onDragOver={(e) => { if (drag.current?.kind === "tab") { e.preventDefault(); setDropKey(`tab:${p.key}`); } }}
+                onDragLeave={() => setDropKey(null)} onDrop={(e) => { e.preventDefault(); onTabDrop(p.key); }}
+                className={cn("inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm transition-colors",
+                  on ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-200 hover:border-indigo-300",
+                  dropKey === `tab:${p.key}` && "ring-2 ring-indigo-200")}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-white" : PURPOSE_DOT[p.key])} />
+                {p.label}<span className={cn("text-xs", on ? "text-indigo-100" : "text-gray-400")}>{loading ? "" : listFor(p.key).length}</span>
+              </button>
+            );
+          })}
+        </div>
+        {loading ? (
+          <p className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">서류를 불러오는 중…</p>
+        ) : list.length === 0 && purpose !== "hire" && purpose !== "resign" ? (
+          <p className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+            이 용도의 서류가 없습니다. <Link href="/admin/contract-templates" className="text-indigo-600 underline">양식 관리</Link>에서 서류의 용도를 정할 수 있습니다.
+          </p>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {purpose === "hire" && pkgCard("hire")}
+            {purpose === "resign" && pkgCard("resign")}
+            {list.map(tplCard)}
+          </div>
+        )}
+      </section>
+
+      {/* 고른 서류 띠 — 한 장이면 바로 보내기, 여러 장이면 묶음으로 저장·보내기 */}
+      {checked.length > 0 && (
+        <div className="fixed inset-x-0 md:left-64 bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+          <div className="mx-auto max-w-5xl rounded-xl border border-indigo-300 bg-white shadow-lg px-4 py-3 flex flex-wrap items-center gap-3">
+            <p className="font-bold text-gray-900">고른 서류 {checked.length}건</p>
+            <p className="flex-1 min-w-0 truncate text-xs text-gray-500">{checked.map(id => tplOf(id)?.name).filter(Boolean).join(" · ")}</p>
+            <button type="button" onClick={() => setChecked([])} className="text-xs text-gray-400 hover:text-gray-600">선택 해제</button>
+            {checked.length >= 2 && <button type="button" onClick={() => saveBundle(checked, "새 묶음")} className="rounded-lg border border-indigo-200 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50">묶음으로 저장</button>}
+            <button type="button" onClick={sendChecked} className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-bold text-white hover:bg-indigo-700">보내기</button>
           </div>
         </div>
       )}

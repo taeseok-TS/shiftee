@@ -17,7 +17,10 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
-  const [purposes, used, sent] = await Promise.all([
+  // 이번 달(KST) 첫날 — 카드의 「이번 달 n건」(시안 v2 2번). 발송 기록 기준, 시험·이관 제외
+  const k = new Date(Date.now() + 9 * 3600_000);
+  const monthStart = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 1) - 9 * 3600_000);
+  const [purposes, used, sent, monthRows] = await Promise.all([
     readMap(),
     // 최근 사용일 = 그 양식으로 마지막에 발송한 날(발송 기록 SENT·RESEND). 발송 기록이 없으면(기록 도입 전·초안만) 마지막 작성일.
     // 나에게 테스트 발송·모두싸인 이관본은 뺀다
@@ -31,11 +34,19 @@ export async function GET() {
       FROM "ContractEvent" e JOIN "Contract" c ON c.id = e."contractId"
       WHERE e.type IN ('SENT', 'RESEND') AND c."templateId" IS NOT NULL AND c."isTest" = false AND c."importBatch" IS NULL
       GROUP BY c."templateId"`.catch(() => [] as { templateId: string; at: Date }[]),   // 발송 기록 표가 없는 인스턴스(고객사 설치 등)에서도 용도·작성일은 나오게
+    // 이번 달 발송 건수 — 양식별 「처음 발송(SENT)」 계약 수(재발송은 세지 않는다)
+    prisma.$queryRaw<{ templateId: string; n: bigint }[]>`
+      SELECT c."templateId" AS "templateId", COUNT(DISTINCT c.id) AS n
+      FROM "ContractEvent" e JOIN "Contract" c ON c.id = e."contractId"
+      WHERE e.type = 'SENT' AND e."createdAt" >= ${monthStart} AND c."templateId" IS NOT NULL AND c."isTest" = false AND c."importBatch" IS NULL
+      GROUP BY c."templateId"`.catch(() => [] as { templateId: string; n: bigint }[]),
   ]);
   const lastUsed: Record<string, string> = {};
   for (const u of used) if (u.templateId && u._max.createdAt) lastUsed[u.templateId] = u._max.createdAt.toISOString();
   for (const s of sent) if (s.templateId && s.at) lastUsed[s.templateId] = new Date(s.at).toISOString();
-  return NextResponse.json({ purposes, lastUsed });
+  const monthCount: Record<string, number> = {};
+  for (const m of monthRows) if (m.templateId) monthCount[m.templateId] = Number(m.n);
+  return NextResponse.json({ purposes, lastUsed, monthCount });
 }
 
 // 한 양식의 용도 고치기 — body { templateId, purposes: 용도[] | null }. null 이면 기본값(이름 기준)으로 되돌린다

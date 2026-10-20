@@ -6,6 +6,7 @@ import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import SendPicker, { type SendSelection } from "@/components/contracts/SendPicker";
 import FlowSteps from "@/components/contracts/FlowSteps";
 import FlowSendStep from "@/components/contracts/FlowSendStep";
+import { bundleProblem, isConsentDoc, isEmployeeOnlyDoc } from "@/lib/contract-send-layout";
 import { koreanMoney } from "@/lib/korean-money";
 import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
 import { TEMPLATE_CATEGORIES, templateCategoryOf } from "@/lib/template-category";
@@ -91,6 +92,7 @@ function askDuplicate(data: { duplicates?: { title: string; status: string; last
 }
 
 type ContractTemplate = {
+  approvalSteps?: unknown;   // 양식 결재 순서 — 직접 만든 묶음에서 「근로자 한 단계」 서류(동의서류)를 근로자 전용으로 보낸다(2026-10-20)
   approvalStepsRenewal?: { kind: string }[] | null; // 재계약일 때의 결재 순서(2026-10-15) — 작성 창 안내용
   id: string;
   name: string;
@@ -237,6 +239,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [useTemplate, setUseTemplate] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  // 계약서 보내기에서 고른 「직접 만든 묶음」(시안 v2 2번) — 양식 여러 장을 한 번에(첫 장이 대표 = 결재 순서 기준). null 이면 일반 작성
+  const [customBundle, setCustomBundle] = useState<{ name: string; ids: string[] } | null>(null);
   const [bundleMode, setBundleMode] = useState(false); // 신규입사 패키지(2종 묶음: 근로계약서+개인정보동의서 — 비밀유지서약서는 채용 단계 별도, #202 이예지 답 10/14) 발송
   // 퇴사 패키지 「문서 고르기」(#203, 이예지 답 10/14) — 사직원은 대표 문서라 항상, 기본 체크는 사직원·비밀유지서약서(퇴직시)
   const [resignPicks, setResignPicks] = useState<boolean[]>([...RESIGN_PICK_DEFAULT]);
@@ -926,7 +930,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
 
   // 선택 템플릿 + (패키지면) 묶음 문서들 필드까지 스캔해 입력란 합집합 구성
   // keepValues: 퇴사 패키지 「문서 고르기」처럼 입력 도중 문서 구성만 바뀔 때 — 입력값(퇴사일자 등)은 지우지 않고 칸 목록만 갈아끼운다(10/14 검증 1)
-  const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false, withNda = true, picks: boolean[] = resignPicks, keepValues = false) => {
+  const scanFields = async (templateId: string, includeBundle: boolean, resignScan = false, withNda = true, picks: boolean[] = resignPicks, keepValues = false, extraIds: string[] = []) => {
     const seq = ++scanSeqRef.current;   // 연달아 바꾸면 마지막 호출만 반영(먼저 끝난 옛 스캔이 덮지 않게)
     if (!keepValues) {
       setDayHours(Array(7).fill("")); // 템플릿·모드가 바뀌면 요일별 계산 보조칸도 초기화 (잔존값 합산 사고 방지)
@@ -942,6 +946,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     if (resignScan) {
       resignTemplates.forEach((t, i) => { if (t && picks[i] && !ids.includes(t.id)) ids.push(t.id); });   // 고른 문서만(#203)
     }
+    for (const id of extraIds) if (!ids.includes(id)) ids.push(id);   // 직접 만든 묶음의 나머지 서류(입력 칸 합집합)
     const results = await Promise.all(
       ids.map(id => fetch(`/api/contract-templates/${id}/fields${externalMode ? "?external=1" : ""}`).then(r => r.json()).catch(() => ({})))
     );
@@ -1284,11 +1289,22 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 작성·검사·발송은 이 창 그대로(그 화면은 고르기만). ?compose=tpl|hire|resign|test &tpl=양식 id &kind=renew &to=직원id,… &picks=10001(퇴사 문서 고르기)
 
   /** 작성 폼을 고른 양식·받는 사람으로 연다 — 주소(?compose=)와 계약서 보내기 1단계가 같은 함수. mode = tpl|hire|resign|test */
-  function openCompose(mode: string, tplId: string | null, kind: string | null, toRaw: string[], picksRaw: string): boolean {
+  function openCompose(mode: string, tplId: string | null, kind: string | null, toRaw: string[], picksRaw: string, bundleIds?: string[], bundleName?: string): boolean {
     // 받는 사람 — 같은 id 는 한 번만, 목록에 있는 직원·원장만, 최대 200명(주소를 손으로 고쳐 넣은 값 막기)
     const to = [...new Set(toRaw)].filter(id => employees.some(e => e.id === id && e.role !== "ADMIN")).slice(0, 200);
     const tpl = templates.find(t => t.id === tplId);
-    if (mode === "hire") {
+    if (mode === "bundle") {
+      // 직접 만든 묶음 — 살아 있는 양식만, 2종 이상(1종이면 그냥 양식 하나)
+      const ids = (bundleIds ?? []).filter(id => templates.some(t => t.id === id));
+      if (ids.length < 1) { toast.error("묶음의 서류를 찾지 못했습니다. 다시 골라 주세요."); return false; }
+      setUseTemplate(true);
+      setSelectedTemplate(ids[0]);
+      setCustomBundle(ids.length > 1 ? { name: bundleName || "묶음", ids } : null);
+      const first = templates.find(t => t.id === ids[0])!;
+      setCreateForm(f => ({ ...f, type: first.type }));
+      scanFields(ids[0], false, false, true, resignPicks, false, ids.slice(1));
+      if (kind === "renew") setContractKind("재계약");   // 재계약 탭에서 고른 묶음(scanFields 가 「신규입사」로 되돌린 뒤에)
+    } else if (mode === "hire") {
       if (!canBundle) { toast.error("신규입사 묶음 양식이 다 등록돼 있지 않습니다."); return false; }
       startKind("hire");
     } else if (mode === "resign") {
@@ -1332,6 +1348,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     setBundleMode(false); setResignBundleMode(false); setCodiBundleMode(false);
     setExternalMode(false); setExtBundleMode(false); setExternalForm({ name: "", phone: "" });
     setBulkMode(false); setBulkUserIds([]); setBulkValues({});
+    setCustomBundle(null);
   }
 
   // 1단계 → 2단계. 같은 서류·같은 받는 사람이면 입력한 값을 그대로 두고 넘어간다(이전 단계로 갔다 와도 입력값이 남게)
@@ -1349,8 +1366,10 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     flowKey.current = "";   // 열기에 실패하면 옛 선택으로 빈 폼에 들어가지 않게(검증 F6)
     resetCompose();
     const mode = sel.pick.kind === "tpl" ? "tpl" : sel.pick.kind;
-    const ok = openCompose(mode, sel.pick.kind === "tpl" ? sel.pick.id : null, sel.pick.kind === "tpl" && sel.pick.purpose === "renew" ? "renew" : null,
-      sel.recipients, sel.resignPicks.map(v => (v ? "1" : "0")).join(""));
+    const ok = openCompose(mode, sel.pick.kind === "tpl" ? sel.pick.id : null,
+      (sel.pick.kind === "tpl" && sel.pick.purpose === "renew") || (sel.pick.kind === "bundle" && sel.purpose === "renew") ? "renew" : null,
+      sel.recipients, sel.resignPicks.map(v => (v ? "1" : "0")).join(""),
+      sel.pick.kind === "bundle" ? sel.pick.templateIds : undefined, sel.pick.kind === "bundle" ? sel.pick.name : undefined);
     if (!ok) return;
     flowKey.current = key;
     setFlowStep(2);
@@ -1471,6 +1490,26 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
   }
 
+  // 직접 만든 묶음의 문서들 — 사람 한 명분. 「근로자 한 단계」 양식(동의서류)은 근로자 전용, 나머지는 대표(첫 서류) 결재 순서로 함께 간다(서버 bundle/send)
+  //  · 개인정보 동의서에는 동의 확인 키(미선택)를 심고, 다른 서류에서는 뺀다 — 서명 화면이 이 키로 동의 단계를 띄운다(#104, 검증 지적)
+  //  · 근로자 전용 서류에는 연봉을 넣지 않는다
+  const customBundleItems = (uid: string, per: Record<string, string>, start: string, end: string, salary: string) => {
+    const ids = customBundle?.ids ?? [];
+    // 모든 서류가 근로자 전용이면 첫 서류는 대표로 둔다 — 대표가 없으면 「보낸 계약서」 목록에서 그 묶음을 보내거나 지울 수 없다(재검증 N1)
+    const allEmpOnly = ids.every(id => { const t = templates.find(x => x.id === id); return !!t && isEmployeeOnlyDoc(t); });
+    return ids.map((tid, i) => {
+      const t = templates.find(x => x.id === tid);
+      const employeeOnly = !!t && isEmployeeOnlyDoc(t) && !(allEmpOnly && i === 0);
+      const extra: Record<string, string> = { ...per };
+      delete extra["동의고유식별"]; delete extra["동의채용정보"];
+      if (t && isConsentDoc(t)) { extra["동의고유식별"] = "미선택"; extra["동의채용정보"] = "미선택"; }
+      return { templateId: tid, title: `${titlePrefix(uid)} ${t?.name ?? "서류"}`, type: t?.type || "OTHER",
+        startDate: start, endDate: end, salary: employeeOnly ? "" : salary, extraFields: extra, employeeOnly };
+    });
+  };
+  /** 묶음으로 보낼 수 없으면 이유 — 결재 순서가 다른 서류가 섞임(서버는 대표 순서 하나만 쓴다) */
+  const customBundleProblem = () => customBundle ? bundleProblem(customBundle.ids.map(id => templates.find(t => t.id === id)).filter((t): t is ContractTemplate => !!t)) : null;
+
   // 계약서 보내기 — 만든 초안을 3단계로 넘긴다(작성 폼 값은 지우지 않는다: 3단계에서 「이전」이면 그대로 고칠 수 있게)
   function flowCreatedGo(ids: unknown) {
     const list = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
@@ -1518,6 +1557,10 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (bundleMode && empTemplate && selectedTemplate !== empTemplate.id) {
         toast.error("신규입사 패키지는 에듀플렉스 근로계약서로만 발송할 수 있습니다."); setUploading(false); return;
       }
+      if (customBundle && customBundle.ids[0] !== selectedTemplate) {
+        toast.error("묶음의 첫 서류가 바뀌었습니다. 1단계에서 묶음을 다시 골라 주세요."); setUploading(false); return;
+      }
+      { const bp = customBundleProblem(); if (bp) { toast.error(bp); setUploading(false); return; } }
       // 개인별 날짜(#19) — 못 읽는 날짜가 있으면 만들기 전에 멈춘다
       const rowDate = (uid: string, k: "계약시작일" | "계약종료일", fallback: string) => {
         const raw = bulkValues[uid]?.[k] || "";
@@ -1617,7 +1660,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
         const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;
         try {
           let res: Response;
-          if (bundleMode && privacyTemplate) {
+          if (customBundle) {
+            res = await fetch("/api/contracts/bundle", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: uid, items: customBundleItems(uid, per, rowStart, rowEnd, rowSalary) }),
+            });
+          } else if (bundleMode && privacyTemplate) {
             const items = [
               { templateId: selectedTemplate, title, type: "EMPLOYMENT",
                 startDate: rowStart, endDate: rowEnd, salary: rowSalary,
@@ -1838,6 +1886,23 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" });
       setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사");
       fetchContracts();
+      return;
+    }
+
+    // 직접 만든 묶음(한 명) — 서류마다 1건씩 한 묶음으로(계약서 보내기 시안 v2 2번)
+    if (customBundle && useTemplate && selectedTemplate && !externalMode) {
+      if (customBundle.ids[0] !== selectedTemplate) { toast.error("묶음의 첫 서류가 바뀌었습니다. 1단계에서 묶음을 다시 골라 주세요."); setUploading(false); return; }
+      { const bp = customBundleProblem(); if (bp) { toast.error(bp); setUploading(false); return; } }
+      const res = await fetch("/api/contracts/bundle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: createForm.userId, items: customBundleItems(createForm.userId, buildSingleExtra(), createForm.startDate, createForm.endDate, effSalary) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setUploading(false);
+      if (!res.ok) { toast.error(data.error || "묶음 작성 실패"); return; }
+      if (flow) { flowCreatedGo(data.contractIds); return; }
+      toast.success(`「${customBundle.name}」 ${customBundle.ids.length}종이 작성되었습니다. 첫 서류에서 발송하면 함께 발송됩니다.`);
+      setCreateOpen(false); resetCompose(); fetchContracts();
       return;
     }
 
@@ -2340,7 +2405,14 @@ ${url}`;
                 )}
 
                 {/* 템플릿 선택 */}
-                {useTemplate && (
+                {useTemplate && customBundle && (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-1">
+                    <p className="text-sm font-semibold text-indigo-900">「{customBundle.name}」 {customBundle.ids.length}종을 한 번에 — 사람마다 묶음 1개</p>
+                    <p className="text-xs text-indigo-800">{customBundle.ids.map(id => templates.find(t => t.id === id)?.name).filter(Boolean).join(" · ")}</p>
+                    <p className="text-[11px] text-indigo-700">아래 입력 칸은 모든 서류의 칸을 합친 것입니다. 결재 순서는 첫 서류 기준, 「근로자 한 단계」 서류는 근로자만 서명합니다.</p>
+                  </div>
+                )}
+                {useTemplate && !customBundle && (
                   <div className="space-y-2">
                     <Label>템플릿 선택 *</Label>
                     <Select value={selectedTemplate} onValueChange={(v) => v && handleTemplateSelect(v)}>
@@ -2970,8 +3042,8 @@ ${url}`;
                           for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
                           if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
                           // 패키지 모드면 포함 문서 전체를 한 PDF 로 이어 미리보기 (#117)
-                          const pkgIds =
-                            resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.filter((_, i) => resignIncluded[i]).map(t => t!.id)
+                          const pkgIds = customBundle ? customBundle.ids
+                            : resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.filter((_, i) => resignIncluded[i]).map(t => t!.id)
                             : bundleMode && privacyTemplate ? [selectedTemplate, privacyTemplate.id]
                             : (extBundleMode || codiBundleMode) && ndaTemplate && privacyTemplate ? [selectedTemplate, ndaTemplate.id, privacyTemplate.id]
                             : [selectedTemplate];
@@ -3016,6 +3088,7 @@ ${url}`;
   if (flow) {
     const sel = flowSel;
     const flowTitle = !sel ? "" : sel.pick.kind === "hire" ? "신규입사 묶음" : sel.pick.kind === "resign" ? "퇴사 서류"
+      : sel.pick.kind === "bundle" ? sel.pick.name
       : (templates.find(t => t.id === (sel.pick as { id: string }).id)?.name ?? "서류");
     const nPeople = bulkMode ? bulkUserIds.length : createForm.userId ? 1 : 0;
     const goStep = async (n: 1 | 2) => {
