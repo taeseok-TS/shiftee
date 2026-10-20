@@ -10,6 +10,8 @@ export type SendContract = {
   id: string; userId: string; title: string; status: string; bundleId?: string | null; employeeOnly?: boolean;
   externalName?: string | null; user: { name: string; branch?: string | null };
   approvalSteps?: { kind: string }[] | null;   // 양식의 결재 순서(#213-2)
+  approvalLocked?: boolean;    // 양식 결재 순서 고정(서버가 발송 때 그 순서와 같은지 본다)
+  approvalRenewal?: boolean;   // 재계약 순서를 쓰는 계약(양식 기본으로 저장할 때 재계약 순서를 고친다)
   templateId?: string | null; createdAt?: string;
 };
 export type SendEmployee = { id: string; name: string; role?: string; branch?: string | null; managerBranches?: string[]; isContractApprover?: boolean };
@@ -41,7 +43,7 @@ export function planUnits(contracts: SendContract[]): SendUnit[] {
 /** 패키지의 결재 순서는 **대표 문서**(직원전용이 아닌 가장 먼저 만들어진 문서)의 양식에서 읽는다(재검증 F8) */
 export function repOf(u: SendUnit, contracts: SendContract[]): SendContract {
   return u.bundle
-    ? ([...contracts].filter((c) => c.bundleId === u.c.bundleId && !c.employeeOnly && c.templateId).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))[0] ?? u.c)
+    ? ([...contracts].filter((c) => c.bundleId === u.c.bundleId && !c.employeeOnly && c.templateId).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "") || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0] ?? u.c)   // 같은 시각이면 id 순 — 서버(bundle send)와 같은 대표(검증 P2)
     : u.c;
 }
 
@@ -54,9 +56,9 @@ export function unitSpecs(u: SendUnit, contracts: SendContract[]): ApprovalStepS
 }
 
 /** 본부 단계가 둘 이상인 단위 — 한 명만 골라서는 못 보낸다(개별 발송) */
-export const isMultiHq = (u: SendUnit, contracts: SendContract[]) => !employeeOnlySingle(u) && unitSpecs(u, contracts).filter((s) => s.kind === "HQ").length > 1;
+export const isMultiHq = (u: SendUnit, contracts: SendContract[], specs?: ApprovalStepSpec[]) => !employeeOnlySingle(u) && (specs ?? unitSpecs(u, contracts)).filter((s) => s.kind === "HQ").length > 1;
 /** 본부 단계가 있는 단위가 하나라도 있으면 본부를 골라야 한다 */
-export const needsHq = (units: SendUnit[], contracts: SendContract[]) => units.some((u) => !employeeOnlySingle(u) && unitSpecs(u, contracts).some((s) => s.kind === "HQ"));
+export const needsHq = (units: SendUnit[], contracts: SendContract[], specs?: ApprovalStepSpec[]) => units.some((u) => !employeeOnlySingle(u) && (specs ?? unitSpecs(u, contracts)).some((s) => s.kind === "HQ"));
 
 /** 결재자 id 순서 — 양식 순서대로, 본부는 고른 한 명(당사자 본인이면 비움 — #34 검증 F13), 원장은 자동, 근로자는 당사자 */
 export function approverIdsOf(u: SendUnit, contracts: SendContract[], employees: SendEmployee[], hq: string, mainManagerIds?: Record<string, string>, specs?: ApprovalStepSpec[]): string[] {

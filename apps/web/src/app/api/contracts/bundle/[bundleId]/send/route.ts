@@ -34,7 +34,7 @@ export async function POST(
   const contracts = await prisma.contract.findMany({
     where: { bundleId },
     select: { id: true, userId: true, employeeOnly: true, status: true, externalName: true, externalPhone: true, externalEmail: true, title: true, templateId: true, startDate: true, endDate: true, extraFields: true, type: true, bundleId: true },
-    orderBy: { createdAt: "asc" },   // 대표 문서(결재 순서 기준)가 늘 같게(3f2d0d4 검증 F6)
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],   // 대표 문서(결재 순서 기준)가 늘 같게(3f2d0d4 검증 F6) — 같은 시각이면 id 순(클라이언트 repOf 와 같은 기준, 2026-10-20 검증 P2)
   });
   if (contracts.length === 0)
     return NextResponse.json({ error: "패키지를 찾을 수 없습니다." }, { status: 404 });
