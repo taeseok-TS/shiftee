@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { templateFieldNames, summaryForTemplate, maskPiiJson } from "@/lib/contract-fields";
@@ -20,7 +20,7 @@ export async function GET(_request: NextRequest) {
         include: {
           contract: {
             include: {
-              user: { select: { id: true, name: true, email: true, department: true, branch: true } },
+              user: { select: { id: true, name: true, email: true, department: true, branch: true, empNo: true } },   // 사번 — 원장 승인 전체 창 「지점 · 사번」(시안 v2 6번)
               template: { select: { fileUrl: true } }, // 요약 칸을 그 템플릿 필드로 거르는 데만 쓴다(#206-2)
             },
           },
@@ -59,6 +59,7 @@ export async function GET(_request: NextRequest) {
       name: step.approvalLine.contract.user.name,
       department: step.approvalLine.contract.user.department,
       branch: step.approvalLine.contract.user.branch,
+      empNo: step.approvalLine.contract.user.empNo,
     },
     approvalLine: {
       // signToken·tokenExpiresAt은 결재자에게 노출 금지(게스트 서명 링크 위조 방지)

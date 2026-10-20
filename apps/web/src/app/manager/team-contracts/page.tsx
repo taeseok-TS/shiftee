@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,11 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { FileSignature, PenLine, ArrowRight, CheckCircle2, Clock, Eye } from "lucide-react";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+import ApprovalFullView, { type SignPayload } from "@/components/contracts/ApprovalFullView";
 
 type Step = {
   id: string;
@@ -20,6 +19,8 @@ type Step = {
   status: string;
   approverId: string;
   approver: { id: string; name: string; branch?: string | null };
+  decidedAt?: string | null;
+  externalName?: string | null;
   hasSignature?: boolean; // 서명이 있는가(주소는 서버가 안 준다) — 진행본으로 열지 판정
 };
 type Contract = {
@@ -38,7 +39,7 @@ type Contract = {
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
   summaryFields?: Record<string, string> | null; // 서명 창 요약 — 그 문서 템플릿 필드만(서버 계산, #206-2)
   createdAt: string;
-  user: { id: string; name: string; department: string | null; branch: string | null };
+  user: { id: string; name: string; department: string | null; branch: string | null; empNo?: number | null };
   approvalLine?: { steps: Step[] } | null;
 };
 
@@ -122,8 +123,7 @@ export default function ManagerContractsPage() {
 
   const [signOpen, setSignOpen] = useState(false);
   // 승인 창 안 본문(2026-10-16 이예지 QA R1) — 본문 PDF 를 실제로 받아 창에 띄운 뒤에만 승인 버튼을 켠다(본문을 안 보고 한 번에 서명하던 것).
-  // iframe 의 load 신호는 오류 화면에도 오므로 쓰지 않는다 — 응답이 정상 PDF 일 때만 docLoaded
-  const [docLoaded, setDocLoaded] = useState(false);
+  // iframe 의 load 신호는 오류 화면에도 오므로 쓰지 않는다 — 응답이 정상 PDF 일 때만 docBlob(전체 창이 그 뒤 마지막 쪽까지 봐야 승인을 켠다)
   const [docBlob, setDocBlob] = useState<string | null>(null);
   const [docErr, setDocErr] = useState<string | null>(null);
   const [docIsProgress, setDocIsProgress] = useState(false); // 창에 뜬 본문이 서명 진행본인가(못 받아 원본으로 넘어가면 false)
@@ -135,15 +135,13 @@ export default function ManagerContractsPage() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectBusy, setRejectBusy] = useState(false);
-  const sigRef = useRef<SignaturePadHandle>(null);
   // 저장된 결재 서명 — 있으면 원클릭 승인
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
-  const [drawNewSig, setDrawNewSig] = useState(false);
-  const [saveAsDefault, setSaveAsDefault] = useState(false); // 기본 해제 — 체크한 사람만 저장(#205-2, 2026-09-11)
-  const [signPw, setSignPw] = useState(""); // 결재자 본인 확인 — 승인 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정)
 
+  const [myId, setMyId] = useState("");
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
+      setMyId(d.user?.id || "");
       setBranch(d.user?.branch || d.branch || "");
       setMyName(d.user?.name || "");
       setMySignatureUrl(d.user?.signatureUrl || null);
@@ -172,40 +170,25 @@ export default function ManagerContractsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  async function handleApprove() {
-    if (!signTarget) return;
-    const useSaved = !!mySignatureUrl && !drawNewSig;
-    let body: Record<string, unknown>;
-    if (useSaved) {
-      body = { useSaved: true, isApprover: true };
-    } else {
-      if (!sigRef.current || sigRef.current.isEmpty()) { toast.error("서명을 입력해주세요."); return; }
-      body = { signatureData: sigRef.current.toDataURL(), isApprover: true, saveAsDefault };
-    }
-    // 결재자 본인 확인(#220-3) — 서버가 비밀번호를 다시 확인한다(화면 검사는 안내용)
-    if (!signPw) { toast.error("본인 확인을 위해 로그인 비밀번호를 입력해주세요."); return; }
-    body.password = signPw;
+  // 전체 창(시안 v2 6번)에서 승인 — 규칙·API 는 handleApprove 와 같다(서명 그림 또는 저장 서명 + 비밀번호, 문서 버전 묶기)
+  async function handleApproveFull(p: SignPayload) {
+    if (!signTarget || signing) return;
+    const body: Record<string, unknown> = p.useSaved ? { useSaved: true, isApprover: true } : { signatureData: p.signatureData, isApprover: true, saveAsDefault: p.saveAsDefault };
+    body.password = p.password;
     setSigning(true);
     try {
       const res = await fetch(`/api/contracts/${signTarget.id}/sign`, {
         method: "POST",
-        // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(data.error || "결재 처리에 실패했습니다."); return; }
       toast.success("계약서를 승인했습니다.");
-      setSignOpen(false);
-      setSignTarget(null);
-      setSignPw("");
-      if (!useSaved && saveAsDefault) {
-        fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
-      }
+      setSignOpen(false); setSignTarget(null);
+      if (!p.useSaved && p.saveAsDefault) fetch("/api/auth/me").then(r => r.json()).then(d => setMySignatureUrl(d.user?.signatureUrl || null)).catch(() => {});
       fetchData();
-    } finally {
-      setSigning(false);
-    }
+    } finally { setSigning(false); }
   }
 
   async function handleReject() {
@@ -238,9 +221,8 @@ export default function ManagerContractsPage() {
     let alive = true;
     let made: string | null = null;
     setDocErr(null); setDocBlob(null); setDocIsProgress(false);
-    if (!signOpen || !signTarget) { setDocLoaded(false); return; }
-    if (!raw) { setDocLoaded(true); return; }   // 파일 없는 계약(옛 데이터)은 요약만으로
-    setDocLoaded(false);
+    if (!signOpen || !signTarget) return;
+    if (!raw) return;   // 파일 없는 계약(옛 데이터)은 요약만으로
     const src = /\.pdf$/i.test(raw) ? raw : `/api/docs/pdf?src=${encodeURIComponent(raw)}`;
     const prog = progressHref(signTarget);
     const load = (u: string) => fetch(u).then(async (r) => {
@@ -252,7 +234,7 @@ export default function ManagerContractsPage() {
       .then(({ b, isProg }) => {
         if (!alive) return;
         made = URL.createObjectURL(b);
-        setDocBlob(made); setDocLoaded(true); setDocIsProgress(isProg);
+        setDocBlob(made); setDocIsProgress(isProg);
         recordViewed(signTarget.id);   // 열람 기록(#205-4) — 본문이 실제로 열렸을 때
       })
       .catch((e: unknown) => { if (alive) setDocErr(e instanceof Error ? e.message : "본문을 불러오지 못했습니다."); });
@@ -287,7 +269,7 @@ export default function ManagerContractsPage() {
                       <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                     </a>
                   )}
-                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setDrawNewSig(false); setSignPw(""); setSignOpen(true); }}>
+                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setSignOpen(true); }}>
                     <PenLine size={14} />승인
                   </Button>
                 </div>
@@ -377,94 +359,26 @@ export default function ManagerContractsPage() {
         </CardContent>
       </Card>
 
-      {/* 승인 다이얼로그 */}
-      <Dialog open={signOpen} onOpenChange={(o) => { setSignOpen(o); if (!o) setSignPw(""); }}>
-        <DialogContent className="max-w-3xl sm:max-w-3xl max-h-[94vh] flex flex-col overflow-hidden">
-          {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**
-              (2026-09-08 디렉터 보고). 높이를 화면에 맞추고 안쪽만 스크롤시키되,
-              버튼 줄은 아래에 고정해 어떤 화면 크기에서도 항상 손이 닿게 한다. */}
-          <DialogHeader className="shrink-0"><DialogTitle>계약서 결재 승인</DialogTitle></DialogHeader>
-          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
-            {signTarget && (
-              <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                <p className="font-medium">{signTarget.title}</p>
-                {signTarget.sendMessage && (
-                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 whitespace-pre-wrap">💬 본부 메시지 · {signTarget.sendMessage}</p>
-                )}
-                <p className="text-gray-500 text-xs">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : signTarget.user.name} · {typeLabel[signTarget.type] || signTarget.type}</p>
-                <ApprovalChain steps={signTarget.approvalLine?.steps} userId={signTarget.externalName ? undefined : signTarget.userId} />
-                {/* 본문 — 승인 전에 반드시 보게 창 안에 띄운다(R1). 새 창으로도 열 수 있다 */}
-                {getFileUrl(signTarget.fileUrl) && (
-                  <div className="mt-2 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-gray-600">계약서 본문{docIsProgress ? " (지금까지의 서명 반영본)" : ""}</span>
-                      <a href={(docIsProgress && progressHref(signTarget)) || viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">새 창으로 크게 보기</a>
-                    </div>
-                    {docBlob ? (
-                      <iframe key={docBlob} src={docBlob} title="계약서 본문" className="w-full rounded border bg-white" style={{ height: "52vh" }} />
-                    ) : (
-                      <div className="flex items-center justify-center rounded border bg-gray-50 text-xs" style={{ height: "20vh" }}>
-                        {docErr ? <span className="text-red-600">{docErr} 「새 창으로 크게 보기」로 열어 보거나 본부에 알려 주세요.</span> : <span className="text-gray-400">본문을 불러오는 중입니다 — 본문이 열리면 승인 버튼이 켜집니다.</span>}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {/* 작성 시 입력값 요약 — 계약서를 열지 않아도 핵심 내용 확인 */}
-                <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                  <span className="text-gray-400">{signTarget.externalName ? "계약자" : "직원명"}</span><span>{signTarget.externalName ? `${signTarget.externalName} (외부)` : `${signTarget.user.name}${signTarget.user.branch ? ` (${signTarget.user.branch})` : ""}`}</span>
-                  {(signTarget.startDate || signTarget.endDate) && (
-                    <><span className="text-gray-400">계약기간</span>
-                    <span>{signTarget.startDate ? format(new Date(signTarget.startDate), "yyyy-MM-dd") : "?"} ~ {signTarget.endDate ? format(new Date(signTarget.endDate), "yyyy-MM-dd") : "?"}</span></>
-                  )}
-                  {/* 그 문서 템플릿의 필드만(#206-2) */}
-                  {Object.entries(signTarget.summaryFields ?? signTarget.extraFields ?? {}).map(([k, v]) => (
-                    <span key={k} className="contents"><span className="text-gray-400">{k}</span><span>{v}</span></span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {mySignatureUrl && !drawNewSig ? (
-              /* 저장된 서명 원클릭 승인 */
-              <div className="space-y-2">
-                <Label>저장된 내 서명</Label>
-                <div className="border rounded-lg bg-white p-2 flex items-center justify-center h-24">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={mySignatureUrl} alt="저장된 서명" className="max-h-20 object-contain" />
-                </div>
-                <button type="button" className="text-xs text-blue-600 underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
-                  새로 그리기 (기존 저장 서명 교체)
-                </button>
-                <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>서명 *</Label>
-                <SignaturePad ref={sigRef} />
-                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                  <input type="checkbox" checked={saveAsDefault} onChange={e => setSaveAsDefault(e.target.checked)} />
-                  이 서명을 저장해두고 다음 결재부터 자동 사용
-                </label>
-                <p className="text-xs text-gray-400">승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
-              </div>
-            )}
-            {/* 결재자 본인 확인 — 승인 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정). 근로자 서명과 같은 확인 */}
-            <div className="space-y-1">
-              <Label>본인 확인 — 비밀번호 *</Label>
-              <Input type="password" autoComplete="current-password" value={signPw}
-                onChange={e => setSignPw(e.target.value)} placeholder="로그인 비밀번호" />
-              <p className="text-[11px] text-gray-400">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
-            </div>
-            {/* 스크롤해도 항상 보이도록 하단에 붙인다 */}
-            <div className="flex gap-2 justify-end sticky bottom-0 bg-white pt-3 pb-1 -mx-1 px-1 border-t">
-              <Button variant="outline" onClick={() => setSignOpen(false)} disabled={signing}>취소</Button>
-              {/* 조건이 안 맞으면 버티는 대신 사유를 남긴다 (2026-09-04) */}
-              <Button variant="ghost" className="text-red-600 hover:bg-red-50" disabled={signing}
-                      onClick={() => { setRejectReason(""); setRejectOpen(true); }}>반려</Button>
-              <Button onClick={handleApprove} disabled={signing || !docLoaded} title={!docLoaded ? "본문이 열린 뒤에 승인할 수 있습니다" : undefined}>{signing ? "처리 중..." : mySignatureUrl && !drawNewSig ? "저장된 서명으로 승인" : "승인"}</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* 승인 — 전체 창(2026-10-20 시안 v2 6번). 왼쪽 쪽 목록 · 가운데 A4 한 쪽씩 · 오른쪽 승인 정보, 마지막 쪽까지 봐야 승인 */}
+      {signOpen && signTarget && (
+        <ApprovalFullView
+          key={signTarget.id}
+          c={{
+            id: signTarget.id, title: signTarget.title, userId: signTarget.userId, externalName: signTarget.externalName, sendMessage: signTarget.sendMessage,
+            user: { name: signTarget.user.name, branch: signTarget.user.branch, empNo: signTarget.user.empNo },
+            docLabel: typeLabel[signTarget.type] || signTarget.type,
+            period: signTarget.startDate || signTarget.endDate ? `${(signTarget.startDate || "?").slice(0, 10)} ~ ${(signTarget.endDate || "?").slice(0, 10)}` : null,
+            summaryFields: signTarget.summaryFields ?? signTarget.extraFields ?? null,
+            steps: (signTarget.approvalLine?.steps || []).map((st) => ({ id: st.id, order: st.order, status: st.status, approverId: st.approverId, decidedAt: st.decidedAt, approver: st.approver, externalName: st.externalName })),
+          }}
+          myId={myId} myRole="원장"
+          docUrl={docBlob} docErr={docErr} docIsProgress={docIsProgress} hasFile={!!getFileUrl(signTarget.fileUrl)}
+          mySignatureUrl={mySignatureUrl} busy={signing} paused={rejectOpen}
+          onSubmit={handleApproveFull}
+          onReject={() => { setRejectReason(""); setRejectOpen(true); }}
+          onClose={() => { if (!signing) setSignOpen(false); }}
+        />
+      )}
 
       {/* 반려 확인 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
       <Dialog open={rejectOpen} onOpenChange={(o) => { setRejectOpen(o); if (!o) setRejectReason(""); }}>
