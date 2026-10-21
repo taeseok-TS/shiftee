@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { stripSignMarkers, MARKER_STRIP_TAG } from "@/lib/sign-marker-strip";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { personLabel } from "@/lib/person-label";
@@ -216,11 +217,14 @@ export async function GET(
       // 있으므로 파일 경로가 아니라 **지금 변환할 바이트 그대로**를 키로 쓴다 — 내용이 같아야만 캐시가 맞는다.
       // 탭 제목(PDF Title 메타)이 결과에 들어가므로 제목도 키에 넣는다.
       const docTitle = (d as { title?: string }).title || contract.title;
-      const convKey = bufferCacheKey(buf, `docx|title=${docTitle}`);
+      // 서명 자리 표시(《근로자서명》 등)는 지운 사본으로 변환 — 보기 화면에 글자로 보이지 않게(2026-10-21).
+      // 키는 원본 바이트 + 구분값, 지우기는 캐시가 없을 때만(압축 풀기 비용)
+      const convKey = bufferCacheKey(buf, `docx|title=${docTitle}|${MARKER_STRIP_TAG}`);
       const convHit = await readCachedPdf(convKey);
       if (convHit) { pdfs.push(convHit); continue; }
+      const view = stripSignMarkers(buf);
       const fd = new FormData();
-      fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+      fd.append("files", new Blob([new Uint8Array(view)]), "document.docx");
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
       fd.append("metadata", JSON.stringify({ Title: docTitle }));
       // 제한 시간 60초 — 넘기면 null 로 떨어져 이 문서만 안내 쪽으로 대신한다

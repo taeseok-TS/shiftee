@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import fs from "fs/promises";
 import path from "path";
 import { fileCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
+import { stripSignMarkers, MARKER_STRIP_TAG } from "@/lib/sign-marker-strip";
 
 export const dynamic = "force-dynamic";
 
@@ -132,11 +133,14 @@ export async function GET(request: NextRequest) {
   // 캐시 키에 파일의 mtime·크기를 넣으므로, 문서가 재생성되거나 템플릿이 교체되면 자동으로 새 키가 된다
   // (계약 문서는 재생성할 때마다 파일명 자체가 새로 생기므로 구버전이 나올 여지가 없다).
   // 캐시 저장소는 lib/pdf-cache 한 곳 — 계약 원본 보기.묶음 미리보기와 같은 폴더를 쓴다(2026-09-16)
-  const cacheKey = fileCacheKey(group, filename, stat.mtimeMs, stat.size);
+  // 계약 문서(워드)는 서명 자리 표시(《근로자서명》 등)를 지운 사본으로 변환한다 — 보기 화면에 글자로 보이지 않게(2026-10-21)
+  const stripMarks = group === "contracts" && srcExt === ".docx";
+  const cacheKey = fileCacheKey(stripMarks ? `${group}:${MARKER_STRIP_TAG}` : group, filename, stat.mtimeMs, stat.size);
   const hit = await readCachedPdf(cacheKey);
   if (hit) return new NextResponse(new Uint8Array(hit), { headers: headers("application/pdf", ".pdf") });
 
   try {
+    if (stripMarks) buf = stripSignMarkers(buf);   // 캐시가 없을 때만 지운다(압축 풀기 비용)
     const fd = new FormData();
     fd.append("files", new Blob([new Uint8Array(buf)]), `document${srcExt}`); // 확장자로 변환 필터를 고른다
     const gres = await fetch(

@@ -61,6 +61,7 @@ const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
     { href: "/admin/contracts", label: "보낸 계약서", icon: FileSignature },        // 종전 「전자계약」 — 목록·작성 창·외부 계약
     { href: "/admin/contract-templates", label: "양식 관리", icon: FileText },      // 종전 「계약 템플릿」
     { href: "/admin/contract-import", label: "체결본 가져오기", icon: Upload },     // 모두싸인 체결본(#4) — 보낸 계약서 화면 버튼과 같은 곳
+    { href: "/admin/route-course", label: "루트코스 일정", icon: CalendarDays },   // 기수별 입과일·수료일 — 근로계약서 교육평가 기간 기준(2026-10-21)
   ] },
   { key: "leave", title: "휴가", items: [
     { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },

@@ -18,7 +18,7 @@ type Step = {
   order: number;
   status: string;
   approverId: string;
-  approver: { id: string; name: string; branch?: string | null };
+  approver: { id: string; name: string; branch?: string | null; role?: string | null };
   decidedAt?: string | null;
   externalName?: string | null;
   hasSignature?: boolean; // 서명이 있는가(주소는 서버가 안 준다) — 진행본으로 열지 판정
@@ -139,9 +139,11 @@ export default function ManagerContractsPage() {
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
 
   const [myId, setMyId] = useState("");
+  const [myRole, setMyRole] = useState("");   // 승인 창 제목·내 단계 이름 — 본부(관리자)가 열면 「본부」(2026-10-21 디렉터 지적)
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
       setMyId(d.user?.id || "");
+      setMyRole(d.user?.role || "");
       setBranch(d.user?.branch || d.branch || "");
       setMyName(d.user?.name || "");
       setMySignatureUrl(d.user?.signatureUrl || null);
@@ -371,7 +373,7 @@ export default function ManagerContractsPage() {
             summaryFields: signTarget.summaryFields ?? signTarget.extraFields ?? null,
             steps: (signTarget.approvalLine?.steps || []).map((st) => ({ id: st.id, order: st.order, status: st.status, approverId: st.approverId, decidedAt: st.decidedAt, approver: st.approver, externalName: st.externalName })),
           }}
-          myId={myId} myRole="원장"
+          myId={myId} myRole={myRole === "ADMIN" ? "본부" : "원장"}
           docUrl={docBlob} docErr={docErr} docIsProgress={docIsProgress} hasFile={!!getFileUrl(signTarget.fileUrl)}
           mySignatureUrl={mySignatureUrl} busy={signing} paused={rejectOpen}
           onSubmit={handleApproveFull}

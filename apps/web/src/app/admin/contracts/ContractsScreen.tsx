@@ -1,7 +1,8 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
-import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
+import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, EMPTY_EVAL, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
+import { DEFAULT_COHORTS, type Cohort } from "@/lib/route-course";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import SendPicker, { type SendSelection } from "@/components/contracts/SendPicker";
 import FlowSteps from "@/components/contracts/FlowSteps";
@@ -278,6 +279,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const precheckKeyRef = useRef("");         // 지금 화면 값의 열쇠(「다음」 확인 뒤 값이 바뀌었는지 본다)   // 새 확인이 시작되면 앞선 요청은 끊는다(서버 부담)
   const precheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);   // 자동 확인 대기 — 「다음」을 누르면 지운다(끊김 경쟁 방지, 재검증)   // 확인이 끝날 때 계산해 둔 상태(렌더 중에 ref 를 읽지 않게)
   const [nowMs] = useState(() => Date.now());   // 기수 범위 기준 시각(화면을 연 때)
+  // 루트코스 일정표(교육평가 기간 기준, 2026-10-21) — 불러오기 전엔 2026 확정 일정과 같은 기본값
+  const [routeCohorts, setRouteCohorts] = useState<Cohort[]>(DEFAULT_COHORTS);
+  useEffect(() => {
+    fetch("/api/admin/route-course", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (Array.isArray(d?.cohorts)) setRouteCohorts((p) => (JSON.stringify(p) === JSON.stringify(d.cohorts) ? p : d.cohorts)); }).catch(() => {});
+  }, []);
   // 여러 명 작성 — 개인별 값(#19 #34). 비우면 공통 입력값
   const [bulkValues, setBulkValues] = useState<BulkRowValues>({});
   // 목록에서 초안 여러 건 골라 한꺼번에 발송(#34)
@@ -1210,7 +1216,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   }, [extraFields["출근시각"], extraFields["퇴근시각"], extraFields["휴게시간"], extraFields["주근무시간"], templateFields]);
 
   // 근로계약서 교육·실무 평가 단계 자동 계산 (개선 제안 2026-08-25 → 공식 수정 2026-08-26 #22)
-  //  2026-10-20 시안 v2 3번: 교육평가 = 루트코스 입과일 ~ 수료일(입과일 + 17일) — evalPeriods 하나로. 아래는 그 전 기록.
+  //  2026-10-21 이예지: 교육평가 = 입과일 ~ 루트코스 일정표의 수료일(일정표에 없으면 빈칸) — evalPeriods 하나로. 아래는 그 전 기록.
+  //  2026-10-20 시안 v2 3번: 수료일 = 입과일 + 17일(공휴일이 끼면 하루씩 어긋나 위로 바뀜)
   //  2026-10-16 B7(이예지 QA, 근로계약서 제3조 「입사일부터 영업일 기준 14일」): 교육평가 종료 = 입사일부터 영업일 14일째,
   //  실무평가 시작 = 그다음 날(달력 — 주말일 수 있다). 영업일 = 주말·공휴일 제외. 예) 10/14→11/02, 10/20→11/06·실무 11/07.
   //  (종전 「15번째 영업일 전날」은 사이에 주말이 끼면 교육평가 종료가 일요일로 밀렸다. 옛 확정례 7/6 입사→실무 7/27 은 새 규칙으로 7/25)
@@ -1234,21 +1241,22 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       const base = normDate(bulkValues[uid]?.["근로시작일"] || "") || start || rowStart;
       const row: Record<string, string> = { 근로시작일: start || rowStart };
       // 기준일이 공통 기준일과 같으면 공통 평가값(손으로 고친 값 포함)이 그대로 들어간다 — 다를 때만 그 사람 기준으로 다시 센 값
-      if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base) || {});
+      if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base, routeCohorts) || EMPTY_EVAL);   // 일정표에 없으면 빈칸(2026-10-21)
       bulkRowCommon[uid] = row;
     }
   }
 
   useEffect(() => {
     if (!templateFields.includes("교육평가시작")) return;
-    // 교육평가 = 입과일 ~ 수료일(+17일), 실무평가 = 그다음 날 ~ +3개월−1일 — 여러 명 표·발송과 같은 함수(evalPeriods, 2026-10-20 시안 v2 3번)
-    const ev = evalPeriods(evalBaseDate || "");
-    if (!ev) return;
+    // 교육평가 = 입과일 ~ 수료일(일정표), 실무평가 = 그다음 날 ~ +3개월−1일 — 여러 명 표·발송과 같은 함수(evalPeriods)
+    // 일정표에 없는 입과일이면 평가 칸을 비운다 — 자동으로 채우지 않고 본부가 직접 넣는다(2026-10-21 이예지). 기준일이 없으면 그대로
+    if (!(evalBaseDate || "").trim()) return;
+    const ev = evalPeriods(evalBaseDate || "", routeCohorts) || EMPTY_EVAL;
     setExtraFields(prev => {
       const u = { ...prev, ...ev };
       return u.교육평가종료 === prev.교육평가종료 && u.실무평가종료 === prev.실무평가종료 && u.교육평가시작 === prev.교육평가시작 && u.실무평가시작 === prev.실무평가시작 ? prev : u;
     });
-  }, [templateFields, evalBaseDate]);
+  }, [templateFields, evalBaseDate, routeCohorts]);
 
   // 퇴사일자 입력 시 근무종료일·연차종료일 + 지급희망일 자동 기입 (이후 수동 수정 가능)
   // 지급희망일 규칙 (#115, 이예지대리 확정 2026-08-27): 임금은 항상 해당 월 말일,
@@ -1568,9 +1576,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (templateFields.includes("교육평가시작")) {
         const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
         if (base && base !== evalBaseDate) {
-          const ev = evalPeriods(base);   // 사람별 기준일이 공통과 다르면 그 사람 기준(#19 검증 F1)
+          const ev = evalPeriods(base, routeCohorts) || EMPTY_EVAL;   // 사람별 기준일이 공통과 다르면 그 사람 기준(#19 검증 F1), 일정표에 없으면 빈칸
           // 표에 사람별로 적은 평가 날짜는 그대로 둔다 — 비운 칸만 그 사람 기준일로 계산(10/16)
-          if (ev) for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
+          for (const k of EVAL_COLS) if (!(row[k] || "").trim()) per[k] = ev[k];
         }
       }
       const title = autoContractTitle(uid, selectedTemplate, bundleMode, false) || createForm.title;

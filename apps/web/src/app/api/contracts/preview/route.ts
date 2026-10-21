@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { stripSignMarkers } from "@/lib/sign-marker-strip";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { fillDocxTemplate, buildContractMergeData, isFillableTemplate } from "@/lib/contract-fields";
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
       const buf = await fs.readFile(path.join(process.cwd(), "uploads", tmpUrl.replace(/^\/api\/uploads\//, "")));
       if (tmpUrl.toLowerCase().endsWith(".pdf")) { pdfs.push(buf); continue; }   // PDF 양식(#22 2단계)은 이미 PDF — 변환 없이
       const fd = new FormData();
-      fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
+      fd.append("files", new Blob([new Uint8Array(stripSignMarkers(buf))]), "document.docx");   // 서명 자리 표시는 지워서 보인다(2026-10-21)
       // 브라우저 탭 제목은 파일명이 아니라 PDF 내부 Title 메타를 따른다 (#147)
       fd.append("metadata", JSON.stringify({ Title: title || tmpl.name }));
       // 제한 시간 60초 — 변환기가 응답 없이 멈추면 요청도 같이 멈췄다. 넘기면 아래 catch(오류 안내)

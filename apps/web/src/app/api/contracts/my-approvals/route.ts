@@ -25,7 +25,7 @@ export async function GET(_request: NextRequest) {
             },
           },
           steps: {
-            include: { approver: { select: { id: true, name: true, branch: true, position: true } } },
+            include: { approver: { select: { id: true, name: true, branch: true, position: true, role: true } } },
             orderBy: { order: "asc" },
           },
         },
@@ -75,6 +75,7 @@ export async function GET(_request: NextRequest) {
           id: s.approver.id,
           name: s.approver.name,
           branch: s.approver.branch,
+          role: s.approver.role,   // 승인 창 단계 이름(본부·원장) — 지점이 같은지로 가르면 본사 직원·외부 계약에서 틀렸다(10/21 검증)
         } : null,
       })),
       myStep: (({ signToken: _st, tokenExpiresAt: _te, approvalLine: _al, ...rest }) => rest)(step),

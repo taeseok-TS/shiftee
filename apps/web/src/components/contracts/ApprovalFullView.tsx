@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 export type FullViewStep = {
   id: string; order: number; status: string; approverId: string | null; decidedAt?: string | null;
-  approver?: { id: string; name: string } | null; externalName?: string | null;
+  approver?: { id: string; name: string; branch?: string | null; role?: string | null } | null; externalName?: string | null;
 };
 export type FullViewContract = {
   id: string; title: string; userId: string; externalName?: string | null; sendMessage?: string | null;
@@ -65,7 +65,9 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
     : !readOk ? `마지막 쪽까지 넘겨 봐 주세요 (${read} / ${total}쪽)`
     : !sig ? "서명란을 눌러 서명해 주세요" : !pw ? "비밀번호를 넣어 주세요" : "";
 
-  const roleOf = (s: FullViewStep) => s.approverId === myId ? myRole : s.approverId && s.approverId === c.userId && !c.externalName ? "근로자" : !s.approverId ? "외부 계약자" : "본부";
+  // 다른 사람 단계 — 결재자 역할로(관리자 = 본부, 원장 = 원장, 그 밖 = 결재자: 원장대행 직원 등)
+  const roleOf = (s: FullViewStep) => s.approverId === myId ? myRole : s.approverId && s.approverId === c.userId && !c.externalName ? "근로자" : !s.approverId ? "외부 계약자"
+    : s.approver?.role === "ADMIN" ? "본부" : s.approver?.role === "MANAGER" ? "원장" : "결재자";
   const nameOf = (s: FullViewStep) => s.approver?.name || s.externalName || (s.approverId === c.userId ? c.user.name : "");
   const mine = c.steps.find((s) => s.approverId === myId && s.status === "PENDING");
 

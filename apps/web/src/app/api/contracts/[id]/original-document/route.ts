@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { firstFile, diskPath } from "@/lib/signed-doc";
 import fs from "fs";
 import { fileCacheKey, bufferCacheKey, readCachedPdf, writeCachedPdf } from "@/lib/pdf-cache";
+import { stripSignMarkers, MARKER_STRIP_TAG } from "@/lib/sign-marker-strip";
 
 // 서명 전 원본(작성본) 다운로드를 PDF로 — 워드 파일이 그대로 나가면 수정·유출 위험 (개선 제안 #67~#71).
 // gotenberg가 죽어 있으면 워드로 폴백해 다운로드 자체는 항상 된다.
@@ -31,7 +32,7 @@ export async function GET(
   if (!orig) return NextResponse.json({ error: "문서 파일이 없습니다." }, { status: 404 });
   const path = diskPath(orig);
   if (!fs.existsSync(path)) return NextResponse.json({ error: "문서 파일을 찾을 수 없습니다." }, { status: 404 });
-  const buf = fs.readFileSync(path);
+  let buf: Buffer = fs.readFileSync(path);
 
   // 열람만 허용된 문서는 첨부(다운로드)로 내려주지 않는다
   const dispo = acc.viewOnly || new URL(request.url).searchParams.get("inline") === "1" ? "inline" : "attachment";
@@ -42,9 +43,11 @@ export async function GET(
     // 파일이 재생성되면 이름 자체가 바뀌고, 교체돼도 mtime.크기가 달라져 새 키가 된다.
     const st = fs.statSync(path);
     const m = /\/api\/uploads\/([^/]+)\/([^/?#]+)$/.exec(orig);
+    // 서명 자리 표시(《근로자서명》 등)는 지운 사본으로 변환 — 보기 화면에 글자로 보이지 않게(2026-10-21). 키도 /api/docs/pdf 와 같은 구분값
+    const rawBuf = buf;
     const cacheKey = m
-      ? fileCacheKey(decodeURIComponent(m[1]), decodeURIComponent(m[2]), st.mtimeMs, st.size)
-      : bufferCacheKey(buf);
+      ? fileCacheKey(`${decodeURIComponent(m[1])}:${MARKER_STRIP_TAG}`, decodeURIComponent(m[2]), st.mtimeMs, st.size)
+      : bufferCacheKey(rawBuf, MARKER_STRIP_TAG);
     const hit = await readCachedPdf(cacheKey);
     if (hit) {
       return new NextResponse(new Uint8Array(hit), {
@@ -55,6 +58,7 @@ export async function GET(
       });
     }
     try {
+      buf = stripSignMarkers(buf);   // 캐시가 없을 때만 지운다(압축 풀기 비용)
       const fd = new FormData();
       fd.append("files", new Blob([new Uint8Array(buf)]), "document.docx");
       const gres = await fetch(
@@ -79,7 +83,7 @@ export async function GET(
     // "열람만"이 무너진다. 변환이 안 되면 차라리 실패시킨다.
     if (acc.viewOnly)
       return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
-    return new NextResponse(buf, {
+    return new NextResponse(new Uint8Array(rawBuf), {   // 워드 원본 그대로(표시를 지운 사본은 보기용 변환에만)
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + ".docx")}`,
@@ -88,7 +92,7 @@ export async function GET(
   }
   // PDF 등 비워드 파일은 그대로
   const ext = orig.slice(orig.lastIndexOf(".")) || "";
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": ext === ".pdf" ? "application/pdf" : "application/octet-stream",
       "Content-Disposition": `${dispo}; filename*=UTF-8''${encodeURIComponent(contract.title + ext)}`,
