@@ -16,6 +16,10 @@ import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, Eye,
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
+import ApprovalFullView from "@/components/contracts/ApprovalFullView";
+import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
+
+const DOC_LABEL: Record<string, string> = { EMPLOYMENT: "근로계약서", PART_TIME: "단시간근로계약서", CONFIDENTIAL: "비밀유지", OTHER: "기타" };
 
 type ApprovalItem = {
   id: string; title: string; fileUrl: string; status: string;
@@ -51,7 +55,7 @@ type Contract = {
       id: string;
       order: number;
       approverId: string;
-      approver: { name: string };
+      approver: { name: string; role?: string | null };
       status: string;
       decidedAt?: string | null;
     }>;
@@ -173,6 +177,9 @@ export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
   const [myId, setMyId] = useState("");
+  const [myRoleName, setMyRoleName] = useState("결재자");   // 결재 전체 창의 내 단계 이름
+  // 내 결재 대기(원장 대행 등) → 원장·본부와 같은 결재 전체 창(2026-10-21 본부 이예지 재요청 C)
+  const [hostTarget, setHostTarget] = useState<Contract | null>(null);
   const [meLoaded, setMeLoaded] = useState(false); // 내 정보 조회가 끝났는지 — 실패해도 결재 대기 카드를 감추지 않는다(검증관 F3)
 
   const [signOpen, setSignOpen] = useState(false);
@@ -311,6 +318,7 @@ export default function ContractsPage() {
       setMyId(d.user?.id || "");
       setMyProfile({ address: d.user?.address || "", birthDate: d.user?.birthDate ? String(d.user.birthDate).slice(0, 10) : "" });
       setMySigUrl(d.user?.signatureUrl || "");
+      setMyRoleName(d.user?.role === "ADMIN" ? "본부" : d.user?.role === "MANAGER" ? "원장" : "결재자");
     }).catch(() => setMeLoaded(true));
   }, []);
 
@@ -366,6 +374,28 @@ export default function ContractsPage() {
   const [docReadToEnd, setDocReadToEnd] = useState(false);
   // 외부 계약은 소유자가 작성 관리자라 userId 만 보면 본인 서명으로 오판된다 — 서버 sign 라우트와 같은 기준(검증관 F1)
   const isEmpSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
+  // 근로자 본인 서명 — 원장 승인과 같은 전체 창(2026-10-21 본부 이예지 재요청 C): 비밀번호로 문서를 연 뒤 한 쪽씩 보고 마지막 쪽 서명란에 서명.
+  // 동의·주소·직접 입력·전자서명 동의는 창 오른쪽(확인할 것)에. 본문은 종전 미리보기와 같은 변환 PDF
+  const empFull = signOpen && !!signTarget && isEmpSign && unlocked;
+  const [empDoc, setEmpDoc] = useState<string | null>(null);
+  const [empDocErr, setEmpDocErr] = useState<string | null>(null);
+  /* eslint-disable react-hooks/set-state-in-effect -- 창을 열고 닫을 때 본문 상태를 초기화하는 것이 목적이다 */
+  useEffect(() => {
+    setEmpDoc(null); setEmpDocErr(null);
+    if (!empFull || !signTarget) return;
+    const raw = getFileUrl(signTarget.fileUrl);
+    if (!raw) return;
+    let alive = true;
+    let made: string | null = null;
+    fetch(pdfSrc(raw)).then(async (r) => {
+      const ct = r.headers.get("content-type") || "";
+      if (!r.ok || !ct.includes("pdf")) throw new Error(r.status === 403 ? "문서를 열 권한이 없습니다." : "문서를 불러오지 못했습니다.");
+      return r.blob();
+    }).then((b) => { if (!alive) return; made = URL.createObjectURL(b); setEmpDoc(made); })
+      .catch((e: unknown) => { if (alive) setEmpDocErr(e instanceof Error ? e.message : "문서를 불러오지 못했습니다."); });
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [empFull, signTarget]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
   useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); setNeedPw(false); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
@@ -376,13 +406,17 @@ export default function ContractsPage() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "VIEWED" }),
     }).catch(() => {});
   }, [signOpen, signTarget, isEmpSign, unlocked]);
-  async function handleSign(id: string, isApprover = false) {
+  // ov = 전체 창에서 넘긴 서명·비밀번호(근로자 본인 서명, 재요청 C). 전체 창은 마지막 쪽까지 봐야 낼 수 있어 readToEnd 도 참
+  async function handleSign(id: string, isApprover = false, ov?: { signatureData?: string; password?: string }) {
     if (signSubmitting) return;
     // 저장된 서명 기본 모드(#127) — 패드가 마운트되지 않으므로 useSaved 로 전송 (검증관 C1).
     // 근로자 본인 서명은 저장 서명을 쓰지 않는다(#205-2 — 서버도 막는다)
-    const useSaved = !isEmpSign && !!mySigUrl && !drawNewSig;
-    if (!useSaved && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
-    if ((!isEmpSign || !unlocked || needPw) && !signPassword) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    const useSaved = !ov && !isEmpSign && !!mySigUrl && !drawNewSig;
+    const sigData = ov?.signatureData;
+    if (!useSaved && !sigData && (!sigRef.current || sigRef.current.isEmpty())) { toast.error("서명을 입력해주세요."); return; }
+    const pwv = ov?.password || signPassword;
+    if ((!isEmpSign || !unlocked || needPw) && !pwv) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
+    if (ov && consentKeys.length && !consentRequired) { toast.error("필수 개인정보 항목에 동의해 주세요."); return; }
     if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
@@ -430,7 +464,7 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigRef.current!.toDataURL(), saveAsDefault: saveSig }), isApprover, ...(signPassword ? { password: signPassword } : {}), ...(isEmpSign ? { agree: true, readToEnd: docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigData || sigRef.current!.toDataURL(), saveAsDefault: ov ? false : saveSig }), isApprover, ...(pwv ? { password: pwv } : {}), ...(isEmpSign ? { agree: true, readToEnd: !!ov || docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -444,6 +478,148 @@ export default function ContractsPage() {
       fetchContracts();
     } finally { setSignSubmitting(false); }
   }
+
+  // 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) — 옛 서명 창과 전체 창(재요청 C)이 같이 쓴다
+  const empFieldsBox = empFields.length > 0 ? (
+                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-indigo-800">아래 항목을 직접 작성해주세요</p>
+                      {empFields.some(f => empFieldType(f) === "check") && (
+                        <p className="text-xs font-medium text-gray-600 pt-1">지급금품 <span className="text-gray-400 font-normal">(해당 항목 체크)</span></p>
+                      )}
+                      {empFields.map(f => {
+                        const type = empFieldType(f);
+                        if (type === "check" || type === "confirm") {
+                          // check = 기본 체크(해제 가능), confirm = 기본 해제(직접 체크 필수)
+                          const checked = type === "check" ? empFieldInput[f] !== "□" : empFieldInput[f] === "☑";
+                          return (
+                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input type="checkbox" checked={checked}
+                                onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
+                              {empFieldLabel(f)}
+                            </label>
+                          );
+                        }
+                        if (type === "box") {   // PDF 칸 배치 체크박스 — 기본 해제, 고르면 ☑
+                          return (
+                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input type="checkbox" checked={empFieldInput[f] === "☑"} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
+                              {empFieldLabel(f)}
+                            </label>
+                          );
+                        }
+                        if (type === "select") {   // PDF 칸 배치 드롭다운 — 본부가 정한 선택지 중 하나
+                          return (
+                            <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
+                              <select className="w-full border rounded px-2 py-1.5 text-sm bg-white" value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))}>
+                                <option value="">선택</option>
+                                {(signTarget?.fieldTypes?.[f]?.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            </div>
+                          );
+                        }
+                        if (type === "consent") {
+                          return (
+                            <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
+                              <div className="flex gap-4 text-sm">
+                                {[["동의", "동의함"], ["미동의", "동의하지 않음"]].map(([v, l]) => (
+                                  <label key={v} className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="radio" checked={empFieldInput[f] === v} onChange={() => setEmpFieldInput(p => ({ ...p, [f]: v }))} />{l}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
+                            {type === "date" ? (
+                              <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                            ) : f === "주민등록번호" ? (
+                              // 숫자만 입력받아 하이픈 자동 삽입 + 13자리 제한 (개선 제안 #74)
+                              <input type="text" inputMode="numeric" className="w-full border rounded px-2 py-1.5 text-sm"
+                                placeholder="숫자만 입력 (하이픈 자동)" maxLength={14}
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: formatRrn(e.target.value) }))} />
+                            ) : (
+                              <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${empFieldLabel(f)} 입력`}
+                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+  ) : null;
+  // 직접 입력 칸이 덜 채워진 이유(handleSign 의 검사와 같은 기준 — 창 안 빨간 줄로 먼저 보인다)
+  function empFieldsMissing(): string | null {
+    for (const f of empFields) {
+      const type = empFieldType(f);
+      if (type === "check" || type === "box") continue;
+      if (type === "confirm") { if (empFieldInput[f] !== "☑") return `「${empFieldLabel(f)}」을(를) 확인하고 체크해 주세요`; continue; }
+      if (type === "consent") { if (empFieldInput[f] !== "동의" && empFieldInput[f] !== "미동의") return `「${empFieldLabel(f)}」 동의 여부를 골라 주세요`; continue; }
+      const v = (empFieldInput[f] || "").trim();
+      if (!v) { if (f.includes("기타")) continue; return `${empFieldLabel(f)}을(를) 넣어 주세요`; }
+      if (type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return `${empFieldLabel(f)}을(를) YYYY-MM-DD 로 넣어 주세요`;
+      if (f === "주민등록번호" && v.replace(/\D/g, "").length !== 13) return "주민등록번호 13자리를 넣어 주세요";
+    }
+    return null;
+  }
+  // 전체 창 오른쪽 「확인할 것」 — 개인정보 동의(필수·선택)·프로필 빈 칸·직접 입력·전자서명 동의. 서명 단추가 막힌 이유는 empBlock
+  const empBlock = !empFull ? null
+    : consentKeys.length > 0 && !consentRequired ? "필수 개인정보 항목에 동의해야 서명할 수 있습니다(동의하지 않으면 채용이 취소·제한될 수 있습니다)"
+    : consentKeys.some(k => consentChoices[k] !== "동의" && consentChoices[k] !== "미동의") ? "선택 동의 항목의 동의 여부를 골라 주세요"
+    : missingProfile.includes("주소") && !profileInput.주소.trim() ? "주소를 넣어 주세요"
+    : missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일) ? "생년월일을 넣어 주세요"
+    : empFieldsMissing() || (!signAgree ? "전자서명 동의에 체크해 주세요" : null);
+  const empExtra = empFull ? (
+    <section className="space-y-3 rounded-xl border bg-white p-4">
+      <h2 className="border-b pb-2 text-base font-bold text-gray-900">확인할 것</h2>
+      {consentKeys.length > 0 && (
+        <>
+          {/* 필수 항목도 명시적 동의 — 자동 처리는 개인정보보호법 위반(#104). 전문은 왼쪽 문서(마지막 쪽까지 봐야 서명) */}
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-300 bg-gray-50 p-2.5 text-xs text-gray-700">
+            <input type="checkbox" className="mt-0.5" checked={consentRequired} onChange={e => setConsentRequired(e.target.checked)} />
+            <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 <b>동의합니다</b>. (동의하지 않으면 채용이 취소·제한될 수 있습니다)</span>
+          </label>
+          <div className="space-y-2 rounded-lg border border-gray-200 p-2.5">
+            <p className="text-xs font-semibold text-gray-700">선택 동의 항목 <span className="font-normal text-gray-500">— 동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다</span></p>
+            {consentKeys.map(k => (
+              <div key={k} className="space-y-1">
+                <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
+                <div className="flex gap-3 text-sm">
+                  {["동의", "미동의"].map(opt => (
+                    <label key={opt} className="flex cursor-pointer items-center gap-1">
+                      <input type="radio" checked={consentChoices[k] === opt} onChange={() => setConsentChoices(prev => ({ ...prev, [k]: opt }))} />{opt}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {missingProfile.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-700">필요한 정보 <span className="font-normal text-gray-500">(프로필에 저장됩니다)</span></p>
+          {missingProfile.includes("주소") && (
+            <div className="space-y-1"><Label className="text-xs">주소</Label>
+              <input className="w-full rounded border px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
+                value={profileInput.주소} onChange={e => setProfileInput(p => ({ ...p, 주소: e.target.value }))} /></div>
+          )}
+          {missingProfile.includes("생년월일") && (
+            <div className="space-y-1"><Label className="text-xs">생년월일</Label>
+              <input type="date" className="w-full rounded border px-2 py-1.5 text-sm"
+                value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
+          )}
+        </div>
+      )}
+      {empFieldsBox}
+      {/* 전자서명 동의(#205-3) — 문구는 서버 기록과 같은 상수 */}
+      <label className="flex cursor-pointer items-start gap-2 rounded border border-indigo-200 bg-indigo-50 p-2 text-xs text-gray-700">
+        <input type="checkbox" className="mt-0.5" checked={signAgree} onChange={e => setSignAgree(e.target.checked)} />
+        <span><b>[필수]</b> {SIGN_CONSENT_TEXT}</span>
+      </label>
+    </section>
+  ) : null;
 
   return (
     <div className="space-y-6">
@@ -476,7 +652,7 @@ export default function ContractsPage() {
                   <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
                     <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
                   </a>
-                  <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => { setApproverMode(true); setSignTarget(c as unknown as Contract); sigRef.current?.clear(); setConsentChoices({ 동의고유식별: "", 동의채용정보: "" }); setConsentRequired(false); setConsentRead(false); setDrawNewSig(false); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setSignStep(1); setPreviewLoading(true); setSignOpen(true); }}>
+                  <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => setHostTarget(c as unknown as Contract)}>
                     <PenLine size={14} />승인 (서명)
                   </Button>
                 </div>
@@ -670,7 +846,41 @@ export default function ContractsPage() {
       </Card>
 
       {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}
-      <Dialog open={signOpen} onOpenChange={setSignOpen}>
+      {/* 근로자 본인 서명 — 전체 창(재요청 C). 문서를 열기 전 비밀번호 확인은 아래 옛 창이 그대로 한다 */}
+      {empFull && signTarget && (
+        <ApprovalFullView
+          key={signTarget.id}
+          mode="sign"
+          c={{
+            id: signTarget.id, title: signTarget.title, userId: signTarget.userId, externalName: signTarget.externalName, sendMessage: signTarget.sendMessage,
+            user: { name: signTarget.user.name, branch: signTarget.user.branch ?? null },
+            docLabel: DOC_LABEL[signTarget.type] || signTarget.type,
+            period: signTarget.startDate || signTarget.endDate ? `${(signTarget.startDate || "?").slice(0, 10)} ~ ${(signTarget.endDate || "?").slice(0, 10)}` : null,
+            summaryFields: null,
+            steps: (signTarget.approvalLine?.steps || []).map((st) => ({ id: st.id, order: st.order, status: st.status, approverId: st.approverId, decidedAt: st.decidedAt, approver: { id: st.approverId, name: st.approver?.name || "", role: st.approver?.role ?? null } })),
+          }}
+          myId={myId} myRole="근로자"
+          docUrl={empDoc} docErr={empDocErr} docIsProgress={false} hasFile={!!getFileUrl(signTarget.fileUrl)}
+          mySignatureUrl={null} busy={signSubmitting} paused={rejectOpen}
+          pwNeeded={needPw} rejectLabel="서명 거부"
+          extra={empExtra} extraBlock={empBlock}
+          onSubmit={(p) => void handleSign(signTarget.id, signTarget.status === "APPROVED", { signatureData: p.signatureData, password: p.password || undefined })}
+          onReject={() => { setRejectReason(""); setRejectOpen(true); }}
+          onClose={() => { if (!signSubmitting) setSignOpen(false); }}
+        />
+      )}
+      {/* 결재(원장 대행 등) — 결재 전체 창 */}
+      {hostTarget && (
+        <ApprovalFullViewHost
+          key={hostTarget.id}
+          c={hostTarget as unknown as HostContract}
+          docLabel={DOC_LABEL[hostTarget.type] || hostTarget.type || "계약서"}
+          myId={myId} myRole={myRoleName}
+          onClose={() => setHostTarget(null)}
+          onDone={() => { setHostTarget(null); fetchContracts(); }}
+        />
+      )}
+      <Dialog open={signOpen && !empFull} onOpenChange={setSignOpen}>
         {/* 창을 확대하면 모달이 화면보다 길어져 하단 승인 버튼이 밀려 나가 서명을 못 하던 문제(#196) —
             높이를 화면 안으로 묶고 본문만 스크롤시킨다. */}
         <DialogContent className="max-w-2xl h-[92vh] flex flex-col overflow-hidden">
@@ -794,75 +1004,7 @@ export default function ContractsPage() {
                     </div>
                   )}
                   {/* 직원 직접입력 필드(퇴사사유·지급희망일·지급금품 체크 등) */}
-                  {empFields.length > 0 && (
-                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-indigo-800">아래 항목을 직접 작성해주세요</p>
-                      {empFields.some(f => empFieldType(f) === "check") && (
-                        <p className="text-xs font-medium text-gray-600 pt-1">지급금품 <span className="text-gray-400 font-normal">(해당 항목 체크)</span></p>
-                      )}
-                      {empFields.map(f => {
-                        const type = empFieldType(f);
-                        if (type === "check" || type === "confirm") {
-                          // check = 기본 체크(해제 가능), confirm = 기본 해제(직접 체크 필수)
-                          const checked = type === "check" ? empFieldInput[f] !== "□" : empFieldInput[f] === "☑";
-                          return (
-                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
-                              <input type="checkbox" checked={checked}
-                                onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
-                              {empFieldLabel(f)}
-                            </label>
-                          );
-                        }
-                        if (type === "box") {   // PDF 칸 배치 체크박스 — 기본 해제, 고르면 ☑
-                          return (
-                            <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
-                              <input type="checkbox" checked={empFieldInput[f] === "☑"} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.checked ? "☑" : "□" }))} />
-                              {empFieldLabel(f)}
-                            </label>
-                          );
-                        }
-                        if (type === "select") {   // PDF 칸 배치 드롭다운 — 본부가 정한 선택지 중 하나
-                          return (
-                            <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
-                              <select className="w-full border rounded px-2 py-1.5 text-sm bg-white" value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))}>
-                                <option value="">선택</option>
-                                {(signTarget?.fieldTypes?.[f]?.options || []).map(o => <option key={o} value={o}>{o}</option>)}
-                              </select>
-                            </div>
-                          );
-                        }
-                        if (type === "consent") {
-                          return (
-                            <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
-                              <div className="flex gap-4 text-sm">
-                                {[["동의", "동의함"], ["미동의", "동의하지 않음"]].map(([v, l]) => (
-                                  <label key={v} className="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="radio" checked={empFieldInput[f] === v} onChange={() => setEmpFieldInput(p => ({ ...p, [f]: v }))} />{l}
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
-                            {type === "date" ? (
-                              <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
-                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
-                            ) : f === "주민등록번호" ? (
-                              // 숫자만 입력받아 하이픈 자동 삽입 + 13자리 제한 (개선 제안 #74)
-                              <input type="text" inputMode="numeric" className="w-full border rounded px-2 py-1.5 text-sm"
-                                placeholder="숫자만 입력 (하이픈 자동)" maxLength={14}
-                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: formatRrn(e.target.value) }))} />
-                            ) : (
-                              <textarea rows={2} className="w-full border rounded px-2 py-1.5 text-sm" placeholder={`${empFieldLabel(f)} 입력`}
-                                value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {empFieldsBox}
                   {/* 무슨 내용에 서명하는지 같은 화면에서 보이게 — 내용 미리보기 내장 (QA 2026-08-25, 김가산) */}
                   {consentKeys.length === 0 && (
                     <>

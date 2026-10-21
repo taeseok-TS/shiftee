@@ -7,7 +7,9 @@
 //   앞 사람 서명 그림은 문서(서명 반영본)에 이미 찍혀 있다 — 남의 서명 PNG 는 화면에 내려 주지 않는다(위조 방지, my-approvals).
 // · 서명 방식은 「서명하기」(손으로 그리기) 하나 + 저장해 둔 내 서명 불러오기. 비밀번호는 그 아래 한 칸.
 // 승인·반려 API 호출은 부모가 한다(onSubmit·onReject) — 화면만 바꾸고 규칙은 그대로.
-import { useMemo, useRef, useState } from "react";
+// 근로자 본인 서명도 이 창을 쓴다(mode="sign", 2026-10-21 본부 이예지 재요청 C): 저장 서명 없이 매번 직접 그리기(#205-2),
+// 동의·직접 입력 칸은 부모가 extra 로 넣고 막힌 이유는 extraBlock 으로 알린다. 비밀번호는 문서를 열 때 확인했으면 다시 묻지 않는다(pwNeeded).
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import PagedPdfViewer from "@/components/contracts/PagedPdfViewer";
@@ -33,7 +35,8 @@ const kst = (iso?: string | null) => {
   return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`;
 };
 
-export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docIsProgress, hasFile, mySignatureUrl, busy, paused, onSubmit, onReject, onClose }: {
+export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docIsProgress, hasFile, mySignatureUrl, busy, paused, onSubmit, onReject, onClose,
+  mode = "approve", extra, extraBlock, pwNeeded = true, rejectLabel = "반려" }: {
   c: FullViewContract;
   myId: string;
   myRole: string;                    // 내 단계 이름(「원장」)
@@ -47,7 +50,13 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
   onSubmit: (p: SignPayload) => void;
   onReject: () => void;
   onClose: () => void;
+  mode?: "approve" | "sign";         // sign = 근로자 본인 서명(저장 서명 없음·「서명하고 제출」)
+  extra?: ReactNode;                 // 서명 위에 넣을 부모의 칸(동의·주소·직접 입력·전자서명 동의)
+  extraBlock?: string | null;        // 부모 칸 때문에 아직 못 내는 이유
+  pwNeeded?: boolean;                // 비밀번호 칸을 보일까(문서를 열 때 확인했으면 false)
+  rejectLabel?: string;
 }) {
+  const signMode = mode === "sign";
   const [visited, setVisited] = useState<Set<number>>(() => new Set());
   const [total, setTotal] = useState(0);
   const [sig, setSig] = useState<{ data?: string; saved?: boolean } | null>(null);
@@ -59,11 +68,12 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
   const read = useMemo(() => (total ? visited.size : 0), [visited, total]);
   // 마지막 쪽까지 넘겨 봐야 승인. 파일이 없는 옛 계약은 읽을 쪽이 없어 요약만으로(종전과 같음)
   const readOk = !hasFile || (!!docUrl && total > 0 && read >= total);
-  const canSubmit = !busy && readOk && !!sig && !!pw;
-  const why = hasFile && !docUrl ? (docErr ? "본문을 열지 못해 승인할 수 없습니다" : "본문을 불러오는 중입니다")
+  const canSubmit = !busy && readOk && !extraBlock && !!sig && (!pwNeeded || !!pw);
+  const why = hasFile && !docUrl ? (docErr ? `본문을 열지 못해 ${signMode ? "서명" : "승인"}할 수 없습니다` : "본문을 불러오는 중입니다")
     : hasFile && !total ? "본문을 여는 중입니다"
     : !readOk ? `마지막 쪽까지 넘겨 봐 주세요 (${read} / ${total}쪽)`
-    : !sig ? "서명란을 눌러 서명해 주세요" : !pw ? "비밀번호를 넣어 주세요" : "";
+    : extraBlock ? extraBlock
+    : !sig ? "서명란을 눌러 서명해 주세요" : pwNeeded && !pw ? "비밀번호를 넣어 주세요" : "";
 
   // 다른 사람 단계 — 결재자 역할로(관리자 = 본부, 원장 = 원장, 그 밖 = 결재자: 원장대행 직원 등)
   const roleOf = (s: FullViewStep) => s.approverId === myId ? myRole : s.approverId && s.approverId === c.userId && !c.externalName ? "근로자" : !s.approverId ? "외부 계약자"
@@ -109,9 +119,9 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
     <div key={k} className="flex justify-between gap-3 text-xs"><span className="text-gray-500">{k}</span><span className="text-right font-semibold text-gray-900">{v}</span></div>
   );
   return (
-    <div className="fixed inset-0 z-[45] flex flex-col bg-white" role="dialog" aria-modal="true" aria-label={`${myRole} 승인`}>
+    <div className="fixed inset-0 z-[45] flex flex-col bg-white" role="dialog" aria-modal="true" aria-label={signMode ? "내 서명" : `${myRole} 승인`}>
       <div className="flex items-center gap-3 border-b px-4 py-3">
-        <h1 className="min-w-0 truncate text-lg font-bold text-gray-900">{myRole} 승인 · {c.title}</h1>
+        <h1 className="min-w-0 truncate text-lg font-bold text-gray-900">{signMode ? "내 서명" : `${myRole} 승인`} · {c.title}</h1>
         <span className="hidden md:inline truncate text-xs text-gray-500">
           결재 {c.steps.length}단계 · {c.steps.map((s) => `${roleOf(s)}${s.status === "APPROVED" ? " ✓" : s.id === mine?.id ? " (지금)" : ""}`).join(" → ")}
         </span>
@@ -159,19 +169,22 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
                   : <span className="font-normal text-gray-400">대기</span>))}
             </div>
           </section>
+          {extra}
           <section className="mt-auto space-y-2 pt-2">
             <h2 className="border-b pb-2 text-base font-bold text-gray-900">서명</h2>
             <p className="text-xs text-gray-500">계약서 마지막 쪽 서명란을 눌러 서명합니다</p>
-            <input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="서명 비밀번호"
-              className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" aria-label="서명 비밀번호(로그인 비밀번호)" />
-            <p className="text-[11px] text-gray-500">큐브티 로그인 비밀번호를 한 번 더 넣습니다</p>
+            {pwNeeded && (<>
+              <input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="서명 비밀번호"
+                className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" aria-label="서명 비밀번호(로그인 비밀번호)" />
+              <p className="text-[11px] text-gray-500">큐브티 로그인 비밀번호를 한 번 더 넣습니다</p>
+            </>)}
             <button type="button" disabled={!canSubmit}
-              onClick={() => sig && onSubmit({ ...(sig.saved ? { useSaved: true } : { signatureData: sig.data }), saveAsDefault: !sig.saved && saveAsDefault, password: pw })}
+              onClick={() => sig && onSubmit({ ...(sig.saved ? { useSaved: true } : { signatureData: sig.data }), saveAsDefault: !signMode && !sig.saved && saveAsDefault, password: pwNeeded ? pw : "" })}
               className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500">
-              {busy ? "처리 중…" : "서명하고 승인"}
+              {busy ? "처리 중…" : signMode ? "서명하고 제출" : "서명하고 승인"}
             </button>
             {why && <p className="text-center text-xs text-red-500">{why}</p>}
-            <button type="button" onClick={onReject} disabled={busy} className="w-full rounded-xl border bg-white py-2.5 text-sm text-gray-700 hover:bg-gray-50">반려</button>
+            <button type="button" onClick={onReject} disabled={busy} className="w-full rounded-xl border bg-white py-2.5 text-sm text-gray-700 hover:bg-gray-50">{rejectLabel}</button>
             <button type="button" onClick={onClose} disabled={busy} className="w-full text-center text-xs text-gray-500 underline">나중에 하기</button>
           </section>
         </aside>
@@ -183,11 +196,14 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
           <div className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
             <p className="font-bold text-gray-900">서명하기</p>
             <SignaturePad ref={padRef} height={180} />
-            <label className="flex items-center gap-2 text-xs text-gray-600">
-              <input type="checkbox" checked={saveAsDefault} onChange={(e) => setSaveAsDefault(e.target.checked)} />이 서명을 저장해 두고 다음에도 쓰기
-            </label>
+            {/* 근로자 본인 서명은 매번 직접(#205-2) — 저장·불러오기를 두지 않는다 */}
+            {!signMode && (
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" checked={saveAsDefault} onChange={(e) => setSaveAsDefault(e.target.checked)} />이 서명을 저장해 두고 다음에도 쓰기
+              </label>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
-              {mySignatureUrl && <button type="button" onClick={() => { setSig({ saved: true }); setPadOpen(false); }} className="mr-auto rounded-lg border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">저장해 둔 내 서명 쓰기</button>}
+              {mySignatureUrl && !signMode && <button type="button" onClick={() => { setSig({ saved: true }); setPadOpen(false); }} className="mr-auto rounded-lg border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">저장해 둔 내 서명 쓰기</button>}
               <button type="button" onClick={() => setPadOpen(false)} className="rounded-lg border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">취소</button>
               <button type="button" onClick={() => {
                 if (!padRef.current || padRef.current.isEmpty()) return;

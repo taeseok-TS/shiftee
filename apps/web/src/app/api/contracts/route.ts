@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
         approvalLine: {
           include: {
             steps: {
-              include: { approver: { select: { id: true, name: true, email: true, branch: true, position: true } } },
+              include: { approver: { select: { id: true, name: true, email: true, branch: true, position: true, role: true } } },
               orderBy: { order: "asc" },
             },
           },
@@ -243,6 +243,7 @@ export async function GET(request: NextRequest) {
             id: step.approver.id,
             name: step.approver.name,
             branch: step.approver.branch,
+            role: step.approver.role,   // 서명 창 단계 이름(본부·원장) — 2026-10-21
           } : null,
         })),
       } : null,
