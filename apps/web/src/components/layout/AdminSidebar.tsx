@@ -1,113 +1,30 @@
 "use client";
 
-import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
+// 관리자 왼쪽 메뉴 — 두 단(2026-10-20 본부 박정인 시안 v2 8번, 디렉터 「추천대로」).
+//  · 왼쪽 좁은 레일: 대분류 7개(대시보드·근태·결재·전자계약·휴가·인사·설정) 아이콘 + 이름. 지금 보고 있는 대분류만 칠한다(묶음마다 색 없음)
+//  · 옆 흰 패널: 고른 대분류의 메뉴(23개 → 14개, 세부는 화면 위 탭 — admin-nav). 맨 위 「메뉴 찾기」는 모든 메뉴·탭 이름에서 거른다
+// 큐브티워크·모드 전환·로그아웃은 상단 바로 옮겼다(TopBar). 개선 제안도 상단 바.
 import Link from "next/link";
-import { useEffect, useRef, useState, type ComponentType } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { WorkUnreadBadge } from "./WorkUnreadBadge";
-import {
-  Sticker,
-  LayoutDashboard,
-  Users,
-  Building2,
-  BarChart3,
-  FileText,
-  Settings,
-  LogOut,
-  Zap,
-  FileSignature,
-  UmbrellaOff,
-  Clock,
-  Calendar,
-  CheckCircle,
-  Lightbulb,
-  CalendarDays,
-  Bot,
-  RefreshCw,
-  Inbox,
-  ShieldCheck,
-  CalendarCheck,
-  ChevronDown,
-  History,
-  GitBranch,
-  Send,
-  Upload,
-  Search,
-} from "lucide-react";
+import { ADMIN_NAV, matchNav, type NavGroup, type NavItem } from "./admin-nav";
+import { useNavCounts, CountBadge, RED_KEYS, type NavCounts } from "./useNavCounts";
 
-type NavItem = { href: string; label: string; icon: ComponentType<{ size?: number; className?: string }> };
-// 관리자 메뉴 묶음 — 근태 / 결재 / 전자계약 / 휴가 / 인사 / 설정(2026-10-17 본부 박정인 님 개선 시안 1, 디렉터 채택. 그 전 5묶음은 2026-10-12 #214-5).
-// 대시보드는 맨 위에 그대로. 메뉴 항목(주소·권한 조건)은 바꾸지 않고 묶음만 옮겼다 — 빠진 메뉴 없음.
-// 전자계약만 이름을 시안대로: 전자계약 → 「보낸 계약서」, 계약 템플릿 → 「양식 관리」, + 「계약서 보내기」(새 화면)·「체결본 가져오기」(보낸 계약서 화면 버튼과 같은 곳).
-// 묶음은 접었다 펼 수 있고 상태는 브라우저에 기억한다. 지금 보고 있는 화면이 든 묶음은 늘 펼친다. 맨 위 「메뉴 찾기」로 이름 거르기
-const DASHBOARD: NavItem = { href: "/admin/dashboard", label: "대시보드", icon: LayoutDashboard };
-const adminNavGroups: { key: string; title: string; items: NavItem[] }[] = [
-  { key: "attendance", title: "근태", items: [
-    { href: "/admin/attendance", label: "출퇴근", icon: Clock },
-    { href: "/admin/attendance-board", label: "출퇴근기록 (달력·목록)", icon: Clock },
-    { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 }, // 연장·야간·휴일·주 52시간(2026-10-08 #41)
-    { href: "/admin/schedule", label: "근무일정", icon: Calendar },
-    { href: "/admin/schedule-templates", label: "근무일정 템플릿", icon: Calendar },
-  ] },
-  { key: "approval", title: "결재", items: [
-    { href: "/admin/leave-approvals", label: "결재 (휴가, 근무일정)", icon: CheckCircle },
-    { href: "/admin/contract-approvals", label: "계약 결재", icon: CheckCircle },
-    { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
-    { href: "/admin/approval-rules", label: "결재 규칙", icon: GitBranch }, // 요청 종류별 결재선·예외·원장대행(2026-10-15 #16)
-  ] },
-  { key: "contract", title: "전자계약", items: [
-    { href: "/admin/contracts/send", label: "계약서 보내기", icon: Send },          // 용도별로 고르기(2026-10-17 시안 1·2)
-    { href: "/admin/contracts", label: "보낸 계약서", icon: FileSignature },        // 종전 「전자계약」 — 목록·작성 창·외부 계약
-    { href: "/admin/contract-templates", label: "양식 관리", icon: FileText },      // 종전 「계약 템플릿」
-    { href: "/admin/contract-import", label: "체결본 가져오기", icon: Upload },     // 모두싸인 체결본(#4) — 보낸 계약서 화면 버튼과 같은 곳
-    { href: "/admin/route-course", label: "루트코스 일정", icon: CalendarDays },   // 기수별 입과일·수료일 — 근로계약서 교육평가 기간 기준(2026-10-21)
-  ] },
-  { key: "leave", title: "휴가", items: [
-    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff },
-    { href: "/admin/leave-types", label: "휴가 유형 관리", icon: UmbrellaOff }, // 본부가 유형을 만들고 기본 유형을 숨김(2026-10-12 #216-1)
-  ] },
-  { key: "hr", title: "인사", items: [
-    { href: "/admin/employees", label: "직원 관리", icon: Users },
-    { href: "/admin/employee-stats", label: "직원 현황", icon: BarChart3 },
-    { href: "/admin/portal-sync", label: "포털 인원명부 연동", icon: RefreshCw }, // 포털 → 큐브티 한 방향 (2026-09-15)
-    { href: "/admin/hire-dates", label: "입사일 대조", icon: CalendarCheck }, // 큐브티·포털·시프티 입사일 대조·반영(2026-10-08 #5)
-    { href: "/admin/branches", label: "지점 관리", icon: Building2 },
-  ] },
-  { key: "settings", title: "설정", items: [
-    { href: "/admin/permissions", label: "권한 설정", icon: ShieldCheck }, // 역할별 권한 켜고 끄기 + 현황(2026-10-14 #39)
-    { href: "/admin/attendance-rules", label: "근태 규칙", icon: Clock }, // 퇴근 기록이 없는 날 처리 — 모든 화면 같은 규칙(2026-10-20 시안 v2 7번)
-    { href: "/admin/holidays", label: "공휴일 관리", icon: CalendarDays },
-    { href: "/admin/audit", label: "변경 로그", icon: History }, // 업무 변경은 모든 관리자, 시스템·보안 탭은 최고관리자(2026-10-14 #66 후속)
-    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },
-    { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker }, // 채팅 스티커 세트 (2026-09-29)
-    { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
-    { href: "/admin/api-keys", label: "API 키", icon: Zap }, // 개인 API 키 허용·현황 (2026-09-13)
-    { href: "/admin/test-api", label: "🔧 API 테스트", icon: Zap },
-  ] },
-];
-// 메뉴 찾기 — 띄어쓰기·대소문자 무시, 메뉴 이름이나 묶음 이름에 들어 있으면
 const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
-// 지금 화면에 맞는 메뉴 하나 — 가장 길게 맞는 주소(「/admin/contracts/send」에서 「보낸 계약서(/admin/contracts)」까지 켜지지 않게)
-const SETTINGS_ITEM: NavItem = { href: "/admin/settings", label: "환경설정", icon: Settings };   // 최고관리자 전용(아래 고정 링크와 같은 곳) — 메뉴 찾기에도 그 조건으로만
-const ALL_HREFS = [DASHBOARD, SETTINGS_ITEM, ...adminNavGroups.flatMap(g => g.items)].map(it => it.href.split("?")[0]);
-const COLLAPSE_KEY = "adminNav.collapsed";
 
 export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname();
-  const router = useRouter();
-  // 접힌 묶음 — 브라우저에만 기억(새로고침·다른 화면에서도 유지). 저장소를 못 쓰는 환경이면 늘 펼친 상태
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    // 서버 렌더와 첫 화면을 맞추려고(hydration) 저장값은 붙은 뒤에 읽는다 — 그래서 effect 안에서 한 번 setState 한다
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    try { const v = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); if (v && typeof v === "object") setCollapsed(v); } catch { /* 무시 */ }
-  }, []);
-  const toggleGroup = (key: string) => setCollapsed(prev => {
-    const next = { ...prev, [key]: !prev[key] };
-    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { /* 무시 */ }
-    return next;
-  });
+  const counts = useNavCounts();
+  const { group: activeGroup, item: activeItem } = matchNav(pathname);
+  const groups = ADMIN_NAV.map((g) => ({ ...g, items: g.items.filter((it) => !it.superOnly || isSuperAdmin) }));
+  // 패널에 보이는 대분류 — 화면이 바뀌면 그 화면의 대분류로 돌아온다(레일을 눌러 다른 대분류를 미리 볼 수 있다)
+  const [picked, setPicked] = useState<string | null>(null);
+  const [pickedAt, setPickedAt] = useState(pathname);
+  if (pickedAt !== pathname) { setPickedAt(pathname); setPicked(null); }
+  const shown: NavGroup | undefined = groups.find((g) => g.key === (picked ?? activeGroup?.key)) ?? groups.find((g) => g.items.length) ;
+
   const [menuQuery, setMenuQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   // 휴대폰 서랍(MobileDashboardNav)은 ESC 를 document 캡처 단계에서 받아 서랍을 닫는다 — 검색칸에 글자가 있으면 그보다 먼저(window 캡처) 받아 검색어만 지운다
@@ -121,140 +38,85 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [menuQuery]);
-  const activePath = ALL_HREFS.filter(p => pathname === p || pathname.startsWith(p + "/")).sort((a, b) => b.length - a.length)[0];
-  const isActive = (href: string) => href.split("?")[0] === activePath;
 
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
-    router.push("/login");
-    router.refresh();
-  }
+  const mq = norm(menuQuery);
+  // 찾기 — 메뉴 이름·대분류 이름·탭 이름 어디에 들어 있어도(탭에서 찾으면 그 탭 주소로 바로)
+  const hits = mq ? groups.flatMap((g) => [
+    ...(g.href && norm(g.title).includes(mq) ? [{ g, href: g.href, label: g.title }] : []),
+    ...g.items.flatMap((it) => {
+      const own = norm(it.label).includes(mq) || norm(g.title).includes(mq) ? [{ g, href: it.href, label: it.label }] : [];
+      const tabs = (it.tabs || []).filter((t) => t.href !== it.href && norm(t.label).includes(mq)).map((t) => ({ g, href: t.href, label: `${it.label} › ${t.label}` }));
+      return [...own, ...tabs];
+    }),
+  ]) : [];
 
   return (
-    // h-screen-safe sticky: 본문이 길어도 사이드바는 화면에 고정 — 하단(전환·로그아웃)이 페이지 밑으로 밀리지 않게 (다른 사이드바와 동일 구조)
-    <aside className="w-64 h-screen-safe sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
-      {/* 로고 */}
-      <div className="px-6 py-4 border-b border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-red-600 rounded-lg flex items-center justify-center shrink-0">
-            <span className="font-bold text-white text-lg">A</span>
-          </div>
-          <div>
-            <p className="font-bold text-white text-lg leading-tight">큐브티</p>
-            <p className="text-slate-400 text-xs">관리자 시스템</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 메뉴 찾기(2026-10-17 시안 1) — 이름 일부만 쳐도 그 메뉴만 남는다(찾는 동안은 묶음을 모두 펼침) */}
-      <div className="px-3 pt-3">
-        <label className="flex items-center gap-2 rounded-lg bg-slate-800 px-2.5 py-1.5 text-slate-300 focus-within:ring-1 focus-within:ring-slate-500">
-          <Search size={14} className="shrink-0 text-slate-500" />
-          <input ref={searchRef} value={menuQuery} onChange={e => setMenuQuery(e.target.value)} placeholder="메뉴 찾기 (예: 체결본)"
-            onKeyDown={e => { if (e.key === "Escape") setMenuQuery(""); }}
-            className="w-full min-w-0 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none" aria-label="메뉴 찾기" />
-          {menuQuery && <button type="button" onClick={() => setMenuQuery("")} className="text-xs text-slate-400 hover:text-white" aria-label="지우기">✕</button>}
-        </label>
-      </div>
-
-      {/* 네비게이션 — 6묶음(2026-10-17). 묶음 머리를 누르면 접히고, 보고 있는 화면이 든 묶음은 늘 펼친다 */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5">
-        {(() => {
-          const mq = norm(menuQuery);
-          if (!mq) return null;
-          // 찾는 중 — 맞는 메뉴만 묶음 이름과 함께
-          const hits = [{ title: "", items: isSuperAdmin ? [DASHBOARD, SETTINGS_ITEM] : [DASHBOARD] }, ...adminNavGroups]
-            .map(g => ({ title: g.title, items: norm(g.title).includes(mq) ? g.items : g.items.filter(it => norm(it.label).includes(mq)) }))
-            .filter(g => g.items.length > 0);
-          if (hits.length === 0) return <p className="px-3 py-2 text-xs text-slate-500">「{menuQuery.trim()}」 메뉴가 없습니다</p>;
-          return hits.map(g => (
-            <div key={g.title || "dash"} className="pt-1">
-              {g.title && <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{g.title}</p>}
-              {g.items.map(it => <NavLink key={it.href} item={it} active={isActive(it.href)} onClick={() => setMenuQuery("")} />)}
-            </div>
-          ));
-        })()}
-        {!norm(menuQuery) && <NavLink item={DASHBOARD} active={isActive(DASHBOARD.href)} />}
-        {!norm(menuQuery) && adminNavGroups.map(g => {
-          const hasActive = g.items.some(it => isActive(it.href));
-          const open = hasActive || !collapsed[g.key];
-          return (
-            <div key={g.key} className="pt-2">
-              <button type="button" onClick={() => { if (!hasActive) toggleGroup(g.key); }}   // 보고 있는 화면의 묶음은 늘 펼쳐 둔다(눌러도 접히지 않음)
-                className="flex w-full items-center justify-between px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300"
-                aria-expanded={open}>
-                <span>{g.title}</span>
-                <ChevronDown size={14} className={cn("transition-transform", open ? "" : "-rotate-90")} />
-              </button>
-              {open && g.items.map(it => <NavLink key={it.href} item={it} active={isActive(it.href)} />)}
-            </div>
+    // h-screen-safe sticky: 본문이 길어도 메뉴는 화면에 고정
+    <aside className="flex h-screen-safe sticky top-0 shrink-0">
+      {/* 레일 */}
+      <div className="flex w-[76px] flex-col items-center gap-1 overflow-y-auto bg-slate-900 py-3 text-slate-400">
+        <Link href="/admin/dashboard" className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-lg font-bold text-white" aria-label="큐브티 대시보드">A</Link>
+        {groups.map((g) => {
+          const Icon = g.icon;
+          const on = g.key === activeGroup?.key;
+          const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-medium",
+            on ? "bg-red-600 text-white" : g.key === shown?.key && !g.href ? "bg-slate-800 text-white" : "hover:bg-slate-800 hover:text-white");
+          // 빨간 점 — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
+          const dot = g.items.some((it) => it.countKey && RED_KEYS.has(it.countKey) && (counts[it.countKey as keyof NavCounts] || 0) > 0);
+          const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
+          return g.href ? (
+            <Link key={g.key} href={g.href} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>
+          ) : (
+            <button key={g.key} type="button" onClick={() => { setPicked(g.key); setMenuQuery(""); }} className={cls} aria-pressed={g.key === shown?.key}>{inner}</button>
           );
         })}
-      </nav>
-
-      {/* 환경설정 및 로그아웃 */}
-      <div className="px-3 py-3 border-t border-slate-700 space-y-0.5">
-        {/* 시스템 설정·백업은 메인 관리자 전용 */}
-        {isSuperAdmin && (
-          <Link
-            href="/admin/settings"
-            className={cn(
-              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              pathname === "/admin/settings" || pathname.startsWith("/admin/settings/")
-                ? "bg-red-600 text-white"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )}
-          >
-            <Settings size={18} />
-            환경설정
-          </Link>
-        )}
-        <button
-          onClick={() => window.location.href = "/work"}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
-        >
-          💬 큐브티워크
-          <WorkUnreadBadge />
-        </button>
-        <button
-          onClick={() => window.location.href = "/manager/dashboard"}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          🧑‍💼 원장 모드로 전환
-        </button>
-        <button
-          onClick={() => window.location.href = "/dashboard"}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          👤 직원 모드로 전환
-        </button>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          <LogOut size={18} />
-          로그아웃
-        </button>
+      </div>
+      {/* 패널 */}
+      <div className="flex w-52 flex-col border-r border-gray-200 bg-white">
+        <div className="px-4 pt-4 pb-2">
+          <p className="text-base font-bold leading-tight text-gray-900">큐브티</p>
+          <p className="text-xs text-gray-500">관리자 시스템</p>
+        </div>
+        <div className="px-3 pb-2">
+          <label className="flex items-center gap-2 rounded-lg border bg-gray-50 px-2.5 py-1.5 text-gray-600 focus-within:ring-1 focus-within:ring-indigo-300">
+            <Search size={14} className="shrink-0 text-gray-400" />
+            <input ref={searchRef} value={menuQuery} onChange={(e) => setMenuQuery(e.target.value)} placeholder="메뉴 찾기 (예: 체결본)"
+              onKeyDown={(e) => { if (e.key === "Escape") setMenuQuery(""); }}
+              className="w-full min-w-0 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 outline-none" aria-label="메뉴 찾기" />
+            {menuQuery && <button type="button" onClick={() => setMenuQuery("")} className="text-xs text-gray-400 hover:text-gray-700" aria-label="지우기">✕</button>}
+          </label>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3 pb-4">
+          {mq ? (
+            hits.length ? hits.map((h) => (
+              <Link key={h.href + h.label} href={h.href} onClick={() => setMenuQuery("")} className="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                <span className="mr-1 text-[11px] text-gray-400">{h.g.title}</span>{h.label}
+              </Link>
+            )) : <p className="px-3 py-2 text-xs text-gray-500">「{menuQuery.trim()}」 메뉴가 없습니다</p>
+          ) : shown ? (
+            <>
+              <p className="mb-1 border-b px-1 pb-2 text-base font-bold text-gray-900">{shown.title}</p>
+              {shown.items.length === 0 && shown.href && (
+                <Link href={shown.href} className={cn("mt-1 block rounded-lg px-3 py-2 text-sm font-medium", shown.key === activeGroup?.key ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-100")}>{shown.title}</Link>
+              )}
+              <div className="mt-1 space-y-0.5">
+                {shown.items.map((it) => <PanelLink key={it.href} item={it} counts={counts} active={it === activeItem || (!!activeItem && activeItem.href === it.href)} />)}
+              </div>
+            </>
+          ) : null}
+        </nav>
       </div>
     </aside>
   );
 }
 
-function NavLink({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: () => void }) {
-  const Icon = item.icon;
+function PanelLink({ item, active, counts }: { item: NavItem; active: boolean; counts: NavCounts }) {
   return (
-    <Link
-      href={item.href}
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-        active ? "bg-red-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
-      )}
-    >
-      <Icon size={18} />
-      {item.label}
+    <Link href={item.href} aria-current={active ? "page" : undefined}
+      className={cn("flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm",
+        active ? "bg-indigo-50 font-semibold text-indigo-700" : "text-gray-700 hover:bg-gray-100")}>
+      <span className="truncate">{item.label}</span>
+      {item.countKey && <CountBadge n={counts[item.countKey as keyof NavCounts]} red={RED_KEYS.has(item.countKey)} />}
     </Link>
   );
 }
-

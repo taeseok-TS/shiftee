@@ -628,7 +628,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
 
       {/* 고른 서류 띠 — 한 장이면 바로 보내기, 여러 장이면 묶음으로 저장·보내기 */}
       {checked.length > 0 && (
-        <div className="fixed inset-x-0 md:left-64 bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+        <div className="fixed inset-x-0 md:left-[284px] bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           <div className="mx-auto max-w-5xl rounded-xl border border-indigo-300 bg-white shadow-lg px-4 py-3 flex flex-wrap items-center gap-3">
             <p className="font-bold text-gray-900">고른 서류 {checked.length}건</p>
             <p className="flex-1 min-w-0 truncate text-xs text-gray-500">{checked.map(id => tplOf(id)?.name).filter(Boolean).join(" · ")}</p>

@@ -1,11 +1,10 @@
 "use client";
 
-import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { WorkUnreadBadge } from "./WorkUnreadBadge";
+import { useNavCounts } from "./useNavCounts";
 import {
   LayoutDashboard,
   Users,
@@ -13,7 +12,6 @@ import {
   FileSignature,
   Calendar,
   Settings,
-  LogOut,
   Inbox,
   BarChart3,
 } from "lucide-react";
@@ -29,9 +27,11 @@ const managerNavItems = [
   { href: "/requests?who=decided", label: "처리한 요청", icon: Inbox },   // 내가 결재한 휴가·일정·출퇴근 요청(2026-10-07 #43)
 ];
 
-export function ManagerSidebar({ role }: { role?: string }) {
+export function ManagerSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
+  // 아직 안 끝난 내 차례(시안 v2 10번) — 팀 휴가 = 휴가·근무일정·출퇴근 결재, 팀 계약서 = 계약 결재
+  const counts = useNavCounts();
+  const countOf = (href: string) => href === "/manager/team-leave" ? counts.leaveInbox || 0 : href === "/manager/team-contracts" ? counts.contractSign || 0 : 0;
   // 원장 권한 토글(#39) — 꺼진 메뉴는 숨긴다(실제 차단은 API 가 한다). 읽기 전엔 모두 보여 준다
   const [perms, setPerms] = useState<Record<string, boolean> | null>(null);
   useEffect(() => {
@@ -40,13 +40,6 @@ export function ManagerSidebar({ role }: { role?: string }) {
     return () => { alive = false; };
   }, []);
   const visibleItems = managerNavItems.filter((it) => !("needs" in it) || !perms || perms[(it as { needs: string }).needs] !== false);
-
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
-    router.push("/login");
-    router.refresh();
-  }
 
   return (
     <aside className="w-64 h-screen-safe sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
@@ -65,7 +58,7 @@ export function ManagerSidebar({ role }: { role?: string }) {
 
       {/* 네비게이션 */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {visibleItems.map(({ href, label, icon: Icon }) => (
+        {visibleItems.map(({ href, label, icon: Icon }) => { const n = countOf(href); return (
           <Link
             key={href}
             href={href}
@@ -78,11 +71,12 @@ export function ManagerSidebar({ role }: { role?: string }) {
           >
             <Icon size={18} />
             {label}
+            {n > 0 && <span className="ml-auto min-w-[20px] rounded-full bg-red-500 px-1.5 text-center text-[11px] font-bold leading-5 text-white">{n > 99 ? "99+" : n}</span>}
           </Link>
-        ))}
+        ); })}
       </nav>
 
-      {/* 환경설정 및 로그아웃 */}
+      {/* 환경설정 */}
       <div className="px-3 py-4 border-t border-slate-700 space-y-1">
         <Link
           href="/manager/settings"
@@ -96,36 +90,7 @@ export function ManagerSidebar({ role }: { role?: string }) {
           <Settings size={18} />
           환경설정
         </Link>
-        <button
-          onClick={() => (window.location.href = "/work")}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
-        >
-          💬 큐브티워크
-          <WorkUnreadBadge />
-        </button>
-        {/* ADMIN이 원장 모드를 보는 중이면 관리자 복귀, 실제 원장(MANAGER)은 직원 모드 전환 */}
-        {role === "ADMIN" ? (
-          <button
-            onClick={() => (window.location.href = "/admin/dashboard")}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-          >
-            🔐 관리자 모드로 전환
-          </button>
-        ) : (
-          <button
-            onClick={() => (window.location.href = "/dashboard")}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-          >
-            👤 직원 모드로 전환
-          </button>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          <LogOut size={18} />
-          로그아웃
-        </button>
+        {/* 큐브티워크·모드 전환·로그아웃은 상단 바로 옮겼다(2026-10-20 시안 v2 9번 — TopBar) */}
       </div>
     </aside>
   );

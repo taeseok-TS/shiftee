@@ -1,11 +1,10 @@
 "use client";
 
-import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { WorkUnreadBadge } from "./WorkUnreadBadge";
+import { useNavCounts } from "./useNavCounts";
 import {
   LayoutDashboard,
   Clock,
@@ -16,7 +15,6 @@ import {
   ClipboardCheck,
   User,
   Settings,
-  LogOut,
   Inbox,
 } from "lucide-react";
 
@@ -33,7 +31,9 @@ const sharedNavItems = [
 
 export function SharedSidebar({ role }: { role?: string }) {
   const pathname = usePathname();
-  const router = useRouter();
+  // 아직 안 끝난 내 차례(시안 v2 10번) — 내 계약서 = 내가 서명할 것, 원장대행 결재 = 휴가·근무일정·출퇴근 결재
+  const counts = useNavCounts();
+  const countOf = (href: string) => href === "/contracts" ? counts.mySign || 0 : href === "/approvals" ? counts.leaveInbox || 0 : 0;
   // 원장대행으로 지정된 직원에게만 「결재」 메뉴 — 원장·관리자는 각자 모드의 결재 화면을 쓴다(2026-10-07)
   const [delegateBranches, setDelegateBranches] = useState<string[]>([]);
   const [selfAttendance, setSelfAttendance] = useState(false);   // 직원 본인 출퇴근 열람(웹) 권한(#39)
@@ -55,13 +55,6 @@ export function SharedSidebar({ role }: { role?: string }) {
       : []),
   ];
 
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
-    router.push("/login");
-    router.refresh();
-  }
-
   return (
     <aside className="w-64 h-screen-safe sticky top-0 overflow-y-auto bg-slate-900 text-white flex flex-col shrink-0">
       {/* 로고 */}
@@ -79,7 +72,7 @@ export function SharedSidebar({ role }: { role?: string }) {
 
       {/* 네비게이션 */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map(({ href, label, icon: Icon }) => (
+        {navItems.map(({ href, label, icon: Icon }) => { const n = countOf(href); return (
           <Link
             key={href}
             href={href}
@@ -92,11 +85,12 @@ export function SharedSidebar({ role }: { role?: string }) {
           >
             <Icon size={18} />
             {label}
+            {n > 0 && <span className="ml-auto min-w-[20px] rounded-full bg-red-500 px-1.5 text-center text-[11px] font-bold leading-5 text-white">{n > 99 ? "99+" : n}</span>}
           </Link>
-        ))}
+        ); })}
       </nav>
 
-      {/* 환경설정 및 로그아웃 */}
+      {/* 환경설정 */}
       <div className="px-3 py-4 border-t border-slate-700 space-y-1">
         <Link
           href="/profile"
@@ -122,37 +116,7 @@ export function SharedSidebar({ role }: { role?: string }) {
           <Settings size={18} />
           환경설정
         </Link>
-        <button
-          onClick={() => (window.location.href = "/work")}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors w-full"
-        >
-          💬 큐브티워크
-          <WorkUnreadBadge />
-        </button>
-        {/* 역할별 모드 전환 — ADMIN은 관리자, MANAGER(원장)는 원장 모드로. 일반 직원은 버튼 없음 */}
-        {role === "ADMIN" && (
-          <button
-            onClick={() => (window.location.href = "/admin/dashboard")}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-          >
-            🔐 관리자 모드로 전환
-          </button>
-        )}
-        {role === "MANAGER" && (
-          <button
-            onClick={() => (window.location.href = "/manager/dashboard")}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-          >
-            🧑‍💼 원장 모드로 전환
-          </button>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors w-full"
-        >
-          <LogOut size={18} />
-          로그아웃
-        </button>
+        {/* 큐브티워크·모드 전환·로그아웃은 상단 바로 옮겼다(2026-10-20 시안 v2 9번 — TopBar) */}
       </div>
     </aside>
   );

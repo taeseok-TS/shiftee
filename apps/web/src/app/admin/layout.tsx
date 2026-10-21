@@ -3,6 +3,9 @@ import { getSession, isSuperAdmin } from "@/lib/auth";
 import { AdminSidebar } from "@/components/layout/AdminSidebar";
 import { MobileDashboardNav } from "@/components/layout/MobileDashboardNav";
 import { Toaster } from "@/components/ui/sonner";
+import { TopBar } from "@/components/layout/TopBar";
+import { AdminTabs } from "@/components/layout/AdminTabs";
+import { Suspense } from "react";
 
 export default async function AdminLayout({
   children,
@@ -23,20 +26,14 @@ export default async function AdminLayout({
         <AdminSidebar isSuperAdmin={superAdmin} />
       </div>
       <main className="flex-1 min-w-0 overflow-auto">
-        <div className="flex justify-between items-center px-4 md:px-8 py-4 bg-white border-b border-gray-200">
-          <div className="flex items-center gap-2 min-w-0">
-            <MobileDashboardNav><AdminSidebar isSuperAdmin={superAdmin} /></MobileDashboardNav>
-            <h1 className="text-xl font-semibold text-gray-800 truncate">관리자 대시보드</h1>
-          </div>
-          {/* RoleSwitch 는 걷어냈다 (2026-09-04).
-              이 컴포넌트는 `/api/auth/me` 응답을 잘못 읽어 **오랫동안 아무것도 안 그리고 있었고**,
-              9/3 에 그 버그를 고치자 헤더에 역할 전환.로그아웃이 새로 나타났다. 그런데
-              같은 기능이 이미 사이드바에 있다(AdminSidebar/ManagerSidebar/SharedSidebar).
-              직원 70여 명 화면에 중복 UI 와 "(테스트용)" 라벨이 갑자기 보이는 것은
-              의도한 변경이 아니므로 원래 보이던 모습으로 되돌린다.
-              컴포넌트 자체의 버그 수정은 남겨 둔다 — 다시 쓸 때 바로 동작한다. */}
+        {/* 상단 바 — 모드 전환·큐브티워크·이름(로그아웃)(2026-10-20 시안 v2 9번) */}
+        <TopBar mode="admin" role={session.role} name={session.name} sub={session.branch || "본부"}
+          menu={<MobileDashboardNav><AdminSidebar isSuperAdmin={superAdmin} /></MobileDashboardNav>} />
+        {/* 상단 바와 본문 사이를 넉넉하게(시안 v2 9번). 묶인 화면은 본문 위 탭(시안 v2 8번) */}
+        <div className="px-4 pb-8 pt-6 md:px-8 md:pt-10">
+          <Suspense fallback={null}><AdminTabs /></Suspense>
+          {children}
         </div>
-        <div className="p-4 md:p-8">{children}</div>
       </main>
       <Toaster richColors position="top-right" />
     </div>
