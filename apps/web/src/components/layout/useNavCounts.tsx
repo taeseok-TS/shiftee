@@ -42,6 +42,8 @@ async function load() {
   } catch { /* 네트워크 오류는 다음 차례에 */ }
 }
 const onFocus = () => { if (Date.now() - lastAt > 15_000) void load(); };
+// 뒤에서 열린 탭은 처음 받기를 건너뛴다 — 화면에 보이게 되는 순간 바로 받는다(focus 가 안 오는 경우도 있어서)
+const onVisible = () => { if (document.visibilityState === "visible" && Date.now() - lastAt > 15_000) void load(); };
 
 function subscribe(f: () => void) {
   subs.add(f);
@@ -49,10 +51,11 @@ function subscribe(f: () => void) {
     void load();
     timer = setInterval(load, 60_000);
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
   }
   return () => {
     subs.delete(f);
-    if (subs.size === 0) { if (timer) clearInterval(timer); timer = null; window.removeEventListener("focus", onFocus); }   // 값은 남긴다 — 모드를 바꿀 때 빨간 점이 깜박이지 않게(로그아웃은 resetNavCounts 가 비운다)
+    if (subs.size === 0) { if (timer) clearInterval(timer); timer = null; window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisible); }   // 값은 남긴다 — 모드를 바꿀 때 빨간 점이 깜박이지 않게(로그아웃은 resetNavCounts 가 비운다)
   };
 }
 const EMPTY: NavCounts = {};
