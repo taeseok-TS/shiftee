@@ -7,7 +7,7 @@
 //  ② 보낼 준비: 들어 있는 서류(결재 순서·미리보기·이 묶음에서 빼기·끌어서 보내는 순서) + 받는 사람(한 명/여러 명) + 「n명 × m종 = k건」
 // [다음: 내용 입력]을 누르면 같은 화면(ContractsScreen flow)의 2단계로 넘어가 「보낸 계약서」 작성 창과 같은 폼이 펼쳐진다 — 규칙 복제 없음.
 // 즐겨찾기·묶음·순서는 본부 전체가 같이 본다(lib/contract-send-layout, /api/admin/contract-send-layout).
-// 외부(미가입) 계약·코디/외부 채용 패키지 같은 특수 흐름은 「보낸 계약서」 → 「계약서 작성」에 그대로 있다.
+// 외부(미가입) 계약자·코디 채용 묶음·외부 채용 패키지도 여기서 고른다(2026-10-21 본부 이예지 재요청 F — 「같은 3단계 화면에서」).
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -32,8 +32,9 @@ export type Pick =
   | { kind: "hire" } | { kind: "resign" }
   | { kind: "bundle"; id: string | null; name: string; templateIds: string[] }
   | null;
-/** 1단계에서 고른 것 — 2단계 작성 폼을 여는 값 */
-export type SendSelection = { pick: NonNullable<Pick>; recipients: string[]; resignPicks: boolean[]; purpose: PurposeKey; multi: boolean };
+/** 1단계에서 고른 것 — 2단계 작성 폼을 여는 값.
+ *  external = 외부(미가입) 계약자에게(받는 사람 없이 2단계에서 이름·휴대폰), pack = 함께 보내는 묶음(codi = 코디 채용 3종, ext = 외부 채용 3종) */
+export type SendSelection = { pick: NonNullable<Pick>; recipients: string[]; resignPicks: boolean[]; purpose: PurposeKey; multi: boolean; external?: boolean; pack?: "codi" | "ext" | null };
 
 const ACCESS_LABEL: Record<string, string> = { full: "열람·다운로드", view: "열람만", none: "보관만" };
 // 용도 탭 점 색(묶음마다 다른 색 — 시안 v2 톤 안내)
@@ -84,6 +85,8 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const [resignPicks, setResignPicks] = useState<boolean[]>(initial?.resignPicks ?? [...RESIGN_PICK_DEFAULT]);
   const [multi, setMulti] = useState(initial?.multi ?? false);
   const [recipients, setRecipients] = useState<string[]>(initial?.recipients ?? []);
+  const [toExt, setToExt] = useState(!!initial?.external);              // 받는 사람 = 외부(미가입) 계약자
+  const [pack, setPack] = useState<"codi" | "ext" | null>(initial?.pack ?? null);   // 코디 채용 묶음·외부 채용 패키지
   const [search, setSearch] = useState("");
   const [checked, setChecked] = useState<string[]>([]);   // 전체 서류에서 체크한 양식(순서 = 체크한 순서)
   const [addOpen, setAddOpen] = useState(false);           // 「이 묶음에 서류 더 넣기」
@@ -175,7 +178,21 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const found = q ? candidates.filter(e => e.name.toLowerCase().includes(q) || (e.branch || "").toLowerCase().includes(q) || (e.department || "").toLowerCase().includes(q)).slice(0, 30) : [];
   const empOf = (id: string) => employees.find(e => e.id === id);
   // 퇴사 서류는 한 명씩만(작성 폼이 퇴사 패키지 여러 명 작성을 막는다 — 상태 꼬임 사고, 2026-08-26 검증)
-  const multiAllowed = pick?.kind !== "resign";
+  // 함께 보내는 문서(비밀유지서약서·개인정보동의서) — 작성 폼과 같은 탐색(사본·[채용]·퇴직용 빼고 최근 등록 먼저)
+  const companions = useMemo(() => {
+    const pool = templates.filter(t => !/\(사본( \d+)?\)/.test(t.name)).sort((x, y) => (y.createdAt || "").localeCompare(x.createdAt || ""));
+    const nda = pool.find(t => t.name.includes("비밀유지") && !t.name.includes("퇴직") && !t.name.includes("[채용]"));
+    const privacy = pool.find(t => t.name.includes("개인정보") && !t.name.includes("[채용]"));
+    return nda && privacy ? [nda, privacy] : null;
+  }, [templates]);
+  const pickedTpl = pick?.kind === "tpl" ? tplOf(pick.id) : undefined;
+  const isCopy = (n: string) => /\(사본( \d+)?\)/.test(n);
+  // 작성 폼이 실제로 쓰는 양식과 같을 때만 묶음을 권한다 — 사본은 빼고, 외부 채용 패키지는 가장 최근 등록한 기타직무 계약서(검증 P2)
+  const extMain = useMemo(() => templates.filter(t => t.name.includes("기타직무") && !/\(사본( \d+)?\)/.test(t.name)).sort((x, y) => (y.createdAt || "").localeCompare(x.createdAt || ""))[0], [templates]);
+  const isCodiTpl = !!pickedTpl && pickedTpl.name.includes("코디") && pickedTpl.name.includes("근로계약서") && !isCopy(pickedTpl.name);
+  const isExtTpl = !!pickedTpl && !!extMain && pickedTpl.id === extMain.id;
+  const packOn = pack === "codi" ? isCodiTpl && !toExt && !!companions : pack === "ext" ? isExtTpl && toExt && !!companions : false;
+  const multiAllowed = pick?.kind !== "resign" && !toExt && !(pack === "codi" && packOn);   // 퇴사 서류·외부 계약자·코디 채용 묶음은 한 명씩
   const multiOn = multi && multiAllowed;
   const toggleRecipient = (id: string) => {
     setRecipients(prev => {
@@ -189,6 +206,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const choose = (p: Pick) => {
     setPick(p);
     setAddOpen(false);
+    setToExt(false); setPack(null);   // 외부·묶음 선택은 고른 서류마다 새로
     if (p?.kind === "resign") {
       setResignPicks([...RESIGN_PICK_DEFAULT]);
       if (recipients.length > 1) { setRecipients(r => r.slice(0, 1)); toast.info("퇴사 서류는 한 명씩 보냅니다. 첫 번째 받는 사람만 남겼습니다."); }
@@ -279,7 +297,10 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   // ── 다음 ──
   const goCompose = () => {
     if (!pick) { toast.error("보낼 서류를 먼저 고르세요."); return; }
+    // 외부 계약자 — 받는 사람은 2단계에서 이름·휴대폰으로(받을 이메일은 3단계에서)
+    if (toExt && pick.kind === "tpl") { onNext({ pick, recipients: [], resignPicks, purpose, multi: false, external: true, pack: packOn ? "ext" : null }); return; }
     if (!recipients.length) { toast.error("받는 사람을 고르세요."); return; }
+    if (packOn && pack === "codi") { onNext({ pick, recipients: recipients.slice(0, 1), resignPicks, purpose, multi: false, pack: "codi" }); return; }
     if (pick.kind === "bundle") { const bp = bundleProblem(pickedDocs); if (bp) { toast.error(bp, { duration: 9000 }); return; } }
     onNext({ pick, recipients: multiOn ? recipients : recipients.slice(0, 1), resignPicks, purpose, multi: multiOn });
   };
@@ -295,7 +316,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     : pick.kind === "resign" ? (pkg.resignTemplates.filter((t, i) => !!t && (i === 0 || resignPicks[i])) as Template[])
     : pick.templateIds.map(id => tplOf(id)).filter(Boolean) as Template[];
   const pickTitle = !pick ? "" : pick.kind === "hire" ? "신규입사 묶음" : pick.kind === "resign" ? "퇴사 서류" : pick.kind === "bundle" ? pick.name : (tplOf(pick.id)?.name ?? "");
-  const nDocs = pickedDocs.length;
+  const nDocs = pickedDocs.length + (packOn ? 2 : 0);
   const nPeople = multiOn ? recipients.length : Math.min(recipients.length, 1);
 
   // ── 카드 ──
@@ -478,13 +499,45 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
           {/* 오른쪽 — 받는 사람 */}
           <aside id="send-panel" className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-4 space-y-4 lg:sticky lg:top-4">
             <p className="font-semibold text-gray-900">받는 사람</p>
+            {/* 직원 / 외부(미가입) 계약자 — 서류 한 장을 골랐을 때만(묶음·신규입사·퇴사는 직원에게만) */}
+            {pick.kind === "tpl" && (
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="받는 사람 종류">
+                {([[false, "직원"], [true, "외부 계약자"]] as const).map(([v, label]) => (
+                  <button key={String(v)} type="button" role="radio" aria-checked={toExt === v}
+                    title={v ? "큐브티에 가입하지 않은 사람 — 링크로 서명합니다" : undefined}
+                    onClick={() => { setToExt(v); setPack(null); if (v) setMulti(false); }}
+                    className={cn("rounded-lg border py-2.5 text-sm font-semibold",
+                      toExt === v ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50")}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* 함께 보내는 묶음 — 코디 계약서는 코디 채용 묶음, 기타직무 계약서를 외부 계약자에게면 외부 채용 패키지 */}
+            {companions && ((isCodiTpl && !toExt) || (isExtTpl && toExt)) && (
+              <label className="flex items-start gap-2 rounded-lg border border-gray-200 p-2.5 text-sm text-gray-800">
+                <input type="checkbox" className="mt-0.5" checked={pack === (isCodiTpl ? "codi" : "ext")}
+                  onChange={(e) => { const k = isCodiTpl ? "codi" : "ext"; setPack(e.target.checked ? k : null); if (e.target.checked && k === "codi") { setMulti(false); setRecipients(r => r.slice(0, 1)); } }} />
+                <span>
+                  <b>{isCodiTpl ? "코디 채용 묶음으로" : "외부 채용 패키지로"}</b> — {companions.map(t => t.name).join(" · ")} 함께(3종)
+                  <span className="block text-[11px] text-gray-500">{isCodiTpl ? "비밀유지·개인정보동의서는 직원 서명만 받습니다. 한 명씩 보냅니다." : "외부 계약자는 링크 하나로 3종을 확인하고 한 번에 서명합니다."}</span>
+                </span>
+              </label>
+            )}
+            {toExt && pick.kind === "tpl" ? (
+              <div className="space-y-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
+                <p className="font-semibold text-gray-900">외부 계약자 1명 · {nDocs}종</p>
+                <p>이름·휴대폰은 다음 단계(내용 입력)에서, 계약서를 받을 이메일은 마지막 단계(결재자·발송)에서 넣습니다.</p>
+                <p>보내면 서명 링크가 나옵니다 — 복사하거나 폰에서 문자로 전달합니다(가입 없이 서명).</p>
+              </div>
+            ) : (<>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="받는 사람 수">
               {([[false, "한 명"], [true, multiOn && recipients.length > 1 ? `여러 명 (${recipients.length})` : "여러 명"]] as const).map(([v, label]) => {
                 const on = multiOn === v;
                 const dis = v && !multiAllowed;
                 return (
                   <button key={String(v)} type="button" role="radio" aria-checked={on} disabled={dis}
-                    title={dis ? "퇴사 서류는 한 명씩 보냅니다" : v ? "같은 서류를 여러 명에게 — 사람마다 1건씩 만들어집니다" : undefined}
+                    title={dis ? (pick.kind === "resign" ? "퇴사 서류는 한 명씩 보냅니다" : "코디 채용 묶음은 한 명씩 보냅니다") : v ? "같은 서류를 여러 명에게 — 사람마다 1건씩 만들어집니다" : undefined}
                     onClick={() => { setMulti(v); if (!v) setRecipients(r => r.slice(0, 1)); }}
                     className={cn("rounded-lg border py-2.5 text-sm font-semibold disabled:opacity-40",
                       on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50")}>
@@ -528,14 +581,12 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
               {nPeople > 0 && <p className="font-semibold text-gray-900">{nPeople}명 × {nDocs}종 = {nPeople * nDocs}건이 한 번에 나갑니다</p>}
               <p>원장 자동 · 지점 메인 원장 · 인사카드 값 자동</p>
             </div>
-            <button type="button" onClick={goCompose} disabled={!recipients.length || nDocs === 0}
+            </>)}
+            <button type="button" onClick={goCompose} disabled={(!toExt && !recipients.length) || nDocs === 0}
               className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
-              다음: 내용 입력{nPeople > 0 ? ` (${nPeople}명 · ${nPeople * nDocs}건)` : ""}
+              다음: 내용 입력{toExt ? " (외부 계약자)" : nPeople > 0 ? ` (${nPeople}명 · ${nPeople * nDocs}건)` : ""}
             </button>
-            {!recipients.length && <p className="text-[11px] text-gray-500 text-center">받는 사람을 고르면 다음으로 넘어갈 수 있습니다</p>}
-            <p className="text-[11px] text-gray-500 border-t border-gray-100 pt-3">
-              외부(미가입) 계약자 링크 서명·코디/외부 채용 패키지는 <Link href="/admin/contracts" className="text-indigo-600 underline">보낸 계약서</Link> → 「계약서 작성」에서 보냅니다.
-            </p>
+            {!toExt && !recipients.length && <p className="text-[11px] text-gray-500 text-center">받는 사람을 고르면 다음으로 넘어갈 수 있습니다</p>}
           </aside>
         </div>
       </div>

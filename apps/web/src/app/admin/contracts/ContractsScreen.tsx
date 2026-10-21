@@ -3,6 +3,7 @@ import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
 import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
+import FlowExternalSend from "@/components/contracts/FlowExternalSend";
 import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, EMPTY_EVAL, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
 import { DEFAULT_COHORTS, type Cohort } from "@/lib/route-course";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
@@ -270,6 +271,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [resignBundleMode, setResignBundleMode] = useState(false); // 퇴사 패키지(사직원 + 고른 문서, 최대 5종) 발송
   const [codiBundleMode, setCodiBundleMode] = useState(false); // 코디 채용 패키지(계약서 선택 + 3종 묶음) 발송
   const [externalMode, setExternalMode] = useState(false); // 외부(미가입) 계약자 — 게스트 서명 링크 발송
+  // 계약서 보내기에서 외부 계약자로 고른 양식 — externalMode 가 켜진 다음 렌더에서 읽는다(scanFields 가 그 렌더의 externalMode 로 외부용 칸을 고른다)
+  const [pendingExtScan, setPendingExtScan] = useState<{ id: string; pkg: boolean; renew: boolean } | null>(null);
   // 계약서 보내기 3단계(flow) — 지금 단계·1단계에서 고른 것·2단계에서 만든 초안 id(3단계로 넘김)
   const [flowStep, setFlowStep] = useState<1 | 2 | 3>(1);
   const [flowSel, setFlowSel] = useState<SendSelection | null>(null);
@@ -1111,6 +1114,20 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
   };
 
+  useEffect(() => {
+    if (!pendingExtScan || !externalMode) return;
+    const { id, pkg, renew } = pendingExtScan;
+    const t = templates.find(x => x.id === id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingExtScan(null);
+    if (!t) return;
+    setSelectedTemplate(id);
+    setCreateForm(f => ({ ...f, type: t.type }));
+    void scanFields(id, pkg);
+    if (renew) setContractKind("재계약");   // scanFields 가 「신규입사」로 되돌린 뒤에
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExtScan, externalMode]);
+
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
     if (template) {
@@ -1235,7 +1252,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const autoWritten = useRef("");
   useEffect(() => {
     if (!flow || !templateFields.includes("작성일")) return;
-    if (resignBundleMode) {
+    if (resignBundleMode || externalMode) {
       if (autoWritten.current && extraFields["작성일지정"] === autoWritten.current) setExtraFields(p => { const n = { ...p }; delete n["작성일지정"]; return n; });
       return;
     }
@@ -1245,7 +1262,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setExtraFields(p => (p["작성일지정"] !== undefined ? p : { ...p, 작성일지정: today }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flow, templateFields, resignBundleMode]);
+  }, [flow, templateFields, resignBundleMode, externalMode]);
 
   // 묶인 시작일(재요청 D) — 한 명 작성이면 근로시작일(입사일)을 계약 시작일에도 넣는다. 손으로 고친 시작일은 둔다
   useEffect(() => {
@@ -1409,7 +1426,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 작성·검사·발송은 이 창 그대로(그 화면은 고르기만). ?compose=tpl|hire|resign|test &tpl=양식 id &kind=renew &to=직원id,… &picks=10001(퇴사 문서 고르기)
 
   /** 작성 폼을 고른 양식·받는 사람으로 연다 — 주소(?compose=)와 계약서 보내기 1단계가 같은 함수. mode = tpl|hire|resign|test */
-  function openCompose(mode: string, tplId: string | null, kind: string | null, toRaw: string[], picksRaw: string, bundleIds?: string[], bundleName?: string): boolean {
+  function openCompose(mode: string, tplId: string | null, kind: string | null, toRaw: string[], picksRaw: string, bundleIds?: string[], bundleName?: string, extPack = false): boolean {
     // 받는 사람 — 같은 id 는 한 번만, 목록에 있는 직원·원장만, 최대 200명(주소를 손으로 고쳐 넣은 값 막기)
     const to = [...new Set(toRaw)].filter(id => employees.some(e => e.id === id && e.role !== "ADMIN")).slice(0, 200);
     const tpl = templates.find(t => t.id === tplId);
@@ -1424,6 +1441,25 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       setCreateForm(f => ({ ...f, type: first.type }));
       scanFields(ids[0], false, false, true, resignPicks, false, ids.slice(1));
       if (kind === "renew") setContractKind("재계약");   // 재계약 탭에서 고른 묶음(scanFields 가 「신규입사」로 되돌린 뒤에)
+    } else if (mode === "external" || mode === "codi") {
+      // 계약서 보내기 1단계에서 고른 외부 계약자·코디 채용 묶음(2026-10-21 이예지 재요청 F) — 옛 작성 창의 체크와 같은 상태로 연다
+      if (!tpl) { toast.error("고른 양식을 찾지 못했습니다. 다시 골라 주세요."); return false; }
+      setUseTemplate(true);
+      if (mode === "codi") {
+        if (!canCodiBundle) { toast.error("코디 채용 묶음 양식(비밀유지서약서·개인정보동의서)이 다 등록돼 있지 않습니다."); return false; }
+        setCodiBundleMode(true);
+        setSelectedTemplate(tpl.id);
+        setCreateForm(f => ({ ...f, type: tpl.type }));
+        void scanFields(tpl.id, true);
+        if (kind === "renew") setContractKind("재계약");   // scanFields 가 「신규입사」로 되돌린 뒤에
+      } else {
+        // 외부 채용 패키지는 대표 문서가 기타직무 계약서여야 한다(만들기 직전 검사와 같은 양식)
+        const id = extPack ? extTemplate?.id : tpl.id;
+        if (!id || (extPack && !canExtBundle)) { toast.error("외부 채용 패키지 양식이 다 등록돼 있지 않습니다."); return false; }
+        setExternalMode(true);
+        setExtBundleMode(extPack);
+        setPendingExtScan({ id, pkg: extPack, renew: kind === "renew" });
+      }
     } else if (mode === "hire") {
       if (!canBundle) { toast.error("신규입사 묶음 양식이 다 등록돼 있지 않습니다."); return false; }
       startKind("hire");
@@ -1475,7 +1511,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 1단계 → 2단계. 같은 서류·같은 받는 사람이면 입력한 값을 그대로 두고 넘어간다(이전 단계로 갔다 와도 입력값이 남게)
   async function startFlowCompose(sel: SendSelection) {
     if (templates.length === 0 || employees.length === 0) { toast.info("양식·직원 목록을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요."); return; }
-    const key = JSON.stringify({ p: sel.pick, r: sel.recipients, k: sel.resignPicks });
+    const key = JSON.stringify({ p: sel.pick, r: sel.recipients, k: sel.resignPicks, x: !!sel.external, pk: sel.pack ?? null });
     setFlowSel(sel);
     if (key === flowKey.current) { setFlowStep(2); return; }
     // 다른 서류·받는 사람으로 다시 시작 — 앞서 일부만 만든 초안이 남아 있으면 지운다(3단계에 섞이지 않게, 검증 F2)
@@ -1486,11 +1522,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     setFlowCreated([]); flowDoneUids.current = new Set();
     flowKey.current = "";   // 열기에 실패하면 옛 선택으로 빈 폼에 들어가지 않게(검증 F6)
     resetCompose();
-    const mode = sel.pick.kind === "tpl" ? "tpl" : sel.pick.kind;
+    const mode = sel.external && sel.pick.kind === "tpl" ? "external" : sel.pack === "codi" && sel.pick.kind === "tpl" ? "codi" : sel.pick.kind === "tpl" ? "tpl" : sel.pick.kind;
     const ok = openCompose(mode, sel.pick.kind === "tpl" ? sel.pick.id : null,
       (sel.pick.kind === "tpl" && sel.pick.purpose === "renew") || (sel.pick.kind === "bundle" && sel.purpose === "renew") ? "renew" : null,
       sel.recipients, sel.resignPicks.map(v => (v ? "1" : "0")).join(""),
-      sel.pick.kind === "bundle" ? sel.pick.templateIds : undefined, sel.pick.kind === "bundle" ? sel.pick.name : undefined);
+      sel.pick.kind === "bundle" ? sel.pick.templateIds : undefined, sel.pick.kind === "bundle" ? sel.pick.name : undefined, sel.pack === "ext");
     if (!ok) return;
     flowKey.current = key;
     setFlowStep(2);
@@ -1828,6 +1864,23 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (!(extraFields[f] || "").trim() && !(bulkMode && (bulkValues[uid]?.[f] || "").trim())) out.push(f);
     return out;
   }
+  /** 외부 계약자 — 이름·휴대폰(본인 확인·링크 전달)·빈 필수 칸 */
+  function extMissing(): string[] {
+    const out: string[] = [];
+    if (!externalForm.name.trim()) out.push("이름");
+    if (!/^01[016789]\d{7,8}$/.test(externalForm.phone.replace(/[^0-9]/g, ""))) out.push("휴대폰 번호");
+    // missingOf 의 한 명 작성 쪽과 같은 검사 — 화면(렌더)에서도 부르므로 여러 명 계산(bulkBuilder)을 거치지 않는다
+    if (!createForm.title.trim()) out.push("제목");
+    if (!useTemplate || templateFields.includes("계약시작일") || templateFields.includes("계약종료일")) {
+      if (!createForm.startDate) out.push("계약 시작일");
+      if (!createForm.endDate) out.push("계약 종료일");
+    }
+    const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    if (needsSalary && !String(effSalary || "").trim()) out.push("연봉");
+    for (const f of dynamicFields.filter(x => fieldSettings[x]?.required)) if (!(extraFields[f] || "").trim()) out.push(f);
+    if (extBundleMode) for (const f of ["생년월일", "주소", "원장명"]) if (templateFields.includes(f) && !(extraFields[f] || "").trim() && !out.includes(f)) out.push(f);
+    return out;
+  }
   /** 사람마다 상태 — 서버 점검 + 화면에서만 아는 것(인사카드 입사일 없음·빈 필수 칸) */
   function statusOf(byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | undefined): Record<string, RowStatus> {
     const out: Record<string, RowStatus> = {};
@@ -1868,6 +1921,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   /** 2단계 「다음」 — 확인을 다시 돌려 막을 것이 없을 때만 만든다 */
   async function flowNext() {
     if (uploading || flowChecking.current) return;
+    if (externalMode) {
+      const miss = extMissing();
+      if (miss.length) { toast.error(`빈 칸을 채워 주세요: ${miss.join(", ")}`); return; }
+      (document.getElementById("compose-form") as HTMLFormElement | null)?.requestSubmit();
+      return;
+    }
     // 남은 자동 확인을 지운다 — 그 타이머가 「다음」의 확인을 끊어 「확인 실패」로 잘못 안내하던 것(재검증)
     if (precheckTimer.current) { clearTimeout(precheckTimer.current); precheckTimer.current = null; }
     const key = precheckKey;   // 누른 순간의 값 — 확인하는 동안 바뀌면 만들지 않는다
@@ -1903,7 +1962,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     if (!useTemplate && files.length === 0) { toast.error("파일을 선택해주세요."); return; }
     // 계약서 보내기는 브라우저 필수 검사 대신 「보내기 전 확인」 목록으로 막는다 — 칸에서 엔터로 바로 불려도 같은 검사(재요청 D)
     if (flow) {
-      const miss = [...new Set(flowRecipients().flatMap(uid => missingOf(uid)))];
+      const miss = externalMode ? extMissing() : [...new Set(flowRecipients().flatMap(uid => missingOf(uid)))];
       if (miss.length) { setRowStatus(statusOf(undefined)); setOnlyIssues(true); toast.error(`빈 칸을 채워 주세요: ${miss.join(", ")}`); return; }
     }
     if (externalMode) {
@@ -2081,6 +2140,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       const data = await res.json();
       setUploading(false);
       if (!res.ok) { toast.error(data.error || "외부 패키지 생성 실패"); return; }
+      if (flow) { flowCreatedGo(data.contractIds); return; }   // 계약서 보내기 3단계(결재자·발송)로(검증 F1)
       toast.success("외부 채용 패키지 3종이 작성되었습니다. 계약서에서 발송하면 3종이 함께 발송됩니다.");
       setCreateOpen(false);
       setUseTemplate(false); setSelectedTemplate(""); setExtBundleMode(false); setExternalMode(false);
@@ -2553,7 +2613,7 @@ ${url}`;
   // 작성 폼 — 「보낸 계약서」 팝업과 「계약서 보내기」 2단계가 같은 폼·같은 검사·같은 만들기(handleCreate)를 쓴다
   const composeForm = (
               <form id="compose-form" onSubmit={handleCreate} className="space-y-4">
-                {flow && !resignBundleMode && (
+                {flow && !resignBundleMode && !externalMode && (
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-gray-900"><span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] text-white">1</span>받는 사람 추가 <span className="text-xs font-normal text-gray-400">— 셋 중 편한 방법 하나</span></p>
                     <div className="grid gap-2 sm:grid-cols-3">
@@ -2623,9 +2683,10 @@ ${url}`;
                     </div>
                   </div>
                 )}
-                {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송. 계약서 보내기(flow)에서는 숨긴다 — 「보낸 계약서」 작성 창에서 */}
-                <div className={`rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-2${flow ? " hidden" : ""}`}>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800">
+                {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송. 계약서 보내기(flow)에서는 1단계에서 「외부 계약자」를 고른 때만 이름·휴대폰 칸이 보인다(재요청 F) */}
+                <div className={`rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-2${flow && !externalMode ? " hidden" : ""}`}>
+                  {flow && <p className="text-sm font-semibold text-violet-800">외부 계약자 (큐브티 미가입 — 링크로 서명){extBundleMode ? " · 외부 채용 패키지 3종" : ""}</p>}
+                  <label className={`flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800${flow ? " hidden" : ""}`}>
                     <input type="checkbox" checked={externalMode}
                       onChange={e => {
                         const checked = e.target.checked;
@@ -2643,7 +2704,7 @@ ${url}`;
                     외부 계약자 (큐브티 미가입 — 링크로 서명)
                   </label>
                   {externalMode && (
-                    <div className="pl-6 space-y-2">
+                    <div className={`space-y-2${flow ? "" : " pl-6"}`}>
                       <div className="space-y-1"><Label className="text-xs">이름 *</Label>
                         <Input placeholder="예: 홍길동" value={externalForm.name}
                           onChange={e => setExternalForm(p => ({ ...p, name: e.target.value }))} /></div>
@@ -3455,7 +3516,8 @@ ${url}`;
     const sel = flowSel;
     const flowTitle = !sel ? "" : sel.pick.kind === "hire" ? "신규입사 묶음" : sel.pick.kind === "resign" ? "퇴사 서류"
       : sel.pick.kind === "bundle" ? sel.pick.name
-      : (templates.find(t => t.id === (sel.pick as { id: string }).id)?.name ?? "서류");
+      : sel.pack === "ext" ? "외부 채용 패키지"
+      : `${templates.find(t => t.id === (sel.pick as { id: string }).id)?.name ?? "서류"}${sel.pack === "codi" ? " · 코디 채용 묶음" : sel.external ? " · 외부 계약자" : ""}`;
     const nPeople = bulkMode ? bulkUserIds.length : createForm.userId ? 1 : 0;
     const goStep = async (n: 1 | 2) => {
       if (flowStep === 3 && flowCreated.length) {
@@ -3476,7 +3538,7 @@ ${url}`;
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs text-gray-500">전자계약 › 계약서 보내기 › {flowTitle}</p>
-                <h1 className="text-2xl font-bold text-gray-900">내용 입력 {nPeople > 0 && <span className="text-base font-medium text-gray-500">· {nPeople}명</span>}</h1>
+                <h1 className="text-2xl font-bold text-gray-900">내용 입력 {externalMode ? <span className="text-base font-medium text-gray-500">· 외부 계약자</span> : nPeople > 0 && <span className="text-base font-medium text-gray-500">· {nPeople}명</span>}</h1>
                 <button type="button" onClick={() => setFlowStep(1)} className="mt-1 text-xs text-gray-500 underline hover:text-indigo-600">← 이전: 서류 고르기</button>
               </div>
               {stepper}
@@ -3487,9 +3549,25 @@ ${url}`;
                 <div className="rounded-xl border bg-white p-4">
                   <p className="text-[11px] text-gray-500">보낼 내용</p>
                   <p className="font-bold text-gray-900 break-keep">{flowTitle}</p>
-                  <p className="text-xs text-gray-500">{nPeople}명{bulkMode ? " · 사람마다 1건씩" : ""}</p>
+                  <p className="text-xs text-gray-500">{externalMode ? "외부 계약자 1명" : `${nPeople}명${bulkMode ? " · 사람마다 1건씩" : ""}`}</p>
                 </div>
-                {(() => {
+                {externalMode ? (() => {
+                  const miss = extMissing();
+                  return (
+                    <>
+                      <div className="rounded-xl border bg-white p-4 space-y-2">
+                        <p className="font-semibold text-gray-900">보내기 전 확인</p>
+                        <p className="text-sm text-gray-700">외부 계약자 1명{externalForm.name.trim() ? ` · ${externalForm.name.trim()}` : ""}</p>
+                        {miss.length ? <p className="text-xs text-red-600">! 빈 칸: {miss.join(", ")}</p> : <p className="text-xs text-gray-700">✓ 이름 · 휴대폰 · 필수 칸 이상 없음</p>}
+                      </div>
+                      <button type="button" onClick={() => { void flowNext(); }} disabled={uploading || miss.length > 0}
+                        className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500">
+                        {uploading ? "만드는 중…" : "다음: 결재자 · 발송"}
+                      </button>
+                      <p className="text-center text-[11px] text-gray-500">누르면 초안을 만들고 결재자·받을 이메일 입력으로 넘어갑니다(아직 보내지 않음)</p>
+                    </>
+                  );
+                })() : (() => {
                   const st = shownStatus;
                   const ids = flowRecipients();
                   const ready = ids.filter(uid => st[uid] && (st[uid].level === "ok" || (st[uid].level === "warn" && st[uid].acked))).length;
@@ -3527,7 +3605,13 @@ ${url}`;
             </div>
           </div>
         )}
-        {flowStep === 3 && (
+        {flowStep === 3 && externalMode && (
+          <FlowExternalSend ids={flowCreated} employees={employees} title={flowTitle} stepper={stepper}
+            deleteDrafts={deleteDrafts}
+            onBack={() => { setFlowCreated([]); flowDoneUids.current = new Set(); setFlowStep(2); }}
+            onDone={() => { window.location.href = "/admin/contracts"; }} />
+        )}
+        {flowStep === 3 && !externalMode && (
           <FlowSendStep ids={flowCreated} employees={employees} mainManagerIds={mainManagerIds} title={flowTitle} stepper={stepper}
             deleteDrafts={deleteDrafts}
             onBack={() => { setFlowCreated([]); flowDoneUids.current = new Set(); setFlowStep(2); }}

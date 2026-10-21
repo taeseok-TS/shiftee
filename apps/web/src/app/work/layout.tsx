@@ -10,8 +10,8 @@ export default async function WorkLayout({ children }: { children: React.ReactNo
   return (
     // 모바일: 상단 바 + 세로 배치 / 데스크톱: 좌측 사이드바 + 가로 배치
     <div className="flex flex-col md:flex-row min-h-[100dvh] md:min-h-screen bg-gray-100">
-      <WorkMobileNav />
-      <WorkSidebar />
+      <WorkMobileNav role={session.role} />
+      <WorkSidebar role={session.role} />
       <main className="flex-1 overflow-auto">{children}</main>
       <Toaster richColors position="top-right" />
     </div>

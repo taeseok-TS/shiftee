@@ -103,7 +103,11 @@ function NavBadge({ count, collapsed }: { count: number; collapsed?: boolean }) 
   );
 }
 
-export function WorkSidebar() {
+// 큐브티로 돌아갈 곳 — 관리자는 관리자 모드, 원장은 원장 모드, 직원은 직원 모드(2026-10-21 디렉터)
+type HomeRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
+const homeOf = (role?: HomeRole) => role === "ADMIN" ? "/admin/dashboard" : role === "MANAGER" ? "/manager/dashboard" : "/dashboard";
+
+export function WorkSidebar({ role }: { role?: HomeRole }) {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
   const jinhakOn = useJinhakInfoEnabled();
@@ -242,7 +246,7 @@ export function WorkSidebar() {
 
       <div className={cn("py-4 border-t border-indigo-800 space-y-1", collapsed ? "px-2" : "px-3")}>
         <button
-          onClick={() => (window.location.href = "/dashboard")}
+          onClick={() => (window.location.href = homeOf(role))}
           title={collapsed ? "큐브티로 돌아가기" : undefined}
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-200 hover:bg-indigo-900 hover:text-white transition-colors w-full",
@@ -269,7 +273,7 @@ export function WorkSidebar() {
 }
 
 // 모바일 전용 상단 바 — 폰 폭에서는 좌측 사이드바 대신 이 바로 이동한다
-export function WorkMobileNav() {
+export function WorkMobileNav({ role }: { role?: HomeRole }) {
   const pathname = usePathname();
   const showPortal = useShowPortalLink();
   const jinhakOn = useJinhakInfoEnabled();
@@ -281,7 +285,7 @@ export function WorkMobileNav() {
   }, [pathname]);
   return (
     <div className="md:hidden sticky top-0 z-40 h-12 shrink-0 bg-indigo-950 text-white flex items-center px-2 gap-1">
-      <button onClick={() => (window.location.href = "/dashboard")} title="큐브티로 돌아가기"
+      <button onClick={() => (window.location.href = homeOf(role))} title="큐브티로 돌아가기"
         className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900">
         <ArrowLeft size={18} />
       </button>
