@@ -4,12 +4,13 @@
 //  · 왼쪽 좁은 레일: 대분류 7개(대시보드·근태·결재·전자계약·휴가·인사·설정) 아이콘 + 이름. 지금 보고 있는 대분류만 칠한다(묶음마다 색 없음)
 //  · 옆 흰 패널: 고른 대분류의 메뉴(23개 → 14개, 세부는 화면 위 탭 — admin-nav). 맨 위 「메뉴 찾기」는 모든 메뉴·탭 이름에서 거른다
 // 큐브티워크·모드 전환·로그아웃은 상단 바로 옮겼다(TopBar). 개선 제안도 상단 바.
+// 레일을 누르면 그 대분류의 첫 화면이 바로 열린다(2026-10-21 본부 이예지 재요청 A — 전에는 패널만 바뀌고 본문은 그대로였다)
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ADMIN_NAV, matchNav, type NavGroup, type NavItem } from "./admin-nav";
+import { ADMIN_NAV, matchNav, groupHome, type NavItem } from "./admin-nav";
 import { useNavCounts, CountBadge, RED_KEYS, type NavCounts } from "./useNavCounts";
 
 const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
@@ -19,11 +20,9 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
   const counts = useNavCounts();
   const { group: activeGroup, item: activeItem } = matchNav(pathname);
   const groups = ADMIN_NAV.map((g) => ({ ...g, items: g.items.filter((it) => !it.superOnly || isSuperAdmin) }));
-  // 패널에 보이는 대분류 — 화면이 바뀌면 그 화면의 대분류로 돌아온다(레일을 눌러 다른 대분류를 미리 볼 수 있다)
-  const [picked, setPicked] = useState<string | null>(null);
-  const [pickedAt, setPickedAt] = useState(pathname);
-  if (pickedAt !== pathname) { setPickedAt(pathname); setPicked(null); }
-  const shown: NavGroup | undefined = groups.find((g) => g.key === (picked ?? activeGroup?.key)) ?? groups.find((g) => g.items.length) ;
+  // 패널 = 지금 화면의 대분류(대분류 밖 화면이면 첫 묶음)
+  const shown = groups.find((g) => g.key === activeGroup?.key) ?? groups.find((g) => g.items.length);
+  const panelItems = shown ? shown.items.filter((it) => !it.hidden) : [];
 
   const [menuQuery, setMenuQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -45,7 +44,8 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
     ...(g.href && norm(g.title).includes(mq) ? [{ g, href: g.href, label: g.title }] : []),
     ...g.items.flatMap((it) => {
       const own = norm(it.label).includes(mq) || norm(g.title).includes(mq) ? [{ g, href: it.href, label: it.label }] : [];
-      const tabs = (it.tabs || []).filter((t) => t.href !== it.href && norm(t.label).includes(mq)).map((t) => ({ g, href: t.href, label: `${it.label} › ${t.label}` }));
+      // 메뉴 주소와 같은 첫 탭은 메뉴 자체가 이미 찾혔으면 겹치니 뺀다(「개발자」 › 「이모티콘 관리」처럼 이름이 다르면 찾는다 — 검증 3)
+      const tabs = (it.tabs || []).filter((t) => norm(t.label).includes(mq) && !(t.href === it.href && own.length)).map((t) => ({ g, href: t.href, label: `${it.label} › ${t.label}` }));
       return [...own, ...tabs];
     }),
   ]) : [];
@@ -60,15 +60,11 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
           const Icon = g.icon;
           const on = g.key === activeGroup?.key;
           const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-medium",
-            on ? "bg-red-600 text-white" : g.key === shown?.key && !g.href ? "bg-slate-800 text-white" : "hover:bg-slate-800 hover:text-white");
+            on ? "bg-red-600 text-white" : "hover:bg-slate-800 hover:text-white");
           // 빨간 점 — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
           const dot = g.items.some((it) => it.countKey && RED_KEYS.has(it.countKey) && (counts[it.countKey as keyof NavCounts] || 0) > 0);
           const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
-          return g.href ? (
-            <Link key={g.key} href={g.href} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>
-          ) : (
-            <button key={g.key} type="button" onClick={() => { setPicked(g.key); setMenuQuery(""); }} className={cls} aria-pressed={g.key === shown?.key}>{inner}</button>
-          );
+          return <Link key={g.key} href={groupHome(g)} onClick={() => setMenuQuery("")} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>;
         })}
       </div>
       {/* 패널 */}
@@ -100,8 +96,13 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
                 <Link href={shown.href} className={cn("mt-1 block rounded-lg px-3 py-2 text-sm font-medium", shown.key === activeGroup?.key ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-100")}>{shown.title}</Link>
               )}
               <div className="mt-1 space-y-0.5">
-                {shown.items.map((it) => <PanelLink key={it.href} item={it} counts={counts} active={it === activeItem || (!!activeItem && activeItem.href === it.href)} />)}
+                {panelItems.filter((it) => !it.dim).map((it) => <PanelLink key={it.href} item={it} counts={counts} active={it === activeItem || (!!activeItem && activeItem.href === it.href)} />)}
               </div>
+              {panelItems.some((it) => it.dim) && (
+                <div className="mt-4 space-y-0.5 border-t pt-2">
+                  {panelItems.filter((it) => it.dim).map((it) => <PanelLink key={it.href} item={it} counts={counts} dim active={it === activeItem || (!!activeItem && activeItem.href === it.href)} />)}
+                </div>
+              )}
             </>
           ) : null}
         </nav>
@@ -110,11 +111,11 @@ export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean 
   );
 }
 
-function PanelLink({ item, active, counts }: { item: NavItem; active: boolean; counts: NavCounts }) {
+function PanelLink({ item, active, counts, dim = false }: { item: NavItem; active: boolean; counts: NavCounts; dim?: boolean }) {
   return (
     <Link href={item.href} aria-current={active ? "page" : undefined}
       className={cn("flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm",
-        active ? "bg-indigo-50 font-semibold text-indigo-700" : "text-gray-700 hover:bg-gray-100")}>
+        active ? "bg-indigo-50 font-semibold text-indigo-700" : dim ? "text-gray-400 hover:bg-gray-100 hover:text-gray-600" : "text-gray-700 hover:bg-gray-100")}>
       <span className="truncate">{item.label}</span>
       {item.countKey && <CountBadge n={counts[item.countKey as keyof NavCounts]} red={RED_KEYS.has(item.countKey)} />}
     </Link>

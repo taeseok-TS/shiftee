@@ -80,6 +80,8 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => router.push("/profile")}><User size={15} className="mr-2" />내 정보</DropdownMenuItem>
+              {/* 휴대폰은 위 개선 제안 버튼이 숨어 여기로(설정 패널에서 뺐다 — 재요청 H) */}
+              {role === "ADMIN" && <DropdownMenuItem onClick={() => router.push("/admin/suggestions")} className="sm:hidden"><Lightbulb size={15} className="mr-2" />개선 제안</DropdownMenuItem>}
               <DropdownMenuItem onClick={() => void logout()} className="text-red-600"><LogOut size={15} className="mr-2" />로그아웃</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

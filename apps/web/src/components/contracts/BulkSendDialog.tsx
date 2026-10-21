@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { stepsLabel } from "@/lib/approval-order";
-import { approverIdsOf, isMultiHq, mgrOf, needsHq, planUnits, sendUnits, unitSpecs, type SendContract, type SendEmployee } from "@/components/contracts/bulk-send-core";
+import { approverIdsOf, isMultiHq, mgrOf, needsHq, planUnits, sendResultText, sendUnits, unitSpecs, type SendContract, type SendEmployee } from "@/components/contracts/bulk-send-core";
 
 /**
  * 선택한 초안 한꺼번에 발송(2026-10-07 QA #34).
@@ -43,7 +43,7 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, ma
   const run = async () => {
     if (needHq && !hq) { toast.error("본부 결재자를 골라 주세요(양식에 본부 단계가 있는 건이 있습니다)."); return; }
     setBusy(true);
-    let result: { ok: string[]; fail: string[]; keep: string[] } = { ok: [], fail: [], keep: [] };
+    let result: { ok: string[]; fail: string[]; keep: string[]; docs: number; people: number } = { ok: [], fail: [], keep: [], docs: 0, people: 0 };
     try {
       result = await sendUnits(units, (u) => (isMultiHq(u, contracts) ? null : approverIdsOf(u, contracts, employees, hq, mainManagerIds)), {
         message: msg, deadlineDays: Number(days) || 14,
@@ -52,9 +52,9 @@ export default function BulkSendDialog({ open, onClose, contracts, employees, ma
     } finally {
       setBusy(false);
     }
-    const { ok, fail, keep } = result;
-    if (fail.length) toast.error(`${ok.length}건 발송, ${fail.length}건 못 보냄: ${fail.join(", ")}`, { duration: 15000 });
-    else toast.success(`${ok.length}건 발송했습니다.`);
+    const { fail, keep } = result;
+    if (fail.length) toast.error(sendResultText(result), { duration: 15000 });
+    else toast.success(sendResultText(result));
     onDone(keep);
     if (!fail.length) onClose();
   };

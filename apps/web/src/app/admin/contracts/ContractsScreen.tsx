@@ -1,6 +1,7 @@
 ﻿"use client";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
+import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
 import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, EMPTY_EVAL, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
 import { DEFAULT_COHORTS, type Cohort } from "@/lib/route-course";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
@@ -205,6 +206,23 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
 // 퇴사 패키지 문서 5종과 기본 체크(#203, 이예지 답 2026-10-14: 사직원·비밀유지서약서 기본, 나머지는 필요할 때)
 const RESIGN_DOC_LABELS = ["사직원", "금품청산 지급기일연장 동의서", "퇴직금 정산 신청서", "연차수당 정산 신청서", "비밀유지서약서(퇴직시)"];
 const RESIGN_PICK_DEFAULT = [true, false, false, false, true];
+/**
+ * 계약 종료일 자동값 — 직영 연봉 주기(2026-10-08 본부 박정인 #212·#201): 연봉 갱신 3·6·9·12월, 연봉 종료 2·5·8·11월 말.
+ * 종료일 = 다음 해 + (시작일 뒤 첫 갱신월 1일 − 1일). 예) 26-09-10 → 27-11-30, 26-07-01 → 27-08-31, 26-09-01 → 27-08-31.
+ * Date 객체로 더하지 않고 문자열로 센다(시간대 하루 밀림 방지). 타이핑 중 「0002-..」 같은 값이면 "" (자동 채움 보류)
+ */
+function autoEndDate(v: string): string {
+  const [y, m] = v.split("-").map(Number);
+  const d = Number(v.split("-")[2]);
+  if (!(y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1)) return "";
+  // 시작일 뒤의 첫 갱신월(3·6·9·12). 갱신월 1일에 시작하면 그 달이 곧 주기 시작이라 다음 갱신월로
+  const RENEW = [3, 6, 9, 12];
+  const nextQ = RENEW.find((q) => q > m || (q === m && d === 1));
+  const endY = nextQ ? y + 1 : y + 2;                 // 12월 2일 이후 시작이면 다음 갱신월은 이듬해 3월
+  const endM = (nextQ ?? 3) - 1;                       // 종료월 = 갱신월 − 1
+  const lastDay = new Date(Date.UTC(endY, endM, 0)).getUTCDate();   // 그 달 말일
+  return `${endY}-${String(endM).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+}
 
 /**
  * 전자계약 화면 — 두 곳에서 쓴다(2026-10-20 본부 박정인 시안 v2 1번).
@@ -215,6 +233,8 @@ const RESIGN_PICK_DEFAULT = [true, false, false, false, true];
 export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
+  // 내 승인 대기 → 원장과 같은 전체 창(2026-10-21 본부 이예지 재요청 C — 옛 「저장된 서명으로 승인」 작은 창 대신)
+  const [fullTarget, setFullTarget] = useState<Contract | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
   const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
@@ -878,6 +898,17 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [dayHours, setDayHours] = useState<string[]>(Array(7).fill(""));
   // 종료일 자동값 추적 — 사용자가 직접 고친 종료일은 보존하고, 자동값이면 시작일 변경 시 재계산
   const lastAutoEnd = useRef<string>("");
+  // 신규입사이고 양식에 {근로시작일}이 있으면 계약 시작일 = 근로시작일(인사카드 입사일, 재입사자는 재입사일) 하나로 묶는다(2026-10-21 본부 이예지 재요청 D).
+  // 재계약은 근로시작일이 최초 입사일이라 묶지 않는다(#175)
+  // 계약 구분 조건이 있고 계약 기간 칸이 보이는 양식만 — 그래야 시작일 칸 하나가 남는다(검증 4)
+  const startBound = useTemplate && contractKind === "신규입사" && templateConditions.includes("신규입사") && templateFields.includes("근로시작일")
+    && (templateFields.includes("계약시작일") || templateFields.includes("계약종료일"));
+  const lastAutoStart = useRef<string>("");
+  // 손으로 적은 종료일 — 지금 종료일이 그 값일 때만 「손으로 고침」. 직원·양식이 바뀌어 종료일이 바뀌면 저절로 풀린다(검증 1)
+  const [manualEnd, setManualEnd] = useState("");
+  const endEdited = !!manualEnd && createForm.endDate === manualEnd;
+  /** 사람마다 종료일 — 묶인 시작일이면 그 사람 시작일 기준 자동(손으로 고친 공통 종료일은 그대로) */
+  const endFor = (start: string) => (startBound && start && !(endEdited && createForm.endDate) ? (autoEndDate(start) || createForm.endDate) : createForm.endDate);
 
   const isTimeField = (f: string) => /시각$/.test(f);
   const isDateField = (f: string) => !isTimeField(f) && !/시간$/.test(f) && /시작|종료|날짜|일자|기간|일$/.test(f);
@@ -1174,6 +1205,65 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createForm.userId, templateFields, employees, mainManagers, fieldSettings]);
 
+  // 계약 구분을 바꿀 때(검증 6) — 재계약이 되면 근로시작일을 인사카드 입사일로 되돌리고(신규입사에서 계약 시작일로 덮였을 수 있다),
+  // 신규입사(묶임)가 되면 계약 시작일을 근로시작일에 맞춘다(칸 이름이 「= 근로시작일」이라 둘이 달라선 안 된다). 한 명 작성만 — 여러 명은 사람마다 계산
+  const prevKind = useRef(contractKind);
+  useEffect(() => {
+    if (prevKind.current === contractKind) return;
+    prevKind.current = contractKind;
+    if (!useTemplate || bulkMode || !templateFields.includes("근로시작일")) return;
+    const emp = employees.find(e => e.id === createForm.userId);
+    const hire = emp?.hireDate ? String(emp.hireDate).slice(0, 10) : "";
+    if (contractKind === "재계약") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (hire) setExtraFields(p => ({ ...p, 근로시작일: hire }));
+      return;
+    }
+    if (!startBound) return;
+    const v = normDate(extraFields["근로시작일"] || "") || hire;
+    if (!v || v === createForm.startDate) return;
+    lastAutoStart.current = v;
+    const e2 = endEdited ? createForm.endDate : (autoEndDate(v) || createForm.endDate);
+    if (e2 !== createForm.endDate) lastAutoEnd.current = e2;
+    setCreateForm(f => ({ ...f, startDate: v, endDate: e2 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractKind]);
+
+  // 작성일 — 계약서 보내기에서는 오늘(KST)을 미리 넣는다(2026-10-21 이예지 재요청 D). 지우면 종전처럼 「보내는 날」
+  //  퇴사 서류는 작성일 칸을 보여 주지 않으니 넣지 않는다 — 보이지도 지울 수도 없게 고정되던 것(검증 8). 자동으로 넣었던 값은 뺀다
+  const autoWritten = useRef("");
+  useEffect(() => {
+    if (!flow || !templateFields.includes("작성일")) return;
+    if (resignBundleMode) {
+      if (autoWritten.current && extraFields["작성일지정"] === autoWritten.current) setExtraFields(p => { const n = { ...p }; delete n["작성일지정"]; return n; });
+      return;
+    }
+    if (extraFields["작성일지정"] !== undefined) return;
+    const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+    autoWritten.current = today;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExtraFields(p => (p["작성일지정"] !== undefined ? p : { ...p, 작성일지정: today }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow, templateFields, resignBundleMode]);
+
+  // 묶인 시작일(재요청 D) — 한 명 작성이면 근로시작일(입사일)을 계약 시작일에도 넣는다. 손으로 고친 시작일은 둔다
+  useEffect(() => {
+    if (!startBound || bulkMode) return;
+    const v = normDate(extraFields["근로시작일"] || "") || "";
+    if (!v) {
+      // 입사일 없는 직원으로 바꿨다 — 앞 직원 입사일로 넣은 시작일이 남지 않게(검증 5). 손으로 적은 시작일은 둔다
+      if (createForm.startDate && createForm.startDate === lastAutoStart.current) { lastAutoStart.current = ""; setCreateForm(f => ({ ...f, startDate: "" })); }
+      return;
+    }
+    if (createForm.startDate === v) return;
+    if (createForm.startDate && createForm.startDate !== lastAutoStart.current) return;
+    lastAutoStart.current = v;
+    const e2 = endEdited && createForm.endDate ? createForm.endDate : (autoEndDate(v) || createForm.endDate);
+    if (e2 !== createForm.endDate) lastAutoEnd.current = e2;
+    setCreateForm(f => ({ ...f, startDate: v, endDate: e2 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startBound, bulkMode, extraFields["근로시작일"], createForm.startDate, endEdited]);
+
   // 계약직 근로시간 자동 계산 (개선 제안 2026-08-24, 공식은 이예지대리 확정)
   //  일근무시간 = (퇴근-출근) - 휴게   /   월근로시간 = (주 + min(주/40×8, 8)) × 4.345 반올림
   // 소스 값(시각·휴게·주근무시간)이 바뀔 때마다 재계산해 덮는다 — 수기 실수 방지가 목적.
@@ -1240,6 +1330,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       // 실제 저장: 근로시작일이 비면 서버가 계약 시작일로 채우고, 평가 기준일도 계약 시작일이 된다(검증 2)
       const base = normDate(bulkValues[uid]?.["근로시작일"] || "") || start || rowStart;
       const row: Record<string, string> = { 근로시작일: start || rowStart };
+      if (startBound) {
+        const own = normDate(bulkValues[uid]?.["계약시작일"] || "");
+        const st = own || normDate(bulkValues[uid]?.["근로시작일"] || "") || start || rowStart;
+        if (!own) row["계약시작일"] = st;
+        if (!(bulkValues[uid]?.["계약종료일"] || "").trim()) row["계약종료일"] = endFor(st);   // payload 의 rowEnd 와 같은 계산(검증 2)
+      }
       // 기준일이 공통 기준일과 같으면 공통 평가값(손으로 고친 값 포함)이 그대로 들어간다 — 다를 때만 그 사람 기준으로 다시 센 값
       if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base, routeCohorts) || EMPTY_EVAL);   // 일정표에 없으면 빈칸(2026-10-21)
       bulkRowCommon[uid] = row;
@@ -1570,8 +1666,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
       if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
       const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || effSalary;
-      const rowStart = rowDate(uid, "계약시작일", createForm.startDate) || "";
-      const rowEnd = rowDate(uid, "계약종료일", createForm.endDate) || "";
+      // 묶인 시작일(재요청 D) — 표에 계약시작일을 따로 적지 않았으면 그 사람 근로시작일, 종료일도 그 시작일 기준 자동
+      const rowStart = rowDate(uid, "계약시작일", (startBound && (per["근로시작일"] || "").trim()) || createForm.startDate) || "";
+      const rowEnd = rowDate(uid, "계약종료일", endFor(rowStart)) || "";
       // 신규입사 평가 단계 — 그 사람 기준일이 공통과 다르면 다시 계산(#19 검증 F1)
       if (templateFields.includes("교육평가시작")) {
         const base = (contractKind === "신규입사" && (per["근로시작일"] || "").trim()) || rowStart;
@@ -1608,6 +1705,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const customBundleProblem = () => customBundle ? bundleProblem(customBundle.ids.map(id => templates.find(t => t.id === id)).filter((t): t is ContractTemplate => !!t)) : null;
 
   // ── 계약서 보내기 2단계: 받는 사람 추가·보내기 전 확인(시안 v2 3번) ──
+  /** 입사일 → 「213기 · 10/12 입과」(일정표에 없으면 「10/19 입과 · 일정표에 없음 — 날짜 직접 입력」) */
+  const cohortLabel = (d: string) => {
+    const md = d.slice(5).replace("-", "/");
+    const c = routeCohorts.find(x => x.start === d);
+    return c ? `${c.no}기 · ${md} 입과` : `${md} 입과 · 일정표에 없음 — 날짜 직접 입력`;
+  };
   const flowRecipients = (): string[] => (bulkMode ? bulkUserIds : createForm.userId ? [createForm.userId] : []);
   /** 받는 사람 더하기 — 둘 이상이면 여러 명 작성으로 바꾼다. 관리자·없는 사람·퇴사 서류(한 명)는 막는다 */
   function addRecipients(ids: string[]) {
@@ -1706,7 +1809,25 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       setPrecheckFailed(true); return null;
     } finally { clearTimeout(limit); if (seq === precheckSeq.current) setPrechecking(false); }
   }
-  /** 사람마다 상태 — 서버 점검 + 화면에서만 아는 것(인사카드 입사일 없음) */
+  /**
+   * 빈 필수 칸 — 만들기(handleCreate)·브라우저가 막던 것을 「보내기 전 확인」에도 빨간 줄로(2026-10-21 이예지 재요청 D:
+   * 확인 목록엔 「1 / 1명 준비됨」인데 「다음」을 누르면 계약 기간 시작일 칸 브라우저 경고로 막혔다)
+   */
+  function missingOf(uid: string): string[] {
+    const out: string[] = [];
+    const p = bulkMode ? bulkBuilder().payload(uid) : null;
+    if (!((bulkMode ? p?.title : createForm.title) || "").trim()) out.push("제목");
+    if (!useTemplate || templateFields.includes("계약시작일") || templateFields.includes("계약종료일")) {
+      if (!(bulkMode ? p?.rowStart : createForm.startDate)) out.push(startBound ? "계약 시작일(근로시작일)" : "계약 시작일");
+      if (!(bulkMode ? p?.rowEnd : createForm.endDate)) out.push("계약 종료일");
+    }
+    const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+    if (needsSalary && !String((bulkMode ? p?.rowSalary : effSalary) || "").trim()) out.push("연봉");
+    for (const f of dynamicFields.filter(x => fieldSettings[x]?.required))
+      if (!(extraFields[f] || "").trim() && !(bulkMode && (bulkValues[uid]?.[f] || "").trim())) out.push(f);
+    return out;
+  }
+  /** 사람마다 상태 — 서버 점검 + 화면에서만 아는 것(인사카드 입사일 없음·빈 필수 칸) */
   function statusOf(byUser: Record<string, { errors: string[]; duplicates: { title: string; lastSentAt: string | null }[] }> | undefined): Record<string, RowStatus> {
     const out: Record<string, RowStatus> = {};
     const commonStart = (extraFields["근로시작일"] || "").trim();
@@ -1715,7 +1836,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       const e = employees.find(x => x.id === uid);
       const r = byUser?.[uid];
       const noHire = templateFields.includes("근로시작일") && contractKind === "신규입사" && !e?.hireDate && !(bulkValues[uid]?.["근로시작일"] || "").trim() && !(commonStart && commonStart !== (autoFilled.current["근로시작일"] || ""));
-      if (noHire) { out[uid] = { level: "error", text: "인사카드 입사일 없음 — 표의 근로시작일에 넣어 주세요" }; continue; }
+      if (noHire) { out[uid] = { level: "error", text: bulkMode ? "인사카드 입사일 없음 — 표의 근로시작일에 넣어 주세요" : startBound ? "인사카드 입사일 없음 — 계약 시작일(근로시작일)을 직접 넣어 주세요" : "인사카드 입사일 없음 — 근로시작일을 직접 넣어 주세요" }; continue; }
+      const miss = missingOf(uid);
+      if (miss.length) { out[uid] = { level: "error", text: `빈 칸: ${miss.join(", ")}` }; continue; }
       if (!r) continue;   // 아직 확인 전
       if (r.errors.length) { out[uid] = { level: "error", text: r.errors.join(" · ") }; continue; }
       if (r.duplicates.length) {
@@ -1777,6 +1900,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
 
     // 템플릿 사용 시에는 파일이 서버에서 처리됨
     if (!useTemplate && files.length === 0) { toast.error("파일을 선택해주세요."); return; }
+    // 계약서 보내기는 브라우저 필수 검사 대신 「보내기 전 확인」 목록으로 막는다 — 칸에서 엔터로 바로 불려도 같은 검사(재요청 D)
+    if (flow) {
+      const miss = [...new Set(flowRecipients().flatMap(uid => missingOf(uid)))];
+      if (miss.length) { setRowStatus(statusOf(undefined)); setOnlyIssues(true); toast.error(`빈 칸을 채워 주세요: ${miss.join(", ")}`); return; }
+    }
     if (externalMode) {
       if (!externalForm.name.trim()) { toast.error("외부 계약자 이름을 입력해주세요."); return; }
     } else if (!createForm.userId) { toast.error("직원을 선택해주세요."); return; }
@@ -1815,7 +1943,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       }
       { const bp = customBundleProblem(); if (bp) { toast.error(bp); setUploading(false); return; } }
       // 개인별 날짜(#19) — 못 읽는 날짜가 있으면 만들기 전에 멈춘다. 사람마다 값 만들기는 bulkBuilder 하나(보내기 전 확인과 같다)
-      const { rowDate, startOf, payload } = bulkBuilder();
+      const { startOf, payload } = bulkBuilder();
       // 계약 기간 + 근로시작일·평가 기간(사람별 날짜 칸, 10/16) 모두 — 표에 적은 날짜를 못 읽으면 멈춘다
       const curCols = bulkColumns(templateFields, templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f))).filter((c) => !fieldConditions[c] || fieldConditions[c] === contractKind);
       const badDates = bulkUserIds.flatMap(uid => DATE_COLS
@@ -1826,7 +1954,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       // 신규입사 평가 기간은 근로시작일부터라, 근로시작일이 계약 시작일보다 앞이면 평가 기간이 계약 기간 밖으로 나가 서버가 거절한다 — 미리 알린다
       if (contractKind === "신규입사" && templateFields.includes("근로시작일") && templateFields.includes("교육평가시작")) {
         const early = bulkUserIds
-          .map(uid => ({ e: employees.find(x => x.id === uid), base: startOf(uid), st: rowDate(uid, "계약시작일", createForm.startDate) || "" }))
+          .map(uid => ({ e: employees.find(x => x.id === uid), base: startOf(uid), st: payload(uid)?.rowStart || "" }))
           .filter(x => x.base && x.st && x.base < x.st)
           .map(x => `${x.e?.name ?? "?"}(근로시작 ${x.base} / 계약시작 ${x.st})`);
         if (early.length) {
@@ -1837,7 +1965,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       // 계약시작일(사람별)과 입사일이 다르면 확인 — 신규입사 평가 단계는 각자 시작일로 다시 계산한다
       {
         const mismatch = bulkUserIds
-          .map(uid => ({ e: employees.find(x => x.id === uid), start: rowDate(uid, "계약시작일", createForm.startDate) }))
+          .map(uid => ({ e: employees.find(x => x.id === uid), start: payload(uid)?.rowStart }))
           .filter(x => x.e?.hireDate && x.start && String(x.e.hireDate).slice(0, 10) !== x.start)
           .map(x => `${x.e!.name}(입사 ${String(x.e!.hireDate).slice(0, 10)} / 시작 ${x.start})`);
         if (mismatch.length && !confirm(`입사일과 계약시작일이 다른 직원이 있습니다: ${mismatch.join(", ")}\n계속할까요?`)) {
@@ -2430,9 +2558,10 @@ ${url}`;
                     <div className="grid gap-2 sm:grid-cols-3">
                       <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1">
                         <p className="text-sm font-semibold text-indigo-700">+ 루트코스 기수 전원</p>
-                        <select className="w-full rounded border px-2 py-1 text-xs bg-white" value="" onChange={(e) => { const c = cohorts.find(x => x[0] === e.target.value); if (c) { const n = addRecipients(c[1]); toast.success(`${e.target.value.slice(5).replace("-", "/")} 입과 ${n}명을 추가했습니다.`); } }}>
-                          <option value="">기수 고르기(입사일)</option>
-                          {cohorts.map(([d, ids]) => <option key={d} value={d}>{d.slice(5).replace("-", "/")} 입과 · {ids.length}명</option>)}
+                        {/* 기수 이름은 루트코스 일정표에서(2026-10-21 이예지 ②) — 일정표에 없는 입사일은 평가 날짜를 직접 넣어야 해서 그렇게 적는다 */}
+                        <select className="w-full rounded border px-2 py-1 text-xs bg-white" value="" onChange={(e) => { const c = cohorts.find(x => x[0] === e.target.value); if (c) { const n = addRecipients(c[1]); toast.success(`${cohortLabel(e.target.value)} ${n}명을 추가했습니다.`); } }}>
+                          <option value="">기수 고르기</option>
+                          {cohorts.map(([d, ids]) => <option key={d} value={d}>{cohortLabel(d)} · {ids.length}명</option>)}
                         </select>
                       </div>
                       <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1">
@@ -2457,7 +2586,7 @@ ${url}`;
                       </div>
                     </div>
                     {templateFields.includes("작성일") && (
-                      <label className="flex items-center gap-2 text-sm">
+                      <label className="flex items-center gap-2 text-sm">{/* 오늘 날짜를 미리 넣어 둔다(재요청 D) — 지우면 보내는 날 */}
                         <span className="text-gray-600">작성일</span>
                         <input type="date" value={extraFields["작성일지정"] || ""} onChange={(e) => setExtraFields(p => ({ ...p, 작성일지정: e.target.value }))} className="rounded border px-2 py-1 text-sm" />
                         <span className="text-[11px] text-gray-400">{extraFields["작성일지정"] ? "모두에게 같은 날" : "비우면 보내는 날(종전과 같음)"}</span>
@@ -2530,7 +2659,8 @@ ${url}`;
                   )}
                 </div>
 
-                {!externalMode && (
+                {/* 계약서 보내기 2단계에서는 위 「받는 사람 추가」가 대신한다(재요청 D) */}
+                {!externalMode && !flow && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>직원 *</Label>
@@ -2625,8 +2755,8 @@ ${url}`;
                 </div>
                 )}
 
-                {/* 템플릿 사용 여부 */}
-                {templates.length > 0 && (
+                {/* 템플릿 사용 여부 — 계약서 보내기는 1단계에서 서류를 골랐다 */}
+                {templates.length > 0 && !flow && (
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id="useTemplate"
@@ -2647,6 +2777,7 @@ ${url}`;
                 )}
                 {useTemplate && !customBundle && (
                   <div className="space-y-2">
+                    {!flow && (<>
                     <Label>템플릿 선택 *</Label>
                     <Select value={selectedTemplate} onValueChange={(v) => v && handleTemplateSelect(v)}>
                       <SelectTrigger className="w-full">
@@ -2661,9 +2792,10 @@ ${url}`;
                         ))}
                       </SelectContent>
                     </Select>
+                    </>)}
 
                     {/* 외부 채용 패키지 — 기타직무 계약서 + 비밀유지·개인정보동의서, 링크 하나로 함께 서명 */}
-                    {canExtBundle && externalMode && (
+                    {canExtBundle && externalMode && !flow && (
                       <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-violet-800">
                           <input type="checkbox" checked={extBundleMode}
@@ -2690,7 +2822,7 @@ ${url}`;
 
                     {/* 신규입사 패키지 — 체크하면 근로계약서 자동 선택 + 비밀유지·개인정보동의서 함께 발송
                         (코디 계약서 선택 중에는 숨김 — 코디 채용 패키지 전용) */}
-                    {canBundle && !externalMode && !codiBundleMode && !codiTemplates.some(t => t.id === selectedTemplate) && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
+                    {canBundle && !externalMode && !flow && !codiBundleMode && !codiTemplates.some(t => t.id === selectedTemplate) && (createForm.type === "EMPLOYMENT" || !selectedTemplate) && (
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-emerald-800">
                           <input type="checkbox" checked={bundleMode}
@@ -2720,9 +2852,10 @@ ${url}`;
                     )}
 
                     {/* 퇴사 패키지 — 체크하면 사직원 자동 선택 + 정산·동의·서약서 5종 함께 발송 */}
-                    {canResignBundle && !externalMode && !bundleMode && !codiBundleMode && (
+                    {canResignBundle && !externalMode && !bundleMode && !codiBundleMode && (!flow || resignBundleMode) && (
                       <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1">
-                        <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-rose-800">
+                        {flow && <p className="text-sm font-medium text-rose-800">퇴사 서류 고르기</p>}
+                        <label className={`flex items-center gap-2 text-sm cursor-pointer font-medium text-rose-800${flow ? " hidden" : ""}`}>
                           <input type="checkbox" checked={resignBundleMode}
                             onChange={e => {
                               const checked = e.target.checked;
@@ -2776,7 +2909,7 @@ ${url}`;
                     )}
 
                     {/* 코디 채용 패키지 — 코디 계약서(4종 중 선택) + 비밀유지·개인정보동의서 */}
-                    {canCodiBundle && !externalMode && !bundleMode && !resignBundleMode && (
+                    {canCodiBundle && !externalMode && !flow && !bundleMode && !resignBundleMode && (
                       <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-2">
                         <label className="flex items-center gap-2 text-sm cursor-pointer font-medium text-sky-800">
                           <input type="checkbox" checked={codiBundleMode}
@@ -2882,7 +3015,7 @@ ${url}`;
 
                 <div className="space-y-2">
                   <Label>제목 *</Label>
-                  <Input value={createForm.title} onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))} required />
+                  <Input value={createForm.title} onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))} required={!flow} />
                 </div>
                 {/* 유형은 문서 분류·목록 필터용 — 템플릿 선택 시 자동 지정되므로 직접 고를 필요 없음 (#112) */}
                 {useTemplate && selectedTemplate ? (
@@ -2904,9 +3037,12 @@ ${url}`;
                 {(!useTemplate || templateFields.includes("계약시작일") || templateFields.includes("계약종료일")) && (
                 <div className="space-y-2">
                   <Label>계약 기간 *</Label>
-                  <div className="grid grid-cols-2 gap-2">
+                  {startBound && bulkMode && (
+                    <p className="text-[11px] text-indigo-700">시작일은 사람마다 근로시작일(인사카드 입사일)로, 종료일은 그 시작일 기준 자동으로 들어갑니다{endEdited ? `(앞서 손으로 적은 종료일 ${createForm.endDate} 은 모두에게 같이 들어갑니다)` : ""} — 아래 표에서 사람마다 바꿀 수 있습니다.</p>
+                  )}
+                  <div className={`grid grid-cols-2 gap-2${startBound && bulkMode ? " hidden" : ""}`}>
                     <div className="space-y-1">
-                      <label className="text-xs text-gray-600">시작일</label>
+                      <label className="text-xs text-gray-600">시작일{startBound && <span className="text-gray-400"> (= 근로시작일 · 인사카드 입사일)</span>}</label>
                       <Input
                         type="date"
                         value={createForm.startDate}
@@ -2923,24 +3059,15 @@ ${url}`;
                             // 사용자가 직접 고친 종료일은 건드리지 않는다.
                             let end = f.endDate;
                             if (v && (!f.endDate || f.endDate === lastAutoEnd.current)) {
-                              const [y, m] = v.split("-").map(Number);
-                              // date input 타이핑 중 "0002-.." 같은 중간값이 오면 자동 채움 보류
-                              const d = Number(v.split("-")[2]);
-                              if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1) {
-                                // 시작일 뒤의 첫 갱신월(3·6·9·12). 갱신월 1일에 시작하면 그 달이 곧 주기 시작이라 다음 갱신월로
-                                const RENEW = [3, 6, 9, 12];
-                                const nextQ = RENEW.find((q) => q > m || (q === m && d === 1));
-                                const endY = nextQ ? y + 1 : y + 2;                 // 12월 2일 이후 시작이면 다음 갱신월은 이듬해 3월
-                                const endM = (nextQ ?? 3) - 1;                       // 종료월 = 갱신월 − 1
-                                const lastDay = new Date(Date.UTC(endY, endM, 0)).getUTCDate();   // 그 달 말일
-                                end = `${endY}-${String(endM).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-                                lastAutoEnd.current = end;
-                              }
+                              const e2 = autoEndDate(v);   // 타이핑 중 중간값이면 ""(보류)
+                              if (e2) { end = e2; lastAutoEnd.current = e2; }
                             }
                             return { ...f, startDate: v, endDate: end };
                           });
+                          // 묶인 시작일 — 근로시작일도 같은 값(문서 제1조와 계약 기간이 어긋나지 않게)
+                          if (startBound) { lastAutoStart.current = v; setExtraFields(p => ({ ...p, 근로시작일: v })); }
                         }}
-                        required
+                        required={!flow}
                       />
                     </div>
                     <div className="space-y-1">
@@ -2948,8 +3075,8 @@ ${url}`;
                       <Input
                         type="date"
                         value={createForm.endDate}
-                        onChange={e => setCreateForm(f => ({ ...f, endDate: e.target.value }))}
-                        required
+                        onChange={e => { setManualEnd(e.target.value); setCreateForm(f => ({ ...f, endDate: e.target.value })); }}
+                        required={!flow}
                       />
                     </div>
                   </div>
@@ -3200,7 +3327,7 @@ ${url}`;
                   // 외부 패키지: 비밀유지서약서·개인정보동의서에 들어가는 필드는 별도 구역
                   const splitNda = externalMode && extBundleMode;
                   const NDA_DOC_FIELDS = ["생년월일", "주소", "원장명"];
-                  const mainFields = splitNda ? dynamicFields.filter(f => !NDA_DOC_FIELDS.includes(f)) : dynamicFields;
+                  const mainFields = (splitNda ? dynamicFields.filter(f => !NDA_DOC_FIELDS.includes(f)) : dynamicFields).filter(f => !(startBound && !bulkMode && f === "근로시작일"));
                   const ndaFields = splitNda ? dynamicFields.filter(f => NDA_DOC_FIELDS.includes(f)) : [];
                   return (
                     <>
@@ -3776,7 +3903,7 @@ ${url}`;
                   <p className="font-medium text-sm">{c.title}</p>
                   <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type]}</p>
                 </div>
-                <Button size="sm" onClick={() => { setSignTarget(c); sigRef.current?.clear(); setDrawNewSig(false); setSignZoom(1); setSignPw(""); setSignOpen(true); }} className="gap-1">
+                <Button size="sm" onClick={() => setFullTarget(c)} className="gap-1">
                   <PenLine size={14} />승인
                 </Button>
               </div>
@@ -4470,6 +4597,17 @@ ${url}`;
       </Card>
 
       {/* 서명 모달 */}
+      {/* 결재 — 전체 창(재요청 C). 쪽 목록 · A4 한 쪽씩 · 마지막 쪽까지 봐야 승인 · 내 칸 점선 서명란 */}
+      {fullTarget && (
+        <ApprovalFullViewHost
+          key={fullTarget.id}
+          c={fullTarget as unknown as HostContract}
+          docLabel={typeLabel[fullTarget.type] || fullTarget.type || "계약서"}
+          myId={myId} myRole={role === "ADMIN" ? "본부" : "원장"}
+          onClose={() => setFullTarget(null)}
+          onDone={() => { setFullTarget(null); fetchContracts(); }}
+        />
+      )}
       <Dialog open={signOpen} onOpenChange={(o) => { setSignOpen(o); if (!o) setSignPw(""); }}>
         <DialogContent className="max-w-md max-h-[92vh] flex flex-col overflow-hidden">
           {/* 화면이 낮으면 모달 아래쪽이 잘려 **승인 버튼이 보이지도, 눌리지도 않았다**

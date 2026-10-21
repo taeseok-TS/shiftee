@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, Eye, GripVertical, Plus, X } from "lucide-re
 import { cn } from "@/lib/utils";
 import { KIND_LABEL, stepsLabel, validateSteps, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
 import {
-  approverIdsOf, employeeOnlySingle, isMultiHq, mgrOf, needsHq, planUnits, repOf, sendUnits, unitSpecs,
+  approverIdsOf, employeeOnlySingle, isMultiHq, mgrOf, needsHq, planUnits, repOf, sendResultText, sendUnits, unitSpecs,
   type SendContract, type SendEmployee,
 } from "@/components/contracts/bulk-send-core";
 
@@ -143,16 +143,17 @@ export default function FlowSendStep({ ids, employees, mainManagerIds, title, st
         toast.success(`${tplName ? `양식 「${tplName}」` : "이 양식"}의 결재 순서를 「${stepsLabel(order)}」로 저장했습니다.`);
       }
       if (hq) writeLastHq(hq);
-      const { ok, fail, keep } = await sendUnits(units, (u) => (isMultiHq(u, contracts, order) ? null : approverIdsOf(u, contracts, employees, hq, mainManagerIds, order)), {
+      const result = await sendUnits(units, (u) => (isMultiHq(u, contracts, order) ? null : approverIdsOf(u, contracts, employees, hq, mainManagerIds, order)), {
         message: msg, deadlineDays: Number(days) || 14,
         confirmDup: (dups) => confirm(`같은 양식이 진행 중이거나 30일 안에 보낸 직원이 있습니다:\n${dups.map((u) => `· ${u.c.user.name} — ${u.c.title}`).join("\n")}\n\n이 ${dups.length}건도 발송할까요?`),
       });
+      const { fail, keep } = result;
       if (fail.length) {
-        toast.error(`${ok.length}건 발송, ${fail.length}건 못 보냄: ${fail.join(", ")}`, { duration: 15000 });
+        toast.error(sendResultText(result), { duration: 15000 });
         // 못 보낸 것만 남긴다 — 고쳐서 다시 보내거나 「보낸 계약서」에서 각각 보낸다
         setRows((prev) => (prev ?? []).filter((c) => keep.includes(c.id) || (c.bundleId && contracts.some((k) => keep.includes(k.id) && k.bundleId === c.bundleId))));
       } else {
-        toast.success(`${ok.length}건을 발송했습니다.`);
+        toast.success(sendResultText(result));
         onDone();
       }
     } finally { setBusy(false); }

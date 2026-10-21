@@ -74,26 +74,30 @@ export async function sendUnit(u: SendUnit, approverIds: string[], opts: { messa
   const res = u.bundle
     ? await fetch(`/api/contracts/bundle/${u.c.bundleId}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     : await fetch(`/api/contracts/${u.c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "SENT", ...body }) });
-  const d = await res.json().catch(() => ({})) as { error?: string; code?: string };
+  const d = await res.json().catch(() => ({})) as { error?: string; code?: string; sent?: number };
   return { res, d };
 }
 
 /**
  * 여러 단위를 차례로 보낸다. 중복 경고(#47)는 모아서 한 번만 묻는다(confirmDup 콜백). 한 건이 끊겨도 나머지는 계속.
- * 돌려주는 값: 보낸 이름, 못 보낸 「이름(이유)」, 못 보낸 계약 id(다시 고른 채로 두기용)
+ * 돌려주는 값: 보낸 이름, 못 보낸 「이름(이유)」, 못 보낸 계약 id(다시 고른 채로 두기용), 실제로 나간 문서 수(docs — 묶음은 서버가 센 수)
+ * 알림은 docs·사람 수로 쓴다 — 단위 수로 세면 묶음 2종이 나가도 「1건」, 거절 뒤 다시 보내면 앞 알림의 「0건 발송」만 남아 헷갈렸다(2026-10-21 이예지 재요청 I)
  */
 export async function sendUnits(
   units: SendUnit[], idsOf: (u: SendUnit) => string[] | null,
   opts: { message: string; deadlineDays: number; confirmDup: (dups: SendUnit[]) => boolean },
-): Promise<{ ok: string[]; fail: string[]; keep: string[] }> {
+): Promise<{ ok: string[]; fail: string[]; keep: string[]; docs: number; people: number }> {
   const ok: string[] = [], fail: string[] = [], keep: string[] = [], dupUnits: SendUnit[] = [];
+  let docs = 0;
+  const sentTo = new Set<string>();   // 사람 수는 id 로 센다(동명이인이 하나로 줄지 않게)
+  const sentOf = (d: { sent?: number }) => (typeof d.sent === "number" && d.sent >= 0 ? d.sent : 1);
   const failOf = (u: SendUnit, why: string) => { fail.push(`${u.c.user.name}(${why})`); keep.push(u.c.id); };
   for (const u of units) {
     const ids = idsOf(u);
     if (!ids) { failOf(u, "본부 단계가 둘 — 개별 발송"); continue; }
     try {
       const { res, d } = await sendUnit(u, ids, opts);
-      if (res.ok) ok.push(u.c.user.name);
+      if (res.ok) { ok.push(u.c.user.name); docs += sentOf(d); sentTo.add(u.c.userId); }
       else if (res.status === 409 && d.code === "DUPLICATE") dupUnits.push(u);
       else failOf(u, d.error || "실패");
     } catch { failOf(u, "네트워크 오류"); }
@@ -102,9 +106,15 @@ export async function sendUnits(
     for (const u of dupUnits) {
       try {
         const { res, d } = await sendUnit(u, idsOf(u) ?? [], { ...opts, confirmDuplicate: true });
-        if (res.ok) ok.push(u.c.user.name); else failOf(u, d.error || "실패");
+        if (res.ok) { ok.push(u.c.user.name); docs += sentOf(d); sentTo.add(u.c.userId); } else failOf(u, d.error || "실패");
       } catch { failOf(u, "네트워크 오류"); }
     }
   } else for (const u of dupUnits) failOf(u, "중복 — 보내지 않음");
-  return { ok, fail, keep };
+  return { ok, fail, keep, docs, people: sentTo.size };
+}
+
+/** 발송 결과 알림 문구 — 「문서 2건(1명) 발송」, 못 보낸 것이 있으면 「…, 1명 못 보냄: 이름(이유)」 */
+export function sendResultText(r: { ok: string[]; fail: string[]; docs: number; people: number }): string {
+  const sent = r.ok.length ? `문서 ${r.docs}건(${r.people}명) 발송` : "보내지 못했습니다";
+  return r.fail.length ? `${sent}, ${r.fail.length}건 못 보냄: ${r.fail.join(", ")}` : `${sent}했습니다.`;
 }

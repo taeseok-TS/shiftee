@@ -9,14 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin, LayoutTemplate } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Copy, History, Download, Pin, LayoutTemplate, MoreVertical } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
 import FieldSettingsEditor from "@/components/contracts/FieldSettingsEditor";
 import { parseFieldSettings, type FieldSettings } from "@/lib/contract-field-settings";
 import { parseApprovalSteps, stepsLabel, type ApprovalStepSpec } from "@/lib/approval-order";
-import { TEMPLATE_CATEGORIES, templateCategoryOf, type TemplateCategory } from "@/lib/template-category";
+import { DEFAULT_PURPOSE_ORDER } from "@/lib/contract-send-layout";
 import { CONTRACT_PURPOSES, OTHER_PURPOSE, defaultPurposesOf, parsePurposeMap, purposeLabel, purposesOf, type ContractPurpose } from "@/lib/contract-purpose";
 
 type ContractTemplate = {
@@ -83,7 +84,8 @@ export default function ContractTemplatesPage() {
   const emptyForm = () => ({ name: "", description: "", type: "EMPLOYMENT", postSignAccess: "full", file: null as File | null, labels: "", approvalSteps: null as ApprovalStepSpec[] | null, approvalLocked: true, approvalStepsRenewal: null as ApprovalStepSpec[] | null, fieldSettings: {} as FieldSettings });
   // 라벨 거르기·파일 이력(#78)
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
-  const [catFilter, setCatFilter] = useState<TemplateCategory | null>(null);   // 묶음으로 거르기(#214-5)
+  // 용도 탭(2026-10-21 본부 이예지 재요청 G) — 「계약서 보내기」와 같은 이름·순서(채용 · 입사 · 재계약·연봉 · 퇴사 · 휴가·근태 신청 · 기타). null = 전체
+  const [catFilter, setCatFilter] = useState<string | null>(null);
   // 고른 라벨이 어느 템플릿에도 없으면(라벨을 지움) 거르지 않는다 — 빈 목록에 갇히지 않게(#78 검증 F3)
   const activeLabel = labelFilter && templates.some(t => (t.labels || []).includes(labelFilter)) ? labelFilter : null;
   const [history, setHistory] = useState<{ name: string; unrecorded?: { version: number; sent: number }[]; current: { version: number; fileUrl: string; sent: number }; past: { id: string; version: number; fileUrl: string; replacedAt: string; replacedBy: string | null; sent: number }[] } | null>(null);
@@ -280,6 +282,10 @@ export default function ContractTemplatesPage() {
     setEditOpen(true);
   };
 
+  // 용도 — 저장값(본부가 고친 것)이 이기고 없으면 이름·종류로 정한 기본값. 아무 용도도 없으면 「기타」
+  const inPurpose = (t: ContractTemplate, key: string) => { const ps = purposesOf(t, purposeMap); return key === "other" ? ps.length === 0 : ps.includes(key as ContractPurpose); };
+  const primaryPurpose = (t: ContractTemplate) => DEFAULT_PURPOSE_ORDER.find(k => inPurpose(t, k)) ?? "other";
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -290,11 +296,15 @@ export default function ContractTemplatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">계약서 템플릿</h1>
-        <Button onClick={() => { setForm(emptyForm()); setCreateOpen(true); }} className="gap-2">
+      {/* 제목 = 메뉴 이름, 실행 버튼 인디고(재요청 G·공통 규칙) */}
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs text-gray-400">전자계약 › 양식 관리</p>
+          <h1 className="text-2xl font-bold text-gray-900">양식 관리</h1>
+        </div>
+        <Button onClick={() => { setForm(emptyForm()); setCreateOpen(true); }} className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700">
           <Plus size={16} />
-          새 템플릿 만들기
+          새 양식 만들기
         </Button>
       </div>
 
@@ -307,16 +317,16 @@ export default function ContractTemplatesPage() {
         </p>
       </div>
 
-      {/* 묶음으로 거르기(#214-5) — 근로계약서 / 입사 서류 / 휴가·근태 신청서 / 퇴사 서류 / 기타(이름으로 자동 분류) */}
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" onClick={() => setCatFilter(null)}
-          className={`px-2.5 py-1 rounded-full text-xs border ${!catFilter ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600"}`}>전체 묶음</button>
-        {TEMPLATE_CATEGORIES.map(cat => {
-          const n = templates.filter(t => templateCategoryOf(t.name) === cat).length;
+      {/* 용도 탭(재요청 G) — 「계약서 보내기」의 용도와 같다. 한 양식이 여러 용도에 들 수 있다(에듀플렉스 근로계약서 = 입사 + 재계약·연봉) */}
+      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="용도">
+        <button type="button" role="tab" aria-selected={!catFilter} onClick={() => setCatFilter(null)}
+          className={`px-3 py-1 rounded-full text-sm border ${!catFilter ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>전체 {templates.length}</button>
+        {DEFAULT_PURPOSE_ORDER.map(key => {
+          const n = templates.filter(t => inPurpose(t, key)).length;
           if (n === 0) return null;
           return (
-            <button key={cat} type="button" onClick={() => setCatFilter(catFilter === cat ? null : cat)}
-              className={`px-2.5 py-1 rounded-full text-xs border ${catFilter === cat ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-600"}`}>{cat} {n}</button>
+            <button key={key} type="button" role="tab" aria-selected={catFilter === key} onClick={() => setCatFilter(catFilter === key ? null : key)}
+              className={`px-3 py-1 rounded-full text-sm border ${catFilter === key ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>{purposeLabel(key)} {n}</button>
           );
         })}
       </div>
@@ -341,19 +351,20 @@ export default function ContractTemplatesPage() {
               <p className="text-center text-gray-500">등록된 템플릿이 없습니다</p>
             </CardContent>
           </Card>
-        ) : templates.every(t => (catFilter && templateCategoryOf(t.name) !== catFilter) || (activeLabel && !(t.labels || []).includes(activeLabel))) ? (
+        ) : templates.every(t => (catFilter && !inPurpose(t, catFilter)) || (activeLabel && !(t.labels || []).includes(activeLabel))) ? (
           <Card className="md:col-span-2">
             <CardContent className="pt-10">
-              <p className="text-center text-gray-500">고른 묶음·라벨에 해당하는 템플릿이 없습니다. <button type="button" className="text-blue-600 hover:underline" onClick={() => { setCatFilter(null); setLabelFilter(null); }}>전체 보기</button></p>
+              <p className="text-center text-gray-500">고른 용도·라벨에 해당하는 양식이 없습니다. <button type="button" className="text-blue-600 hover:underline" onClick={() => { setCatFilter(null); setLabelFilter(null); }}>전체 보기</button></p>
             </CardContent>
           </Card>
         ) : (
-          TEMPLATE_CATEGORIES.filter(cat => !catFilter || cat === catFilter).flatMap(cat => {
-            const list = templates.filter(t => templateCategoryOf(t.name) === cat && (!activeLabel || (t.labels || []).includes(activeLabel)));
+          // 전체 = 양식마다 첫 용도(탭 순서) 머리글 아래 한 번씩, 용도 탭 = 그 용도에 드는 양식 모두
+          DEFAULT_PURPOSE_ORDER.filter(key => !catFilter || key === catFilter).flatMap(key => {
+            const list = templates.filter(t => (catFilter ? inPurpose(t, key) : primaryPurpose(t) === key) && (!activeLabel || (t.labels || []).includes(activeLabel)));
             if (list.length === 0) return [];
             return [
-              <div key={`h-${cat}`} className="md:col-span-2 flex items-center gap-2 pt-2">
-                <span className="text-sm font-semibold text-gray-700">{cat}</span>
+              <div key={`h-${key}`} className="md:col-span-2 flex items-center gap-2 pt-2">
+                <span className="text-sm font-semibold text-gray-700">{purposeLabel(key)}</span>
                 <span className="text-xs text-gray-400">{list.length}</span>
                 <span className="flex-1 border-t" />
               </div>,
@@ -407,25 +418,28 @@ export default function ContractTemplatesPage() {
                     </span>
                   )}
                 </div>
+                {/* 삭제는 ⋮ 안 맨 아래(재요청 G — 「수정」 옆에 같은 크기로 있으면 잘못 누른다) */}
                 <div className="flex gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-1 gap-1"
+                    className="flex-1 gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                     onClick={() => openEditDialog(template)}
                   >
                     <Edit2 size={14} />
                     수정
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                    onClick={() => handleDelete(template.id)}
-                  >
-                    <Trash2 size={14} />
-                    삭제
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50" aria-label="더 보기">
+                      <MoreVertical size={15} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem onClick={() => copyTemplate(template)}><Copy size={14} className="mr-2" />사본 만들기</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openHistory(template)}><History size={14} className="mr-2" />버전 이력</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleDelete(template.id)} className="text-red-600"><Trash2 size={14} className="mr-2" />삭제</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </CardContent>
             </Card>

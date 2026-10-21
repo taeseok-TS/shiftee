@@ -5,14 +5,15 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
   Calendar, BarChart3, GitBranch, Send, FileText, Building2, ShieldCheck, CalendarDays, History,
-  Sticker, Bot, Zap, Settings, Lightbulb,
+  Settings, Lightbulb, Wrench,
 } from "lucide-react";
 
 export type Icon = ComponentType<{ size?: number; className?: string }>;
 /** 화면 위 탭 하나 — href 는 실제 주소(쿼리 포함 가능) */
 export type NavTab = { href: string; label: string };
 /** 패널 메뉴 하나 — tabs 가 있으면 그 탭 주소들에서도 이 메뉴가 켜진다 */
-export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; superOnly?: boolean; countKey?: string; also?: string[] };   // also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면
+// also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면 · hidden = 패널엔 안 보이고 메뉴 찾기·주소 맞춤에만(다른 곳에 버튼이 있는 화면) · dim = 패널 맨 아래 옅게
+export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; superOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
 export type NavGroup = { key: string; title: string; icon: Icon; href?: string; items: NavItem[] };
 
 export const ADMIN_NAV: NavGroup[] = [
@@ -67,17 +68,22 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/attendance-rules", label: "근태 규칙", icon: Clock },
     { href: "/admin/holidays", label: "공휴일", icon: CalendarDays },
     { href: "/admin/audit", label: "변경 로그", icon: History },
-    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb },   // 상단 바에도 있다 — 휴대폰 서랍·메뉴 찾기에서도 찾게
-    // 시안 예시(14개) 밖의 운영 도구 — 빼면 들어갈 길이 없어 설정 아래에 둔다
-    { href: "/admin/emoticons", label: "이모티콘 관리", icon: Sticker },
-    { href: "/admin/bot", label: "봇 브리핑", icon: Bot },
-    { href: "/admin/api-keys", label: "API 키", icon: Zap },
-    { href: "/admin/test-api", label: "API 테스트", icon: Zap },
     { href: "/admin/settings", label: "환경설정", icon: Settings, superOnly: true, also: ["/admin/storage", "/admin/system-logs"] },
+    // 개선 제안은 상단 바(휴대폰은 이름 메뉴)에 있어 패널에서 뺀다 — 메뉴 찾기로는 찾힌다(2026-10-21 본부 이예지 재요청 H)
+    { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb, hidden: true },
+    // 운영 도구 넷은 「개발자」 한 메뉴의 탭으로 묶어 맨 아래 옅게(재요청 H)
+    { href: "/admin/emoticons", label: "개발자", icon: Wrench, dim: true, tabs: [
+      { href: "/admin/emoticons", label: "이모티콘 관리" },
+      { href: "/admin/bot", label: "봇 브리핑" },
+      { href: "/admin/api-keys", label: "API 키" },
+      { href: "/admin/test-api", label: "API 테스트" },
+    ] },
   ] },
 ];
 
 const pathOf = (href: string) => href.split("?")[0];
+/** 대분류의 첫 화면 — 레일을 누르면 여기로 바로 간다(재요청 A: 패널만 바뀌고 본문은 그대로면 「안 눌렸다」고 느낀다) */
+export const groupHome = (g: NavGroup) => g.href ?? g.items.find((it) => !it.hidden && !it.superOnly)?.href ?? "/admin/dashboard";
 /** 메뉴가 켜지는 주소들(자기 + 탭) */
 export const itemPaths = (it: NavItem) => [...new Set([pathOf(it.href), ...(it.tabs || []).map((t) => pathOf(t.href)), ...(it.also || [])])];
 const ALL = ADMIN_NAV.flatMap((g) => (g.href ? [{ g, it: null as NavItem | null, p: pathOf(g.href) }] : [])).concat(

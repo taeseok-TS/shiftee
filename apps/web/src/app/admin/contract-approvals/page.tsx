@@ -14,6 +14,7 @@ import {
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
 
 /* ── 타입 ── */
 type ApprovalStepUser = {
@@ -67,6 +68,8 @@ function viewHref(fileUrl: string): string {
   if (/\.docx?$/i.test(fileUrl)) return `/docs/viewer?src=${encodeURIComponent(fileUrl)}`;
   return fileUrl;
 }
+
+const TYPE_LABEL: Record<string, string> = { EMPLOYMENT: "근로계약서", PART_TIME: "단시간근로계약서", CONFIDENTIAL: "비밀유지", OTHER: "기타" };
 
 /* ── 상수 ── */
 const STATUS_CFG: Record<string, { label: string; badge: string }> = {
@@ -148,41 +151,13 @@ export default function ContractApprovalsPage() {
     }
   };
 
-  // 승인 처리 — 결재자 본인 확인(#220-3, 2026-10-16 본부 결정): 승인 전에 로그인 비밀번호를 다시 받는다(서버가 확인)
-  const [approveTarget, setApproveTarget] = useState<{ id: string; title: string; name: string } | null>(null);
-  const [approvePw, setApprovePw] = useState("");
-  const handleApprove = async (contractId: string) => {
-    if (!approvePw) { toast.error("본인 확인을 위해 로그인 비밀번호를 입력해주세요"); return; }
-    try {
-      setProcessingId(contractId);
-      // 저장된 서명으로 원클릭 승인 — 저장 서명이 없으면 전자계약 화면에서 서명하도록 안내
-      const me = await fetch("/api/auth/me").then(r => r.json()).catch(() => ({}));
-      if (!me?.user?.signatureUrl) {
-        toast.error("저장된 서명이 없습니다. 전자계약 화면에서 서명해 승인해주세요.");
-        window.location.href = "/admin/contracts";
-        return;
-      }
-      const res = await fetch(`/api/contracts/${contractId}/sign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ useSaved: true, isApprover: true, password: approvePw }),
-      });
-
-      if (res.ok) {
-        toast.success("승인되었습니다");
-        setContracts(contracts.filter(c => c.id !== contractId));
-        setApproveTarget(null);
-        setApprovePw("");
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "승인 처리 중 오류가 발생했습니다");
-      }
-    } catch (error) {
-      toast.error("오류가 발생했습니다");
-    } finally {
-      setProcessingId(null);
-    }
-  };
+  // 승인 — 원장 승인과 같은 전체 창(2026-10-21 본부 이예지 재요청 C): 쪽 목록 · A4 한 쪽씩 · 마지막 쪽까지 봐야 승인 · 내 칸 점선 서명란.
+  // 옛 작은 팝업의 「저장된 서명으로 승인」(한 번 누르기)은 뺐다. 비밀번호 재확인(#220-3)·문서 버전 묶기는 그대로 서버가 본다
+  const [fullTarget, setFullTarget] = useState<ContractApprovalData | null>(null);
+  const [myId, setMyId] = useState("");
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.json()).then(d => setMyId(d.user?.id || d.userId || "")).catch(() => {});
+  }, []);
 
 
   return (
@@ -343,7 +318,7 @@ export default function ContractApprovalsPage() {
                             variant="ghost"
                             className="text-green-600 hover:bg-green-50"
                             disabled={processingId === contract.id}
-                            onClick={() => { setApprovePw(""); setApproveTarget({ id: contract.id, title: contract.title, name: contract.externalName || contract.user.name }); }}
+                            onClick={() => setFullTarget(contract)}
                           >
                             {processingId === contract.id ? (
                               <Loader2 size={16} className="animate-spin" />
@@ -377,43 +352,17 @@ export default function ContractApprovalsPage() {
       )}
 
 
-      {/* 승인 — 결재자 본인 확인(#220-3, 2026-10-16 본부 결정). 저장된 서명으로 승인하되 로그인 비밀번호를 다시 확인한다 */}
-      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) { setApproveTarget(null); setApprovePw(""); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>계약 승인</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-sm text-gray-700">
-              <div className="font-medium">{approveTarget?.name} — {approveTarget?.title}</div>
-              <p className="mt-2 text-gray-500">저장된 내 서명으로 승인합니다. 승인 시 다음 결재자에게 전달되며, 마지막 단계면 계약이 완료됩니다.</p>
-            </div>
-            <div>
-              <Label className="text-sm mb-1 block">본인 확인 — 비밀번호 <span className="text-red-500">*</span></Label>
-              <Input
-                type="password"
-                autoComplete="current-password"
-                value={approvePw}
-                onChange={(e) => setApprovePw(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && approveTarget && approvePw && processingId !== approveTarget.id) handleApprove(approveTarget.id); }}
-                placeholder="로그인 비밀번호"
-                autoFocus
-              />
-              <p className="text-[11px] text-gray-400 mt-1">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setApproveTarget(null); setApprovePw(""); }}>취소</Button>
-            <Button
-              disabled={!approvePw || processingId === approveTarget?.id}
-              onClick={() => approveTarget && handleApprove(approveTarget.id)}
-            >
-              {processingId === approveTarget?.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-              승인
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* 승인 — 전체 창(재요청 C). 창 안의 반려도 같은 사유 입력을 거친다 */}
+      {fullTarget && (
+        <ApprovalFullViewHost
+          key={fullTarget.id}
+          c={fullTarget as unknown as HostContract}
+          docLabel={TYPE_LABEL[(fullTarget as { type?: string }).type || ""] || "계약서"}
+          myId={myId} myRole="본부"
+          onClose={() => setFullTarget(null)}
+          onDone={() => { setFullTarget(null); void fetchApprovals(); }}
+        />
+      )}
 
       {/* 반려 확인 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
       <Dialog open={!!rejectTarget} onOpenChange={(o) => { if (!o) { setRejectTarget(null); setRejectReason(""); } }}>
