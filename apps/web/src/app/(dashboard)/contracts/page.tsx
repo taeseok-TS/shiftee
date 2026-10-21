@@ -1,4 +1,5 @@
 ﻿"use client";
+import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -893,7 +894,7 @@ export default function ContractsPage() {
                 <p className="text-xs text-gray-500 mt-1">본인 확인을 위해 큐브티 로그인 비밀번호를 입력하면 문서가 열립니다.</p>
               </div>
               <form onSubmit={e => { e.preventDefault(); unlockDoc(); }} className="space-y-2">
-                <Input type="password" autoComplete="current-password" autoFocus value={unlockPw} onChange={e => setUnlockPw(e.target.value)} placeholder="로그인 비밀번호" />
+                <ReauthPasswordInput autoFocus value={unlockPw} onChange={e => setUnlockPw(e.target.value)} placeholder="로그인 비밀번호" />
                 <Button type="submit" className="w-full" disabled={!unlockPw || unlocking}>{unlocking ? "확인 중…" : "확인하고 문서 열기"}</Button>
                 <p className="text-[11px] text-gray-400">확인 기록(시각)은 전자서명 완료 증명서에 남습니다. 비밀번호는 저장되지 않습니다.</p>
               </form>
@@ -1059,7 +1060,7 @@ export default function ContractsPage() {
                   {(!isEmpSign || !unlocked || needPw) && (
                     <div className="space-y-1">
                       <Label>본인 확인 — 비밀번호 *</Label>
-                      <Input type="password" autoComplete="current-password" value={signPassword}
+                      <ReauthPasswordInput value={signPassword}
                         onChange={e => setSignPassword(e.target.value)} placeholder="로그인 비밀번호" />
                       <p className="text-[11px] text-gray-400">{isEmpSign ? "본인이 직접 서명하는지 확인합니다." : "결재자 본인이 직접 승인하는지 확인합니다."} 비밀번호는 저장되지 않습니다.</p>
                     </div>

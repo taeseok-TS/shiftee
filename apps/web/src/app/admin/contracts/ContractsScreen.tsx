@@ -1,4 +1,5 @@
 ﻿"use client";
+import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
 
 import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
@@ -4706,7 +4707,7 @@ ${url}`;
               {/* 결재자 본인 확인 — 승인·서명 때 로그인 비밀번호 재확인(#220-3, 2026-10-16 본부 결정). 근로자 서명과 같은 확인 */}
               <div className="space-y-1">
                 <Label>본인 확인 — 비밀번호 *</Label>
-                <Input type="password" autoComplete="current-password" value={signPw}
+                <ReauthPasswordInput value={signPw}
                   onChange={e => setSignPw(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && signPw && !signBusy && signTarget) handleSign(signTarget.id, signTarget.status === "APPROVED"); }}
                   placeholder="로그인 비밀번호" />

@@ -426,7 +426,7 @@ export default function ContractListScreen() {
           {isOwnSign && !unlocked && (
             <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
               <Text style={{ fontSize: 14, color: "#374151", marginBottom: 6 }}>본인 확인을 위해 큐브티 로그인 비밀번호를 입력하면 계약서가 열립니다.</Text>
-              <TextInput style={styles.profileInput} value={unlockPw} onChangeText={setUnlockPw} secureTextEntry autoCapitalize="none" autoCorrect={false}
+              <TextInput style={styles.profileInput} value={unlockPw} onChangeText={setUnlockPw} secureTextEntry autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no" autoCapitalize="none" autoCorrect={false}
                 placeholder="로그인 비밀번호" onSubmitEditing={unlockDoc} />
               <TouchableOpacity style={[styles.viewDocBtn, { marginTop: 10, opacity: !unlockPw || unlocking ? 0.5 : 1 }]} onPress={unlockDoc} disabled={!unlockPw || unlocking}>
                 {unlocking ? <ActivityIndicator color="#4338ca" /> : <Text style={{ color: "#4338ca", fontWeight: "600" }}>확인하고 문서 열기</Text>}
@@ -642,7 +642,7 @@ export default function ContractListScreen() {
               {isOwnSign && (
                 <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
                   {!unlocked && <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>}
-                  {!unlocked && <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                  {!unlocked && <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no"
                     autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />}
                   {/* 전자서명 동의(#205-3) — 문구는 웹·서버 기록과 같게 */}
                   <TouchableOpacity style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 }} onPress={() => setSignAgree((v) => !v)}>
@@ -655,7 +655,7 @@ export default function ContractListScreen() {
               {isApproverSign && (
                 <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>
                   <Text style={[styles.consentTitle, { color: "#92400e" }]}>본인 확인 — 로그인 비밀번호</Text>
-                  <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry
+                  <TextInput ref={r => { fieldRefs.current["pw"] = r; }} style={styles.profileInput} value={signPw} onChangeText={setSignPw} secureTextEntry autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no"
                     autoCapitalize="none" autoCorrect={false} placeholder="비밀번호" />
                   <Text style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않습니다.</Text>
                 </View>

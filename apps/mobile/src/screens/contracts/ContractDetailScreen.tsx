@@ -220,7 +220,7 @@ export default function ContractDetailScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>본인 확인</Text>
           <Text style={styles.signHint}>큐브티 로그인 비밀번호를 입력하면 계약서가 열립니다. 확인 시각은 전자서명 완료 증명서에 남습니다.</Text>
-          <TextInput value={unlockPw} onChangeText={setUnlockPw} secureTextEntry autoCapitalize="none" autoCorrect={false}
+          <TextInput value={unlockPw} onChangeText={setUnlockPw} secureTextEntry autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no" autoCapitalize="none" autoCorrect={false}
             placeholder="로그인 비밀번호" placeholderTextColor="#9ca3af" onSubmitEditing={unlockDoc}
             style={{ borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, backgroundColor: "#fff", marginBottom: 10 }} />
           <TouchableOpacity style={[styles.signBtn, (!unlockPw || unlocking) && styles.btnDisabled]} onPress={unlockDoc} disabled={!unlockPw || unlocking}>
@@ -365,7 +365,7 @@ export default function ContractDetailScreen() {
             <TextInput
               value={signPw}
               onChangeText={setSignPw}
-              secureTextEntry
+              secureTextEntry autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no"
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="비밀번호"

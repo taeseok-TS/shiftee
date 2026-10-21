@@ -620,6 +620,7 @@ export default function EmployeesPage() {
                     <Label>비밀번호</Label>
                     <Input
                       type="password"
+                      autoComplete="new-password"
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       placeholder="비밀번호"

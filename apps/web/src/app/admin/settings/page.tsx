@@ -323,7 +323,7 @@ export default function AdminSettingsPage() {
               </div>
               <div>
                 <Label>새 비밀번호 <span className="text-xs text-gray-400">(비우면 기존 유지 · 8자 이상)</span></Label>
-                <Input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="변경 시에만 입력" />
+                <Input type="password" autoComplete="new-password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="변경 시에만 입력" />
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" size="sm" onClick={() => setEditAdmin(null)}>취소</Button>

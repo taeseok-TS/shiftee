@@ -9,6 +9,7 @@
 // 승인·반려 API 호출은 부모가 한다(onSubmit·onReject) — 화면만 바꾸고 규칙은 그대로.
 // 근로자 본인 서명도 이 창을 쓴다(mode="sign", 2026-10-21 본부 이예지 재요청 C): 저장 서명 없이 매번 직접 그리기(#205-2),
 // 동의·직접 입력 칸은 부모가 extra 로 넣고 막힌 이유는 extraBlock 으로 알린다. 비밀번호는 문서를 열 때 확인했으면 다시 묻지 않는다(pwNeeded).
+import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
@@ -174,7 +175,7 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
             <h2 className="border-b pb-2 text-base font-bold text-gray-900">서명</h2>
             <p className="text-xs text-gray-500">계약서 마지막 쪽 서명란을 눌러 서명합니다</p>
             {pwNeeded && (<>
-              <input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="서명 비밀번호"
+              <ReauthPasswordInput plain value={pw} onChange={(e) => setPw(e.target.value)} placeholder="서명 비밀번호"
                 className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" aria-label="서명 비밀번호(로그인 비밀번호)" />
               <p className="text-[11px] text-gray-500">큐브티 로그인 비밀번호를 한 번 더 넣습니다</p>
             </>)}

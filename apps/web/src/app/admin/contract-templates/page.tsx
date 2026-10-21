@@ -312,7 +312,7 @@ export default function ContractTemplatesPage() {
       <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2 text-xs text-violet-900 flex items-start gap-2">
         <LayoutTemplate size={14} className="mt-0.5 shrink-0" />
         <p>
-          <b>PDF 양식</b>은 「새 템플릿 만들기」에서 PDF 를 올린 뒤, 카드의 <b>「칸 배치 편집기」</b>에서 입력칸·서명칸을 PDF 위에 끌어다 놓습니다(모두싸인 방식).
+          <b>PDF 양식</b>은 「새 양식 만들기」에서 PDF 를 올린 뒤, 카드의 <b>「칸 배치 편집기」</b>에서 입력칸·서명칸을 PDF 위에 끌어다 놓습니다(모두싸인 방식).
           <b> 워드(.docx) 양식</b>은 문서 안에 {"{직원명}"} 같은 {"{칸}"} 태그를 쓰고, 「수정 &gt; 칸 설정」에서 칸마다 채우는 방식·필수를 정합니다.
         </p>
       </div>
@@ -478,7 +478,7 @@ export default function ContractTemplatesPage() {
       {/* 생성 모달 */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>새 템플릿 만들기</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>새 양식 만들기</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>템플릿명 *</Label>

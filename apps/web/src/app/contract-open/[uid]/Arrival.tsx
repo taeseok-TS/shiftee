@@ -2,6 +2,7 @@
 
 // 직원이 메일·알림 링크로 계약서를 열 때 첫 화면(시안 v2 5번) — 받은 서류와 비밀번호 한 칸.
 // 비밀번호 한 번으로 내 서명 차례 서류를 모두 열고(/api/contracts/unlock), 계약서 화면의 첫 서류 서명 창으로 바로 간다.
+import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrivalCard, arrivalHeading, deadlineLabel } from "@/components/contracts/ArrivalCard";
@@ -38,7 +39,7 @@ export default function Arrival({ org, name, items, sender, deadline }: {
     <ArrivalCard org={org} heading={arrivalHeading(titles)} greeting={`${name} 님, 아래 서류를 확인하고 서명해 주세요.`}
       titles={titles} sender={sender} deadline={deadlineLabel(deadline, nowMs)}>
       <form onSubmit={(e) => { e.preventDefault(); void open(); }} className="space-y-2">
-        <input type="password" autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} aria-label="큐브티 로그인 비밀번호"
+        <ReauthPasswordInput plain autoFocus value={pw} onChange={(e) => setPw(e.target.value)} aria-label="큐브티 로그인 비밀번호"
           className="w-full rounded-xl border px-4 py-3 text-base" placeholder="큐브티 로그인 비밀번호" />
         {error && <p className="text-xs text-red-600">{error}</p>}
         <button type="submit" disabled={busy || !pw} className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
