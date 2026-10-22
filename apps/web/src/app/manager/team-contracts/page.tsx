@@ -303,7 +303,7 @@ export default function ManagerContractsPage() {
             </div>
             <div className="space-y-1 flex-1 min-w-[200px]">
               <Label className="text-xs font-medium">검색</Label>
-              <Input className="h-8 text-xs" placeholder="제목 검색" value={search} onChange={e => setSearch(e.target.value)} />
+              <Input className="h-8 text-xs" placeholder="제목 · 이름으로 찾기" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
 

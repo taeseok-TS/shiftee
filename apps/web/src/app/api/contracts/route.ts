@@ -105,7 +105,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchText && searchText.trim()) {
-      whereBase.title = { contains: searchText.trim(), mode: "insensitive" };
+      // 이름 · 서류 이름으로 찾기(2026-10-21 본부 시안 R12) — 종전에는 제목만 찾았다. 외부 계약자 이름도
+      const q = { contains: searchText.trim(), mode: "insensitive" as const };
+      // 외부 계약의 user 는 작성한 관리자라 이름 찾기에서 뺀다. 내 계약서(selfOnly)는 모두 내 이름이라 제목만(R12 검증 P4)
+      const or = selfOnly ? [{ title: q }] : [{ title: q }, { externalName: q }, { externalName: null, user: { name: q } }];
+      whereBase.AND = [...(whereBase.AND || []), { OR: or }];
     }
     // 문서 종류(템플릿)·패키지 여부 필터 (#135, 2026-08-27)
     const templateIdF = searchParams.get("templateId");

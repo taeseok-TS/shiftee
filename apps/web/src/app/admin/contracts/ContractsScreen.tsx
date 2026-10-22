@@ -10,6 +10,7 @@ import BulkSendDialog from "@/components/contracts/BulkSendDialog";
 import SendPicker, { type SendSelection } from "@/components/contracts/SendPicker";
 import FlowSteps from "@/components/contracts/FlowSteps";
 import FlowSendStep from "@/components/contracts/FlowSendStep";
+import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type FlowStep } from "@/components/kit";
 import { bundleProblem, isConsentDoc, isEmployeeOnlyDoc } from "@/lib/contract-send-layout";
 import { koreanMoney } from "@/lib/korean-money";
 import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
@@ -21,11 +22,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileSignature, Plus, PenLine, Download, Send, CheckCircle2, Clock, ArrowRight, History, Trash2, ChevronDown, X, Eye, Upload, Loader2 } from "lucide-react";
+import { FileSignature, Plus, PenLine, Download, Send, ChevronDown, X, Eye, Upload, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import type { FieldSettings } from "@/lib/contract-field-settings";
 import { toast } from "sonner";
@@ -127,21 +127,7 @@ const typeLabel: Record<string, string> = {
   OTHER: "기타",
 };
 
-const statusConfig: Record<string, { label: string; variant: any }> = {
-  DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "결재 진행 중", variant: "secondary" },
-  APPROVED: { label: "결재 중", variant: "secondary" },
-  SIGNED: { label: "완료", variant: "default" },
-  EXPIRED: { label: "만료", variant: "destructive" },
-  // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
-  REJECTED: { label: "반려", variant: "destructive" },
-};
 
-// 상태 필터 트리거에 코드값 대신 표시할 라벨 (#141)
-const FILTER_STATUS_LABEL: Record<string, string> = {
-  DRAFT: "초안", SENT: "직원 서명 대기", APPROVED: "결재 중", SIGNED: "완료", EXPIRED: "만료",
-  REJECTED: "반려",
-};
 
 // 발송 승인자 슬롯 (#158·#159) — 칸 수·역할은 **양식의 결재 순서**(#213-2, lib/approval-order)대로. 순서 없는 양식은 본부→원장→근로자
 type ApproverSlots = (string | null)[];
@@ -163,45 +149,15 @@ function getFileUrl(fileUrl: string): string {
 
 function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: string; onClick?: () => void }) {
   if (!steps || !Array.isArray(steps) || steps.length === 0) return null;
-
-  const stepElements = [];
-
-  // 실제 배치 순서대로 각 단계를 표시
-  (steps || []).forEach((step, idx) => {
-    // 화살표 추가 (첫 번째 단계 제외)
-    if (idx > 0) {
-      stepElements.push(
-        <ArrowRight key={`arrow-${idx}`} size={14} className="text-gray-400" />
-      );
-    }
-
-    // 각 단계 표시
-    stepElements.push(
-      <div key={`step-${step.order}`} className="flex items-center gap-1">
-        {step.status === "APPROVED" ? (
-          <CheckCircle2 size={16} className="text-green-600" />
-        ) : step.status === "PENDING" ? (
-          <Clock size={16} className="text-orange-600" />
-        ) : (
-          <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-        )}
-        {/* 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames) */}
-        <span className="text-xs font-medium">
-          {step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자")}
-        </span>
-      </div>
-    );
-  });
-
+  // 결재 진행 = 사람마다 점 + 이름(2026-10-21 본부 시안 R12 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음). 단계마다 「이름 직급」(10/16 재확인 3)
+  const dots: FlowStep[] = steps.map((step) => ({
+    label: step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자"),
+    state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
+  }));
   return (
-    <div
-      className="flex items-center gap-2 flex-wrap text-xs cursor-pointer hover:opacity-70 transition-opacity"
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-    >
-      {stepElements}
-    </div>
+    <button type="button" onClick={onClick} className="text-left hover:opacity-70" title="결재 진행 자세히">
+      <FlowDots steps={dots} />
+    </button>
   );
 }
 
@@ -232,6 +188,15 @@ function autoEndDate(v: string): string {
  *  · /admin/contracts/send    「계약서 보내기」 한 화면 3단계(flow) — 1 서류 고르기 → 2 내용 입력 → 3 결재자·발송.
  *    2단계는 목록의 작성 창과 **같은 폼·같은 검사·같은 만들기**를 펼쳐 쓴다(규칙을 두 군데로 나누지 않는다).
  */
+/** 지금 한국 시각(UTC 필드로 읽는다) */
+const kstNow = () => new Date(Date.now() + 9 * 3600 * 1000);
+const STATUS_PILL: Record<string, { tone: PillTone; label: string }> = {
+  DRAFT: { tone: "gray", label: "초안" }, SENT: { tone: "wait", label: "서명 대기" }, APPROVED: { tone: "wait", label: "결재 중" },
+  SIGNED: { tone: "done", label: "체결 완료" }, REJECTED: { tone: "rej", label: "반려" }, EXPIRED: { tone: "gray", label: "만료" },
+};
+type ListTab = "all" | "waiting" | "signed" | "rejected" | "expired" | "mine";
+const TAB_STATUS: Record<Exclude<ListTab, "all" | "mine">, string[]> = { waiting: ["SENT", "APPROVED"], signed: ["SIGNED"], rejected: ["REJECTED"], expired: ["EXPIRED"] };
+
 export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
@@ -490,6 +455,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [filterTo, setFilterTo] = useState("");
   const [filterStale, setFilterStale] = useState(false);
   const [showTest, setShowTest] = useState(false);       // 내 테스트 문서만(#67)
+  // 보낸 계약서 새 톤(2026-10-21 본부 시안 R12) — 상태는 알약 탭으로(목록 안에서 거름), 숫자 칸은 이번 달 기준, 드문 필터는 「더 보기」
+  const [listTab, setListTab] = useState<ListTab>("all");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [monthStats, setMonthStats] = useState<{ waiting: number; signed: number; rejected: number; stale: number } | null>(null);
+  const [statsKey, setStatsKey] = useState(0);
+  const lastListQs = useRef<string | null>(null);
   const [testSending, setTestSending] = useState(false); // 나에게 테스트 발송 중(#67)
 
   const fetchContracts = useCallback(async (filters?: any) => {
@@ -529,6 +500,13 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     const res = await fetch(`/api/contracts?${params.toString()}`).finally(() => setListLoading(false));
     const data = await res.json();
     setContracts(data.contracts || []);
+    // 같은 조건으로 다시 부른 것 = 처리·발송 뒤 새로 고침 → 「이번 달」 숫자도 다시(필터를 바꾼 것이면 숫자는 그대로 — R12 검증 C2)
+    // 처음 그릴 때 role 기본값(EMPLOYEE)으로 한 번 도는 것은 세지 않는다 — role 을 받은 뒤 같은 조건으로 다시 돌아 숫자를 두 번 받았다(R12 재검증)
+    const qs = params.toString();
+    if (role !== "EMPLOYEE") {
+      if (lastListQs.current === qs) setStatsKey((k) => k + 1);
+      lastListQs.current = qs;
+    }
 
     if (role !== "EMPLOYEE") {
       const approvalRes = await fetch("/api/contracts/my-approvals");
@@ -1421,6 +1399,50 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     fetchContracts();
     fetchTemplates();
   }, [fetchContracts, fetchTemplates]);
+
+  const shownContracts = listTab === "all" ? contracts
+    : listTab === "mine" ? contracts.filter(c => myApprovals.some(a => a.id === c.id))
+    : contracts.filter(c => TAB_STATUS[listTab].includes(c.status));
+  const tabCount = (k: Exclude<ListTab, "all" | "mine">) => contracts.filter(c => TAB_STATUS[k].includes(c.status)).length;
+  const moreCount = [showHiddenRevoked, filterStale, showTest, !!filterUserId, !!filterPkg, !!(filterFrom || filterTo)].filter(Boolean).length;
+  const periodOptions = (() => {
+    const out: { v: string; label: string }[] = [];
+    const now = kstNow();
+    const y0 = now.getUTCFullYear();
+    out.push({ v: `${y0}|`, label: `${y0}년 전체` });
+    for (let i = 0; i < 18; i++) {
+      const d = new Date(Date.UTC(y0, now.getUTCMonth() - i, 1));
+      const y = d.getUTCFullYear(), m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      out.push({ v: `${y}|${m}`, label: `${y}년 ${Number(m)}월` });
+    }
+    for (let y = y0 - 1; y >= 2020; y--) out.push({ v: `${y}|`, label: `${y}년 전체` });
+    return out;
+  })();
+  const clearNarrow = () => {
+    setFilterSearchText(""); setFilterBranch(""); setFilterTemplateId(""); setFilterUserId(""); setFilterPkg("");
+    setFilterFrom(""); setFilterTo(""); setShowTest(false); setShowHiddenRevoked(false); setFilterStale(false);
+  };
+  const pickThisMonth = (tab: ListTab) => {
+    clearNarrow();
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    setFilterYear(String(now.getUTCFullYear())); setFilterMonth(String(now.getUTCMonth() + 1).padStart(2, "0"));
+    setFilterStale(false); setListTab(tab);
+  };
+
+  // 「이번 달」 숫자 칸(시안 R12) — 이번 달에 만든 계약서의 상태별 건수 + 7일 넘게 멈춘 진행 중 건수. 아래 목록 필터와 상관없이 늘 같은 기준
+  useEffect(() => {
+    if (flow || role === "EMPLOYEE") return;
+    let alive = true;
+    const kst = new Date(Date.now() + 9 * 3600 * 1000);
+    const y = kst.getUTCFullYear(), m = String(kst.getUTCMonth() + 1).padStart(2, "0");
+    const get = (q: string) => fetch(`/api/contracts?${q}`).then((r) => (r.ok ? r.json() : { contracts: [] })).then((d) => (d.contracts || []) as Contract[]).catch(() => null);
+    Promise.all([get(`year=${y}&month=${m}`), get("stale=7")]).then(([month, stale]) => {
+      if (!alive || !month || !stale) return;
+      const n = (st: string[]) => month.filter((c) => st.includes(c.status)).length;
+      setMonthStats({ waiting: n(TAB_STATUS.waiting), signed: n(TAB_STATUS.signed), rejected: n(TAB_STATUS.rejected), stale: stale.length });
+    });
+    return () => { alive = false; };
+  }, [flow, role, statsKey]);
 
   // 「계약서 보내기」(/admin/contracts/send, 2026-10-17 박정인 님 시안)에서 고른 양식·받는 사람으로 이 화면의 작성 창을 연다 — 한 번만.
   // 작성·검사·발송은 이 창 그대로(그 화면은 고르기만). ?compose=tpl|hire|resign|test &tpl=양식 id &kind=renew &to=직원id,… &picks=10001(퇴사 문서 고르기)
@@ -2344,9 +2366,9 @@ ${url}`;
   }
 
   // 한꺼번에 발송 대상 — 고른 것 중 지금도 초안인 것만(그 사이 단건으로 발송된 건 다시 보내 결재를 초기화하지 않게, #34 검증 F2)
-  const pickedDrafts = contracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT" && !x.isTest);   // 시험 문서(#67)는 한꺼번에 발송에서 제외
+  const pickedDrafts = shownContracts.filter(x => pickedIds.has(x.id) && x.status === "DRAFT" && !x.isTest);   // 탭으로 가려진 줄은 넣지 않는다(R12 검증 C1)   // 시험 문서(#67)는 한꺼번에 발송에서 제외
   // 고른 것 전부(#46) — 지금 목록에 보이는 것만
-  const pickedAll = contracts.filter(x => pickedIds.has(x.id));
+  const pickedAll = shownContracts.filter(x => pickedIds.has(x.id));
   const [exporting, setExporting] = useState(false);
   async function exportPicked(kind: "zip" | "xlsx") {
     if (!pickedAll.length || exporting) return;
@@ -3623,8 +3645,8 @@ ${url}`;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">전자계약</h1>
+      <div className="flex flex-wrap items-end justify-between gap-x-4">
+        <PageHead crumb="전자계약 › 보낸 계약서" title="보낸 계약서" />
         {role !== "EMPLOYEE" && (
           <>
             <Dialog open={createOpen} onOpenChange={(open) => {
@@ -3644,30 +3666,11 @@ ${url}`;
                 setExternalForm({ name: "", phone: "" });
               }
             }}>
-            <div className="flex gap-2">
-              {/* 모두싸인 체결본 가져오기(#4) — 본부만 */}
-              {role === "ADMIN" && <a href="/admin/contract-import"><Button variant="outline" className="gap-2"><Upload size={16} />체결본 가져오기</Button></a>}
-              <Button className="gap-2" onClick={() => { setSalaryFocus(false); setCreateOpen(true); }}><Plus size={16} />계약서 작성</Button>
-              {role !== "EMPLOYEE" && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="px-4 py-2 border rounded-lg hover:bg-gray-50 inline-flex items-center gap-2 outline-none">
-                    <FileSignature size={16} />
-                    템플릿
-                    <ChevronDown size={14} />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => setShowTemplatesList(true)}>
-                      <FileSignature size={16} className="mr-2" />
-                      저장된 템플릿 ({templates.length})
-                    </DropdownMenuItem>
-                    {/* 템플릿 등록·수정은 전용 메뉴(계약 템플릿)로 일원화 */}
-                    <DropdownMenuItem onClick={() => (window.location.href = "/admin/contract-templates")}>
-                      <Plus size={16} className="mr-2" />
-                      템플릿 관리 (등록·수정)
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+            {/* 시안 R12 — 흰 「체결본 가져오기」 + 인디고 「＋ 계약서 보내기」(새 3단계 화면). 옛 「＋ 계약서 작성」 팝업 버튼·「템플릿 ▾」는 뺐다
+                (양식은 전자계약 › 양식 관리, 작성 팝업은 재계약 등 목록에서 여는 길에만 남는다) */}
+            <div className="mb-4 flex gap-2">
+              {role === "ADMIN" && <Btn href="/admin/contract-import"><Upload size={15} />체결본 가져오기</Btn>}
+              <Btn kind="primary" href="/admin/contracts/send"><Plus size={15} />계약서 보내기</Btn>
             </div>
             {/* 데스크톱에서 입력 폼이 너무 좁아 라벨이 두 줄로 감기던 문제 (#143) */}
             <DialogContent className="w-[95vw] sm:!max-w-[880px] max-h-[85vh] overflow-y-auto">
@@ -3975,26 +3978,28 @@ ${url}`;
         </Dialog>
       )}
 
-      {/* 내 승인 대기 */}
-      {role !== "EMPLOYEE" && myApprovals.length > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="text-base text-orange-700">내 승인 대기 ({myApprovals.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {myApprovals.map(c => (
-              <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-orange-200">
-                <div>
-                  <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type]}</p>
-                </div>
-                <Button size="sm" onClick={() => setFullTarget(c)} className="gap-1">
-                  <PenLine size={14} />승인
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+      {/* 이번 달 숫자 칸(시안 R12) — 옛 베이지 「내 승인 대기」 판 대신. 칸을 누르면 아래 목록이 그 상태로 걸러진다 */}
+      {role !== "EMPLOYEE" && (
+        <Box icon={<FileSignature />} title="이번 달" sub={`${kstNow().getUTCMonth() + 1}월 · 이번 달 만든 계약서 기준(7일 넘게 멈춤은 전체 기간)`} className="!mb-0">
+          <Tiles cols={5}>
+            <Tile label="결재 대기" value={myApprovals.length} unit="건" note="내가 승인할 것" alert active={listTab === "mine"}
+              onClick={() => { clearNarrow(); setListTab("mine"); setFilterYear(""); setFilterMonth(""); }} />
+            <Tile label="서명 대기" value={monthStats?.waiting} unit="건" active={listTab === "waiting" && !!filterMonth} onClick={() => pickThisMonth("waiting")} />
+            <Tile label="체결 완료" value={monthStats?.signed} unit="건" active={listTab === "signed" && !!filterMonth} onClick={() => pickThisMonth("signed")} />
+            <Tile label="반려" value={monthStats?.rejected} unit="건" active={listTab === "rejected" && !!filterMonth} onClick={() => pickThisMonth("rejected")} />
+            <Tile label="7일 넘게 멈춤" value={monthStats?.stale} unit="건" note="진행 중 · 전체 기간" active={filterStale}
+              onClick={() => { clearNarrow(); setListTab("all"); setFilterStale(true); setFilterYear(""); setFilterMonth(""); }} />
+          </Tiles>
+        </Box>
+      )}
+      {role !== "EMPLOYEE" && (
+        <PillTabs className="!mb-0" value={listTab} onChange={(k) => { if (listTab === "mine" && !filterYear) setFilterYear(String(kstNow().getUTCFullYear())); setListTab(k as ListTab); }} tabs={[
+          { key: "all", label: "전체" },
+          { key: "waiting", label: "서명 대기", count: tabCount("waiting") },
+          { key: "signed", label: "체결 완료" },
+          { key: "rejected", label: "반려", count: tabCount("rejected") },
+          { key: "expired", label: "만료" },
+        ]} />
       )}
 
       {/* 직원 서명 대기 */}
@@ -4024,226 +4029,77 @@ ${url}`;
         </Card>
       )}
 
-      {/* 전체 목록 */}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />계약서 목록</CardTitle></CardHeader>
-        <CardContent>
-          {/* 필터 */}
-          {/* 값이 잘리지 않도록 12칸 기준으로 폭 재배분 (#141) — 문서종류·지점·직원은 넓게 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mb-4 pb-4 border-b">
-            {/* 연도 */}
-            <div className="space-y-1 md:col-span-2 min-w-0">
-              <Label className="text-xs font-medium">연도</Label>
-              <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setFilterMonth(""); }}>
-                <SelectTrigger className="h-8 text-xs w-full">
-                  <SelectValue>{filterYear ? `${filterYear}년` : "연도"}</SelectValue>
-                </SelectTrigger>
-                <SelectContent className="max-h-80">
-                  {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (
-                    <SelectItem key={year} value={year.toString()}>{year}년</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 월 */}
-            <div className="space-y-1 md:col-span-2 min-w-0">
-              <Label className="text-xs font-medium">월</Label>
-              <Select value={filterMonth} onValueChange={setFilterMonth} disabled={!filterYear}>
-                <SelectTrigger className="h-8 text-xs w-full">
-                  <SelectValue placeholder="전체" />
-                </SelectTrigger>
-                <SelectContent className="max-h-80">
-                  <SelectItem value="">전체</SelectItem>
-                  {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map(month => (
-                    <SelectItem key={month} value={month}>{month}월</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 상태 */}
-            <div className="space-y-1 md:col-span-3 min-w-0">
-              <Label className="text-xs font-medium">상태</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-8 text-xs w-full">
-                  {/* items 를 Root 에 넘기지 않으면 라벨이 아니라 코드값(DRAFT 등)이 그대로 보인다 */}
-                  <SelectValue placeholder="전체">
-                    {FILTER_STATUS_LABEL[filterStatus] || "전체"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="max-h-80 min-w-[200px]">
-                  <SelectItem value="">전체</SelectItem>
-                  <SelectItem value="DRAFT">초안</SelectItem>
-                  <SelectItem value="SENT">직원 서명 대기</SelectItem>
-                  <SelectItem value="APPROVED">결재 중</SelectItem>
-                  <SelectItem value="SIGNED">완료</SelectItem>
-                  <SelectItem value="EXPIRED">만료</SelectItem>
-                  <SelectItem value="REJECTED">반려</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 지점 (ADMIN/MANAGER만) — 계약 당사자의 소속 지점으로 조회 */}
+      {/* 계약서 목록(시안 R12) — 필터 한 줄: 찾기 · 기간 · 지점 · 서류 + 「더 보기」(숨긴 결재 · 7일 넘게 멈춘 것 · 테스트 문서 · 직원 · 묶음 · 날짜 범위) */}
+      <Box icon={<FileSignature />} title="계약서 목록" sub={listLoading ? "불러오는 중…" : `${listTab === "mine" ? "내가 승인할 것만 · " : filterStale ? "7일 넘게 멈춘 것만 · " : ""}${shownContracts.length}건`}>
+          <FilterRow right={
+            <button type="button" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} className={btnClass("secondary", "py-1.5")}>
+              더 보기{moreCount > 0 ? ` ${moreCount}` : ""} <ChevronDown size={14} className={moreOpen ? "rotate-180" : ""} />
+            </button>
+          }>
+            <input type="search" value={filterSearchText} onChange={(e) => setFilterSearchText(e.target.value)} placeholder="이름 · 서류 이름으로 찾기" className={`${inputClass} w-56`} aria-label="찾기" />
+            <select value={`${filterYear}|${filterMonth}`} onChange={(e) => { const [y, m] = e.target.value.split("|"); setFilterYear(y); setFilterMonth(m); }} className={inputClass} aria-label="기간">
+              <option value="|">전체 기간</option>
+              {periodOptions.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+            </select>
             {role !== "EMPLOYEE" && (
-              <div className="space-y-1 md:col-span-5 min-w-0">
-                <Label className="text-xs font-medium">지점</Label>
-                <Select value={filterBranch} onValueChange={(v) => { setFilterBranch(v); setFilterUserId(""); }}>
-                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
-                    <SelectValue placeholder="전체" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-80 min-w-[280px]">
-                    <SelectItem value="">전체</SelectItem>
-                    {[...new Set(employees.map(e => e.branch).filter(Boolean))].sort().map(b => (
-                      <SelectItem key={b as string} value={b as string} title={b as string}>{b}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* 직원 (ADMIN/MANAGER만) */}
-            {role !== "EMPLOYEE" && (
-              <div className="space-y-1 md:col-span-4 min-w-0">
-                <Label className="text-xs font-medium">직원</Label>
-                <Select value={filterUserId} onValueChange={setFilterUserId}>
-                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
-                    {/* 선택값이 ID로 표시되지 않도록 이름을 직접 렌더 */}
-                    <SelectValue placeholder="전체">
-                      {filterUserId ? (employees.find(e => e.id === filterUserId)?.name ?? "전체") : "전체"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="max-h-80 min-w-[280px]">
-                    <SelectItem value="">전체</SelectItem>
-                    {employees.filter(emp => !filterBranch || emp.branch === filterBranch).map(emp => (
-                      <SelectItem key={emp.id} value={emp.id} title={`${emp.branch ? `[${emp.branch}] ` : ''}${emp.name}`}>
-                        {emp.branch ? `[${emp.branch}] ` : ''}{emp.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* 문서 종류 (#135) */}
-            {role !== "EMPLOYEE" && (
-              <div className="space-y-1 md:col-span-6 min-w-0">
-                <Label className="text-xs font-medium">문서 종류</Label>
-                <Select value={filterTemplateId} onValueChange={setFilterTemplateId}>
-                  <SelectTrigger className="h-8 text-xs w-full min-w-[180px]">
-                    <SelectValue placeholder="전체">
-                      {filterTemplateId ? (templates.find(t => t.id === filterTemplateId)?.name ?? "전체") : "전체"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  {/* 성격별 4그룹으로 묶어 표시 (#168) */}
-                  <SelectContent className="max-h-80 min-w-[320px]">
-                    <SelectItem value="">전체</SelectItem>
-                    {DOC_GROUPS.map(g => {
-                      const list = templates.filter(t => docGroupOf(t.name) === g);
-                      if (list.length === 0) return null;
-                      return (
-                        <SelectGroup key={g}>
-                          <SelectLabel className="mt-1 border-t pt-1.5 text-[11px] font-semibold text-gray-500">{g}</SelectLabel>
-                          {list.map(t => (
-                            <SelectItem key={t.id} value={t.id} title={t.name}>{t.name}</SelectItem>
-                          ))}
-                        </SelectGroup>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {/* 패키지 여부 (#135) */}
-            {role !== "EMPLOYEE" && (
-              <div className="space-y-1 md:col-span-2 min-w-0">
-                <Label className="text-xs font-medium">패키지</Label>
-                <Select value={filterPkg} onValueChange={setFilterPkg}>
-                  <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="전체" /></SelectTrigger>
-                  <SelectContent className="max-h-80 min-w-[160px]">
-                    <SelectItem value="">전체</SelectItem>
-                    <SelectItem value="bundle">패키지(묶음)만</SelectItem>
-                    <SelectItem value="single">단건만</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* 검색 */}
-            <div className="space-y-1 sm:col-span-2 md:col-span-12 min-w-0">
-              <Label className="text-xs font-medium">검색</Label>
-              <Input
-                type="text"
-                placeholder="제목 검색"
-                value={filterSearchText}
-                onChange={(e) => setFilterSearchText(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          {/* 숨겨진 결재 포함 */}
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b">
-            <Checkbox
-              id="showHiddenRevoked"
-              checked={showHiddenRevoked}
-              onCheckedChange={(checked) => setShowHiddenRevoked(checked as boolean)}
-            />
-            <Label htmlFor="showHiddenRevoked" className="text-xs cursor-pointer">
-              숨겨진 결재 포함
-            </Label>
-            {/* 오래된 대기(#79) */}
-            <label className="ml-4 flex items-center gap-1.5 text-xs cursor-pointer">
-              <input type="checkbox" checked={filterStale} onChange={e => setFilterStale(e.target.checked)} />
-              오래된 대기만(7일 넘게 움직임 없음)
-            </label>
-            {/* 내 테스트 문서만(#67) — 나에게 테스트 발송한 시험 문서(7일 뒤 자동 삭제). 기본 목록에는 나오지 않는다 */}
-            {role === "ADMIN" && (
-              <label className="ml-4 flex items-center gap-1.5 text-xs cursor-pointer text-amber-700" title="나에게 테스트 발송한 시험 문서만 — 7일 뒤 자동 삭제">
-                <input type="checkbox" checked={showTest} onChange={e => setShowTest(e.target.checked)} />
-                내 테스트 문서만
-              </label>
-            )}
-            {/* 기간 기준(#79) — 날짜를 넣으면 위 연·월 대신 이 기간으로 거른다 */}
-            <div className="ml-4 flex items-center gap-1 text-xs">
-              <select value={filterDateField} onChange={e => setFilterDateField(e.target.value)} className="h-7 rounded border px-1">
-                <option value="created">작성일</option>
-                <option value="signed">완료일(체결)</option>
-                <option value="activity">마지막 활동일</option>
+              <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setFilterUserId(""); }} className={inputClass} aria-label="지점">
+                <option value="">지점: 전체</option>
+                {[...new Set(employees.map(e => e.branch).filter(Boolean))].sort().map(b => <option key={b as string} value={b as string}>{b}</option>)}
               </select>
-              <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="h-7 rounded border px-1" />
-              <span>~</span>
-              <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="h-7 rounded border px-1" />
+            )}
+            {role !== "EMPLOYEE" && (
+              <select value={filterTemplateId} onChange={(e) => setFilterTemplateId(e.target.value)} className={`${inputClass} max-w-[16rem]`} aria-label="서류">
+                <option value="">서류: 전체</option>
+                {DOC_GROUPS.map(g => {
+                  const list = templates.filter(t => docGroupOf(t.name) === g);
+                  return list.length ? <optgroup key={g} label={g}>{list.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null;
+                })}
+              </select>
+            )}
+          </FilterRow>
+          {moreOpen && (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b border-[#eef1f5] bg-[#fafbfd] px-6 py-3 text-[13px] text-[#475569]">
+              <label className="flex items-center gap-1.5"><input type="checkbox" checked={showHiddenRevoked} onChange={(e) => setShowHiddenRevoked(e.target.checked)} />숨긴 결재 포함</label>
+              <label className="flex items-center gap-1.5"><input type="checkbox" checked={filterStale} onChange={(e) => setFilterStale(e.target.checked)} />7일 넘게 멈춘 것만</label>
+              {role === "ADMIN" && <label className="flex items-center gap-1.5" title="나에게 테스트 발송한 시험 문서만 — 7일 뒤 자동 삭제"><input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />내 테스트 문서만</label>}
+              {role !== "EMPLOYEE" && (
+                <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className={`${inputClass} py-1.5`} aria-label="직원">
+                  <option value="">직원: 전체</option>
+                  {employees.filter(emp => !filterBranch || emp.branch === filterBranch).map(emp => <option key={emp.id} value={emp.id}>{emp.branch ? `[${emp.branch}] ` : ""}{emp.name}</option>)}
+                </select>
+              )}
+              {role !== "EMPLOYEE" && (
+                <select value={filterPkg} onChange={(e) => setFilterPkg(e.target.value)} className={`${inputClass} py-1.5`} aria-label="묶음">
+                  <option value="">묶음·단건 모두</option>
+                  <option value="bundle">묶음 서류만</option>
+                  <option value="single">단건만</option>
+                </select>
+              )}
+              {/* 날짜 범위(#79) — 넣으면 위 기간 대신 이 범위로 */}
+              <span className="flex flex-wrap items-center gap-1">
+                <select value={filterDateField} onChange={e => setFilterDateField(e.target.value)} className={`${inputClass} py-1.5`} aria-label="날짜 기준">
+                  <option value="created">작성일</option>
+                  <option value="signed">체결일</option>
+                  <option value="activity">마지막 활동일</option>
+                </select>
+                <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className={`${inputClass} py-1.5`} aria-label="시작일" />
+                ~
+                <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className={`${inputClass} py-1.5`} aria-label="끝일" />
+              </span>
+              <button type="button" className={btnClass("text", "ml-auto text-[13px]")} onClick={() => {
+                setFilterYear(new Date().getFullYear().toString()); setFilterMonth(""); setFilterStatus(""); setFilterUserId(""); setFilterBranch("");
+                setFilterSearchText(""); setShowHiddenRevoked(false); setFilterTemplateId(""); setFilterPkg(""); setShowTest(false);
+                setFilterDateField("created"); setFilterFrom(""); setFilterTo(""); setFilterStale(false); setListTab("all");
+              }}>필터 초기화</button>
             </div>
-          </div>
-
-          {/* 버튼 */}
-          <div className="flex gap-2 mb-4">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setFilterYear(new Date().getFullYear().toString());
-                setFilterMonth("");
-                setFilterStatus("");
-                setFilterUserId("");
-                setFilterBranch("");
-                setFilterSearchText("");
-                setShowHiddenRevoked(false);
-                setFilterDateField("created"); setFilterFrom(""); setFilterTo(""); setFilterStale(false);
-                fetchContracts({ year: new Date().getFullYear().toString(), month: "", status: "", userId: "", branch: "", searchText: "", showHiddenRevoked: false });
-              }}
-            >
-              초기화
-            </Button>
-          </div>
-
+          )}
+          <div className="px-6 pt-3">
           {/* 고른 계약(#34 #46) — 초안은 한꺼번에 발송, 고른 것 전부는 완료본 ZIP·입력값 엑셀 */}
           {pickedAll.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
               <span className="text-indigo-800">{pickedAll.length}건 선택{pickedDrafts.length ? ` (초안 ${pickedDrafts.length})` : ""}</span>
               {pickedDrafts.length > 0 && (
-                <Button size="sm" className="h-7 gap-1" onClick={() => { setBulkSendKey(k => k + 1); setBulkSendOpen(true); }}><Send size={12} />초안 {pickedDrafts.length}건 한꺼번에 발송</Button>
+                <Btn kind="primary" className="px-3 py-1" onClick={() => { setBulkSendKey(k => k + 1); setBulkSendOpen(true); }}><Send size={12} />초안 {pickedDrafts.length}건 한꺼번에 발송</Btn>
               )}
               <Button size="sm" variant="outline" className="h-7 gap-1" disabled={exporting} onClick={() => exportPicked("zip")}><Download size={12} />완료본 ZIP</Button>
               <Button size="sm" variant="outline" className="h-7 gap-1" disabled={exporting} onClick={() => exportPicked("xlsx")}><Download size={12} />입력값 엑셀</Button>
@@ -4253,69 +4109,69 @@ ${url}`;
           <BulkSendDialog key={bulkSendKey} open={bulkSendOpen} onClose={() => setBulkSendOpen(false)}
             contracts={pickedDrafts} employees={employees} mainManagerIds={mainManagerIds}
             onDone={(keep) => { setPickedIds(new Set(keep)); fetchContracts(); }} />
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className={tableClass}>
               <thead>
-                <tr className="border-b text-left text-gray-500">
+                <tr>
                   {role === "ADMIN" && (
-                    <th className="pb-3 w-8">
+                    <th className="w-8 !pr-0">
                       <input type="checkbox" title="목록 모두 선택"
-                        checked={contracts.length > 0 && contracts.every(x => pickedIds.has(x.id))}
-                        onChange={e => setPickedIds(e.target.checked ? new Set(contracts.map(x => x.id)) : new Set())} />
+                        checked={shownContracts.length > 0 && shownContracts.every(x => pickedIds.has(x.id))}
+                        onChange={e => setPickedIds(e.target.checked ? new Set(shownContracts.map(x => x.id)) : new Set())} />
                     </th>
                   )}
-                  {role !== "EMPLOYEE" && <th className="pb-3">직원</th>}
-                  <th className="pb-3">제목</th>
-                  <th className="pb-3">상태</th>
-                  <th className="pb-3">결재 진행</th>
-                  <th className="pb-3">처리</th>
+                  {role !== "EMPLOYEE" && <th>직원</th>}
+                  <th>서류</th>
+                  <th>상태</th>
+                  <th>결재 진행</th>
+                  <th>기한</th>
+                  <th className="text-right">처리</th>
                 </tr>
               </thead>
               <tbody>
                 {listLoading ? (
                   <tr><td colSpan={6} className="py-8 text-center text-gray-400"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
-                ) : contracts.length === 0 ? (
-                  <tr><td colSpan={6} className="py-8 text-center text-gray-400">없음</td></tr>
-                ) : contracts.map(c => {
-                  const s = statusConfig[c.status] || { label: "미정", variant: "default" };
+                ) : shownContracts.length === 0 ? (
+                  <tr><td colSpan={7} className="py-8 text-center text-gray-400">{listTab === "mine" ? "내가 승인할 계약서가 없습니다" : "없음"}</td></tr>
+                ) : shownContracts.map(c => {
+                  const pill = STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: "미정" };
+                  const mine = myApprovals.find(a => a.id === c.id);   // 내 결재 차례 = 인디고 「열기」
+                  const signedPdf = `/api/contracts/${c.id}/signed-document?pdf=1`;
+                  const viewHref = c.status === "SIGNED" || (c.status !== "REJECTED" && (c.approvalLine?.steps || []).some((s) => !!s.signatureUrl)) ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : officeViewHref(getFileUrl(c.fileUrl));
+                  const markDownloaded = () => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); };
+                  const canEdit = !c.isTest && role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || ((c.status === "REJECTED" || c.status === "EXPIRED") && !c.externalName)) && ["DRAFT", "SENT", "APPROVED", "REJECTED", "EXPIRED"].includes(c.status);
+                  const changeDeadline = async () => {
+                    const cur = new Date(new Date(c.signDeadline!).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+                    const v = window.prompt("새 서명 기한(YYYY-MM-DD)", cur);
+                    if (!v || v === cur) return;
+                    const res = await fetch(`/api/contracts/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signDeadline: v.trim() }) });
+                    const d = await res.json().catch(() => ({}));
+                    if (!res.ok) { toast.error(d.error || "기한을 바꾸지 못했습니다."); return; }
+                    toast.success(`기한을 ${v.trim()} 로 바꿨습니다.`);
+                    fetchContracts();
+                  };
                   return (
-                    <tr key={c.id} className="border-b hover:bg-gray-50">
+                    <tr key={c.id} className="hover:bg-[#fafbfd]">
                       {role === "ADMIN" && (
                         <td className="py-3">
                           <input type="checkbox" checked={pickedIds.has(c.id)}
                             onChange={e => setPickedIds(prev => { const n = new Set(prev); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
                         </td>
                       )}
-                      {role !== "EMPLOYEE" && <td className="py-3"><p className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : `${c.user.branch ? `[${c.user.branch}] ` : ""}${c.user.name}`}</p></td>}
-                      <td className="py-3 font-medium">
-                        {c.title}
-                        {/* 배지 앞 띄어쓰기 — 화면 글자를 그대로 읽으면 「근로계약서패키지」처럼 제목에 붙어 보였다(10/16 A3, 제목 자체는 정상) */}
-                        {c.bundleId && <>{" "}<span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 align-middle">패키지</span></>}
-                        {c.employeeOnly && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle">직원전용</span></>}
-                        {c.isTest && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle" title="나에게 테스트 발송한 시험 문서 — 7일 뒤 자동 삭제">테스트</span></>}
-                        {c.importBatch && <>{" "}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 align-middle" title={`모두싸인 이관본 (${c.importBatch})`}>이관</span></>}
-                        {c.certificateUrl && <a href={c.certificateUrl} target="_blank" rel="noreferrer" className="ml-1 text-[10px] text-sky-700 underline align-middle" title="모두싸인 감사추적 인증서">인증서</a>}
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={s.variant}>{s.label}</Badge>
-                        {/* 서명 기한(#45) — 진행 중이면 표시·변경 */}
-                        {c.signDeadline && (c.status === "SENT" || c.status === "APPROVED") && (
-                          <button type="button" className="block mt-0.5 text-[11px] text-gray-400 hover:text-indigo-600 hover:underline" title="기한 바꾸기"
-                            onClick={async () => {
-                              const cur = new Date(new Date(c.signDeadline!).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-                              const v = window.prompt("새 서명 기한(YYYY-MM-DD)", cur);
-                              if (!v || v === cur) return;
-                              const res = await fetch(`/api/contracts/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signDeadline: v.trim() }) });
-                              const d = await res.json().catch(() => ({}));
-                              if (!res.ok) { toast.error(d.error || "기한을 바꾸지 못했습니다."); return; }
-                              toast.success(`기한을 ${v.trim()} 로 바꿨습니다.`);
-                              fetchContracts();
-                            }}>
-                            기한 {new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/")}
-                          </button>
+                      {role !== "EMPLOYEE" && <td><Cell2 main={c.externalName || c.user.name} sub={c.externalName ? "외부 계약자" : c.user.branch || undefined} /></td>}
+                      <td>
+                        <span className="text-[#0f172a]">{c.title}</span>
+                        {/* 둘째 줄 회색(시안 R12) — 초록 「패키지」 배지 대신 「묶음 서류」, 테스트·이관·인증서도 글자로 */}
+                        {(c.bundleId || c.employeeOnly || c.isTest || c.importBatch) && (
+                          <span className="block text-[12.5px] text-[#596578]">
+                            {[c.bundleId && "묶음 서류", c.employeeOnly && "직원 서명만", c.isTest && "테스트 문서(7일 뒤 삭제)", c.importBatch && "모두싸인 이관본"].filter(Boolean).join(" · ")}
+                            {c.certificateUrl && <> · <a href={c.certificateUrl} target="_blank" rel="noreferrer" className="text-[#4f46e5] hover:underline" title="모두싸인 감사추적 인증서">인증서</a></>}
+                          </span>
                         )}
                       </td>
-                      <td className="py-3">
+                      <td><StatusPill tone={pill.tone}>{pill.label}</StatusPill></td>
+                      <td>
                         <ApprovalChain
                           steps={c.approvalLine?.steps}
                           userId={c.externalName ? undefined : c.userId}
@@ -4325,107 +4181,52 @@ ${url}`;
                           }}
                         />
                       </td>
-                      <td className="py-3 space-x-1">
-                        {/* 뷰어(미리보기): 완료본(signedUrl) 우선, 없으면 원본 — MS 오피스 뷰어로 브라우저 열람 */}
-                        {/* 완료본은 PDF 로 열람 — 웹 뷰어가 떠 있는 서명 이미지를 못 그려 서명이 안 보였다 (QA 2026-08-25) */}
-                        {/* 진행 중이라도 서명이 하나라도 있으면 지금까지의 서명 반영본(진행본)으로 — 원본을 열면 본부·원장이 서명한 뒤에도 서명이 안 보였다(2026-10-17) */}
-                        <a href={c.status === "SIGNED" || (c.status !== "REJECTED" && (c.approvalLine?.steps || []).some((s) => !!s.signatureUrl)) ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : officeViewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" title="미리보기"><Button size="sm" variant="ghost" className="h-7"><Eye size={12} /></Button></a>
-                        {/* 완료된 계약은 서명·직인이 들어간 완료본을 다운로드 (원본엔 서명 마커가 남아 있음) */}
-                        {/* 완료본은 PDF로(수정 방지, 파일명=제목_서명완료.pdf) — 변환 실패 시 서버가 워드로 폴백.
-                            미완료 원본은 워드 그대로, 파일명만 제목으로 (개선 제안 2026-08-24) */}
-                        {/* 원본도 PDF로 — 워드 파일 그대로 나가면 수정 가능 (개선 제안 #67~#71) */}
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1` : `/api/contracts/${c.id}/original-document`} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }} title={c.status === "SIGNED" ? "서명 완료본 다운로드 (PDF)" : "원본 다운로드 (PDF)"}><Button size="sm" variant="ghost" className="h-7"><Download size={12} /></Button></a>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7"
-                          onClick={() => {
-                            setVersionsTarget(c);
-                            fetchVersions(c.id);
-                            setVersionsOpen(true);
-                          }}
-                        >
-                          <History size={12} />
-                        </Button>
-                        {/* 패키지의 직원전용 문서(비밀유지·개인정보동의서)는 근로계약서 발송 시 함께 발송 — 개별 발송 버튼 숨김 */}
-                        {role !== "EMPLOYEE" && c.employeeOnly && c.bundleId && c.status === "DRAFT" && (
-                          <span className="text-[11px] text-gray-400">근로계약서와 함께 발송</span>
-                        )}
-                        {/* 초안 + 진행 중(회수 후 포함) + 반려(9/11 — 고쳐서 다시 보낼 수 있다, #206-4) 계약: 수정·재발송 가능,
-                            삭제는 초안만 (직원전용 패키지 문서 제외) */}
-                        {/* 패키지 직원전용 문서도 **반려**되면 [수정]·[다시 보내기] — 종전엔 버튼이 없어 패키지를 새로 만들어야 했다
-                            (#206 검증 F5, 9/12 디렉터). 외부 계약자는 게스트 화면에 반려가 없어 해당 없음 */}
-                        {/* 시험 문서(#67)는 지우는 것만 — 재발송·수정은 서버도 막는다(남에게 알림이 가고 접두어를 지울 수 있어서) */}
-                        {c.isTest && role === "ADMIN" && (
-                          <Button size="sm" variant="outline" className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => { setDeleteTarget({ id: c.id, title: c.title, bundleId: c.bundleId }); setDeleteConfirmOpen(true); }}>
-                            <Trash2 size={12} />삭제
-                          </Button>
-                        )}
-                        {!c.isTest && role !== "EMPLOYEE" && (!(c.employeeOnly && c.bundleId) || ((c.status === "REJECTED" || c.status === "EXPIRED") && !c.externalName)) && (c.status === "DRAFT" || c.status === "SENT" || c.status === "APPROVED" || c.status === "REJECTED" || c.status === "EXPIRED") && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 gap-1"
-                              onClick={() => {
+                      <td className="whitespace-nowrap">
+                        {c.signDeadline && (c.status === "SENT" || c.status === "APPROVED")
+                          ? <button type="button" className="hover:text-[#4f46e5] hover:underline" title="기한 바꾸기" onClick={changeDeadline}>{new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/")}</button>
+                          : <span className="text-[#94a3b8]">—</span>}
+                      </td>
+                      <td className="whitespace-nowrap text-right">
+                        {/* 처리(시안 R12) — 내가 처리할 것 = 인디고 「열기」, 체결 완료 = 흰 「받기」, 나머지 = 흰 「보기」. 수정·재발송·이력·삭제는 ⋮ 안 */}
+                        <span className="inline-flex items-center gap-1">
+                          {mine ? (
+                            <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => setFullTarget(mine)}>열기</Btn>
+                          ) : c.status === "SIGNED" ? (
+                            <a href={signedPdf} target="_blank" rel="noreferrer" onClick={markDownloaded} className={btnClass("secondary", "px-3.5 py-1.5")} title="체결본 받기(PDF)">받기</a>
+                          ) : (
+                            <a href={viewHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")}>보기</a>
+                          )}
+                          {role !== "EMPLOYEE" && c.employeeOnly && c.bundleId && c.status === "DRAFT" && (
+                            <span className="text-[11px] text-[#94a3b8]">근로계약서와 함께 발송</span>
+                          )}
+                          <MoreMenu items={[
+                            { label: "미리보기", hidden: !mine && c.status !== "SIGNED", onClick: () => window.open(viewHref, "_blank") },
+                            { label: c.status === "SIGNED" ? "체결본 받기" : "원본 받기(PDF)", hidden: !mine && c.status === "SIGNED", onClick: () => { markDownloaded(); window.open(c.status === "SIGNED" ? signedPdf : `/api/contracts/${c.id}/original-document`, "_blank"); } },
+                            { label: "이력", onClick: () => { setVersionsTarget(c); fetchVersions(c.id); setVersionsOpen(true); } },
+                            { label: "수정", hidden: !canEdit, onClick: () => {
                                 setEditingContract(c);
-                                setEditForm({
-                                  title: c.title,
-                                  type: c.type,
-                                  startDate: c.startDate ? c.startDate.split("T")[0] : "",
-                                  endDate: c.endDate ? c.endDate.split("T")[0] : "",
-                                  salary: (c.extraFields?.["연봉"] || "").replace(/[^0-9]/g, ""),
-                                });
-                                // 작성 시 입력한 템플릿 동적 필드 복원 (날짜는 date input 형식으로)
+                                setEditForm({ title: c.title, type: c.type, startDate: c.startDate ? c.startDate.split("T")[0] : "", endDate: c.endDate ? c.endDate.split("T")[0] : "", salary: (c.extraFields?.["연봉"] || "").replace(/[^0-9]/g, "") });
+                                // 작성 시 입력한 템플릿 동적 필드 복원 (날짜는 date input 형식으로) — 값이 비어 있는(null) 옛 데이터는 빈칸으로
                                 const extras: Record<string, string> = {};
-                                Object.entries(c.extraFields || {}).forEach(([k, v]) => {
-                                  // 값이 비어 있는(null) 옛 데이터는 빈칸으로 — 글자 "null" 이 칸에 보이지 않게(칸 종류 판정과도 맞춤)
-                                  if (k !== "연봉") extras[k] = koreanToIso(v == null ? "" : String(v));
-                                });
+                                Object.entries(c.extraFields || {}).forEach(([k, v]) => { if (k !== "연봉") extras[k] = koreanToIso(v == null ? "" : String(v)); });
                                 if ("계약구분" in extras) for (const k of EVAL_COLS) if (!(k in extras)) extras[k] = "";
                                 setEditExtraFields(extras);
                                 setEditSalaryFocus(false); setEditOpen(true);
-                              }}
-                            >
-                              <PenLine size={12} />수정
-                            </Button>
-                            {c.status === "DRAFT" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => {
-                                  setDeleteTarget({ id: c.id, title: c.title, bundleId: c.bundleId });
-                                  setDeleteConfirmOpen(true);
-                                }}
-                              >
-                                <Trash2 size={12} />삭제
-                              </Button>
-                            )}
-                            {/* 초안을 최신 템플릿으로 재생성 — 입력값 유지, 문서만 새 양식 (#109) */}
-                            {c.status === "DRAFT" && c.templateId && (
-                              <Button size="sm" variant="outline" className="h-7 gap-1" title="양식이 수정된 경우 입력값은 그대로 두고 문서만 최신 양식으로 다시 만듭니다"
-                                onClick={async () => {
-                                  const res = await fetch(`/api/contracts/${c.id}/regenerate`, { method: "POST" });
-                                  const d = await res.json().catch(() => ({}));
-                                  if (!res.ok) { toast.error(d.error || "재생성 실패"); return; }
-                                  toast.success("최신 양식으로 다시 생성했습니다.");
-                                  fetchContracts();
-                                }}>
-                                <History size={12} />최신 양식
-                              </Button>
-                            )}
-                            {c.employeeOnly && c.bundleId ? (
-                              // 직원전용 문서는 서명자가 직원 본인으로 정해져 있다 — 결재선 고르는 창 없이 한 번에(F5)
-                              <Button size="sm" variant="outline" className="h-7 gap-1" disabled={sending} onClick={() => resendEmployeeOnly(c)}>
-                                <Send size={12} />다시 보내기
-                              </Button>
-                            ) : (
-                            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => openSendDialog(c)}>
-                              <Send size={12} />{c.status === "DRAFT" ? "발송" : "재발송"}
-                            </Button>
-                            )}
+                              } },
+                            { label: c.employeeOnly && c.bundleId ? "다시 보내기" : c.status === "DRAFT" ? "발송" : "재발송", hidden: !canEdit, onClick: () => { if (c.employeeOnly && c.bundleId) { if (sending) toast.error("발송 중입니다. 잠시 뒤 다시 눌러 주세요."); else void resendEmployeeOnly(c); } else openSendDialog(c); } },
+                            { label: "최신 양식으로 다시 만들기", hidden: !(canEdit && c.status === "DRAFT" && c.templateId), onClick: async () => {
+                                const res = await fetch(`/api/contracts/${c.id}/regenerate`, { method: "POST" });
+                                const d = await res.json().catch(() => ({}));
+                                if (!res.ok) { toast.error(d.error || "재생성 실패"); return; }
+                                toast.success("최신 양식으로 다시 생성했습니다.");
+                                fetchContracts();
+                              } },
+                            { label: "기한 바꾸기", hidden: !(c.signDeadline && (c.status === "SENT" || c.status === "APPROVED")), onClick: () => { void changeDeadline(); } },
+                            { label: "삭제", danger: true, hidden: !((c.isTest && role === "ADMIN") || (canEdit && c.status === "DRAFT")), onClick: () => { setDeleteTarget({ id: c.id, title: c.title, bundleId: c.bundleId }); setDeleteConfirmOpen(true); } },
+                          ]} />
+                        </span>
+                        {canEdit && (
+                          <>
                             <Dialog open={sendOpen && sendTarget?.id === c.id} onOpenChange={setSendOpen}>
                               {/* 폭 — 안내 문구가 박스 밖으로 삐져나오던 것 (#178, 2026-08-31 이예지대리) */}
                               <DialogContent className="max-w-lg sm:max-w-lg">
@@ -4678,8 +4479,7 @@ ${url}`;
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+      </Box>
 
       {/* 서명 모달 */}
       {/* 결재 — 전체 창(재요청 C). 쪽 목록 · A4 한 쪽씩 · 마지막 쪽까지 봐야 승인 · 내 칸 점선 서명란 */}
