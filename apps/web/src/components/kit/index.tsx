@@ -89,8 +89,9 @@ export function Box({ icon, tone = "ind", title, count, sub, right, children, cl
 
 /* ── 숫자 칸: 같은 크기로 한 줄(4~6칸). 숫자는 검정, 처리할 숫자가 1 이상일 때만 빨강(alert), 「전체」 성격은 연인디고(hl). 값을 모르면 「—」 ── */
 export function Tiles({ cols, children, className }: { cols: number; children: ReactNode; className?: string }) {
-  // 휴대폰은 두 칸씩, 넓은 화면은 cols 칸 한 줄
-  return <div className={cn("grid grid-cols-2 gap-3 px-6 pb-[22px] pt-[18px] md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]", className)}
+  // 휴대폰은 두 칸씩. 4칸 이하는 중간 폭부터 한 줄, 5~6칸은 중간 폭(사이드바가 보이는 태블릿) 세 칸 → 넓은 화면(lg) 한 줄
+  const wide = cols <= 4 ? "md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]" : "md:grid-cols-3 lg:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]";
+  return <div className={cn("grid grid-cols-2 gap-3 px-6 pb-[22px] pt-[18px]", wide, className)}
     style={{ ["--cols" as string]: cols } as React.CSSProperties}>{children}</div>;
 }
 export function Tile({ label, value, unit, note, alert = false, hl = false, active = false, onClick }: {

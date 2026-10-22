@@ -68,13 +68,13 @@ export async function GET() {
       // 승인 대기 항목 목록 (최근순 5건씩) — 눌러 들어가면 결재함에 있어야 한다
       prisma.leaveRequest.findMany({
         where: pendingForMe,
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true } }, approvalSteps: { select: { approverRole: true, status: true } } },
         orderBy: { createdAt: "desc" },
         take: 5,
       }),
       prisma.scheduleRequest.findMany({
         where: pendingForMe,
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true } }, approvalSteps: { select: { approverRole: true, status: true } } },
         orderBy: { createdAt: "desc" },
         take: 5,
       }),
@@ -103,6 +103,12 @@ export async function GET() {
   const absent = (await absentUserIds(members.map((m) => m.id), today)).size;
 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  // 대시보드 결재함 줄 아래 회색 한 줄(2026-10-21 본부 시안 R9) — 「휴가 승인 · 원장 승인 끝」처럼 지금 어디까지 왔는지
+  const stepNote = (steps: { approverRole: string | null; status: string }[]) => {
+    const mgr = steps.filter((x) => x.approverRole === "MANAGER");
+    if (!mgr.length) return "";
+    return mgr.every((x) => x.status === "APPROVED") ? " · 원장 승인 끝" : " · 원장 승인 전";
+  };
 
   // 휴가 취소 결재 — 결재함(/api/leave/cancel-requests/my-approvals)과 같은 기준(본인 요청 제외)
   // 휴가 첫날부터는 승인할 수 없으니 숫자에서도 뺀다(결재함 cancelStepWhere 와 같은 기준)
@@ -127,6 +133,7 @@ export async function GET() {
       title: `${leaveLabel(r.type)} ${fmt(r.startDate)}~${fmt(r.endDate)} (${r.days}일)`,
       requester: r.user.name,
       requestedAt: r.createdAt,
+      note: `휴가 승인${stepNote(r.approvalSteps)}`,
     })),
     ...pendingScheduleItems.map((r) => ({
       id: r.id,
@@ -134,6 +141,7 @@ export async function GET() {
       title: `${r.templateName?.startsWith("근무일정") ? "" : "근무일정 "}${r.templateName ?? ""} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
       requester: r.user.name,
       requestedAt: r.createdAt,
+      note: `근무일정 승인${stepNote(r.approvalSteps)}`,
     })),
     ...pendingCancelItems.map((r) => ({
       id: r.id,
@@ -141,6 +149,7 @@ export async function GET() {
       title: `휴가 취소 요청 · ${leaveLabel(r.leaveRequest.type)} ${fmt(r.leaveRequest.startDate)}~${fmt(r.leaveRequest.endDate)} (${r.leaveRequest.days}일)`,
       requester: r.user.name,
       requestedAt: r.createdAt,
+      note: "휴가 취소 승인",
     })),
   ].sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
 

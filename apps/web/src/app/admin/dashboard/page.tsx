@@ -1,123 +1,111 @@
 "use client";
-
+// 관리자 대시보드 — 본부 시안 R9(2026-10-21 「디자인 통일」 기준 화면). 본문은 박스 셋: 오늘 근태 · 결재함 · 공지사항.
+//  · 숫자는 색칠하지 않는다 — 처리할 문제 숫자(지각·미출근·조퇴)만 1 이상일 때 빨강, 「전체 직원」은 연인디고
+//  · 결재함 = 내가 승인·서명할 계약·휴가·근무일정·휴가 취소·출퇴근 요청 + 최근 7일 출퇴근 누락(빨간 줄, 누르면 자동 보정 확인)
+//  · 뺀 것: 「직원 모드로 전환」 버튼(상단 바에 있음) · 관리 알림 · 대기 계약/휴가 카드 · 누락 큰 판 · 빠른 액세스 · 월간 리포트(동작하지 않던 버튼)
 import { isSessionExpired } from "@/lib/session-expiry";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  Users,
-  Clock,
-  AlertTriangle,
-  FileText,
-  Calendar,
-  TrendingUp,
-  Eye,
-  CheckCircle2,
-  Clock3,
-  LogOut,
-  Plus,
-  Pin,
-} from "lucide-react";
+import { Clock, CheckSquare, Megaphone, Pin } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import { PageHead, Btn, Box, Tiles, Tile } from "@/components/kit";
+import { useNavCounts } from "@/components/layout/useNavCounts";
 
-type AttendanceStats = {
-  present: number;
-  late: number;
-  absent: number;
-  earlyLeave: number;
-  onLeave: number;
-};
+type AttendanceStats = { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
 
 type MissingAttendance = {
   id: string;
   name: string;
   email: string;
   date: string;
-  type: string;            // 「출근 누락」·「퇴근 누락」 (#219-5, 종전 입실·퇴실)
+  type: string;            // 「출근 누락」·「퇴근 누락」 (#219-5)
   mode?: "in" | "out";     // 빠진 쪽 — 문구 비교 대신 이 값으로 가른다
   fillAt?: string | null;  // 보정하면 들어갈 시각(서버가 보정 API 와 같은 함수로 계산, #219-4)
   fillLabel?: string | null;
   pendingRequest?: boolean; // 직원 출퇴근 요청 결재 대기 — 보정하지 않는다
 };
 
-type PendingApproval = {
-  id: string;
-  type: "leave" | "schedule" | "contract" | "leaveCancel";
-  title: string;
-  requester: string;
-  requestedAt: string;
-};
+/** 결재함 한 줄 — 제목 + 회색 한 줄 + 「열기 ›」(R9) */
+type Row = { key: string; title: string; sub: string; href?: string; onOpen?: () => void; alert?: boolean; at: number };
 
 export default function AdminDashboardPage() {
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
   const [totalEmployees, setTotalEmployees] = useState<number | null>(null);
-  const [pendingCounts, setPendingCounts] = useState({ leave: 0, schedule: 0, leaveCancel: 0 });
-  const [missingAttendance, setMissingAttendance] = useState<MissingAttendance[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [missing, setMissing] = useState<MissingAttendance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  const navCounts = useNavCounts();   // 결재함 숫자 = 사이드바 「결재함」이 이미 받은 값(같은 숫자 보장, 요청 하나 덜)
 
   // 출퇴근 누락 보정 확인
   const [fillTarget, setFillTarget] = useState<MissingAttendance | null>(null);
   const [filling, setFilling] = useState(false);
 
-  // 공지사항
+  // 공지사항 — 제목 · 작성자 · 날짜만, 누르면 펼침(R9)
   const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; pinned: boolean; authorName: string; createdAt: string }[]>([]);
+  const [openAnn, setOpenAnn] = useState<string | null>(null);
   const [annOpen, setAnnOpen] = useState(false);
   const [annForm, setAnnForm] = useState({ title: "", content: "", pinned: false });
   const [annSaving, setAnnSaving] = useState(false);
 
-  // 오늘 날짜
-  const today = new Date();
-  const dateStr = format(today, "yyyy년 M월 d일 (EEEE)", { locale: ko });
-
-  // 데이터 불러오기
   const dashIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-
-      // 1. 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
+      // 1. 오늘 근태 + 대기 결재(휴가·근무일정·휴가 취소) + 최근 7일 누락
       const statsRes = await fetch("/api/admin/dashboard-stats");
       // 세션이 끊기면 멈춘다 — 종전에는 낡은 근무 현황을 현재로 계속 보여줬다 (2026-09-04)
       if (isSessionExpired(statsRes)) { if (dashIvRef.current) clearInterval(dashIvRef.current); return; }
-      let leaveScheduleItems: PendingApproval[] = [];
+      const next: Row[] = [];
+      let miss: MissingAttendance[] = [];
+      let fresh = statsRes.ok;
+      // 근태·결재 묶음을 못 받으면 앞서 받은 목록을 그대로 둔다(「처리할 것이 없어요」로 덮지 않게)
+      if (!statsRes.ok) { toast.error("오늘 근태를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요."); return; }
       if (statsRes.ok) {
         const data = await statsRes.json();
         setAttendanceStats(data.attendance || null);
         setTotalEmployees(data.totalEmployees ?? null);
-        setPendingCounts({ leave: 0, schedule: 0, leaveCancel: 0, ...(data.pending || {}) });
-        setMissingAttendance(data.missingAttendance || []);
-        leaveScheduleItems = data.pendingItems || [];
+        miss = data.missingAttendance || [];
+        for (const p of (data.pendingItems || []) as { id: string; type: string; title: string; requester: string; requestedAt: string; note?: string }[]) {
+          next.push({
+            key: `${p.type}-${p.id}`, title: `${p.requester} · ${p.title}`, sub: p.note || "승인",
+            href: p.type === "leaveCancel" ? "/admin/leave-approvals?tab=cancel" : p.type === "schedule" ? "/admin/leave-approvals?tab=schedule" : `/admin/leave-approvals?tab=leave&id=${encodeURIComponent(p.id)}`,
+            at: new Date(p.requestedAt).getTime(),
+          });
+        }
       }
-
-      // 2. 대기 중인 계약 결재
-      let contractItems: PendingApproval[] = [];
+      // 2. 계약 — 내가 승인·서명할 것
       const approvalRes = await fetch("/api/contracts/my-approvals");
+      if (!approvalRes.ok) { fresh = false; toast.error("계약 결재 대기를 불러오지 못했습니다."); }
       if (approvalRes.ok) {
         const data = await approvalRes.json();
-        contractItems = (data.contracts || []).map((c: any) => ({
-          id: c.id,
-          type: "contract" as const,
-          title: c.title,
-          requester: c.user?.name || "미상",
-          requestedAt: c.createdAt,
-        }));
+        for (const c of (data.contracts || []) as { id: string; title: string; signDeadline?: string | null; createdAt: string }[]) {
+          const due = c.signDeadline ? new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/") : null;
+          next.push({ key: `contract-${c.id}`, title: c.title, sub: `계약 승인${due ? ` · 기한 ${due}` : ""}`, href: "/admin/contract-approvals", at: new Date(c.createdAt).getTime() });
+        }
       }
-
-      setPendingApprovals([...contractItems, ...leaveScheduleItems].slice(0, 10));
-
-      // 3. 최근 공지사항 (큐브티워크 공지와 동일 소스)
+      // 3. 출퇴근 요청(지점 밖·사진·본부·수정·퇴근 누락) — 결재함 「출퇴근 요청」과 같은 목록
+      const reqRes = await fetch("/api/attendance-requests?scope=inbox").catch(() => null);
+      if (reqRes?.ok) {
+        const data = await reqRes.json();
+        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string }[]) {
+          if (r.status && r.status !== "PENDING") continue;
+          next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 요청"}`, sub: `출퇴근 요청 · ${r.workDate.slice(5).replace("-", "/")}`, href: "/admin/leave-approvals?tab=attendance", at: r.requestedAt ? new Date(r.requestedAt).getTime() : 0 });
+        }
+      }
+      setRows(next.sort((a, b) => b.at - a.at));
+      setMissing(miss);
+      // 4. 공지(큐브티워크 공지와 같은 자료)
       const annRes = await fetch("/api/work/announcements");
       if (annRes.ok) {
         const data = await annRes.json();
         setAnnouncements((data.announcements || []).slice(0, 5));
       }
+      if (fresh) setLoadedAt(new Date());
     } catch (error) {
       console.error("Dashboard data fetch error:", error);
     } finally {
@@ -164,357 +152,90 @@ export default function AdminDashboardPage() {
     }
   }
 
+  const a = attendanceStats;
+  const toAttendance = () => { window.location.href = "/admin/attendance"; };
+  // 결재함 = 출퇴근 누락(빨간 줄, 먼저) + 결재 대기
+  const missRows: Row[] = missing.filter((m) => !m.pendingRequest).map((m) => ({
+    key: `miss-${m.id}`, title: `${m.name} · ${m.type}`, alert: true, at: 0,
+    sub: `${format(new Date(m.date), "M/d")} 출퇴근 누락 · 누르면 자동 보정`,
+    onOpen: () => setFillTarget(m),
+  }));
+  const shownRows = [...rows.slice(0, 8), ...missRows.slice(0, 5)];   // 결재 줄 8개 + 그 아래 누락 빨간 줄 5개까지
+  const moreCount = Math.max(0, rows.length - 8) + Math.max(0, missRows.length - 5);
+
   return (
-    <div className="space-y-6">
-      {/* 헤더 - 날짜 및 통계 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{dateStr}</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={fetchDashboardData} variant="outline" className="gap-2">
-            <Eye size={16} /> 새로고침
-          </Button>
-          <Button
-            onClick={() => window.location.href = "/dashboard"}
-            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            직원 모드로 전환
-          </Button>
-        </div>
-      </div>
+    <div>
+      <PageHead title="대시보드" note={loadedAt ? `${format(loadedAt, "M월 d일 (EEE) HH:mm", { locale: ko })} 기준` : undefined}>
+        <Btn kind="text" onClick={fetchDashboardData} disabled={loading}>{loading ? "불러오는 중…" : "새로고침"}</Btn>
+      </PageHead>
 
-      {/* 오늘의 근무 현황 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-              <Users size={14} /> 출근
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-600">
-              {attendanceStats ? attendanceStats.present : "--"}
-            </div>
-          </CardContent>
-        </Card>
+      {/* 오늘 근태 — 한 판 6칸(R9). 누르면 출퇴근 현황 */}
+      <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준" right={<a href="/admin/attendance" className="text-[#4f46e5] hover:underline">출퇴근 현황 ›</a>}>
+        <Tiles cols={6}>
+          <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
+          <Tile label="지각" value={a?.late} unit="명" alert onClick={toAttendance} />
+          <Tile label="미출근" value={a?.absent} unit="명" note="일정 있는데 출근 전" alert onClick={toAttendance} />
+          <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert onClick={toAttendance} />
+          <Tile label="휴가" value={a?.onLeave} unit="명" onClick={toAttendance} />
+          <Tile label="전체 직원" value={totalEmployees} unit="명" note="관리자 제외" hl onClick={toAttendance} />
+        </Tiles>
+      </Box>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-              <AlertTriangle size={14} /> 지각
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-orange-600">
-              {attendanceStats ? attendanceStats.late : "--"}
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        {/* 결재함 — 내가 승인할 것만, 다 끝나면 「처리할 것이 없어요」 한 줄 */}
+        <Box icon={<CheckSquare />} tone="rose" title="결재함" count={typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length} className="!mb-0 min-w-0"
+          right={<a href="/admin/leave-approvals" className="text-[#4f46e5] hover:underline">전체 보기 ›</a>}>
+          <div className="px-6 py-1">
+            {loading && !shownRows.length ? (
+              <p className="py-5 text-[14px] text-[#596578]">불러오는 중…</p>
+            ) : !shownRows.length ? (
+              <p className="py-5 text-[14px] text-[#596578]">처리할 것이 없어요.</p>
+            ) : shownRows.map((r) => {
+              const body = (
+                <>
+                  <span className="min-w-0 flex-1">
+                    <b className={`block truncate text-[16px] font-bold ${r.alert ? "text-[#dc2626]" : "text-[#0f172a]"}`}>{r.title}</b>
+                    <span className="block truncate text-[13.5px] text-[#596578]">{r.sub}</span>
+                  </span>
+                  <span className="shrink-0 text-[14.5px] font-semibold text-[#4f46e5]">열기 ›</span>
+                </>
+              );
+              const cls = "flex w-full items-center gap-3.5 border-t border-[#f1f5f9] py-[15px] text-left first:border-t-0 hover:bg-[#fafbfd]";
+              return r.href
+                ? <a key={r.key} href={r.href} className={cls}>{body}</a>
+                : <button key={r.key} type="button" onClick={r.onOpen} className={cls}>{body}</button>;
+            })}
+            {moreCount > 0 && <a href={rows.length > 8 ? "/admin/leave-approvals" : "/admin/attendance"} className="block border-t border-[#f1f5f9] py-3 text-center text-[13.5px] font-semibold text-[#4f46e5] hover:underline">{moreCount}건 더 보기 ›</a>}
+          </div>
+        </Box>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-              <LogOut size={14} /> 미출근
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-red-600">
-              {attendanceStats ? attendanceStats.absent : "--"}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">오늘 근무일정이 있는데 출근 전 (휴가·휴무 제외)</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-              <Clock3 size={14} /> 조퇴
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-yellow-600">
-              {attendanceStats ? attendanceStats.earlyLeave : "--"}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-              <Calendar size={14} /> 휴가
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">
-              {attendanceStats ? attendanceStats.onLeave : "--"}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 주요 업무 현황 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:border-blue-300 transition" onClick={() => window.location.href = "/admin/contract-approvals"}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">대기 중인 계약</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {pendingApprovals.filter(p => p.type === "contract").length}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">승인 대기</p>
-          </CardContent>
-        </Card>
-
-        <Card className="cursor-pointer hover:border-green-300 transition" onClick={() => window.location.href = "/admin/leave-approvals"}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">대기 중인 휴가</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {pendingCounts.leave}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">승인 대기 · 근무일정 {pendingCounts.schedule}건 · 휴가 취소 {pendingCounts.leaveCancel}건</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">전체 직원</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-700">
-              {totalEmployees === null ? "--" : totalEmployees}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">명 (관리자 제외)</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">관리 알림</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {attendanceStats ? attendanceStats.absent + attendanceStats.late : "--"}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">미출근 + 지각</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 출퇴근 누락/미이행 현황 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-orange-600" />
-            출퇴근 누락 현황
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-8 text-gray-500">
-              데이터를 불러오는 중...
-            </div>
-          ) : missingAttendance.length === 0 ? (
-            <div className="text-center py-8 text-green-600">
-              <CheckCircle2 className="inline-block mb-2" size={32} />
-              <p>최근 7일간 출퇴근 누락이 없습니다.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-500">※ 항목을 클릭하면 자동 보정할 수 있습니다. 퇴근 누락은 설정 › 근태 규칙(기본 22:00)을, 출근 누락은 그날 근무일정 출근 시각(없으면 퇴근 − 보정 시간)을 씁니다.</p>
-              {missingAttendance.map(record => (
-                <button
-                  key={record.id}
-                  onClick={() => setFillTarget(record)}
-                  className="w-full flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg text-left hover:bg-orange-100 transition-colors"
-                >
-                  <div>
-                    <p className="font-medium text-gray-900">{record.name}</p>
-                    <p className="text-sm text-gray-600">{record.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">
-                      {format(new Date(record.date), "M월 d일")}
-                    </span>
-                    <Badge variant="outline" className="border-orange-300 text-orange-700">
-                      {record.type}
-                    </Badge>
-                    {record.pendingRequest && (
-                      <Badge variant="outline" className="border-blue-300 text-blue-700">요청 결재 대기</Badge>
-                    )}
-                  </div>
+        {/* 공지사항 — 제목 · 작성자 · 날짜, 누르면 펼침 */}
+        <Box icon={<Megaphone />} tone="amb" title="공지사항" className="!mb-0 min-w-0"
+          right={<button type="button" onClick={() => setAnnOpen(true)} className="text-[#4f46e5] hover:underline">＋ 작성</button>}>
+          <div className="px-6 py-1">
+            {announcements.length === 0 ? (
+              <p className="py-5 text-[14px] text-[#596578]">등록된 공지가 없습니다.</p>
+            ) : announcements.map((n) => (
+              <div key={n.id} className="border-t border-[#f1f5f9] first:border-t-0">
+                <button type="button" onClick={() => setOpenAnn(openAnn === n.id ? null : n.id)} aria-expanded={openAnn === n.id}
+                  className="flex w-full items-center gap-3.5 py-[15px] text-left">
+                  <span className="min-w-0 flex-1">
+                    <b className="flex items-center gap-1.5 truncate text-[16px] font-bold text-[#0f172a]">{n.pinned && <Pin size={14} className="shrink-0 text-[#4f46e5]" aria-label="고정" />}{n.title}</b>
+                    <span className="block truncate text-[13.5px] text-[#596578]">{n.authorName}</span>
+                  </span>
+                  <span className="shrink-0 text-[13.5px] text-[#596578]">{format(new Date(n.createdAt), "M월 d일")}</span>
                 </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 공지사항 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <FileText size={18} />
-              최근 공지사항
-            </CardTitle>
-            <Button size="sm" onClick={() => setAnnOpen(true)} className="gap-1">
-              <Plus size={14} />공지 작성
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {announcements.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm">
-              등록된 공지가 없습니다. "공지 작성"으로 첫 공지를 등록해보세요.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {announcements.map((a) => (
-                <a key={a.id} href="/work/announcements"
-                  className={`flex gap-3 p-3 rounded-lg border transition-colors hover:bg-gray-50 ${a.pinned ? "bg-indigo-50 border-indigo-200" : "bg-white border-gray-200"}`}>
-                  {a.pinned ? <Pin size={18} className="text-indigo-500 flex-shrink-0 mt-0.5" /> : <FileText size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />}
-                  <div className="min-w-0">
-                    <strong className="text-gray-900">{a.title}</strong>
-                    <p className="text-sm text-gray-600 line-clamp-2 whitespace-pre-wrap">{a.content}</p>
-                    <p className="text-xs text-gray-400 mt-1">{a.authorName} · {format(new Date(a.createdAt), "M월 d일 HH:mm")}</p>
+                {openAnn === n.id && (
+                  <div className="pb-4">
+                    <p className="whitespace-pre-wrap text-[14px] text-[#334155]">{n.content}</p>
+                    <a href="/work/announcements" className="mt-2 inline-block text-[13px] font-semibold text-[#4f46e5] hover:underline">큐브티워크에서 보기 ›</a>
                   </div>
-                </a>
-              ))}
-              <a href="/work/announcements" className="block text-center text-xs text-indigo-500 hover:underline pt-1">전체 공지 보기 →</a>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 승인 대기 항목 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock size={18} className="text-blue-600" />
-            승인 대기 항목
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-8 text-gray-500">
-              데이터를 불러오는 중...
-            </div>
-          ) : pendingApprovals.length === 0 ? (
-            <div className="text-center py-8 text-gray-600">
-              <CheckCircle2 className="inline-block mb-2 text-green-600" size={32} />
-              <p>승인 대기 항목이 없습니다.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-medium text-gray-700">항목</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-700">신청자</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-700">신청일</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-700">상태</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingApprovals.map(approval => (
-                    <tr
-                      key={approval.id}
-                      className="border-b hover:bg-gray-50 cursor-pointer"
-                      onClick={() =>
-                        window.location.href =
-                          approval.type === "contract" ? "/admin/contract-approvals"
-                            : approval.type === "leaveCancel" ? "/admin/leave-approvals?tab=cancel"
-                            : "/admin/leave-approvals"
-                      }
-                    >
-                      <td className="px-4 py-3 font-medium">{approval.title}</td>
-                      <td className="px-4 py-3 text-gray-600">{approval.requester}</td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {format(new Date(approval.requestedAt), "M월 d일")}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge className="bg-yellow-100 text-yellow-800">
-                          {approval.type === "contract" ? "계약 승인 대기"
-                            : approval.type === "schedule" ? "근무일정 승인 대기"
-                            : approval.type === "leaveCancel" ? "휴가 취소 승인 대기"
-                            : "휴가 승인 대기"}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 빠른 액세스 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>빠른 액세스</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <a
-              href="/admin/employees"
-              className="p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition text-center"
-            >
-              <Users className="mx-auto mb-2" size={24} />
-              <div className="font-medium text-gray-900">직원 관리</div>
-              <div className="text-xs text-gray-600">직원 조회 및 관리</div>
-            </a>
-
-            <a
-              href="/admin/leave"
-              className="p-4 border border-gray-200 rounded-lg hover:bg-green-50 hover:border-green-300 transition text-center"
-            >
-              <Calendar className="mx-auto mb-2" size={24} />
-              <div className="font-medium text-gray-900">휴가 관리</div>
-              <div className="text-xs text-gray-600">휴가 신청 및 승인</div>
-            </a>
-
-            <a
-              href="/admin/contracts"
-              className="p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition text-center"
-            >
-              <FileText className="mx-auto mb-2" size={24} />
-              <div className="font-medium text-gray-900">계약서 관리</div>
-              <div className="text-xs text-gray-600">계약서 작성 및 승인</div>
-            </a>
-
-            <a
-              href="/admin/attendance"
-              className="p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-300 transition text-center"
-            >
-              <Clock size={24} className="mx-auto mb-2" />
-              <div className="font-medium text-gray-900">출퇴근 관리</div>
-              <div className="text-xs text-gray-600">출퇴근 기록 조회</div>
-            </a>
+                )}
+              </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
-
-      {/* 리포트 섹션 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>월간 리포트</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <p className="text-gray-600 text-sm">
-              {format(today, "yyyy년 M월")} 월간 리포트를 다운로드할 수 있습니다.
-            </p>
-            <Button variant="outline" className="gap-2 w-full md:w-auto">
-              <FileText size={16} /> 리포트 다운로드
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        </Box>
+      </div>
 
       {/* 공지 작성 다이얼로그 */}
       <Dialog open={annOpen} onOpenChange={setAnnOpen}>
@@ -529,8 +250,8 @@ export default function AdminDashboardPage() {
             </label>
             <p className="text-xs text-gray-400">작성한 공지는 큐브티워크 &gt; 공지에도 함께 표시됩니다.</p>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setAnnOpen(false)} disabled={annSaving}>취소</Button>
-              <Button onClick={saveAnnouncement} disabled={annSaving}>{annSaving ? "등록 중..." : "등록"}</Button>
+              <Btn onClick={() => setAnnOpen(false)} disabled={annSaving}>취소</Btn>
+              <Btn kind="primary" onClick={saveAnnouncement} disabled={annSaving}>{annSaving ? "등록 중..." : "등록"}</Btn>
             </div>
           </div>
         </DialogContent>
@@ -551,8 +272,8 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
               {fillTarget.pendingRequest ? (
-                <p className="text-sm text-blue-700">
-                  직원이 올린 출퇴근 요청이 결재 대기 중입니다. 자동 보정 대신 <b>출퇴근 관리 › 요청 결재</b>에서 처리해 주세요.
+                <p className="text-sm text-gray-700">
+                  직원이 올린 출퇴근 요청이 결재 대기 중입니다. 자동 보정 대신 <b>결재 › 결재함</b>에서 처리해 주세요.
                 </p>
               ) : (
                 <div className="text-sm text-gray-700 space-y-1">
@@ -566,13 +287,13 @@ export default function AdminDashboardPage() {
                 </div>
               )}
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setFillTarget(null)} disabled={filling}>
+                <Btn onClick={() => setFillTarget(null)} disabled={filling}>
                   {fillTarget.pendingRequest ? "닫기" : "아니오"}
-                </Button>
+                </Btn>
                 {!fillTarget.pendingRequest && (
-                  <Button onClick={handleAutoFill} disabled={filling}>
+                  <Btn kind="primary" onClick={handleAutoFill} disabled={filling}>
                     {filling ? "처리 중..." : "네"}
-                  </Button>
+                  </Btn>
                 )}
               </div>
             </div>

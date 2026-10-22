@@ -68,7 +68,7 @@ export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { 
         })}
       </div>
       {/* 패널 */}
-      <div className="flex w-52 flex-col border-r border-gray-200 bg-white">
+      <div className={cn("flex w-52 flex-col border-r border-gray-200 bg-white", activeGroup?.key === "dashboard" && "hidden")}>
         <div className="px-4 pt-4 pb-2">
           <p className="text-base font-bold leading-tight text-gray-900">큐브티</p>
           <p className="text-xs text-gray-500">관리자 시스템</p>
