@@ -2,6 +2,7 @@
 
 // 설정 › 근태 규칙(2026-10-20 본부 박정인 시안 v2 7번 · 디렉터 「추천대로」) — 「퇴근 기록이 없는 날 처리」를 하나만 고른다.
 // 대시보드 누락 보정·출퇴근 관리 전일 미마감·직원 앱 「어제 퇴근 기록이 없어요」가 모두 이 규칙을 쓴다(lib/attendance-policy autoCloseTime).
+import { PageHead } from "@/components/kit";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -65,14 +66,11 @@ export default function AttendanceRulesPage() {
 
   const fb = fmtHours(fallbackHours);
   return (
-    <div className="p-8 max-w-6xl">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <p className="text-xs text-gray-400 mb-1">설정 › 근태 규칙</p>
-          <h1 className="text-2xl font-bold">근태 규칙</h1>
-        </div>
-        <Button onClick={save} disabled={busy || !pick || pick === saved} className="bg-indigo-600 hover:bg-indigo-700">{busy ? "저장 중..." : "저장"}</Button>
-      </div>
+    <div className="max-w-6xl">
+      {/* 머리(R15 — 설정 화면 모두 같은 머리) */}
+      <PageHead crumb="설정 › 근태 규칙" title="근태 규칙" note="고른 뒤 저장하면 적용 · 변경 로그에 남음">
+        <Button onClick={save} disabled={busy || !pick || pick === saved} className="bg-[#4f46e5] text-white hover:bg-[#4338ca]">{busy ? "저장 중..." : "저장"}</Button>
+      </PageHead>
       {failed ? (
         <p className="text-sm text-red-500">근태 규칙을 불러오지 못했습니다. 새로고침해 주세요.</p>
       ) : (

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { History } from "lucide-react";
+import { PageHead } from "@/components/kit";
 import { getSession, isSuperAdmin } from "@/lib/auth";
 import AuditLogView from "@/components/admin/AuditLogView";
 
@@ -13,11 +13,9 @@ export default async function AuditLogPage() {
   if (session.role !== "ADMIN") redirect("/dashboard");
   const superAdmin = await isSuperAdmin(session.userId);
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><History size={22} />변경 로그</h1>
-        <p className="text-sm text-gray-500 mt-1">관리자가 무엇을 언제 바꿨는지 남긴 기록입니다. 기록은 지우거나 고칠 수 없습니다.</p>
-      </div>
+    <div className="space-y-4">
+      {/* 머리(R15 — 설정 화면 모두 같은 머리) */}
+      <PageHead crumb="설정 › 변경 로그" title="변경 로그" note="관리자가 바꾼 기록 · 지우거나 고칠 수 없음" />
       <AuditLogView isSuper={superAdmin} />
     </div>
   );

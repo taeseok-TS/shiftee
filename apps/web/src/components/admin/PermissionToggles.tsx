@@ -1,10 +1,12 @@
 "use client";
 
 // 역할별 권한 켜기·끄기(QA76 #39) — 권한 설정 화면 위쪽. 바꾸면 바로 저장(실패하면 되돌림)
+// 새 톤(2026-10-21 본부 시안 R15): 「원장 권한」 · 「직원 권한」 두 칸 박스 + 아래 「고정된 규칙」(접힘).
+// 권한 줄 = 제목(+ 「시프티와 다름」 노랑 알약) → 사람이 읽는 두 줄(brief) → 「적용 범위 보기 ›」(자세한 설명 · 개발용 글) · 오른쪽 「켬 · 끔」 + 인디고 스위치
 import { useState } from "react";
 import { toast } from "sonner";
-import { Lock } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Lock, ShieldCheck, UserRound } from "lucide-react";
+import { Box, Toggle } from "@/components/kit";
 import type { PermissionKey, PermissionSettings, PermissionToggle } from "@/lib/permission-settings";
 
 type Fixed = { label: string; state: string; why: string };
@@ -31,55 +33,61 @@ export default function PermissionToggles({ initial, toggles, fixed }: Props) {
 
   const group = (role: "MANAGER" | "EMPLOYEE") => toggles.filter((t) => t.role === role);
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">원장 권한</CardTitle></CardHeader>
-        <CardContent className="space-y-3">{group("MANAGER").map((t) => <ToggleRow key={t.key} t={t} on={settings[t.key]} busy={busy === t.key} onFlip={() => flip(t.key)} />)}</CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">직원 권한</CardTitle></CardHeader>
-        <CardContent className="space-y-3">{group("EMPLOYEE").map((t) => <ToggleRow key={t.key} t={t} on={settings[t.key]} busy={busy === t.key} onFlip={() => flip(t.key)} />)}</CardContent>
-      </Card>
+    <>
+      <div className="grid gap-[18px] lg:grid-cols-2">
+        <Box icon={<ShieldCheck />} tone="ind" title="원장 권한" className="!mb-0 min-w-0">
+          <div className="px-6 py-1">{group("MANAGER").map((t) => <ToggleRow key={t.key} t={t} on={settings[t.key]} busy={busy === t.key} onFlip={() => flip(t.key)} />)}</div>
+        </Box>
+        <Box icon={<UserRound />} tone="vio" title="직원 권한" className="!mb-0 min-w-0">
+          <div className="px-6 py-1">{group("EMPLOYEE").map((t) => <ToggleRow key={t.key} t={t} on={settings[t.key]} busy={busy === t.key} onFlip={() => flip(t.key)} />)}</div>
+        </Box>
+      </div>
       <FixedRules fixed={fixed} />
-    </div>
+    </>
   );
 }
 
 // 토글 한 줄 — 바깥에 두어 매 렌더 재마운트(포커스 손실)가 없게
 function ToggleRow({ t, on, busy, onFlip }: { t: PermissionToggle; on: boolean; busy: boolean; onFlip: () => void }) {
-    return (
-      <div className="flex items-start justify-between gap-4 p-4 border rounded-lg">
-        <div className="min-w-0">
-          <p className="font-medium text-gray-900">{t.label}
-            {on !== t.shiftee && <span className="ml-2 text-[11px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">시프티와 다름</span>}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">{t.hint}</p>
-          <p className="text-[11px] text-gray-400 mt-1">적용 범위: {t.effects}</p>
-        </div>
-        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1" aria-label={`${t.label} ${on ? "켬" : "끔"}`}>
-          <input type="checkbox" className="sr-only peer" checked={on} disabled={busy} onChange={onFlip} />
-          <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5" />
-          <span className="ml-2 text-xs w-6 text-gray-600">{on ? "켬" : "끔"}</span>
-        </label>
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-start justify-between gap-4 border-t border-[#f1f5f9] py-4 first:border-t-0">
+      <div className="min-w-0">
+        <p className="text-[15.5px] font-bold text-[#0f172a]">{t.label}
+          {on !== t.shiftee && <span className="ml-2 rounded-full bg-[#fffbeb] px-2 py-0.5 align-middle text-[12px] font-bold text-[#b45309]">시프티와 다름</span>}
+        </p>
+        <p className="mt-1 text-[13.5px] leading-snug text-[#475569]">{t.brief}</p>
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-1.5 text-[13px] font-semibold text-[#4f46e5] hover:underline">
+          {open ? "적용 범위 접기 ‹" : "적용 범위 보기 ›"}
+        </button>
+        {open && (
+          <div className="mt-2 space-y-1 rounded-lg bg-[#f8fafc] px-3 py-2 text-[12.5px] text-[#596578]">
+            <p>{t.hint}</p>
+            <p className="font-mono text-[11.5px] text-[#7c8798]">적용 범위: {t.effects}</p>
+          </div>
+        )}
       </div>
-    );
+      <div className="mt-0.5 shrink-0"><Toggle on={on} disabled={busy} onChange={onFlip} label={`${t.label} ${on ? "켬" : "끔"}`} /></div>
+    </div>
+  );
 }
 
 function FixedRules({ fixed }: { fixed: Fixed[] }) {
+  const [open, setOpen] = useState(false);
   return (
-      <Card className="lg:col-span-2">
-        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Lock size={15} />고정된 규칙(설정으로 바꾸지 않음)</CardTitle></CardHeader>
-        <CardContent>
-          <ul className="grid gap-2 md:grid-cols-2 text-sm">
-            {fixed.map((f) => (
-              <li key={f.label} className="flex gap-2 p-3 border rounded-lg bg-gray-50/60">
-                <Lock size={14} className="mt-0.5 shrink-0 text-gray-400" />
-                <div><span className="font-medium text-gray-800">{f.label}</span> <span className="text-xs px-1.5 py-0.5 rounded bg-gray-200 text-gray-700">{f.state}</span>
-                  <p className="text-xs text-gray-500 mt-0.5">{f.why}</p></div>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+    <Box icon={<Lock />} tone="sl" title="고정된 규칙" sub="설정으로 바꾸지 않음 · 이유와 함께" className="mt-[18px]"
+      right={<button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="text-[#4f46e5] hover:underline">{open ? "접기 ‹" : "펼치기 ›"}</button>}>
+      {open && (
+        <ul className="grid gap-2 px-6 py-4 text-sm md:grid-cols-2">
+          {fixed.map((f) => (
+            <li key={f.label} className="flex gap-2 rounded-lg border border-[#eef1f5] bg-[#f8fafc] p-3">
+              <Lock size={14} className="mt-0.5 shrink-0 text-[#94a3b8]" />
+              <div><span className="font-semibold text-[#0f172a]">{f.label}</span> <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[12px] font-bold text-[#475569]">{f.state}</span>
+                <p className="mt-0.5 text-[12.5px] text-[#596578]">{f.why}</p></div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Box>
   );
 }

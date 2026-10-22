@@ -1,11 +1,12 @@
 "use client";
 
+import { PageHead } from "@/components/kit";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { CalendarDays, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 type Holiday = { id: string; date: string; name: string; grantsLeave?: boolean };   // grantsLeave: 대체휴무 부여 지정(#56)
 
@@ -67,17 +68,17 @@ export default function AdminHolidaysPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-6 px-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarDays className="text-red-500" /> 공휴일 관리</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            공휴일은 휴가 일수 계산에서 제외되고, 공휴일 출근 시 지각·조퇴 판정을 하지 않습니다. 임시공휴일이 지정되면 여기서 추가하세요.
-          </p>
-        </div>
-        <select className="rounded-md border px-3 py-2 text-sm" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-          {[thisYear - 1, thisYear, thisYear + 1, thisYear + 2].map((y) => <option key={y} value={y}>{y}년</option>)}
-        </select>
+    <div className="max-w-3xl space-y-4">
+      {/* 머리(R15 — 설정 화면 모두 같은 머리) */}
+      <div>
+        <PageHead crumb="설정 › 공휴일" title="공휴일">
+          <select className="rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2 text-[13.5px]" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="연도">
+            {[thisYear - 1, thisYear, thisYear + 1, thisYear + 2].map((y) => <option key={y} value={y}>{y}년</option>)}
+          </select>
+        </PageHead>
+        <p className="-mt-2 text-[13px] text-[#596578]">
+          공휴일은 휴가 일수 계산에서 제외되고, 공휴일 출근 시 지각·조퇴 판정을 하지 않습니다. 임시공휴일이 지정되면 여기서 추가하세요.
+        </p>
       </div>
 
       {/* 추가 폼 */}
@@ -95,7 +96,7 @@ export default function AdminHolidaysPage() {
           <label className="flex items-center gap-1.5 text-xs text-gray-600 h-10 cursor-pointer select-none" title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
             <input type="checkbox" checked={newGrants} onChange={(e) => setNewGrants(e.target.checked)} />대체휴무 부여
           </label>
-          <Button onClick={addHoliday} className="gap-1"><Plus size={14} />추가</Button>
+          <Button onClick={addHoliday} className="gap-1 bg-[#4f46e5] text-white hover:bg-[#4338ca]"><Plus size={14} />추가</Button>
         </CardContent>
       </Card>
 
@@ -120,7 +121,7 @@ export default function AdminHolidaysPage() {
                 ) : h.date.endsWith("-05-01") ? (
                   <span className="text-[11px] text-gray-400" title="5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다">보상휴가 자동</span>
                 ) : (
-                  <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-emerald-700" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
+                  <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-[#4f46e5]" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
                     <input type="checkbox" checked={!!h.grantsLeave} onChange={() => toggleGrants(h)} />대체휴무 부여
                   </label>
                 )}
