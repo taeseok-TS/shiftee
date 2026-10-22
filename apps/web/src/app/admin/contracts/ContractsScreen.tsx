@@ -1438,8 +1438,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     const get = (q: string) => fetch(`/api/contracts?${q}`).then((r) => (r.ok ? r.json() : { contracts: [] })).then((d) => (d.contracts || []) as Contract[]).catch(() => null);
     Promise.all([get(`year=${y}&month=${m}`), get("stale=7")]).then(([month, stale]) => {
       if (!alive || !month || !stale) return;
-      const n = (st: string[]) => month.filter((c) => st.includes(c.status)).length;
-      setMonthStats({ waiting: n(TAB_STATUS.waiting), signed: n(TAB_STATUS.signed), rejected: n(TAB_STATUS.rejected), stale: stale.length });
+      // 모두싸인 이관본(importBatch)은 옮겨 넣은 날이 만든 날이라 「이번 달」에서 뺀다 — 10/21~22 이관 1,400여 건이 이번 달 체결 완료로 잡혔다
+      const n = (st: string[]) => month.filter((c) => st.includes(c.status) && !c.importBatch).length;
+      setMonthStats({ waiting: n(TAB_STATUS.waiting), signed: n(TAB_STATUS.signed), rejected: n(TAB_STATUS.rejected), stale: stale.filter((c) => !c.importBatch).length });
     });
     return () => { alive = false; };
   }, [flow, role, statsKey]);
