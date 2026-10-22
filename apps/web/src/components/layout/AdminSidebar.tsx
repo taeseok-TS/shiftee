@@ -15,11 +15,11 @@ import { useNavCounts, CountBadge, RED_KEYS, type NavCounts } from "./useNavCoun
 
 const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
 
-export function AdminSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
+export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { isSuperAdmin?: boolean; canViewSalary?: boolean }) {
   const pathname = usePathname();
   const counts = useNavCounts();
   const { group: activeGroup, item: activeItem } = matchNav(pathname);
-  const groups = ADMIN_NAV.map((g) => ({ ...g, items: g.items.filter((it) => !it.superOnly || isSuperAdmin) }));
+  const groups = ADMIN_NAV.map((g) => ({ ...g, items: g.items.filter((it) => (!it.superOnly || isSuperAdmin) && (!it.salaryOnly || canViewSalary)) }));
   // 패널 = 지금 화면의 대분류(대분류 밖 화면이면 첫 묶음)
   const shown = groups.find((g) => g.key === activeGroup?.key) ?? groups.find((g) => g.items.length);
   const panelItems = shown ? shown.items.filter((it) => !it.hidden) : [];

@@ -15,7 +15,7 @@ export async function GET() {
   const [admins, loginFails] = await Promise.all([
     prisma.user.findMany({
       where: { role: "ADMIN", isActive: true, ...hideWhere },
-      select: { id: true, name: true, email: true, phone: true, isSuperAdmin: true, createdAt: true, hireDate: true, birthDate: true, position: true, jobGroup: true, isContractApprover: true },
+      select: { id: true, name: true, email: true, phone: true, isSuperAdmin: true, createdAt: true, hireDate: true, birthDate: true, position: true, jobGroup: true, isContractApprover: true, canViewSalary: true },
       orderBy: [{ isSuperAdmin: "desc" }, { createdAt: "asc" }],
     }),
     prisma.loginFailLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),

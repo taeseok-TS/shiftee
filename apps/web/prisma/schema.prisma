@@ -26,6 +26,7 @@ model User {
   signatureUrl         String? // 저장된 결재 서명(관리자·원장) — 결재 시 원클릭 승인에 사용
   // 관리자(ADMIN)를 전자계약 승인자 검색에 노출할지 — 시스템 설정에서 토글
   isContractApprover Boolean @default(true)
+  canViewSalary      Boolean @default(false) // 연봉 화면(인사 › 연봉) 보기 — 메인 관리자가 켠다. 메인 관리자는 늘 본다(2026-10-22 디렉터). deploy/ddl_salary.sql
   passwordResetTokens PasswordResetToken[]
   birthDate            DateTime? @db.Date // 생일 (봇 브리핑 생일 축하용)
   address              String? // 주소 (전자계약 자동 채움 — 서명 시 비어 있으면 직원이 입력→저장)
@@ -1394,4 +1395,24 @@ model ScheduleTemplate {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// 연봉 이력(2026-10-22 디렉터 — 본부 박정인 「연봉이력(RAW)」 시트를 엑셀로 올린다). 한 사람이 입사·재계약마다 한 줄씩 쌓인다.
+// 사번(empNo — 포털·시프티 사번 = User.empNo)으로 직원과 맞춘다. 같은 사번·같은 시작일이면 같은 계약(다시 올리면 갱신).
+// 보는 곳은 /admin/salary 하나 — 「연봉 보기」 권한 + 들어갈 때 비밀번호 재확인(lib/salary-access). deploy/ddl_salary.sql
+model SalaryRecord {
+  id          String    @id @default(cuid())
+  empNo       Int
+  name        String
+  jobTitle    String? // 매니저 / 코디 / 학습실장
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  amount      Int // 계약 연봉(원)
+  renewed     Boolean   @default(false) // 시트 「갱신여부」 = 갱신(뒤에 재계약으로 바뀐 이전 계약)
+  importBatch String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([empNo, startDate])
+  @@index([empNo])
 }

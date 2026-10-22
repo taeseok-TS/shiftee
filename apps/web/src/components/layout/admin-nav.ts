@@ -5,7 +5,7 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
   Calendar, BarChart3, GitBranch, Send, FileText, Building2, ShieldCheck, CalendarDays, History,
-  Settings, Lightbulb, Wrench,
+  Settings, Lightbulb, Wrench, Wallet,
 } from "lucide-react";
 
 export type Icon = ComponentType<{ size?: number; className?: string }>;
@@ -13,7 +13,8 @@ export type Icon = ComponentType<{ size?: number; className?: string }>;
 export type NavTab = { href: string; label: string };
 /** 패널 메뉴 하나 — tabs 가 있으면 그 탭 주소들에서도 이 메뉴가 켜진다 */
 // also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면 · hidden = 패널엔 안 보이고 메뉴 찾기·주소 맞춤에만(다른 곳에 버튼이 있는 화면) · dim = 패널 맨 아래 옅게
-export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; superOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
+// salaryOnly = 「연봉 보기」 권한자(메인 관리자·켠 관리자)에게만 보인다(2026-10-22 디렉터, lib/salary-access)
+export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; superOnly?: boolean; salaryOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
 export type NavGroup = { key: string; title: string; icon: Icon; href?: string; items: NavItem[] };
 
 export const ADMIN_NAV: NavGroup[] = [
@@ -62,6 +63,7 @@ export const ADMIN_NAV: NavGroup[] = [
       { href: "/admin/portal-sync", label: "인원명부 연동" },
     ] },
     { href: "/admin/branches", label: "지점 관리", icon: Building2 },
+    { href: "/admin/salary", label: "연봉", icon: Wallet, salaryOnly: true },
   ] },
   { key: "settings", title: "설정", icon: SlidersHorizontal, items: [
     { href: "/admin/permissions", label: "권한 설정", icon: ShieldCheck },

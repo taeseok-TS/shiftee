@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null; isContractApprover?: boolean };
+type AdminRow = { id: string; name: string; email: string; phone: string | null; isSuperAdmin: boolean; createdAt: string; hireDate: string | null; birthDate: string | null; position: string | null; jobGroup: string | null; isContractApprover?: boolean; canViewSalary?: boolean };
 type LoginFailRow = { id: string; email: string; userName: string | null; reason: string; deviceName: string | null; platform: string | null; createdAt: string };
 const FAIL_REASON: Record<string, { label: string; tip: string }> = {
   UNKNOWN_EMAIL: { label: "없는 이메일", tip: "이메일 오타 가능성 — 정확한 주소를 안내" },
@@ -215,6 +215,7 @@ export default function AdminSettingsPage() {
                   <th className="px-4 py-2 font-medium">구분</th>
                   <th className="px-4 py-2 font-medium">생성일</th>
                   <th className="px-4 py-2 font-medium text-center">계약 결재자</th>
+                  <th className="px-4 py-2 font-medium text-center" title="인사 › 연봉 화면(들어갈 때 비밀번호 재확인). 메인 관리자는 늘 볼 수 있습니다">연봉 보기</th>
                   <th className="px-4 py-2 font-medium text-right">관리</th>
                 </tr>
               </thead>
@@ -252,6 +253,24 @@ export default function AdminSettingsPage() {
                           }
                         }}
                       />
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      {/* 연봉 보기(2026-10-22 디렉터) — 메인 관리자는 늘. 서브 관리자는 여기서 켠 사람만 인사 › 연봉 메뉴가 보인다 */}
+                      {a.isSuperAdmin ? <span className="text-xs text-gray-400">늘</span> : (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-indigo-600 cursor-pointer"
+                          checked={!!a.canViewSalary}
+                          title="켜면 이 관리자에게 인사 › 연봉 메뉴가 보입니다(들어갈 때 비밀번호 재확인)"
+                          onChange={async (e) => {
+                            const v = e.target.checked;
+                            setAdmins(prev => prev.map(x => x.id === a.id ? { ...x, canViewSalary: v } : x));
+                            const res = await fetch("/api/salary/access", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: a.id, on: v }) });
+                            if (res.ok) toast.success(`${a.name} — 연봉 보기 ${v ? "켬" : "끔"}`);
+                            else { setAdmins(prev => prev.map(x => x.id === a.id ? { ...x, canViewSalary: !v } : x)); toast.error("저장에 실패했습니다."); }
+                          }}
+                        />
+                      )}
                     </td>
                     <td className="px-4 py-2 text-right">
                       {a.isSuperAdmin ? (
