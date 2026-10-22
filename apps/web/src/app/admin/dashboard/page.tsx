@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
         const data = await approvalRes.json();
         for (const c of (data.contracts || []) as { id: string; title: string; signDeadline?: string | null; createdAt: string }[]) {
           const due = c.signDeadline ? new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/") : null;
-          next.push({ key: `contract-${c.id}`, title: c.title, sub: `계약 승인${due ? ` · 기한 ${due}` : ""}`, href: "/admin/contract-approvals", at: new Date(c.createdAt).getTime() });
+          next.push({ key: `contract-${c.id}`, title: c.title, sub: `계약 승인${due ? ` · 기한 ${due}` : ""}`, href: `/admin/leave-approvals?tab=contract&id=${encodeURIComponent(c.id)}`, at: new Date(c.createdAt).getTime() });
         }
       }
       // 3. 출퇴근 요청(지점 밖·사진·본부·수정·퇴근 누락) — 결재함 「출퇴근 요청」과 같은 목록

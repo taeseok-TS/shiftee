@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   // 크롬 자동 번역 차단 — 번역기가 텍스트 노드를 <font> 로 바꿔치기해 React 가 목록을 다시 그릴 때
   // "removeChild … not a child" 로 화면이 통째로 죽는다(2026-09-14 디렉터 크롬에서 재현). 한국어 사내 시스템이라 번역이 필요 없다.
   other: { google: "notranslate" },
+  // 아이폰 홈 화면 아이콘(듀리, 연인디고 바탕 — 시안 듀리 아이콘 ③). 탭 아이콘은 app/favicon.ico(16·32·48)
+  icons: { apple: "/icons/apple-touch-icon-180.png" },
 };
 
 export default function RootLayout({

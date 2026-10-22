@@ -101,7 +101,7 @@ export default function WorkDesktopNotifier() {
       // renotify: 같은 방의 연속 메시지(같은 tag)로 교체될 때도 배너·소리를 다시 울린다
       const n = new Notification(title, {
         body: preview.slice(0, 120),
-        icon: "/favicon.ico",
+        icon: "/icons/duri-face-192.png",   // 듀리 얼굴(배경 없음) — 알림 창에서 작은 ico 가 흐리게 보였다
         tag: `work-${channelId}`,
         renotify: true,
       } as NotificationOptions & { renotify: boolean });

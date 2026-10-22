@@ -108,7 +108,7 @@ export async function previewLeaveImport(rowsIn: unknown[]): Promise<ImportResul
     const withDates = { ...typed, startDate: s, endDate: e };
     if (info.unit !== "FULL" && s !== e) return { ...withDates, status: "invalid", message: `${info.label}은(는) 하루만` };
     if (spanDays(s, e) > 366) return { ...withDates, status: "invalid", message: "기간이 1년을 넘음" };
-    const daysText = str(r.days).replace(/일$/, "").replace(/,(?=\d{3})/g, "");   // 「1,000」 식 천 단위 쉼표만 뗀다(「1,5」는 오류로)
+    const daysText = str(r.days).replace(/일$/, "").replace(/,(?=\d{3}\b)/g, "");   // 「1,000」 식 천 단위 쉼표만 뗀다(「1,5」는 오류로)
     const daysIn = daysText === "" ? null : Number(daysText);
     if (daysIn != null && (!Number.isFinite(daysIn) || daysIn <= 0 || daysIn > spanDays(s, e))) return { ...withDates, status: "invalid", message: "일수가 올바르지 않음(기간보다 크거나 숫자가 아님)" };
     return { ...withDates, days: daysIn, status: "ok", message: "" };

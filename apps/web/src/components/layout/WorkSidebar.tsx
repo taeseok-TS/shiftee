@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import { resetWorkUnread } from "./WorkUnreadBadge";
 import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
 import { isSessionExpired } from "@/lib/session-expiry";
 import { useState, useEffect, useRef } from "react";
@@ -135,6 +137,7 @@ export function WorkSidebar({ role }: { role?: HomeRole }) {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
+    resetWorkUnread();  // 큐브티워크 안 읽은 수도(한 번 받은 값을 함께 쓰는 저장소)
     router.push("/login");
     router.refresh();
   }
@@ -145,9 +148,8 @@ export function WorkSidebar({ role }: { role?: HomeRole }) {
     <aside className={cn("hidden md:flex h-screen-safe sticky top-0 overflow-y-auto shrink-0 bg-indigo-950 text-white flex-col transition-all duration-200", collapsed ? "w-16" : "w-64")}>
       <div className="px-3 py-5 border-b border-indigo-800">
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="w-9 h-9 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
-            <span className="font-bold text-white text-lg">W</span>
-          </div>
+          {/* 듀리 얼굴 40px, 배경 없음(시안 듀리 아이콘 ④ — 보라 「W」 네모 대신) */}
+          <Image src="/icons/duri-face-192.png" alt="큐브티워크" width={40} height={40} className="h-10 w-10 shrink-0" />
           {!collapsed && (
             <div className="min-w-0">
               <p className="font-bold text-white text-lg leading-tight">큐브티워크</p>
@@ -289,9 +291,7 @@ export function WorkMobileNav({ role }: { role?: HomeRole }) {
         className="p-2 rounded-lg text-indigo-200 hover:bg-indigo-900">
         <ArrowLeft size={18} />
       </button>
-      <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
-        <span className="font-bold text-white text-sm">W</span>
-      </div>
+      <Image src="/icons/duri-face-64.png" alt="큐브티워크" width={28} height={28} className="h-7 w-7 shrink-0" />
       {/* 폰 폭에서는 메뉴가 한 줄에 다 안 들어간다 — 원래도 375px 에서 이름이 세로로 접히며 넘쳤다.
           줄바꿈 없이 옆으로 밀어 보게 한다(검증관 1: 포털 아이콘이 화면 밖으로 밀려나던 것과 함께 해결) */}
       {/* py-1: 가로 스크롤은 세로도 잘라서 알림 점 윗부분이 잘렸다(검증관 2). 스크롤바는 감춘다 — 좁힌 PC 창에서

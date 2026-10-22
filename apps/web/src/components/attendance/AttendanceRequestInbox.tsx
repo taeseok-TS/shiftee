@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Btn } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, X, Loader2, ImageIcon } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -24,10 +24,11 @@ type Req = {
 
 const KIND_COLOR: Record<string, string> = {
   OUTSIDE: "bg-amber-100 text-amber-800", PHOTO: "bg-sky-100 text-sky-800", HQ: "bg-violet-100 text-violet-800",
-  CORRECTION: "bg-gray-100 text-gray-800", MISSED_OUT: "bg-rose-100 text-rose-800", DEVICE: "bg-emerald-100 text-emerald-800",
+  CORRECTION: "bg-gray-100 text-gray-800", MISSED_OUT: "bg-rose-100 text-rose-800", DEVICE: "bg-indigo-50 text-indigo-700",
 };
 
-export default function AttendanceRequestInbox({ onCount, searchName = "" }: { onCount?: (n: number) => void; searchName?: string }) {
+// onChanged — 처리한 뒤 부르는 화면이 자기 목록·건수를 다시 받게(관리자 결재함 「결재 대기」 탭)
+export default function AttendanceRequestInbox({ onCount, onChanged, searchName = "" }: { onCount?: (n: number) => void; onChanged?: () => void; searchName?: string }) {
   const [rows, setRows] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,10 +63,11 @@ export default function AttendanceRequestInbox({ onCount, searchName = "" }: { o
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "처리하지 못했습니다."); return; }
-      toast.success(action === "approve" ? "승인했습니다. 출퇴근 기록에 반영했습니다." : "반려했습니다.");
+      toast.success(action === "approve" ? "승인했습니다. 출퇴근 기록에 반영했습니다." : "거절했습니다.");
       setRejecting(null);
       setRejectReason("");
       load();
+      onChanged?.();
     } finally {
       setBusy(null);
     }
@@ -89,20 +91,15 @@ export default function AttendanceRequestInbox({ onCount, searchName = "" }: { o
               <div className="text-sm">{r.kind === "DEVICE" ? `새 기기: ${r.deviceName ?? "이름 없음"} (${r.platform ?? "-"})` : r.summary}</div>
               {(r.kind === "CORRECTION" || r.kind === "MISSED_OUT") && r.reason && <div className="text-sm text-gray-600">사유: {r.reason}</div>}
               {r.memo && <div className="text-sm text-gray-600">메모: {r.memo}</div>}
-              <div className="text-xs text-gray-400">요청 {new Date(r.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+              <div className="text-xs text-gray-400">
+                요청 {new Date(r.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                {r.hasPhoto && <Btn kind="text" className="ml-2 text-[12.5px]" onClick={() => setPhoto(`/api/attendance-requests/${r.id}/photo`)}>사진 보기</Btn>}
+              </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              {r.hasPhoto && (
-                <Button size="sm" variant="outline" onClick={() => setPhoto(`/api/attendance-requests/${r.id}/photo`)}>
-                  <ImageIcon size={14} className="mr-1" />사진
-                </Button>
-              )}
-              <Button size="sm" disabled={busy === r.id} onClick={() => decide(r, "approve")}>
-                <Check size={14} className="mr-1" />승인
-              </Button>
-              <Button size="sm" variant="outline" disabled={busy === r.id} onClick={() => { setRejecting(r); setRejectReason(""); }}>
-                <X size={14} className="mr-1" />반려
-              </Button>
+            {/* 줄마다 두 개 — 흰 「거절」 + 인디고 「승인」(시안 R11) */}
+            <div className="flex gap-1.5 shrink-0">
+              <Btn className="px-3.5 py-1.5" disabled={busy === r.id} onClick={() => { setRejecting(r); setRejectReason(""); }}>거절</Btn>
+              <Btn kind="primary" className="px-3.5 py-1.5" disabled={busy === r.id} onClick={() => decide(r, "approve")}>{busy === r.id ? "처리 중…" : "승인"}</Btn>
             </div>
           </CardContent>
         </Card>
@@ -110,11 +107,11 @@ export default function AttendanceRequestInbox({ onCount, searchName = "" }: { o
 
       <Dialog open={!!rejecting} onOpenChange={(o) => { if (!o) setRejecting(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>반려 사유</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>거절 사유</DialogTitle></DialogHeader>
           <Textarea value={rejectReason} maxLength={300} placeholder="신청자에게 전달됩니다 (선택)" onChange={(e) => setRejectReason(e.target.value)} />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setRejecting(null)}>닫기</Button>
-            <Button disabled={!rejecting || busy === rejecting.id} onClick={() => rejecting && decide(rejecting, "reject", rejectReason.trim())}>반려</Button>
+            <Btn onClick={() => setRejecting(null)}>닫기</Btn>
+            <Btn kind="primary" disabled={!rejecting || busy === rejecting.id} onClick={() => rejecting && decide(rejecting, "reject", rejectReason.trim())}>거절</Btn>
           </div>
         </DialogContent>
       </Dialog>

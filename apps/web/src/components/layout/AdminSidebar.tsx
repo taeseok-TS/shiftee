@@ -5,6 +5,7 @@
 //  · 옆 흰 패널: 고른 대분류의 메뉴(23개 → 14개, 세부는 화면 위 탭 — admin-nav). 맨 위 「메뉴 찾기」는 모든 메뉴·탭 이름에서 거른다
 // 큐브티워크·모드 전환·로그아웃은 상단 바로 옮겼다(TopBar). 개선 제안도 상단 바.
 // 레일을 누르면 그 대분류의 첫 화면이 바로 열린다(2026-10-21 본부 이예지 재요청 A — 전에는 패널만 바뀌고 본문은 그대로였다)
+import { DuriWorkLink } from "./DuriWorkLink";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -45,7 +46,7 @@ export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { 
     ...g.items.flatMap((it) => {
       const own = norm(it.label).includes(mq) || norm(g.title).includes(mq) ? [{ g, href: it.href, label: it.label }] : [];
       // 메뉴 주소와 같은 첫 탭은 메뉴 자체가 이미 찾혔으면 겹치니 뺀다(「개발자」 › 「이모티콘 관리」처럼 이름이 다르면 찾는다 — 검증 3)
-      const tabs = (it.tabs || []).filter((t) => norm(t.label).includes(mq) && !(t.href === it.href && own.length)).map((t) => ({ g, href: t.href, label: `${it.label} › ${t.label}` }));
+      const tabs = [...(it.tabs || []), ...(it.find || [])].filter((t) => norm(t.label).includes(mq) && !(t.href === it.href && own.length)).map((t) => ({ g, href: t.href, label: `${it.label} › ${t.label}` }));
       return [...own, ...tabs];
     }),
   ]) : [];
@@ -54,7 +55,8 @@ export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { 
     // h-screen-safe sticky: 본문이 길어도 메뉴는 화면에 고정
     <aside className="flex h-screen-safe sticky top-0 shrink-0">
       {/* 레일 */}
-      <div className="flex w-[76px] flex-col items-center gap-1 overflow-y-auto bg-slate-900 py-3 text-slate-400">
+      {/* 세로로만 밀고 스크롤바는 감춘다 — 낮은 화면(배율 175% 노트북 등)에서 스크롤바 15px 가 메뉴 폭 64px 를 밀어 가로 스크롤바·왼쪽 잘림이 생겼다(듀리 검증 1) */}
+      <div className="flex w-[76px] flex-col items-center gap-1 overflow-y-auto overflow-x-hidden bg-slate-900 py-3 text-slate-400 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Link href="/admin/dashboard" className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-lg font-bold text-white" aria-label="큐브티 대시보드">A</Link>
         {groups.map((g) => {
           const Icon = g.icon;
@@ -66,6 +68,7 @@ export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { 
           const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
           return <Link key={g.key} href={groupHome(g)} onClick={() => setMenuQuery("")} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>;
         })}
+        <DuriWorkLink />
       </div>
       {/* 패널 */}
       <div className={cn("flex w-52 flex-col border-r border-gray-200 bg-white", activeGroup?.key === "dashboard" && "hidden")}>
@@ -84,11 +87,15 @@ export function AdminSidebar({ isSuperAdmin = false, canViewSalary = false }: { 
         </div>
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           {mq ? (
-            hits.length ? hits.map((h) => (
-              <Link key={h.href + h.label} href={h.href} onClick={() => setMenuQuery("")} className="block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                <span className="mr-1 text-[11px] text-gray-400">{h.g.title}</span>{h.label}
-              </Link>
-            )) : <p className="px-3 py-2 text-xs text-gray-500">「{menuQuery.trim()}」 메뉴가 없습니다</p>
+            hits.length ? hits.map((h) => {
+              const body = <><span className="mr-1 text-[11px] text-gray-400">{h.g.title}</span>{h.label}</>;
+              const cls = "block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100";
+              // ?tab= 이 붙은 주소(화면 안 알약 탭 — admin-nav find)는 새로 연다. 같은 화면에서 쿼리만 바뀌면 Next 가 화면을
+              // 다시 그리지 않아 주소만 바뀌고 탭은 그대로였다(최종 검증 — 탭은 처음 열 때 한 번만 읽는다)
+              return h.href.includes("?")
+                ? <a key={h.href + h.label} href={h.href} className={cls}>{body}</a>
+                : <Link key={h.href + h.label} href={h.href} onClick={() => setMenuQuery("")} className={cls}>{body}</Link>;
+            }) : <p className="px-3 py-2 text-xs text-gray-500">「{menuQuery.trim()}」 메뉴가 없습니다</p>
           ) : shown ? (
             <>
               <p className="mb-1 border-b px-1 pb-2 text-base font-bold text-gray-900">{shown.title}</p>

@@ -4,11 +4,11 @@ import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, X, Loader2, AlertCircle, ChevronRight } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
+import { Btn, FlowDots } from "@/components/kit";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -54,10 +54,12 @@ function stepLabel(s: Step): string {
 
 export default function LeaveCancelInbox({
   onCount,
+  onChanged,
   searchName = "",
   searchDate = "",
 }: {
   onCount?: (n: number) => void;
+  onChanged?: () => void;   // 처리한 뒤 — 부르는 화면이 자기 목록·건수를 다시 받게(관리자 결재함 「결재 대기」 탭)
   searchName?: string;
   searchDate?: string;
 }) {
@@ -88,8 +90,9 @@ export default function LeaveCancelInbox({
 
   const filtered = useMemo(() => rows.filter((r) => {
     const c = r.cancelRequest;
-    const nameMatch = c.user.name.toLowerCase().includes(searchName.toLowerCase());
-    const dateMatch = !searchDate || c.leaveRequest.startDate.includes(searchDate) || c.leaveRequest.endDate.includes(searchDate);
+    // 결재함 본표(leave-approvals)와 같은 기준 — 이름은 앞뒤 공백 무시, 날짜는 휴가 기간 안이면 맞음(시작·종료일과 같을 때만이 아니라)
+    const nameMatch = c.user.name.toLowerCase().includes(searchName.trim().toLowerCase());
+    const dateMatch = !searchDate || (c.leaveRequest.startDate.slice(0, 10) <= searchDate && searchDate <= c.leaveRequest.endDate.slice(0, 10));
     return nameMatch && dateMatch;
   }), [rows, searchName, searchDate]);
   // 로딩 중에는 올리지 않는다 — 탭 숫자가 잠깐 0 으로 보였다(9/11 검증)
@@ -106,7 +109,7 @@ export default function LeaveCancelInbox({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(data.error || "처리하지 못했습니다"); return; }
       toast.success(action === "reject"
-        ? "취소 요청을 반려했습니다 — 휴가는 그대로 유지됩니다"
+        ? "취소 요청을 거절했습니다 — 휴가는 그대로 유지됩니다"
         : data.final
           ? (data.restoredDays > 0
               ? `휴가를 취소하고 연차 ${data.restoredDays}일을 복구했습니다`
@@ -115,6 +118,7 @@ export default function LeaveCancelInbox({
       setRejectId(null);
       setRejectReason("");
       await load();
+      onChanged?.();
     } catch {
       toast.error("오류가 발생했습니다");
     } finally {
@@ -155,46 +159,23 @@ export default function LeaveCancelInbox({
       </>,
       <>{c.reason || "-"}</>,
       <>
-        <div className="flex items-center gap-1 text-xs flex-wrap">
-          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-            {c.approvalSteps.filter((x) => x.status === "APPROVED").length}/{c.approvalSteps.length}
-          </span>
-          {c.approvalSteps.map((s, idx) => (
-            <span key={s.id} className="flex items-center gap-1">
-              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                "bg-gray-100 text-gray-600"
-              }`}>{stepLabel(s)}{s.comment ? " 💬" : ""}</span>
-            </span>
-          ))}
-        </div>
+        {/* 결재 점(kit) — 끝난 사람 파랑 · 지금 차례 주황 · 남은 사람 회색 */}
+        <FlowDots steps={c.approvalSteps.map((s) => ({ label: stepLabel(s), state: s.status === "APPROVED" ? "done" : s.status === "PENDING" ? "now" : "todo" }))} />
         {c.approvalSteps.some((x) => x.comment) && (
           <div className="mt-1 space-y-0.5">
             {c.approvalSteps.filter((x) => x.comment).map((x) => (
-              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
+              <div key={x.id} className="text-xs text-gray-500">의견 · {stepLabel(x)}: {x.comment}</div>
             ))}
           </div>
         )}
       </>,
       <>
-        <div className="flex gap-2 justify-end">
-          <Button size="sm" variant="ghost" className="text-green-600 hover:bg-green-50"
-            disabled={processingId === c.id} onClick={() => decide(c.id, "approve")}>
-            {processingId === c.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            승인
-          </Button>
-          <Button size="sm" variant="ghost" className="text-gray-500 hover:bg-gray-100" title="의견을 남기고 승인합니다"
-            disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
-            의견
-          </Button>
-          <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50"
-            disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>
-            <X size={16} />
-            반려
-          </Button>
+        {/* 줄마다 두 개 — 흰 「거절」 + 인디고 「승인」(승인 확인 창에서 의견 선택, 옛 「의견」 버튼 대신 — 시안 R11) */}
+        <div className="flex gap-1.5 justify-end">
+          <Btn className="px-3.5 py-1.5" disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>거절</Btn>
+          <Btn kind="primary" className="px-3.5 py-1.5" disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
+            {processingId === c.id ? "처리 중…" : "승인"}
+          </Btn>
         </div>
       </>,
     ] as const;
@@ -262,16 +243,17 @@ export default function LeaveCancelInbox({
 
       <Dialog open={!!noteId} onOpenChange={(o) => { if (!o) setNoteId(null); }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>의견 남기고 승인</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>취소 요청 승인</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <Textarea value={noteText} maxLength={300} rows={3} placeholder="다음 결재자와 본부가 볼 수 있는 의견입니다 (선택)"
+            <p className="text-sm text-gray-600">최종 승인되면 휴가가 취소되고 연차가 복구됩니다.</p>
+            <Textarea value={noteText} maxLength={300} rows={3} placeholder="의견 (선택 — 다음 결재자와 본부가 봅니다)"
               onChange={(e) => setNoteText(e.target.value)} />
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setNoteId(null)}>취소</Button>
-              <Button className="bg-green-600 hover:bg-green-700" disabled={processingId !== null}
+              <Btn onClick={() => setNoteId(null)}>닫기</Btn>
+              <Btn kind="primary" disabled={processingId !== null}
                 onClick={async () => { if (!noteId) return; const id = noteId; setNoteId(null); await decide(id, "approve", noteText.trim() || undefined); }}>
                 승인
-              </Button>
+              </Btn>
             </div>
           </div>
         </DialogContent>
@@ -279,17 +261,16 @@ export default function LeaveCancelInbox({
 
       <Dialog open={!!rejectId} onOpenChange={(o) => { if (!o) setRejectId(null); }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>취소 요청 반려</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>취소 요청 거절</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">반려하면 휴가는 그대로 유지되고, 사유가 신청자에게 전달됩니다.</p>
-            <Textarea placeholder="반려 사유 (선택)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} />
+            <p className="text-sm text-gray-600">거절하면 휴가는 그대로 유지되고, 사유가 신청자에게 전달됩니다.</p>
+            <Textarea placeholder="거절 사유 (선택)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} />
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setRejectId(null)}>닫기</Button>
-              <Button className="bg-red-600 hover:bg-red-700" disabled={processingId !== null}
+              <Btn onClick={() => setRejectId(null)}>닫기</Btn>
+              <Btn kind="primary" disabled={processingId !== null}
                 onClick={() => rejectId && decide(rejectId, "reject", rejectReason.trim() || undefined)}>
-                {processingId !== null ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
-                반려
-              </Button>
+                {processingId !== null ? "처리 중…" : "거절"}
+              </Btn>
             </div>
           </div>
         </DialogContent>

@@ -18,9 +18,11 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#ffffff",
     theme_color: "#1e1b4b", // 큐브티워크 사이드바(indigo-950)와 같은 색 — 앱 창 제목줄만 튀지 않게
     lang: "ko",
+    // 듀리 아이콘(2026-10-21 본부 시안 ③④) — 창 제목줄·바탕화면은 배경 없는 듀리 얼굴(any),
+    // 휴대폰 홈 화면은 머리 전체가 가운데 오는 연인디고 바탕(maskable — 여백이 넉넉해 아래가 잘리지 않는다)
     icons: [
-      { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icons/duri-face-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icons/duri-face-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };

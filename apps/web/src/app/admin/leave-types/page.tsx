@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, X, Check } from "lucide-react";
 import { resetLeaveCatalogCache } from "@/components/leave/useLeaveCatalog";
+import LeaveTabs from "@/components/leave/LeaveTabs";
+import { PageHead } from "@/components/kit";
 
 // 휴가 유형 관리(2026-10-12 개선 제안 #216-1, 디렉터 채택) — 본부만.
 //  · 기본 유형은 고치지 못하고 「신청 목록에서 숨김」만 할 수 있다(연차는 못 숨긴다). 기록 표시·계산은 그대로.
@@ -37,7 +39,7 @@ function TypeForm({ v, set, onOk, onCancel, okLabel, groups, busy }: { v: Draft;
         <label className="flex items-center gap-1.5">순서 <Input type="number" value={v.sortOrder} onChange={(e) => set({ ...v, sortOrder: e.target.value })} className="h-7 w-16" /></label>
         <span className="flex-1" />
         <Button size="sm" variant="outline" onClick={onCancel} disabled={busy}><X size={14} />취소</Button>
-        <Button size="sm" onClick={onOk} disabled={busy || !v.label.trim()}><Check size={14} />{okLabel}</Button>
+        <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={onOk} disabled={busy || !v.label.trim()}><Check size={14} />{okLabel}</Button>
       </div>
     </div>
   );
@@ -87,15 +89,17 @@ export default function LeaveTypesPage() {
 
   return (
     <div className="space-y-6">
+      {/* 휴가 › 휴가 관리 알약 탭 한 줄(R13) — 위 탭(휴가 관리 · 휴가 유형)을 없애고 「휴가 유형」을 알약 탭 끝에 */}
       <div>
-        <h1 className="text-2xl font-bold">휴가 유형 관리</h1>
-        <p className="text-sm text-gray-500 mt-1">기본 유형은 신청 목록에서 숨길 수만 있고, 새 유형은 아래에서 만듭니다. 만든 유형은 웹·앱 신청 화면, 결재, 잔여·리포트에 바로 반영됩니다(앱은 화면을 다시 열면).</p>
+        <PageHead crumb="휴가 › 휴가 관리" title="휴가 관리" />
+        <LeaveTabs active="types" superAdmin />
+        <p className="text-sm text-gray-500">기본 유형은 신청 목록에서 숨길 수만 있고, 새 유형은 아래에서 만듭니다. 만든 유형은 웹·앱 신청 화면, 결재, 잔여·리포트에 바로 반영됩니다(앱은 화면을 다시 열면).</p>
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">본부가 만든 유형 <span className="text-sm font-normal text-gray-400">{customs.length}</span></CardTitle>
-          {!adding && <Button size="sm" className="gap-1" onClick={() => { setDraft(emptyDraft()); setAdding(true); }}><Plus size={14} />유형 추가</Button>}
+          {!adding && <Button size="sm" className="gap-1 bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={() => { setDraft(emptyDraft()); setAdding(true); }}><Plus size={14} />유형 추가</Button>}
         </CardHeader>
         <CardContent className="space-y-3">
           {adding && <TypeForm groups={groups} busy={busy} v={draft} set={setDraft} okLabel="추가" onCancel={() => setAdding(false)} onOk={async () => { if (await call("POST", toPayload(draft))) { toast.success("추가했습니다."); setAdding(false); } }} />}

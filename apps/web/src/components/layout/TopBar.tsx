@@ -8,10 +8,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { ChevronDown, LogOut, MessageSquare, User, Lightbulb } from "lucide-react";
+import { ChevronDown, LogOut, User, Lightbulb } from "lucide-react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { resetUserPrefs } from "@/components/prefs/useUserPrefs";
-import { WorkUnreadBadge } from "./WorkUnreadBadge";
+import { WorkUnreadBadge, resetWorkUnread } from "./WorkUnreadBadge";
 import { useNavCounts, resetNavCounts } from "./useNavCounts";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
@@ -39,6 +40,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
     await fetch("/api/auth/logout", { method: "POST" });
     resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
     resetNavCounts();   // 메뉴 빨간 불 숫자도 — 다음 사람에게 앞사람 숫자가 잠깐 보이지 않게
+    resetWorkUnread();  // 큐브티워크 안 읽은 수도(한 번 받은 값을 함께 쓰는 저장소라 남는다)
     router.push("/login");
     router.refresh();
   }
@@ -68,7 +70,8 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
             </Link>
           )}
           <a href="/work" className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-1.5 text-sm font-semibold text-gray-800 hover:bg-indigo-50">
-            <MessageSquare size={15} className="text-indigo-600" />
+            {/* 듀리 얼굴 20px(시안 듀리 아이콘 ⑤ — 말풍선 선 아이콘 대신) */}
+            <Image src="/icons/duri-face-64.png" alt="" width={20} height={20} className="h-5 w-5" />
             <span className="hidden sm:inline">큐브티워크</span>
             <WorkUnreadBadge />
           </a>

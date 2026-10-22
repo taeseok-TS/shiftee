@@ -13,8 +13,9 @@ export type Icon = ComponentType<{ size?: number; className?: string }>;
 export type NavTab = { href: string; label: string };
 /** 패널 메뉴 하나 — tabs 가 있으면 그 탭 주소들에서도 이 메뉴가 켜진다 */
 // also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면 · hidden = 패널엔 안 보이고 메뉴 찾기·주소 맞춤에만(다른 곳에 버튼이 있는 화면) · dim = 패널 맨 아래 옅게
+// find = 메뉴 찾기에만 나오는 화면 안 알약 탭(위 탭 줄은 그리지 않는다 — 시안 R11·R13 「탭 한 줄」. tabs 와 달리 주소 맞춤에도 안 쓴다)
 // salaryOnly = 「연봉 보기」 권한자(메인 관리자·켠 관리자)에게만 보인다(2026-10-22 디렉터, lib/salary-access)
-export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; superOnly?: boolean; salaryOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
+export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; find?: NavTab[]; superOnly?: boolean; salaryOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
 export type NavGroup = { key: string; title: string; icon: Icon; href?: string; items: NavItem[] };
 
 export const ADMIN_NAV: NavGroup[] = [
@@ -31,11 +32,17 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 },
   ] },
   { key: "approval", title: "결재", icon: CheckCircle, items: [
-    { href: "/admin/leave-approvals", label: "결재함", icon: CheckCircle, countKey: "approvals", tabs: [
-      { href: "/admin/leave-approvals", label: "휴가 · 근무일정" },
-      { href: "/admin/contract-approvals", label: "계약" },
-      { href: "/admin/requests?who=decided", label: "처리한 요청" },
-    ] },
+    { href: "/admin/leave-approvals", label: "결재함", icon: CheckCircle, countKey: "approvals",
+      // 위 탭 대신 화면 안 알약 한 줄(시안 R11 — components/approvals/ApprovalsHeader). 계약·처리한 요청 주소도 이 메뉴로 켠다
+      also: ["/admin/contract-approvals", "/admin/requests"],
+      find: [
+        { href: "/admin/leave-approvals?tab=leave", label: "휴가" },
+        { href: "/admin/leave-approvals?tab=schedule", label: "근무일정" },
+        { href: "/admin/leave-approvals?tab=contract", label: "계약" },
+        { href: "/admin/leave-approvals?tab=cancel", label: "휴가 취소" },
+        { href: "/admin/leave-approvals?tab=attendance", label: "출퇴근 요청" },
+        { href: "/admin/requests?who=decided", label: "처리한 요청" },
+      ] },
     { href: "/admin/approval-rules", label: "결재 규칙", icon: GitBranch },
   ] },
   { key: "contract", title: "전자계약", icon: FileSignature, items: [
@@ -50,10 +57,16 @@ export const ADMIN_NAV: NavGroup[] = [
     ] },
   ] },
   { key: "leave", title: "휴가", icon: UmbrellaOff, items: [
-    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff, countKey: "leavePending", also: ["/admin/leave-ledger"], tabs: [
-      { href: "/admin/leave", label: "휴가 관리" },
-      { href: "/admin/leave-types", label: "휴가 유형" },
-    ] },
+    // 탭은 화면 안 알약 한 줄로(R13 — 「휴가 유형」 포함)
+    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff, countKey: "leavePending", also: ["/admin/leave-ledger", "/admin/leave-types"],
+      find: [
+        { href: "/admin/leave?tab=balance", label: "직원별 잔여" },
+        { href: "/admin/leave?tab=grants", label: "종류별 잔여" },
+        { href: "/admin/leave?tab=report", label: "휴가 리포트" },
+        { href: "/admin/leave?tab=settlement", label: "연차 정산" },
+        { href: "/admin/leave?tab=import", label: "휴가 가져오기" },
+        { href: "/admin/leave-types", label: "휴가 유형" },
+      ] },
   ] },
   { key: "hr", title: "인사", icon: Users, items: [
     { href: "/admin/employees", label: "직원", icon: Users, tabs: [
