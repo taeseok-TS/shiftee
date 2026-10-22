@@ -55,7 +55,8 @@ export async function runLeaveGrants(range?: { from: Date; to: Date }, actor?: {
       .map((h) => [ymdUTC(h.date), h.name]),
   );
   const att = await prisma.attendance.findMany({
-    where: { date: { gte: from, lte: to }, clockIn: { not: null }, clockOut: { not: null }, user: { deletedAt: null, role: { not: "ADMIN" } } },
+    // 시프티에서 옮긴 기록(importBatch)은 보지 않는다 — 그때 보상·대체는 시프티에서 이미 처리했고 휴가 이관으로 들어와 있다(2026-10-22 검증 3: 근로자의 날·지정 공휴일 이중 부여)
+    where: { date: { gte: from, lte: to }, clockIn: { not: null }, clockOut: { not: null }, importBatch: null, user: { deletedAt: null, role: { not: "ADMIN" } } },
     select: { userId: true, date: true, clockIn: true, clockOut: true, user: { select: { name: true } } },
   });
   const attKeys = new Set(att.map((a) => `${a.userId}|${ymdUTC(a.date)}`));   // 근무 기록이 남아 있는 날 — 지정이 풀린 대체휴일은 회수하지 않는다

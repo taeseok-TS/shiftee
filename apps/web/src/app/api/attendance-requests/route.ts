@@ -11,6 +11,10 @@ import {
   weekendClockInBlock, type RequestKind,
 } from "@/lib/attendance-request";
 
+
+// 큐브티로 출퇴근을 찍기 시작한 날(2026-10-26 지점 전환) — 그 전 기록은 시프티 원본
+const CUBETEE_ATTENDANCE_START = "2026-10-26";
+
 export const dynamic = "force-dynamic";
 
 // 출퇴근 요청 — 만들기(POST)·목록(GET). 처리는 [id]/route.ts, 사진은 [id]/photo. 규칙은 lib/attendance-request.ts.
@@ -231,7 +235,10 @@ export async function POST(request: NextRequest) {
     let outAt = outStr ? kstDateTime(ymd, outStr) : null;
     if ((inStr && !inAt) || (outStr && !outAt)) return NextResponse.json({ error: "시각은 HH:mm 으로 넣어 주세요." }, { status: 400 });
 
+    // 큐브티 출퇴근 시작(10/26) 전 날짜·시프티에서 옮긴 기록은 여기서 고치지 않는다 — 원본 보관(근로감독 대비), 고칠 일이 있으면 본부가 직접(2026-10-22 검증 5)
+    if (ymd < CUBETEE_ATTENDANCE_START) return NextResponse.json({ error: "10/25까지의 출퇴근은 시프티 기록입니다. 고칠 일이 있으면 본부에 문의해 주세요." }, { status: 400 });
     const att = await prisma.attendance.findUnique({ where: { userId_date: { userId: session.userId, date: data.workDate } } });
+    if (att?.importBatch) return NextResponse.json({ error: "시프티에서 옮겨 온 기록이라 여기서 고치지 않습니다. 본부에 문의해 주세요." }, { status: 400 });
     // 퇴근이 출근보다 이르면 다음 날 새벽 퇴근으로 본다(자정 넘긴 근무)
     const baseIn = inAt ?? att?.clockIn ?? null;
     if (outAt && baseIn && outAt <= baseIn) outAt = new Date(outAt.getTime() + 86400_000);

@@ -122,9 +122,13 @@ model Attendance {
   clockOutLat   Float?       // 퇴근 위치
   clockOutLng   Float?
   edits     AttendanceEdit[] // 고친 이력(관리자 수정·요청 승인·자동 마감 등, #219-15)
+  // 시프티에서 옮겨 온 기록 묶음(2026-10-22 본부 요청 6 — 근로감독 대비 보관). 옮긴 기록은 미마감·누락 안내·일괄 마감 대상이 아니다
+  // (퇴근이 빠진 시프티 기록 2,103건을 큐브티 규칙으로 마감하면 원본이 바뀐다). 되돌리기: 이 값으로 지운다. 운영 DDL 은 10/22 적용
+  importBatch String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
+  @@index([importBatch])
   @@unique([userId, date])
   @@index([userId, date])
 }

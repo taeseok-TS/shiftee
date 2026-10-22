@@ -18,6 +18,7 @@ export async function GET() {
       date: { lt: today, gte: new Date(today.getTime() - 7 * 86400_000) },
       clockIn: { not: null },
       clockOut: null,
+      importBatch: null,   // 시프티에서 옮긴 기록은 퇴근 누락 안내 대상이 아니다
     },
     orderBy: { date: "desc" },
     select: { date: true, clockIn: true },

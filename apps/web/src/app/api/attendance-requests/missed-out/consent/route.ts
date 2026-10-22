@@ -37,9 +37,10 @@ export async function POST(request: NextRequest) {
 
   const att = await prisma.attendance.findUnique({
     where: { userId_date: { userId: session.userId, date: workDate } },
-    select: { id: true, clockIn: true, clockOut: true, status: true },
+    select: { id: true, clockIn: true, clockOut: true, status: true, importBatch: true },
   });
   if (!att || !att.clockIn) return NextResponse.json({ error: "그 날 출근 기록이 없습니다." }, { status: 404 });
+  if (att.importBatch) return NextResponse.json({ error: "시프티에서 옮겨 온 기록이라 여기서 처리하지 않습니다. 본부에 문의해 주세요." }, { status: 409 });
   if (att.clockOut) return NextResponse.json({ error: "이미 퇴근이 기록된 날입니다." }, { status: 409 });
 
   const elig = await consentEligibility(session.userId, att.clockIn, date);

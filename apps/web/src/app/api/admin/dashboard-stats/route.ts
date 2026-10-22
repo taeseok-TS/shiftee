@@ -85,6 +85,7 @@ export async function GET() {
         where: {
           date: { gte: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000), lt: today },
           OR: [{ clockIn: null }, { clockOut: null }],
+          importBatch: null,   // 시프티에서 옮긴 기록(10/20까지)은 누락 목록에 넣지 않는다
           user: { ...employeeWhere, AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: new Date(today.getTime() - 7 * 86400000) } }] }] },
         },
         include: { user: { select: { name: true, email: true } } },

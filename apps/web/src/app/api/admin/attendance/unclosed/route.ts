@@ -27,7 +27,7 @@ export async function GET() {
     return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
 
   const rows = await prisma.attendance.findMany({
-    where: { clockIn: { not: null }, clockOut: null, date: { lt: kstTodayDateUTC() } },
+    where: { clockIn: { not: null }, clockOut: null, date: { lt: kstTodayDateUTC() }, importBatch: null },   // 시프티에서 옮긴 기록은 마감하지 않는다(원본 보관)
     select: {
       id: true, userId: true, date: true, clockIn: true,
       user: { select: { name: true, branch: true } },
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
   const rows = await prisma.attendance.findMany({
     where: {
-      clockIn: { not: null }, clockOut: null, date: { lt: kstTodayDateUTC() },
+      clockIn: { not: null }, clockOut: null, date: { lt: kstTodayDateUTC() }, importBatch: null,   // 시프티 이관 기록 제외(GET 과 같게)
       ...(ids && ids.length ? { id: { in: ids } } : {}),
     },
     select: { id: true, userId: true, date: true, clockIn: true, status: true, user: { select: { name: true } } },
