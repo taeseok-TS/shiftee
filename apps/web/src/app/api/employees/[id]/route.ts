@@ -102,7 +102,7 @@ export async function PATCH(
       targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
     });
     await recalcIfHireChanged(updated.name);
-    return NextResponse.json({ success: true, user: updated });
+    return NextResponse.json({ success: true, user: withoutPassword(updated) });
   }
 
   // 관리자(ADMIN) 계정 수정·권한 변경은 메인 관리자 전용
@@ -242,7 +242,7 @@ export async function PATCH(
   });
 
   await recalcIfHireChanged(updated.name);
-  return NextResponse.json({ success: true, user: updated });
+  return NextResponse.json({ success: true, user: withoutPassword(updated) });
 }
 
 // 직원 비활성화 (관리자 전용)
@@ -271,4 +271,11 @@ export async function DELETE(
     targetType: "USER", targetId: id, targetName: target?.name ?? null, detail: "직원 비활성화",
   });
   return NextResponse.json({ success: true });
+}
+
+// 응답에서 비밀번호 해시를 뺀다 — prisma.user.update 는 행 전체를 돌려줘 해시가 그대로 나갔다(2026-10-22 발견)
+function withoutPassword<T extends { password?: unknown }>(u: T): Omit<T, "password"> {
+  const rest = { ...u };
+  delete rest.password;
+  return rest;
 }

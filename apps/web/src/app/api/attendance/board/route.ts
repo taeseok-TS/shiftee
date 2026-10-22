@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { excludedBranchNames } from "@/lib/employee-scope";
 import { getHolidaySet } from "@/lib/holidays";
+import { countsCalendarDays } from "@/lib/leave-catalog";
 import { breakHours, isRealDate } from "@/lib/schedule-payload";
 import { LEAVE_TYPE_LABEL } from "@/lib/leave-cancel-flow";
 import { kstTodayDateUTC } from "@/lib/kst";
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
       const y = ymdOf(d);
       if (y < from || y > to) continue;
       // 며칠짜리 휴가는 토·일·공휴일 칸에 찍지 않는다(휴가 일수도 그날을 빼고 센다)
-      if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;
+      if (multi && !countsCalendarDays(l.type) && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;   // 조사는 주말도 휴가
       const c = cell(l.userId, y);
       const label = LEAVE_TYPE_LABEL[l.type] ?? l.type;
       c.leave = c.leave ? `${c.leave}·${label}` : label;   // 같은 날 두 건(오전·오후 반차)도 함께

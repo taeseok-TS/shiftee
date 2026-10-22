@@ -7,6 +7,7 @@
 //    병가는 기록 표시용으로 SICK 그대로 두고 종전대로 연차 차감으로 센다(selectable:false — 웹·앱 신청 목록과 서버 신청 검사에서 빠진다).
 //  · 옛 경조 세부 유형(결혼·출산·사망)·특별휴가도 신청 목록에서 빠졌다 — 기록은 그대로 보인다.
 // 단위: FULL = 기간의 근무일 수(근무일정 기준 — 일정 WORK 는 셈·OFF/HOLIDAY 는 안 셈, 일정 없는 날은 평일·비공휴일, lib/leave-days.ts), HALF = 0.5일, QUARTER = 0.25일.
+//  · calendarDays = FULL 인데 주말·공휴일까지 달력 날짜 그대로 센다 — 경조휴가(조사)(2026-10-22 본부 이예지: 조사는 주말 포함, 경사는 주말 미포함).
 
 export type LeaveUnit = "FULL" | "HALF" | "QUARTER";
 export type LeaveGroup = "연차휴가" | "보상휴가" | "대체휴일" | "보건휴가" | "경조휴가" | "기타휴가";
@@ -21,6 +22,7 @@ export type LeaveTypeInfo = {
   attachRequired?: string;    // 필수 첨부(있으면 신청 때 받아야 한다) — 화면 안내 문구
   notice?: string;            // 신청 화면 안내
   selectable: boolean;        // 새 신청 목록에 보이나
+  calendarDays?: boolean;     // 주말·공휴일 포함 달력 날짜로 센다(FULL 유형만 — 위 설명)
   custom?: boolean;           // 본부가 화면에서 만든 유형(LeaveTypeDef, #216-1)
 };
 
@@ -39,7 +41,9 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
 
   { code: "PRENATAL_CHECKUP", label: "태아검진휴가", group: "보건휴가", paidHours: 4, unit: "HALF", deducts: false, notice: "4시간 유급휴가", selectable: true },
 
-  { code: "FAMILY_EVENT", label: "경조휴가", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "증빙 서류", notice: "증빙 서류(청첩장·부고 등)를 첨부해 주세요.", selectable: true },
+  // 경조휴가는 조사·경사로 나눠 고른다(2026-10-22 본부) — 조사는 주말·공휴일 포함, 경사는 근무일만. 종전 「경조휴가」는 기록 표시용으로 남긴다(아래 옛 유형)
+  { code: "FAMILY_CONDOLENCE", label: "경조휴가(조사)", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, calendarDays: true, attachRequired: "증빙 서류", notice: "부모·조부모·배우자 부모 사망 등 — 주말·공휴일을 포함해 셉니다. 부고 등 증빙 서류를 첨부해 주세요.", selectable: true },
+  { code: "FAMILY_CELEBRATION", label: "경조휴가(경사)", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "증빙 서류", notice: "결혼·신혼여행·칠순·팔순 등 — 주말·공휴일은 빼고 셉니다. 청첩장 등 증빙 서류를 첨부해 주세요.", selectable: true },
 
   { code: "REWARD", label: "포상휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, notice: "10년 근속 포상 유급 휴가", selectable: true },
   { code: "MATERNITY", label: "출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "출산휴가 신청서·증명서", notice: "출산휴가 신청서 및 증명서 첨부가 필요합니다.", selectable: true },
@@ -53,6 +57,7 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
   // ── 옛 유형(새 신청 목록에는 없음 — 기록 표시·계산용) ──
   { code: "SICK", label: "병가", group: "연차휴가", paidHours: 8, unit: "FULL", deducts: true, selectable: false },
   { code: "SPECIAL", label: "특별휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: false },
+  { code: "FAMILY_EVENT", label: "경조휴가", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: false },   // 2026-10-22 조사·경사로 나누기 전 기록·시프티 이관분
   { code: "FAMILY_MARRIAGE", label: "경조-결혼", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: false },
   { code: "FAMILY_BIRTH", label: "경조-출산", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: false },
   { code: "FAMILY_BEREAVEMENT", label: "경조-사망(조사)", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: false },
@@ -73,6 +78,8 @@ export const leaveInfo = (code: string): LeaveTypeInfo | undefined => {
   if (b) return HIDDEN.has(code) ? { ...b, selectable: false } : b;
   return EXTRA.get(code);
 };
+/** 주말·공휴일까지 달력 날짜로 세는 유형인가(경조휴가(조사)) — 일수·리포트·출퇴근 표시가 같은 판정을 쓴다 */
+export const countsCalendarDays = (code: string): boolean => !!leaveInfo(code)?.calendarDays;
 export const leaveLabel = (code: string): string => BY_CODE.get(code)?.label ?? EXTRA.get(code)?.label ?? code;
 /** 기본 유형 이름표(모듈 상수) — 본부 유형까지 포함하려면 leaveLabel() 또는 leaveLabels() 를 쓴다 */
 export const LEAVE_LABELS: Record<string, string> = Object.fromEntries(LEAVE_CATALOG.map((t) => [t.code, t.label]));

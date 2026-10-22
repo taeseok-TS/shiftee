@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
   // 일수 = **근무일정 기준**(2026-10-16 #219-10·12, 디렉터 결정 (d)) — lib/leave-days.ts 한 곳에서 센다.
   // 그날 일정이 있으면 WORK 만 세고 OFF·HOLIDAY 는 빼며, 일정이 없는 날은 종전대로 평일·비공휴일(Holiday 표)만 센다.
   // 신청 창 미리보기(api/leave/days)도 같은 함수라 화면 일수와 실제 차감이 같다. 반차·반반차는 그날이 근무일이어야 한다.
-  const counted = await countLeaveDays(prisma, subject.id, info.unit, startDate, endDate);
+  const counted = await countLeaveDays(prisma, subject.id, info.unit, startDate, endDate, !!info.calendarDays);
   if (counted.error) {
     return NextResponse.json({ error: counted.error }, { status: 400 });
   }

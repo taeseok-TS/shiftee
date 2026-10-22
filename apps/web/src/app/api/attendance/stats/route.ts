@@ -15,6 +15,7 @@ import {
 } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayYmd, getHolidaySet } from "@/lib/holidays";
+import { countsCalendarDays } from "@/lib/leave-catalog";
 import { pastDayStatus } from "@/lib/attendance-day";
 
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
@@ -133,7 +134,7 @@ export async function GET(request: NextRequest) {
       }),
       prisma.leaveRequest.findMany({
         where: { ...userWhere, status: "APPROVED", startDate: { lte: to }, endDate: { gte: from } },
-        select: { userId: true, startDate: true, endDate: true },
+        select: { userId: true, startDate: true, endDate: true, type: true },
       }),
       getHolidaySet(from, to),
     ]);
@@ -166,7 +167,7 @@ export async function GET(request: NextRequest) {
       const s = Math.max(l.startDate.getTime(), from.getTime()), e = Math.min(l.endDate.getTime(), to.getTime());
       for (let t = s; t <= e; t += 86400_000) {
         const d = new Date(t), y = ymdOf(d);
-        if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;
+        if (multi && !countsCalendarDays(l.type) && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;   // 조사는 주말도 휴가
         onLeave.add(`${l.userId}:${y}`);
       }
     }

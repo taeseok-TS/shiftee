@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { getHolidaySet } from "@/lib/holidays";
-import type { LeaveUnit } from "@/lib/leave-catalog";
+import { countsCalendarDays, type LeaveUnit } from "@/lib/leave-catalog";
 
 // ─── 휴가 일수 = 근무일정 기준(2026-10-16 #219 10·12, 디렉터 결정 (d)) ─────────────────────────
 // 휴가 일수를 세는 곳은 **여기 한 곳**이다 — 서버 신청 검사(api/leave POST)와 신청 창 미리보기(api/leave/days)가 같이 쓴다.
@@ -58,8 +58,13 @@ export type LeaveDaysResult = { days: number; workdays: string[]; error: string 
 /**
  * 신청 일수 — 유형 단위(FULL = 기간의 근무일 수, HALF = 0.5, QUARTER = 0.25)로 센다.
  * 근무일이 없으면(공휴일·휴무만 골랐거나 반차 날이 근무일이 아니면) days 0 과 안내 문구(error). 날짜 모양 검사는 호출부가 먼저 한다.
+ * calendar = 주말·공휴일 포함 달력 날짜로 센다(경조휴가(조사), lib/leave-catalog calendarDays — FULL 만)
  */
-export async function countLeaveDays(db: Db, userId: string, unit: LeaveUnit, startYmd: string, endYmd: string): Promise<LeaveDaysResult> {
+export async function countLeaveDays(db: Db, userId: string, unit: LeaveUnit, startYmd: string, endYmd: string, calendar = false): Promise<LeaveDaysResult> {
+  if (unit === "FULL" && calendar) {
+    const days = ymdRange(startYmd, endYmd);
+    return { days: days.length, workdays: days, error: days.length ? null : NO_WORKDAY_MSG };
+  }
   if (unit !== "FULL") {
     const workdays = await leaveWorkdaysIn(db, userId, startYmd, startYmd);
     if (workdays.length === 0) return { days: 0, workdays, error: OFF_DAY_MSG };
@@ -149,13 +154,15 @@ export function splitWorkdaysByYear(workdays: string[], storedDays: number, star
   return fixYearSum(m, storedDays);
 }
 
-export type LeaveSpan = { userId: string; startDate: Date; endDate: Date; days: number };
+/** type 이 있으면 달력 날짜 유형(경조휴가(조사))은 주말·공휴일까지 날짜 몫을 준다 — 일수를 그렇게 셌으니(검증 C1) */
+export type LeaveSpan = { userId: string; startDate: Date; endDate: Date; days: number; type?: string };
 const ymdOfDate = (d: Date) => d.toISOString().slice(0, 10);
 
 /** 한 휴가의 날짜별 몫 — 하루짜리·같은 날 휴가는 DB 를 보지 않는다 */
 export async function leaveDayWeightsOf(db: Db, leave: LeaveSpan): Promise<Map<string, number>> {
   const s = ymdOfDate(leave.startDate), e = ymdOfDate(leave.endDate);
   if (s >= e) return leaveDayWeights([s], leave.days, s);
+  if (leave.type && countsCalendarDays(leave.type)) return leaveDayWeights(ymdRange(s, e), leave.days, s);
   return leaveDayWeights(await leaveWorkdaysIn(db, leave.userId, s, e), leave.days, s);
 }
 
@@ -204,7 +211,8 @@ export async function leaveDayWeightsMany(db: Db, leaves: (LeaveSpan & { id: str
   }
   for (const l of multi) {
     const s = ymdOfDate(l.startDate), e = ymdOfDate(l.endDate);
-    out.set(l.id, leaveDayWeights(workdaysFrom(s, e, byUser.get(l.userId) ?? new Map(), holidays), l.days, s));
+    const days = l.type && countsCalendarDays(l.type) ? ymdRange(s, e) : workdaysFrom(s, e, byUser.get(l.userId) ?? new Map(), holidays);
+    out.set(l.id, leaveDayWeights(days, l.days, s));
   }
   return out;
 }

@@ -5,7 +5,7 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate } from "@/lib/schedule-payload";
 import { mondayOf } from "@/lib/weekly-hours";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
-import { leaveLabel } from "@/lib/leave-catalog";
+import { countsCalendarDays, leaveLabel } from "@/lib/leave-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       const ymd = ymdUTC(day);
       if (ymd < s || ymd > e) continue;
       const dow = day.getUTCDay();
-      if (dow === 0 || dow === 6 || holidays.has(ymd)) continue;
+      if (!countsCalendarDays(r.type) && (dow === 0 || dow === 6 || holidays.has(ymd))) continue;   // 조사는 주말도 휴가로 보인다
       ((leaves[r.userId] ??= {})[ymd] ??= []).push({ type: r.type, label: leaveLabel(r.type) });
     }
   }

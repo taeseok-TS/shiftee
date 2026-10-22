@@ -102,7 +102,7 @@ export async function workReport(opts: {
     for (let d = new Date(l.startDate); d <= l.endDate; d.setUTCDate(d.getUTCDate() + 1)) {
       const y = ymdOf(d);
       if (y < from || y > to) continue;
-      if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;
+      if (multi && !info?.calendarDays && (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.has(y))) continue;   // 조사는 주말 포함(휴가 리포트와 같게)
       const r = rows.get(l.userId); if (!r) continue;
       r.leaveHours += info?.paidHours ?? 0;
       const k = `${l.userId}|${y}`;

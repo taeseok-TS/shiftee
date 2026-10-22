@@ -47,7 +47,8 @@ const FALLBACK_CATEGORIES: Category[] = [
   },
   {
     key: "FAMILY", label: "경조·보상·대체", options: [
-      { value: "FAMILY_EVENT", label: "경조휴가", attachRequired: "증빙 서류" },
+      { value: "FAMILY_CONDOLENCE" as LeaveType, label: "경조휴가(조사)", attachRequired: "증빙 서류" },   // 2026-10-22 조사·경사로 나눔(서버 기준표와 같게)
+      { value: "FAMILY_CELEBRATION" as LeaveType, label: "경조휴가(경사)", attachRequired: "증빙 서류" },
       { value: "COMP_LEAVE" as LeaveType, label: "보상휴가", attachRequired: "보상휴가제 동의서" },
       { value: "COMP_LEAVE_HALF" as LeaveType, label: "보상휴가(반차)", unit: "HALF", attachRequired: "보상휴가제 동의서" },
       { value: "COMPENSATORY", label: "대체휴일", attachRequired: "휴일대체 동의서" },
@@ -155,6 +156,10 @@ export default function LeaveRequestScreen() {
   const activeOption = activeCategory.options.find((o) => o.value === leaveType) ?? activeCategory.options[0];
   const isSingleDay = SINGLE_DAY.has(leaveType) || (activeOption.value === leaveType && !!activeOption.unit && activeOption.unit !== "FULL");
   const attachRequired = activeOption.value === leaveType ? activeOption.attachRequired ?? null : null;   // 동의서·증빙 필수(기준표)
+  // 서버 기준표가 늦게 와서 고른 유형이 목록에서 빠졌으면(옛 기본 목록의 값 등) 화면에 보이는 첫 항목으로 맞춘다 — 보이는 것과 보내는 것이 달랐다(검증 P1)
+  useEffect(() => {
+    if (activeOption.value !== leaveType) setLeaveType(activeOption.value);
+  }, [activeOption.value, leaveType]);
 
   const doUpload = async (file: { uri: string; name: string; mimeType?: string | null }) => {
     setAttaching(true);

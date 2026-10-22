@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     },
     orderBy: [{ startDate: "asc" }],
   });
-  const weightsOf = await leaveDayWeightsMany(prisma, rows.map((r) => ({ id: r.id, userId: r.user.id, startDate: r.startDate, endDate: r.endDate, days: r.days })));
+  const weightsOf = await leaveDayWeightsMany(prisma, rows.map((r) => ({ id: r.id, userId: r.user.id, startDate: r.startDate, endDate: r.endDate, days: r.days, type: r.type })));
 
   const out = rows.map((r) => {
     const info = leaveInfo(r.type);

@@ -126,7 +126,8 @@ export async function previewLeaveImport(rowsIn: unknown[]): Promise<ImportResul
   };
   for (const r of okRows) {
     const info = leaveInfo(r.typeCode!)!;
-    const wd = workDays(r.startDate, r.endDate);
+    // 조사(달력 날짜 유형)는 주말·공휴일도 센다 — 신청과 같은 규칙(검증 C3)
+    const wd = info.calendarDays ? Math.round((dateOf(r.endDate).getTime() - dateOf(r.startDate).getTime()) / 86400000) + 1 : workDays(r.startDate, r.endDate);
     if (wd === 0) { r.status = "invalid"; r.message = info.unit === "FULL" ? "기간에 근무일이 없음(주말·공휴일)" : "주말·공휴일에는 반차·반반차를 넣을 수 없음"; continue; }
     if (r.days == null) r.days = info.unit === "HALF" ? 0.5 : info.unit === "QUARTER" ? 0.25 : wd;
   }

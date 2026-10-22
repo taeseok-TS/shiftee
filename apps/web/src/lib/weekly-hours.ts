@@ -1,3 +1,4 @@
+import { countsCalendarDays } from "@/lib/leave-catalog";
 import { prisma } from "@/lib/db";
 import { breakHours } from "@/lib/schedule-payload";
 import { isAllowed } from "@/lib/permission-settings";
@@ -38,7 +39,7 @@ export async function weeklyMinutes(userIds: string[], mondays: string[], propos
   const [schedules, atts, leaves] = await Promise.all([
     prisma.schedule.findMany({ where: { userId: { in: userIds }, date: { gte: from, lte: to }, type: "WORK" }, select: { userId: true, date: true, startTime: true, endTime: true } }),
     prisma.attendance.findMany({ where: { userId: { in: userIds }, date: { gte: from, lte: to }, clockIn: { not: null }, clockOut: { not: null } }, select: { userId: true, date: true, clockIn: true, clockOut: true } }),
-    prisma.leaveRequest.findMany({ where: { userId: { in: userIds }, status: "APPROVED", startDate: { lte: to }, endDate: { gte: from } }, select: { userId: true, startDate: true, endDate: true, days: true } }),
+    prisma.leaveRequest.findMany({ where: { userId: { in: userIds }, status: "APPROVED", startDate: { lte: to }, endDate: { gte: from } }, select: { userId: true, startDate: true, endDate: true, days: true, type: true } }),
   ]);
   // 하루를 다 쉬는 날만 뺀다 — 하루짜리 휴가, 또는 같은 날 반차 두 건(오전+오후)처럼 합이 하루가 되는 날.
   // 여러 날짜 휴가는 토·일을 건너뛴다(휴가 일수도 그날을 빼고 센다)
@@ -47,7 +48,7 @@ export async function weeklyMinutes(userIds: string[], mondays: string[], propos
     const multi = l.endDate > l.startDate;
     const f = l.days >= 1 || multi ? 1 : l.days;
     for (let d = new Date(l.startDate); d <= l.endDate; d.setUTCDate(d.getUTCDate() + 1)) {
-      if (multi && (d.getUTCDay() === 0 || d.getUTCDay() === 6)) continue;
+      if (multi && !countsCalendarDays(l.type) && (d.getUTCDay() === 0 || d.getUTCDay() === 6)) continue;   // 조사는 주말도 휴가
       const k = `${l.userId}|${ymdOf(d)}`;
       leaveFrac.set(k, (leaveFrac.get(k) ?? 0) + f);
     }

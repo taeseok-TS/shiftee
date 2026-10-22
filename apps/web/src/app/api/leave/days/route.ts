@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
   }
 
   const visible = await canSeeLeaveBalance(session.role);
-  const counted = await countLeaveDays(prisma, userId, info.unit, start, end);
+  const counted = await countLeaveDays(prisma, userId, info.unit, start, end, !!info.calendarDays);
   const base = { start, end, type, unit: info.unit, workdays: counted.workdays, balanceHidden: !visible };
   if (counted.error) {
     return NextResponse.json({ ...base, days: 0, blocked: true, code: "NO_WORKDAY", reason: counted.error, limit: null });

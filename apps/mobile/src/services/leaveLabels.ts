@@ -4,7 +4,7 @@ export const LEAVE_LABELS: Record<string, string> = {
   ANNUAL: "연차", HALF_AM: "오전 반차", HALF_PM: "오후 반차", QUARTER_AM: "오전 반반차", QUARTER_PM: "오후 반반차",
   COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)",
   COMPENSATORY: "대체휴일", COMPENSATORY_HALF: "대체휴일(반차)",
-  PRENATAL_CHECKUP: "태아검진휴가", FAMILY_EVENT: "경조휴가",
+  PRENATAL_CHECKUP: "태아검진휴가", FAMILY_CONDOLENCE: "경조휴가(조사)", FAMILY_CELEBRATION: "경조휴가(경사)", FAMILY_EVENT: "경조휴가",
   REWARD: "포상휴가", MATERNITY: "출산휴가", SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가",
   CIVIL_DEFENSE: "민방위 휴가", RESERVE_FORCES: "예비군 휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",
   // 옛 유형(기록 표시용)
