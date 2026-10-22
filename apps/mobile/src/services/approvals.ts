@@ -6,6 +6,7 @@
  */
 
 import axios from "axios";
+import { Alert } from "react-native";
 import { API_URL } from "../config";
 import { getAttendanceRequestInbox } from "./attendance";
 import { getToken, getUser } from "./storage";
@@ -94,8 +95,22 @@ export async function getTeamLeaves(): Promise<TeamLeave[]> {
   return (res.data?.requests as TeamLeave[]) || [];
 }
 
+// 잔여 부족 예외 승인(2026-10-22 본부) — 서버가 canOverride(관리자)를 주면 안내를 보여 주고 한 번 더 확인받아 다시 부른다. 원장은 그대로 막힌다
+const confirmOverride = (msg: string) => new Promise<boolean>((resolve) =>
+  Alert.alert("잔여 부족", `${msg}\n\n본부 예외로 승인할까요?\n승인하면 잔여는 마이너스로 남고, 변경 로그에 「잔여 부족 예외 승인」으로 기록됩니다.`, [
+    { text: "취소", style: "cancel", onPress: () => resolve(false) },
+    { text: "예외 승인", style: "destructive", onPress: () => resolve(true) },
+  ], { cancelable: true, onDismiss: () => resolve(false) }));
+
 export async function decideLeave(id: string, action: "approve" | "reject", reason?: string) {
-  await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason }, { headers: await authHeaders() });
+  try {
+    await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason }, { headers: await authHeaders() });
+  } catch (e: any) {
+    const d = e?.response?.data;
+    if (action !== "approve" || d?.code !== "SHORT_BALANCE" || !d?.canOverride) throw e;
+    if (!(await confirmOverride(String(d.error || "연차 잔여가 부족합니다.")))) return;
+    await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason, overrideShortBalance: true }, { headers: await authHeaders() });
+  }
 }
 
 export async function decideSchedule(id: string, action: "approve" | "reject", reason?: string) {

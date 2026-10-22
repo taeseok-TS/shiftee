@@ -11,8 +11,11 @@ import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
 import { canSeeLeaveBalance } from "@/lib/permission-settings";
 
-/** 최종 승인 때 잔여가 모자라면 던진다 — 트랜잭션이 통째로 되돌아가 결재 단계·상태도 그대로 남는다(#219-11) */
-class ShortBalance extends Error {}
+/** 최종 승인 때 잔여가 모자라면 던진다 — 트랜잭션이 통째로 되돌아가 결재 단계·상태도 그대로 남는다(#219-11).
+ *  canOverride = 관리자(본부)라 한 번 더 확인하면 예외 승인할 수 있다(2026-10-22 본부 이예지 요청 4 — 원장 단계는 종전처럼 막는다) */
+class ShortBalance extends Error { constructor(message: string, readonly canOverride: boolean) { super(message); } }
+const shortBalanceResponse = (e: ShortBalance) =>
+  NextResponse.json({ error: e.message, code: "SHORT_BALANCE", canOverride: e.canOverride }, { status: 400 });
 /** 트랜잭션 오류 중 잔여 부족만 골라 돌려준다(그 밖의 오류는 그대로 던진다) */
 const shortBalanceOf = (e: unknown): ShortBalance => { if (e instanceof ShortBalance) return e; throw e; };
 
@@ -25,13 +28,21 @@ async function assertBalanceForApproval(
   tx: Parameters<typeof checkLeaveLimit>[0],
   req: { id: string; userId: string; type: string; startDate: Date; endDate: Date; days: number },
   approverRole: string,
-) {
+  override = false,
+  approverId?: string,
+): Promise<string | null> {
   // 같은 직원의 다른 휴가를 동시에 최종 승인하면 둘 다 같은 잔여를 읽고 통과해 음수가 될 수 있었다(검증 5) — 직원 단위로 줄 세운다.
   // 본부 대리 등록(api/leave POST)도 같은 키(leave-bal:<직원>)를 잡는다(2026-10-19 통일)
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-bal:" + req.userId}))`;
   // 연도를 걸친 휴가는 해마다 그 해 잔여로(차감과 같은 나눔 — lib/leave-days leaveDaysByYear, 2026-10-19)
   const limit = await checkLeaveLimit(tx, { userId: req.userId, type: req.type, startDate: req.startDate, endDate: req.endDate, days: req.days, includePending: false, excludeRequestId: req.id });
-  if (limit.blocked) throw new ShortBalance(limitMessage(limit, { visible: await canSeeLeaveBalance(approverRole), when: "approve" }));
+  if (!limit.blocked) return null;
+  // 본인 휴가는 예외 승인하지 않는다 — 관리자는 본인 결재 금지에서 빠져 있어 자기 연차를 마이너스로 승인할 수 있었다(검증 A)
+  const admin = approverRole === "ADMIN" && approverId !== req.userId;
+  const msg = limitMessage(limit, { visible: await canSeeLeaveBalance(approverRole), when: "approve", overridable: admin });
+  // 관리자가 확인을 한 번 더 누른 승인 — 막지 않고 그대로 차감한다(잔여는 마이너스로 남는다). 무엇을 넘겼는지 감사 로그에 남기려고 문구를 돌려준다
+  if (admin && override) return msg;
+  throw new ShortBalance(msg, admin);
 }
 
 // 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
@@ -63,6 +74,8 @@ export async function POST(
     return NextResponse.json({ error: "사유 형식이 올바르지 않습니다." }, { status: 400 });
   }
   const action: "approve" | "reject" = rawAction;
+  // 잔여 부족 예외 승인 — 관리자만 의미가 있다(원장·직원이 보내도 assertBalanceForApproval 이 막는다)
+  const override = (body as { overrideShortBalance?: unknown } | null)?.overrideShortBalance === true;
   const reason: string | undefined = typeof rawReason === "string" ? rawReason : undefined; // action: 'approve' | 'reject'
 
   const leaveRequest = await prisma.leaveRequest.findUnique({
@@ -123,7 +136,7 @@ export async function POST(
       );
     }
     if (!myStep && session.role === "ADMIN") {
-      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);
+      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches, override);
     }
 
     // 단계별 처리
@@ -131,6 +144,7 @@ export async function POST(
     let nextApprover: any = null;
     let alreadyDone = false;
     let notifyNext: { approverRole: string | null; branch: string | null; approverId: string | null } | null = null;
+    let overdrawn: string | null = null;   // 잔여 부족 예외 승인이면 그때 문구(감사 로그용)
 
     const short = await prisma.$transaction(async (tx) => {
       // ⚠ **조건부로** 쓴다. 종전에는 무조건 update 라, 결재자가 두 번 누르거나 두 사람이
@@ -181,7 +195,7 @@ export async function POST(
           // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
         } else {
           // 모든 단계 승인 완료 → 전체 승인. 그 전에 잔여 재검사(#219-11) — 모자라면 던져 이 결재 전체를 되돌린다
-          await assertBalanceForApproval(tx, leaveRequest, session.role);
+          overdrawn = await assertBalanceForApproval(tx, leaveRequest, session.role, override, session.userId);
           await tx.leaveRequest.update({
             where: { id },
             data:  { status: "APPROVED", approverId: session.userId },
@@ -195,7 +209,7 @@ export async function POST(
         }
       }
     }).then(() => null, shortBalanceOf);
-    if (short) return NextResponse.json({ error: short.message }, { status: 400 });
+    if (short) return shortBalanceResponse(short);
 
     if (alreadyDone) {
       return NextResponse.json({ error: "이미 처리된 결재입니다." }, { status: 409 });
@@ -225,7 +239,7 @@ export async function POST(
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_DECISION",
       targetType: "LEAVE", targetId: id, targetName: requesterName,
-      detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}`,
+      detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}${overdrawn ? ` · 잔여 부족 예외 승인 — ${overdrawn}` : ""}`,
     });
 
     // 최종 결정(전체 승인/반려) 시 신청자에게 봇 DM (중간 단계 승인은 발송 안 함)
@@ -248,7 +262,7 @@ export async function POST(
   if (session.role !== "ADMIN")
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
 
-  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches);
+  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches, override);
 }
 
 // 관리자 직접 승인/반려 (결재라인 우회)
@@ -260,7 +274,8 @@ async function adminOverride(
   reason: string | undefined,
   approverId: string,
   role?: string,
-  branches?: string[]
+  branches?: string[],
+  override = false,
 ) {
   const leaveRequest = await prisma.leaveRequest.findUnique({
     where: { id },
@@ -294,6 +309,7 @@ async function adminOverride(
   //   (2026-09-09 검증에서 적발 — 단계별 경로에서 막은 사고가 이 경로에 남아 있었다).
   //   트랜잭션이 없으면 차감만 실패했을 때 "승인됐는데 안 깎임"도 남는다.
   let claimed = false;
+  let overdrawn: string | null = null;   // 잔여 부족 예외 승인이면 그때 문구(감사 로그용)
   const short = await prisma.$transaction(async (tx) => {
     const won = await tx.leaveRequest.updateMany({
       where: { id, status: "PENDING" },   // 먼저 잡는 쪽만 처리한다
@@ -306,7 +322,7 @@ async function adminOverride(
     if (won.count === 0) return;
     claimed = true;
     // 승인이면 차감 전에 잔여 재검사(#219-11, 단계 최종 승인과 같은 함수) — 모자라면 던져 이 트랜잭션 전체(상태·단계)를 되돌린다
-    if (action === "approve") await assertBalanceForApproval(tx, leaveRequest, role ?? "ADMIN");
+    if (action === "approve") overdrawn = await assertBalanceForApproval(tx, leaveRequest, role ?? "ADMIN", override, approverId);
 
     // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
     // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
@@ -326,7 +342,7 @@ async function adminOverride(
       await deductLeave(tx, { id, userId, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, days });
     }
   }).then(() => null, shortBalanceOf);
-  if (short) return NextResponse.json({ error: short.message }, { status: 400 });
+  if (short) return shortBalanceResponse(short);
 
   if (!claimed) {
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
@@ -348,7 +364,7 @@ async function adminOverride(
   await logAudit({
     actorId: approverId, actorName: approverName, action: "LEAVE_DECISION",
     targetType: "LEAVE", targetId: id, targetName: requesterName,
-    detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"} (직접처리)`,
+    detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"} (직접처리)${overdrawn ? ` · 잔여 부족 예외 승인 — ${overdrawn}` : ""}`,
   });
 
   // 신청자에게 봇 DM

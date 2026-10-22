@@ -114,6 +114,7 @@ export default function ApprovalsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    setProcessingId(null);   // 잔여 부족 확인창이 드물게 안 뜨고 멈춘 건의 버튼 잠김을 당겨서 새로고침으로 푼다(검증 r2)
     load();
   }, [load]);
 

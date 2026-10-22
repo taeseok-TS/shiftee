@@ -101,7 +101,7 @@ export async function checkLeaveLimit(
  * 막힐 때 문구 — visible=false(잔여 숫자 숨김, #219-1)면 숫자를 말하지 않는다.
  * when: "request" = 신청, "approve" = 최종 승인. who = 본부 대리 등록일 때 대상 직원 이름.
  */
-export function limitMessage(l: LeaveLimit, opts: { visible: boolean; when: "request" | "approve"; who?: string }): string {
+export function limitMessage(l: LeaveLimit, opts: { visible: boolean; when: "request" | "approve"; who?: string; overridable?: boolean }): string {
   if (l.kind === "none") return "";
   const subject = l.kind === "annual" ? "연차" : l.group;
   const prefix = opts.who ? `${opts.who}님의 ` : "";
@@ -109,7 +109,8 @@ export function limitMessage(l: LeaveLimit, opts: { visible: boolean; when: "req
     const nums = opts.visible
       ? (l.kind === "annual" ? ` (${l.year}년 잔여 ${l.remaining ?? "-"}일, 이 신청 ${askText(l)})` : ` (${l.group} 잔여 ${l.remaining}일, 이 신청 ${l.requested}일)`)
       : "";
-    return `${prefix}${subject} 잔여가 부족해 승인할 수 없습니다.${nums}`;
+    // overridable = 본부(관리자)가 한 번 더 확인하면 예외 승인할 수 있다(2026-10-22 본부 요청) — 「승인할 수 없습니다」 대신 「부족합니다」
+    return `${prefix}${subject} 잔여가 ${opts.overridable ? "부족합니다." : "부족해 승인할 수 없습니다."}${nums}`;
   }
   if (!opts.visible) {
     return `${prefix}${subject} 잔여가 부족해 신청할 수 없습니다${l.pending > 0 ? "(결재 대기 중인 신청 포함)" : ""}. 남은 일수는 연차 정리 중이라 본부에 문의해 주세요.`;

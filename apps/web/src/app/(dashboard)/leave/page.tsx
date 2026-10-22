@@ -23,6 +23,7 @@ import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
+import { postLeaveApprove } from "@/lib/leave-approve-client";
 
 /* ── 타입 ── */
 type ApprovalStepInfo = {
@@ -266,11 +267,9 @@ export default function LeavePage() {
 
   /* ── 승인 ── */
   async function handleApprove(id: string) {
-    const res = await fetch(`/api/leave/${id}/approve`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "approve" }),
-    });
-    if (!res.ok) { toast.error((await res.json()).error); return; }
+    // 잔여 부족이면 관리자는 한 번 더 확인하고 예외 승인(lib/leave-approve-client)
+    const r = await postLeaveApprove(id);
+    if (!r.ok) { if (!r.cancelled) toast.error(r.error); return; }
     toast.success("승인되었습니다.");
     fetchRequests(); fetchBalance(); fetchMySteps();
   }

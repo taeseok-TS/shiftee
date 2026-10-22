@@ -19,6 +19,7 @@ import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
 import AttendanceRequestInbox from "@/components/attendance/AttendanceRequestInbox";
+import { postLeaveApprove } from "@/lib/leave-approve-client";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -235,22 +236,24 @@ export default function ApprovalsPage() {
         ? `/api/leave/${requestId}/approve`
         : `/api/schedule-requests/${requestId}/approve`;
 
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", ...(note ? { reason: note } : {}) }),
-      });
+      // 휴가는 잔여 부족이면 관리자가 한 번 더 확인하고 예외 승인(lib/leave-approve-client)
+      const r = type === "leave"
+        ? await postLeaveApprove(requestId, note ? { reason: note } : {})
+        : await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "approve", ...(note ? { reason: note } : {}) }),
+          }).then(async (res) => ({ ok: res.ok, cancelled: false, error: res.ok ? "" : (await res.json().catch(() => ({}))).error || "처리 중 오류가 발생했습니다" }));
 
-      if (res.ok) {
+      if (r.ok) {
         toast.success("승인되었습니다");
         if (type === "leave") {
           setLeaveSteps(leaveSteps.filter(s => s.leaveRequest.id !== requestId));
         } else {
           setScheduleSteps(scheduleSteps.filter(s => s.scheduleRequest.id !== requestId));
         }
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "처리 중 오류가 발생했습니다");
+      } else if (!r.cancelled) {
+        toast.error(r.error);
       }
     } catch (error) {
       toast.error("오류가 발생했습니다");
