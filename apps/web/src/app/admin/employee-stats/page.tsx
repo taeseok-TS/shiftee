@@ -1,4 +1,5 @@
 "use client";
+import EmployeeTabs from "@/components/hr/EmployeeTabs";
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -632,11 +633,10 @@ export default function EmployeeStatsPage() {
 
   return (
     <div className="space-y-6">
+      {/* 인사 › 직원 머리 + 알약 탭(R14) */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">직원 현황</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          재직자 및 퇴직자 현황을 확인합니다
-        </p>
+        <EmployeeTabs active="stats" />
+        <p className="text-sm text-gray-500">재직자 및 퇴직자 현황을 확인합니다</p>
       </div>
 
       <Tabs defaultValue="active" className="w-full">
@@ -665,7 +665,7 @@ export default function EmployeeStatsPage() {
           {deleteTarget && (
             <div className="space-y-4">
               <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                <p className="text-sm font-medium text-red-900 mb-2">⚠️ 주의</p>
+                <p className="text-sm font-medium text-red-900 mb-2">주의</p>
                 <p className="text-sm text-red-800 mb-3">
                   <strong>{deleteTarget.name}</strong> 직원을 삭제하시겠습니까?
                 </p>

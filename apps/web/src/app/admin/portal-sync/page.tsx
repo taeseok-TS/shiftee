@@ -1,4 +1,5 @@
 "use client";
+import EmployeeTabs from "@/components/hr/EmployeeTabs";
 
 // 포털(직영인사) 인원명부 연동 — 포털 → 큐브티 한 방향, 매일 06:30 자동 (2026-09-15 디렉터 결정)
 // 일반 칸(이름·지점·직책·직급·입사일)은 "자동 반영"이 켜져 있으면 바로, 입사·퇴사·휴직·복직·사번 연결은 여기서 1클릭 확인.
@@ -24,7 +25,7 @@ type Data = { configured: boolean; canEditConnection: boolean; connection: { url
 const TODAY_KST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 const KIND_LABEL: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직·재입사", LINK: "사번 연결" };
 const KIND_TONE: Record<string, string> = {
-  UPDATE: "bg-gray-100 text-gray-700", HIRE: "bg-green-100 text-green-800", RESIGN: "bg-red-100 text-red-700",
+  UPDATE: "bg-gray-100 text-gray-700", HIRE: "bg-[#eff6ff] text-[#1d4ed8]", RESIGN: "bg-red-100 text-red-700",
   LEAVE: "bg-amber-100 text-amber-800", RETURN: "bg-blue-100 text-blue-800", LINK: "bg-indigo-100 text-indigo-800",
 };
 const FIELD_LABEL: Record<string, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일" };
@@ -175,17 +176,18 @@ export default function PortalSyncPage() {
     if (d?.ok) toast.success(`연결됐습니다 — ${d.count}명 (사번 있음 ${d.withEmpNo}명) · ${Object.entries(d.byStatus as Record<string, number>).map(([k, v]) => `${k} ${v}`).join(" · ")}`);
   }
 
-  if (!data) return <div className="p-8 text-sm text-gray-500">불러오는 중…</div>;
+  if (!data) return <div><EmployeeTabs active="sync" /><p className="py-8 text-sm text-gray-500">불러오는 중…</p></div>;
   const last = data.runs[0];
   const sum = last?.summary ?? {};
   const pendingUpdates = data.pending.filter((c) => !needsConfirm(c) && c.status === "PENDING");
   const confirms = data.pending.filter((c) => needsConfirm(c) || c.status === "APPLYING");
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
+    <div className="space-y-4">
+      {/* 인사 › 직원 머리 + 알약 탭(R14) */}
+      <EmployeeTabs active="sync" />
       <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-xl font-bold flex items-center gap-2"><RefreshCw size={20} className="text-indigo-600" />인사명부 연동</h1>
-        <span className={`text-xs px-2 py-0.5 rounded-full border ${data.configured ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{data.configured ? "연결됨" : "연결 정보 없음"}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full border ${data.configured ? "bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe]" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{data.configured ? "연결됨" : "연결 정보 없음"}</span>
         <div className="ml-auto flex gap-2">
           <Button variant="outline" disabled={!data.configured || busy === "auto"} onClick={() => setAuto(!data.autoApply)}>일반 칸 자동 반영: {data.autoApply ? "켜짐" : "꺼짐"}</Button>
           <Button className="gap-1 bg-indigo-600 hover:bg-indigo-700" disabled={!data.configured || busy === "run"} onClick={run}><RefreshCw size={15} className={busy === "run" ? "animate-spin" : ""} />지금 가져오기</Button>

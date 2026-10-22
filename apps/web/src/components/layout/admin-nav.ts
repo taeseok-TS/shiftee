@@ -72,12 +72,13 @@ export const ADMIN_NAV: NavGroup[] = [
       ] },
   ] },
   { key: "hr", title: "인사", icon: Users, items: [
-    { href: "/admin/employees", label: "직원", icon: Users, tabs: [
-      { href: "/admin/employees", label: "관리" },
-      { href: "/admin/employee-stats", label: "현황" },
-      { href: "/admin/hire-dates", label: "입사일 대조" },
-      { href: "/admin/portal-sync", label: "인원명부 연동" },
-    ] },
+    // 탭은 화면 안 알약 한 줄로(R14 — components/hr/EmployeeTabs)
+    { href: "/admin/employees", label: "직원", icon: Users, also: ["/admin/employee-stats", "/admin/hire-dates", "/admin/portal-sync"],
+      find: [
+        { href: "/admin/employee-stats", label: "현황" },
+        { href: "/admin/hire-dates", label: "입사일 대조" },
+        { href: "/admin/portal-sync", label: "인원명부 연동" },
+      ] },
     { href: "/admin/branches", label: "지점 관리", icon: Building2 },
     { href: "/admin/salary", label: "연봉", icon: Wallet, salaryOnly: true },
   ] },

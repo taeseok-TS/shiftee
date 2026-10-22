@@ -2,14 +2,14 @@
 import PortalSyncNote from "@/components/admin/PortalSyncNote";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Search, Trash2, PenLine, Users, UserCheck, UserX, Building2, Upload, Download } from "lucide-react";
+import { Plus, Search, Trash2, Users, Upload, Download, List } from "lucide-react";
+import EmployeeTabs, { useHireCheckCount, refreshHireCount } from "@/components/hr/EmployeeTabs";
+import { Box, Tiles, Tile, FilterRow, inputClass, tableClass, Cell2, StatusPill, MoreMenu, btnClass, type PillTone } from "@/components/kit";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -55,11 +55,8 @@ const roleLabel: Record<string, string> = {
   EMPLOYEE: "직원",
 };
 
-const roleColor: Record<string, string> = {
-  ADMIN: "bg-red-100 text-red-800",
-  MANAGER: "bg-blue-100 text-blue-800",
-  EMPLOYEE: "bg-gray-100 text-gray-800",
-};
+// 역할 알약(R14) — 직원 회색 · 원장 연인디고 · 관리자 분홍
+const roleTone: Record<string, PillTone> = { ADMIN: "rej", MANAGER: "ind", EMPLOYEE: "gray" };
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -82,8 +79,8 @@ export default function EmployeesPage() {
     if (selectedIds.size === 0) return;
     // 퇴사를 삭제로 처리하는 사고가 있었다(2026-09-18) — 무엇을 위한 버튼인지부터 말한다
     if (!window.confirm(
-      `⚠ 퇴사 처리가 아닙니다.\n` +
-      `퇴사는 직원을 눌러 [퇴사일]을 넣어 주세요 — 그래야 퇴직자 현황에 남습니다.\n\n` +
+      `[주의] 퇴사 처리가 아닙니다.\n` +
+      `퇴사는 직원 줄 끝 ⋮ › 수정에서 [퇴사일]을 넣어 주세요 — 그래야 퇴직자 현황에 남습니다.\n\n` +
       `이 버튼은 잘못 올린 직원을 지우는 용도입니다. 선택한 ${selectedIds.size}명을 완전히 삭제하며 복구할 수 없습니다.\n` +
       `(등록한 지 7일이 지났거나, 앱에 등록된 기기가 있거나, 본인의 출퇴근·휴가 신청·메시지가 있는 직원은 삭제되지 않습니다)\n진행할까요?`
     )) return;
@@ -98,7 +95,7 @@ export default function EmployeesPage() {
       toast.success(`${d.deleted}명 삭제 완료${d.failed ? ` · ${d.failed}명 실패` : ""}`);
       (d.errors || []).forEach((msg: string) => toast.error(msg));
       setSelectedIds(new Set());
-      fetchEmployees();
+      fetchEmployees(); refreshHireCount(true);
     } finally {
       setBulkDeleting(false);
     }
@@ -172,10 +169,15 @@ export default function EmployeesPage() {
     fetchEmployees();
   }, [fetchEmployees]);
 
+  // 숫자 칸 「입사일 확인 필요」(R14) — 입사일 대조 「확인 필요한 직원만」과 같은 기준·같은 값(components/hr/EmployeeTabs hireNeedsCheck).
+  // 포털을 읽으므로 화면을 그린 뒤 따로 받고, 못 읽으면 「—」
+  const hireCheck = useHireCheckCount();
+
   // 필터링된 직원 목록
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
-      const matchSearch = emp.name.includes(searchText) || emp.email.includes(searchText);
+      const q = searchText.trim();
+      const matchSearch = !q || emp.name.includes(q) || emp.email.toLowerCase().includes(q.toLowerCase()) || (emp.empNo != null && (String(emp.empNo).includes(q) || String(emp.empNo).padStart(5, "0").includes(q)));
       const matchRole = filterRole === "ALL" || emp.role === filterRole;
       const matchBranch = filterBranch === "ALL" || emp.branch === filterBranch;
       return matchSearch && matchRole && matchBranch;
@@ -215,7 +217,7 @@ export default function EmployeesPage() {
         toast.success("직원이 추가되었습니다");
         setCreateOpen(false);
         resetForm();
-        fetchEmployees();
+        fetchEmployees(); refreshHireCount(true);
       } else {
         const data = await res.json();
         toast.error(data.error || "직원 추가에 실패했습니다");
@@ -257,7 +259,7 @@ export default function EmployeesPage() {
         toast.success("직원 정보가 수정되었습니다");
         setEditOpen(false);
         setEditEmployee(null);
-        fetchEmployees();
+        fetchEmployees(); refreshHireCount(true);
       } else {
         const data = await res.json();
         toast.error(data.error || "수정에 실패했습니다");
@@ -277,7 +279,7 @@ export default function EmployeesPage() {
       if (res.ok) {
         toast.success("직원이 삭제되었습니다");
         setDeleteConfirmId(null);
-        fetchEmployees();
+        fetchEmployees(); refreshHireCount(true);
       } else {
         const data = await res.json();
         toast.error(data.error || "삭제에 실패했습니다");
@@ -397,7 +399,7 @@ export default function EmployeesPage() {
         }
         setBulkUploadOpen(false);
         setBulkUploadData([]);
-        fetchEmployees();
+        fetchEmployees(); refreshHireCount(true);
       } else {
         toast.error(result.error || "업로드에 실패했습니다");
       }
@@ -425,76 +427,16 @@ export default function EmployeesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* 통계 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <Users size={16} /> 전체 직원
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-gray-600 mt-1">명</p>
-          </CardContent>
-        </Card>
+    <div>
+      {/* 머리 + 알약 탭(R14) — 흰 「엑셀 받기」 · 흰 「엑셀 올리기」 · 인디고 「＋ 직원 추가」(초록 「엑셀 업로드」 · 파랑 「직원 추가」 대신) */}
+      <EmployeeTabs active="list">
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <UserCheck size={16} /> 활동 중
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.active}</div>
-            <p className="text-xs text-gray-600 mt-1">직원</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <UserX size={16} /> 원장
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.managers}</div>
-            <p className="text-xs text-gray-600 mt-1">명</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
-              <Building2 size={16} /> 지점
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.uniqueBranches}</div>
-            <p className="text-xs text-gray-600 mt-1">개</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 검색 및 필터 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>직원 관리</CardTitle>
-            <div className="flex gap-2">
-              {selectedIds.size > 0 && (
-                <Button variant="outline" onClick={handleBulkDelete} disabled={bulkDeleting}
-                  className="gap-2 text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700">
-                  <Trash2 size={16} /> {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size}명)`}
-                </Button>
-              )}
-              <a href="/api/employees/export" className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                <Download size={16} /> 엑셀 다운로드
+              <a href="/api/employees/export" className={btnClass("secondary")}>
+                <Download size={15} /> 엑셀 받기
               </a>
               <Dialog open={bulkUploadOpen} onOpenChange={setBulkUploadOpen}>
-                <DialogTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                  <Upload size={16} /> 엑셀 업로드
+                <DialogTrigger className={btnClass("secondary")}>
+                  <Upload size={15} /> 엑셀 올리기
                 </DialogTrigger>
                 {/* overflow-hidden + min-w-0: 그리드 자식이 내용 폭만큼 창 밖으로 삐져나가는 것 방지 (표는 내부 스크롤) */}
                 <DialogContent className="max-w-4xl overflow-hidden">
@@ -503,9 +445,9 @@ export default function EmployeesPage() {
                   </DialogHeader>
                   <div className="space-y-4 min-w-0">
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm font-medium text-blue-900 mb-2">📋 필수 컬럼 (반드시 포함):</p>
+                      <p className="text-sm font-medium text-blue-900 mb-2">필수 컬럼 (반드시 포함):</p>
                       <p className="text-sm text-blue-800">이름, 이메일, 비밀번호, 역할, 지점</p>
-                      <p className="text-sm font-medium text-blue-900 mt-3 mb-2">📝 선택 컬럼 (선택사항):</p>
+                      <p className="text-sm font-medium text-blue-900 mt-3 mb-2">선택 컬럼 (선택사항):</p>
                       <p className="text-sm text-blue-800">사원번호(비우면 자동 발급), 직책, 직급, 연락처, 입사일, 생년월일</p>
                     </div>
 
@@ -534,7 +476,7 @@ export default function EmployeesPage() {
                           onClick={handleDownloadTemplate}
                           className="whitespace-nowrap"
                         >
-                          📥 템플릿 다운로드
+                          템플릿 다운로드
                         </Button>
                       </div>
                     </div>
@@ -579,7 +521,7 @@ export default function EmployeesPage() {
                       }}>
                         취소
                       </Button>
-                      <Button
+                      <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]"
                         onClick={handleBulkUploadSubmit}
                         disabled={bulkUploadData.length === 0 || bulkUploadLoading}
                       >
@@ -591,8 +533,8 @@ export default function EmployeesPage() {
               </Dialog>
 
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                  <Plus size={16} /> 직원 추가
+                <DialogTrigger className={btnClass("primary")}>
+                  <Plus size={15} /> 직원 추가
                 </DialogTrigger>
               <DialogContent className="max-w-2xl">
                 <DialogHeader>
@@ -719,58 +661,48 @@ export default function EmployeesPage() {
                   <Button variant="outline" onClick={() => setCreateOpen(false)}>
                     취소
                   </Button>
-                  <Button onClick={handleCreate}>추가</Button>
+                  <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={handleCreate}>추가</Button>
                 </div>
               </DialogContent>
             </Dialog>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-3 text-gray-400" size={16} />
-              <Input
-                placeholder="이름 또는 이메일 검색"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue>{filterRole === "ALL" ? "모든 역할" : roleLabel[filterRole] ?? filterRole}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">모든 역할</SelectItem>
-                <SelectItem value="EMPLOYEE">직원</SelectItem>
-                <SelectItem value="MANAGER">원장</SelectItem>
-              </SelectContent>
-            </Select>
-            {branches.length > 0 && (
-              <Select value={filterBranch} onValueChange={setFilterBranch}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue>{filterBranch === "ALL" ? "모든 지점" : filterBranch}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">모든 지점</SelectItem>
-                  {branches.map(branch => (
-                    <SelectItem key={branch.id} value={branch.name}>
-                      {branch.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      </EmployeeTabs>
 
-      {/* 직원 목록 테이블 */}
-      <Card>
-        <CardContent className="p-0">
+      {/* 직원 현황(본부 10/22 — 「직원 한눈에」 대신) — 대시보드와 같은 숫자 칸. 「활동 중」은 전체와 같아 빼고 「입사일 확인 필요」 */}
+      <Box icon={<Users />} tone="vio" title="직원 현황">
+        <Tiles cols={4}>
+          <Tile label="전체 직원" value={stats.active} unit="명" note="관리자 제외" />
+          <Tile label="원장" value={stats.managers} unit="명" />
+          <Tile label="지점" value={stats.uniqueBranches} unit="개" />
+          <Tile label="입사일 확인 필요" value={hireCheck} unit="명" note="포털 명부와 다름(확정 전) · 입사일 없음" hl onClick={() => { window.location.href = "/admin/hire-dates"; }} />
+        </Tiles>
+      </Box>
+
+      {/* 직원 목록 */}
+      <Box icon={<List />} tone="sky" title="직원 목록" sub={`${filteredEmployees.length}명`}
+        right={selectedIds.size > 0 ? (
+          <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#dc2626] hover:underline disabled:opacity-50">
+            <Trash2 size={15} /> {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size}명)`}
+          </button>
+        ) : undefined}>
+        <FilterRow>
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="이름 · 사번 · 메일로 찾기" aria-label="직원 찾기" className={`${inputClass} w-60 pl-8`} />
+          </div>
+          <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} aria-label="역할" className={inputClass}>
+            <option value="ALL">역할: 전체</option>
+            <option value="EMPLOYEE">직원</option>
+            <option value="MANAGER">원장</option>
+          </select>
+          {branches.length > 0 && (
+            <select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} aria-label="지점" className={inputClass}>
+              <option value="ALL">지점: 전체</option>
+              {branches.map(branch => <option key={branch.id} value={branch.name}>{branch.name}</option>)}
+            </select>
+          )}
+        </FilterRow>
           {loading ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-[14px] text-[#596578]">
               직원 목록을 불러오는 중...
             </div>
           ) : filteredEmployees.length === 0 ? (
@@ -779,10 +711,10 @@ export default function EmployeesPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-gray-50">
+              <table className={tableClass}>
+                <thead>
                   <tr>
-                    <th className="px-3 py-3 text-center w-10">
+                    <th className="!px-3 text-center w-10">
                       {/* 전체 선택 (현재 필터된 목록 기준) */}
                       <input type="checkbox" className="w-4 h-4 cursor-pointer"
                         checked={filteredEmployees.length > 0 && filteredEmployees.every(e => selectedIds.has(e.id))}
@@ -790,21 +722,19 @@ export default function EmployeesPage() {
                           setSelectedIds(e.target.checked ? new Set(filteredEmployees.map(x => x.id)) : new Set());
                         }} />
                     </th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">사원번호</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">이름</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">이메일</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">역할</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">직책</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">직급</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">지점</th>
-                    <th className="px-6 py-3 text-left font-medium text-gray-700">입사일</th>
-                    <th className="px-6 py-3 text-center font-medium text-gray-700">작업</th>
+                    <th>사번</th>
+                    <th>이름</th>
+                    <th>역할</th>
+                    <th>직책 · 직급</th>
+                    <th>지점</th>
+                    <th>입사일</th>
+                    <th className="w-12"><span className="sr-only">더 보기</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEmployees.map(emp => (
-                    <tr key={emp.id} className={`border-b hover:bg-gray-50 ${selectedIds.has(emp.id) ? "bg-red-50/50" : ""}`}>
-                      <td className="px-3 py-4 text-center">
+                    <tr key={emp.id} className={selectedIds.has(emp.id) ? "bg-[#fff1f2]/60" : "hover:bg-[#fafbfd]"}>
+                      <td className="!px-3 text-center">
                         <input type="checkbox" className="w-4 h-4 cursor-pointer"
                           checked={selectedIds.has(emp.id)}
                           onChange={(e) => {
@@ -815,32 +745,23 @@ export default function EmployeesPage() {
                             });
                           }} />
                       </td>
-                      <td className="px-6 py-4 font-mono text-gray-500">{fmtEmpNo(emp.empNo)}</td>
-                      <td className="px-6 py-4 font-medium">{emp.name}</td>
-                      <td className="px-6 py-4 text-gray-600">{emp.email}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant="secondary" className={roleColor[emp.role] || ""}>
-                          {roleLabel[emp.role] || emp.role}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">{emp.jobGroup || "-"}</td>
-                      <td className="px-6 py-4 text-gray-600">{emp.position || "-"}</td>
-                      <td className="px-6 py-4 text-gray-600">{emp.branch || "-"}</td>
-                      <td className="px-6 py-4 text-gray-600">
+                      <td className="font-mono text-[13px] text-[#596578]">{fmtEmpNo(emp.empNo)}</td>
+                      <td><Cell2 main={emp.name} sub={emp.email} /></td>
+                      <td><StatusPill tone={roleTone[emp.role] ?? "gray"}>{roleLabel[emp.role] || emp.role}</StatusPill></td>
+                      <td className="text-[#475569]">{[emp.jobGroup, emp.position].filter(Boolean).join(" · ") || "-"}</td>
+                      <td className="text-[#475569]">{emp.branch || "-"}</td>
+                      <td className="whitespace-nowrap tabular-nums text-[#475569]">
                         {emp.hireDate ? format(new Date(emp.hireDate), "yyyy-MM-dd") : "-"}
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="flex gap-2 justify-center">
+                      <td className="text-right">
+                        {/* 연필 · 빨간 휴지통 → ⋮(R14) — 수정 · 삭제(맨 아래 빨간 글씨, 한 번 더 확인 창) */}
+                        <MoreMenu items={[
+                          { label: "수정", onClick: () => { setEditEmployee(emp); setEditOpen(true); setTempPwShown(null); } },
+                          { label: "삭제", danger: true, onClick: () => setDeleteConfirmId(emp.id) },
+                        ]} />
+                        <div className="contents">
                           <Dialog open={editOpen && editEmployee?.id === emp.id} onOpenChange={setEditOpen}>
-                            <DialogTrigger className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                              onClick={() => {
-                                setEditEmployee(emp);
-                                setEditOpen(true);
-                                setTempPwShown(null); // 창을 다시 열면 지난번 임시 비밀번호는 보이지 않는다
-                              }}
-                            >
-                              <PenLine size={16} />
-                            </DialogTrigger>
+                            {/* 창을 다시 열면 지난번 임시 비밀번호는 보이지 않는다(⋮ 「수정」이 setTempPwShown(null)) */}
                             {editEmployee?.id === emp.id && (
                               // 화면이 낮으면 저장 버튼이 창 밖으로 밀려 안 보였다 → 내부 스크롤
                               <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -1126,7 +1047,7 @@ export default function EmployeesPage() {
                                   <Button variant="outline" onClick={() => setEditOpen(false)}>
                                     취소
                                   </Button>
-                                  <Button onClick={handleUpdate}>저장</Button>
+                                  <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={handleUpdate}>저장</Button>
                                 </div>
                               </DialogContent>
                             )}
@@ -1135,11 +1056,6 @@ export default function EmployeesPage() {
                           <Dialog open={deleteConfirmId === emp.id} onOpenChange={(open) => {
                             if (!open) setDeleteConfirmId(null);
                           }}>
-                            <DialogTrigger className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                              onClick={() => setDeleteConfirmId(emp.id)}
-                            >
-                              <Trash2 size={16} />
-                            </DialogTrigger>
                             <DialogContent>
                               <DialogHeader>
                                 <DialogTitle>직원 삭제</DialogTitle>
@@ -1168,13 +1084,7 @@ export default function EmployeesPage() {
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* 결과 요약 */}
-      <div className="text-sm text-gray-500">
-        총 {filteredEmployees.length}명 중 {filteredEmployees.length}명 표시
-      </div>
+      </Box>
     </div>
   );
 }

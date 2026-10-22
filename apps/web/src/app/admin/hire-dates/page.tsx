@@ -1,11 +1,12 @@
 "use client";
+import EmployeeTabs, { hireNeedsCheck, setHireRows } from "@/components/hr/EmployeeTabs";
 
 // 입사일 대조표(2026-10-08 QA76 이관 #5) — 큐브티 · 포털 명부 · 시프티(엑셀) 입사일을 나란히 보고, 행마다 확정값을 골라 반영한다.
 // 반영하면 감사 기록이 남고 올해 연차 총량이 근속으로 다시 계산된다(사용은 그대로). 7월 이전 입사자는 포털 루트입과일이 입사일이 아니므로 포털 칸을 흐리게 보여 준다.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { Upload, Download, CalendarCheck } from "lucide-react";
+import { Upload, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,7 @@ export default function HireDatesPage() {
     try {
       const r = await fetch("/api/admin/hire-dates"); const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || "불러오지 못했습니다."); setRows([]); return; }
-      setRows(d.rows || []); setPortalError(d.portalError ?? null);
+      setRows(d.rows || []); setPortalError(d.portalError ?? null); setHireRows(d.rows || [], d.portalError ?? null);   // 탭 건수도 이 줄로
     } catch { toast.error("네트워크 오류입니다."); setRows([]); }
   }, []);
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, [load]);
@@ -78,7 +79,8 @@ export default function HireDatesPage() {
     const k = q.trim();
     return rows
       .map((r) => ({ ...r, shiftee: shiftee.get(r.userId) ?? null }))
-      .filter((r) => !onlyDiff || (r.portal && r.portal !== r.cubetee) || (r.shiftee && r.shiftee !== r.cubetee) || !r.cubetee)
+      // 「확인 필요한 직원만」 = 직원 화면 숫자 칸 · 탭 건수와 같은 기준(hireNeedsCheck — 퇴사자 · 확정한 사람 · 반영 안 하는 7월 이전 입사자 제외) + 올린 시프티 엑셀과 다른 재직자
+      .filter((r) => !onlyDiff || hireNeedsCheck(r) || (!r.resigned && !!r.shiftee && r.shiftee !== r.cubetee))
       .filter((r) => !k || [r.name, empNoText(r.empNo), r.branch ?? ""].some((v) => v.includes(k)));
   }, [rows, shiftee, onlyDiff, q]);
 
@@ -109,7 +111,7 @@ export default function HireDatesPage() {
       toast.success(`${d.applied}명 변경 · ${d.confirmed ?? 0}명 확정${d.errors?.length ? `, 오류 ${d.errors.length}건` : ""}`);
       for (const w of (d.warnings ?? []) as string[]) toast.warning(w, { duration: 10000 });
       for (const e of ((d.errors ?? []) as string[]).slice(0, 5)) toast.error(e, { duration: 10000 });
-      setPicks({}); load();
+      setPicks({}); load();   // load 가 탭 · 직원 화면 숫자도 새로 채운다(setHireRows)
     } catch { toast.error("네트워크 오류입니다."); }
     finally { setBusy(false); }
   };
@@ -122,9 +124,10 @@ export default function HireDatesPage() {
 
   return (
     <div className="space-y-4">
+      {/* 인사 › 직원 머리 + 알약 탭(R14) */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><CalendarCheck size={22} />입사일 대조표</h1>
-        <p className="text-sm text-gray-500 mt-1">큐브티·포털 명부·시프티 입사일을 나란히 보고 확정값을 골라 반영합니다. 반영하면 감사 기록이 남고 올해 연차 총량이 근속으로 다시 계산됩니다(사용은 그대로).</p>
+        <EmployeeTabs active="hire" />
+        <p className="text-sm text-gray-500">큐브티·포털 명부·시프티 입사일을 나란히 보고 확정값을 골라 반영합니다. 반영하면 감사 기록이 남고 올해 연차 총량이 근속으로 다시 계산됩니다(사용은 그대로).</p>
       </div>
       <Card>
         <CardContent className="pt-5 space-y-3">
@@ -132,10 +135,10 @@ export default function HireDatesPage() {
             <input id="hd-shiftee" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onShiftee(f); e.target.value = ""; }} />
             <Button size="sm" variant="outline" className="gap-1" onClick={() => document.getElementById("hd-shiftee")?.click()} disabled={!rows}><Upload size={13} />시프티 직원 목록 엑셀 붙이기</Button>
             {shifteeName && <span className="text-xs text-gray-500">{shifteeName} · {shiftee.size}명 연결{unmatched ? ` · ${unmatched}행 못 찾음` : ""}</span>}
-            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none ml-2"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />차이 있는 직원만</label>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none ml-2"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />확인 필요한 직원만</label>
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·사번·지점" className="h-8 w-40" />
             <Button size="sm" variant="outline" className="gap-1 ml-auto" onClick={download} disabled={!shown.length}><Download size={13} />엑셀</Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={apply} disabled={busy || (!pending.length && !confirms.length)}>{busy ? "반영 중…" : `변경 ${pending.length} · 확정 ${confirms.length} 반영`}</Button>
+            <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={apply} disabled={busy || (!pending.length && !confirms.length)}>{busy ? "반영 중…" : `변경 ${pending.length} · 확정 ${confirms.length} 반영`}</Button>
           </div>
           {portalError && <p className="text-xs text-amber-600">포털 명부: {portalError} — 포털 칸은 비어 있습니다.</p>}
           <p className="text-xs text-gray-400">포털 칸이 흐린 직원은 7월 이전 입사자라 포털 루트입과일이 입사일이 아닙니다(인사명부 규칙 2026-09-18) — 본부가 확인한 값만 고르세요. 시프티 입사일은 지점 발령일인 경우가 있습니다(요청서 #5). 반영한 값은 「확정」으로 표시되고 포털 동기화가 되돌리자고 제안하지 않습니다(「유지」를 골라 반영해도 확정됩니다).</p>
@@ -149,7 +152,7 @@ export default function HireDatesPage() {
             </tr></thead>
             <tbody>
               {rows === null ? <tr><td colSpan={6} className="py-8 text-center text-gray-400">불러오는 중…</td></tr>
-              : shown.length === 0 ? <tr><td colSpan={6} className="py-8 text-center text-gray-400">{onlyDiff ? "입사일이 다른 직원이 없습니다." : "직원이 없습니다."}</td></tr>
+              : shown.length === 0 ? <tr><td colSpan={6} className="py-8 text-center text-gray-400">{onlyDiff ? "확인이 필요한 직원이 없습니다." : "직원이 없습니다."}</td></tr>
               : shown.map((r) => {
                 const p = picks[r.userId] ?? { pick: "keep" as Pick, manual: "" };
                 const set = (patch: Partial<{ pick: Pick; manual: string }>) => setPicks({ ...picks, [r.userId]: { ...p, ...patch } });
@@ -158,13 +161,13 @@ export default function HireDatesPage() {
                   <tr key={r.userId} className="border-b last:border-0 hover:bg-gray-50/70">
                     <td className="px-3 py-2"><p className="font-medium text-gray-900">{r.name}{r.resigned && <span className="ml-1 text-xs text-gray-400">(퇴사)</span>}</p><p className="text-xs text-gray-400">{empNoText(r.empNo)}</p></td>
                     <td className="px-3 py-2 text-gray-600">{r.branch || "-"}</td>
-                    <td className="px-3 py-2 font-mono">{r.cubetee ?? <span className="text-red-500">없음</span>}{r.confirmed && r.confirmed === r.cubetee && <span className="block text-[11px] text-emerald-600 font-sans" title="본부가 대조표에서 확정한 값 — 포털 동기화가 되돌리자고 제안하지 않음">확정</span>}</td>
+                    <td className="px-3 py-2 font-mono">{r.cubetee ?? <span className="text-red-500">없음</span>}{r.confirmed && r.confirmed === r.cubetee && <span className="block text-[11px] text-[#4f46e5] font-sans" title="본부가 대조표에서 확정한 값 — 포털 동기화가 되돌리자고 제안하지 않음">확정</span>}</td>
                     <td className={`px-3 py-2 font-mono ${r.portalEditable === false ? "text-gray-300" : diffP ? "text-amber-700 font-semibold" : ""}`} title={r.portalEditable === false ? "7월 이전 입사자 — 루트입과일은 입사일이 아님" : r.portalNote ?? ""}>{r.portal ?? "-"}{r.portalNote && <span className="block text-[11px] text-red-500 font-sans">{r.portalNote}</span>}</td>
                     <td className={`px-3 py-2 font-mono ${diffS ? "text-amber-700 font-semibold" : ""}`}>{r.shiftee ?? "-"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         {/* 기본값이 「유지」라 이미 체크된 라디오는 onChange 가 안 뜬다 — onClick 으로 명시 선택을 기록(검증 R1-b) */}
-                        <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "keep"} onChange={() => set({ pick: "keep" })} onClick={() => { if (!picks[r.userId]) set({ pick: "keep" }); }} />유지{picks[r.userId]?.pick === "keep" && r.confirmed !== r.cubetee && <span className="text-emerald-600">(확정)</span>}</label>
+                        <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "keep"} onChange={() => set({ pick: "keep" })} onClick={() => { if (!picks[r.userId]) set({ pick: "keep" }); }} />유지{picks[r.userId]?.pick === "keep" && r.confirmed !== r.cubetee && <span className="text-[#4f46e5]">(확정)</span>}</label>
                         {r.portal && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "portal"} onChange={() => set({ pick: "portal" })} />포털</label>}
                         {r.shiftee && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "shiftee"} onChange={() => set({ pick: "shiftee" })} />시프티</label>}
                         <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "manual"} onChange={() => set({ pick: "manual" })} />직접</label>
