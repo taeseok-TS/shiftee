@@ -7,7 +7,7 @@
 //    병가는 기록 표시용으로 SICK 그대로 두고 종전대로 연차 차감으로 센다(selectable:false — 웹·앱 신청 목록과 서버 신청 검사에서 빠진다).
 //  · 옛 경조 세부 유형(결혼·출산·사망)·특별휴가도 신청 목록에서 빠졌다 — 기록은 그대로 보인다.
 // 단위: FULL = 기간의 근무일 수(근무일정 기준 — 일정 WORK 는 셈·OFF/HOLIDAY 는 안 셈, 일정 없는 날은 평일·비공휴일, lib/leave-days.ts), HALF = 0.5일, QUARTER = 0.25일.
-//  · calendarDays = FULL 인데 주말·공휴일까지 달력 날짜 그대로 센다 — 경조휴가(조사)(2026-10-22 본부 이예지: 조사는 주말 포함, 경사는 주말 미포함).
+//  · calendarDays = FULL 인데 주말·공휴일까지 달력 날짜 그대로 센다 — 경조휴가(조사)·출산휴가(2026-10-22 본부 이예지: 조사는 주말 포함, 경사는 주말 미포함, 출산 90일).
 
 export type LeaveUnit = "FULL" | "HALF" | "QUARTER";
 export type LeaveGroup = "연차휴가" | "보상휴가" | "대체휴일" | "보건휴가" | "경조휴가" | "기타휴가";
@@ -46,7 +46,8 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
   { code: "FAMILY_CELEBRATION", label: "경조휴가(경사)", group: "경조휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "증빙 서류", notice: "결혼·신혼여행·칠순·팔순 등 — 주말·공휴일은 빼고 셉니다. 청첩장 등 증빙 서류를 첨부해 주세요.", selectable: true },
 
   { code: "REWARD", label: "포상휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, notice: "10년 근속 포상 유급 휴가", selectable: true },
-  { code: "MATERNITY", label: "출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, attachRequired: "출산휴가 신청서·증명서", notice: "출산휴가 신청서 및 증명서 첨부가 필요합니다.", selectable: true },
+  // 출산휴가는 주말·공휴일 포함 달력 날짜(90일) — 2026-10-22 본부 이예지(시프티는 평일만 세어 64일로 남았다)
+  { code: "MATERNITY", label: "출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, calendarDays: true, attachRequired: "출산휴가 신청서·증명서", notice: "출산휴가 신청서 및 증명서 첨부가 필요합니다. 주말·공휴일을 포함해 셉니다.", selectable: true },
   { code: "SPOUSE_BIRTH", label: "배우자출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },
   { code: "FAMILY_CARE", label: "가족돌봄휴가", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, notice: "무급휴가입니다(연차는 차감되지 않습니다).", selectable: true },   // 무급(2026-10-16 본부 결정 #220-1, 종전 유급 8h)
   { code: "CIVIL_DEFENSE", label: "민방위 휴가", group: "기타휴가", paidHours: 4, unit: "HALF", deducts: false, attachRequired: "민방위 참여 증빙", notice: "민방위 휴가 참여 증빙서류 제출이 필요합니다.", selectable: true },
