@@ -131,7 +131,7 @@ export default function LeavePage() {
     const t = new URLSearchParams(window.location.search).get("tab");
     Promise.resolve().then(() => { if (isLeaveTab(t)) setTab(t); });
   }, []);
-  /* 「휴가 한눈에」 — 오늘 휴가(승인·오늘 걸친 사람 수) · 이번 달 사용(이번 달 시작·승인 일수 합). 목록 필터와 따로 센다 */
+  /* 「휴가 현황」 — 오늘 휴가(승인·오늘 걸친 사람 수) · 이번 달 사용(이번 달 시작·승인 일수 합). 목록 필터와 따로 센다 */
   const [glance, setGlance] = useState<{ today: number | null; month: number | null }>({ today: null, month: null });
 
   /* 결재라인 설정 */
@@ -624,15 +624,15 @@ export default function LeavePage() {
         </Card>
       )}
 
-      {/* 「휴가 한눈에」 숫자 칸 5(R13 — 대시보드와 같은 칸). 승인 대기 1 이상 빨강, 잔여 마이너스는 누르면 직원별 잔여 */}
+      {/* 「휴가 현황」 숫자 칸 5(R13 — 대시보드와 같은 칸). 승인 대기 1 이상 빨강, 잔여 마이너스는 누르면 직원별 잔여 */}
       {isAdmin && (
-        <Box icon={<CalendarDays />} tone="amb" title="휴가 한눈에" sub={`${CURRENT_YEAR}년`}>
+        <Box icon={<CalendarDays />} tone="amb" title="휴가 현황" sub={`${CURRENT_YEAR}년`}>
           <Tiles cols={5}>
             <Tile label="오늘 휴가" value={glance.today} unit="명" />
             <Tile label="승인 대기" value={mySteps.length} unit="건" note="내 결재 대기" alert onClick={() => { window.location.href = "/admin/leave-approvals?tab=leave"; }} />
-            <Tile label="이번 달 사용" value={glance.month} unit="일" note="이번 달 시작 · 승인" onClick={showThisMonth} />
-            <Tile label="올해 연차 차감" value={yearUsed} unit="일" note="시프티 이관분 포함" />
-            <Tile label="잔여 마이너스" value={minusCount} unit="명" note="확인 필요" hl onClick={() => setTab("balance")} active={tab === "balance"} />
+            <Tile label="이번 달 사용" value={glance.month} unit="일" note="이번 달 시작 기준" onClick={showThisMonth} />
+            <Tile label="올해 연차 차감" value={yearUsed} unit="일" note={inclAdmins ? "시프티 이관분 · 관리자 포함" : "시프티 이관분 포함"} />
+            <Tile label="잔여 마이너스" value={minusCount} unit="명" note={inclAdmins ? "관리자 포함" : "관리자 제외"} hl onClick={() => setTab("balance")} active={tab === "balance"} />
           </Tiles>
         </Box>
       )}

@@ -103,7 +103,7 @@ export async function saveMissingOutRule(rule: MissingOutRule): Promise<void> {
 // 13:00~22:00 일정 직원이 13:20 출근 후 퇴근을 못 찍으면 「23:50 퇴근」이 기록됐다 — 실제로 일하지 않은
 // 밤 시간이 야간근로·49시간 경고·급여 자료에 들어간다(이예지 #219-4).
 //
-// 이제 네 곳(대시보드 누락 보정 api/attendance/[id]/auto-fill, 전일 미마감 api/admin/attendance/unclosed,
+// 이제 세 곳(전일 미마감 api/admin/attendance/unclosed, 대시보드·출퇴근 현황 누락 보정 창의 기본값(dashboard-stats fillAt — 10/22 자동 보정은 없앰),
 // 직원 본인 동의 api/attendance-requests/missed-out(+consent), 화면 안내 문구)이 모두 아래 함수 하나를 쓴다:
 //   1) 그날 근무일정(WORK)의 퇴근 시각(endTime). 퇴근 시각 ≤ 출근 시각인 일정(22:00~06:00 같은 야간)은 다음 날로 본다.
 //   2) 일정이 없거나, 일정 퇴근이 실제 출근보다 앞이면(늦게 와서 일정이 이미 끝난 경우 등) → 출근 + 보정 시간(기본 9시간).

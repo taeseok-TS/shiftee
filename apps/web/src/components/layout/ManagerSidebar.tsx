@@ -50,7 +50,7 @@ export function ManagerSidebar() {
             <span className="font-bold text-white text-lg">M</span>
           </div>
           <div>
-            <p className="font-bold text-white text-lg leading-tight">큐브티</p>
+            <p className="font-bold text-white text-lg leading-tight tracking-[.04em]">CUBETEE</p>
             <p className="text-slate-400 text-xs">원장 관리 시스템</p>
           </div>
         </div>

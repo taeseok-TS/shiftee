@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Chip } from "@/components/kit";
 import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
 import type { AttendanceEditView } from "@/lib/attendance-edit";
 
@@ -61,7 +62,8 @@ const monthRange = (ym: string) => {
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const dow = (ymd: string) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
 
-export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" }) {
+// embedded — 본부 출퇴근 현황 「달력 · 목록」 탭(R10): 머리 · 알약 탭은 화면(AttendanceTabs)이 그리고, 주말 근무 엑셀은 따로 탭이 있어 뺀다
+export default function AttendanceBoard({ scope, embedded = false }: { scope: "admin" | "manager"; embedded?: boolean }) {
   const [ym, setYm] = useState(() => {
     const now = new Date(Date.now() + 9 * 3600_000);   // 이번 달(KST)
     return `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}`;
@@ -183,9 +185,10 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-gray-900 mr-2">{scope === "admin" ? "출퇴근기록" : "팀 출퇴근기록"}</h1>
-        <Button size="sm" variant={view === "calendar" ? "default" : "outline"} onClick={() => setView("calendar")}>달력형</Button>
-        <Button size="sm" variant={view === "list" ? "default" : "outline"} onClick={() => setView("list")}>목록형</Button>
+        {!embedded && <h1 className="text-2xl font-bold text-gray-900 mr-2">{scope === "admin" ? "출퇴근기록" : "팀 출퇴근기록"}</h1>}
+        {/* 달력형 · 목록형 — 검정 채움 버튼 대신 알약(R10) */}
+        <Chip on={view === "calendar"} onClick={() => setView("calendar")}>달력형</Chip>
+        <Chip on={view === "list"} onClick={() => setView("list")}>목록형</Chip>
         <div className="flex-1" />
         <Button size="icon" variant="outline" onClick={() => moveMonth(-1)} aria-label="이전 달"><ChevronLeft size={16} /></Button>
         <span className="font-medium w-24 text-center">{ym.replace("-", "년 ")}월</span>
@@ -216,7 +219,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
         <Button size="sm" variant="outline" onClick={exportExcel}><Download size={14} className="mr-1" />엑셀</Button>
       </div>
 
-      {scope === "admin" && (
+      {scope === "admin" && !embedded && (
         <div className="flex flex-wrap items-center gap-2 text-sm rounded-md border bg-white px-3 py-2">
           <span className="font-medium text-gray-700">주말 근무 엑셀</span>
           <input type="date" className="h-8 rounded border px-2" value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
@@ -235,14 +238,10 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 text-xs">
-        {(Object.keys(KIND_LABEL) as Kind[]).map((k) => (
-          <button key={k} onClick={() => toggleKind(k)}
-            className={`px-2 py-1 rounded border ${kinds.has(k) ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-white text-gray-400"}`}>
-            {KIND_LABEL[k]}
-          </button>
-        ))}
-        <span className="text-gray-400 self-center">— 눌러서 켜고 끄기 · 결근은 근무일정이 있는 지난 날에 기록이 없을 때</span>
+      {/* 범례 = 알약 필터(R10) — 칸 색: 휴가 연파랑 · 누락·결근 연분홍 · 지각 연노랑, 초록 칸 없음 */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(Object.keys(KIND_LABEL) as Kind[]).map((k) => <Chip key={k} on={kinds.has(k)} onClick={() => toggleKind(k)}>{KIND_LABEL[k]}</Chip>)}
+        <span className="text-[12.5px] text-[#596578]">눌러서 켜고 끄기 · 결근은 근무일정이 있는 지난 날에 기록이 없을 때</span>
       </div>
 
       {loading ? (
@@ -279,7 +278,7 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                     {board.over49?.[u.id]?.length ? (
                       <span className="ml-1 text-red-600 font-semibold"
                         title={board.over49[u.id].map((w) => `${w.monday.slice(5).replace("-", "/")} 주 — 일정 ${Math.round(w.sched / 6) / 10}h · 실제 ${Math.round(w.actual / 6) / 10}h`).join(" / ")}>
-                        ⚠49h
+                        49h 초과
                       </span>
                     ) : null}
                   </td>
@@ -288,16 +287,16 @@ export default function AttendanceBoard({ scope }: { scope: "admin" | "manager" 
                     const hol = board.holidays[d] || dow(d) === 0 || dow(d) === 6;
                     const show = c && kindsOf(c).some((k) => kinds.has(k));
                     return (
-                      <td key={d} className={`border px-1 py-1 text-center align-middle ${hol ? "bg-gray-50" : ""} ${show && c?.leave && !c.in ? "bg-green-50" : ""}`}
+                      <td key={d} className={`border px-1 py-1 text-center align-middle ${!show ? (hol ? "bg-gray-50" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? "bg-[#fffbeb]" : c?.leave && !c.in ? "bg-[#eff6ff]" : hol ? "bg-gray-50" : ""}`}
                         title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`, ...(c.edit ? ["— 수정됨", ...c.edit.lines] : [])].filter(Boolean).join("\n") : undefined}>
                         {show && c && (
-                          c.absent ? <span className="text-red-600 font-medium">✕결근</span>
-                          : c.leave && !c.in ? <span className="text-green-700 font-medium">{c.leave}</span>
+                          c.absent ? <span className="text-[#be123c] font-medium">결근</span>
+                          : c.leave && !c.in ? <span className="text-[#1d4ed8] font-medium">{c.leave}</span>
                           : (
                             <>
-                              <div className={c.late ? "text-red-600 font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-amber-600">대기</span> : c.missing ? <span className="text-red-600">누락❗</span> : "")}{c.late ? "❗" : ""}</div>
-                              <div>{c.out ?? (c.missing ? <span className="text-red-600">누락❗</span> : "")}</div>
-                              {c.leave && <div className="text-green-700">{c.leave}</div>}
+                              <div className={c.late ? "text-[#b45309] font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-amber-600">대기</span> : c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
+                              <div>{c.out ?? (c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
+                              {c.leave && <div className="text-[#1d4ed8]">{c.leave}</div>}
                               {c.edit && <div className="text-[10px] text-amber-700">수정됨</div>}
                             </>
                           )

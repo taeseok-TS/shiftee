@@ -1,7 +1,7 @@
 "use client";
 // 관리자 대시보드 — 본부 시안 R9(2026-10-21 「디자인 통일」 기준 화면). 본문은 박스 셋: 오늘 근태 · 결재함 · 공지사항.
 //  · 숫자는 색칠하지 않는다 — 처리할 문제 숫자(지각·미출근·조퇴)만 1 이상일 때 빨강, 「전체 직원」은 연인디고
-//  · 결재함 = 내가 승인·서명할 계약·휴가·근무일정·휴가 취소·출퇴근 요청 + 최근 7일 출퇴근 누락(빨간 줄, 누르면 자동 보정 확인)
+//  · 결재함 = 내가 승인·서명할 계약·휴가·근무일정·휴가 취소·출퇴근 요청 + 최근 7일 출퇴근 누락(빨간 줄, 누르면 사람이 시각을 넣는 보정 창)
 //  · 뺀 것: 「직원 모드로 전환」 버튼(상단 바에 있음) · 관리 알림 · 대기 계약/휴가 카드 · 누락 큰 판 · 빠른 액세스 · 월간 리포트(동작하지 않던 버튼)
 import { isSessionExpired } from "@/lib/session-expiry";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -14,20 +14,10 @@ import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { PageHead, Btn, Box, Tiles, Tile } from "@/components/kit";
 import { useNavCounts } from "@/components/layout/useNavCounts";
+import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
 
 type AttendanceStats = { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
 
-type MissingAttendance = {
-  id: string;
-  name: string;
-  email: string;
-  date: string;
-  type: string;            // 「출근 누락」·「퇴근 누락」 (#219-5)
-  mode?: "in" | "out";     // 빠진 쪽 — 문구 비교 대신 이 값으로 가른다
-  fillAt?: string | null;  // 보정하면 들어갈 시각(서버가 보정 API 와 같은 함수로 계산, #219-4)
-  fillLabel?: string | null;
-  pendingRequest?: boolean; // 직원 출퇴근 요청 결재 대기 — 보정하지 않는다
-};
 
 /** 결재함 한 줄 — 제목 + 회색 한 줄 + 「열기 ›」(R9) */
 type Row = { key: string; title: string; sub: string; href?: string; onOpen?: () => void; alert?: boolean; at: number };
@@ -43,7 +33,6 @@ export default function AdminDashboardPage() {
 
   // 출퇴근 누락 보정 확인
   const [fillTarget, setFillTarget] = useState<MissingAttendance | null>(null);
-  const [filling, setFilling] = useState(false);
 
   // 공지사항 — 제목 · 작성자 · 날짜만, 누르면 펼침(R9)
   const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; pinned: boolean; authorName: string; createdAt: string }[]>([]);
@@ -136,28 +125,12 @@ export default function AdminDashboardPage() {
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // 출퇴근 누락 자동 보정 — 그날 근무일정 시각으로(일정 없으면 보정 시간), 전일 미마감과 같은 기준(2026-10-16 #219-4)
-  async function handleAutoFill() {
-    if (!fillTarget) return;
-    setFilling(true);
-    try {
-      const res = await fetch(`/api/attendance/${fillTarget.id}/auto-fill`, { method: "PATCH" });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error || "보정에 실패했습니다."); return; }
-      toast.success(data.mode === "out" ? "퇴근 시간이 자동 입력되었습니다." : "출근 시간이 자동 입력되었습니다.");
-      setFillTarget(null);
-      fetchDashboardData();
-    } finally {
-      setFilling(false);
-    }
-  }
-
   const a = attendanceStats;
   const toAttendance = () => { window.location.href = "/admin/attendance"; };
   // 결재함 = 출퇴근 누락(빨간 줄, 먼저) + 결재 대기
   const missRows: Row[] = missing.filter((m) => !m.pendingRequest).map((m) => ({
     key: `miss-${m.id}`, title: `${m.name} · ${m.type}`, alert: true, at: 0,
-    sub: `${format(new Date(m.date), "M/d")} 출퇴근 누락 · 누르면 자동 보정`,
+    sub: `${format(new Date(m.date), "M/d")} 출퇴근 누락 · 눌러서 시각 입력`,
     onOpen: () => setFillTarget(m),
   }));
   const shownRows = [...rows.slice(0, 8), ...missRows.slice(0, 5)];   // 결재 줄 8개 + 그 아래 누락 빨간 줄 5개까지
@@ -182,14 +155,14 @@ export default function AdminDashboardPage() {
       </Box>
 
       <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        {/* 결재함 — 내가 승인할 것만, 다 끝나면 「처리할 것이 없어요」 한 줄 */}
+        {/* 결재함 — 내가 승인할 것만, 다 끝나면 「처리할 요청 없음」 한 줄 */}
         <Box icon={<CheckSquare />} tone="rose" title="결재함" count={typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length} className="!mb-0 min-w-0"
           right={<a href="/admin/leave-approvals" className="text-[#4f46e5] hover:underline">전체 보기 ›</a>}>
           <div className="px-6 py-1">
             {loading && !shownRows.length ? (
               <p className="py-5 text-[14px] text-[#596578]">불러오는 중…</p>
             ) : !shownRows.length ? (
-              <p className="py-5 text-[14px] text-[#596578]">처리할 것이 없어요.</p>
+              <p className="py-5 text-[14px] text-[#596578]">처리할 요청 없음</p>
             ) : shownRows.map((r) => {
               const body = (
                 <>
@@ -257,49 +230,8 @@ export default function AdminDashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 출퇴근 누락 자동 보정 확인 다이얼로그 */}
-      <Dialog open={!!fillTarget} onOpenChange={(o) => !o && setFillTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>출퇴근 누락 자동 보정</DialogTitle>
-          </DialogHeader>
-          {fillTarget && (
-            <div className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-3 text-sm">
-                <p className="font-medium">{fillTarget.name}</p>
-                <p className="text-gray-500 text-xs">
-                  {format(new Date(fillTarget.date), "yyyy년 M월 d일")} · {fillTarget.type}
-                </p>
-              </div>
-              {fillTarget.pendingRequest ? (
-                <p className="text-sm text-gray-700">
-                  직원이 올린 출퇴근 요청이 결재 대기 중입니다. 자동 보정 대신 <b>결재 › 결재함</b>에서 처리해 주세요.
-                </p>
-              ) : (
-                <div className="text-sm text-gray-700 space-y-1">
-                  {/* 문구 비교 대신 mode 로 가른다(#219-5 에서 「퇴실 누락」→「퇴근 누락」으로 바뀌어도 어긋나지 않게) */}
-                  <p>
-                    {(fillTarget.mode ?? (fillTarget.type === "출근 누락" ? "in" : "out")) === "out" ? "기록될 퇴근" : "기록될 출근"}:{" "}
-                    <b>{fillTarget.fillAt ? format(new Date(fillTarget.fillAt), "M월 d일 HH:mm") : "-"}</b>
-                  </p>
-                  {fillTarget.fillLabel && <p className="text-xs text-gray-500">기준: {fillTarget.fillLabel}</p>}
-                  <p>이대로 기록하겠습니까?</p>
-                </div>
-              )}
-              <div className="flex gap-2 justify-end">
-                <Btn onClick={() => setFillTarget(null)} disabled={filling}>
-                  {fillTarget.pendingRequest ? "닫기" : "아니오"}
-                </Btn>
-                {!fillTarget.pendingRequest && (
-                  <Btn kind="primary" onClick={handleAutoFill} disabled={filling}>
-                    {filling ? "처리 중..." : "네"}
-                  </Btn>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* 출퇴근 누락 보정 창 — 사람이 시각·사유를 넣고 저장(자동으로 넣지 않는다, components/attendance/MissingFixDialog) */}
+      <MissingFixDialog key={fillTarget?.id ?? "none"} target={fillTarget} onClose={() => setFillTarget(null)} onSaved={() => { setFillTarget(null); fetchDashboardData(); }} />
     </div>
   );
 }

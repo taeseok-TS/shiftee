@@ -40,8 +40,8 @@ export async function GET() {
     // 관리자 결재함(my-approvals)은 **본인 신청을 뺀다.** 대시보드 숫자도 같아야
     // 카드를 눌렀을 때 빈 화면이 되지 않는다.
     await Promise.all([
-      // 인원 — 미출근 계산(#219-3)에 id 가 필요하다
-      prisma.user.findMany({ where: employeeWhere, select: { id: true } }),
+      // 인원 — 미출근 계산(#219-3)에 id, 출퇴근 현황 「지점별 현황」(R10)에 지점이 필요하다
+      prisma.user.findMany({ where: employeeWhere, select: { id: true, branch: true } }),
 
       // 오늘 출퇴근 기록
       prisma.attendance.findMany({
@@ -88,7 +88,7 @@ export async function GET() {
           importBatch: null,   // 시프티에서 옮긴 기록(10/20까지)은 누락 목록에 넣지 않는다
           user: { ...employeeWhere, AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: new Date(today.getTime() - 7 * 86400000) } }] }] },
         },
-        include: { user: { select: { name: true, email: true } } },
+        include: { user: { select: { name: true, email: true, branch: true } } },
         orderBy: { date: "desc" },
         take: 10,
       }),
@@ -100,7 +100,42 @@ export async function GET() {
   const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
   // 미출근 = 오늘 근무일정(WORK)이 있는데 출근 기록이 없고 휴가도 아닌 사람(2026-10-16 #219-3).
   // 종전 「재직자 − 출근 − 휴가」는 일정 없는 날 전원(115명)을 미출근으로 셌다. 원장 대시보드와 같은 함수.
-  const absent = (await absentUserIds(members.map((m) => m.id), today)).size;
+  const absentSet = await absentUserIds(members.map((m) => m.id), today);
+  const absent = absentSet.size;
+
+  // 출퇴근 현황 「지점별 현황」(2026-10-21 본부 시안 R10) — 지점 · 일정 · 출근 · 지각 · 미출근 · 휴가.
+  // 일정 = 오늘 근무일정(WORK)이 있는 사람(미출근과 같은 기준 — lib/attendance-absent), 휴가 = 오늘 걸친 승인 휴가가 있는 사람(사람 수)
+  const memberIds = members.map((m) => m.id);
+  const [schedRows, leaveRows] = memberIds.length
+    ? await Promise.all([
+        prisma.schedule.findMany({
+          where: {
+            date: today, userId: { in: memberIds }, type: "WORK",
+            user: { AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: today } }] }, { OR: [{ hireDate: null }, { hireDate: { lte: today } }] }] },
+          },
+          select: { userId: true },
+        }),
+        prisma.leaveRequest.findMany({ where: { userId: { in: memberIds }, status: "APPROVED", startDate: { lte: today }, endDate: { gte: today } }, select: { userId: true } }),
+      ])
+    : [[], []];
+  const schedSet = new Set(schedRows.map((r) => r.userId));
+  const leaveSet = new Set(leaveRows.map((r) => r.userId));
+  const recByUser = new Map(todayRecords.map((r) => [r.userId, r]));
+  const branchOf = new Map(members.map((m) => [m.id, m.branch || "지점 없음"]));
+  const byBranchMap = new Map<string, { branch: string; scheduled: number; present: number; late: number; absent: number; onLeave: number }>();
+  for (const m of members) {
+    const b = branchOf.get(m.id)!;
+    const row = byBranchMap.get(b) ?? { branch: b, scheduled: 0, present: 0, late: 0, absent: 0, onLeave: 0 };
+    const rec = recByUser.get(m.id);
+    if (schedSet.has(m.id)) row.scheduled++;
+    if (rec?.clockIn) row.present++;
+    if (rec?.status === "LATE") row.late++;
+    if (absentSet.has(m.id)) row.absent++;
+    if (leaveSet.has(m.id)) row.onLeave++;
+    byBranchMap.set(b, row);
+  }
+  const byBranch = [...byBranchMap.values()].sort((a, b) => a.branch.localeCompare(b.branch, "ko"));
+  const scheduled = schedSet.size;
 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
   // 대시보드 결재함 줄 아래 회색 한 줄(2026-10-21 본부 시안 R9) — 「휴가 승인 · 원장 승인 끝」처럼 지금 어디까지 왔는지
@@ -180,6 +215,7 @@ export async function GET() {
       id: r.id,
       name: r.user.name,
       email: r.user.email,
+      branch: r.user.branch,
       date: r.date,
       // 용어는 「출근·퇴근」(2026-10-16 #219-5, 종전 「입실·퇴실 누락」)
       type: !r.clockIn ? "출근 누락" : "퇴근 누락",
@@ -192,7 +228,9 @@ export async function GET() {
 
   return NextResponse.json({
     totalEmployees,
-    attendance: { present, late, absent, earlyLeave, onLeave },
+    // 휴가 = 오늘 걸친 승인 휴가가 있는 **사람 수**(지점별 표와 같은 기준 — 신청 건수(onLeave count)는 반차 두 건이면 2가 됐다, R10 검증)
+    attendance: { present, late, absent, earlyLeave, onLeave: memberIds.length ? leaveSet.size : onLeave, scheduled },
+    byBranch,
     pending: { leave: pendingLeave, schedule: pendingSchedule, leaveCancel: pendingLeaveCancel },
     pendingItems,
     missingAttendance,

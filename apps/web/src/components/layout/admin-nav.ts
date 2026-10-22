@@ -21,10 +21,13 @@ export type NavGroup = { key: string; title: string; icon: Icon; href?: string; 
 export const ADMIN_NAV: NavGroup[] = [
   { key: "dashboard", title: "대시보드", icon: LayoutDashboard, href: "/admin/dashboard", items: [] },
   { key: "attendance", title: "근태", icon: Clock, items: [
-    { href: "/admin/attendance", label: "출퇴근 현황", icon: Clock, tabs: [
-      { href: "/admin/attendance", label: "출퇴근" },
-      { href: "/admin/attendance-board", label: "출퇴근기록 (달력·목록)" },
-    ] },
+    // 탭은 화면 안 알약 한 줄로(R10 — components/attendance/AttendanceTabs)
+    { href: "/admin/attendance", label: "출퇴근 현황", icon: Clock, also: ["/admin/attendance-board"],
+      find: [
+        { href: "/admin/attendance-board", label: "달력 · 목록(출퇴근기록)" },
+        { href: "/admin/attendance?tab=stats", label: "기간별 통계" },
+        { href: "/admin/attendance?tab=weekend", label: "주말 근무 엑셀" },
+      ] },
     { href: "/admin/schedule", label: "근무일정", icon: Calendar, tabs: [
       { href: "/admin/schedule", label: "근무일정" },
       { href: "/admin/schedule-templates", label: "근무일정 템플릿" },

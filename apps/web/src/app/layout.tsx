@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "큐브티",
-  description: "큐브티 HR 관리 시스템",
+  // 브라우저 탭 제목 — 영문 CUBETEE(본부 10/22). 화면이 제목을 주면 「CUBETEE · 결재함」 식으로
+  title: { default: "CUBETEE", template: "CUBETEE · %s" },
+  description: "CUBETEE HR 관리 시스템",
   // 크롬 자동 번역 차단 — 번역기가 텍스트 노드를 <font> 로 바꿔치기해 React 가 목록을 다시 그릴 때
   // "removeChild … not a child" 로 화면이 통째로 죽는다(2026-09-14 디렉터 크롬에서 재현). 한국어 사내 시스템이라 번역이 필요 없다.
   other: { google: "notranslate" },

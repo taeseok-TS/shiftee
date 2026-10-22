@@ -338,7 +338,7 @@ export default function ApprovalsPage() {
           {loading ? (
             <p className="px-6 py-8 text-center text-[14px] text-[#596578]">불러오는 중…</p>
           ) : shown.length === 0 ? (
-            <p className="px-6 py-8 text-center text-[14px] text-[#596578]">{rows.length && (searchName || searchDate) ? "찾는 결과가 없습니다" : "처리할 것이 없어요"}</p>
+            <p className="px-6 py-8 text-center text-[14px] text-[#596578]">{rows.length && (searchName || searchDate) ? "찾는 결과가 없습니다" : "처리할 요청 없음"}</p>
           ) : (<>
             {/* 넓은 화면 = 표 */}
             <div className="hidden overflow-x-auto md:block">

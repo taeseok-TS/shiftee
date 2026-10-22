@@ -4,17 +4,21 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import {
-  Clock, LogIn, LogOut, TrendingUp, TrendingDown, Minus,
+  Clock, TrendingUp, TrendingDown, Minus, MapPin, AlertTriangle, Users,
   ChevronLeft, ChevronRight, RotateCcw, Download, Pencil, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
 import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
 import type { AttendanceEditView } from "@/lib/attendance-edit";
+import AttendanceTabs, { isAttendanceTab, type AttendanceTab } from "@/components/attendance/AttendanceTabs";
+import WeekendExportBox from "@/components/attendance/WeekendExportBox";
+import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
+import { Btn, Box, Tiles, Tile, tableClass, Cell2, StatusPill, type PillTone } from "@/components/kit";
 import {
   format, startOfDay, isSameDay,
   addDays, addWeeks, addMonths, addYears,
@@ -86,7 +90,7 @@ function Trend({ curr, prev }: { curr: number; prev: number }) {
   if (prev === 0) return null;
   const diff = curr - prev;
   const pct = Math.abs(Math.round((diff / prev) * 100));
-  if (diff > 0) return <span className="text-xs text-green-600 flex items-center gap-0.5"><TrendingUp size={11} />+{pct}%</span>;
+  if (diff > 0) return <span className="text-xs text-[#1d4ed8] flex items-center gap-0.5"><TrendingUp size={11} />+{pct}%</span>;
   if (diff < 0) return <span className="text-xs text-red-500 flex items-center gap-0.5"><TrendingDown size={11} />-{pct}%</span>;
   return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />0%</span>;
 }
@@ -128,10 +132,22 @@ function isNextFuture(period: Period, date: Date): boolean {
 }
 
 export default function AttendancePage() {
-  /* 출퇴근 탭 */
-  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
-  const [clockLoading, setClockLoading] = useState(false);
-  const [now, setNow] = useState<Date | null>(null); // 마운트 후에만 채워 hydration mismatch 방지
+  /* 알약 탭(R10) — ?tab=stats|weekend 로 들어오면 그 탭 */
+  const [tab, setTab] = useState<AttendanceTab>("today");
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    Promise.resolve().then(() => { if (isAttendanceTab(t)) setTab(t); });
+  }, []);
+
+  /* 오늘 — 숫자 칸 6 · 지점별 현황 · 확인 필요(대시보드와 같은 숫자: /api/admin/dashboard-stats) */
+  type BranchRow = { branch: string; scheduled: number; present: number; late: number; absent: number; onLeave: number };
+  type DashStats = { attendance?: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number; scheduled?: number }; byBranch?: BranchRow[]; missingAttendance?: MissingAttendance[] };
+  type PendingReq = { id: string; userName?: string; userBranch?: string | null; kindLabel?: string; workDate?: string; status?: string };
+  const [dash, setDash] = useState<DashStats | null>(null);
+  const [pendingReqs, setPendingReqs] = useState<PendingReq[]>([]);
+  const [branchPick, setBranchPick] = useState("");
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  const [fixTarget, setFixTarget] = useState<MissingAttendance | null>(null);
 
   /* 통계 탭 */
   const [period, setPeriod]           = useState<Period>("monthly");
@@ -177,6 +193,7 @@ export default function AttendancePage() {
         + (d.skipped ? ` (직원 요청 결재 대기 ${d.skipped}건은 건너뜀)` : ""));
       await loadUnclosed();
       fetchTodayList();
+      fetchDash();   // 「확인 필요」의 퇴근 누락 줄도(검증 4)
     } catch {
       toast.error("서버에 연결하지 못했습니다.");
     } finally { setClosing(false); }
@@ -326,13 +343,14 @@ export default function AttendancePage() {
     XLSX.writeFile(wb, `출퇴근_${scopeLabel}_${rangeLabel}.xlsx`);
   }
 
-  /* ── 오늘 출퇴근 조회 ── */
-  const fetchToday = useCallback(async () => {
-    const res = await fetch(`/api/attendance?year=${new Date().getFullYear()}&month=${new Date().getMonth() + 1}`);
-    const data = await res.json();
-    const todayStr = format(new Date(), "yyyy-MM-dd");
-    const rec = data.records?.find((r: AttendanceRecord) => r.date?.startsWith(todayStr));
-    setTodayRecord(rec || null);
+  /* ── 오늘 숫자 · 지점별 · 확인 필요 ── */
+  const fetchDash = useCallback(async () => {
+    const [d, r] = await Promise.all([
+      fetch("/api/admin/dashboard-stats", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
+      fetch("/api/attendance-requests?scope=inbox", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null),
+    ]);
+    if (d) { setDash(d); setLoadedAt(new Date()); } else toast.error("오늘 근태를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.");
+    if (r) setPendingReqs(((r.requests || []) as PendingReq[]).filter((x) => !x.status || x.status === "PENDING"));
   }, []);
 
   /* ── 오늘 출퇴근한 직원 목록 조회 ── */
@@ -359,12 +377,12 @@ export default function AttendancePage() {
   }, [period, baseDate, selectedUser, selectedBranch]);
 
   useEffect(() => {
-    fetchToday();
+    fetchDash();
     fetchTodayList();
-    setNow(new Date()); // 마운트 즉시 1회
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    // 5분마다 새로(대시보드와 같은 주기)
+    const timer = setInterval(() => { fetchDash(); fetchTodayList(); }, 5 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [fetchToday, fetchTodayList]);
+  }, [fetchDash, fetchTodayList]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
@@ -431,237 +449,189 @@ export default function AttendancePage() {
   const c = statsData?.current;
   const p = statsData?.previous;
 
-  /* ── 출근/퇴근 ── */
-  async function handleClock(type: "in" | "out") {
-    setClockLoading(true);
-    try {
-      // GPS 좌표 취득 (실패 시 null 전송 → 서버에서 지오펜스 미설정이면 허용)
-      let latitude: number | null = null;
-      let longitude: number | null = null;
-      if (navigator.geolocation) {
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true, timeout: 10000,
-            });
-          });
-          latitude  = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        } catch {
-          // 위치 거부 / 타임아웃 → 서버가 geofence 설정 여부에 따라 판단
-        }
-      }
-
-      const res = await fetch(`/api/attendance/clock-${type}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ latitude, longitude }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.outsideGeofence) {
-          toast.error(`📍 ${data.error}`, { duration: 5000 });
-        } else {
-          toast.error(data.error);
-        }
-        return;
-      }
-      toast.success(type === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
-      fetchToday();
-      fetchTodayList();
-    } finally { setClockLoading(false); }
+  // 머리 「엑셀」 — 오늘 출근한 직원 목록
+  function exportToday() {
+    if (!todayList.length) { toast.error("오늘 출근 기록이 없습니다."); return; }
+    const rows = todayList.map((r) => ({
+      이름: r.name, 지점: r.branch ?? "", 직무: r.jobGroup || r.position || "",
+      출근: r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "", 출근장소: r.clockInPlace ?? "",
+      퇴근: r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "", 퇴근장소: r.clockOut ? r.clockOutPlace ?? "" : "",
+      상태: STATUS_CONFIG[r.status]?.label ?? r.status, "근무시간(분)": r.minutes || 0,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "오늘 출퇴근");
+    XLSX.writeFile(wb, `출퇴근_오늘_${format(new Date(), "yyyyMMdd")}.xlsx`);
   }
 
+  const a = dash?.attendance;
+  const branchRows = (dash?.byBranch || []).filter((b) => !branchPick || b.branch === branchPick);
+  // 확인 필요 — 최근 7일 누락(요청이 결재 대기인 날은 결재함 쪽으로만) · 오늘 지각 · 결재 대기 출퇴근 요청
+  const checkRows = [
+    ...(dash?.missingAttendance || []).filter((m) => !m.pendingRequest).map((m) => ({
+      key: `miss-${m.id}`, title: `${m.name}${m.branch ? ` · ${m.branch}` : ""} · ${format(new Date(m.date), "M/d")} ${m.type}`,
+      sub: "누르면 시각을 넣는 보정 창", red: true, onOpen: () => setFixTarget(m), href: undefined as string | undefined,
+    })),
+    ...todayList.filter((r) => r.status === "LATE").map((r) => ({
+      key: `late-${r.id}`, title: `${r.name}${r.branch ? ` · ${r.branch}` : ""} · 오늘 지각`,
+      sub: `출근 ${r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}`, red: false, onOpen: undefined as (() => void) | undefined, href: "/admin/attendance-board",
+    })),
+    ...pendingReqs.map((r) => ({
+      key: `req-${r.id}`, title: `${r.userName ?? ""}${r.userBranch ? ` · ${r.userBranch}` : ""} · ${r.workDate ? format(new Date(`${r.workDate.slice(0, 10)}T00:00:00`), "M/d") : ""} ${r.kindLabel ?? "출퇴근 요청"}`,
+      sub: "결재 대기 · 결재함에서 처리", red: false, onOpen: undefined as (() => void) | undefined, href: "/admin/leave-approvals?tab=attendance",
+    })),
+  ];
+  const statusTone = (st: string): PillTone => (st === "NORMAL" ? "done" : st === "LATE" || st === "EARLY_LEAVE" ? "wait" : st === "ABSENT" ? "rej" : "gray");
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">출퇴근 관리</h1>
+    <div>
+      {/* 머리 + 알약 탭 한 줄(R10) — 옛 「출퇴근 관리」 · 큰 시계 · 내 출근/퇴근 버튼(관리 화면엔 본인 출퇴근을 두지 않는다, 본부 본인 출퇴근은 직원 모드) */}
+      <AttendanceTabs active={tab} onSelect={(t) => { setTab(t); try { window.history.replaceState(null, "", t === "today" ? "/admin/attendance" : `/admin/attendance?tab=${t}`); } catch { /* 주소만 못 바꿔도 탭은 바뀐다 */ } }} note={tab === "today" && loadedAt ? `${format(loadedAt, "M월 d일 (EEE) HH:mm", { locale: ko })} 기준` : undefined}>
+        {tab === "today" && <Btn onClick={exportToday}><Download size={14} />엑셀</Btn>}
+      </AttendanceTabs>
 
-      {/* 전일 미마감 — 상한을 넘겨 직원이 퇴근을 못 찍은 기록. 관리자가 확인해 마감한다. */}
-      {myRole === "ADMIN" && unclosed.length > 0 && (
-        <Card className="border-amber-300 bg-amber-50">
-          <CardContent className="pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-semibold text-amber-900">
-                  전일 미마감 {unclosed.length}건
-                </p>
-                <p className="text-sm text-amber-800 mt-0.5">
-                  어제 이전에 출근만 있고 퇴근이 없는 기록입니다(퇴근 미기록·상한 초과 등).
-                  확인을 누르면 <b>설정 › 근태 규칙</b>에 따라 퇴근이 기록됩니다(건마다 「기준」 칸에 적힌 시각, 보정 시간 {fallbackHours}시간).
-                  상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 시스템이 넣은 퇴근은 조퇴로 보지 않습니다.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button variant="outline" size="sm" onClick={() => setUnclosedOpen(v => !v)}>
-                  {unclosedOpen ? "접기" : "자세히"}
-                </Button>
-                <Button size="sm" disabled={closing} onClick={() => closeUnclosed()}>
-                  {closing ? "마감 중..." : `${unclosed.length}건 확인`}
-                </Button>
-              </div>
-            </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as AttendanceTab)}>
+        {/* ── 오늘 ── */}
+        <TabsContent value="today">
+          {/* 오늘 근태 — 대시보드와 같은 6칸(R9·R10). 미출근 · 지각 · 조퇴만 1 이상 빨강 */}
+          <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준">
+            <Tiles cols={6}>
+              <Tile label="출근" value={a?.present} unit="명" />
+              <Tile label="지각" value={a?.late} unit="명" alert />
+              <Tile label="미출근" value={a?.absent} unit="명" note="일정 있는데 출근 전" alert />
+              <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert />
+              <Tile label="휴가" value={a?.onLeave} unit="명" />
+              <Tile label="오늘 일정 있는 직원" value={a?.scheduled} unit="명" note="관리자 제외" hl />
+            </Tiles>
+          </Box>
 
-            {unclosedOpen && (
-              <div className="mt-4 overflow-x-auto rounded-lg border border-amber-200 bg-white">
-                <table className="w-full text-sm">
-                  <thead className="border-b text-left text-gray-500 bg-gray-50/60">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">날짜</th>
-                      <th className="px-3 py-2 font-medium">직원</th>
-                      <th className="px-3 py-2 font-medium">출근</th>
-                      <th className="px-3 py-2 font-medium">마감될 퇴근</th>
-                      <th className="px-3 py-2 font-medium">기준</th>
-                      <th className="px-3 py-2 font-medium text-right">처리</th>
-                    </tr>
-                  </thead>
+          <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            {/* 지점별 현황(본부 10/22 — 「지점별 오늘」 대신) */}
+            <Box icon={<MapPin />} tone="sky" title="지점별 현황" className="!mb-0 min-w-0"
+              right={<select value={branchPick} onChange={(e) => setBranchPick(e.target.value)} aria-label="지점" className="rounded-[10px] border border-[#e2e8f0] bg-white px-2.5 py-1.5 text-[13px] font-medium text-[#334155]">
+                <option value="">지점: 전체</option>
+                {(dash?.byBranch || []).map((b) => <option key={b.branch} value={b.branch}>{b.branch}</option>)}
+              </select>}>
+              <div className="overflow-x-auto">
+                <table className={tableClass}>
+                  <thead><tr><th>지점</th><th className="text-right">일정</th><th className="text-right">출근</th><th className="text-right">지각</th><th className="text-right">미출근</th><th className="text-right">휴가</th></tr></thead>
                   <tbody>
-                    {unclosed.map(r => (
-                      <tr key={r.id} className="border-b last:border-b-0">
-                        <td className="px-3 py-2 whitespace-nowrap">{r.date}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          {r.name}{r.branch ? <span className="text-gray-400 text-xs"> · {r.branch}</span> : null}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap tabular-nums">
-                          {format(new Date(r.clockIn), "HH:mm")}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap tabular-nums text-amber-800">
-                          {format(new Date(r.willClockOut), "MM/dd HH:mm")}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{r.basisLabel ?? "-"}</td>
-                        <td className="px-3 py-2 text-right">
-                          {r.pendingRequest ? (
-                            <span className="text-xs text-blue-600 whitespace-nowrap" title="직원이 올린 퇴근 처리·수정 요청을 결재하면 그 시각으로 기록됩니다">요청 결재 대기</span>
-                          ) : (
-                            <Button variant="ghost" size="sm" disabled={closing}
-                                    onClick={() => closeUnclosed([r.id])}>확인</Button>
-                          )}
-                        </td>
+                    {!dash ? (
+                      <tr><td colSpan={6} className="text-center text-[#596578]">불러오는 중…</td></tr>
+                    ) : !branchRows.length ? (
+                      <tr><td colSpan={6} className="text-center text-[#596578]">직원이 없습니다</td></tr>
+                    ) : branchRows.map((b) => (
+                      <tr key={b.branch}>
+                        <td className="font-bold text-[#0f172a]">{b.branch}</td>
+                        <td className="text-right tabular-nums">{b.scheduled}</td>
+                        <td className="text-right tabular-nums">{b.present}</td>
+                        <td className={`text-right tabular-nums ${b.late > 0 ? "font-bold text-[#dc2626]" : ""}`}>{b.late}</td>
+                        <td className={`text-right tabular-nums ${b.absent > 0 ? "font-bold text-[#dc2626]" : ""}`}>{b.absent}</td>
+                        <td className="text-right tabular-nums">{b.onLeave}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Box>
+
+            {/* 확인 필요(본부 10/22 — 「처리할 것」 대신) — 누락 · 지각 · 수정 요청 줄 */}
+            <Box icon={<AlertTriangle />} tone="rose" title="확인 필요" count={checkRows.length} className="!mb-0 min-w-0">
+              <div className="px-6 py-1">
+                {!dash ? (
+                  <p className="py-5 text-[14px] text-[#596578]">불러오는 중…</p>
+                ) : !checkRows.length ? (
+                  <p className="py-5 text-[14px] text-[#596578]">최근 7일 출퇴근 누락 없음<span className="mt-0.5 block text-[12.5px]">누락 · 지각 · 수정 요청이 생기면 여기에 사람 · 날짜가 줄로 나옵니다</span></p>
+                ) : checkRows.map((r) => {
+                  const body = (
+                    <>
+                      <span className="min-w-0 flex-1">
+                        <b className={`block truncate text-[15px] font-bold ${r.red ? "text-[#dc2626]" : "text-[#0f172a]"}`}>{r.title}</b>
+                        <span className="block truncate text-[13px] text-[#596578]">{r.sub}</span>
+                      </span>
+                      <span className="shrink-0 text-[14px] font-semibold text-[#4f46e5]">열기 ›</span>
+                    </>
+                  );
+                  const cls = "flex w-full items-center gap-3 border-t border-[#f1f5f9] py-3.5 text-left first:border-t-0";
+                  return r.onOpen
+                    ? <button key={r.key} type="button" onClick={r.onOpen} className={cls}>{body}</button>
+                    : <a key={r.key} href={r.href} className={cls}>{body}</a>;
+                })}
+              </div>
+            </Box>
+          </div>
+
+          {/* 전일 미마감 — 상한을 넘겨 직원이 퇴근을 못 찍은 기록. 관리자가 확인해 마감한다(2026-09-07) */}
+          {myRole === "ADMIN" && unclosed.length > 0 && (
+            <Box icon={<AlertTriangle />} tone="amb" title="전일 미마감" count={unclosed.length} className="mt-[18px]"
+              sub="어제 이전에 출근만 있고 퇴근이 없는 기록"
+              right={<>
+                <Btn kind="text" onClick={() => setUnclosedOpen(v => !v)}>{unclosedOpen ? "접기" : "자세히"}</Btn>
+                <Btn kind="primary" className="px-3.5 py-1.5" disabled={closing} onClick={() => closeUnclosed()}>{closing ? "마감 중..." : `${unclosed.length}건 확인`}</Btn>
+              </>}>
+              <p className="px-6 py-3 text-[13px] text-[#596578]">
+                확인을 누르면 <b>설정 › 근태 규칙</b>에 따라 퇴근이 기록됩니다(건마다 「기준」 칸에 적힌 시각, 보정 시간 {fallbackHours}시간).
+                상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 시스템이 넣은 퇴근은 조퇴로 보지 않습니다.
+              </p>
+              {unclosedOpen && (
+                <div className="overflow-x-auto border-t border-[#eef1f5]">
+                  <table className={tableClass}>
+                    <thead><tr><th>날짜</th><th>직원</th><th>출근</th><th>마감될 퇴근</th><th>기준</th><th className="text-right">처리</th></tr></thead>
+                    <tbody>
+                      {unclosed.map(r => (
+                        <tr key={r.id}>
+                          <td className="whitespace-nowrap">{r.date}</td>
+                          <td className="whitespace-nowrap"><Cell2 main={r.name} sub={r.branch ?? undefined} /></td>
+                          <td className="whitespace-nowrap tabular-nums">{format(new Date(r.clockIn), "HH:mm")}</td>
+                          <td className="whitespace-nowrap tabular-nums text-[#b45309]">{format(new Date(r.willClockOut), "MM/dd HH:mm")}</td>
+                          <td className="text-[12.5px] text-[#596578]">{r.basisLabel ?? "-"}</td>
+                          <td className="text-right">
+                            {r.pendingRequest
+                              ? <span className="whitespace-nowrap text-[12.5px] font-semibold text-[#b45309]" title="직원이 올린 퇴근 처리·수정 요청을 결재하면 그 시각으로 기록됩니다">요청 결재 대기</span>
+                              : <Btn kind="text" disabled={closing} onClick={() => closeUnclosed([r.id])}>확인</Btn>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Box>
+          )}
+
+          {/* 오늘 출근한 직원 */}
+          <Box icon={<Users />} tone="ind" title="오늘 출근한 직원" sub={`${todayList.length}명`} className="mt-[18px]">
+            {todayList.length === 0 ? (
+              <p className="px-6 py-10 text-center text-[14px] text-[#596578]">아직 오늘 출근한 직원이 없습니다.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className={tableClass}>
+                  <thead><tr><th>직원</th><th>출근</th><th>출근 장소</th><th>퇴근</th><th>퇴근 장소</th><th>상태</th><th className="text-right">근무시간</th></tr></thead>
+                  <tbody>
+                    {todayList.map((r) => (
+                      <tr key={r.id}>
+                        <td><Cell2 main={r.name} sub={[r.branch, r.jobGroup || r.position].filter(Boolean).join(" · ") || undefined} /></td>
+                        <td className="tabular-nums">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
+                        <td className={`text-[12.5px] ${placeCls(r.clockInPlace)}`}>{r.clockInPlace || "-"}</td>
+                        <td className="tabular-nums">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : <span className="text-[#596578]">근무 중</span>}</td>
+                        <td className={`text-[12.5px] ${placeCls(r.clockOutPlace)}`}>{r.clockOut ? r.clockOutPlace || "-" : ""}</td>
+                        <td><StatusPill tone={statusTone(r.status)}>{STATUS_CONFIG[r.status]?.label ?? r.status}</StatusPill></td>
+                        <td className="text-right tabular-nums">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </Box>
+        </TabsContent>
 
-      <Tabs defaultValue="today">
-        <TabsList>
-          <TabsTrigger value="today">오늘 출퇴근</TabsTrigger>
-          <TabsTrigger value="stats">기간별 통계</TabsTrigger>
-        </TabsList>
-
-        {/* ── 오늘 출퇴근 탭 ── */}
-        <TabsContent value="today" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-6">
-                {/* 시계 */}
-                <div className="text-center">
-                  <p className="text-5xl font-mono font-bold text-gray-900">{now ? format(now, "HH:mm:ss") : "--:--:--"}</p>
-                  <p className="text-gray-500 mt-1 text-sm">{now ? format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko }) : ""}</p>
-                </div>
-                {/* 현황 */}
-                <div className="flex-1 grid grid-cols-2 gap-4 min-w-[220px]">
-                  <div className="bg-green-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-green-700 font-medium whitespace-nowrap">출근 시각</p>
-                    <p className="text-3xl font-bold text-green-800 mt-1">
-                      {todayRecord?.clockIn ? format(new Date(todayRecord.clockIn), "HH:mm") : "--:--"}
-                    </p>
-                  </div>
-                  <div className="bg-blue-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-blue-700 font-medium whitespace-nowrap">퇴근 시각</p>
-                    <p className="text-3xl font-bold text-blue-800 mt-1">
-                      {todayRecord?.clockOut ? format(new Date(todayRecord.clockOut), "HH:mm") : "--:--"}
-                    </p>
-                  </div>
-                </div>
-                {/* 버튼 */}
-                <div className="flex gap-3">
-                  <Button onClick={() => handleClock("in")} disabled={clockLoading || !!todayRecord?.clockIn}
-                    className="bg-green-600 hover:bg-green-700 gap-2" size="lg">
-                    <LogIn size={18} />출근
-                  </Button>
-                  <Button onClick={() => handleClock("out")}
-                    disabled={clockLoading || !todayRecord?.clockIn || !!todayRecord?.clockOut}
-                    variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50 gap-2" size="lg">
-                    <LogOut size={18} />퇴근
-                  </Button>
-                </div>
-              </div>
-              {todayRecord && (
-                <div className="mt-4 pt-4 border-t flex items-center gap-3">
-                  <Badge variant={STATUS_CONFIG[todayRecord.status]?.variant || "outline"}>
-                    {STATUS_CONFIG[todayRecord.status]?.label || todayRecord.status}
-                  </Badge>
-                  {todayRecord.minutes > 0 && (
-                    <span className="text-sm text-gray-600">오늘 근무시간: <strong>{fmtMin(todayRecord.minutes)}</strong></span>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* 오늘 출퇴근한 직원 목록 (관리자/원장) */}
-          {myRole !== "EMPLOYEE" && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  오늘 출근한 직원
-                  <Badge variant="secondary">{todayList.length}명</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {todayList.length === 0 ? (
-                  <div className="py-10 text-center text-gray-400 text-sm">아직 오늘 출근한 직원이 없습니다.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b text-left text-gray-500">
-                        <tr>
-                          <th className="pb-2 font-medium">직원</th>
-                          <th className="pb-2 font-medium">지점</th>
-                          <th className="pb-2 font-medium">출근</th>
-                          <th className="pb-2 font-medium">출근 장소</th>
-                          <th className="pb-2 font-medium">퇴근</th>
-                          <th className="pb-2 font-medium">퇴근 장소</th>
-                          <th className="pb-2 font-medium">상태</th>
-                          <th className="pb-2 font-medium text-right">근무시간</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {todayList.map((r) => {
-                          const s = STATUS_CONFIG[r.status] || { label: r.status, variant: "outline" as const };
-                          return (
-                            <tr key={r.id} className="hover:bg-gray-50">
-                              <td className="py-2.5">
-                                <span className="font-medium">{r.name}</span>
-                                {(r.jobGroup || r.position) && (
-                                  <span className="text-xs text-gray-400 ml-2">{r.jobGroup || r.position}</span>
-                                )}
-                              </td>
-                              <td className="py-2.5 text-gray-500">{r.branch || "-"}</td>
-                              <td className="py-2.5">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
-                              <td className={`py-2.5 text-xs ${placeCls(r.clockInPlace)}`}>{r.clockInPlace || "-"}</td>
-                              <td className="py-2.5">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : <span className="text-gray-400">근무 중</span>}</td>
-                              <td className={`py-2.5 text-xs ${placeCls(r.clockOutPlace)}`}>{r.clockOut ? r.clockOutPlace || "-" : ""}</td>
-                              <td className="py-2.5"><Badge variant={s.variant}>{s.label}</Badge></td>
-                              <td className="py-2.5 text-right">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+        {/* ── 주말 근무 엑셀(R10 알약 탭) ── */}
+        <TabsContent value="weekend">
+          <WeekendExportBox />
         </TabsContent>
 
         {/* ── 기간별 통계 탭 ── */}
-        <TabsContent value="stats" className="space-y-4 mt-4">
+        <TabsContent value="stats" className="space-y-4">
 
           {/* ── 필터 행 1: 기간 단위 + 직원 선택 ── */}
           <div className="flex flex-wrap items-center gap-3">
@@ -672,7 +642,7 @@ export default function AttendancePage() {
                   key={value}
                   onClick={() => setPeriod(value)}
                   className={`px-4 py-2 text-sm font-medium transition-colors border-r last:border-r-0
-                    ${period === value ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
+                    ${period === value ? "bg-[#4f46e5] text-white" : "text-gray-600 hover:bg-gray-50"}`}
                 >
                   {label}
                 </button>
@@ -731,7 +701,7 @@ export default function AttendancePage() {
 
             {/* 현재 조회 대상 표시 */}
             {selectedBranch && (
-              <span className="text-sm text-blue-600 font-medium">📍 {selectedBranch} 지점 전체 통계</span>
+              <span className="text-sm text-[#4f46e5] font-medium">{selectedBranch} 지점 전체 통계</span>
             )}
           </div>
 
@@ -820,7 +790,7 @@ export default function AttendancePage() {
                   {
                     label: "출근율",
                     val: c.attendRate != null ? `${c.attendRate}%` : "-",
-                    color: "text-green-600", bg: "bg-green-50", border: "border-green-200",
+                    color: "text-[#1d4ed8]", bg: "bg-[#eff6ff]", border: "border-[#bfdbfe]",
                     hint: c.requiredDays != null ? `출근 ${c.attendDays ?? 0}일 ÷ 근무해야 할 날 ${c.requiredDays}일` : undefined,
                   },
                 ].map(({ label, val, color, bg, border, hint }) => (
@@ -900,12 +870,12 @@ export default function AttendancePage() {
                   {multiPerson && (
                     <div className="flex flex-wrap gap-1.5 pt-2">
                       <button onClick={() => setEmpFilter("all")}
-                        className={`text-xs rounded-full px-3 py-1 border ${empFilter === "all" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+                        className={`text-xs rounded-full px-3 py-1 border ${empFilter === "all" ? "bg-[#4f46e5] text-white border-[#4f46e5]" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
                         전체 {recordNames.length}명
                       </button>
                       {recordNames.map((n) => (
                         <button key={n} onClick={() => setEmpFilter(n)}
-                          className={`text-xs rounded-full px-3 py-1 border ${empFilter === n ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
+                          className={`text-xs rounded-full px-3 py-1 border ${empFilter === n ? "bg-[#4f46e5] text-white border-[#4f46e5]" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
                           {n}
                         </button>
                       ))}
@@ -952,7 +922,7 @@ export default function AttendancePage() {
                               <td className={`py-3 text-xs ${placeCls(r.clockOutPlace)}`}>{r.clockOutPlace || "-"}</td>
                               <td className="py-3 font-medium">{r.minutes > 0 ? fmtMin(r.minutes) : "-"}</td>
                               <td className="py-3">
-                                <Badge variant={s.variant}>{s.label}</Badge>
+                                <StatusPill tone={statusTone(r.status)}>{s.label}</StatusPill>
                                 {/* 0분 기록(출근 = 퇴근) — 출근일에 넣지 않고 따로 표시(#219-6) */}
                                 {r.clockIn && r.clockOut && r.minutes === 0 && (
                                   <Badge variant="outline" className="ml-1 border-amber-300 text-amber-700">확인 필요</Badge>
@@ -992,6 +962,9 @@ export default function AttendancePage() {
         </TabsContent>
       </Tabs>
 
+      {/* 출퇴근 누락 보정 — 사람이 시각·사유를 넣고 저장(대시보드와 같은 부품, components/attendance/MissingFixDialog) */}
+      <MissingFixDialog key={fixTarget?.id ?? "none"} target={fixTarget} onClose={() => setFixTarget(null)} onSaved={() => { setFixTarget(null); fetchDash(); fetchTodayList(); loadUnclosed(); }} />
+
       {/* 출퇴근 기록 수정 (관리자) */}
       <Dialog open={!!editRec} onOpenChange={(v) => { if (!v) setEditRec(null); }}>
         <DialogContent className="max-w-sm">
@@ -1023,7 +996,7 @@ export default function AttendancePage() {
               <p className="text-xs text-gray-400">지각/조퇴 상태는 자동으로 다시 계산됩니다. 원래 시각·사유·수정자는 수정 이력에 남아 목록과 엑셀에 「수정됨」으로 보입니다.</p>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditRec(null)}>취소</Button>
-                <Button size="sm" onClick={saveEditRec} disabled={editSaving}>{editSaving ? "저장 중…" : "저장"}</Button>
+                <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={saveEditRec} disabled={editSaving}>{editSaving ? "저장 중…" : "저장"}</Button>
               </div>
             </div>
           )}
@@ -1091,7 +1064,7 @@ export default function AttendancePage() {
             <p className="text-xs text-gray-400">수동 생성 기록은 GPS 좌표 없이 저장되며, 「원래 기록 없음」으로 수정 이력에 남습니다.</p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>취소</Button>
-              <Button size="sm" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : addForm.userIds.length > 1 ? `${addForm.userIds.length - addForm.userIds.filter(existsOn).length}명 추가` : "추가"}</Button>
+              <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={saveAddRec} disabled={editSaving}>{editSaving ? "저장 중…" : addForm.userIds.length > 1 ? `${addForm.userIds.length - addForm.userIds.filter(existsOn).length}명 추가` : "추가"}</Button>
             </div>
           </div>
         </DialogContent>

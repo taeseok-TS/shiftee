@@ -8,7 +8,7 @@ import { KIND_LABEL, type RequestKind } from "@/lib/attendance-request";
 // 기록을 바꾸는 경로마다 **같은 트랜잭션 안에서** recordAttendanceEdit 를 부른다(이력 없이 기록만 바뀌는 일이 없게).
 //  · 관리자 수정 PATCH /api/attendance/[id]              → ADMIN_EDIT (사유 = 관리자가 적은 사유)
 //  · 관리자 기록 추가 POST /api/attendance                 → ADMIN_CREATE (원래 기록 없음)
-//  · 누락 자동 보정 PATCH /api/attendance/[id]/auto-fill   → AUTO_FILL
+//  · (옛) 누락 자동 보정 auto-fill → AUTO_FILL — 10/22 본부 요청으로 없앰, 지금은 보정 창에서 사람이 넣는다(ADMIN_EDIT)
 //  · 전일 미마감 마감 POST /api/admin/attendance/unclosed  → AUTO_CLOSE
 //  · 퇴근 누락 본인 동의 POST /api/attendance-requests/missed-out/consent → SELF_CONSENT
 //  · 출퇴근 요청 승인 POST /api/attendance-requests/[id]    → REQUEST_<종류> (사유 = 직원이 쓴 사유, 승인자 따로)

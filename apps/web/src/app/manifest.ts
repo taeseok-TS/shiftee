@@ -8,9 +8,10 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     // 앱 식별값을 고정한다 — 없으면 start_url 로 정해져, 나중에 시작 화면을 바꾸면 PC 에 두 번 설치된다
     id: "/",
-    name: "큐브티",
-    short_name: "큐브티",
-    description: "큐브티 · 큐브티워크",
+    // 영문 표기(본부 10/22) — 설치한 앱 창 제목줄·작업 표시줄·휴대폰 홈 화면 이름. 「큐브티워크」는 한글 그대로
+    name: "CUBETEE",
+    short_name: "CUBETEE",
+    description: "CUBETEE · 큐브티워크",
     // 켜자마자 메시지부터 — 공지·채팅을 놓치지 않는 것이 목적이다
     start_url: "/work/chat",
     scope: "/",

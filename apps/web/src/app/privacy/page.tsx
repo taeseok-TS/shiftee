@@ -1,5 +1,5 @@
 // 개인정보처리방침 — 앱 스토어(App Store·Google Play) 등록 필수 공개 페이지 (로그인 불필요)
-export const metadata = { title: "개인정보처리방침 | 큐브티" };
+export const metadata = { title: "개인정보처리방침" };   // 탭 제목은 「CUBETEE · 개인정보처리방침」(app/layout title.template)
 
 export default function PrivacyPage() {
   return (

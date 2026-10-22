@@ -22,11 +22,21 @@ export async function GET() {
   const branchWhere =
     session.role === "MANAGER" ? { branch: { in: myBranches } } : {};
 
+  // 본부는 대시보드·출퇴근 현황 숫자 칸과 같은 범위(R10 검증 2) — 통계 제외 지점(테스트·본부)·휴지통·퇴사일 지난 사람은 뺀다
+  const excludedBranches = session.role === "ADMIN"
+    ? (await prisma.branch.findMany({ where: { countInStats: false }, select: { name: true } })).map((b) => b.name)
+    : [];
   const records = await prisma.attendance.findMany({
     where: {
       date: today,
       clockIn: { not: null }, // 출근 찍은 직원만
-      user: { role: { not: "ADMIN" }, isActive: true, ...branchWhere },
+      user: {
+        role: { not: "ADMIN" }, isActive: true, deletedAt: null, ...branchWhere,
+        AND: [
+          { OR: [{ resignDate: null }, { resignDate: { gte: today } }] },
+          ...(excludedBranches.length ? [{ OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }] : []),
+        ],
+      },
     },
     include: {
       user: { select: { id: true, name: true, branch: true, jobGroup: true, position: true } },
