@@ -43,6 +43,43 @@ export async function getMySchedulesRange(start: string, end: string): Promise<M
   return (res.data?.schedules as MyShift[]) || [];
 }
 
+/** 지점 하루 현황(원장 · 관리자, 2026-10-23 조혜련 원장 문의) — 웹 원장 근무일정 · 대시보드와 같은 GET /api/schedule/day.
+ *  원장은 담당 지점 직원, 관리자는 전체. 「원장 출퇴근 열람」이 꺼지면 attendanceHidden=true 로 출퇴근 시각 · 상태 없이 일정 · 휴가만 온다 */
+export type BranchDayRow = {
+  id: string; name: string; position: string; branch: string | null;
+  scheduleType: string | null; startTime: string | null; endTime: string | null; note: string | null;
+  clockIn: string | null; clockOut: string | null; leaveType: string | null;
+  status: string;   // LEAVE · NO_SCHEDULE · OFF · HOLIDAY · WORK(열람 꺼짐) · NORMAL · LATE · EARLY_LEAVE · ABSENT · NOT_YET
+};
+export type BranchDay = { date: string; employees: BranchDayRow[]; attendanceHidden: boolean };
+export async function getBranchDay(date: string): Promise<BranchDay> {
+  const res = await axios.get(`${API_URL}/schedule/day`, { params: { date }, headers: await authHeaders() });
+  // 근무 유형은 DB 값(WORK · OFF · HOLIDAY) 그대로 온다 — 앱의 다른 일정(/schedule 은 소문자)과 맞춰 소문자로(검증 1)
+  const employees = ((res.data?.employees as BranchDayRow[]) || []).map((r) => ({ ...r, scheduleType: r.scheduleType ? r.scheduleType.toLowerCase() : null }));
+  return { date, employees, attendanceHidden: !!res.data?.attendanceHidden };
+}
+
+export { isPartialLeave } from "./leaveLabels";   // 반나절 휴가(유형 단위 기준 — 코드 글자로 추측하지 않는다, 검증 N2)
+
+/** 한 사람의 지금 상태 — 홈 「현재 근무 상황」과 지점 일정 목록이 같은 말을 쓴다 */
+export type NowKind = "working" | "done" | "notYet" | "missing" | "absent" | "leave" | "off" | "none" | "planned" | "noRecord" | "unclosed" | "worked";   // 뒤 셋은 지난날 보기용
+/** nowHHmm(오늘 볼 때 지금 시각) — 근무 시작 시각이 지났는데 출근 기록이 없으면 「미출근」(시프티 앱과 같게, 검증 5) */
+export function nowKindOf(r: BranchDayRow, nowHHmm?: string): NowKind {
+  // 휴가라도 출근을 찍었으면(반차 뒤 출근) 지금은 근무 중 · 퇴근으로 센다(검증 6)
+  if (r.status === "LEAVE") return r.clockIn ? (r.clockOut ? "done" : "working") : "leave";
+  if (r.status === "NO_SCHEDULE") return r.clockIn ? (r.clockOut ? "done" : "working") : "none";   // 일정 없이 찍은 사람도 근무 중으로
+  if (r.status === "OFF" || r.status === "HOLIDAY") return "off";
+  if (r.status === "WORK") return "planned";
+  if (r.status === "ABSENT") return "absent";
+  if (r.status === "NOT_YET") return nowHHmm && r.startTime && nowHHmm > r.startTime ? "missing" : "notYet";
+  if (r.clockIn && !r.clockOut) return "working";
+  if (r.clockOut) return "done";
+  return "notYet";
+}
+export const NOW_LABEL: Record<NowKind, string> = {
+  working: "근무 중", done: "퇴근", notYet: "출근 전", missing: "미출근", absent: "결근", leave: "휴가", off: "휴무", none: "일정 없음", planned: "근무 예정", noRecord: "기록 없음", unclosed: "퇴근 미기록", worked: "근무",
+};
+
 /** 달력 보기 단위(월·주·일) — 사람마다 서버 저장, 웹 「근무일정」과 같은 값을 본다(#81) */
 export type CalendarUnit = "month" | "week" | "day";
 export async function getMyCalendarUnit(): Promise<CalendarUnit> {

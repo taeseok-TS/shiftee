@@ -5,12 +5,20 @@ export const LEAVE_LABELS: Record<string, string> = {
   COMP_LEAVE: "보상휴가", COMP_LEAVE_HALF: "보상휴가(반차)",
   COMPENSATORY: "대체휴일", COMPENSATORY_HALF: "대체휴일(반차)",
   PRENATAL_CHECKUP: "태아검진휴가", FAMILY_CONDOLENCE: "경조휴가(조사)", FAMILY_CELEBRATION: "경조휴가(경사)", FAMILY_EVENT: "경조휴가",
-  REWARD: "포상휴가", MATERNITY: "출산휴가", SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가",
+  REWARD: "포상휴가", MATERNITY: "출산휴가", PARENTAL: "육아휴직", SPOUSE_BIRTH: "배우자출산휴가", FAMILY_CARE: "가족돌봄휴가",
   CIVIL_DEFENSE: "민방위 휴가", RESERVE_FORCES: "예비군 휴가", OTHER_PAID: "기타휴가(유급)", OTHER_UNPAID: "기타휴가(무급)",
   // 옛 유형(기록 표시용)
   SICK: "병가", SPECIAL: "특별휴가", FAMILY_MARRIAGE: "경조-결혼", FAMILY_BIRTH: "경조-출산", FAMILY_BEREAVEMENT: "경조-사망(조사)",
   PERSONAL: "개인휴가", BEREAVEMENT: "경조휴가",
 };
+
+// 휴가 단위(서버 leave-catalog unit) — FULL 이 아닌 유형(반차 · 반반차 · 태아검진 · 민방위 등)은 그날 일부만 쉰다(지점 일정 표시용, 10/23).
+// 기본 유형은 이 표, 본부가 만든 유형은 syncLeaveLabels 가 서버 기준표로 채운다
+export const LEAVE_UNITS: Record<string, string> = {
+  HALF_AM: "HALF", HALF_PM: "HALF", QUARTER_AM: "QUARTER", QUARTER_PM: "QUARTER",
+  COMP_LEAVE_HALF: "HALF", COMPENSATORY_HALF: "HALF", PRENATAL_CHECKUP: "HALF", CIVIL_DEFENSE: "HALF",
+};
+export const isPartialLeave = (t: string | null | undefined) => !!t && !!LEAVE_UNITS[t] && LEAVE_UNITS[t] !== "FULL";
 
 // 서버 기준표(기본 + 본부가 만든 유형, 2026-10-12 #216-1)로 이름표를 채운다 — 위 객체를 **그 자리에서** 덮으므로
 // `LEAVE_LABELS` 를 그대로 참조하는 화면(홈·결재·일정)이 다음 렌더부터 새 이름을 쓴다. 실패하면 기본 이름표 그대로
@@ -21,5 +29,6 @@ export async function syncLeaveLabels(force = false): Promise<void> {
     const { getLeaveTypes } = await import("./approvals");
     const d = await getLeaveTypes();
     if (d?.labels) { Object.assign(LEAVE_LABELS, d.labels); synced = Date.now(); }
+    for (const t of d?.all || []) if (t?.code && t.unit) LEAVE_UNITS[t.code] = t.unit;
   } catch { /* 무시 */ }
 }

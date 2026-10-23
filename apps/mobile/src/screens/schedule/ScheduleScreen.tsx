@@ -19,6 +19,8 @@ import * as api from "../../services/api";
 import * as storage from "../../services/storage";
 import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
+import BranchDayView from "../../components/BranchDayView";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 /* 근무 시간 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10, 웹 신청과 같은 목록) */
 
@@ -94,6 +96,19 @@ export default function ScheduleScreen() {
   const [myId, setMyId] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // 내 일정 / 지점 일정(원장 · 관리자, 2026-10-23 조혜련 원장 문의) — 홈 「현재 근무 상황」 › 지점 일정 으로도 들어온다
+  const route = useRoute<any>();
+  const navigation = useNavigation<any>();
+  const [role, setRole] = useState<string | null>(null);
+  const [view, setView] = useState<"mine" | "branch">("mine");
+  useEffect(() => { storage.getUser().then((u) => setRole(u?.role || "")).catch(() => setRole("")); }, []);
+  const wantBranch = route.params?.view === "branch";
+  useEffect(() => {
+    if (!wantBranch) return;
+    setView("branch");
+    navigation.setParams({ view: undefined });   // 한 번만 — 다음에 탭을 누르면 마지막에 본 쪽 그대로
+  }, [wantBranch, navigation]);
+  const staff = role === "ADMIN" || role === "MANAGER";
 
   // 근무일정 신청 모달
   const [reqOpen, setReqOpen] = useState(false);
@@ -400,11 +415,31 @@ export default function ScheduleScreen() {
     return time ? `${range} ${time}` : range;
   };
 
+  const viewBar = staff ? (
+    <View style={styles.viewBar}>
+      {([["mine", "내 일정"], ["branch", role === "ADMIN" ? "전체 지점 일정" : "지점 일정"]] as const).map(([v, label]) => (
+        <TouchableOpacity key={v} style={[styles.viewTab, view === v && styles.viewTabOn]} onPress={() => setView(v)} activeOpacity={0.7}>
+          <Text style={[styles.viewTabText, view === v && styles.viewTabTextOn]}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  ) : null;
+  if (role === null && (wantBranch || view === "branch")) return <View style={styles.container} />;
+  if (staff && view === "branch") {
+    return (
+      <View style={styles.container}>
+        {viewBar}
+        <BranchDayView showBranch={role === "ADMIN"} />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
+      {viewBar}
       {/* 월 이동 헤더 */}
       <View style={styles.monthBar}>
         <TouchableOpacity onPress={() => move(-1)} style={styles.monthBtn}>
@@ -743,6 +778,11 @@ export default function ScheduleScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },
+  viewBar: { flexDirection: "row", margin: 12, marginBottom: 0, backgroundColor: "#e5e7eb", borderRadius: 10, padding: 3 },
+  viewTab: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 8 },
+  viewTabOn: { backgroundColor: "#fff" },
+  viewTabText: { fontSize: 14, color: "#6b7280", fontWeight: "500" },
+  viewTabTextOn: { color: "#4f46e5", fontWeight: "700" },
   center: { padding: 40, alignItems: "center" },
   monthBar: {
     flexDirection: "row",

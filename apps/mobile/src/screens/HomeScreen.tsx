@@ -23,6 +23,7 @@ import { getTodayStatus, TodayStatus } from "../services/attendance";
 import { canApproveNow, myInboxCount } from "../services/approvals";
 import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
+import BranchNowCard from "../components/BranchNowCard";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
 const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
@@ -47,6 +48,9 @@ export default function HomeScreen() {
   // 결재할 수 있는 사람(원장·본부·원장대행)은 「대기 결재」 = **내가 결재할 건수**, 누르면 결재 화면(2026-10-07 #14·#17)
   // null 이면 결재자가 아니다 — 종전처럼 내 신청 중 건수를 보여 준다
   const [approver, setApprover] = useState(false);
+  // 원장 · 관리자 = 홈 「현재 근무 상황」(원장대행 직원은 결재자여도 지점 현황 권한이 없다 — 역할로만)
+  const [staff, setStaff] = useState<"" | "ADMIN" | "MANAGER">("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [inbox, setInbox] = useState<number | null>(null);   // 결재할 건수(모르면 null → 「…」)
 
   const load = useCallback(async () => {
@@ -89,7 +93,7 @@ export default function HomeScreen() {
   }, []);
   // 원장·본부는 저장된 역할로 바로 결재자 모드 — 결재함 응답을 기다리는 동안 「내 신청」 카드가 잠깐 보이지 않게
   useEffect(() => {
-    storage.getUser().then((u) => { if (u?.role === "ADMIN" || u?.role === "MANAGER") setApprover(true); }).catch(() => {});
+    storage.getUser().then((u) => { if (u?.role === "ADMIN" || u?.role === "MANAGER") { setApprover(true); setStaff(u.role); } }).catch(() => {});
   }, []);
   useFocusEffect(refreshInbox);
 
@@ -97,6 +101,7 @@ export default function HomeScreen() {
     setRefreshing(true);
     load();
     refreshInbox();
+    setReloadKey((k) => k + 1);
   }, [load, refreshInbox]);
 
   // 대기 결재(내 신청 중) 월·유형별 집계
@@ -200,6 +205,8 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {!!staff && <BranchNowCard reloadKey={reloadKey} scheduleLabel={staff === "ADMIN" ? "전체 지점 일정" : "지점 일정"} onOpenSchedule={() => navigation.navigate("Schedule", { view: "branch" })} />}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>최근 공지</Text>

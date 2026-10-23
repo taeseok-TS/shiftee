@@ -241,9 +241,9 @@ export function stepLabel(s: InboxStepInfo): string {
 
 /** 휴가 유형 기준표(2026-10-07 QA #30) — 서버 lib/leave-catalog 가 원천. 신청 목록(types)과 전 유형 이름(labels) */
 export type LeaveTypeItem = { code: string; label: string; group: string; unit: "FULL" | "HALF" | "QUARTER"; paidHours: number; deducts: boolean; attachRequired: string | null; notice: string | null };
-export async function getLeaveTypes(): Promise<{ types: LeaveTypeItem[]; labels: Record<string, string> }> {
+export async function getLeaveTypes(): Promise<{ types: LeaveTypeItem[]; labels: Record<string, string>; all: { code: string; unit: string }[] }> {
   const res = await axios.get(`${API_URL}/leave/types`, { headers: await authHeaders() });
-  return { types: res.data?.types ?? [], labels: res.data?.labels ?? {} };
+  return { types: res.data?.types ?? [], labels: res.data?.labels ?? {}, all: res.data?.all ?? [] };
 }
 
 // 요청 한눈에(#51 #43 #76) — 서버 lib/request-feed 와 같은 모양
