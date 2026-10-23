@@ -59,6 +59,7 @@ function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string
     ...(masked ? { requestedAt: null, clockIn: null, clockOut: null, createdAt: null, summary: statusSummaryOf(r) } : {}),
     ...(r.kind === "RECORD" ? { memo: null } : {}),   // 기록 요청의 memo 는 기간("from~to") — 요약(summary)에 사람이 읽는 말로 들어 있다
     timesHidden: masked,
+    statusSummary: statusSummaryOf(r),   // 시각 없는 요약 — 본부 · 시각 보기 켠 원장도 대시보드 결재함 둘째 줄은 이것으로(「10월 23일 (금) 퇴근 누락 → 퇴근」)
     wantIn: !!r.clockIn,    // 출퇴근 수정이 고치려는 칸(시각 없이도 무엇을 고치는지)
     wantOut: !!r.clockOut,
     recordState: x.recordState.get(`${r.userId}|${r.workDate.toISOString().slice(0, 10)}`) ?? null,

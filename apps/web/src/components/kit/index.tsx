@@ -167,13 +167,13 @@ export function FlowDots({ steps }: { steps: FlowStep[] }) {
 
 /* ── 줄 끝 더보기(⋮): 수정 · 재발송 · 이력 · 숨기기 · 삭제(맨 아래 빨간 글씨, 누르면 한 번 더 확인은 부르는 쪽이) ── */
 export type MoreItem = { label: string; onClick: () => void; danger?: boolean; hidden?: boolean };
-export function MoreMenu({ items, label = "더 보기" }: { items: MoreItem[]; label?: string }) {
+export function MoreMenu({ items, label = "더 보기", big = false }: { items: MoreItem[]; label?: string; big?: boolean }) {
   const shown = items.filter((i) => !i.hidden);
   if (!shown.length) return null;
   const safe = shown.filter((i) => !i.danger), danger = shown.filter((i) => i.danger);
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="inline-flex h-8 w-7 items-center justify-center rounded-md text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#475569]" aria-label={label}>
+      <DropdownMenuTrigger className={`inline-flex items-center justify-center rounded-md text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#475569] ${big ? "h-11 w-11" : "h-8 w-7"}`} aria-label={label}>
         <MoreVertical size={17} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">

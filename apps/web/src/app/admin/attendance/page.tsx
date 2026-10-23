@@ -450,6 +450,8 @@ export default function AttendancePage() {
   }
 
   const a = dash?.attendance;
+  // 오늘 일정이 하나도 안 들어 있는 날(이관 공백 · 아직 안 넣음) — 「출근 2명 · 일정 0명」이 왜 그런지 칸 아래에 이유를(2026-10-23 오픈 전 요청 ■3)
+  const noSchedule = !!a && (a.scheduled ?? 0) === 0;
   const branchRows = (dash?.byBranch || []).filter((b) => !branchPick || b.branch === branchPick);
   // 확인 필요 — 최근 7일 누락(요청이 결재 대기인 날은 결재함 쪽으로만) · 오늘 지각 · 결재 대기 출퇴근 요청
   const checkRows = [
@@ -483,10 +485,11 @@ export default function AttendancePage() {
             <Tiles cols={6}>
               <Tile label="출근" value={a?.present} unit="명" />
               <Tile label="지각" value={a?.late} unit="명" alert />
-              <Tile label="미출근" value={a?.absent} unit="명" note="일정 있는데 출근 전" alert />
+              <Tile label="미출근" value={a?.absent} unit="명" note={noSchedule ? "일정이 없어 셀 수 없음" : "일정 있는데 출근 전"} alert />
               <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert />
               <Tile label="휴가" value={a?.onLeave} unit="명" />
-              <Tile label="오늘 일정 있는 직원" value={a?.scheduled} unit="명" note="관리자 제외" hl />
+              <Tile label="오늘 일정 있는 직원" value={a?.scheduled} unit="명" hl
+                note={noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "관리자 제외"} />
             </Tiles>
           </Box>
 

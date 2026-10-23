@@ -2,6 +2,7 @@
 
 // 결재 규칙 편집(2026-10-15 QA76 #16, 희망화면 4) — 위: 요청 종류별 규칙 표, 가운데: 예외 결재선(직원·지점별).
 // 바꾼 뒤 [변경 저장]을 눌러야 적용된다. 저장 뒤 신청부터 새 결재선, 이미 대기 중인 건은 그대로(디렉터 결정 10/15).
+// 설명 문단(단계 뜻 · 예외 적용 순서 · 저장 시점)은 표만 먼저 보이게 「규칙 읽는 법 ›」 안에 접어 둔다 — 기본 접힘(2026-10-23 오픈 전 요청 ■3)
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Lock, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
@@ -30,6 +31,7 @@ export default function ApprovalRulesEditor() {
   const [exDraft, setExDraft] = useState<RuleException | null>(null);
   const [exEditingId, setExEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);   // 「규칙 읽는 법」 접힘 — 기본 접힘
 
   const apply = useCallback((rules: ApprovalRules, defs: RuleRow[]) => {
     setSaved(rules);
@@ -89,16 +91,35 @@ export default function ApprovalRulesEditor() {
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white/95 px-4 py-2 backdrop-blur">
-        <p className="text-xs text-gray-600">
-          규칙을 바꾸면 <b>저장한 뒤 들어오는 신청</b>부터 새 결재선으로 갑니다. 이미 결재 대기 중인 건은 신청할 때의 결재선 그대로입니다.
-        </p>
+      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white/95 px-4 py-1 backdrop-blur">
+        <button type="button" onClick={() => setHelpOpen((v) => !v)} aria-expanded={helpOpen}
+          className="inline-flex min-h-11 items-center px-1 text-[13px] font-semibold text-[#4f46e5] hover:underline">
+          {helpOpen ? "규칙 읽는 법 닫기" : "규칙 읽는 법 ›"}
+        </button>
         <div className="flex items-center gap-2">
           {dirtyCount > 0 && <span className="text-xs text-amber-700">저장 안 한 변경 {dirtyCount}곳</span>}
           <Button size="sm" variant="outline" disabled={busy || dirtyCount === 0} onClick={() => saved && apply(saved, rowsDef)}>되돌리기</Button>
-          <Button size="sm" disabled={busy || dirtyCount === 0} onClick={save}>{busy ? "저장 중…" : "변경 저장"}</Button>
+          <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={busy || dirtyCount === 0} onClick={save}>{busy ? "저장 중…" : "변경 저장"}</Button>
         </div>
       </div>
+
+      {/* ── 규칙 읽는 법(접힘) — 표 위아래에 있던 설명 문단을 한곳에 ── */}
+      {helpOpen && (
+        <div className="space-y-2 rounded-lg border bg-white px-4 py-3 text-xs text-gray-600">
+          <p>휴가 · 근무일정 · 출퇴근 요청을 누가 어떤 차례로 결재할지 정합니다. 바꾼 내용은 설정 › 변경 로그에 남습니다.</p>
+          <p>규칙을 바꾸면 <b>저장한 뒤 들어오는 신청</b>부터 새 결재선으로 갑니다. 이미 결재 대기 중인 건은 신청할 때의 결재선 그대로입니다.</p>
+          <ul className="space-y-0.5">
+            {(["BRANCH_MANAGER", "HQ", "USER", "PEER_MANAGER"] as StepType[]).map((t) => <li key={t}>· <b>{STEP_LABEL[t]}</b> — {STEP_HINT[t]}</li>)}
+            <li>· 관리자(본부) 본인의 신청은 표와 관계없이 다른 관리자 1명이 결재합니다. 원장 신청에는 본부 결재가 꼭 들어갑니다.</li>
+          </ul>
+          <p>
+            <b>예외 결재선</b>은 위 표보다 먼저 적용되고, 직원 예외가 지점 예외보다 먼저입니다. 휴가(취소 포함) · 근무일정 신청에 씁니다. 출퇴근 요청은 위 표만 따릅니다.
+            지점 예외는 그 지점 직원에게만 걸리고, 원장은 「한 명」 예외로 둡니다(원장 신청에는 본부 결재가 자동으로 붙습니다).
+            예) 본부 지점 직원 전체 → 직영사업본부장 1단계, 특정 지점 → 지정 원장 → 본부.
+            겸직 원장은 직원 관리 「겸직 지점」만 넣으면 그 지점들의 원장 결재를 함께 합니다(예외를 두지 않아도 됩니다).
+          </p>
+        </div>
+      )}
 
       {/* ── 규칙 표 ── */}
       <Card>
@@ -131,10 +152,6 @@ export default function ApprovalRulesEditor() {
               </tbody>
             </table>
           </div>
-          <ul className="space-y-0.5 border-t px-4 py-3 text-[11px] text-gray-500">
-            {(["BRANCH_MANAGER", "HQ", "USER", "PEER_MANAGER"] as StepType[]).map((t) => <li key={t}>· <b>{STEP_LABEL[t]}</b> — {STEP_HINT[t]}</li>)}
-            <li>· 관리자(본부) 본인의 신청은 표와 관계없이 다른 관리자 1명이 결재합니다. 원장 신청에는 본부 결재가 꼭 들어갑니다.</li>
-          </ul>
         </CardContent>
       </Card>
 
@@ -142,7 +159,7 @@ export default function ApprovalRulesEditor() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">예외 결재선 <span className="text-xs font-normal text-gray-400">(직원·지점별 — 위 표보다 먼저 적용, 직원 예외 &gt; 지점 예외)</span></CardTitle>
+            <CardTitle className="text-base">예외 결재선 <span className="text-xs font-normal text-gray-400">(직원 · 지점별)</span></CardTitle>
             <Button size="sm" variant="outline" className="gap-1" disabled={!!exDraft || exceptions.length >= MAX_EXCEPTIONS}
               onClick={() => { setExEditingId(null); setExDraft({ id: newId(), targetType: "BRANCH", kinds: ["LEAVE"], steps: [{ type: "HQ" }] }); }}>
               <Plus size={13} />예외 추가
@@ -184,11 +201,6 @@ export default function ApprovalRulesEditor() {
                 setExDraft(null); setExEditingId(null);
               }} />
           )}
-          <p className="text-[11px] text-gray-500">
-            예외는 휴가(취소 포함)·근무일정 신청에 씁니다. 출퇴근 요청은 위 표만 따릅니다. 지점 예외는 그 지점 직원에게만 걸리고, 원장은 「한 명」 예외로 둡니다(원장 신청에는 본부 결재가 자동으로 붙습니다).
-            예) 본부 지점 직원 전체 → 직영사업본부장 1단계, 특정 지점 → 지정 원장 → 본부.
-            겸직 원장은 직원관리 「겸직 지점」만 넣으면 그 지점들의 원장 결재를 함께 합니다(예외 불필요).
-          </p>
         </CardContent>
       </Card>
     </div>
@@ -201,7 +213,7 @@ function StepChips({ steps, nameOf }: { steps: RuleStep[]; nameOf: (id: string) 
       {steps.map((s, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {i > 0 && <span className="text-gray-300">→</span>}
-          <span className={`rounded px-1.5 py-0.5 text-xs ${s.type === "HQ" ? "bg-indigo-50 text-indigo-700" : s.type === "USER" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
+          <span className={`rounded px-1.5 py-0.5 text-xs ${s.type === "HQ" ? "bg-indigo-50 text-indigo-700" : s.type === "USER" ? "bg-amber-50 text-amber-800" : "bg-sky-50 text-sky-700"}`}>
             <span className="text-[10px] text-gray-400 mr-0.5">{i + 1}차</span>
             {s.type === "USER" ? (s.userId && nameOf(s.userId)) || "(사람 고르기)" : s.type === "HQ" ? "본부" : STEP_LABEL[s.type]}
           </span>
@@ -334,7 +346,7 @@ function ExceptionForm({ draft, people, branches, approvers, nameOf, existing, o
       {err && <p className="text-xs text-red-600">{err}</p>}
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onCancel}>취소</Button>
-        <Button size="sm" disabled={!!err} onClick={() => onApply(draft)}>적용</Button>
+        <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={!!err} onClick={() => onApply(draft)}>적용</Button>
       </div>
       <p className="text-[11px] text-gray-500">[적용] 뒤 위쪽 [변경 저장]을 눌러야 실제로 저장됩니다.</p>
     </div>

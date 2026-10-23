@@ -105,11 +105,11 @@ function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
 
 const KST_MS = 9 * 3600 * 1000;
 const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
-// 기한 「MM/DD (요일)」(KST, 공통 규칙 ■4) — 진행 중(서명 대기 · 결재 중)일 때만
+// 기한 「10월 31일 (토)」(KST, 공통 규칙 ■4 — 카드 · 표 같은 형식) — 진행 중(서명 대기 · 결재 중)일 때만
 function deadlineOf(c: Contract): string | null {
   if (!c.signDeadline || !(c.status === "SENT" || c.status === "APPROVED")) return null;
   const d = new Date(new Date(c.signDeadline).getTime() + KST_MS);
-  return `${d.toISOString().slice(5, 10).replace("-", "/")} (${WEEKDAY[d.getUTCDay()]})`;
+  return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일 (${WEEKDAY[d.getUTCDay()]})`;
 }
 
 // 당사자 퇴사 — 퇴직 상태이거나 퇴사일이 오늘(KST) 이전
@@ -221,7 +221,9 @@ export default function ManagerContractsPage() {
   }, [openId, loading, myApprovals, contracts]);
   useEffect(() => {
     if (!highlightId) return;
-    document.getElementById("contract-" + highlightId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // 같은 계약이 폰 카드 · PC 표 둘 다에 있다 — 지금 화면에 보이는 쪽(display:none 이 아닌 쪽)으로 스크롤
+    const el = [document.getElementById("contract-" + highlightId), document.getElementById("contract-m-" + highlightId)].find((e) => e && e.offsetParent !== null);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightId, listTab, contracts]);
 
   // 전체 창(시안 v2 6번)에서 승인 — 규칙·API 는 handleApprove 와 같다(서명 그림 또는 저장 서명 + 비밀번호, 문서 버전 묶기)
@@ -323,6 +325,25 @@ export default function ManagerContractsPage() {
     window.open(href, "_blank", "noreferrer");
   };
 
+  // 한 줄(표) · 한 장(폰 카드)의 판정을 한 곳에서 — 알약 · 원장 차례 · 보기 링크 · 기한 · 열람 기록. 둘이 같은 값을 쓴다(2026-10-23 ■4 「폰에서 표는 카드로」)
+  const rowOf = (c: Contract) => {
+    const pill = STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: c.status };
+    const mine = myApprovals.find((a) => a.id === c.id);   // 원장 결재 차례 = 인디고 「열기」 — 결재 대기 쪽 항목(문서 버전 · 요약 칸)으로 연다
+    const link = docLinkOf(c);
+    const prog = progressHref(c);
+    const resigned = !c.externalName && isResigned(c.user);
+    return {
+      pill, mine, link, resigned,
+      due: deadlineOf(c),
+      viewTitle: prog ? (c.status === "SIGNED" ? "완료본 보기" : "서명 진행본 보기") : "원본 보기",
+      onView: () => { if (prog) recordViewed(c.id); },   // 열람 기록(#205-4) — 진행본 · 완료본을 열 때만
+      openMine: () => { setSignTarget(mine ?? c); setSignOpen(true); },
+      party: c.externalName ? `[외부] ${c.externalName}` : c.user.name,
+      // 둘째 줄 — 지점(퇴사면 「퇴사」 붙임) · 외부 계약자면 「외부 계약자」
+      partySub: c.externalName ? "외부 계약자" : (c.user.branch || resigned) ? <>{c.user.branch}{resigned && <span className="ml-1 text-[11.5px] text-[#94a3b8]">퇴사</span>}</> : undefined,
+    };
+  };
+
   return (
     <div>
       <PageHead crumb="전자계약 › 지점 계약서" title="지점 계약서" note={`${branch ? `${branch} · ` : ""}지점 직원 계약서 조회 및 결재`} />
@@ -368,8 +389,45 @@ export default function ManagerContractsPage() {
           <p className="px-6 py-10 text-center text-[14px] text-[#596578]">불러오는 중…</p>
         ) : shownContracts.length === 0 ? (
           <p className="px-6 py-10 text-center text-[14px] text-[#596578]">{listTab === "mine" ? "내 결재 차례인 계약서가 없습니다" : "계약서가 없습니다"}</p>
-        ) : (
-          <div className="overflow-x-auto">
+        ) : (<>
+          {/* 폰(md 미만) 카드 — 오른쪽 위 기한 · 서류 이름 · 「이름 · 지점」 · 상태 알약 + 결재 진행 · 아래 가로로 꽉 찬 버튼(표와 같은 판정 rowOf) */}
+          <div className="divide-y divide-[#f1f5f9] md:hidden">
+            {shownContracts.map((c) => {
+              const r = rowOf(c);
+              return (
+                <div key={c.id} id={"contract-m-" + c.id} className={`space-y-2 px-4 py-4 ${highlightId === c.id ? "bg-[#eef2ff]" : ""}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 leading-snug">
+                      <b className="text-[16px] font-bold text-[#0f172a]">{c.title}</b>
+                      <span className="ml-1.5 text-[12.5px] text-[#596578]">{typeLabel[c.type] || c.type}</span>
+                    </p>
+                    {r.due && <span className="shrink-0 whitespace-nowrap pt-0.5 text-[12.5px] text-[#596578]">기한 {r.due}</span>}
+                  </div>
+                  <p className="text-[13.5px] text-[#475569]">
+                    <span className="font-semibold text-[#0f172a]">{r.party}</span>
+                    {r.partySub && <> <span className="text-[#cbd5e1]">·</span> {r.partySub}</>}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <StatusPill tone={r.pill.tone}>{r.pill.label}</StatusPill>
+                    <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
+                  </div>
+                  {(r.mine || r.link) && (
+                    <div className="flex items-center gap-2 pt-0.5">
+                      {r.mine ? (
+                        <Btn kind="primary" className="flex-1 py-2.5" onClick={r.openMine}>열기</Btn>
+                      ) : r.link ? (
+                        <a href={r.link} target="_blank" rel="noreferrer" className={btnClass("secondary", "flex-1 py-2.5")} title={r.viewTitle} onClick={r.onView}>보기</a>
+                      ) : null}
+                      {/* 원장 차례인 카드 — 승인 창 밖에서 문서만 먼저 볼 때(표의 ⋮ 와 같다) */}
+                      {r.mine && r.link && <MoreMenu big items={[{ label: "문서 보기", onClick: () => openDoc(c) }]} />}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className={tableClass}>
               <thead>
                 <tr>
@@ -383,32 +441,26 @@ export default function ManagerContractsPage() {
               </thead>
               <tbody>
                 {shownContracts.map(c => {
-                  const pill = STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: c.status };
-                  const mine = myApprovals.find((a) => a.id === c.id);   // 원장 결재 차례 = 인디고 「열기」 — 결재 대기 쪽 항목(문서 버전 · 요약 칸)으로 연다
-                  const link = docLinkOf(c);
-                  const due = deadlineOf(c);
+                  const r = rowOf(c);
                   return (
                     <tr key={c.id} id={"contract-" + c.id} className={highlightId === c.id ? "bg-[#eef2ff]" : "hover:bg-[#fafbfd]"}>
-                      <td><Cell2 main={c.externalName ? `[외부] ${c.externalName}` : c.user.name}
-                        sub={c.externalName ? "외부 계약자" : (c.user.branch || isResigned(c.user)) ? <>{c.user.branch}{isResigned(c.user) && <span className="ml-1 text-[11.5px] text-[#94a3b8]">퇴사</span>}</> : undefined} /></td>
+                      <td><Cell2 main={r.party} sub={r.partySub} /></td>
                       <td>
                         <span className="text-[#0f172a]">{c.title}</span>
                         <span className="block text-[12.5px] text-[#596578]">{typeLabel[c.type] || c.type}</span>
                       </td>
-                      <td><StatusPill tone={pill.tone}>{pill.label}</StatusPill></td>
+                      <td><StatusPill tone={r.pill.tone}>{r.pill.label}</StatusPill></td>
                       <td><ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} /></td>
-                      <td className="whitespace-nowrap">{due ? <span className="text-[#475569]">{due}</span> : <span className="text-[#94a3b8]">—</span>}</td>
+                      <td className="whitespace-nowrap">{r.due ? <span className="text-[#475569]">{r.due}</span> : <span className="text-[#94a3b8]">—</span>}</td>
                       <td className="whitespace-nowrap text-right">
                         <span className="inline-flex items-center gap-1">
-                          {mine ? (
-                            <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => { setSignTarget(mine); setSignOpen(true); }}>열기</Btn>
-                          ) : link ? (
-                            <a href={link} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")}
-                              title={progressHref(c) ? (c.status === "SIGNED" ? "완료본 보기" : "서명 진행본 보기") : "원본 보기"}
-                              onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>보기</a>
+                          {r.mine ? (
+                            <Btn kind="primary" className="px-3.5 py-1.5" onClick={r.openMine}>열기</Btn>
+                          ) : r.link ? (
+                            <a href={r.link} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={r.viewTitle} onClick={r.onView}>보기</a>
                           ) : null}
                           {/* 원장 차례인 줄 — 승인 창 밖에서 문서만 먼저 볼 때(옛 「내 결재 대기」 판의 「보기」) */}
-                          <MoreMenu items={[{ label: "문서 보기", hidden: !mine || !link, onClick: () => openDoc(c) }]} />
+                          <MoreMenu items={[{ label: "문서 보기", hidden: !r.mine || !r.link, onClick: () => openDoc(c) }]} />
                         </span>
                       </td>
                     </tr>
@@ -417,7 +469,7 @@ export default function ManagerContractsPage() {
               </tbody>
             </table>
           </div>
-        )}
+        </>)}
       </Box>
 
       {/* 승인 — 전체 창(2026-10-20 시안 v2 6번). 왼쪽 쪽 목록 · 가운데 A4 한 쪽씩 · 오른쪽 승인 정보, 마지막 쪽까지 봐야 승인 */}
