@@ -81,9 +81,12 @@ export default function AdminDashboardPage() {
       const reqRes = await fetch("/api/attendance-requests?scope=inbox").catch(() => null);
       if (reqRes?.ok) {
         const data = await reqRes.json();
-        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
+        // 제목은 「이름 · 출퇴근 수정」(요청 종류 세 가지 ■4), 둘째 줄은 시각 없는 요약(「10월 23일 (금) 퇴근 누락 → 퇴근」) — 원장 대시보드와 같은 모양
+        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; statusSummary?: string | null; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
           if (r.status && r.status !== "PENDING") continue;
-          next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 요청"}`, sub: `출퇴근 요청 · ${r.workDate.slice(5).replace("-", "/")}`, href: "/admin/leave-approvals?tab=attendance", at: ((t) => (t ? new Date(t).getTime() : 0))(r.requestedAt ?? r.createdAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null)) });
+          const [wy, wm, wd] = r.workDate.split("-").map(Number);
+          const wk = ["일", "월", "화", "수", "목", "금", "토"][new Date(Date.UTC(wy, wm - 1, wd)).getUTCDay()];
+          next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · 출퇴근 수정`, sub: r.statusSummary || `${wm}월 ${wd}일 (${wk}) ${r.kindLabel ?? "출퇴근 수정"}`, href: "/admin/leave-approvals?tab=attendance", at: ((t) => (t ? new Date(t).getTime() : 0))(r.requestedAt ?? r.createdAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null)) });
         }
       }
       setRows(next.sort((a, b) => b.at - a.at));

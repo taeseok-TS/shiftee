@@ -5,6 +5,8 @@ import { useRangeLeaves } from "@/components/schedule/WeekExtras";
 import { MultiPick } from "@/components/schedule/ScheduleControls";
 import { ScheduleEditDialog, ScheduleBulkDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
 import { ScheduleBoard, ScheduleLegend, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
+import SchedulePhoneWeek, { mondayOf, plusDays, useIsPhone } from "@/components/schedule/SchedulePhoneWeek";
+import { kstNow } from "@/components/attendance/board-state";
 import { sortEmployees, yearsOf } from "@/lib/schedule-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHead, Box, Btn, FilterRow, inputClass } from "@/components/kit";
@@ -71,7 +73,9 @@ export default function ManagerSchedulePage() {
 
   // 공휴일 — 날짜별 이름 맵(본부 근무일정과 같은 표시). 기간이 두 해에 걸치면 둘 다
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
-  const yearsKey = yearsOf(view.range).join(",");
+  // 폰 「이번 주」(KST 오늘 ± 6일)가 보기 기간과 다른 해일 수 있어 그 해도 함께 받는다(10/24 검증 P3)
+  const kstYear = (dayOffset: number) => String(new Date(Date.now() + 9 * 3600 * 1000 + dayOffset * 86400000).getUTCFullYear());
+  const yearsKey = [...new Set([...yearsOf(view.range).map(String), kstYear(-6), kstYear(6)])].sort().join(",");
   useEffect(() => {
     let alive = true;
     Promise.all(yearsKey.split(",").map((y) => fetch(`/api/holidays?year=${y}`).then((r) => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
@@ -131,6 +135,33 @@ export default function ManagerSchedulePage() {
 
   const onSaved = () => { fetchSchedules(); setWeekReload((n) => n + 1); };
 
+  // 칸 · 줄을 눌렀을 때 — 띠 표(PC)와 폰 목록이 같은 창을 연다(편집 권한이 꺼지면 보기만)
+  const onEmptyCell = canEdit ? (userId: string, date: string) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" }) : undefined;
+  const onSchedule = canEdit ? (s: Schedule, emp: Employee) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null }) : undefined;
+
+  // 폰(md 미만) 첫 화면 — 오늘 · 이번 주 목록(■2 · ■4). 띠 표는 「표 보기」를 눌렀을 때만
+  const [tableOpen, setTableOpen] = useState(false);
+  const phone = useIsPhone();
+  const [today] = useState(() => kstNow().today);
+  const weekMon = mondayOf(today), weekSun = plusDays(weekMon, 6);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => plusDays(weekMon, i)), [weekMon]);
+  // 보기 기간이 이번 주(월~일)를 다 덮으면 받은 것을 그대로 쓰고, 아니면(하루 보기 · 다른 달 등) 폰에서만 이번 주치를 따로 받는다
+  const covered = startYmd <= weekMon && endYmd >= weekSun;
+  const needWeek = phone && !covered;
+  const weekLeaves = useRangeLeaves(weekMon, weekSun, needWeek, weekReload);
+  const [weekSchedules, setWeekSchedules] = useState<{ key: string; list: Schedule[] } | null>(null);
+  useEffect(() => {
+    if (!needWeek) return;
+    let alive = true;
+    const key = `${weekMon}~${weekSun}`;
+    fetch(`/api/schedule?start=${weekMon}&end=${weekSun}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setWeekSchedules({ key, list: d.schedules || [] }); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [needWeek, weekMon, weekSun, weekReload]);
+  const weekReady = covered ? !loading : weekSchedules?.key === `${weekMon}~${weekSun}`;
+
   return (
     <div>
       {/* 머리(R10 톤) — 제목 = 메뉴 이름 + 위 작은 경로. 흰 「일정 추가」 + 인디고 실행 「여러 날 한 번에 넣기」 하나.
@@ -151,8 +182,14 @@ export default function ManagerSchedulePage() {
         </p>
       )}
 
-      {/* 일정 표 박스 — 위: 날짜 이동 + 보기 전환(#71), 필터 줄(#72), 아래: 일·주·월 / 달력형·목록형 표 */}
-      <Box icon={<CalendarDays />} tone="ind" title="직원별 근무일정"
+      {/* 폰 첫 화면 — 오늘 · 이번 주 목록(■2 · ■4). 데이터는 위에서 받은 것 그대로, 누르면 아래 띠 표와 같은 창 */}
+      <SchedulePhoneWeek today={today} days={weekDays} employees={filteredEmployees}
+        schedules={covered ? schedules : weekSchedules?.list ?? []} leaves={covered ? leaves : weekLeaves} holidayMap={holidayMap}
+        loading={!weekReady} tableOpen={tableOpen} onToggleTable={() => setTableOpen((v) => !v)}
+        onEmptyCell={onEmptyCell} onSchedule={onSchedule} />
+
+      {/* 일정 표 박스 — 위: 날짜 이동 + 보기 전환(#71), 필터 줄(#72), 아래: 일·주·월 / 달력형·목록형 표. 폰에서는 「표 보기」를 눌렀을 때만 */}
+      <Box icon={<CalendarDays />} tone="ind" title="직원별 근무일정" className={tableOpen ? "" : "hidden md:block"}
         sub={canEdit ? "지점 직원 · 본인 · 칸을 누르면 추가, 일정을 누르면 고치기" : "지점 직원 · 본인"}
         right={<span className="text-[13px] font-normal text-[#596578]">{filteredEmployees.length}명 / 전체 {team.length}명</span>}>
         <div className="border-b border-[#eef1f5] px-6 py-4">
@@ -176,8 +213,7 @@ export default function ManagerSchedulePage() {
         <div className="overflow-x-auto">
           <ScheduleBoard view={view} employees={filteredEmployees} schedules={schedules} loading={loading}
             holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} hoursHidden
-            onEmptyCell={canEdit ? (userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" }) : undefined}
-            onSchedule={canEdit ? (s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null }) : undefined} />
+            onEmptyCell={onEmptyCell} onSchedule={onSchedule} />
         </div>
         <p className="border-t border-[#eef1f5] px-6 py-3 text-[12.5px] text-[#596578]">
           직원이 올린 근무 변경 · 휴가는 결재 대기 동안 점선으로 보이고, 승인되면 면으로 바뀝니다. 원장이 여기서 넣은 일정(주말 포함)은 바로 확정됩니다. 기본 근무 = 그 직원이 이 기간 평일에 가장 많이 한 시간.

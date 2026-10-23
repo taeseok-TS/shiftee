@@ -28,8 +28,8 @@ type Item = {
 const KIND: Record<Item["kind"], { label: string }> = {
   LEAVE: { label: "휴가" },
   LEAVE_CANCEL: { label: "휴가 취소" },
-  SCHEDULE: { label: "근무일정" },
-  ATTENDANCE: { label: "출퇴근" },
+  SCHEDULE: { label: "근무 변경" },
+  ATTENDANCE: { label: "출퇴근 수정" },
 };
 // 상태 알약(kit) — 대기 주황 · 승인 파랑 · 반려 분홍 · 취소 회색
 const STATUS: Record<Item["status"], { label: string; tone: PillTone }> = {

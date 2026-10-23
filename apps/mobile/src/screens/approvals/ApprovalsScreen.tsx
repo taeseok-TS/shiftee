@@ -55,7 +55,7 @@ import { C, fmtDay, fmtRange, fmtShort, fmtTime, isWeekend, stripTimes, todayYmd
 //  · 원장대행 직원(역할 EMPLOYEE)은 서버가 본인 일정만 주므로 「주 52시간」 · 「그날 근무 N명」 줄을 그리지 않는다(검증 A1)
 //  · 판단 정보를 카드 안에: 근무 변경 = 주 52시간 안 / 넘음(일정 기준, 숫자 없음) · 그날 지점 근무 인원, 휴가 = 남은 연차 · 그날 인원,
 //    출퇴근 수정 = 상태만(시각은 본부 — ■0-11, 본부 계정은 지금처럼 시각도)
-//  · 종류 알약(전체 · 근무 변경 · 휴가 · 출퇴근)은 10건 이상일 때만, 누르는 자리 44
+//  · 종류 알약(전체 · 근무 변경 · 휴가 · 출퇴근 수정)은 10건 이상일 때만, 누르는 자리 44
 //  · 지점 휴가: 오늘 → 다가오는 순 한 줄씩, 승인 = 파랑 글자, 승인 대기 = 주황 알약. 결재 기록 · 안내는 눌렀을 때만
 
 const LEAVE_TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
@@ -71,9 +71,9 @@ const CANCEL_BLOCK_LABEL: Record<string, string> = {
 };
 
 type Kind = "SCHEDULE" | "LEAVE" | "LEAVE_CANCEL" | "ATTENDANCE";
-// 묶음(종류 알약) — 출퇴근 요청은 「출퇴근」 한 묶음. 카드 · 띠에 쓰는 이름은 Item.groupName(「출퇴근 수정」은 기록 고치기 · 퇴근 누락만)
-type Group = "근무 변경" | "휴가" | "출퇴근";
-const GROUP_OF: Record<Kind, Group> = { SCHEDULE: "근무 변경", LEAVE: "휴가", LEAVE_CANCEL: "휴가", ATTENDANCE: "출퇴근" };
+// 묶음(종류 알약) — 요청 종류 이름은 세 가지 「근무 변경 · 휴가 · 출퇴근 수정」(■4, 웹 결재함 탭과 같게). 카드 · 띠에 쓰는 이름은 Item.groupName(지점 밖 · 사진 · 기록 요청은 내용 설명으로)
+type Group = "근무 변경" | "휴가" | "출퇴근 수정";
+const GROUP_OF: Record<Kind, Group> = { SCHEDULE: "근무 변경", LEAVE: "휴가", LEAVE_CANCEL: "휴가", ATTENDANCE: "출퇴근 수정" };
 type Tone = "ind" | "amb" | "red" | "blue" | "vio" | "gray";
 const TONE: Record<Tone, { fg: string; bg: string }> = {
   ind: { fg: C.indInk, bg: C.indBg }, amb: { fg: C.amb, bg: C.ambBg }, red: { fg: C.red, bg: C.redBg },
@@ -646,7 +646,7 @@ export default function ApprovalsScreen() {
             {failed && <Text style={styles.empty}>승인 목록을 불러오지 못했습니다. 아래로 당겨 다시 시도해 주세요.</Text>}
             {showFilter && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
-                {(["", "근무 변경", "휴가", "출퇴근"] as const).map((g) => {
+                {(["", "근무 변경", "휴가", "출퇴근 수정"] as const).map((g) => {
                   const n = g ? visible.filter((i) => GROUP_OF[i.kind] === g).length : total;
                   return (
                     <TouchableOpacity key={g || "all"} style={[styles.chip, filter === g && styles.chipOn]} onPress={() => setFilter(g)}>
