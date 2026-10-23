@@ -22,6 +22,7 @@ export type FeedItem = {
   lastComment: { by: string; text: string } | null;
   rejectReason: string | null;
   myDecision?: "APPROVED" | "REJECTED";
+  rejectedAt?: string;   // 반려된 요청만 — 반려한 때(요청 마지막 갱신, 출퇴근 요청은 처리 시각). 직원 대시보드 「최근 반려」(R17)
 };
 
 export type FeedQuery = { from?: string | null; to?: string | null; status?: string | null; q?: string | null; kind?: string | null };
@@ -81,7 +82,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
   if (want("LEAVE")) {
     const rows = await prisma.leaveRequest.findMany({
       where: { ...base, ...(who === "mine" ? mineWhere : { approvalSteps: decidedStep }) },
-      select: { id: true, type: true, startDate: true, endDate: true, days: true, status: true, reason: true, rejectedReason: true, createdAt: true,
+      select: { id: true, type: true, startDate: true, endDate: true, days: true, status: true, reason: true, rejectedReason: true, createdAt: true, updatedAt: true,
         user: { select: { name: true } }, approvalSteps: stepSel },
       orderBy: { createdAt: "desc" }, take: PER_KIND,
     });
@@ -91,12 +92,13 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
       status: normStatus(r.status), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
       progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: r.rejectedReason ?? null,
       myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
+      rejectedAt: r.status === "REJECTED" ? r.updatedAt.toISOString() : undefined,
     });
   }
   if (want("LEAVE_CANCEL")) {
     const rows = await prisma.leaveCancelRequest.findMany({
       where: { ...base, ...(who === "mine" ? mineWhere : { approvalSteps: decidedStep }) },
-      select: { id: true, status: true, reason: true, rejectedReason: true, createdAt: true, user: { select: { name: true } },
+      select: { id: true, status: true, reason: true, rejectedReason: true, createdAt: true, updatedAt: true, user: { select: { name: true } },
         leaveRequest: { select: { type: true, startDate: true, endDate: true } }, approvalSteps: stepSel },
       orderBy: { createdAt: "desc" }, take: PER_KIND,
     });
@@ -106,12 +108,13 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
       requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
       progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: r.rejectedReason ?? null,
       myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
+      rejectedAt: r.status === "REJECTED" ? r.updatedAt.toISOString() : undefined,
     });
   }
   if (want("SCHEDULE")) {
     const rows = await prisma.scheduleRequest.findMany({
       where: { ...base, ...(who === "mine" ? mineWhere : { approvalSteps: decidedStep }) },
-      select: { id: true, kind: true, templateName: true, startDate: true, endDate: true, status: true, reason: true, createdAt: true,
+      select: { id: true, kind: true, templateName: true, startDate: true, endDate: true, status: true, reason: true, createdAt: true, updatedAt: true,
         user: { select: { name: true } }, approvalSteps: stepSel },
       orderBy: { createdAt: "desc" }, take: PER_KIND,
     });
@@ -124,6 +127,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
         requester: r.user.name, status: normStatus(String(r.status)), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
         progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: rej?.comment ?? null,
         myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
+        rejectedAt: String(r.status) === "REJECTED" ? r.updatedAt.toISOString() : undefined,
       });
     }
   }
@@ -132,7 +136,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
     const decidedWhere = { decidedBy: userId, status: st ?? { in: ["APPROVED", "REJECTED"] } };
     const rows = await prisma.attendanceRequest.findMany({
       where: { ...base, ...(who === "mine" ? mineWhere : decidedWhere) },
-      select: { id: true, kind: true, action: true, workDate: true, status: true, reason: true, rejectReason: true, decidedBy: true, createdAt: true, user: { select: { name: true } } },
+      select: { id: true, kind: true, action: true, workDate: true, status: true, reason: true, rejectReason: true, decidedBy: true, decidedAt: true, createdAt: true, updatedAt: true, user: { select: { name: true } } },
       orderBy: { createdAt: "desc" }, take: PER_KIND,
     });
     note(rows.length);
@@ -145,6 +149,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
       lastComment: r.decidedBy && r.status === "REJECTED" && r.rejectReason ? { by: deciders.get(r.decidedBy) ?? "결재자", text: r.rejectReason } : null,
       rejectReason: r.status === "REJECTED" ? r.rejectReason ?? null : null,
       myDecision: who === "decided" && (r.status === "APPROVED" || r.status === "REJECTED") ? r.status : undefined,
+      rejectedAt: r.status === "REJECTED" ? (r.decidedAt ?? r.updatedAt).toISOString() : undefined,
     });
   }
 

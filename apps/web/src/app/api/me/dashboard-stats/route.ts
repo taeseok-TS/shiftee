@@ -46,6 +46,9 @@ export async function GET() {
 
   // 내가 올린 휴가 취소 결재(대기)도 "내가 신청한 대기 결재"에 넣는다 — 결재자 쪽 숫자와 짝(9/11)
   const pendingLeaveCancel = await prisma.leaveCancelRequest.count({ where: { userId: session.userId, status: "PENDING" } });
+  // 출퇴근 요청(수정 · 퇴근 누락 · 지점 밖 등, 기기 변경 제외) — 웹 직원 대시보드 「내 요청 대기」(R17)가 더한다.
+  //   pendingApprovals 에는 넣지 않는다 — 앱 홈 「대기 결재」가 그 숫자로 휴가 · 근무일정 · 취소 목록을 연다(R16 검증 2)
+  const pendingAttendance = await prisma.attendanceRequest.count({ where: { userId: session.userId, status: "PENDING", kind: { not: "DEVICE" } } });
 
   const monthMinutes = monthAttendance.reduce((acc, r) => {
     if (!r.clockIn || !r.clockOut) return acc;
@@ -64,11 +67,16 @@ export async function GET() {
     ? balance.remaining
     : ((await yearBalanceFor(prisma, session.userId, currentLeaveYear()))?.remaining ?? 0);
 
+  // 직원은 「본인 출퇴근 기록 열람」(기본 끔)이 꺼지면 출퇴근으로 계산한 근무 시간도 주지 않는다 — api/attendance/stats 403 과 같은 정책(R17 검증 C)
+  const { isAllowed } = await import("@/lib/permission-settings");
+  const hideHours = session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance"));
+
   return NextResponse.json({
     leaveRemaining,
     balanceHidden: !visible,
     pendingContracts,
     pendingApprovals: pendingLeave + pendingSchedule + pendingLeaveCancel,
-    monthWorkHours: Math.round((monthMinutes / 60) * 10) / 10,
+    pendingAttendance,
+    monthWorkHours: hideHours ? null : Math.round((monthMinutes / 60) * 10) / 10,
   });
 }

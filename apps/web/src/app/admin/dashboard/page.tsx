@@ -8,19 +8,20 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Clock, CheckSquare, Megaphone, Pin } from "lucide-react";
+import { Clock } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { PageHead, Btn, Box, Tiles, Tile } from "@/components/kit";
+import { InboxBox, NoticeBox, type InboxRow, type Notice } from "@/components/dashboard/DashBoxes";
 import { useNavCounts } from "@/components/layout/useNavCounts";
 import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
 
 type AttendanceStats = { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
 
 
-/** 결재함 한 줄 — 제목 + 회색 한 줄 + 「열기 ›」(R9) */
-type Row = { key: string; title: string; sub: string; href?: string; onOpen?: () => void; alert?: boolean; at: number };
+/** 결재함 한 줄 — 제목 + 회색 한 줄 + 「열기 ›」(R9, 공용 components/dashboard/DashBoxes) */
+type Row = InboxRow;
 
 export default function AdminDashboardPage() {
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
@@ -35,8 +36,7 @@ export default function AdminDashboardPage() {
   const [fillTarget, setFillTarget] = useState<MissingAttendance | null>(null);
 
   // 공지사항 — 제목 · 작성자 · 날짜만, 누르면 펼침(R9)
-  const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; pinned: boolean; authorName: string; createdAt: string }[]>([]);
-  const [openAnn, setOpenAnn] = useState<string | null>(null);
+  const [announcements, setAnnouncements] = useState<Notice[]>([]);
   const [annOpen, setAnnOpen] = useState(false);
   const [annForm, setAnnForm] = useState({ title: "", content: "", pinned: false });
   const [annSaving, setAnnSaving] = useState(false);
@@ -156,58 +156,11 @@ export default function AdminDashboardPage() {
 
       <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         {/* 결재함 — 내가 승인할 것만, 다 끝나면 「처리할 요청 없음」 한 줄 */}
-        <Box icon={<CheckSquare />} tone="rose" title="결재함" count={typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length} className="!mb-0 min-w-0"
-          right={<a href="/admin/leave-approvals" className="text-[#4f46e5] hover:underline">전체 보기 ›</a>}>
-          <div className="px-6 py-1">
-            {loading && !shownRows.length ? (
-              <p className="py-5 text-[14px] text-[#596578]">불러오는 중…</p>
-            ) : !shownRows.length ? (
-              <p className="py-5 text-[14px] text-[#596578]">처리할 요청 없음</p>
-            ) : shownRows.map((r) => {
-              const body = (
-                <>
-                  <span className="min-w-0 flex-1">
-                    <b className={`block truncate text-[16px] font-bold ${r.alert ? "text-[#dc2626]" : "text-[#0f172a]"}`}>{r.title}</b>
-                    <span className="block truncate text-[13.5px] text-[#596578]">{r.sub}</span>
-                  </span>
-                  <span className="shrink-0 text-[14.5px] font-semibold text-[#4f46e5]">열기 ›</span>
-                </>
-              );
-              const cls = "flex w-full items-center gap-3.5 border-t border-[#f1f5f9] py-[15px] text-left first:border-t-0 hover:bg-[#fafbfd]";
-              return r.href
-                ? <a key={r.key} href={r.href} className={cls}>{body}</a>
-                : <button key={r.key} type="button" onClick={r.onOpen} className={cls}>{body}</button>;
-            })}
-            {moreCount > 0 && <a href={rows.length > 8 ? "/admin/leave-approvals" : "/admin/attendance"} className="block border-t border-[#f1f5f9] py-3 text-center text-[13.5px] font-semibold text-[#4f46e5] hover:underline">{moreCount}건 더 보기 ›</a>}
-          </div>
-        </Box>
+        <InboxBox rows={shownRows} loading={loading} count={typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length}
+          allHref="/admin/leave-approvals" more={moreCount} moreHref={rows.length > 8 ? "/admin/leave-approvals" : "/admin/attendance"} />
 
         {/* 공지사항 — 제목 · 작성자 · 날짜, 누르면 펼침 */}
-        <Box icon={<Megaphone />} tone="amb" title="공지사항" className="!mb-0 min-w-0"
-          right={<button type="button" onClick={() => setAnnOpen(true)} className="text-[#4f46e5] hover:underline">＋ 작성</button>}>
-          <div className="px-6 py-1">
-            {announcements.length === 0 ? (
-              <p className="py-5 text-[14px] text-[#596578]">등록된 공지가 없습니다.</p>
-            ) : announcements.map((n) => (
-              <div key={n.id} className="border-t border-[#f1f5f9] first:border-t-0">
-                <button type="button" onClick={() => setOpenAnn(openAnn === n.id ? null : n.id)} aria-expanded={openAnn === n.id}
-                  className="flex w-full items-center gap-3.5 py-[15px] text-left">
-                  <span className="min-w-0 flex-1">
-                    <b className="flex items-center gap-1.5 truncate text-[16px] font-bold text-[#0f172a]">{n.pinned && <Pin size={14} className="shrink-0 text-[#4f46e5]" aria-label="고정" />}{n.title}</b>
-                    <span className="block truncate text-[13.5px] text-[#596578]">{n.authorName}</span>
-                  </span>
-                  <span className="shrink-0 text-[13.5px] text-[#596578]">{format(new Date(n.createdAt), "M월 d일")}</span>
-                </button>
-                {openAnn === n.id && (
-                  <div className="pb-4">
-                    <p className="whitespace-pre-wrap text-[14px] text-[#334155]">{n.content}</p>
-                    <a href="/work/announcements" className="mt-2 inline-block text-[13px] font-semibold text-[#4f46e5] hover:underline">큐브티워크에서 보기 ›</a>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Box>
+        <NoticeBox items={announcements} right={<button type="button" onClick={() => setAnnOpen(true)} className="text-[#4f46e5] hover:underline">＋ 작성</button>} />
       </div>
 
       {/* 공지 작성 다이얼로그 */}
