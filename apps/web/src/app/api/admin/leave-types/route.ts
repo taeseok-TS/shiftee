@@ -71,7 +71,7 @@ export async function GET() {
   return NextResponse.json({
     groups: LEAVE_GROUPS,
     builtins: LEAVE_CATALOG.map((t) => ({ code: t.code, label: t.label, group: t.group, unit: t.unit, paidHours: t.paidHours, deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null,
-      selectableDefault: t.selectable, hidden: all.find((x) => x.code === t.code)?.selectable === false && t.selectable, used: used.get(t.code) ?? 0 })),
+      selectableDefault: t.selectable, adminOnly: !!t.adminOnly, hidden: all.find((x) => x.code === t.code)?.selectable === false && t.selectable, used: used.get(t.code) ?? 0 })),
     customs: defs.map((d) => ({ ...d, used: used.get(d.code) ?? 0 })),
   });
 }

@@ -877,7 +877,7 @@ export default function LeavePage() {
             {role === "ADMIN" && (
               <div className="space-y-2">
                 <Label>대상 직원</Label>
-                <Select value={form.targetUserId || "SELF"} onValueChange={v => v && setForm(f => ({ ...f, targetUserId: v === "SELF" ? "" : v }))}>
+                <Select value={form.targetUserId || "SELF"} onValueChange={v => v && setForm(f => ({ ...f, targetUserId: v === "SELF" ? "" : v, type: v === "SELF" && leaveInfo(f.type)?.adminOnly ? "ANNUAL" : f.type }))}>
                   <SelectTrigger>
                     <SelectValue>
                       {(() => { if (!form.targetUserId) return "본인 신청"; const u = allUsers.find(x => x.id === form.targetUserId); return u ? `${u.name}${u.branch ? ` · ${u.branch}` : ""}` : "직원 선택"; })()}
@@ -911,7 +911,8 @@ export default function LeavePage() {
                 <SelectContent className="min-w-[min(22rem,calc(100vw-2rem))]">
                   {/* 그룹별 — 기준표의 신청 목록(병가·옛 경조 세부 유형은 없음) */}
                   {leaveCat.groups.map((g, gi) => {
-                    const items = leaveCat.catalog.filter((t) => t.selectable && t.group === g);
+                    // 본부 전용 유형(육아휴직)은 직원을 골라 대리 등록할 때만
+                    const items = leaveCat.catalog.filter((t) => (t.selectable || (t.adminOnly && !!form.targetUserId)) && t.group === g);
                     if (!items.length) return null;
                     return (
                       <div key={g}>

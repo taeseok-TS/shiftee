@@ -153,7 +153,16 @@ export default function ManagerApprovalsPage() {
     // 의존성 배열이 없으면 **매 렌더마다** 스크롤한다 — 짝인 admin/leave-approvals 와 같게 둔다
   }, [highlightId, leaveSteps]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("leave");
+  const [activeTab, setActiveTabState] = useState("leave");
+  // 탭 = 주소 ?tab= (R8 검증 2 — 「휴가 내역」 탭은 레일 「휴가 › 지점 휴가」, 나머지는 「결재 › 결재함」). 다른 쿼리(?id= 강조)는 그대로 둔다
+  const setActiveTab = (t: string) => {
+    setActiveTabState(t);
+    const q = new URLSearchParams(window.location.search);
+    if (t === "leave") q.delete("tab"); else q.set("tab", t);
+    const qs = q.toString();
+    window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+    window.dispatchEvent(new Event("rail:search"));
+  };
   // 휴가 취소 결재 건수 — 탭 내용은 열 때만 그려지므로 숫자는 따로 받아 둔다(내용·처리는 LeaveCancelInbox)
   const [cancelCount, setCancelCount] = useState(0);
   // 출퇴근 요청 건수(2026-10-07 #9 #13 #15) — 휴가 취소와 같은 방식으로 숫자만 먼저 받는다(내용·처리는 AttendanceRequestInbox)
@@ -167,7 +176,7 @@ export default function ManagerApprovalsPage() {
   // 대시보드·알림에서 ?tab=cancel 처럼 들어오면 그 탭을 연다(관리자 대시보드 "휴가 취소 승인 대기" 줄)
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t && ["leave", "schedule", "history", "cancel", "attendance"].includes(t)) setActiveTab(t);
+    if (t && ["leave", "schedule", "history", "cancel", "attendance"].includes(t)) setActiveTabState(t);
   }, []);
   useEffect(() => {
     fetch("/api/leave/cancel-requests/my-approvals")
@@ -588,8 +597,10 @@ export default function ManagerApprovalsPage() {
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">결재 (휴가, 근무일정, 출퇴근)</h1>
-          <p className="text-gray-600 mt-2">{delegateOnly ? "원장대행 — 지정된 지점의 휴가 및 근무일정 신청 결재" : `${branch} - 팀의 휴가 및 근무일정 신청 결재`}</p>
+          {/* 제목 = 메뉴 이름(R8 — 원장 결재 › 결재함, 「휴가 내역」 탭 = 휴가 › 지점 휴가) */}
+          <p className="text-xs text-[#596578]">{activeTab === "history" && !delegateOnly ? "휴가 › 지점 휴가" : "결재 › 결재함"}</p>
+          <h1 className="mt-0.5 text-[26px] font-bold leading-tight text-[#0f172a]">{activeTab === "history" && !delegateOnly ? "지점 휴가" : "결재함"}</h1>
+          <p className="mt-1 text-[13px] text-[#596578]">{delegateOnly ? "원장대행 — 지정된 지점의 휴가 · 근무일정 · 출퇴근 결재" : `${branch} · 지점 직원의 휴가 · 근무일정 · 출퇴근 결재`}</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-sm text-gray-600">

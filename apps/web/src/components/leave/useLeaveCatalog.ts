@@ -14,7 +14,7 @@ async function load(): Promise<LeaveTypeInfo[] | null> {
     const all = (d.all as Array<Record<string, unknown>>).map((t) => ({
       code: String(t.code), label: String(t.label), group: t.group as LeaveTypeInfo["group"], unit: t.unit as LeaveTypeInfo["unit"],
       paidHours: Number(t.paidHours), deducts: !!t.deducts, attachRequired: (t.attachRequired as string | null) ?? undefined,
-      notice: (t.notice as string | null) ?? undefined, selectable: !!t.selectable, custom: !!t.custom,
+      notice: (t.notice as string | null) ?? undefined, selectable: !!t.selectable, adminOnly: !!t.adminOnly, custom: !!t.custom,
     }));
     Object.assign(LEAVE_LABELS, d.labels || {});
     applyLiveCatalog(all);

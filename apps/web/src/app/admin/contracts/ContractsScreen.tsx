@@ -3981,7 +3981,7 @@ ${url}`;
 
       {/* 이번 달 숫자 칸(시안 R12) — 옛 베이지 「내 승인 대기」 판 대신. 칸을 누르면 아래 목록이 그 상태로 걸러진다 */}
       {role !== "EMPLOYEE" && (
-        <Box icon={<FileSignature />} title="이번 달" sub={`${kstNow().getUTCMonth() + 1}월 · 이번 달 만든 계약서 기준(7일 넘게 멈춤은 전체 기간)`} className="!mb-0">
+        <Box icon={<FileSignature />} title="이번 달" sub={`${kstNow().getUTCMonth() + 1}월 · 이번 달 만든 계약서 기준(7일 넘게 멈춤은 전체 기간)`}>
           <Tiles cols={5}>
             <Tile label="결재 대기" value={myApprovals.length} unit="건" note="내가 승인할 것" alert active={listTab === "mine"}
               onClick={() => { clearNarrow(); setListTab("mine"); setFilterYear(""); setFilterMonth(""); }} />
@@ -3994,7 +3994,7 @@ ${url}`;
         </Box>
       )}
       {role !== "EMPLOYEE" && (
-        <PillTabs className="!mb-0" value={listTab} onChange={(k) => { if (listTab === "mine" && !filterYear) setFilterYear(String(kstNow().getUTCFullYear())); setListTab(k as ListTab); }} tabs={[
+        <PillTabs value={listTab} onChange={(k) => { if (listTab === "mine" && !filterYear) setFilterYear(String(kstNow().getUTCFullYear())); setListTab(k as ListTab); }} tabs={[
           { key: "all", label: "전체" },
           { key: "waiting", label: "서명 대기", count: tabCount("waiting") },
           { key: "signed", label: "체결 완료" },

@@ -14,7 +14,7 @@ export async function GET() {
   const all = allLeaveTypes();
   const pack = (t: (typeof all)[number]) => ({
     code: t.code, label: t.label, group: t.group, unit: t.unit, paidHours: t.paidHours,
-    deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null, selectable: t.selectable, custom: !!t.custom,
+    deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null, selectable: t.selectable, adminOnly: !!t.adminOnly, custom: !!t.custom,
   });
   return NextResponse.json({
     types: all.filter((t) => t.selectable).map(pack),

@@ -139,8 +139,9 @@ export default function ManagerSchedulePage() {
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">팀 근무일정</h1>
-          <p className="text-gray-600 mt-1">{branch} - 팀원·본인 근무일정 관리 (칸을 누르면 추가, 일정을 누르면 고치기)</p>
+          <p className="text-xs text-[#596578]">근태 › 지점 근무일정</p>
+          <h1 className="mt-0.5 text-[26px] font-bold leading-tight text-[#0f172a]">지점 근무일정</h1>
+          <p className="mt-1 text-[13px] text-[#596578]">{branch} · 지점 직원 · 본인 근무일정 관리 (칸을 누르면 추가, 일정을 누르면 고치기)</p>
         </div>
         {!canEdit && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">본부가 원장의 근무일정 직접 편집을 꺼 두었습니다 — 변경은 「근무일정 신청」으로 해 주세요.</p>}
         {canEdit && <div className="flex gap-2">

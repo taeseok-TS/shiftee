@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHead } from "@/components/kit";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -246,10 +247,7 @@ export default function ManagerContractsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">팀 계약서</h2>
-        <p className="text-gray-600 mt-1">{branch} - 팀원 계약서 조회 및 결재</p>
-      </div>
+      <PageHead crumb="전자계약 › 지점 계약서" title="지점 계약서" note={`${branch} · 지점 직원 계약서 조회 및 결재`} />
 
       {/* 내 승인 대기 */}
       {myApprovals.length > 0 && (

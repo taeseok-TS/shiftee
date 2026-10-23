@@ -15,7 +15,8 @@ export type NavTab = { href: string; label: string };
 // also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면 · hidden = 패널엔 안 보이고 메뉴 찾기·주소 맞춤에만(다른 곳에 버튼이 있는 화면) · dim = 패널 맨 아래 옅게
 // find = 메뉴 찾기에만 나오는 화면 안 알약 탭(위 탭 줄은 그리지 않는다 — 시안 R11·R13 「탭 한 줄」. tabs 와 달리 주소 맞춤에도 안 쓴다)
 // salaryOnly = 「연봉 보기」 권한자(메인 관리자·켠 관리자)에게만 보인다(2026-10-22 디렉터, lib/salary-access)
-export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; find?: NavTab[]; superOnly?: boolean; salaryOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean };
+// needs = 그 권한 토글이 꺼지면 숨김(원장 · 직원 모드, lib/permission-settings) · delegateOnly = 원장대행으로 지정된 직원에게만(직원 모드)
+export type NavItem = { href: string; label: string; icon: Icon; tabs?: NavTab[]; find?: NavTab[]; superOnly?: boolean; salaryOnly?: boolean; countKey?: string; also?: string[]; hidden?: boolean; dim?: boolean; needs?: string; delegateOnly?: boolean };
 export type NavGroup = { key: string; title: string; icon: Icon; href?: string; items: NavItem[] };
 
 export const ADMIN_NAV: NavGroup[] = [
@@ -101,15 +102,33 @@ export const ADMIN_NAV: NavGroup[] = [
 ];
 
 const pathOf = (href: string) => href.split("?")[0];
-/** 대분류의 첫 화면 — 레일을 누르면 여기로 바로 간다(재요청 A: 패널만 바뀌고 본문은 그대로면 「안 눌렸다」고 느낀다) */
-export const groupHome = (g: NavGroup) => g.href ?? g.items.find((it) => !it.hidden && !it.superOnly)?.href ?? "/admin/dashboard";
 /** 메뉴가 켜지는 주소들(자기 + 탭) */
 export const itemPaths = (it: NavItem) => [...new Set([pathOf(it.href), ...(it.tabs || []).map((t) => pathOf(t.href)), ...(it.also || [])])];
-const ALL = ADMIN_NAV.flatMap((g) => (g.href ? [{ g, it: null as NavItem | null, p: pathOf(g.href) }] : [])).concat(
-  ADMIN_NAV.flatMap((g) => g.items.flatMap((it) => itemPaths(it).map((p) => ({ g, it: it as NavItem | null, p })))),
-);
-/** 지금 주소에 맞는 대분류·메뉴 — 가장 길게 맞는 주소(「/admin/contracts/send」에서 「보낸 계약서(/admin/contracts)」가 켜지지 않게) */
-export function matchNav(pathname: string): { group: NavGroup | null; item: NavItem | null; path: string | null } {
-  const hit = ALL.filter((x) => pathname === x.p || pathname.startsWith(x.p + "/")).sort((a, b) => b.p.length - a.p.length)[0];
-  return hit ? { group: hit.g, item: hit.it, path: hit.p } : { group: null, item: null, path: null };
+export type NavMatch = { group: NavGroup | null; item: NavItem | null; path: string | null };
+
+/** 메뉴 정의 하나로 맞춤 함수를 만든다 — 관리자 · 원장 · 직원 세 모드가 같은 규칙(2026-10-21 본부 시안 R8)
+ *  · match: 지금 주소에 맞는 대분류 · 메뉴. 쿼리가 붙은 메뉴(예: 지점 휴가 = /manager/team-leave?tab=history)는 지금 쿼리가 같을 때 먼저,
+ *    그 밖에는 가장 길게 맞는 주소(「/admin/contracts/send」에서 「보낸 계약서(/admin/contracts)」가 켜지지 않게)
+ *  · home: 대분류의 첫 화면 — 레일을 누르면 여기로 바로 간다(재요청 A: 패널만 바뀌고 본문은 그대로면 「안 눌렸다」고 느낀다) */
+export function makeNavMatcher(nav: NavGroup[], fallbackHome: string) {
+  const all = nav.flatMap((g) => (g.href ? [{ g, it: null as NavItem | null, p: pathOf(g.href) }] : [])).concat(
+    nav.flatMap((g) => g.items.flatMap((it) => itemPaths(it).map((p) => ({ g, it: it as NavItem | null, p })))),
+  );
+  const withQuery = nav.flatMap((g) => g.items.filter((it) => it.href.includes("?")).map((it) => ({ g, it, p: pathOf(it.href), q: new URLSearchParams(it.href.split("?")[1]) })));
+  const match = (pathname: string, search = ""): NavMatch => {
+    const cur = new URLSearchParams(search);
+    const qHit = withQuery.find((x) => x.p === pathname && [...x.q.entries()].every(([k, v]) => cur.get(k) === v));
+    if (qHit) return { group: qHit.g, item: qHit.it, path: qHit.p };
+    // 쿼리가 없는(또는 다른) 같은 주소에서는 쿼리 없는 메뉴가 이긴다 — 쿼리 메뉴만 있으면 그것으로
+    const hits = all.filter((x) => pathname === x.p || pathname.startsWith(x.p + "/"))
+      .sort((a, b) => b.p.length - a.p.length || Number(!!a.it?.href.includes("?")) - Number(!!b.it?.href.includes("?")));
+    const hit = hits[0];
+    return hit ? { group: hit.g, item: hit.it, path: hit.p } : { group: null, item: null, path: null };
+  };
+  const home = (g: NavGroup) => g.href ?? g.items.find((it) => !it.hidden && !it.superOnly)?.href ?? fallbackHome;
+  return { match, home };
 }
+
+const ADMIN_MATCHER = makeNavMatcher(ADMIN_NAV, "/admin/dashboard");
+export const groupHome = ADMIN_MATCHER.home;
+export function matchNav(pathname: string): NavMatch { return ADMIN_MATCHER.match(pathname); }

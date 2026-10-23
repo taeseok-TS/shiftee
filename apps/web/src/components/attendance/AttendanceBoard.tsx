@@ -185,7 +185,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        {!embedded && <h1 className="text-2xl font-bold text-gray-900 mr-2">{scope === "admin" ? "출퇴근기록" : "팀 출퇴근기록"}</h1>}
+        {!embedded && <div className="mr-2"><p className="text-xs text-[#596578]">{scope === "admin" ? "근태 › 출퇴근 현황" : "근태 › 지점 출퇴근기록"}</p><h1 className="mt-0.5 text-[26px] font-bold leading-tight text-[#0f172a]">{scope === "admin" ? "출퇴근기록" : "지점 출퇴근기록"}</h1></div>}
         {/* 달력형 · 목록형 — 검정 채움 버튼 대신 알약(R10) */}
         <Chip on={view === "calendar"} onClick={() => setView("calendar")}>달력형</Chip>
         <Chip on={view === "list"} onClick={() => setView("list")}>목록형</Chip>

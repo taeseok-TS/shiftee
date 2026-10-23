@@ -31,7 +31,8 @@ export async function GET(request: NextRequest) {
 
   await ensureLeaveCatalog();   // 본부가 만든 유형(#216-1)의 단위·그룹을 알아야 한다
   const info = type ? leaveInfo(type) : undefined;
-  if (!info || !info.selectable) return NextResponse.json({ error: "지금은 신청할 수 없는 휴가 유형입니다." }, { status: 400 });
+  const proxyAdmin = session.role === "ADMIN" && userId !== session.userId;
+  if (!info || !(info.selectable || (proxyAdmin && info.adminOnly))) return NextResponse.json({ error: "지금은 신청할 수 없는 휴가 유형입니다." }, { status: 400 });
   // 하루짜리 유형은 종료일을 안 줘도 된다(시작일과 같다)
   const end = info.unit !== "FULL" ? (sp.get("end") || start) : (sp.get("end") ?? "");
   if (!isRealDate(start) || !isRealDate(end)) return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)" }, { status: 400 });

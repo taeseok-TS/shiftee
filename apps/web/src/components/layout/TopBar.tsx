@@ -64,11 +64,9 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
           <h1 className="truncate text-base md:text-lg font-semibold text-gray-800">{title}</h1>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
-          {role === "ADMIN" && (
-            <Link href="/admin/suggestions" className="hidden sm:inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100" title="개선 제안">
-              <Lightbulb size={15} /><span className="hidden lg:inline">개선 제안</span>
-            </Link>
-          )}
+          <Link href={role === "ADMIN" ? "/admin/suggestions" : "/suggestions"} className="hidden sm:inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-100" title="개선 제안">
+            <Lightbulb size={15} /><span className="hidden lg:inline">개선 제안</span>
+          </Link>
           <a href="/work" className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-1.5 text-sm font-semibold text-gray-800 hover:bg-indigo-50">
             {/* 듀리 얼굴 20px(시안 듀리 아이콘 ⑤ — 말풍선 선 아이콘 대신) */}
             <Image src="/icons/duri-face-64.png" alt="" width={20} height={20} className="h-5 w-5" />
@@ -84,7 +82,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => router.push("/profile")}><User size={15} className="mr-2" />내 정보</DropdownMenuItem>
               {/* 휴대폰은 위 개선 제안 버튼이 숨어 여기로(설정 패널에서 뺐다 — 재요청 H) */}
-              {role === "ADMIN" && <DropdownMenuItem onClick={() => router.push("/admin/suggestions")} className="sm:hidden"><Lightbulb size={15} className="mr-2" />개선 제안</DropdownMenuItem>}
+              <DropdownMenuItem onClick={() => router.push(role === "ADMIN" ? "/admin/suggestions" : "/suggestions")} className="sm:hidden"><Lightbulb size={15} className="mr-2" />개선 제안</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void logout()} className="text-red-600"><LogOut size={15} className="mr-2" />로그아웃</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

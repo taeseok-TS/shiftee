@@ -14,7 +14,7 @@ import { PageHead } from "@/components/kit";
 // 휴가 유형 관리(2026-10-12 개선 제안 #216-1, 디렉터 채택) — 본부만.
 //  · 기본 유형은 고치지 못하고 「신청 목록에서 숨김」만 할 수 있다(연차는 못 숨긴다). 기록 표시·계산은 그대로.
 //  · 본부가 만든 유형: 이름·그룹·단위·유급 시간·연차 차감·필수 첨부·안내·표시 여부·순서. 신청 기록이 있으면 지우지 못하고 숨긴다.
-type Builtin = { code: string; label: string; group: string; unit: string; paidHours: number; deducts: boolean; attachRequired: string | null; notice: string | null; selectableDefault: boolean; hidden: boolean; used: number };
+type Builtin = { code: string; label: string; group: string; unit: string; paidHours: number; deducts: boolean; attachRequired: string | null; notice: string | null; selectableDefault: boolean; adminOnly?: boolean; hidden: boolean; used: number };
 type Custom = { id: string; code: string; label: string; group: string; unit: string; paidHours: number; deducts: boolean; attachRequired: string | null; notice: string | null; selectable: boolean; sortOrder: number; used: number };
 type Draft = { label: string; group: string; unit: string; paidHours: string; deducts: boolean; attachRequired: string; notice: string; selectable: boolean; sortOrder: string };
 const UNIT_LABEL: Record<string, string> = { FULL: "하루(기간)", HALF: "반차 0.5일", QUARTER: "반반차 0.25일" };
@@ -139,7 +139,7 @@ export default function LeaveTypesPage() {
                       <div key={b.code} className="flex flex-wrap items-center gap-2 text-sm">
                         <span className={b.hidden || !b.selectableDefault ? "text-gray-400" : ""}>{b.label}</span>
                         <span className="text-xs text-gray-400">{UNIT_LABEL[b.unit] ?? b.unit} · {b.paidHours > 0 ? `유급 ${b.paidHours}h` : "무급"} · {b.deducts ? "연차 차감" : "차감 없음"} · 사용 {b.used}건</span>
-                        {!b.selectableDefault && <Badge variant="secondary" className="text-[11px]">옛 유형(기록만)</Badge>}
+                        {!b.selectableDefault && <Badge variant="secondary" className="text-[11px]">{b.adminOnly ? "본부 대리 등록만" : "옛 유형(기록만)"}</Badge>}
                         <span className="flex-1" />
                         {b.selectableDefault && (
                           <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${b.code === "ANNUAL" ? "text-gray-300" : "text-gray-600"}`}>

@@ -22,6 +22,7 @@ export type LeaveTypeInfo = {
   attachRequired?: string;    // 필수 첨부(있으면 신청 때 받아야 한다) — 화면 안내 문구
   notice?: string;            // 신청 화면 안내
   selectable: boolean;        // 새 신청 목록에 보이나
+  adminOnly?: boolean;        // 신청 목록엔 없고 본부 대리 등록만 받는다(육아휴직 — 10/23)
   calendarDays?: boolean;     // 주말·공휴일 포함 달력 날짜로 센다(FULL 유형만 — 위 설명)
   custom?: boolean;           // 본부가 화면에서 만든 유형(LeaveTypeDef, #216-1)
 };
@@ -48,6 +49,7 @@ export const LEAVE_CATALOG: LeaveTypeInfo[] = [
   { code: "REWARD", label: "포상휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, notice: "10년 근속 포상 유급 휴가", selectable: true },
   // 출산휴가는 주말·공휴일 포함 달력 날짜(90일) — 2026-10-22 본부 이예지(시프티는 평일만 세어 64일로 남았다)
   { code: "MATERNITY", label: "출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, calendarDays: true, attachRequired: "출산휴가 신청서·증명서", notice: "출산휴가 신청서 및 증명서 첨부가 필요합니다. 주말·공휴일을 포함해 셉니다.", selectable: true },
+  { code: "PARENTAL", label: "육아휴직", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, calendarDays: true, notice: "본부가 등록합니다. 주말·공휴일을 포함해 셉니다(무급).", selectable: false, adminOnly: true },
   { code: "SPOUSE_BIRTH", label: "배우자출산휴가", group: "기타휴가", paidHours: 8, unit: "FULL", deducts: false, selectable: true },
   { code: "FAMILY_CARE", label: "가족돌봄휴가", group: "기타휴가", paidHours: 0, unit: "FULL", deducts: false, notice: "무급휴가입니다(연차는 차감되지 않습니다).", selectable: true },   // 무급(2026-10-16 본부 결정 #220-1, 종전 유급 8h)
   { code: "CIVIL_DEFENSE", label: "민방위 휴가", group: "기타휴가", paidHours: 4, unit: "HALF", deducts: false, attachRequired: "민방위 참여 증빙", notice: "민방위 휴가 참여 증빙서류 제출이 필요합니다.", selectable: true },

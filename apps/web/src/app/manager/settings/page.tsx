@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHead } from "@/components/kit";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,14 +23,11 @@ export default function ManagerSettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">환경설정</h1>
-        <p className="text-gray-600 mt-2">팀 관리자 설정을 관리합니다.</p>
-      </div>
+      <PageHead crumb="설정 › 환경설정" title="환경설정" note="원장 설정" />
 
       <Card>
         <CardHeader>
-          <CardTitle>팀 관리 설정</CardTitle>
+          <CardTitle>지점 관리 설정</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -41,8 +39,8 @@ export default function ManagerSettingsPage() {
           </div>
           <div className="flex items-center justify-between p-4 border rounded-lg">
             <div>
-              <p className="font-medium text-gray-900">팀원 변동 알림</p>
-              <p className="text-sm text-gray-600">팀원 추가/삭제 시 알림을 받습니다.</p>
+              <p className="font-medium text-gray-900">지점 직원 변동 알림</p>
+              <p className="text-sm text-gray-600">지점 직원 추가/삭제 시 알림을 받습니다.</p>
             </div>
             <input type="checkbox" defaultChecked className="w-5 h-5" />
           </div>

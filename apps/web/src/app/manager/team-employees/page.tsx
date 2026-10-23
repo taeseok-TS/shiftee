@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { PageHead } from "@/components/kit";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 
@@ -32,10 +33,7 @@ export default async function ManagerEmployeesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">팀 직원 관리</h2>
-        <p className="text-gray-600 mt-2">{myBranches.join(" · ") || "담당 지점 없음"} - 총 {employees.length}명</p>
-      </div>
+      <PageHead crumb="인사 › 지점 직원" title="지점 직원" note={`${myBranches.join(" · ") || "담당 지점 없음"} · 총 ${employees.length}명`} />
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">

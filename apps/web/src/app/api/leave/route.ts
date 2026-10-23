@@ -183,7 +183,8 @@ export async function POST(request: NextRequest) {
   const { leaveInfo } = await import("@/lib/leave-catalog");
   await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog();
   const info = leaveInfo(type);
-  if (!info || !info.selectable) {
+  // 본부 전용 유형(육아휴직)은 본부 대리 등록일 때만
+  if (!info || !(info.selectable || (proxy && info.adminOnly))) {
     return NextResponse.json({ error: "지금은 신청할 수 없는 휴가 유형입니다." }, { status: 400 });
   }
   for (const [label, v] of [["첨부 경로", attachmentUrl], ["첨부 파일명", attachmentName]] as const) {

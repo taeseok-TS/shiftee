@@ -167,7 +167,6 @@ export default function AttendancePage() {
   const [unclosed, setUnclosed] = useState<Unclosed[]>([]);
   const [capHours, setCapHours] = useState(10.5);
   const [fallbackHours, setFallbackHours] = useState(9);
-  const [closing, setClosing] = useState(false);
   const [unclosedOpen, setUnclosedOpen] = useState(false);
   const loadUnclosed = useCallback(async () => {
     try {
@@ -180,24 +179,11 @@ export default function AttendancePage() {
     } catch { /* 목록을 못 불러와도 화면이 죽으면 안 된다 */ }
   }, []);
   useEffect(() => { if (myRole === "ADMIN") loadUnclosed(); }, [myRole, loadUnclosed]);
-  const closeUnclosed = async (ids?: string[]) => {
-    setClosing(true);
-    try {
-      const res = await fetch("/api/admin/attendance/unclosed", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ids ? { ids } : {}),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d.error || "마감하지 못했습니다."); return; }
-      toast.success(`${d.closed}건을 마감했습니다. 퇴근은 설정 › 근태 규칙에 따라 기록됩니다(시각은 목록의 「기준」 칸).`
-        + (d.skipped ? ` (직원 요청 결재 대기 ${d.skipped}건은 건너뜀)` : ""));
-      await loadUnclosed();
-      fetchTodayList();
-      fetchDash();   // 「확인 필요」의 퇴근 누락 줄도(검증 4)
-    } catch {
-      toast.error("서버에 연결하지 못했습니다.");
-    } finally { setClosing(false); }
-  };
+  // 미마감 한 건 → 보정 창(누락 보정과 같은 창 — 퇴근 시각은 근태 규칙 기준값으로 미리 채우기만, 저장은 사람이)
+  const fixUnclosed = (r: Unclosed) => setFixTarget({
+    id: r.id, name: r.name, branch: r.branch, date: r.date, type: "퇴근 누락", mode: "out",
+    fillAt: r.willClockOut, fillLabel: r.basisLabel ?? null, pendingRequest: r.pendingRequest,
+  });
 
   /* 오늘 출퇴근한 직원 목록 (관리자/원장) */
   const [todayList, setTodayList] = useState<TodayAttendee[]>([]);
@@ -565,17 +551,17 @@ export default function AttendancePage() {
             <Box icon={<AlertTriangle />} tone="amb" title="전일 미마감" count={unclosed.length} className="mt-[18px]"
               sub="어제 이전에 출근만 있고 퇴근이 없는 기록"
               right={<>
-                <Btn kind="text" onClick={() => setUnclosedOpen(v => !v)}>{unclosedOpen ? "접기" : "자세히"}</Btn>
-                <Btn kind="primary" className="px-3.5 py-1.5" disabled={closing} onClick={() => closeUnclosed()}>{closing ? "마감 중..." : `${unclosed.length}건 확인`}</Btn>
+                {/* 「○건 확인」 = 목록 열기(본부 10/23 — 한꺼번에 넣는 버튼은 뺐다. 줄마다 「보정」으로 한 건씩) */}
+                <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => setUnclosedOpen(v => !v)}>{unclosedOpen ? "접기" : `${unclosed.length}건 확인`}</Btn>
               </>}>
               <p className="px-6 py-3 text-[13px] text-[#596578]">
-                확인을 누르면 <b>설정 › 근태 규칙</b>에 따라 퇴근이 기록됩니다(건마다 「기준」 칸에 적힌 시각, 보정 시간 {fallbackHours}시간).
-                상한({capHours}시간)이나 그날 퇴근 가능 시각(최대 23:59)을 넘으면 거기까지만 기록되고, 이렇게 시스템이 넣은 퇴근은 조퇴로 보지 않습니다.
+                줄마다 「보정」을 누르면 보정 창이 열립니다. 퇴근 시각은 <b>설정 › 근태 규칙</b> 기준값(「기준」 칸, 보정 시간 {fallbackHours}시간 · 상한 {capHours}시간)으로 미리 채워 두기만 하고,
+                실제 시각과 사유를 넣어 저장합니다. 저장하면 수정 이력과 변경 로그에 고친 사람 · 시각 · 값이 남습니다.
               </p>
               {unclosedOpen && (
                 <div className="overflow-x-auto border-t border-[#eef1f5]">
                   <table className={tableClass}>
-                    <thead><tr><th>날짜</th><th>직원</th><th>출근</th><th>마감될 퇴근</th><th>기준</th><th className="text-right">처리</th></tr></thead>
+                    <thead><tr><th>날짜</th><th>직원</th><th>출근</th><th>기준 퇴근(미리 채울 값)</th><th>기준</th><th className="text-right">처리</th></tr></thead>
                     <tbody>
                       {unclosed.map(r => (
                         <tr key={r.id}>
@@ -587,7 +573,7 @@ export default function AttendancePage() {
                           <td className="text-right">
                             {r.pendingRequest
                               ? <span className="whitespace-nowrap text-[12.5px] font-semibold text-[#b45309]" title="직원이 올린 퇴근 처리·수정 요청을 결재하면 그 시각으로 기록됩니다">요청 결재 대기</span>
-                              : <Btn kind="text" disabled={closing} onClick={() => closeUnclosed([r.id])}>확인</Btn>}
+                              : <Btn kind="text" onClick={() => fixUnclosed(r)}>보정</Btn>}
                           </td>
                         </tr>
                       ))}
