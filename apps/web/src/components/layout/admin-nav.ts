@@ -52,10 +52,11 @@ export const ADMIN_NAV: NavGroup[] = [
   ] },
   { key: "contract", title: "전자계약", icon: FileSignature, items: [
     { href: "/admin/contracts/send", label: "계약서 보내기", icon: Send },
-    { href: "/admin/contracts", label: "보낸 계약서", icon: FileSignature, countKey: "contractsOpen", tabs: [
-      { href: "/admin/contracts", label: "보낸 계약서" },
-      { href: "/admin/contract-import", label: "체결본 가져오기" },
-    ] },
+    // 체결본 가져오기는 화면 머리의 흰 버튼으로 — 위 탭 줄(tabs)은 그리지 않는다(2026-10-23 본부 요청 ■3 「제목·버튼이 두 번」). 메뉴 찾기에는 find 로, 그 주소에서도 이 메뉴가 켜지게 also
+    { href: "/admin/contracts", label: "보낸 계약서", icon: FileSignature, countKey: "contractsOpen", also: ["/admin/contract-import"],
+      find: [
+        { href: "/admin/contract-import", label: "체결본 가져오기" },
+      ] },
     { href: "/admin/contract-templates", label: "양식 관리", icon: FileText, countKey: "templates", tabs: [
       { href: "/admin/contract-templates", label: "양식" },
       { href: "/admin/route-course", label: "루트코스 일정" },

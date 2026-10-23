@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import { toast } from "sonner";
 import { Upload, Undo2, FileArchive } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -122,6 +123,7 @@ export default function ContractImport() {
   return (
     <div className="space-y-4">
       <div>
+        <Link href="/admin/contracts" className="text-[13px] font-semibold text-[#4f46e5] hover:underline">‹ 보낸 계약서</Link>
         <h1 className="text-2xl font-bold text-gray-900">체결본 가져오기 (모두싸인)</h1>
         <p className="text-sm text-gray-500 mt-1">모두싸인에서 내려받은 체결본 PDF(ZIP)와 문서 목록표(엑셀)를 직원별 문서함에 넣습니다. 근로계약서 3년 보존용.</p>
       </div>

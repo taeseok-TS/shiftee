@@ -39,6 +39,7 @@ type Contract = {
   fileUrl: string;
   status: string;
   extraFields?: Record<string, string> | null; // 개인정보동의서 선택 동의 등
+  summaryFields?: Record<string, string> | null; // 그 문서 양식 칸만 추린 요약(서버 계산) — 폰 카드 「연봉」
   sendMessage?: string | null; // 본부 발송 메시지(#65)
   isTest?: boolean; // 나에게 테스트 발송(#67) 시험 문서 — 관리자 본인이 서명자
   profileFields?: string[] | null; // 이 계약서가 쓰는 프로필 필드 (주소/생년월일)
@@ -100,6 +101,39 @@ function kstDay(iso?: string | null): string | null {
   const thisYear = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 4);
   return (d.slice(0, 4) === thisYear ? d.slice(5) : d).replace(/-/g, "/");
 }
+// 폰 카드(시안 S1-4) 날짜 — 「10월 26일 (월)」, 올해가 아니면 「2027년 10월 25일 (월)」(공통 규칙 ■4: 요일 포함 · 해가 바뀌면 연도)
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+function longKDate(iso?: string | null): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const wd = WEEKDAY[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  const thisYear = new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
+  return `${y === thisYear ? "" : `${y}년 `}${mo}월 ${d}일 (${wd})`;
+}
+// 좁은 칸 기한 「11/04 (수)」
+function shortKDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  const k = new Date(t + 9 * 3600 * 1000);
+  const thisYear = new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
+  const md = `${String(k.getUTCMonth() + 1).padStart(2, "0")}/${String(k.getUTCDate()).padStart(2, "0")} (${WEEKDAY[k.getUTCDay()]})`;
+  return k.getUTCFullYear() === thisYear ? md : `${k.getUTCFullYear()}/${md}`;
+}
+// 연봉 「34,000,000원」 → 「3,400만 원」. 숫자 · 쉼표 · 원 · ₩ 만으로 된 값만 바꾼다 — 「3400만원」 「월 280만 원(연 3,360만 원)」처럼
+// 단위 글자가 든 자유 입력은 그대로 보여 준다(단위를 모른 채 숫자만 긁으면 1/10,000 로 틀리게 보였다, 10/23 검증 1). 1억 이상은 「1억 2,000만 원」
+function manWon(v?: string | null): string | null {
+  const raw = (v || "").trim();
+  if (!raw) return null;
+  if (!/^[\s₩0-9,.원]+$/.test(raw)) return raw;
+  const n = Math.round(Number(raw.replace(/[^0-9.]/g, "")));
+  if (!Number.isFinite(n) || n <= 0) return raw;
+  if (n < 10000) return `${n.toLocaleString()}원`;
+  const eok = Math.floor(n / 100000000), man = Math.floor((n % 100000000) / 10000), rest = n % 10000;
+  const parts = [eok ? `${eok.toLocaleString()}억` : "", man ? `${man.toLocaleString()}만` : "", rest ? `${rest.toLocaleString()}` : ""].filter(Boolean);
+  return `${parts.join(" ")} 원`.replace(/(\d) 원$/, "$1원");
+}
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 // 서명 전 계약서는 다운로드 대신 브라우저 열람만 (다운로드는 서명 완료본만 허용)
@@ -160,6 +194,7 @@ export default function ContractsPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [listLoading, setListLoading] = useState(true);   // 목록 불러오는 중(#217-1)
   const [myId, setMyId] = useState("");
+  const [myRole, setMyRole] = useState("");   // 세션 역할 — 「내가 결재할 계약서」 상자는 직원(EMPLOYEE) 세션에만(관리자 · 원장은 결재함이 따로 있다, 2026-10-23 본부 ■1)
   const [myRoleName, setMyRoleName] = useState("결재자");   // 결재 전체 창의 내 단계 이름
   // 내 결재 대기(원장 대행 등) → 원장·본부와 같은 결재 전체 창(2026-10-21 본부 이예지 재요청 C)
   const [hostTarget, setHostTarget] = useState<Contract | null>(null);
@@ -253,6 +288,9 @@ export default function ContractsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSearchText, setFilterSearchText] = useState("");
   const [showHiddenRevoked, setShowHiddenRevoked] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);   // 찾기 줄 — 기본 접힘, 「찾기」 버튼으로 펼침(2026-10-23 본부 ■1 · ■4)
+  const thisYearStr = new Date().getFullYear().toString();
+  const activeFilterCount = [filterSearchText.trim(), filterMonth, filterStatus, showHiddenRevoked ? "1" : "", filterYear !== thisYearStr ? "1" : ""].filter(Boolean).length;
 
   const fetchContracts = useCallback(async (filters?: any) => {
     const params = new URLSearchParams();
@@ -299,6 +337,7 @@ export default function ContractsPage() {
       setMeLoaded(true);
       // 개인 페이지: 역할과 무관하게 본인 계약서만 표시 (작성/관리는 관리자·원장 페이지에서)
       setMyId(d.user?.id || "");
+      setMyRole(d.user?.role || "");
       setMyProfile({ address: d.user?.address || "", birthDate: d.user?.birthDate ? String(d.user.birthDate).slice(0, 10) : "" });
       setMySigUrl(d.user?.signatureUrl || "");
       setMyRoleName(d.user?.role === "ADMIN" ? "본부" : d.user?.role === "MANAGER" ? "원장" : "결재자");
@@ -609,15 +648,32 @@ export default function ContractsPage() {
   // 내 서명 차례 — 종전 「내 서명 대기」 카드와 같은 기준. 이제 목록 줄 오른쪽 인디고 [서명]으로 연다(시안 직원 내 계약서)
   const canSign = (c: Contract) => (c.status === "SENT" || c.status === "APPROVED") && !!c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING");
   const signCount = contracts.filter(canSign).length;
+  // 줄 하나의 상태 · 열기 주소 · 버튼 — PC 표와 폰 카드(시안 S1-4)가 같은 규칙을 쓴다
+  const rowOf = (c: Contract) => {
+    const mineToSign = canSign(c);
+    const pill = mineToSign ? { tone: "wait" as PillTone, label: "내 서명 차례" } : STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: "미정" };
+    // 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만
+    // 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24)
+    // 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129)
+    const noAccess = c.status === "SIGNED" && c.postSignAccess === "none";
+    // 본인 서명 차례 문서는 [서명하기] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다
+    const lockedSelf = c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
+      && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING");
+    const canDownload = c.status === "SIGNED" && c.postSignAccess !== "view";
+    const openHref = c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl));
+    const onOpen = () => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); };
+    return { mineToSign, pill, noAccess, lockedSelf, canDownload, openHref, onOpen };
+  };
 
   return (
     <div>
       {/* 머리(시안 3-3) — 제목 = 왼쪽 메뉴 이름 + 위 작은 경로 */}
       <PageHead crumb="전자계약 › 내 계약서" title="내 계약서" />
 
-      {/* 내 결재 대기 — 결재자로서 내 차례인 계약서. 「열기」 = 원장·본부와 같은 결재 전체 창(재요청 C) */}
-      {meLoaded && approvalsShown.length > 0 && (
-        <Box icon={<PenLine />} tone="amb" title="내 결재 대기" count={approvalsShown.length} sub="내가 승인할 계약서" bodyClassName="px-6 py-1">
+      {/* 내가 결재할 계약서 — 결재자(원장 대행 등)로서 내 차례인 계약서. 「열기」 = 원장·본부와 같은 결재 전체 창(재요청 C).
+          직원 세션에만 — 관리자 · 원장이 직원 모드로 들어오면 숨긴다(결재함이 따로 있다). 내 정보를 못 받으면(역할 "") 감추지 않는다(검증관 F3) */}
+      {meLoaded && myRole !== "ADMIN" && myRole !== "MANAGER" && approvalsShown.length > 0 && (
+        <Box icon={<PenLine />} title="내가 결재할 계약서" count={approvalsShown.length} sub="원장 대행 등 결재자로 지정된 계약서" bodyClassName="px-6 py-1">
           {approvalsShown.map((c) => (
             <div key={c.id} className="flex items-center gap-3.5 border-t border-[#f1f5f9] py-[15px] first:border-t-0">
               <div className="min-w-0 flex-1">
@@ -642,9 +698,15 @@ export default function ContractsPage() {
       )}
 
       {/* 계약서 목록(시안 직원 내 계약서) — 표: 서류 · 상태 알약 · 결재 진행 · 받은 날 · 기한 · 처리(서명 차례 = 인디고 「서명」, 끝난 문서 = 흰 「받기」) */}
-      <Box icon={<FileSignature />} title="계약서 목록" count={signCount} sub={listLoading ? "불러오는 중…" : signCount > 0 ? `${contracts.length}건 · 서명할 것 ${signCount}건` : `${contracts.length}건`}>
-        {/* 필터 한 줄(시안 3-8) — 찾기 · 연도 · 월 · 상태 + 오른쪽 숨긴 결재 포함 · 초기화 */}
-        <FilterRow right={
+      <Box icon={<FileSignature />} title="계약서 목록" count={signCount} sub={listLoading ? "불러오는 중…" : signCount > 0 ? `${contracts.length}건 · 서명 대기 ${signCount}건` : `${contracts.length}건`}
+        right={
+          // 찾기 — 기본 접힘(■4 「찾기 칸은 접어 두기」). 걸린 조건 수를 배지로
+          <Btn onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen} className="px-3 py-1.5">
+            찾기{activeFilterCount > 0 && <em className="rounded-full bg-[#eef2ff] px-[7px] text-[12px] not-italic leading-[19px] text-[#4f46e5]">{activeFilterCount}</em>}
+          </Btn>
+        }>
+        {/* 필터 한 줄(시안 3-8) — 찾기 · 연도 · 월 · 상태 + 오른쪽 숨긴 결재 포함 · 초기화. 「찾기」를 눌렀을 때만 */}
+        {filtersOpen && <FilterRow right={
           <span className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[13px] text-[#475569]">
               <input type="checkbox" checked={showHiddenRevoked} onChange={(e) => setShowHiddenRevoked(e.target.checked)} />숨긴 결재 포함
@@ -686,9 +748,47 @@ export default function ContractsPage() {
             <option value="EXPIRED">만료</option>
             <option value="REJECTED">반려</option>
           </select>
-        </FilterRow>
+        </FilterRow>}
 
-        <div className="overflow-x-auto">
+        {/* 폰(md 미만)은 표 대신 카드(시안 S1-4) — 기한 · 서류 이름 · 계약 기간 · 연봉 · 상태 알약 · 아래 가로로 꽉 찬 버튼 */}
+        <div className="md:hidden">
+          {listLoading ? (
+            <p className="py-8 text-center text-[#94a3b8]"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></p>
+          ) : contracts.length === 0 ? (
+            <p className="py-8 text-center text-[#94a3b8]">없음</p>
+          ) : contracts.map((c) => {
+            const r = rowOf(c);
+            const due = c.status === "SENT" || c.status === "APPROVED" ? shortKDate(c.signDeadline) : null;
+            const start = longKDate(c.startDate), end = longKDate(c.endDate);
+            const salary = manWon((c.summaryFields || c.extraFields || {})["연봉"]);
+            return (
+              <div key={c.id} className="space-y-2.5 border-t border-[#f1f5f9] px-4 py-4 first:border-t-0">
+                <div className="flex items-start justify-between gap-3">
+                  <b className="min-w-0 text-[16px] font-bold leading-snug text-[#0f172a]">{c.title}</b>
+                  {due && <span className="shrink-0 pt-0.5 text-[12.5px] text-[#596578]">기한 {due}</span>}
+                </div>
+                {(start || end) && <p className="text-[13.5px] text-[#334155]"><span className="text-[#596578]">계약 기간</span> {start || "?"} ~ {end || "?"}</p>}
+                {salary && <p className="text-[13.5px] text-[#334155]"><span className="text-[#596578]">연봉</span> {salary}</p>}
+                <div className="flex items-center gap-2">
+                  <StatusPill tone={r.pill.tone}>{r.pill.label}</StatusPill>
+                  {c.isTest && <span className="text-[12px] text-[#94a3b8]">테스트 문서</span>}
+                </div>
+                <div className="flex gap-2 pt-0.5">
+                  {r.noAccess ? (
+                    <span className="flex-1 py-2 text-center text-[13px] text-[#94a3b8]">제출 완료</span>
+                  ) : r.lockedSelf ? (
+                    r.mineToSign ? null : <span className="flex-1 py-2 text-center text-[13px] text-[#94a3b8]">서명하기에서 열기</span>
+                  ) : (
+                    <a href={r.openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "flex-1 py-2.5")} onClick={r.onOpen}>{r.canDownload ? "받기" : "보기"}</a>
+                  )}
+                  {r.mineToSign && <Btn kind="primary" className="flex-1 py-2.5" onClick={() => openEmpSign(c)}>서명하기</Btn>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className={tableClass}>
             <thead>
               <tr>
@@ -706,17 +806,7 @@ export default function ContractsPage() {
               ) : contracts.length === 0 ? (
                 <tr><td colSpan={6} className="py-8 text-center text-[#94a3b8]">없음</td></tr>
               ) : contracts.map(c => {
-                const mineToSign = canSign(c);
-                const pill = mineToSign ? { tone: "wait" as PillTone, label: "내 서명 차례" } : STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: "미정" };
-                // 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만
-                // 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24)
-                // 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129)
-                const noAccess = c.status === "SIGNED" && c.postSignAccess === "none";
-                // 본인 서명 차례 문서는 [서명] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다
-                const lockedSelf = c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
-                  && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING");
-                const canDownload = c.status === "SIGNED" && c.postSignAccess !== "view";
-                const openHref = c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl));
+                const { mineToSign, pill, noAccess, lockedSelf, canDownload, openHref, onOpen } = rowOf(c);
                 const received = kstDay(c.approvalLine?.createdAt);
                 const due = c.status === "SENT" || c.status === "APPROVED" ? kstDay(c.signDeadline) : null;
                 const period = c.startDate || c.endDate ? `계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : null;
@@ -747,14 +837,13 @@ export default function ContractsPage() {
                         {noAccess ? (
                           <span className="text-[12.5px] text-[#94a3b8]" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
                         ) : lockedSelf ? (
-                          mineToSign ? null : <span className="text-[12.5px] text-[#94a3b8]" title="[서명]에서 비밀번호를 넣으면 열립니다">서명에서 열기</span>
+                          mineToSign ? null : <span className="text-[12.5px] text-[#94a3b8]" title="「서명하기」에서 비밀번호를 넣으면 열립니다">서명하기에서 열기</span>
                         ) : (
-                          <a href={openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={canDownload ? "체결본 받기(PDF)" : "열람"}
-                            onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}>
+                          <a href={openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={canDownload ? "체결본 받기(PDF)" : "열람"} onClick={onOpen}>
                             {canDownload ? "받기" : "보기"}
                           </a>
                         )}
-                        {mineToSign && <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => openEmpSign(c)}>서명</Btn>}
+                        {mineToSign && <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => openEmpSign(c)}>서명하기</Btn>}
                       </span>
                       {/* 버전 히스토리 아이콘은 뺐다(2026-10-16 이예지 QA E3 — 근로자에게는 「버전 정보가 없습니다」만 떠 의미가 없었다) */}
                     </td>

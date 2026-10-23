@@ -3,7 +3,7 @@
 //  · 옛 주황 「내 결재 대기」 판 대신 숫자 칸 「결재 대기」(1 이상 빨강, 누르면 아래 표가 내가 승인할 것만)
 //  · 원장 차례인 줄 = 인디고 「열기」(승인 전체 창), 나머지 = 흰 「보기」(열람만 — 원장에게 내려받기는 두지 않는다)
 //  · 주소 ?id=<계약 id> 로 들어오면 한 번만: 원장 차례면 승인 전체 창, 아니면 그 줄 강조 · 스크롤 — 그 뒤 주소에서 id 를 지운다
-import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type FlowStep } from "@/components/kit";
+import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, Chip, StatusPill, FlowDots, MoreMenu, type PillTone, type FlowStep } from "@/components/kit";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FileSignature, Search } from "lucide-react";
@@ -32,13 +32,14 @@ type Contract = {
   externalName?: string | null; // 외부(미가입) 계약자 이름 — 있으면 소유자는 작성 관리자라 당사자 표기가 다르다
   employeeOnly?: boolean; // 직원전용 문서(비밀유지·개인정보동의서) — 원장은 진행본을 못 연다
   isTest?: boolean;
+  importBatch?: string | null; // 모두싸인 이관본 — 「지난 서류」(2026-10-23 본부 ■2)
   startDate: string | null;
   endDate: string | null;
   signDeadline?: string | null; // 서명 기한(표 「기한」 칸 — 보기만)
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
   summaryFields?: Record<string, string> | null; // 서명 창 요약 — 그 문서 템플릿 필드만(서버 계산, #206-2)
   createdAt: string;
-  user: { id: string; name: string; department: string | null; branch: string | null; empNo?: number | null };
+  user: { id: string; name: string; department: string | null; branch: string | null; empNo?: number | null; employmentStatus?: string | null; resignDate?: string | null };
   approvalLine?: { steps: Step[] } | null;
 };
 
@@ -93,7 +94,8 @@ function recordViewed(id: string) {
 
 // 결재 진행 = 사람마다 점 + 이름(R12 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음)
 function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
-  if (!steps || steps.length === 0) return <span className="text-[13px] text-[#94a3b8]">결재선 없음</span>;
+  // 단계가 없으면(이관본 등) 회색 「—」만(2026-10-23 본부 ■2)
+  if (!steps || steps.length === 0) return <span className="text-[13px] text-[#94a3b8]">—</span>;
   const dots: FlowStep[] = steps.map((step) => ({
     label: step.approver?.name || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
     state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
@@ -101,10 +103,38 @@ function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
   return <FlowDots steps={dots} />;
 }
 
-// 기한 「MM/DD」(KST) — 진행 중(서명 대기 · 결재 중)일 때만
+const KST_MS = 9 * 3600 * 1000;
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+// 기한 「MM/DD (요일)」(KST, 공통 규칙 ■4) — 진행 중(서명 대기 · 결재 중)일 때만
 function deadlineOf(c: Contract): string | null {
   if (!c.signDeadline || !(c.status === "SENT" || c.status === "APPROVED")) return null;
-  return new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/");
+  const d = new Date(new Date(c.signDeadline).getTime() + KST_MS);
+  return `${d.toISOString().slice(5, 10).replace("-", "/")} (${WEEKDAY[d.getUTCDay()]})`;
+}
+
+// 당사자 퇴사 — 퇴직 상태이거나 퇴사일이 오늘(KST) 이전
+function isResigned(u: Contract["user"]): boolean {
+  if (u.employmentStatus === "RESIGNED") return true;
+  if (!u.resignDate) return false;
+  const t = new Date(u.resignDate).getTime();
+  if (isNaN(t)) return false;
+  const day = new Date(t + KST_MS).toISOString().slice(0, 10);
+  return day < new Date(Date.now() + KST_MS).toISOString().slice(0, 10);
+}
+// 「지난 서류」(2026-10-23 본부 ■2) — 모두싸인 이관본, 또는 당사자가 퇴사한 끝난 계약(체결 · 반려 · 만료).
+// 기본 목록 · 숫자 칸 · 탭 건수에서 빼고 「지난 서류 보기」를 켜면 함께 센다
+const ENDED = ["SIGNED", "REJECTED", "EXPIRED"];
+function isPastDoc(c: Contract): boolean {
+  return !!c.importBatch || (!c.externalName && ENDED.includes(c.status) && isResigned(c.user));
+}
+// 정렬 — 진행 중(서명 대기 · 결재 중) 먼저, 그다음 나머지. 각각 만든 날 내림차순
+const ACTIVE = ["SENT", "APPROVED"];
+function sortContracts(list: Contract[]): Contract[] {
+  return [...list].sort((a, b) => {
+    const pa = ACTIVE.includes(a.status) ? 0 : 1, pb = ACTIVE.includes(b.status) ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    return (b.createdAt || "").localeCompare(a.createdAt || "");
+  });
 }
 
 export default function ManagerContractsPage() {
@@ -114,6 +144,7 @@ export default function ManagerContractsPage() {
   const [loading, setLoading] = useState(true);
   const [listTab, setListTab] = useState<ListTab>("all");
   const [search, setSearch] = useState("");
+  const [showPast, setShowPast] = useState(false);   // 「지난 서류 보기」(이관본 · 퇴사자의 끝난 계약) — 기본 끔
 
   const [signOpen, setSignOpen] = useState(false);
   // 승인 창 안 본문(2026-10-16 이예지 QA R1) — 본문 PDF 를 실제로 받아 창에 띄운 뒤에만 승인 버튼을 켠다(본문을 안 보고 한 번에 서명하던 것).
@@ -183,7 +214,8 @@ export default function ManagerContractsPage() {
       setOpenId(null);
       const mine = myApprovals.find((c) => c.id === id);
       if (mine) { setSignTarget(mine); setSignOpen(true); return; }
-      if (contracts.some((c) => c.id === id)) { setListTab("all"); setHighlightId(id); return; }
+      const found = contracts.find((c) => c.id === id);
+      if (found) { setListTab("all"); if (isPastDoc(found)) setShowPast(true); setHighlightId(id); return; }   // 지난 서류면 보기를 켜야 그 줄이 표에 있다
       toast.info("이 계약서는 지점 목록에 없습니다(이미 처리됐거나 볼 수 없는 문서).");
     });
   }, [openId, loading, myApprovals, contracts]);
@@ -239,14 +271,17 @@ export default function ManagerContractsPage() {
     const q = search.trim().toLowerCase();
     return !q || c.title.toLowerCase().includes(q) || (c.externalName || c.user.name).toLowerCase().includes(q);
   }, [search]);
-  const merged = useMemo(() => [...myApprovals.filter((a) => !contracts.some((c) => c.id === a.id) && matchSearch(a)), ...contracts], [myApprovals, contracts, matchSearch]);
+  const all = useMemo(() => [...myApprovals.filter((a) => !contracts.some((c) => c.id === a.id) && matchSearch(a)), ...contracts], [myApprovals, contracts, matchSearch]);
+  // 지난 서류(이관본 · 퇴사자의 끝난 계약)는 기본으로 빼고 센다 — 「지난 서류 보기」를 켜면 포함(2026-10-23 본부 ■2)
+  const pastCount = useMemo(() => all.filter(isPastDoc).length, [all]);
+  const merged = useMemo(() => (showPast ? all : all.filter((c) => !isPastDoc(c))), [all, showPast]);
   const countOf = (statuses: string[]) => merged.filter((c) => statuses.includes(c.status)).length;
   const draftCount = countOf(TAB_STATUS.draft);
   // 「결재 대기」(mine)는 결재 대기 목록 그대로(직원전용 · 외부 계약처럼 지점 목록에 안 나오는 것도 보인다). 찾기 글자로 한 번 더 거른다
   const shownContracts = useMemo(() => {
-    if (listTab === "mine") return myApprovals.filter(matchSearch);
-    if (listTab === "all") return merged;
-    return merged.filter((c) => TAB_STATUS[listTab].includes(c.status));
+    if (listTab === "mine") return sortContracts(myApprovals.filter(matchSearch));
+    if (listTab === "all") return sortContracts(merged);
+    return sortContracts(merged.filter((c) => TAB_STATUS[listTab].includes(c.status)));
   }, [listTab, merged, myApprovals, matchSearch]);
 
   // 승인 창 본문 받기(R1) — docx 는 서버 변환 PDF(/api/docs/pdf), PDF 양식은 파일 그대로. 정상 PDF 일 때만 승인 가능
@@ -295,7 +330,7 @@ export default function ManagerContractsPage() {
       {/* 숫자 칸(R12) — 옛 주황 「내 결재 대기」 판 대신. 칸을 누르면 아래 표가 그 상태로 걸러진다 */}
       <Box icon={<FileSignature />} title="계약 현황" sub={search.trim() ? `찾기 「${search.trim()}」 기준` : "전체 기간"}>
         <Tiles cols={5}>
-          <Tile label="결재 대기" value={loading ? null : myApprovals.length} unit="건" note="내가 승인할 것" alert active={listTab === "mine"} onClick={() => setListTab("mine")} />
+          <Tile label="결재 대기" value={loading ? null : myApprovals.length} unit="건" note="내 결재 차례" alert active={listTab === "mine"} onClick={() => setListTab("mine")} />
           <Tile label="서명 대기" value={loading ? null : countOf(TAB_STATUS.waiting)} unit="건" note="서명 · 결재 진행 중" active={listTab === "waiting"} onClick={() => setListTab("waiting")} />
           <Tile label="체결 완료" value={loading ? null : countOf(TAB_STATUS.signed)} unit="건" active={listTab === "signed"} onClick={() => setListTab("signed")} />
           <Tile label="반려" value={loading ? null : countOf(TAB_STATUS.rejected)} unit="건" active={listTab === "rejected"} onClick={() => setListTab("rejected")} />
@@ -315,8 +350,12 @@ export default function ManagerContractsPage() {
 
       {/* 계약서 목록(R12) — 처리: 원장 차례 = 인디고 「열기」(승인 전체 창), 나머지 = 흰 「보기」(열람만) */}
       <Box icon={<FileSignature />} tone="sky" title="계약서 목록"
-        sub={loading ? "불러오는 중…" : `${listTab === "mine" ? "내가 승인할 것만 · " : ""}${shownContracts.length}건`}
-        right={listTab === "mine" ? <Btn kind="text" onClick={() => setListTab("all")}>전체 보기</Btn> : undefined}>
+        sub={loading ? "불러오는 중…" : `${listTab === "mine" ? "내 결재 차례만 · " : ""}${shownContracts.length}건`}
+        right={<>
+          {listTab === "mine" && <Btn kind="text" onClick={() => setListTab("all")}>전체 보기</Btn>}
+          {/* 지난 서류(모두싸인 이관본 · 퇴사자의 끝난 계약) — 켜면 표 · 숫자 칸 · 탭 건수에 함께 센다 */}
+          {(pastCount > 0 || showPast) && <Chip on={showPast} onClick={() => setShowPast((v) => !v)}>지난 서류 보기 ({pastCount})</Chip>}
+        </>}>
         <FilterRow>
           <div className="relative">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
@@ -328,7 +367,7 @@ export default function ManagerContractsPage() {
         {loading ? (
           <p className="px-6 py-10 text-center text-[14px] text-[#596578]">불러오는 중…</p>
         ) : shownContracts.length === 0 ? (
-          <p className="px-6 py-10 text-center text-[14px] text-[#596578]">{listTab === "mine" ? "내가 승인할 계약서가 없습니다" : "계약서가 없습니다"}</p>
+          <p className="px-6 py-10 text-center text-[14px] text-[#596578]">{listTab === "mine" ? "내 결재 차례인 계약서가 없습니다" : "계약서가 없습니다"}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className={tableClass}>
@@ -350,7 +389,8 @@ export default function ManagerContractsPage() {
                   const due = deadlineOf(c);
                   return (
                     <tr key={c.id} id={"contract-" + c.id} className={highlightId === c.id ? "bg-[#eef2ff]" : "hover:bg-[#fafbfd]"}>
-                      <td><Cell2 main={c.externalName ? `[외부] ${c.externalName}` : c.user.name} sub={(c.externalName ? "외부 계약자" : c.user.branch) || undefined} /></td>
+                      <td><Cell2 main={c.externalName ? `[외부] ${c.externalName}` : c.user.name}
+                        sub={c.externalName ? "외부 계약자" : (c.user.branch || isResigned(c.user)) ? <>{c.user.branch}{isResigned(c.user) && <span className="ml-1 text-[11.5px] text-[#94a3b8]">퇴사</span>}</> : undefined} /></td>
                       <td>
                         <span className="text-[#0f172a]">{c.title}</span>
                         <span className="block text-[12.5px] text-[#596578]">{typeLabel[c.type] || c.type}</span>

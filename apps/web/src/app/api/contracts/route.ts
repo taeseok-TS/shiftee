@@ -47,19 +47,17 @@ export async function GET(request: NextRequest) {
       : { userId: session.userId, externalName: null };
 
     // 추가 필터 적용
+    // 연 · 월 경계는 KST 자정(서버 시간대 UTC 와 무관 — 매월 1일 0~9시에 만든 계약이 전달로 세지지 않게, 10/23 검증 3)
+    const kstMonthStart = (y: number, m0: number) => new Date(Date.UTC(y, m0, 1) - 9 * 3600 * 1000);
     if (year) {
       const yearNum = parseInt(year);
-      const startOfYear = new Date(yearNum, 0, 1);
-      const endOfYear = new Date(yearNum + 1, 0, 1);
-      whereBase.createdAt = { gte: startOfYear, lt: endOfYear };
+      whereBase.createdAt = { gte: kstMonthStart(yearNum, 0), lt: kstMonthStart(yearNum + 1, 0) };
     }
 
     if (month && year) {
       const yearNum = parseInt(year);
       const monthNum = parseInt(month) - 1; // JS에서는 0부터 시작
-      const startOfMonth = new Date(yearNum, monthNum, 1);
-      const endOfMonth = new Date(yearNum, monthNum + 1, 1);
-      whereBase.createdAt = { gte: startOfMonth, lt: endOfMonth };
+      whereBase.createdAt = { gte: kstMonthStart(yearNum, monthNum), lt: kstMonthStart(yearNum, monthNum + 1) };
     }
 
     // 기간 기준(#79) — 작성일(기본)·완료일(체결일)·마지막 활동일. from/to 를 주면 연·월 대신 이것으로 거른다(KST 날짜)
@@ -128,7 +126,7 @@ export async function GET(request: NextRequest) {
     const contracts = await prisma.contract.findMany({
       where: whereBase,
       include: {
-        user: { select: { id: true, name: true, email: true, department: true, branch: true } },
+        user: { select: { id: true, name: true, email: true, department: true, branch: true, employmentStatus: true, resignDate: true } },
         // 서명 완료 후 근로자 접근 (#129) — 완료본 버튼 게이트용 + 요약 칸을 그 템플릿 필드로 거르는 데 쓴다(#206-2)
         template: { select: { postSignAccess: true, fileUrl: true, approvalSteps: true, approvalStepsRenewal: true, approvalLocked: true } },
         approvalLine: {
@@ -231,6 +229,9 @@ export async function GET(request: NextRequest) {
         name: contract.user.name,
         department: contract.user.department,
         branch: contract.user.branch,
+        // 당사자 퇴사 여부(2026-10-23 본부 ■2) — 원장 「지점 계약서」가 퇴사자의 끝난 서류를 「지난 서류」로 따로 묶는 데 쓴다
+        employmentStatus: contract.user.employmentStatus,
+        resignDate: contract.user.resignDate,
       },
       approvalLine: contract.approvalLine ? {
         ...contract.approvalLine,

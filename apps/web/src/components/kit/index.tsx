@@ -36,7 +36,7 @@ const BTN: Record<BtnKind, string> = {
 };
 export const btnClass = (kind: BtnKind = "secondary", extra?: string) => cn("inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors disabled:cursor-not-allowed", BTN[kind], extra);
 export function Btn({ kind = "secondary", href, className, children, ...rest }: { kind?: BtnKind; href?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  if (href) return <Link href={href} className={btnClass(kind, className)}>{children}</Link>;
+  if (href) return <Link href={href} className={btnClass(kind, className)} title={rest.title} aria-label={rest["aria-label"]}>{children}</Link>;
   return <button type="button" className={btnClass(kind, className)} {...rest}>{children}</button>;
 }
 
@@ -140,6 +140,14 @@ const PILL: Record<PillTone, string> = {
 };
 export function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return <span className={cn("inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12.5px] font-bold", PILL[tone])}>{children}</span>;
+}
+
+/* ── 작은 표시 알약(둘째 줄 보조 표시용): 회색 글자 · 1px 테두리 · 11.5px. href 를 주면 링크(새 창) ── */
+export function MiniPill({ children, title, href, className }: { children: ReactNode; title?: string; href?: string; className?: string }) {
+  const cls = cn("inline-block whitespace-nowrap rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-1.5 text-[11.5px] font-semibold leading-[18px] text-[#596578] align-middle", href && "hover:border-[#c7d2fe] hover:text-[#4f46e5]", className);
+  return href
+    ? <a href={href} target="_blank" rel="noreferrer" title={title} className={cls}>{children}</a>
+    : <span title={title} className={cls}>{children}</span>;
 }
 
 /* ── 결재 진행: 사람마다 9px 점 + 이름. 끝난 사람 파랑 · 지금 차례 주황 · 남은 사람 회색 ── */

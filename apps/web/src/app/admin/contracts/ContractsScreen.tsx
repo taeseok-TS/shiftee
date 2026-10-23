@@ -7,10 +7,10 @@ import FlowExternalSend from "@/components/contracts/FlowExternalSend";
 import BulkValuesTable, { bulkColumns, deriveHours, evalPeriods, EMPTY_EVAL, normDate, DATE_COLS, PERSON_DATE_COLS, EVAL_COLS, type BulkRowValues, type RowStatus } from "@/components/contracts/BulkValuesTable";
 import { DEFAULT_COHORTS, type Cohort } from "@/lib/route-course";
 import BulkSendDialog from "@/components/contracts/BulkSendDialog";
-import SendPicker, { type SendSelection } from "@/components/contracts/SendPicker";
+import SendPicker, { displayTplName, type SendSelection } from "@/components/contracts/SendPicker";
 import FlowSteps from "@/components/contracts/FlowSteps";
 import FlowSendStep from "@/components/contracts/FlowSendStep";
-import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type FlowStep } from "@/components/kit";
+import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, MiniPill, type PillTone, type FlowStep } from "@/components/kit";
 import { bundleProblem, isConsentDoc, isEmployeeOnlyDoc } from "@/lib/contract-send-layout";
 import { koreanMoney } from "@/lib/korean-money";
 import { DEFAULT_STEPS, KIND_LABEL, STEP_KINDS, effectiveKind, kindOfApprover, parseApprovalSteps, stepsLabel, type ApprovalStepSpec, type StepKind } from "@/lib/approval-order";
@@ -79,7 +79,7 @@ type Contract = {
   };
 };
 
-type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null; email?: string | null; resignDate?: string | null };
+type Employee = { id: string; name: string; department: string | null; branch?: string | null; role?: string; birthDate?: string | null; managerBranches?: string[]; hireDate?: string | null; position?: string | null; empNo?: number | null; phone?: string | null; email?: string | null; resignDate?: string | null; isTest?: boolean };
 
 // 휴대폰 일부만(#26) — 010-****-1234, 서울 02-****-4567
 const maskPhone = (p?: string | null) => {
@@ -196,6 +196,12 @@ const STATUS_PILL: Record<string, { tone: PillTone; label: string }> = {
 };
 type ListTab = "all" | "waiting" | "signed" | "rejected" | "expired" | "mine";
 const TAB_STATUS: Record<Exclude<ListTab, "all" | "mine">, string[]> = { waiting: ["SENT", "APPROVED"], signed: ["SIGNED"], rejected: ["REJECTED"], expired: ["EXPIRED"] };
+/** 기간 고르기(2026-10-23 본부 요청 ■3 「25개 → 4개」) — 이번 달 · 지난달 · 올해 · 직접 고르기(더 보기의 날짜 범위). 값은 KST 연·월 문자열 */
+const ymKst = (back = 0) => { const n = kstNow(); const d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() - back, 1)); return { y: String(d.getUTCFullYear()), m: String(d.getUTCMonth() + 1).padStart(2, "0") }; };
+/** 목록 정렬(■3 「기본은 진행 중부터」) — 진행 중(서명 대기 · 결재 중) 먼저, 각 묶음 안에서 모두싸인 이관본은 맨 뒤, 그 안에서 만든 날 내림차순 */
+const listRank = (c: { status: string; importBatch?: string | null }) => (TAB_STATUS.waiting.includes(c.status) ? 0 : 2) + (c.importBatch ? 1 : 0);
+const sortForList = <T extends { status: string; importBatch?: string | null; createdAt: string }>(list: T[]) =>
+  [...list].sort((a, b) => listRank(a) - listRank(b) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 
 export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -206,6 +212,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 지점 → 메인 원장 이름(#213-4). 원장이 둘인 지점은 메인 원장이 문서의 「원장명」이다. 없으면 그 지점 원장(겸직 포함) 아무나
   const [mainManagers, setMainManagers] = useState<Record<string, string>>({});
   const [branchAddresses, setBranchAddresses] = useState<Record<string, string>>({});   // 지점 → 주소(인사발령통지서 발령 근무지 자동)
+  const [pickBranches, setPickBranches] = useState<string[]>([]);
+  const [hiddenBranches, setHiddenBranches] = useState<string[]>([]);   // 숨긴 지점(테스트지점) — 「내 테스트 문서만」을 켰을 때만 지점 고르기에 함께 보인다(10/23 검증 5)   // 목록 「지점」 고르기 — 운영 중 지점만(숨긴 지점 = 테스트지점 제외, /api/branches countInStats · 2026-10-23 ■0-8)
   const [transferCustom, setTransferCustom] = useState(false);   // 발령지점 「목록에 없음」 직접 입력 중
   const [mainManagerIds, setMainManagerIds] = useState<Record<string, string>>({});   // 지점 → 메인 원장 id(발송 창 원장 단계 자동 채움)
   const branchManagerName = (branch?: string | null): string => {
@@ -445,8 +453,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [previewTemplate, setPreviewTemplate] = useState<ContractTemplate | null>(null);
 
   // 검색/필터
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
-  const [filterMonth, setFilterMonth] = useState("");
+  // 기본 기간 = 이번 달(KST) — 「올해 전체」면 10/21~22에 옮겨 넣은 모두싸인 이관본 1,400여 건이 맨 위에 왔다(2026-10-23 본부 요청 ■3)
+  const THIS_MONTH = ymKst(0), LAST_MONTH = ymKst(1);
+  const [filterYear, setFilterYear] = useState(THIS_MONTH.y);
+  const [filterMonth, setFilterMonth] = useState(THIS_MONTH.m);
+  const [customPeriod, setCustomPeriod] = useState(false);   // 기간 「직접 고르기」를 골랐다(더 보기의 날짜 범위로 거른다 — 날짜를 지우면 이번 달로)
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUserId, setFilterUserId] = useState("");
   const [fieldDocs, setFieldDocs] = useState<Record<string, string>>({}); // 필드 → 출처 문서명 (#113)
@@ -1465,10 +1476,15 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     fetch("/api/branches").then(r => r.json()).then(d => {
       const m: Record<string, string> = {}; const ids: Record<string, string> = {};
       const addr: Record<string, string> = {};
-      for (const b of (d.branches || []) as { name: string; address?: string | null; mainManager?: { id: string; name: string } | null }[]) {
+      const picks: string[] = []; const hiddens: string[] = [];
+      for (const b of (d.branches || []) as { name: string; address?: string | null; countInStats?: boolean; mainManager?: { id: string; name: string } | null }[]) {
         if (b.mainManager?.name) { m[b.name] = b.mainManager.name; ids[b.name] = b.mainManager.id; }
         if (b.address) addr[b.name] = b.address;
+        // 지점 고르기는 /api/branches?pick=1 과 같은 기준 — 숨긴 지점(countInStats=false)은 빼고 본부는 남긴다
+        if (b.countInStats !== false || b.name === "본부") picks.push(b.name); else hiddens.push(b.name);
       }
+      setPickBranches(picks.sort((a, b) => a.localeCompare(b, "ko")));
+      setHiddenBranches(hiddens.sort((a, b) => a.localeCompare(b, "ko")));
       setBranchAddresses(addr);
       setMainManagers(m); setMainManagerIds(ids);
     }).catch(() => {});
@@ -1479,32 +1495,39 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     fetchTemplates();
   }, [fetchContracts, fetchTemplates]);
 
-  const shownContracts = listTab === "all" ? contracts
+  // 화면 정렬 — 진행 중 먼저 → 나머지, 이관본은 각 묶음 맨 뒤(서버 순서는 만든 날 내림차순뿐)
+  const shownContracts = sortForList(listTab === "all" ? contracts
     : listTab === "mine" ? contracts.filter(c => myApprovals.some(a => a.id === c.id))
-    : contracts.filter(c => TAB_STATUS[listTab].includes(c.status));
+    : contracts.filter(c => TAB_STATUS[listTab].includes(c.status)));
   const tabCount = (k: Exclude<ListTab, "all" | "mine">) => contracts.filter(c => TAB_STATUS[k].includes(c.status)).length;
   const moreCount = [showHiddenRevoked, filterStale, showTest, !!filterUserId, !!filterPkg, !!(filterFrom || filterTo)].filter(Boolean).length;
-  const periodOptions = (() => {
-    const out: { v: string; label: string }[] = [];
-    const now = kstNow();
-    const y0 = now.getUTCFullYear();
-    out.push({ v: `${y0}|`, label: `${y0}년 전체` });
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(Date.UTC(y0, now.getUTCMonth() - i, 1));
-      const y = d.getUTCFullYear(), m = String(d.getUTCMonth() + 1).padStart(2, "0");
-      out.push({ v: `${y}|${m}`, label: `${y}년 ${Number(m)}월` });
-    }
-    for (let y = y0 - 1; y >= 2020; y--) out.push({ v: `${y}|`, label: `${y}년 전체` });
-    return out;
-  })();
+  // 기간 select 의 지금 값 — 날짜 범위가 있거나 「직접 고르기」를 골랐으면 custom, 그 밖엔 연·월로 판정. 결재 대기 · 7일 넘게 멈춤 칸이 기간을 비우면 「전체 기간」(그때만 보이는 항목)
+  const setPeriod = (y: string, m: string) => { setFilterYear(y); setFilterMonth(m); setFilterFrom(""); setFilterTo(""); setCustomPeriod(false); };
+  // 7일 넘게 멈춤은 서버가 기간을 버리므로(전체 기간) select 도 「전체 기간」으로 고정 · 비활성(10/23 검증 4)
+  const periodValue = filterStale && !(filterFrom || filterTo) ? "all"
+    : customPeriod || filterFrom || filterTo ? "custom"
+    : !filterYear ? "all"
+    : filterYear === THIS_MONTH.y && filterMonth === THIS_MONTH.m ? "this"
+    : filterYear === LAST_MONTH.y && filterMonth === LAST_MONTH.m ? "last"
+    : filterYear === THIS_MONTH.y && !filterMonth ? "year" : "other";
+  const onPeriodPick = (v: string) => {
+    if (v === "this") setPeriod(THIS_MONTH.y, THIS_MONTH.m);
+    else if (v === "last") setPeriod(LAST_MONTH.y, LAST_MONTH.m);
+    else if (v === "year") setPeriod(THIS_MONTH.y, "");
+    else if (v === "custom") { setCustomPeriod(true); setMoreOpen(true); }   // 날짜 범위를 넣기 전까지는 지금 연·월 그대로(서버는 from/to 가 있으면 연·월 대신 그 범위로 거른다)
+  };
+  // 더 보기의 날짜 범위 — 둘 다 지우면 이번 달로 되돌린다
+  const setRange = (from: string, to: string) => {
+    setFilterFrom(from); setFilterTo(to);
+    if (!from && !to) setPeriod(THIS_MONTH.y, THIS_MONTH.m);
+  };
   const clearNarrow = () => {
     setFilterSearchText(""); setFilterBranch(""); setFilterTemplateId(""); setFilterUserId(""); setFilterPkg("");
-    setFilterFrom(""); setFilterTo(""); setShowTest(false); setShowHiddenRevoked(false); setFilterStale(false);
+    setFilterFrom(""); setFilterTo(""); setCustomPeriod(false); setShowTest(false); setShowHiddenRevoked(false); setFilterStale(false);
   };
   const pickThisMonth = (tab: ListTab) => {
     clearNarrow();
-    const now = new Date(Date.now() + 9 * 3600 * 1000);
-    setFilterYear(String(now.getUTCFullYear())); setFilterMonth(String(now.getUTCMonth() + 1).padStart(2, "0"));
+    setPeriod(THIS_MONTH.y, THIS_MONTH.m);
     setFilterStale(false); setListTab(tab);
   };
 
@@ -4126,7 +4149,7 @@ ${url}`;
       {role !== "EMPLOYEE" && (
         <Box icon={<FileSignature />} title="이번 달" sub={`${kstNow().getUTCMonth() + 1}월 · 이번 달 만든 계약서 기준(7일 넘게 멈춤은 전체 기간)`}>
           <Tiles cols={5}>
-            <Tile label="결재 대기" value={myApprovals.length} unit="건" note="내가 승인할 것" alert active={listTab === "mine"}
+            <Tile label="결재 대기" value={myApprovals.length} unit="건" note="내 결재 차례" alert active={listTab === "mine"}
               onClick={() => { clearNarrow(); setListTab("mine"); setFilterYear(""); setFilterMonth(""); }} />
             <Tile label="서명 대기" value={monthStats?.waiting} unit="건" active={listTab === "waiting" && !!filterMonth} onClick={() => pickThisMonth("waiting")} />
             <Tile label="체결 완료" value={monthStats?.signed} unit="건" active={listTab === "signed" && !!filterMonth} onClick={() => pickThisMonth("signed")} />
@@ -4137,7 +4160,7 @@ ${url}`;
         </Box>
       )}
       {role !== "EMPLOYEE" && (
-        <PillTabs value={listTab} onChange={(k) => { if (listTab === "mine" && !filterYear) setFilterYear(String(kstNow().getUTCFullYear())); setListTab(k as ListTab); }} tabs={[
+        <PillTabs value={listTab} onChange={(k) => { if (listTab === "mine" && !filterYear) setPeriod(THIS_MONTH.y, THIS_MONTH.m); setListTab(k as ListTab); }} tabs={[
           { key: "all", label: "전체" },
           { key: "waiting", label: "서명 대기", count: tabCount("waiting") },
           { key: "signed", label: "체결 완료" },
@@ -4174,21 +4197,27 @@ ${url}`;
       )}
 
       {/* 계약서 목록(시안 R12) — 필터 한 줄: 찾기 · 기간 · 지점 · 서류 + 「더 보기」(숨긴 결재 · 7일 넘게 멈춘 것 · 테스트 문서 · 직원 · 묶음 · 날짜 범위) */}
-      <Box icon={<FileSignature />} title="계약서 목록" sub={listLoading ? "불러오는 중…" : `${listTab === "mine" ? "내가 승인할 것만 · " : filterStale ? "7일 넘게 멈춘 것만 · " : ""}${shownContracts.length}건`}>
+      <Box icon={<FileSignature />} title="계약서 목록" sub={listLoading ? "불러오는 중…" : `${listTab === "mine" ? "내 결재 차례만 · " : filterStale ? "7일 넘게 멈춘 것만 · " : ""}${shownContracts.length}건`}>
           <FilterRow right={
             <button type="button" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} className={btnClass("secondary", "py-1.5")}>
               더 보기{moreCount > 0 ? ` ${moreCount}` : ""} <ChevronDown size={14} className={moreOpen ? "rotate-180" : ""} />
             </button>
           }>
             <input type="search" value={filterSearchText} onChange={(e) => setFilterSearchText(e.target.value)} placeholder="이름 · 서류 이름으로 찾기" className={`${inputClass} w-56`} aria-label="찾기" />
-            <select value={`${filterYear}|${filterMonth}`} onChange={(e) => { const [y, m] = e.target.value.split("|"); setFilterYear(y); setFilterMonth(m); }} className={inputClass} aria-label="기간">
-              <option value="|">전체 기간</option>
-              {periodOptions.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+            {/* 기간 4개(■3) — 「직접 고르기」는 더 보기의 날짜 범위로. 「전체 기간」 · 「다른 기간」은 그 상태일 때만 보인다(숫자 칸 · 주소로 들어온 값) */}
+            <select value={periodValue} onChange={(e) => onPeriodPick(e.target.value)} className={inputClass} aria-label="기간" disabled={filterStale && !(filterFrom || filterTo)} title={filterStale && !(filterFrom || filterTo) ? "7일 넘게 멈춘 것은 전체 기간에서 봅니다(날짜 범위를 넣으면 그 기간 안에서)" : undefined}>
+              <option value="this">이번 달</option>
+              <option value="last">지난달</option>
+              <option value="year">올해</option>
+              <option value="custom">직접 고르기</option>
+              {periodValue === "all" && <option value="all">전체 기간</option>}
+              {periodValue === "other" && <option value="other">{filterYear}년{filterMonth ? ` ${Number(filterMonth)}월` : ""}</option>}
             </select>
             {role !== "EMPLOYEE" && (
               <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setFilterUserId(""); }} className={inputClass} aria-label="지점">
                 <option value="">지점: 전체</option>
-                {[...new Set(employees.map(e => e.branch).filter(Boolean))].sort().map(b => <option key={b as string} value={b as string}>{b}</option>)}
+                {/* 운영 중 지점만(/api/branches, 숨긴 지점 제외 — 직원 목록의 지점 집합을 쓰면 테스트지점이 나왔다, ■0-8). 고른 지점이 목록에 없으면(주소로 들어온 값) 그 값만 더 보여 준다 */}
+                {(() => { const base = showTest ? [...pickBranches, ...hiddenBranches] : pickBranches; return filterBranch && !base.includes(filterBranch) ? [...base, filterBranch] : base; })().map(b => <option key={b} value={b}>{b}</option>)}
               </select>
             )}
             {role !== "EMPLOYEE" && (
@@ -4196,7 +4225,7 @@ ${url}`;
                 <option value="">서류: 전체</option>
                 {DOC_GROUPS.map(g => {
                   const list = templates.filter(t => docGroupOf(t.name) === g);
-                  return list.length ? <optgroup key={g} label={g}>{list.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null;
+                  return list.length ? <optgroup key={g} label={g}>{list.map(t => <option key={t.id} value={t.id}>{displayTplName(t.name)}</option>)}</optgroup> : null;
                 })}
               </select>
             )}
@@ -4209,7 +4238,8 @@ ${url}`;
               {role !== "EMPLOYEE" && (
                 <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className={`${inputClass} py-1.5`} aria-label="직원">
                   <option value="">직원: 전체</option>
-                  {employees.filter(emp => !filterBranch || emp.branch === filterBranch).map(emp => <option key={emp.id} value={emp.id}>{emp.branch ? `[${emp.branch}] ` : ""}{emp.name}</option>)}
+                  {/* 테스트 계정(isTest)은 고르기에서 뺀다(■0-9) */}
+                  {employees.filter(emp => !emp.isTest && (!filterBranch || emp.branch === filterBranch)).map(emp => <option key={emp.id} value={emp.id}>{emp.branch ? `[${emp.branch}] ` : ""}{emp.name}</option>)}
                 </select>
               )}
               {role !== "EMPLOYEE" && (
@@ -4226,14 +4256,15 @@ ${url}`;
                   <option value="signed">체결일</option>
                   <option value="activity">마지막 활동일</option>
                 </select>
-                <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className={`${inputClass} py-1.5`} aria-label="시작일" />
+                <input type="date" value={filterFrom} onChange={e => setRange(e.target.value, filterTo)} className={`${inputClass} py-1.5`} aria-label="시작일" />
                 ~
-                <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className={`${inputClass} py-1.5`} aria-label="끝일" />
+                <input type="date" value={filterTo} onChange={e => setRange(filterFrom, e.target.value)} className={`${inputClass} py-1.5`} aria-label="끝일" />
+                {customPeriod && !filterFrom && !filterTo && <span className="text-[12px] text-[#596578]">날짜를 넣으면 위 기간 대신 이 범위로 봅니다</span>}
               </span>
               <button type="button" className={btnClass("text", "ml-auto text-[13px]")} onClick={() => {
-                setFilterYear(new Date().getFullYear().toString()); setFilterMonth(""); setFilterStatus(""); setFilterUserId(""); setFilterBranch("");
+                setPeriod(THIS_MONTH.y, THIS_MONTH.m); setFilterStatus(""); setFilterUserId(""); setFilterBranch("");
                 setFilterSearchText(""); setShowHiddenRevoked(false); setFilterTemplateId(""); setFilterPkg(""); setShowTest(false);
-                setFilterDateField("created"); setFilterFrom(""); setFilterTo(""); setFilterStale(false); setListTab("all");
+                setFilterDateField("created"); setFilterStale(false); setListTab("all");
               }}>필터 초기화</button>
             </div>
           )}
@@ -4277,7 +4308,7 @@ ${url}`;
                 {listLoading ? (
                   <tr><td colSpan={6} className="py-8 text-center text-gray-400"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
                 ) : shownContracts.length === 0 ? (
-                  <tr><td colSpan={7} className="py-8 text-center text-gray-400">{listTab === "mine" ? "내가 승인할 계약서가 없습니다" : "없음"}</td></tr>
+                  <tr><td colSpan={7} className="py-8 text-center text-gray-400">{listTab === "mine" ? "내 결재 차례인 계약서가 없습니다" : "없음"}</td></tr>
                 ) : shownContracts.map(c => {
                   const pill = STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: "미정" };
                   const mine = myApprovals.find(a => a.id === c.id);   // 내 결재 차례 = 인디고 「열기」
@@ -4306,11 +4337,15 @@ ${url}`;
                       {role !== "EMPLOYEE" && <td><Cell2 main={c.externalName || c.user.name} sub={c.externalName ? "외부 계약자" : c.user.branch || undefined} /></td>}
                       <td>
                         <span className="text-[#0f172a]">{c.title}</span>
-                        {/* 둘째 줄 회색(시안 R12) — 초록 「패키지」 배지 대신 「묶음 서류」, 테스트·이관·인증서도 글자로 */}
+                        {/* 둘째 줄 회색(시안 R12) — 초록 「패키지」 배지 대신 「묶음 서류」 · 직원 서명만 · 테스트 문서는 글자로.
+                            모두싸인 이관본은 작은 회색 알약 「이관」 하나(옛 서류마다 「모두싸인 이관본 · 인증서」가 반복됐다 — 2026-10-23 ■3), 인증서가 있으면 그 알약이 인증서 링크(새 창) */}
                         {(c.bundleId || c.employeeOnly || c.isTest || c.importBatch) && (
                           <span className="block text-[12.5px] text-[#596578]">
-                            {[c.bundleId && "묶음 서류", c.employeeOnly && "직원 서명만", c.isTest && "테스트 문서(7일 뒤 삭제)", c.importBatch && "모두싸인 이관본"].filter(Boolean).join(" · ")}
-                            {c.certificateUrl && <> · <a href={c.certificateUrl} target="_blank" rel="noreferrer" className="text-[#4f46e5] hover:underline" title="모두싸인 감사추적 인증서">인증서</a></>}
+                            {[c.bundleId && "묶음 서류", c.employeeOnly && "직원 서명만", c.isTest && "테스트 문서(7일 뒤 삭제)"].filter(Boolean).join(" · ")}
+                            {c.importBatch && <>
+                              {(c.bundleId || c.employeeOnly || c.isTest) ? " " : ""}
+                              <MiniPill href={c.certificateUrl || undefined} title={c.certificateUrl ? "모두싸인에서 옮겨 온 체결본 · 인증서 보기" : "모두싸인에서 옮겨 온 체결본"}>이관</MiniPill>
+                            </>}
                           </span>
                         )}
                       </td>

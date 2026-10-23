@@ -37,6 +37,12 @@ export type Pick =
 export type SendSelection = { pick: NonNullable<Pick>; recipients: string[]; resignPicks: boolean[]; purpose: PurposeKey; multi: boolean; external?: boolean; pack?: "codi" | "ext" | null };
 
 const ACCESS_LABEL: Record<string, string> = { full: "열람·다운로드", view: "열람만", none: "보관만" };
+/** 카드에 쓰는 표시용 짧은 양식 이름 — DB 이름은 그대로 두고 「코디 근로계약서(계약직 일반·오후)」 → 「코디 · 계약직 일반·오후」.
+ *  앞이 같은 코디 계약서 4종이 이름만으로 구분되게(2026-10-23 본부 요청 ■3 계약서 보내기). 괄호가 겹치면(「(사본)」 등) 원래 이름 */
+export function displayTplName(name: string): string {
+  const m = /^(.+?)\s*근로계약서\s*\(([^()]+)\)$/.exec(name.trim());
+  return m ? `${m[1].trim()} · ${m[2].trim()}` : name;
+}
 // 용도 탭 점 색(묶음마다 다른 색 — 시안 v2 톤 안내)
 const PURPOSE_DOT: Record<string, string> = { recruit: "bg-rose-500", hire: "bg-indigo-500", renew: "bg-violet-500", resign: "bg-slate-500", leave: "bg-amber-600", other: "bg-gray-400" };
 
@@ -270,7 +276,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const onCardDrop = (targetId: string) => {
     const d = drag.current; drag.current = null; setDropKey(null);
     if (!d || (d.kind !== "reorder" && d.kind !== "stack") || d.id === targetId) return;
-    if (d.kind === "stack") { saveBundle([targetId, d.id], `${tplOf(targetId)?.name ?? "새"} 묶음`); return; }
+    if (d.kind === "stack") { saveBundle([targetId, d.id], `${displayTplName(tplOf(targetId)?.name ?? "새")} 묶음`); return; }
     // 순서 바꾸기 — 지금 보이는 순서를 기준으로 「내가 정한 순」을 만든다(다른 용도 탭의 순서는 그대로)
     const visible = list.map(t => t.id);
     const base = [...visible, ...layout.tplOrder.filter(id => !visible.includes(id))];
@@ -315,7 +321,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     : pick.kind === "hire" ? hireDocs
     : pick.kind === "resign" ? (pkg.resignTemplates.filter((t, i) => !!t && (i === 0 || resignPicks[i])) as Template[])
     : pick.templateIds.map(id => tplOf(id)).filter(Boolean) as Template[];
-  const pickTitle = !pick ? "" : pick.kind === "hire" ? "신규입사 묶음" : pick.kind === "resign" ? "퇴사 서류" : pick.kind === "bundle" ? pick.name : (tplOf(pick.id)?.name ?? "");
+  const pickTitle = !pick ? "" : pick.kind === "hire" ? "신규입사 묶음" : pick.kind === "resign" ? "퇴사 서류" : pick.kind === "bundle" ? pick.name : displayTplName(tplOf(pick.id)?.name ?? "");
   const nDocs = pickedDocs.length + (packOn ? 2 : 0);
   const nPeople = multiOn ? recipients.length : Math.min(recipients.length, 1);
 
@@ -323,9 +329,10 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const favCard = (f: FavRef, i: number) => {
     const b = f.t === "bundle" ? layout.bundles.find(x => x.id === f.id) : undefined;
     const t = f.t === "tpl" ? tplOf(f.id) : undefined;
-    const name = f.t === "hire" ? "신규입사 묶음" : f.t === "resign" ? "퇴사 서류" : b?.name ?? t?.name ?? "";
+    const name = f.t === "hire" ? "신규입사 묶음" : f.t === "resign" ? "퇴사 서류" : b?.name ?? (t ? displayTplName(t.name) : "");
     if (!name) return null;
-    const docs = f.t === "hire" ? hireDocs.map(d => d.name) : f.t === "resign" ? ["사직원", "비밀유지서약서(퇴직시)", "+ 필요할 때 3종"] : b ? b.templateIds.map(id => tplOf(id)?.name).filter(Boolean) as string[] : [];
+    const docs = f.t === "hire" ? hireDocs.map(d => displayTplName(d.name)) : f.t === "resign" ? ["사직원", "비밀유지서약서(퇴직시)", "+ 필요할 때 3종"] : b ? b.templateIds.map(id => tplOf(id)?.name).filter(Boolean).map(n => displayTplName(n as string)) : [];
+    const favSub = docs.length ? docs.join(" · ") : (t?.description || "");
     const count = f.t === "tpl" ? (monthCount[f.id] || 0) : f.t === "bundle" && b ? Math.max(0, ...b.templateIds.map(id => monthCount[id] || 0)) : f.t === "hire" && pkg.empTemplate ? (monthCount[pkg.empTemplate.id] || 0) : 0;
     const k = favKey(f);
     return (
@@ -339,7 +346,8 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
           {docs.length > 1 && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{f.t === "resign" ? "2~5종" : `${docs.length}종`}</span>}
           <GripVertical size={14} className="shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab" aria-label="끌어서 순서 바꾸기" />
         </div>
-        <p className="text-xs text-gray-500 line-clamp-2 break-keep">{docs.length ? docs.join(" · ") : (t?.description || " ")}{count ? ` · 이번 달 ${count}건` : ""}</p>
+        {/* 이름은 위 한 줄 굵게, 설명은 둘째 줄 회색 두 줄까지(잘리면 title 로 전체) */}
+        <p className="text-xs text-gray-500 line-clamp-2 break-keep" title={favSub || undefined}>{favSub || " "}{count ? ` · 이번 달 ${count}건` : ""}</p>
         <div className="mt-auto flex gap-2">
           <button type="button" onClick={() => chooseFav(f)}
             className={cn("flex-1 rounded-lg py-2 text-sm font-semibold border", i === 0 ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700" : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50")}>보내기</button>
@@ -371,14 +379,18 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
         <DocThumb />
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-start gap-2">
-            <button type="button" onClick={() => choose({ kind: "tpl", id: t.id, purpose })} className="flex-1 min-w-0 text-left font-bold text-gray-900 leading-snug break-keep hover:text-indigo-700">
-              {t.name}{t.description ? <span className="font-normal text-gray-500 text-sm"> {t.description.length > 24 ? t.description.slice(0, 24) + "…" : t.description}</span> : null}
+            <button type="button" onClick={() => choose({ kind: "tpl", id: t.id, purpose })} title={t.name !== displayTplName(t.name) ? t.name : undefined}
+              className="flex-1 min-w-0 text-left font-bold text-gray-900 leading-snug break-keep hover:text-indigo-700">
+              {displayTplName(t.name)}
             </button>
             <button type="button" onClick={() => toggleFav({ t: "tpl", id: t.id })} title={fav ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
               className={cn("shrink-0", fav ? "text-amber-400" : "text-gray-200 hover:text-amber-300")}><Star size={18} fill="currentColor" /></button>
           </div>
+          {/* 설명은 이름 아래 둘째 줄 회색, 두 줄까지(잘리면 title 로 전체 — 2026-10-23 본부 요청 ■3) */}
+          {t.description && <p className="text-xs text-gray-500 line-clamp-2 break-keep" title={t.description}>{t.description}</p>}
           <p className="text-xs text-gray-700">결재 {stepsOf(t, purpose === "renew")}</p>
-          <p className="text-[11px] text-gray-500">{used ? `최근 ${kstMd(used)}` : `등록 ${kstMd(t.createdAt)}`}{` · 이번 달 ${n}건`}{` · 근로자 ${ACCESS_LABEL[t.postSignAccess || "full"] ?? ACCESS_LABEL.full}`}</p>
+          {/* 「근로자 열람·다운로드」는 기본값이라 쓰지 않는다 — 열람만 · 보관만일 때만 표시 */}
+          <p className="text-[11px] text-gray-500">{used ? `최근 ${kstMd(used)}` : `등록 ${kstMd(t.createdAt)}`}{` · 이번 달 ${n}건`}{t.postSignAccess && t.postSignAccess !== "full" && ACCESS_LABEL[t.postSignAccess] ? ` · 근로자 ${ACCESS_LABEL[t.postSignAccess]}` : ""}</p>
         </div>
       </div>
     );
@@ -400,7 +412,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
             <button type="button" onClick={() => toggleFav(ref)} title={fav ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
               className={cn("shrink-0", fav ? "text-amber-400" : "text-gray-200 hover:text-amber-300")}><Star size={18} fill="currentColor" /></button>
           </div>
-          <p className="text-xs text-gray-600">{kind === "hire" ? hireDocs.map(d => d.name).join(" · ") : "사직원 · 비밀유지서약서(퇴직시) + 필요할 때 금품청산·퇴직금·연차수당"}</p>
+          <p className="text-xs text-gray-600">{kind === "hire" ? hireDocs.map(d => displayTplName(d.name)).join(" · ") : "사직원 · 비밀유지서약서(퇴직시) + 필요할 때 금품청산·퇴직금·연차수당"}</p>
           {!can && <p className="text-xs text-rose-600">묶음에 들어갈 양식이 다 등록돼 있지 않습니다(양식 관리에서 확인).</p>}
           <button type="button" disabled={!can} onClick={() => chooseFav(ref)}
             className="mt-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">보내기</button>
@@ -467,7 +479,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                 {editable && <span className="self-center text-gray-300 cursor-grab" aria-label="끌어서 순서 바꾸기"><GripVertical size={16} /></span>}
                 <DocThumb />
                 <div className="flex-1 min-w-0 space-y-1.5">
-                  <p className="font-bold text-gray-900 break-keep"><span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-50 text-[11px] text-indigo-700">{i + 1}</span>{d.name}</p>
+                  <p className="font-bold text-gray-900 break-keep" title={d.name !== displayTplName(d.name) ? d.name : undefined}><span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-50 text-[11px] text-indigo-700">{i + 1}</span>{displayTplName(d.name)}</p>
                   {d.description && <p className="text-xs text-gray-500">{d.description}</p>}
                   <dl className="grid grid-cols-[72px_1fr] gap-y-1 text-sm">
                     <dt className="text-gray-500">결재 순서</dt><dd className="font-semibold text-gray-900">{isBundle && isEmployeeOnlyDoc(d) ? "근로자만 서명" : stepsOf(d, purpose === "renew" || (pick.kind === "tpl" && pick.purpose === "renew"))}</dd>
@@ -488,7 +500,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                   <select autoFocus className="rounded-md border px-2 py-1.5 text-sm" defaultValue=""
                     onChange={(e) => { const id = e.target.value; setAddOpen(false); if (id && pick.kind === "bundle") { if (pick.templateIds.length >= MAX_BUNDLE_DOCS) { toast.error(`묶음에는 ${MAX_BUNDLE_DOCS}종까지입니다.`); return; } updatePickedBundle([...pick.templateIds, id]); } }}>
                     <option value="">넣을 서류 고르기</option>
-                    {addables.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    {addables.map(t => <option key={t.id} value={t.id}>{displayTplName(t.name)}</option>)}
                   </select>
                 )}
                 {pick.kind === "bundle" && pick.id ? <span className="ml-2">· 바꾼 내용은 「{pick.name}」에 저장돼요</span> : <span className="ml-2">· 이번 보내기에만 쓰는 구성입니다</span>}
@@ -519,7 +531,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                 <input type="checkbox" className="mt-0.5" checked={pack === (isCodiTpl ? "codi" : "ext")}
                   onChange={(e) => { const k = isCodiTpl ? "codi" : "ext"; setPack(e.target.checked ? k : null); if (e.target.checked && k === "codi") { setMulti(false); setRecipients(r => r.slice(0, 1)); } }} />
                 <span>
-                  <b>{isCodiTpl ? "코디 채용 묶음으로" : "외부 채용 패키지로"}</b> — {companions.map(t => t.name).join(" · ")} 함께(3종)
+                  <b>{isCodiTpl ? "코디 채용 묶음으로" : "외부 채용 패키지로"}</b> — {companions.map(t => displayTplName(t.name)).join(" · ")} 함께(3종)
                   <span className="block text-[11px] text-gray-500">{isCodiTpl ? "비밀유지·개인정보동의서는 직원 서명만 받습니다. 한 명씩 보냅니다." : "외부 계약자는 링크 하나로 3종을 확인하고 한 번에 서명합니다."}</span>
                 </span>
               </label>
@@ -682,7 +694,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
         <div className="fixed inset-x-0 md:left-[284px] bottom-0 z-30 px-4 pb-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           <div className="mx-auto max-w-5xl rounded-xl border border-indigo-300 bg-white shadow-lg px-4 py-3 flex flex-wrap items-center gap-3">
             <p className="font-bold text-gray-900">고른 서류 {checked.length}건</p>
-            <p className="flex-1 min-w-0 truncate text-xs text-gray-500">{checked.map(id => tplOf(id)?.name).filter(Boolean).join(" · ")}</p>
+            <p className="flex-1 min-w-0 truncate text-xs text-gray-500">{checked.map(id => tplOf(id)?.name).filter(Boolean).map(n => displayTplName(n as string)).join(" · ")}</p>
             <button type="button" onClick={() => setChecked([])} className="text-xs text-gray-400 hover:text-gray-600">선택 해제</button>
             {checked.length >= 2 && <button type="button" onClick={() => saveBundle(checked, "새 묶음")} className="rounded-lg border border-indigo-200 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50">묶음으로 저장</button>}
             <button type="button" onClick={sendChecked} className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-bold text-white hover:bg-indigo-700">보내기</button>
