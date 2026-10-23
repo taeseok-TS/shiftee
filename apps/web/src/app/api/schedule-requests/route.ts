@@ -10,6 +10,7 @@ import { parseScheduleData, breakHours, toMin } from "@/lib/schedule-payload";
 import { botNotifyApprovalRequest } from "@/lib/bot";
 import { scheduleCancelDenial, cancelFlags } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
+import { templateLabel } from "@/lib/schedule-label";
 
 // 근무일정 신청 조회 (자신의 신청)
 export async function GET(request: NextRequest) {
@@ -60,6 +61,8 @@ export async function POST(request: NextRequest) {
   // 신청 종류(2026-10-07 #49) — CREATE 새 일정 / UPDATE 기존 일정 수정 / DELETE 기존 일정 삭제
   const kind: "CREATE" | "UPDATE" | "DELETE" = body.kind === "UPDATE" || body.kind === "DELETE" ? body.kind : "CREATE";
   if (kind === "DELETE") { templateId = "DELETE"; templateName = "근무일정 삭제"; }
+  // 이름 안에 시간이 이미 있으면 끝에 붙은 「(시간)」을 빼고 저장(10/23 ■0-4 「학기중(13:00~22:00) (13:00~22:00)」) — lib/schedule-label
+  if (typeof templateName === "string") templateName = templateLabel(templateName);
 
   if (!templateId || !startDate || !endDate || !scheduleData) {
     return NextResponse.json({ error: "필수 정보가 부족합니다." }, { status: 400 });

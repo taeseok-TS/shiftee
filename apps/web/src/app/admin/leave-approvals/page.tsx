@@ -1,7 +1,7 @@
 "use client";
 // 결재 › 결재함 — 본부 시안 R11(2026-10-21 「디자인 통일」). 휴가 · 근무일정 · 휴가 취소 · 출퇴근 요청 · 계약을 한 곳에서.
 //  · 알약 탭 한 줄(components/approvals/ApprovalsHeader) — 맨 앞 「결재 대기」 = 종류 상관없이 내가 처리할 것 모두(한 표)
-//  · 줄마다 버튼 두 개 이하: 휴가·근무일정 = 흰 「거절」 + 인디고 「승인」(의견은 누르면 뜨는 확인 창에 선택 입력), 「취소」·첨부는 ⋮ 안.
+//  · 줄마다 버튼 두 개 이하: 휴가·근무일정 = 흰 「반려」 + 인디고 「승인」(의견은 누르면 뜨는 확인 창에 선택 입력), 「취소」·첨부는 ⋮ 안.
 //    계약 = 인디고 「열기」(승인 전체 창), 휴가 취소·출퇴근 요청 = 「열기」(그 탭 — 사진·위치·사유를 보고 처리)
 //  · 결재 진행은 점(끝남 파랑 · 지금 차례 주황 · 남음 회색) — 보낸 계약서와 같은 표시
 //  · 옛 계약 결재 화면(/admin/contract-approvals)은 이 화면 「계약」 탭으로 넘어온다(메일·알림 링크 그대로)
@@ -19,6 +19,8 @@ import AttendanceRequestInbox from "@/components/attendance/AttendanceRequestInb
 import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
 import ApprovalsHeader, { type ApprovalTab } from "@/components/approvals/ApprovalsHeader";
 import { postLeaveApprove } from "@/lib/leave-approve-client";
+import { fmtRangeKo } from "@/lib/leave-period";
+import { templateLabel } from "@/lib/schedule-label";
 import { Btn, Box, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type FlowStep, type PillTone, type MoreItem } from "@/components/kit";
 
 /* ── 타입 ── */
@@ -67,7 +69,11 @@ type CancelStep = {
     approvalSteps: ApprovalStep[];
   };
 };
-type AttReq = { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; userBranch?: string | null; userPosition?: string | null; requestedAt?: string };
+type AttReq = {
+  id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; userBranch?: string | null; userPosition?: string | null; requestedAt?: string | null;
+  // 출퇴근 수정은 「지점 원장 → 본부」 두 단계(■0-11) — 서버가 줄마다 싣는다(옛 서버면 없음)
+  steps?: number; currentStep?: "MANAGER" | "HQ" | null;
+};
 type ContractRow = {
   id: string; title: string; type?: string; createdAt: string; signDeadline?: string | null; fileUrl?: string | null; externalName?: string | null; sendMessage?: string | null;
   user: { id: string; name: string; department: string | null; branch: string | null };
@@ -77,7 +83,8 @@ type ContractRow = {
 const CONTRACT_TYPE_LABEL: Record<string, string> = { EMPLOYMENT: "근로계약서", PART_TIME: "단시간근로계약서", CONFIDENTIAL: "비밀유지", OTHER: "계약" };
 const ymdKst = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const md = (iso: string) => format(new Date(`${iso.slice(0, 10)}T00:00:00`), "M월 d일 (EEE)", { locale: ko });
-const range = (s: string, e: string) => (s.slice(0, 10) === e.slice(0, 10) ? md(s) : `${md(s)} ~ ${format(new Date(`${e.slice(0, 10)}T00:00:00`), "M월 d일", { locale: ko })}`);
+// 기간 — 끝 날짜에도 요일, 해 바뀌는 기간만 연도(10/23 ■3 · ■4, lib/leave-period)
+const range = (s: string, e: string) => fmtRangeKo(s, e);
 function firstFileUrl(fileUrl?: string | null): string {
   if (!fileUrl) return "";
   try { const a = JSON.parse(fileUrl); return Array.isArray(a) ? a[0] || "" : fileUrl; } catch { return fileUrl; }
@@ -89,6 +96,8 @@ type Row = {
   name: string; nameSub: string; typeLabel: string; tone: PillTone;
   period: string; periodSub: string; dots: FlowStep[]; comments: string[];
   action: "decide" | "open"; onOpen?: () => void; more: MoreItem[]; at: number;
+  /** 열기 버튼을 흰 「보기」로 — 본부 차례가 아닌 건(출퇴근 수정 원장 차례)이 본부가 처리할 것처럼 보이지 않게 */
+  viewOnly?: boolean;
   s: string; e: string;   // 날짜 찾기용 "YYYY-MM-DD"(기간 안이면 맞음)
 };
 
@@ -104,7 +113,7 @@ export default function ApprovalsPage() {
   const [searchDate, setSearchDate] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [tab, setTab] = useState<ApprovalTab>("all");
-  // 승인 확인(의견 선택) · 거절 사유
+  // 승인 확인(의견 선택) · 반려 사유
   const [approveTarget, setApproveTarget] = useState<{ id: string; kind: "leave" | "schedule"; title: string } | null>(null);
   const [note, setNote] = useState("");
   const [rejectTarget, setRejectTarget] = useState<{ id: string; kind: "leave" | "schedule" | "contract"; title: string } | null>(null);
@@ -159,7 +168,7 @@ export default function ApprovalsPage() {
 
   // 휴가·근무일정 신청 취소 — 신청 자체를 거둔다(반려와 달리 결재 기록에 남지 않는다). 서버가 권한을 다시 본다
   const cancelRequest = async (kind: "leave" | "schedule", id: string, who: string) => {
-    if (!confirm(`${who}님의 ${kind === "leave" ? "휴가" : "근무일정"} 신청을 취소할까요?\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
+    if (!confirm(`${who}님의 ${kind === "leave" ? "휴가 신청" : "근무 변경 요청"}을 취소할까요?\n\n취소하면 신청자에게 알림이 갑니다.`)) return;
     setProcessingId(id);
     try {
       const res = await fetch(kind === "leave" ? `/api/leave/${id}` : `/api/schedule-requests/${id}`, { method: kind === "leave" ? "PATCH" : "DELETE" });
@@ -202,8 +211,8 @@ export default function ApprovalsPage() {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reject", reason }),
           });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(data.error || "거절 처리 중 오류가 발생했습니다"); return; }
-      toast.success(t.kind === "contract" ? "반려했습니다. 작성자와 당사자에게 알림이 갑니다." : "거절되었습니다");
+      if (!res.ok) { toast.error(data.error || "반려 처리 중 오류가 발생했습니다"); return; }
+      toast.success(t.kind === "contract" ? "반려했습니다. 작성자와 당사자에게 알림이 갑니다." : "반려되었습니다");
       if (t.kind === "leave") setLeaveSteps((p) => p.filter((s) => s.leaveRequest.id !== t.id));
       else if (t.kind === "schedule") setScheduleSteps((p) => p.filter((s) => s.scheduleRequest.id !== t.id));
       else setContracts((p) => p.filter((c) => c.id !== t.id));
@@ -232,8 +241,8 @@ export default function ApprovalsPage() {
       const r = step.scheduleRequest;
       out.push({
         key: `schedule-${r.id}`, kind: "schedule", id: r.id, name: r.user.name, nameSub: [r.user.branch, r.user.position].filter(Boolean).join(" · "),
-        typeLabel: "근무일정", tone: "wait",
-        period: range(r.startDate, r.endDate), periodSub: `계획 ${r.totalHours}시간 · ${r.templateName}`,
+        typeLabel: "근무 변경", tone: "wait",
+        period: range(r.startDate, r.endDate), periodSub: `계획 ${r.totalHours}시간 · ${templateLabel(r.templateName)}`,
         dots: dotsOf(r.approvalSteps), comments: commentsOf(r.approvalSteps), action: "decide",
         more: [{ label: "신청 취소", hidden: !r.canCancel, onClick: () => void cancelRequest("schedule", r.id, r.user.name) }], at: new Date(r.startDate).getTime(),
         s: r.startDate.slice(0, 10), e: r.endDate.slice(0, 10),
@@ -250,11 +259,17 @@ export default function ApprovalsPage() {
       });
     }
     for (const a of attReqs) {
+      // 결재 진행 — 서버 steps · currentStep 으로(두 단계면 「지점 원장 → 본부」). 원장 차례인 건은 회색 알약 · 「원장 차례」 · 흰 「보기」
+      const managerTurn = a.currentStep === "MANAGER";
+      const dots: FlowStep[] = (a.steps ?? 1) > 1 && a.currentStep
+        ? [{ label: "지점 원장", state: a.currentStep === "HQ" ? "done" : "now" }, { label: "본부", state: a.currentStep === "HQ" ? "now" : "todo" }]
+        : a.currentStep ? [{ label: a.currentStep === "HQ" ? "본부" : "지점 원장", state: "now" }] : [];
       out.push({
         key: `att-${a.id}`, kind: "attendance", id: a.id, name: a.userName || "", nameSub: [a.userBranch, a.userPosition].filter(Boolean).join(" · "),
-        typeLabel: a.kindLabel || "출퇴근 요청", tone: "wait",
-        period: md(a.workDate), periodSub: "출퇴근 요청 · 사진·위치·사유를 보고 처리",
-        dots: [], comments: [], action: "open", onOpen: () => setTab("attendance"), more: [], at: new Date(a.workDate).getTime(),
+        typeLabel: a.kindLabel || "출퇴근 수정", tone: managerTurn ? "gray" : "wait",
+        period: md(a.workDate),
+        periodSub: managerTurn ? "원장 차례 · 원장이 승인하면 본부 차례로 넘어옵니다" : "출퇴근 수정 · 사진 · 위치 · 사유를 보고 처리",
+        dots, comments: [], action: "open", onOpen: () => setTab("attendance"), more: [], at: new Date(a.workDate).getTime(), viewOnly: managerTurn,
         s: a.workDate.slice(0, 10), e: a.workDate.slice(0, 10),
       });
     }
@@ -290,7 +305,7 @@ export default function ApprovalsPage() {
     cancel: cancelSteps.length, attendance: attReqs.length, contract: contracts.length,
   };
   const total = counts.leave + counts.schedule + counts.cancel + counts.attendance + counts.contract;
-  const title = tab === "all" ? "결재 대기" : { leave: "휴가", schedule: "근무일정", cancel: "휴가 취소", attendance: "출퇴근 요청", contract: "계약", decided: "처리한 요청" }[tab];
+  const title = tab === "all" ? "결재 대기" : { leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", decided: "처리한 요청" }[tab];
 
   // 찾기 줄 — 모든 탭에 같은 줄(휴가 취소·출퇴근 요청 탭에서 보이지 않는 검색어로 걸러지지 않게). 출퇴근 요청은 이름만 찾는다
   const filters = (withDate: boolean) => (
@@ -305,13 +320,15 @@ export default function ApprovalsPage() {
     <span className="inline-flex items-center gap-1.5">
       {r.action === "decide" ? (<>
         <Btn className="px-3.5 py-1.5" disabled={processingId === r.id}
-          onClick={() => { setRejectReason(""); setRejectTarget({ id: r.id, kind: r.kind as "leave" | "schedule", title: `${r.name} — ${r.typeLabel} ${r.period}` }); }}>거절</Btn>
+          onClick={() => { setRejectReason(""); setRejectTarget({ id: r.id, kind: r.kind as "leave" | "schedule", title: `${r.name} — ${r.typeLabel} ${r.period}` }); }}>반려</Btn>
         <Btn kind="primary" className="px-3.5 py-1.5" disabled={processingId === r.id}
           onClick={() => { setNote(""); setApproveTarget({ id: r.id, kind: r.kind as "leave" | "schedule", title: `${r.name} — ${r.typeLabel} ${r.period}` }); }}>
           {processingId === r.id ? "처리 중…" : "승인"}
         </Btn>
       </>) : (
-        <Btn kind="primary" className="px-3.5 py-1.5" onClick={r.onOpen}>열기</Btn>
+        r.viewOnly
+          ? <Btn className="px-3.5 py-1.5" onClick={r.onOpen}>보기</Btn>
+          : <Btn kind="primary" className="px-3.5 py-1.5" onClick={r.onOpen}>열기</Btn>
       )}
       <MoreMenu items={r.more} />
     </span>
@@ -328,12 +345,12 @@ export default function ApprovalsPage() {
           <div className="px-6 py-4"><LeaveCancelInbox onChanged={() => void fetchApprovals()} searchName={searchName} searchDate={searchDate} /></div>
         </Box>
       ) : tab === "attendance" ? (
-        <Box icon={<CheckSquare />} tone="rose" title="출퇴근 요청" count={counts.attendance} sub="지점 밖 · 사진 · 본부 요청 · 기록 수정 · 퇴근 누락">
+        <Box icon={<CheckSquare />} tone="rose" title="출퇴근 수정" count={counts.attendance} sub="지점 밖 · 사진 · 본부 요청 · 기록 수정 · 퇴근 누락">
           {filters(false)}
           <div className="px-6 py-4"><AttendanceRequestInbox onChanged={() => void fetchApprovals()} searchName={searchName} /></div>
         </Box>
       ) : (
-        <Box icon={<CheckSquare />} tone="rose" title={title} count={shown.length} sub="내가 승인할 것만">
+        <Box icon={<CheckSquare />} tone="rose" title={title} count={shown.length} sub="내 결재 대기만">
           {filters(true)}
           {loading ? (
             <p className="px-6 py-8 text-center text-[14px] text-[#596578]">불러오는 중…</p>
@@ -408,23 +425,23 @@ export default function ApprovalsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 거절·반려 사유 */}
+      {/* 반려 사유 */}
       <Dialog open={!!rejectTarget} onOpenChange={(o) => { if (!o) { setRejectTarget(null); setRejectReason(""); } }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{rejectTarget?.kind === "contract" ? "계약 반려" : "거절"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{rejectTarget?.kind === "contract" ? "계약 반려" : "반려"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-gray-700">{rejectTarget?.title}</p>
             {rejectTarget?.kind === "contract" && (
               <p className="text-sm text-[#be123c]">반려하면 결재가 멈추고 작성자·당사자에게 사유가 전달됩니다. 관리자가 고쳐 다시 보내면 1단계부터 다시 진행됩니다.</p>
             )}
             <div>
-              <Label className="mb-1 block text-sm">{rejectTarget?.kind === "contract" ? <>반려 사유 <span className="text-red-500">*</span></> : "거절 사유"}</Label>
+              <Label className="mb-1 block text-sm">{rejectTarget?.kind === "contract" ? <>반려 사유 <span className="text-red-500">*</span></> : "반려 사유"}</Label>
               <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={4} maxLength={500} />
             </div>
             <div className="flex justify-end gap-2">
               <Btn onClick={() => { setRejectTarget(null); setRejectReason(""); }}>닫기</Btn>
               <Btn kind="primary" disabled={processingId !== null || (rejectTarget?.kind === "contract" && !rejectReason.trim())} onClick={reject}>
-                {rejectTarget?.kind === "contract" ? "반려하기" : "거절하기"}
+                반려하기
               </Btn>
             </div>
           </div>

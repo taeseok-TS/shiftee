@@ -100,7 +100,7 @@ export async function PATCH(
         await logAudit({
           actorId: session.userId, actorName: session.name, action: "BRANCH_MAIN_MANAGER",
           targetType: "Branch", targetId: id, targetName: branchName,
-          detail: `메인 원장 변경: ${await nameOf(before.mainManagerId)} → ${await nameOf(mainManagerId || null)}`,
+          detail: `대표원장 변경: ${await nameOf(before.mainManagerId)} → ${await nameOf(mainManagerId || null)}`,
         });
       } catch (e) {
         // 이름 조회가 실패해도 지점 저장은 이미 끝났다 — 여기서 500 을 내면 안 된다
@@ -123,7 +123,7 @@ export async function PATCH(
       const covers = covered.includes(name) || covered.includes(before.name);
       if (!cand || cand.role !== "MANAGER" || !cand.isActive || !covers) {
         return NextResponse.json(
-          { error: "메인 원장은 그 지점을 담당하는 활성 원장이어야 합니다." },
+          { error: "대표원장은 그 지점을 담당하는 활성 원장이어야 합니다." },
           { status: 400 }
         );
       }

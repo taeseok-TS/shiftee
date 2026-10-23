@@ -16,7 +16,7 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-type InboxUser = { id?: string; name: string; department?: string | null; branch?: string | null };
+type InboxUser = { id?: string; name: string; department?: string | null; branch?: string | null; position?: string | null };
 type InboxStepInfo = {
   id: string;
   order: number;
@@ -46,6 +46,8 @@ export type LeaveInboxStep = InboxStepInfo & {
 export type ScheduleInboxStep = InboxStepInfo & {
   scheduleRequest: {
     id: string;
+    kind?: "CREATE" | "UPDATE" | "DELETE" | string;   // 2026-10-07 #49 — 수정 · 삭제 요청
+    scheduleData?: { date: string; startTime: string; endTime: string }[] | null;   // 날짜별 일정(서버가 통째로 준다)
     templateName: string | null;
     startDate: string;
     endDate: string;
@@ -96,20 +98,25 @@ export async function getTeamLeaves(): Promise<TeamLeave[]> {
 }
 
 // 잔여 부족 예외 승인(2026-10-22 본부) — 서버가 canOverride(관리자)를 주면 안내를 보여 주고 한 번 더 확인받아 다시 부른다. 원장은 그대로 막힌다
-const confirmOverride = (msg: string) => new Promise<boolean>((resolve) =>
-  Alert.alert("잔여 부족", `${msg}\n\n본부 예외로 승인할까요?\n승인하면 잔여는 마이너스로 남고, 변경 로그에 「잔여 부족 예외 승인」으로 기록됩니다.`, [
+// who = 누구 건인지(승인 화면에서 5초 유예 뒤에 물으면 어느 카드였는지 모른다 — 검증 B1-d). 화면은 잔여 부족이 보이면 유예 전에 이 창으로 먼저 묻는다
+export const confirmOverride = (msg: string, who?: string) => new Promise<boolean>((resolve) =>
+  Alert.alert(who ? `잔여 부족 — ${who}님` : "잔여 부족", `${msg}\n\n본부 예외로 승인할까요?\n승인하면 잔여는 마이너스로 남고, 변경 로그에 「잔여 부족 예외 승인」으로 기록됩니다.`, [
     { text: "취소", style: "cancel", onPress: () => resolve(false) },
     { text: "예외 승인", style: "destructive", onPress: () => resolve(true) },
   ], { cancelable: true, onDismiss: () => resolve(false) }));
 
-export async function decideLeave(id: string, action: "approve" | "reject", reason?: string) {
+/** opts.override = 이미 예외 승인을 확인받았다(첫 요청부터 예외로 보낸다 — 서버는 잔여가 모자랄 때 · 본부일 때만 쓴다).
+ *  opts.who = 확인창에 넣을 신청자 이름. 확인창에서 그만두면 false */
+export async function decideLeave(id: string, action: "approve" | "reject", reason?: string, opts: { override?: boolean; who?: string } = {}): Promise<boolean> {
   try {
-    await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason }, { headers: await authHeaders() });
+    await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason, ...(action === "approve" && opts.override ? { overrideShortBalance: true } : {}) }, { headers: await authHeaders() });
+    return true;
   } catch (e: any) {
     const d = e?.response?.data;
-    if (action !== "approve" || d?.code !== "SHORT_BALANCE" || !d?.canOverride) throw e;
-    if (!(await confirmOverride(String(d.error || "연차 잔여가 부족합니다.")))) return;
+    if (action !== "approve" || opts.override || d?.code !== "SHORT_BALANCE" || !d?.canOverride) throw e;
+    if (!(await confirmOverride(String(d.error || "연차 잔여가 부족합니다."), opts.who))) return false;
     await axios.post(`${API_URL}/leave/${id}/approve`, { action, reason, overrideShortBalance: true }, { headers: await authHeaders() });
+    return true;
   }
 }
 
@@ -251,7 +258,9 @@ export type FeedItem = {
   kind: "LEAVE" | "LEAVE_CANCEL" | "SCHEDULE" | "ATTENDANCE";
   id: string; title: string; period: string; requester: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  createdAt: string;
+  /** 출퇴근 요청은 시각을 볼 수 없는 사람(직원 · 원장)에게 null — 그때는 createdDate(KST "YYYY-MM-DD")만 */
+  createdAt: string | null;
+  createdDate?: string;
   reason: string | null;
   progress: { done: number; total: number } | null;
   lastComment: { by: string; text: string } | null;
@@ -265,6 +274,32 @@ export async function getRequestFeed(who: "mine" | "decided", f: { status?: stri
   if (f.q) p.set("q", f.q);
   const res = await axios.get(`${API_URL}/requests?${p}`, { headers: await authHeaders() });
   return { items: res.data?.items ?? [], limited: !!res.data?.limited };
+}
+
+/** 승인 카드 판단 정보(2026-10-23 앱 2) — 담당 지점(관리자는 전체) 직원의 올해 남은 연차. 숫자 숨김이면 null */
+export async function getTeamBalances(): Promise<Map<string, number | null> | null> {
+  try {
+    const res = await axios.get(`${API_URL}/leave/balance`, { headers: await authHeaders() });
+    if (res.data?.balanceHidden) return null;
+    const m = new Map<string, number | null>();
+    for (const b of (res.data?.balances ?? []) as { userId: string; remaining: number | null }[]) m.set(b.userId, b.remaining ?? null);
+    return m;
+  } catch { return null; }
+}
+
+/** 승인 카드 판단 정보 — 기간 안 담당 지점(관리자는 전체) 근무일정. 주 52시간 「안 / 넘음」을 일정 기준으로 센다 */
+export type BranchShift = { userId: string; date: string; startTime: string; endTime: string; type: string };
+export async function getBranchSchedules(start: string, end: string): Promise<BranchShift[]> {
+  const res = await axios.get(`${API_URL}/schedule`, { params: { start, end }, headers: await authHeaders() });
+  return (res.data?.schedules as BranchShift[]) || [];
+}
+
+/** 신청 화면 결재 순서 미리보기(2026-10-15 #16) — 신청할 때와 같은 함수(서버 lib/approval-rules). 실패하면 빈 배열 */
+export async function getApprovalPreview(kind: "LEAVE" | "SCHEDULE"): Promise<{ label: string; sub: string }[]> {
+  try {
+    const res = await axios.get(`${API_URL}/approval-preview`, { params: { kind }, headers: await authHeaders() });
+    return (res.data?.steps as { label: string; sub: string }[]) || [];
+  } catch { return []; }
 }
 
 /** 지금 결재할 수 있는 사람인가 — 원장·본부, 또는 오늘 원장대행 중인 직원 */

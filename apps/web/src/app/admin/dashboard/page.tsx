@@ -81,9 +81,9 @@ export default function AdminDashboardPage() {
       const reqRes = await fetch("/api/attendance-requests?scope=inbox").catch(() => null);
       if (reqRes?.ok) {
         const data = await reqRes.json();
-        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string }[]) {
+        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
           if (r.status && r.status !== "PENDING") continue;
-          next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 요청"}`, sub: `출퇴근 요청 · ${r.workDate.slice(5).replace("-", "/")}`, href: "/admin/leave-approvals?tab=attendance", at: r.requestedAt ? new Date(r.requestedAt).getTime() : 0 });
+          next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 요청"}`, sub: `출퇴근 요청 · ${r.workDate.slice(5).replace("-", "/")}`, href: "/admin/leave-approvals?tab=attendance", at: ((t) => (t ? new Date(t).getTime() : 0))(r.requestedAt ?? r.createdAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null)) });
         }
       }
       setRows(next.sort((a, b) => b.at - a.at));
@@ -150,7 +150,7 @@ export default function AdminDashboardPage() {
           <Tile label="미출근" value={a?.absent} unit="명" note="일정 있는데 출근 전" alert onClick={toAttendance} />
           <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert onClick={toAttendance} />
           <Tile label="휴가" value={a?.onLeave} unit="명" onClick={toAttendance} />
-          <Tile label="전체 직원" value={totalEmployees} unit="명" note="관리자 제외" hl onClick={toAttendance} />
+          <Tile label="전체 직원" value={totalEmployees} unit="명" note="지점 재직 + 휴직" hl onClick={toAttendance} />
         </Tiles>
       </Box>
 

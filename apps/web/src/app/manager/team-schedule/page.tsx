@@ -1,10 +1,10 @@
 "use client";
 
 import { useWeekHours } from "@/components/schedule/WeekHours";
-import { useRangeLeaves, useBranchColors } from "@/components/schedule/WeekExtras";
+import { useRangeLeaves } from "@/components/schedule/WeekExtras";
 import { MultiPick } from "@/components/schedule/ScheduleControls";
 import { ScheduleEditDialog, ScheduleBulkDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
-import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
+import { ScheduleBoard, ScheduleLegend, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
 import { sortEmployees, yearsOf } from "@/lib/schedule-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHead, Box, Btn, FilterRow, inputClass } from "@/components/kit";
@@ -66,9 +66,8 @@ export default function ManagerSchedulePage() {
   const [weekReload, setWeekReload] = useState(0);
   const weekHours = useWeekHours(view.weekMonday, weekReload);
 
-  // 휴가 함께 보기(#61, 보기 설정 「승인된 휴가」)·지점 색(#74)
-  const leaves = useRangeLeaves(view.startYmd, view.endYmd, view.show.leave, weekReload);
-  const branchColor = useBranchColors();
+  // 휴가(승인 · 결재 대기)와 결재 대기 근무 변경 — 휴가인 날은 근무 대신 휴가만 보인다(■0-5)
+  const leaves = useRangeLeaves(view.startYmd, view.endYmd, true, weekReload);
 
   // 공휴일 — 날짜별 이름 맵(본부 근무일정과 같은 표시). 기간이 두 해에 걸치면 둘 다
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
@@ -134,20 +133,21 @@ export default function ManagerSchedulePage() {
 
   return (
     <div>
-      {/* 머리(R10 톤) — 제목 = 메뉴 이름 + 위 작은 경로. 흰 「일정 추가」 + 인디고 실행 「일괄 생성」 하나 */}
-      <PageHead crumb="근태 › 지점 근무일정" title="지점 근무일정" note={branch || undefined}>
+      {/* 머리(R10 톤) — 제목 = 메뉴 이름 + 위 작은 경로. 흰 「일정 추가」 + 인디고 실행 「여러 날 한 번에 넣기」 하나.
+          제목은 폰에서 「지점 근무일 / 정」으로 꺾이지 않게 한 덩어리(■2) */}
+      <PageHead crumb="근태 › 지점 근무일정" title={<span className="whitespace-nowrap">지점 근무일정</span>} note={branch || undefined}>
         {canEdit && <>
           <Btn onClick={() => setEdit({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00" })}>
             <Plus size={15} />일정 추가
           </Btn>
           <Btn kind="primary" onClick={() => { setBulkKey((k) => k + 1); setBulkOpen(true); }}>
-            <CalendarRange size={15} />일괄 생성
+            <CalendarRange size={15} />여러 날 한 번에 넣기
           </Btn>
         </>}
       </PageHead>
       {!canEdit && (
         <p className="mb-[18px] rounded-[10px] border border-[#e2e8f0] bg-white px-4 py-2.5 text-[13px] text-[#596578]">
-          본부가 원장의 근무일정 직접 편집을 꺼 두었습니다 — 변경은 「근무일정 신청」으로 해 주세요.
+          본부가 원장의 근무일정 직접 편집을 꺼 두었습니다 — 바꿀 때는 「근무 변경 요청」으로 해 주세요.
         </p>
       )}
 
@@ -155,8 +155,9 @@ export default function ManagerSchedulePage() {
       <Box icon={<CalendarDays />} tone="ind" title="직원별 근무일정"
         sub={canEdit ? "지점 직원 · 본인 · 칸을 누르면 추가, 일정을 누르면 고치기" : "지점 직원 · 본인"}
         right={<span className="text-[13px] font-normal text-[#596578]">{filteredEmployees.length}명 / 전체 {team.length}명</span>}>
-        <div className="px-6 pt-4">
-          <ScheduleViewBar view={view} />
+        <div className="border-b border-[#eef1f5] px-6 py-4">
+          {/* 주 근무시간 숫자는 본부만(■0-11) — 합계 열 고르기도 뺀다 */}
+          <ScheduleViewBar view={view} hideShow={["total"]} />
         </div>
         {/* 필터(#72) — 직무 여러 개, 겸직이면 지점도, 이름 검색 */}
         <FilterRow>
@@ -170,20 +171,17 @@ export default function ManagerSchedulePage() {
             <Btn kind="text" className="text-[13px]" onClick={() => { setSelJobGroups([]); setSelBranches([]); setSearchName(""); }}>필터 지우기</Btn>
           ) : null}
         </FilterRow>
+        <ScheduleLegend className="border-b border-[#eef1f5] bg-[#fcfdff] px-6 py-2.5" />
         {/* 일정 표 — 칸을 누르면 추가, 일정을 누르면 고치기(편집 권한이 꺼지면 보기만) */}
         <div className="overflow-x-auto">
           <ScheduleBoard view={view} employees={filteredEmployees} schedules={schedules} loading={loading}
-            holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} branchColor={branchColor}
+            holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} hoursHidden
             onEmptyCell={canEdit ? (userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" }) : undefined}
             onSchedule={canEdit ? (s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null }) : undefined} />
         </div>
-        {/* 범례 — 표(ScheduleBoard)가 실제로 칠하는 색과 같게 둔다 */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-[#eef1f5] px-6 py-3 text-[13px] text-[#475569]">
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3.5 w-3.5 rounded border border-blue-300 bg-blue-100" />근무</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3.5 w-3.5 rounded border border-[#bfdbfe] bg-[#eff6ff]" />휴가(승인)</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3.5 w-3.5 rounded border border-gray-300 bg-gray-100" />휴무</span>
-          <p className="basis-full text-[12.5px] text-[#596578]">직원이 신청한 근무일정은 결재에서 승인되면 표시됩니다. 원장이 여기서 넣은 일정(주말 포함)은 바로 확정됩니다. 월 보기의 합계는 화면에 보이는 일정의 근로시간(휴게 제외)입니다.</p>
-        </div>
+        <p className="border-t border-[#eef1f5] px-6 py-3 text-[12.5px] text-[#596578]">
+          직원이 올린 근무 변경 · 휴가는 결재 대기 동안 점선으로 보이고, 승인되면 면으로 바뀝니다. 원장이 여기서 넣은 일정(주말 포함)은 바로 확정됩니다. 기본 근무 = 그 직원이 이 기간 평일에 가장 많이 한 시간.
+        </p>
       </Box>
 
       <ScheduleEditDialog key={edit ? `${edit.id ?? "new"}-${edit.userId}-${edit.date}` : "none"} target={edit} employees={team.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}

@@ -28,11 +28,44 @@ const MODES = new Set<string>(FIELD_MODES.map((m) => m.value));
 /** 원천 칸에서 서버가 만들어 내는 파생 표기 칸(2026-10-23 주말 학습실장·코디 오후판) → 그 원천 칸.
  *  양식에는 파생 칸만 있어도 작성 화면은 원천 칸을 입력란으로 띄우고(fields API·요약 칸이 원천을 덧붙인다) 파생 칸은 숨긴다.
  *  · 주말급여합계 = 기본급금액 + 주말수당금액 + 주휴수당금액(「1,234원」, 빈 칸은 0, 셋 다 비면 빈칸)
- *  · 출근시각12·퇴근시각12 = 「14:00」→「2:00」(12시간제 숫자만 — 오전/오후 글자는 양식 문장에 적는다) */
+ *  · 출근시각12·퇴근시각12 = 「14:00」→「2:00」(12시간제 숫자만 — 오전/오후 글자는 양식 문장에 적는다)
+ *  · 주휴수당표기 = 요일 표(월~일 근로시간) 합계가 주 15시간 이상이면 {주휴수당금액}, 미만이면 「해당 없음」(근로기준법 제18조 3항, 10/23 본부)
+ *    — 주 15시간 미만이면 {주말급여합계}도 주휴수당을 0 으로 더한다 */
+export const WEEK_DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"] as const;
+export const DAY_TABLE_HOURS = WEEK_DAYS.map((d) => `${d}근로시간`);
 export const DERIVED_FIELD_SOURCES: Record<string, string[]> = {
   주말급여합계: ["기본급금액", "주말수당금액", "주휴수당금액"],
   출근시각12: ["출근시각"],
   퇴근시각12: ["퇴근시각"],
+  주휴수당표기: ["주휴수당금액", ...DAY_TABLE_HOURS],
+};
+
+// 시간 칸은 적힌 숫자 중 **가장 큰 값** — 「1일 9시간」→9, 「주 5일 45시간」→45(첫 숫자만 읽으면 초과를 놓친다, 재검증 F7)
+// 「7시간 30분」→7.5 처럼 시간·분 표기는 합쳐 읽고, 연도 같은 4자리 이상 숫자는 무시한다(재검증 N2). 검사(contract-validate)·파생 칸 공용
+export const hoursNum = (v: string | undefined | null): number | null => {
+  const t = v || "";
+  const hm = [...t.matchAll(/(\d+(?:\.\d+)?)\s*시간(?:\s*(\d+)\s*분)?/g)].map((m) => Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0));
+  if (hm.length) return Math.max(...hm);
+  // 「7:30」→7.5(하루 시간 표기), 「30분」→0.5
+  const colon = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(t);
+  if (colon) return Number(colon[1]) + Number(colon[2]) / 60;
+  const onlyMin = /^\s*(\d+)\s*분\s*$/.exec(t);
+  if (onlyMin) return Number(onlyMin[1]) / 60;
+  const all = [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter((n) => Number.isFinite(n) && n < 1000);
+  return all.length ? Math.max(...all) : null;
+};
+/** 요일 표(주말 학습실장 {월요일근로시간}~{일요일근로시간}) 1주 합계 — 빈 칸은 0 */
+export const dayTableWeekHours = (merge: Record<string, string>): number =>
+  DAY_TABLE_HOURS.reduce((sum, k) => sum + (hoursNum(merge[k]) ?? 0), 0);
+/** 주휴수당 대상 여부 — 요일 표 합계 15시간 이상. 요일 표가 비어 있으면(합계 0) 판단할 수 없어 null(종전처럼 금액을 그대로 쓴다) */
+export const weeklyRestPayApplies = (merge: Record<string, string>): boolean | null => {
+  const wk = dayTableWeekHours(merge);
+  return wk > 0 ? wk >= 15 : null;
+};
+/** 요일 값 읽기 — 「월요일」·「월」(앞뒤 공백·괄호 허용) → 「월요일」. 못 읽으면 null */
+export const normalizeWeekday = (v: string | undefined | null): string | null => {
+  const m = /^\s*[(（]?\s*([월화수목금토일])\s*(?:요일)?\s*[)）]?\s*$/.exec(v || "");
+  return m ? `${m[1]}요일` : null;
 };
 /** 칸 이름 목록에 파생 칸의 원천 칸을 덧붙인다(이미 있으면 그대로) — 작성 화면 입력란·요약 칸 거르기용 */
 export function withDerivedSources(names: string[]): string[] {

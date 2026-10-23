@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hiddenIdsFor } from "@/lib/hidden-accounts";
 
@@ -7,7 +7,7 @@ import { hiddenIdsFor } from "@/lib/hidden-accounts";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
 
   const force = await prisma.appSetting.findUnique({ where: { key: "forceApprovalNotify" } });
 
@@ -38,7 +38,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
 
   const body = (await request.json().catch(() => ({}))) as {
     forceApprovalNotify?: boolean;

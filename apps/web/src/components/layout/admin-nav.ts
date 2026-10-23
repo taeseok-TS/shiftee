@@ -10,7 +10,8 @@ import {
 
 export type Icon = ComponentType<{ size?: number; className?: string }>;
 /** 화면 위 탭 하나 — href 는 실제 주소(쿼리 포함 가능) */
-export type NavTab = { href: string; label: string };
+// superOnly = 메인(최고) 관리자에게만 — 메뉴 단위와 같게 탭 · 찾기 항목 단위로도 거른다(AdminSidebar)
+export type NavTab = { href: string; label: string; superOnly?: boolean };
 /** 패널 메뉴 하나 — tabs 가 있으면 그 탭 주소들에서도 이 메뉴가 켜진다 */
 // also = 메뉴·탭엔 없지만 이 메뉴에서 들어가는 화면 · hidden = 패널엔 안 보이고 메뉴 찾기·주소 맞춤에만(다른 곳에 버튼이 있는 화면) · dim = 패널 맨 아래 옅게
 // find = 메뉴 찾기에만 나오는 화면 안 알약 탭(위 탭 줄은 그리지 않는다 — 시안 R11·R13 「탭 한 줄」. tabs 와 달리 주소 맞춤에도 안 쓴다)
@@ -26,12 +27,12 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/attendance", label: "출퇴근 현황", icon: Clock, also: ["/admin/attendance-board"],
       find: [
         { href: "/admin/attendance-board", label: "달력 · 목록(출퇴근기록)" },
-        { href: "/admin/attendance?tab=stats", label: "기간별 통계" },
+        { href: "/admin/attendance?tab=stats", label: "지난 기록" },
         { href: "/admin/attendance?tab=weekend", label: "주말 근무 엑셀" },
       ] },
     { href: "/admin/schedule", label: "근무일정", icon: Calendar, tabs: [
       { href: "/admin/schedule", label: "근무일정" },
-      { href: "/admin/schedule-templates", label: "근무일정 템플릿" },
+      { href: "/admin/schedule-templates", label: "근무 시간 종류" },
     ] },
     { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 },
   ] },
@@ -41,10 +42,10 @@ export const ADMIN_NAV: NavGroup[] = [
       also: ["/admin/contract-approvals", "/admin/requests"],
       find: [
         { href: "/admin/leave-approvals?tab=leave", label: "휴가" },
-        { href: "/admin/leave-approvals?tab=schedule", label: "근무일정" },
+        { href: "/admin/leave-approvals?tab=schedule", label: "근무 변경" },
         { href: "/admin/leave-approvals?tab=contract", label: "계약" },
         { href: "/admin/leave-approvals?tab=cancel", label: "휴가 취소" },
-        { href: "/admin/leave-approvals?tab=attendance", label: "출퇴근 요청" },
+        { href: "/admin/leave-approvals?tab=attendance", label: "출퇴근 수정" },
         { href: "/admin/requests?who=decided", label: "처리한 요청" },
       ] },
     { href: "/admin/approval-rules", label: "결재 규칙", icon: GitBranch },
@@ -77,8 +78,8 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/employees", label: "직원", icon: Users, also: ["/admin/employee-stats", "/admin/hire-dates", "/admin/portal-sync"],
       find: [
         { href: "/admin/employee-stats", label: "현황" },
-        { href: "/admin/hire-dates", label: "입사일 대조" },
-        { href: "/admin/portal-sync", label: "인원명부 연동" },
+        { href: "/admin/hire-dates", label: "입사일 대조", superOnly: true },
+        { href: "/admin/portal-sync", label: "인원명부 연동", superOnly: true },
       ] },
     { href: "/admin/branches", label: "지점 관리", icon: Building2 },
     { href: "/admin/salary", label: "연봉", icon: Wallet, salaryOnly: true },
@@ -91,9 +92,9 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/settings", label: "환경설정", icon: Settings, superOnly: true, also: ["/admin/storage", "/admin/system-logs"] },
     // 개선 제안은 상단 바(휴대폰은 이름 메뉴)에 있어 패널에서 뺀다 — 메뉴 찾기로는 찾힌다(2026-10-21 본부 이예지 재요청 H)
     { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb, hidden: true },
-    // 운영 도구 넷은 「개발자」 한 메뉴의 탭으로 묶어 맨 아래 옅게(재요청 H)
-    { href: "/admin/emoticons", label: "개발자", icon: Wrench, dim: true, tabs: [
-      { href: "/admin/emoticons", label: "이모티콘 관리" },
+    // 운영 도구는 「개발자」 한 메뉴의 탭으로 묶어 맨 아래 옅게(재요청 H) — **최고 관리자에게만**(2026-10-23 본부 요청 ■0-3, API 키는 남이 보면 안 되는 정보).
+    // 화면은 각 layout, API 는 각 라우트가 isSuperAdmin 으로 다시 막는다. 이모티콘 관리는 「큐브티워크 › 이모티콘」(/work/emoticons)으로 옮겼다(옛 주소는 그쪽으로 보냄)
+    { href: "/admin/bot", label: "개발자", icon: Wrench, dim: true, superOnly: true, tabs: [
       { href: "/admin/bot", label: "봇 브리핑" },
       { href: "/admin/api-keys", label: "API 키" },
       { href: "/admin/test-api", label: "API 테스트" },

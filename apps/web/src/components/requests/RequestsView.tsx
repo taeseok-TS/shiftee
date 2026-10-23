@@ -9,12 +9,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Inbox, Search } from "lucide-react";
 import { PageHead, Box, FilterRow, Chip, inputClass, tableClass, Cell2, StatusPill, type PillTone } from "@/components/kit";
+import { fmtDayKo, fmtDayShort } from "@/lib/leave-period";
 
 type Item = {
   kind: "LEAVE" | "LEAVE_CANCEL" | "SCHEDULE" | "ATTENDANCE";
   id: string; title: string; period: string; requester: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  createdAt: string;
+  createdAt: string | null;   // 출퇴근 요청은 시각을 볼 수 없는 사람(직원 · 원장)에게 null — 그때는 createdDate(KST 날짜)만
+  createdDate?: string;
   reason: string | null;
   progress: { done: number; total: number } | null;
   lastComment: { by: string; text: string } | null;
@@ -37,6 +39,11 @@ const STATUS: Record<Item["status"], { label: string; tone: PillTone }> = {
   CANCELLED: { label: "취소", tone: "gray" },
 };
 const kst = (iso: string) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+// 올린 때 — 시각이 오면 「올린 시각 2026-10-23 09:12」, 시각을 숨긴 출퇴근 요청은 날짜만 「올린 날 10월 23일 (금)」(좁은 카드는 「10/23 (금)」)
+const uploaded = (i: Item, narrow = false) =>
+  i.createdAt ? `올린 시각 ${kst(i.createdAt)}`
+    : i.createdDate ? `올린 날 ${narrow ? fmtDayShort(i.createdDate) : fmtDayKo(i.createdDate)}`
+    : "";
 
 export default function RequestsView({ initialWho, embedded = false }: { initialWho: "mine" | "decided"; embedded?: boolean }) {
   const [who, setWho] = useState<"mine" | "decided">(initialWho);
@@ -143,7 +150,7 @@ export default function RequestsView({ initialWho, embedded = false }: { initial
                   <tr key={`${i.kind}:${i.id}`} className="hover:bg-[#fafbfd]">
                     {decided && <td className="whitespace-nowrap"><Cell2 main={i.requester} /></td>}
                     <td><Cell2 main={i.title} sub={KIND[i.kind].label} /></td>
-                    <td className="whitespace-nowrap"><Cell2 main={<span className="font-semibold">{i.period}</span>} sub={`올린 시각 ${kst(i.createdAt)}`} /></td>
+                    <td className="whitespace-nowrap"><Cell2 main={<span className="font-semibold">{i.period}</span>} sub={uploaded(i) || undefined} /></td>
                     <td>{statusCell(i)}</td>
                     <td className="max-w-[28rem]">{notesCell(i)}</td>
                   </tr>
@@ -159,7 +166,7 @@ export default function RequestsView({ initialWho, embedded = false }: { initial
                     <p className="text-[12.5px] text-[#596578]">{KIND[i.kind].label}{decided ? ` · ${i.requester}` : ""}</p>
                     <p className="font-bold text-[#0f172a]">{i.title}</p>
                     <p className="text-[13.5px] text-[#475569]">{i.period}</p>
-                    <p className="text-[12.5px] text-[#596578]">올린 시각 {kst(i.createdAt)}</p>
+                    {uploaded(i, true) && <p className="text-[12.5px] text-[#596578]">{uploaded(i, true)}</p>}
                   </div>
                   <div className="shrink-0 text-right">{statusCell(i)}</div>
                 </div>

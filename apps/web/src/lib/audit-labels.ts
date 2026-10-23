@@ -6,8 +6,8 @@
 
 export const AUDIT_ACTION_LABEL: Record<string, string> = {
   // 근무일정
-  SCHEDULE_TEMPLATE_CREATE: "근무일정 템플릿 추가",
-  SCHEDULE_TEMPLATE_UPDATE: "근무일정 템플릿 수정",
+  SCHEDULE_TEMPLATE_CREATE: "근무 시간 종류 추가",
+  SCHEDULE_TEMPLATE_UPDATE: "근무 시간 종류 수정",
   SCHEDULE_SELF_CHANGE: "원장 본인 근무일정 변경",
   SCHEDULE_DECISION: "근무일정 결재",
   SCHEDULE_CANCEL: "근무일정 신청 취소",
@@ -15,6 +15,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   SCHEDULE_IMPORT_ROLLBACK: "근무일정 엑셀 업로드 되돌림",
   // 출퇴근
   ATTENDANCE_REQUEST_DECISION: "출퇴근 요청 처리",
+  ATTENDANCE_REQUEST_STEP1: "출퇴근 수정 1차 승인(원장)",   // 2026-10-23 ■0-11 — 「지점 원장 → 본부」 두 단계의 원장 단계(lib/attendance-request STEP1_AUDIT)
   ATTENDANCE_CREATE: "출퇴근 기록 추가",
   ATTENDANCE_EDIT: "출퇴근 기록 수정",
   ATTENDANCE_AUTO_CLOSE: "전일 미마감 자동 마감",
@@ -68,8 +69,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   CONTRACT_IMPORT_ROLLBACK: "계약 엑셀 업로드 되돌림",
   CONTRACT_MESSAGE_UPDATE: "전자계약 기본 메시지 변경",
   CONTRACT_ORDER_OVERRIDE: "패키지 서류별 결재 순서 변경(그 발송만)",
-  CONTRACT_TEMPLATE_COPY: "계약서 템플릿 사본",
-  CONTRACT_TEMPLATE_UPDATE: "계약서 템플릿 수정",
+  CONTRACT_TEMPLATE_COPY: "계약서 양식 사본",
+  CONTRACT_TEMPLATE_UPDATE: "계약서 양식 수정",
   CONTRACT_TEMPLATE_PURPOSE: "계약서 양식 용도 변경",   // 계약서 보내기 화면의 용도 카드(2026-10-17)
   CONTRACT_TEST_SEND: "시험 계약 발송",
   CONTRACT_TEST_PURGE: "시험 계약 정리",
@@ -78,7 +79,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   HOLIDAY_DELETE: "공휴일 삭제",
   HOLIDAY_GRANT_TOGGLE: "공휴일 부여 설정 변경",
   BRANCH_RENAME: "지점명 변경",
-  BRANCH_MAIN_MANAGER: "메인 원장 변경",
+  BRANCH_MAIN_MANAGER: "대표원장 변경",
   // 제출 요청
   SUBMISSION_REQUEST_CREATE: "제출 요청 만들기",
   SUBMISSION_REQUEST_UPDATE: "제출 요청 수정",
@@ -137,3 +138,34 @@ const SYSTEM_SET = new Set(SYSTEM_AUDIT_ACTIONS);
 export type AuditScope = "work" | "system";
 export function isSystemAudit(action: string): boolean { return SYSTEM_SET.has(action); }
 export function auditLabel(action: string): string { return AUDIT_ACTION_LABEL[action] || action; }
+
+// ─── 종류별 고르기(2026-10-23 본부 요청 ■3) — 변경 로그에 큐브티 근태 · 인사와 상관없는 기록(자료 제출 · 이모티콘)이 섞여 보였다.
+// 작업 코드 앞머리로 나눈다(새 코드도 앞머리만 맞으면 따라온다). 기본은 「근태 · 인사」 = 큐브티워크 기록을 뺀 전부.
+export type AuditKind = "hr" | "employee" | "attendance" | "schedule" | "leave" | "approval" | "contract" | "org" | "work" | "all";
+export const AUDIT_KIND_PREFIX: Record<Exclude<AuditKind, "hr" | "all">, string[]> = {
+  employee: ["EMPLOYEE_", "DEVICE_", "PASSWORD_RESET", "RESIGN_"],
+  attendance: ["ATTENDANCE_"],
+  schedule: ["SCHEDULE_"],
+  leave: ["LEAVE_"],
+  approval: ["APPROVAL_"],
+  contract: ["CONTRACT_", "ROUTE_COURSE_"],
+  org: ["HOLIDAY_", "BRANCH_"],
+  work: ["SUBMISSION_", "EMOTICON_"],
+};
+/** 기본 「근태 · 인사 전체」(hr)에서 빼는 앞머리 — 큐브티워크 기록 + 근태 · 인사와 상관없는 시스템 작업(마케팅 배포 · 입학정보실 입장, 10/23 검증 K) */
+export const AUDIT_HR_EXCLUDE_PREFIX: readonly string[] = [...AUDIT_KIND_PREFIX.work, "MARKETING_", "JINHAK_"];
+export const AUDIT_KIND_OPTIONS: { key: AuditKind; label: string }[] = [
+  { key: "hr", label: "근태 · 인사 전체" },
+  { key: "employee", label: "직원" },
+  { key: "attendance", label: "출퇴근" },
+  { key: "schedule", label: "근무일정" },
+  { key: "leave", label: "휴가" },
+  { key: "approval", label: "결재 규칙 · 원장대행" },
+  { key: "contract", label: "전자계약" },
+  { key: "org", label: "공휴일 · 지점" },
+  { key: "work", label: "큐브티워크(자료 제출 · 이모티콘)" },
+  { key: "all", label: "모든 기록" },
+];
+export function isAuditKind(v: string | null | undefined): v is AuditKind {
+  return !!v && AUDIT_KIND_OPTIONS.some((o) => o.key === v);
+}

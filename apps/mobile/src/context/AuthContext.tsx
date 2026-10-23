@@ -3,6 +3,7 @@ import { AppState, AppStateStatus } from "react-native";
 import * as auth from "../services/auth";
 import { registerPushToken } from "../services/push";
 import { onSessionExpired } from "../services/session-events";
+import { resetBadges } from "../services/badges";
 
 type AuthContextValue = {
   isLoggedIn: boolean;
@@ -60,7 +61,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // 그 자리에서 로그인 화면으로 보낸다 (2026-09-08 디렉터 지시).
   useEffect(() => onSessionExpired(() => setIsLoggedIn(false)), []);
 
-  const signIn = useCallback(() => setIsLoggedIn(true), []);
+  // 아래 탭 숫자 · 결재자 판정은 계정마다 다르다 — 로그아웃(세션 끊김 포함)되면 비우고, 새로 로그인할 때도 비운 뒤 시작한다(2026-10-23 검증 B5).
+  // 로그인 쪽은 signIn 안에서 바로 — 효과(effect)로 하면 자식(AppNavigator)이 먼저 시작한 새로 고침을 지워 버린다
+  useEffect(() => { if (!isLoggedIn) resetBadges(); }, [isLoggedIn]);
+  const signIn = useCallback(() => { resetBadges(); setIsLoggedIn(true); }, []);
 
   const signOut = useCallback(async () => {
     await auth.logout();

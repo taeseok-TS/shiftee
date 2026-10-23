@@ -1,7 +1,7 @@
 "use client";
 // 인사 › 직원 머리 + 알약 탭 한 줄(2026-10-21 본부 시안 R14) — 옛 위 탭(관리 · 현황 · 입사일 대조 · 인원명부 연동)을 화면 안 알약 한 줄로.
 // 네 화면(직원 · 직원 현황 · 입사일 대조 · 인원명부 연동)이 같이 쓰고, 탭은 각자 주소로 간다. 입사일 대조는 확인 필요 건수(빨강)
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { PageHead, PillTabs, type PillTab } from "@/components/kit";
 
 export type EmployeeTab = "list" | "stats" | "hire" | "sync";
@@ -41,13 +41,28 @@ export function useHireCheckCount(): number | null {
   return useSyncExternalStore(subscribe, () => hireCount, () => null);
 }
 
+/** 메인(최고) 관리자인가 — 「입사일 대조」 · 「인원명부 연동」은 최고 관리자에게만(2026-10-23 본부 요청 ■3, 이관 작업용 화면).
+ *  모르는 동안(받는 중 · 실패)은 false — 숨기는 쪽으로. 화면 자체는 각 layout 이 서버에서 다시 막는다 */
+export function useIsSuperAdmin(): boolean {
+  const [isSuper, setIsSuper] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive) setIsSuper(!!d?.user?.isSuperAdmin); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return isSuper;
+}
+
 export default function EmployeeTabs({ active, note, children }: { active: EmployeeTab; note?: React.ReactNode; children?: React.ReactNode }) {
   const hire = useHireCheckCount();
+  const isSuper = useIsSuperAdmin();
   const tabs: PillTab[] = [
     { key: "list", label: "관리", href: "/admin/employees" },
     { key: "stats", label: "현황", href: "/admin/employee-stats" },
-    { key: "hire", label: "입사일 대조", href: "/admin/hire-dates", count: hire, hot: true },
-    { key: "sync", label: "인원명부 연동", href: "/admin/portal-sync" },
+    ...(isSuper ? [
+      { key: "hire", label: "입사일 대조", href: "/admin/hire-dates", count: hire, hot: true },
+      { key: "sync", label: "인원명부 연동", href: "/admin/portal-sync" },
+    ] : []),
   ];
   return (
     <>

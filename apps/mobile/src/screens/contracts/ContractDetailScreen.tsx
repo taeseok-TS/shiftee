@@ -17,14 +17,16 @@ import SignatureScreen, { SignatureViewRef } from "react-native-signature-canvas
 import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { fileUri, useUploadsTicketVersion } from "../../services/work";
+import { refreshBadges } from "../../services/badges";
 
-const STATUS: Record<string, { label: string; color: string }> = {
-  DRAFT: { label: "작성중", color: "#6b7280" },
-  SENT: { label: "서명 대기", color: "#f59e0b" },
-  SIGNED: { label: "서명 완료", color: "#3b82f6" },
-  APPROVED: { label: "승인 완료", color: "#10b981" },
-  REJECTED: { label: "반려", color: "#ef4444" },
-  EXPIRED: { label: "만료", color: "#9ca3af" },   // 서명 기한이 지남(#45)
+// 상태 알약 — 서명 대기 = 주황, 완료 = 파랑(초록 금지, 2026-10-23 ■4)
+const STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  DRAFT: { label: "작성중", color: "#475569", bg: "#f1f5f9" },
+  SENT: { label: "서명 대기", color: "#b45309", bg: "#fffbeb" },
+  SIGNED: { label: "서명 완료", color: "#1e40af", bg: "#dbeafe" },
+  APPROVED: { label: "승인 완료", color: "#1e40af", bg: "#dbeafe" },
+  REJECTED: { label: "반려", color: "#be123c", bg: "#fff1f2" },
+  EXPIRED: { label: "만료", color: "#475569", bg: "#f1f5f9" },   // 서명 기한이 지남(#45)
 };
 
 function firstUrl(raw?: string | null): string | null {
@@ -125,6 +127,7 @@ export default function ContractDetailScreen() {
       setSignAgree(false);
       Alert.alert("완료", "서명이 제출되었습니다.");
       await load();
+      refreshBadges().catch(() => {});
     } catch (error: any) {
       if (error.response?.data?.code === "PASSWORD_REQUIRED") setUnlocked(false);   // 확인 시간이 지났다 — 다시 확인
       Alert.alert("오류", error.response?.data?.error || "서명 제출에 실패했습니다.");
@@ -192,13 +195,16 @@ export default function ContractDetailScreen() {
     }
   };
 
+  const signReady = canSign && (isAdmin || unlocked || steps.length === 0);
+  const openSignPad = () => { /* 열 때마다 새로 — 실패·문서 변경 뒤 체크가 남지 않게(묶음 ② 검증 4) */ setSignPw(""); setSignAgree(false); setShowSign(true); };
   return (
+    <View style={{ flex: 1, backgroundColor: "#f3f4f6" }}>
     <ScrollView style={styles.container}>
       <View style={styles.card}>
         <View style={styles.headerRow}>
           <Text style={styles.title}>{contract.title}</Text>
-          <View style={[styles.badge, { backgroundColor: st.color }]}>
-            <Text style={styles.badgeText}>{st.label}</Text>
+          <View style={[styles.badge, { backgroundColor: st.bg }]}>
+            <Text style={[styles.badgeText, { color: st.color }]}>{st.label}</Text>
           </View>
         </View>
 
@@ -270,7 +276,7 @@ export default function ContractDetailScreen() {
             style={styles.fileBtn}
             onPress={openSignedDoc /* 워드 파일 직링크 대신 재생성 PDF(수정 불가·최신 서명 배치) */}
           >
-            <Ionicons name="checkmark-circle-outline" size={20} color="#10b981" />
+            <Ionicons name="checkmark-circle-outline" size={20} color="#4f46e5" />
             {/* 열람만 허용된 문서(view)와 받을 수 있는 문서(full)를 구분해 알려준다
                 — 종전엔 둘 다 "보기"라 근로계약서를 받을 수 있는지 알 수 없었다 (2026-09-02) */}
             <Text style={styles.fileBtnText}>
@@ -283,25 +289,11 @@ export default function ContractDetailScreen() {
 
       )}
 
-      {canSign && (isAdmin || unlocked || steps.length === 0) ? (
+      {signReady ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>전자 서명</Text>
-          <Text style={styles.signHint}>아래 버튼을 눌러 서명하면 계약이 진행됩니다.</Text>
-          <TouchableOpacity
-            style={[styles.signBtn, signing && styles.btnDisabled]}
-            onPress={() => { /* 열 때마다 새로 — 실패·문서 변경 뒤 체크가 남지 않게(묶음 ② 검증 4) */ setSignPw(""); setSignAgree(false); setShowSign(true); }}
-            disabled={signing}
-          >
-            {signing ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="create-outline" size={18} color="#fff" />
-                <Text style={styles.signBtnText}>서명하기</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          {/* 조건이 다르면 버티는 대신 사유를 남긴다 (2026-09-04) */}
+          <Text style={styles.signHint}>위 「계약서 내용 보기」로 끝까지 확인한 뒤 아래 「서명하기」를 눌러 주세요.</Text>
+          {/* 조건이 다르면 버티는 대신 사유를 남긴다 (2026-09-04) — 「서명하기」는 아래 고정 띠(10/23 앱 8) */}
           <TouchableOpacity
             style={styles.rejectBtn}
             onPress={() => { setRejectReason(""); setShowReject(true); }}
@@ -312,6 +304,15 @@ export default function ContractDetailScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+    </ScrollView>
+      {signReady && (
+        <View style={styles.dock}>
+          <TouchableOpacity style={[styles.signBtn, signing && styles.btnDisabled]} onPress={openSignPad} disabled={signing} accessibilityLabel="서명하기">
+            {signing ? <ActivityIndicator color="#fff" /> : <Text style={styles.signBtnText}>서명하기</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* 서명 거부 모달 — 되돌릴 수 없으므로 사유를 받는다 (2026-09-04) */}
       <Modal visible={showReject} animationType="slide" onRequestClose={() => setShowReject(false)}>
@@ -408,7 +409,7 @@ export default function ContractDetailScreen() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -449,11 +450,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 8,
+    backgroundColor: "#4f46e5",
+    height: 54,
+    borderRadius: 14,
   },
-  signBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  signBtnText: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  dock: { backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 },
   rejectBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     paddingVertical: 12, marginTop: 8, borderRadius: 8,
@@ -475,7 +477,7 @@ const styles = StyleSheet.create({
   padActions: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   padClear: { flex: 1, paddingVertical: 14, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", alignItems: "center" },
   padClearText: { fontSize: 15, fontWeight: "600", color: "#374151" },
-  padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 8, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
+  padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 12, backgroundColor: "#4f46e5", alignItems: "center", justifyContent: "center" },
   padConfirmText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   modalRoot: { flex: 1, backgroundColor: "#fff" },
   modalHeader: {

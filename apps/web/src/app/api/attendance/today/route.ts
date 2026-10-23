@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
+import { canSeeClockTimes } from "@/lib/attendance-visibility";
 
 // 오늘 본인 출퇴근 상태 (앱 출퇴근 버튼 상태 결정용)
 export async function GET() {
@@ -23,11 +24,16 @@ export async function GET() {
     select: { action: true, clockOut: true },
   });
 
+  // 찍은 시각은 본부만(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 찍었는지만
+  const showTimes = await canSeeClockTimes(session.role);
   return NextResponse.json({
     clockedIn: !!att?.clockIn,
     clockedOut: !!att?.clockOut,
-    clockInAt: att?.clockIn ?? null,
-    clockOutAt: att?.clockOut ?? null,
+    clockInAt: showTimes ? att?.clockIn ?? null : null,
+    clockOutAt: showTimes ? att?.clockOut ?? null : null,
+    hasClockIn: !!att?.clockIn,     // 앱이 읽는 이름(clockedIn 과 같다)
+    hasClockOut: !!att?.clockOut,
+    timesHidden: !showTimes,
     pendingIn: pending.some((p) => p.action === "IN"),
     pendingOut: pending.some((p) => p.action === "OUT"),
     pendingInClockedOut: pending.some((p) => p.action === "IN" && !!p.clockOut),   // 출근 요청 대기 중 퇴근까지 찍음

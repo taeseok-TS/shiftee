@@ -5,7 +5,8 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { isRealDate } from "@/lib/schedule-payload";
 import { mondayOf } from "@/lib/weekly-hours";
 import { getHolidaySet, ymdUTC } from "@/lib/holidays";
-import { countsCalendarDays, leaveLabel } from "@/lib/leave-catalog";
+import { countsCalendarDays, leaveInfo, leaveLabel } from "@/lib/leave-catalog";
+import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export const dynamic = "force-dynamic";
 // GET ?week=YYYY-MM-DD(그 주 아무 날) → { monday, from, to, leaves: { [userId]: { [date]: { type, label }[] } } }
 // GET ?start=YYYY-MM-DD&end=YYYY-MM-DD → 그 기간(62일까지). 일·주·월 보기(#71)가 쓴다. monday 는 from 과 같다
 // 주말·공휴일은 휴가 일수에 들지 않으므로 그날에는 표시하지 않는다(휴가 신청 일수 계산과 같은 기준).
+// 2026-10-23 오픈 전 ■0-5 · ■3 · ■4 — 휴가 한 건마다 unit(FULL 하루 · HALF 반차 · QUARTER 반반차)을 함께 준다(하루 휴가인 날은 표가 근무 대신 휴가만 그린다).
+//   결재 대기인 휴가(pendingLeaves, 같은 모양)와 결재 대기인 근무 변경 요청(pendingSchedules: { [userId]: { [date]: { startTime, endTime, kind } } })도
+//   함께 준다 — 표가 점선 테두리로 그린다. leaves 는 종전대로 **승인된 휴가만**.
 const MAX_DAYS = 62;
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -40,25 +44,50 @@ export async function GET(request: NextRequest) {
   const user = session.role === "MANAGER"
     ? { deletedAt: null, branch: { in: await getManagerBranches(session.userId) } }
     : { deletedAt: null };
-  const [rows, holidays] = await Promise.all([
+  await ensureLeaveCatalog().catch(() => {});   // 본부가 만든 유형 이름 · 단위(#216-1)
+  const [rows, holidays, pendReqs] = await Promise.all([
     prisma.leaveRequest.findMany({
-      where: { status: "APPROVED", startDate: { lte: to }, endDate: { gte: from }, user },
-      select: { userId: true, type: true, startDate: true, endDate: true },
+      where: { status: { in: ["APPROVED", "PENDING"] }, startDate: { lte: to }, endDate: { gte: from }, user },
+      select: { userId: true, type: true, status: true, startDate: true, endDate: true },
     }),
     getHolidaySet(from, to),
+    prisma.scheduleRequest.findMany({
+      where: { status: "PENDING", startDate: { lte: to }, endDate: { gte: from }, user },
+      select: { userId: true, kind: true, startDate: true, endDate: true, scheduleData: true },
+    }),
   ]);
 
-  const leaves: Record<string, Record<string, { type: string; label: string }[]>> = {};
+  type DayLeave = { type: string; label: string; unit: string };
+  const leaves: Record<string, Record<string, DayLeave[]>> = {};
+  const pendingLeaves: Record<string, Record<string, DayLeave[]>> = {};
   for (const r of rows) {
     const s = ymdUTC(r.startDate), e = ymdUTC(r.endDate);
+    const target = r.status === "APPROVED" ? leaves : pendingLeaves;
     for (let i = 0; i < dayCount; i++) {
       const day = new Date(Date.UTC(y, m - 1, d + i));
       const ymd = ymdUTC(day);
       if (ymd < s || ymd > e) continue;
       const dow = day.getUTCDay();
       if (!countsCalendarDays(r.type) && (dow === 0 || dow === 6 || holidays.has(ymd))) continue;   // 조사는 주말도 휴가로 보인다
-      ((leaves[r.userId] ??= {})[ymd] ??= []).push({ type: r.type, label: leaveLabel(r.type) });
+      ((target[r.userId] ??= {})[ymd] ??= []).push({ type: r.type, label: leaveLabel(r.type), unit: leaveInfo(r.type)?.unit ?? "FULL" });
     }
   }
-  return NextResponse.json({ monday, from: fromYmd, to: ymdUTC(to), leaves });
+
+  // 결재 대기 근무 변경 요청 — 신청 기간 안의 날짜만(lib/schedule-materialize 와 같은 규칙), 같은 사람 · 같은 날은 나중 것 하나
+  const pendingSchedules: Record<string, Record<string, { startTime: string | null; endTime: string | null; kind: string }>> = {};
+  const toYmd = ymdUTC(to);
+  for (const r of pendReqs) {
+    const s = ymdUTC(r.startDate), e = ymdUTC(r.endDate);
+    const entries = Array.isArray(r.scheduleData) ? (r.scheduleData as { date?: unknown; startTime?: unknown; endTime?: unknown }[]) : [];
+    for (const en of entries) {
+      const date = typeof en?.date === "string" ? en.date : "";
+      if (!isRealDate(date) || date < s || date > e || date < fromYmd || date > toYmd) continue;
+      (pendingSchedules[r.userId] ??= {})[date] = {
+        startTime: typeof en.startTime === "string" ? en.startTime : null,
+        endTime: typeof en.endTime === "string" ? en.endTime : null,
+        kind: r.kind || "CREATE",
+      };
+    }
+  }
+  return NextResponse.json({ monday, from: fromYmd, to: toYmd, leaves, pendingLeaves, pendingSchedules });
 }

@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { runAllBriefingsNow, runNoticeReminders } from "@/lib/bot";
 
-// 봇 작업 수동 실행 (관리자 전용 — 테스트/즉시 발송용)
+// 봇 작업 수동 실행 (최고 관리자 전용 — 테스트/즉시 발송용. 2026-10-23 검증 J: 서브 관리자가 전 직원 브리핑을 쏠 수 있었다)
 // POST { job: "briefing" | "reminders" }
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN")
-    return NextResponse.json({ error: "관리자만 실행할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId)))
+    return NextResponse.json({ error: "최고 관리자만 실행할 수 있습니다." }, { status: 403 });
 
   const { job } = (await request.json().catch(() => ({}))) as { job?: string };
   if (job === "briefing") {

@@ -115,7 +115,8 @@ function parseTsv(text: string): string[][] {
 /** 사람마다 「보내기 전 확인」 결과(계약서 보내기 2단계, 2026-10-20 시안 v2 3번) — error = 고치거나 빼야 넘어감, warn = 「그래도 보내기」 또는 빼기 */
 export type RowStatus = { level: "ok" | "warn" | "error"; text: string; acked?: boolean };
 
-export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon, status, onRemove, onAck, onlyIssues, salaryInfo, onSalaryConfirm }: {
+export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon, status, onRemove, onAck, onlyIssues, salaryInfo, onSalaryConfirm, fieldTypes }: {
+  fieldTypes?: Record<string, { type: string; options?: string[] }>; // 고르는 칸(주휴일지정 등) — 사람별 칸도 드롭다운으로
   userIds: string[];
   employees: Emp[];
   columns: string[];
@@ -241,9 +242,17 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
                     const won = c === "연봉" ? Number(shownVal.replace(/[^0-9]/g, "")) : 0;
                     return (
                       <td key={c} className="px-1 py-0.5 align-top">
+                        {fieldTypes?.[c]?.type === "select" ? (
+                          <select value={v} onChange={(ev) => set(uid, c, ev.target.value)}
+                            className={`w-28 rounded border px-1 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 ${diff ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}>
+                            <option value="">{base ? `공통(${base})` : "선택"}</option>
+                            {(fieldTypes[c]?.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : (
                         <input value={v} placeholder={rowCommon?.[uid]?.[c] ?? common[c] ?? ""}
                           onChange={(ev) => set(uid, c, ev.target.value)}
                           className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : diff ? "border-amber-300 bg-amber-50" : "border-gray-200"}`} />
+                        )}
                         {c === "연봉" && won > 0 && <div className="pl-1 text-[10px] font-semibold text-indigo-600 whitespace-nowrap">{koreanMoney(won)}</div>}
                         {c === "연봉" && salaryCheck(uid)}
                       </td>

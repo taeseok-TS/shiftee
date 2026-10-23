@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { countableEmployeeWhere } from "@/lib/employee-scope";
 
 
 // 좌표 칸 검사 — 빈칸을 Number("") 로 바꾸면 **0, 0** 이 저장돼 그 지점 직원 전원의 출근이 막혔다(2026-10-06 QA 조사).
@@ -16,7 +17,14 @@ function parseCoord(v: unknown, kind: "lat" | "lng"): number | null | undefined 
   return n;
 }
 
-export async function GET() {
+// 숨긴 지점(2026-10-23 본부 요청 ■0-8 · 시안 S5) = 지점 관리에서 「숨긴 지점」(countInStats=false)으로 둔 지점 — 테스트지점.
+// 본부도 인원 숫자에서는 빠지지만(countInStats=false) 지점 고르기에서는 남긴다(본부 직원 · 본부 일정을 고를 일이 있다).
+// ?pick=1 = 다른 화면의 「지점 고르기」용 — 숨긴 지점을 뺀다. 지점 관리 · 직원 수정 창처럼 모든 지점이 필요한 곳은 그대로(파라미터 없이).
+// ?pick=1&includeTest=1 = 「테스트 포함」을 켠 화면의 지점 고르기 — 숨긴 지점(테스트지점)도 넣는다(2026-10-23 이예지 답, 라이브 검증용).
+// 인원 배지(_count.users) = 지점 직원(재직 · 휴직 빼고) — 인원 숫자 공용 기준(lib/employee-scope countableEmployeeWhere)과 같다:
+//   관리자 · 테스트 계정 · 퇴사일 지난 사람 · 입사 예정자는 세지 않고, 숨긴 지점(본부 · 테스트지점)은 0(10/23 검증 H).
+const HQ_BRANCH_NAME = "본부";
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
@@ -25,32 +33,27 @@ export async function GET() {
   }
 
   try {
+    const sp = new URL(request.url).searchParams;
+    const pick = sp.get("pick") === "1";
+    const includeTest = sp.get("includeTest") === "1";
     const branches = await prisma.branch.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(pick && !includeTest ? { OR: [{ countInStats: true }, { name: HQ_BRANCH_NAME }] } : {}) },
       orderBy: { name: "asc" },
       // 메인 원장 — 한 지점에 원장이 2명일 때 누가 상급인지(결재 방향을 정한다)
       include: { mainManager: { select: { id: true, name: true } } },
     });
 
-    // Application 레벨에서 각 지점의 직원 수 계산
-    const branchesWithCount = await Promise.all(
-      branches.map(async (branch) => {
-        const userCount = await prisma.user.count({
-          // 인원 배지 = 재직 중인 직원만. 관리자(서브 포함)·보관함·퇴사자는 세지 않는다
-          where: {
-            branch: branch.name,
-            role: { not: "ADMIN" },
-            isActive: true,
-            deletedAt: null,
-            employmentStatus: "ACTIVE",
-          },
-        });
-        return {
-          ...branch,
-          _count: { users: userCount },
-        };
-      })
-    );
+    // 지점별 직원 수 — 공용 기준 한 번에 묶어 센다
+    const counted = await prisma.user.groupBy({
+      by: ["branch"],
+      where: await countableEmployeeWhere({ scope: "staff" }),
+      _count: { _all: true },
+    });
+    const countOf = new Map(counted.map((c) => [c.branch, c._count._all]));
+    const branchesWithCount = branches.map((branch) => ({
+      ...branch,
+      _count: { users: countOf.get(branch.name) ?? 0 },
+    }));
 
     return NextResponse.json({ branches: branchesWithCount });
   } catch (error) {

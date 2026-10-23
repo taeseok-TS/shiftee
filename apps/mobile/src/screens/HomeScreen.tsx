@@ -20,7 +20,9 @@ import * as api from "../services/api";
 import * as storage from "../services/storage";
 import { renderAnnouncementBody } from "./work/WorkAnnouncementsScreen";
 import { getTodayStatus, TodayStatus } from "../services/attendance";
-import { canApproveNow, myInboxCount } from "../services/approvals";
+import { canApproveNow } from "../services/approvals";
+import { loadInboxPreview } from "./approvals/ApprovalsScreen";
+import { refreshBadges } from "../services/badges";
 import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 import BranchNowCard from "../components/BranchNowCard";
@@ -52,6 +54,9 @@ export default function HomeScreen() {
   const [staff, setStaff] = useState<"" | "ADMIN" | "MANAGER">("");
   const [reloadKey, setReloadKey] = useState(0);
   const [inbox, setInbox] = useState<number | null>(null);   // 결재할 건수(모르면 null → 「…」)
+  // 홈 맨 위 「승인 대기」 목록(2026-10-23 앱 7 · 시안 S2-1) — 승인 화면 카드와 같은 한 줄 요약
+  const [inboxItems, setInboxItems] = useState<{ key: string; who: string; group: string; summary: string }[]>([]);
+  const [myBranch, setMyBranch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +67,7 @@ export default function HomeScreen() {
         getTodayStatus().catch(() => null),
       ]);
       setUserName(user?.name ?? "");
+      setMyBranch(user?.branch ?? "");
       setStats(s);
       setAnnouncements(anns.slice(0, 5));
       setTodayStatus(ts);
@@ -86,8 +92,10 @@ export default function HomeScreen() {
         if (ok === null) return;            // 판정 실패 — 이전 상태 유지
         setApprover(ok);
         if (!ok) return;
-        const n = await myInboxCount();
-        if (n != null) setInbox(n);
+        const u = await storage.getUser().catch(() => null);
+        const p = await loadInboxPreview(u?.role === "ADMIN");
+        if (p) { setInbox(p.count); setInboxItems(p.items); }
+        refreshBadges().catch(() => {});
       })
       .catch(() => {});
   }, []);
@@ -131,7 +139,7 @@ export default function HomeScreen() {
         });
       (sched as any[]).forEach((s) => {
         const m = new Date(s.startDate).getMonth() + 1;
-        const key = `${m}월 근무일정 신청`;
+        const key = `${m}월 근무 변경 요청`;
         counts.set(key, (counts.get(key) || 0) + 1);
       });
       setApprovalLines([...counts.entries()].map(([k, v]) => `${k} ${v}건`));
@@ -141,7 +149,7 @@ export default function HomeScreen() {
   }, []);
 
   const today = new Date();
-  const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+  const dateStr = `${today.getMonth() + 1}월 ${today.getDate()}일 (${["일", "월", "화", "수", "목", "금", "토"][today.getDay()]})`;
 
   if (loading) {
     return (
@@ -153,39 +161,75 @@ export default function HomeScreen() {
 
   const pendingContracts = stats?.pendingContracts ?? 0;
 
-  // 오늘 출퇴근 상태 카드 (근무시간 대신 표시 — 노무이슈 회피)
-  const hhmm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "");
+  // 오늘 출퇴근 상태 카드 — 상태만(찍은 시각은 본부만, 2026-10-23 ■0-11)
+  // 시각은 서버가 줄 때만 덧붙인다(timesHidden 이 false — 본부 · 「출퇴근 시각 보기」 켠 원장, 검증 B4)
+  const inAt = todayStatus && (typeof todayStatus.timesHidden === "boolean" ? !todayStatus.timesHidden : true) && todayStatus.clockInAt ? new Date(todayStatus.clockInAt) : null;
+  const inHHmm = inAt && !Number.isNaN(inAt.getTime()) ? `${String(inAt.getHours()).padStart(2, "0")}:${String(inAt.getMinutes()).padStart(2, "0")}` : "";
   const att = todayStatus?.clockedOut
-    ? { value: "퇴근 완료", label: `퇴근 ${hhmm(todayStatus.clockOutAt)}`, icon: "checkmark-done-outline" as const, color: "#6b7280" }
+    ? { value: "퇴근", label: inHHmm ? `오늘 근태 · ${inHHmm} 출근` : "오늘 근태", icon: "checkmark-done-outline" as const, color: "#64748b" }
     : todayStatus?.clockedIn
-    ? { value: "근무 중", label: `출근 ${hhmm(todayStatus.clockInAt)}`, icon: "walk-outline" as const, color: "#10b981" }
+    ? { value: "근무 중", label: inHHmm ? `오늘 근태 · ${inHHmm} 출근` : "오늘 근태", icon: "walk-outline" as const, color: "#4f46e5" }
     : todayStatus?.pendingIn
-    ? { value: "승인 대기", label: "출근 요청", icon: "hourglass-outline" as const, color: "#d97706" }
-    : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#2563eb" };
+    ? { value: "승인 대기", label: "출근 요청", icon: "hourglass-outline" as const, color: "#b45309" }
+    : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#64748b" };
 
   const leaveHidden = !!stats && ((stats as DashboardStats & { balanceHidden?: boolean }).balanceHidden === true || (stats.leaveRemaining as number | null) === null);
   const cards = [
     // 잔여 연차 칸을 누르면 휴가 신청으로 바로(2026-10-07 #14)
     // 잔여 숫자 숨김(2026-10-16 #219-1) — 서버가 leaveRemaining:null + balanceHidden 을 주면 「연차 정리 중」(공용 타입엔 아직 없는 칸)
-    { key: "leave", label: "잔여 연차", value: leaveHidden ? "연차 정리 중" : `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#10b981", onPress: (() => navigation.navigate("Leave")) as undefined | (() => void) },
-    { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#f59e0b", onPress: () => setModal("contract") },
-    approver
-      ? { key: "approval", label: "대기 결재", value: inbox === null ? "…" : `${inbox}건`, icon: "hourglass-outline", color: "#8b5cf6",
-          onPress: () => navigation.navigate("More", { screen: "Approvals", initial: false }) }
-      : { key: "approval", label: "대기 결재", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#8b5cf6", onPress: openApproval },
+    // 원장 · 본부는 아래 탭이 「승인」이라 본인 휴가는 더보기 「내 휴가」(10/23 앱 1). 아이콘은 인디고(초록 금지)
+    { key: "leave", label: "잔여 연차", value: leaveHidden ? "연차 정리 중" : `${stats?.leaveRemaining ?? 0}일`, icon: "umbrella-outline", color: "#4f46e5",
+      onPress: (() => (staff ? navigation.navigate("More", { screen: "MyLeave", initial: false }) : navigation.navigate("Leave"))) as undefined | (() => void) },
+    { key: "contract", label: "서명 대기 계약", value: `${pendingContracts}건`, icon: "document-text-outline", color: "#b45309",
+      onPress: () => (pendingContracts > 0 ? navigation.navigate("More", { screen: "Contracts", initial: false }) : setModal("contract")) },
+    // 결재할 사람은 맨 위 「승인 대기」 목록이 대신한다 — 직원은 내 요청 중 결재 대기 건수
+    ...(approver ? [] : [{ key: "approval", label: "결재 대기", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#b45309", onPress: openApproval }]),
     { key: "attendance", label: att.label, value: att.value, icon: att.icon, color: att.color, onPress: () => navigation.navigate("Attendance") },
-  ] as const;
+  ];
+  const openApprovals = () => (staff ? navigation.navigate("Approve") : navigation.navigate("More", { screen: "Approvals", initial: false }));
 
   return (
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <View style={styles.header}>
-        <Text style={styles.greeting}>안녕하세요,</Text>
-        <Text style={styles.name}>{userName || "사용자"}님 👋</Text>
-        <Text style={styles.date}>{dateStr}</Text>
-      </View>
+      {/* 원장 · 본부는 맨 위가 승인 대기(10/23 앱 7) — 인사말은 직원 홈에만 */}
+      {!staff && (
+        <View style={styles.header}>
+          <Text style={styles.greeting}>안녕하세요,</Text>
+          <Text style={styles.name}>{userName || "사용자"}님</Text>
+          <Text style={styles.date}>{dateStr}</Text>
+        </View>
+      )}
+
+      {approver && (
+        <View style={styles.apprWrap}>
+          <View style={styles.apprHead}>
+            <Text style={styles.sectionTitle2}>승인 대기</Text>
+            <View style={styles.cntPill}><Text style={styles.cntPillText}>{inbox === null ? "…" : inbox}</Text></View>
+            <TouchableOpacity style={styles.allLink} onPress={openApprovals} accessibilityLabel="승인 전체 보기">
+              <Text style={styles.allLinkText}>전체 ›</Text>
+            </TouchableOpacity>
+          </View>
+          {inbox === 0 ? (
+            <View style={styles.apprList}><Text style={styles.apprEmpty}>승인 대기가 없습니다.</Text></View>
+          ) : inboxItems.length > 0 ? (
+            <View style={styles.apprList}>
+              {inboxItems.slice(0, 3).map((it, i) => (
+                <TouchableOpacity key={it.key} style={[styles.apprRow, i > 0 && styles.apprLine]} onPress={openApprovals} activeOpacity={0.7}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.apprWho} numberOfLines={1}>{it.who} · {it.group}</Text>
+                    <Text style={styles.apprSub} numberOfLines={1}>{it.summary}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#4f46e5" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      )}
+
+      {!!staff && <BranchNowCard reloadKey={reloadKey} title={staff === "ADMIN" ? "오늘 전체 근태" : `오늘 ${myBranch || "우리 지점"} 근태`} onOpenSchedule={() => navigation.navigate("Schedule", { view: "branch" })} />}
 
       <View style={styles.grid}>
         {cards.map((c) => (
@@ -206,7 +250,6 @@ export default function HomeScreen() {
         ))}
       </View>
 
-      {!!staff && <BranchNowCard reloadKey={reloadKey} scheduleLabel={staff === "ADMIN" ? "전체 지점 일정" : "지점 일정"} onOpenSchedule={() => navigation.navigate("Schedule", { view: "branch" })} />}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>최근 공지</Text>
@@ -248,9 +291,7 @@ export default function HomeScreen() {
                   <Text style={styles.popupBody}>서명 대기 중인 계약이 없습니다.</Text>
                 ) : (
                   <Text style={styles.popupBody}>
-                    서명 대기 계약이 {pendingContracts}건 있습니다.{"\n\n"}
-                    계약서 확인·서명은 PC에서 진행해 주세요.{"\n"}
-                    웹사이트(cubetee.co.kr)에 로그인하면 계약서를 확인하고 서명할 수 있습니다.
+                    서명 대기 계약이 {pendingContracts}건 있습니다. 더보기 › 계약서에서 열어 보고 서명할 수 있습니다.
                   </Text>
                 )}
               </>
@@ -258,7 +299,7 @@ export default function HomeScreen() {
 
             {modal === "approval" && (
               <>
-                <Text style={styles.popupTitle}>대기 결재 내역</Text>
+                <Text style={styles.popupTitle}>결재 대기 내역</Text>
                 {approvalLines === null ? (
                   <ActivityIndicator color="#2563eb" style={{ marginVertical: 16 }} />
                 ) : approvalLines.length === 0 ? (
@@ -266,7 +307,7 @@ export default function HomeScreen() {
                 ) : (
                   approvalLines.map((line, i) => (
                     <View key={i} style={styles.approvalRow}>
-                      <Ionicons name="hourglass-outline" size={16} color="#8b5cf6" />
+                      <Ionicons name="hourglass-outline" size={16} color="#b45309" />
                       <Text style={styles.approvalText}>{line}</Text>
                     </View>
                   ))
@@ -377,6 +418,20 @@ const styles = StyleSheet.create({
   attFileName: { fontSize: 13, color: "#2563eb", textDecorationLine: "underline", maxWidth: 240 },
   approvalRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
   approvalText: { fontSize: 14, color: "#374151" },
-  popupClose: { marginTop: 20, backgroundColor: "#2563eb", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+  popupClose: { marginTop: 20, backgroundColor: "#4f46e5", borderRadius: 10, minHeight: 46, justifyContent: "center", alignItems: "center" },
+  // 승인 대기(원장 · 본부 홈 맨 위)
+  apprWrap: { marginHorizontal: 14, marginTop: 16, marginBottom: 12, gap: 8 },
+  apprHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  sectionTitle2: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
+  cntPill: { backgroundColor: "#fffbeb", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 },
+  cntPillText: { fontSize: 12.5, fontWeight: "700", color: "#b45309" },
+  allLink: { marginLeft: "auto", minHeight: 44, justifyContent: "center", paddingLeft: 12 },
+  allLinkText: { fontSize: 13.5, fontWeight: "700", color: "#4f46e5" },
+  apprList: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e2e8f0", overflow: "hidden" },
+  apprRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12, minHeight: 56 },
+  apprLine: { borderTopWidth: 1, borderTopColor: "#f1f5f9" },
+  apprWho: { fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
+  apprSub: { fontSize: 13.5, color: "#475569", marginTop: 2 },
+  apprEmpty: { fontSize: 13.5, color: "#64748b", padding: 14 },
   popupCloseText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });

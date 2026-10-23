@@ -17,13 +17,13 @@ export const STEP_LABEL: Record<StepType, string> = {
   BRANCH_MANAGER: "지점 원장",
   HQ: "본부(관리자 누구나)",
   USER: "지정한 사람",
-  PEER_MANAGER: "같은 지점 메인 원장",
+  PEER_MANAGER: "같은 지점 대표원장",   // 화면 이름 「대표원장」(2026-10-23 본부 요청) — 코드 · 필드 이름은 mainManager 그대로
 };
 export const STEP_HINT: Record<StepType, string> = {
   BRANCH_MANAGER: "신청자 소속 지점의 원장(겸직 원장 포함). 원장이 없거나 공석이면 원장대행, 그것도 없으면 이 단계는 건너뜁니다.",
   HQ: "메인·서브 관리자 누구나 결재합니다.",
   USER: "고른 사람만 결재합니다(원장대행은 대신하지 않음, 관리자는 늘 대신 처리 가능). 그 사람이 신청자 본인이거나 퇴사했으면 건너뜁니다.",
-  PEER_MANAGER: "원장이 신청할 때 — 그 지점 메인 원장(없으면 같은 지점의 다른 원장). 겸직 원장·메인 원장 본인이면 건너뜁니다.",
+  PEER_MANAGER: "원장이 신청할 때 — 그 지점 대표원장(없으면 같은 지점의 다른 원장). 겸직 원장 · 대표원장 본인이면 건너뜁니다.",
 };
 
 export type RuleRow = {
@@ -33,10 +33,11 @@ export type RuleRow = {
   target: "EMPLOYEE" | "MANAGER" | "ALL";
   targetLabel: string;  // 대상
   condition: string;    // 조건
-  maxSteps: number;     // 출퇴근 요청은 한 단계뿐(요청 표에 결재자 칸이 하나)
+  maxSteps: number;     // 출퇴근 요청은 한 단계뿐(요청 표에 결재자 칸이 하나) — 출퇴근 수정만 두 단계(원장 → 본부)
   allowed: StepType[];  // 고를 수 있는 단계
   def: RuleStep[];      // 기본값(= 종전 동작)
   locked?: string;      // 바꿀 수 없는 줄 — 이유
+  hqLast?: string;      // 마지막 단계가 본부여야 하는 줄 — 이유(출퇴근 시각은 본부만 확인한다, 2026-10-23 ■0-11)
 };
 
 const B: RuleStep = { type: "BRANCH_MANAGER" };
@@ -58,16 +59,18 @@ export const RULE_ROWS: RuleRow[] = [
     maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
   { key: "ATT_PHOTO.EMPLOYEE", kind: "ATT_PHOTO", label: "사진 출퇴근", target: "EMPLOYEE", targetLabel: "직원", condition: "위치 인증 3번 실패 뒤",
     maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
+  // 출퇴근 수정 두 줄은 「지점 원장 → 본부」(2026-10-23 ■0-11) — 원장은 상태만 보고 1차 승인, 넣을 시각은 본부가 확인해 최종 승인.
+  // 종전 저장값 [지점 원장] 한 단계는 검사(hqLast)에 걸려 버려지고 기본값으로 돌아온다
   { key: "ATT_CORRECTION.EMPLOYEE", kind: "ATT_CORRECTION", label: "출퇴근기록 수정", target: "EMPLOYEE", targetLabel: "직원", condition: "지각·누락 수정",
-    maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
+    maxSteps: 2, allowed: ["BRANCH_MANAGER", "HQ"], def: [B, H], hqLast: "출퇴근 시각은 본부가 확인하므로 마지막 단계는 본부여야 합니다." },
   { key: "ATT_MISSED_OUT.EMPLOYEE", kind: "ATT_MISSED_OUT", label: "퇴근 누락", target: "EMPLOYEE", targetLabel: "직원", condition: "전날 퇴근을 안 찍음",
-    maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
+    maxSteps: 2, allowed: ["BRANCH_MANAGER", "HQ"], def: [B, H], hqLast: "출퇴근 시각은 본부가 확인하므로 마지막 단계는 본부여야 합니다." },
   { key: "ATT_MANAGER", kind: "ATT_MANAGER", label: "출퇴근 요청(위 4종)", target: "MANAGER", targetLabel: "원장", condition: "—",
-    maxSteps: 1, allowed: ["HQ"], def: [H], locked: "원장의 출퇴근 요청은 본부가 처리합니다(본부 답변 #5)." },
+    maxSteps: 1, allowed: ["HQ"], def: [H], locked: "원장의 출퇴근 요청은 본부가 처리합니다." },   // 본부 답변 #5
   { key: "ATT_HQ", kind: "ATT_HQ", label: "본부 출퇴근 처리", target: "ALL", targetLabel: "전 직원", condition: "위치 인증 실패 뒤 본부에 요청",
     maxSteps: 1, allowed: ["HQ"], def: [H], locked: "본부에 직접 맡기는 요청이라 본부만 처리합니다." },
   { key: "ATT_DEVICE", kind: "ATT_DEVICE", label: "기기 변경", target: "ALL", targetLabel: "전 직원", condition: "—",
-    maxSteps: 1, allowed: ["HQ"], def: [H], locked: "기기 변경은 본부만 승인합니다(본부 답변 #6)." },
+    maxSteps: 1, allowed: ["HQ"], def: [H], locked: "기기 변경은 본부만 승인합니다." },   // 본부 답변 #6
 ];
 export const ROW_BY_KEY: Record<string, RuleRow> = Object.fromEntries(RULE_ROWS.map((r) => [r.key, r]));
 
@@ -141,7 +144,8 @@ export function validateRow(key: string, steps: RuleStep[]): string | null {
   const row = ROW_BY_KEY[key];
   if (!row) return "없는 규칙입니다.";
   if (row.locked) return row.locked;
-  const e = validateSteps(steps, row.allowed, row.maxSteps, row.target === "MANAGER");
+  const e = validateSteps(steps, row.allowed, row.maxSteps, row.target === "MANAGER")
+    ?? (row.hqLast && steps[steps.length - 1]?.type !== "HQ" ? row.hqLast : null);
   return e ? `[${row.label} · ${row.targetLabel}${row.condition && row.condition !== "—" ? ` · ${row.condition.split(" · ")[0]}` : ""}] ${e}` : null;
 }
 

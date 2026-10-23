@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { requestFeed } from "@/lib/request-feed";
+import { canSeeClockTimes } from "@/lib/attendance-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest) {
   const who = sp.get("who") === "decided" ? "decided" : "mine";
   const { items, limited } = await requestFeed(session.userId, who, {
     from: sp.get("from"), to: sp.get("to"), status: sp.get("status"), kind: sp.get("kind"), q: sp.get("q"),
+    showTimes: await canSeeClockTimes(session.role),   // 출퇴근 요청의 올린 시각은 본부(와 「출퇴근 시각 보기」 켠 원장)만(10/23 검증 C)
   });
   return NextResponse.json({ items, limited });
 }

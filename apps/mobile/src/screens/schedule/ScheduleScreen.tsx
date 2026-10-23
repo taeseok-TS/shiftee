@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LEAVE_LABELS } from "../../services/leaveLabels";
+import { LEAVE_LABELS, isPartialLeave } from "../../services/leaveLabels";
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createSchedule
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { C, fmtDay as fmtDayLong, fmtShort as fmtShortD, fmtTime, isWeekend, stripTimes, wd } from "../../services/fmt";
 
 /* 근무 시간 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10, 웹 신청과 같은 목록) */
 
@@ -38,7 +39,7 @@ function buildCustomTemplate(start: string, end: string) {
   const minutes = eh * 60 + em - (sh * 60 + sm);
   if (minutes <= 0) return null;
   const hours = Math.round((minutes / 60) * 10) / 10;
-  return { id: "custom", name: `직접설정 (${start}~${end})`, startTime: start, endTime: end, hours };
+  return { id: "custom", name: `직접 입력 (${start}–${end})`, startTime: start, endTime: end, hours };
 }
 
 /* 30분 단위 증감 (00:00 ~ 23:30 범위) */
@@ -68,11 +69,12 @@ const TYPE_LABEL: Record<string, { label: string; color: string }> = {
   holiday: { label: "휴일", color: "#ef4444" },
 };
 
-const REQ_STATUS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: "대기중", color: "#f59e0b" },
-  APPROVED: { label: "승인", color: "#10b981" },
-  REJECTED: { label: "반려", color: "#ef4444" },
-  CANCELLED: { label: "취소", color: "#9ca3af" },
+// 대기 = 주황 알약, 승인 = 파랑, 반려 = 빨강(초록 금지, 2026-10-23 ■4)
+const REQ_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  PENDING: { label: "승인 대기", color: "#b45309", bg: "#fffbeb" },
+  APPROVED: { label: "승인", color: "#1e40af", bg: "#dbeafe" },
+  REJECTED: { label: "반려", color: "#be123c", bg: "#fff1f2" },
+  CANCELLED: { label: "취소함", color: "#475569", bg: "#f1f5f9" },
 };
 
 export default function ScheduleScreen() {
@@ -82,7 +84,7 @@ export default function ScheduleScreen() {
   });
   const [shifts, setShifts] = useState<ScheduleEntry[]>([]);
   // 보기 단위(#81)와 기준 날짜 — 주·일 보기는 기준 날짜의 주/그 날, 월 보기는 cursor 의 달
-  const [unit, setUnitState] = useState<CalendarUnit>("month");
+  const [unit, setUnitState] = useState<CalendarUnit>("week");
   const [focusDay, setFocusDay] = useState(() => ymdOf(new Date()));
   useEffect(() => { getMyCalendarUnit().then(setUnitState).catch(() => {}); }, []);
   const setUnit = (u: CalendarUnit) => { setUnitState(u); setMyCalendarUnit(u); };
@@ -121,6 +123,9 @@ export default function ScheduleScreen() {
   const [reqEnd, setReqEnd] = useState("");
   const [reqDays, setReqDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5])); // 기본 월~금
   const [reqSubmitting, setReqSubmitting] = useState(false);
+  // 빠르게 두 번 누르면 두 번 신청되던 것 — state 는 다음 렌더에야 바뀌어서, 누르는 즉시 ref 로 막는다(끝나면 푼다)
+  const reqBusyRef = useRef(false);
+  const delBusyRef = useRef(false);
   // 기존 일정 수정 요청이면 그 날짜(2026-10-07 #49) — 신청 창을 그 날 하루로 열고 kind=UPDATE 로 보낸다
   const [updateDate, setUpdateDate] = useState<string | null>(null);
   // 신청 창 닫기 — 수정 요청이었다면 그 하루·요일이 다음 「일정 신청」에 남지 않게 되돌린다
@@ -161,7 +166,7 @@ export default function ScheduleScreen() {
       const [s, r, l, ev, hdList] = await Promise.all([
         period ? getMySchedulesRange(period.start, period.end) : api.getMySchedules(cursor.year, cursor.month),
         api.getScheduleRequests(),
-        api.getLeaveRequests(cursor.year, cursor.month),
+        api.getLeaveRequests(),   // 내 휴가 전부 — 달을 걸치는 주도 날짜 칸에 연차가 보이게(10/23 앱 6)
         getWorkCalendar(cursor.year, cursor.month).catch(() => []),
         Promise.all(years.map((y) => getHolidays(y).catch(() => [] as Holiday[]))),
       ]);
@@ -175,7 +180,7 @@ export default function ScheduleScreen() {
       const mm = String(cursor.month).padStart(2, "0");
       setHolidays(hd.filter((h) => h.date.startsWith(`${cursor.year}-${mm}`)));
       // 관리자는 전체가 올 수 있어 본인 것만 표시
-      setLeaves(myId ? l.filter((x) => x.userId === myId) : l);
+      setLeaves((myId ? l.filter((x) => x.userId === myId) : l).filter((x) => x.status === "APPROVED" || x.status === "PENDING"));
     } catch (error) {
       console.error("❌ Failed to load schedule:", error);
     } finally {
@@ -219,8 +224,9 @@ export default function ScheduleScreen() {
   const periodTitle = (() => {
     if (!period) return `${cursor.year}년 ${cursor.month}월`;
     if (unit === "day") { const d = dateOf(focusDay); return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`; }
-    const s = dateOf(period.start), e = dateOf(period.end);
-    return `${s.getFullYear()}년 ${s.getMonth() + 1}월 ${s.getDate()}일 - ${s.getMonth() === e.getMonth() ? "" : `${e.getMonth() + 1}월 `}${e.getDate()}일`;
+    // 주 — 「10/26 (월) – 11/1 (일)」, 올해가 아니면 앞에 연도(10/23 시안 S1-3)
+    const s = dateOf(period.start);
+    return `${s.getFullYear() !== new Date().getFullYear() ? `${s.getFullYear()}년 ` : ""}${fmtShortD(period.start)} – ${fmtShortD(period.end)}`;
   })();
   const holidayName = (ymd: string) => holidaysAll.find((h) => String(h.date).slice(0, 10) === ymd)?.name;
 
@@ -336,6 +342,8 @@ export default function ScheduleScreen() {
       Alert.alert("알림", "한 번에 최대 2개월까지 신청할 수 있습니다.");
       return;
     }
+    if (reqBusyRef.current) return;
+    reqBusyRef.current = true;
     setReqSubmitting(true);
     try {
       const { warnings } = await createScheduleRequest({
@@ -354,11 +362,12 @@ export default function ScheduleScreen() {
       setReqEnd("");
       setReqDays(new Set([1, 2, 3, 4, 5]));
       setUpdateDate(null);
-      Alert.alert("완료", `근무일정 신청이 접수되었습니다. 결재 승인 후 일정에 반영됩니다.${warnings.length ? `\n\n⚠ ${warnings.join("\n⚠ ")}` : ""}`);
+      Alert.alert("완료", `근무 변경 요청을 보냈습니다. 승인되면 일정에 반영됩니다.${warnings.length ? `\n\n${warnings.join("\n")}` : ""}`);
       load();
     } catch (e: any) {
       Alert.alert("신청 실패", e?.response?.data?.error || "신청 중 오류가 발생했습니다.");
     } finally {
+      reqBusyRef.current = false;
       setReqSubmitting(false);
     }
   };
@@ -367,7 +376,7 @@ export default function ScheduleScreen() {
   const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
   const onShiftPress = (s: ScheduleEntry) => {
     const date = String(s.date).slice(0, 10);
-    Alert.alert(`${fmtDay(s.date)} 근무일정`, `${s.startTime} ~ ${s.endTime}\n바꾸거나 지우려면 요청을 보내 주세요. 결재 승인 후 반영됩니다.`, [
+    Alert.alert(`${fmtDayLong(String(s.date).slice(0, 10))} 근무`, `${fmtTime(s.startTime, s.endTime)}\n바꾸거나 빼려면 요청을 보내 주세요. 승인되면 반영됩니다.`, [
       { text: "닫기", style: "cancel" },
       {
         text: "수정 요청",
@@ -381,9 +390,11 @@ export default function ScheduleScreen() {
         },
       },
       {
-        text: "삭제 요청",
+        text: "빼기 요청",
         style: "destructive",
         onPress: async () => {
+          if (delBusyRef.current) return;   // 두 번 눌러도 빼기 요청은 한 번만
+          delBusyRef.current = true;
           try {
             await createScheduleRequest({
               kind: "DELETE",
@@ -394,10 +405,12 @@ export default function ScheduleScreen() {
               scheduleData: [{ date, startTime: s.startTime, endTime: s.endTime }],
               totalHours: 0,
             });
-            Alert.alert("완료", "삭제 요청을 보냈습니다. 결재 승인 후 일정에서 빠집니다.");
+            Alert.alert("완료", "빼기 요청을 보냈습니다. 승인되면 일정에서 빠집니다.");
             load();
           } catch (e: any) {
             Alert.alert("요청 실패", e?.response?.data?.error || "요청 중 오류가 발생했습니다.");
+          } finally {
+            delBusyRef.current = false;
           }
         },
       },
@@ -414,6 +427,21 @@ export default function ScheduleScreen() {
     const time = ev.startTime ? (ev.endTime ? `${ev.startTime}~${ev.endTime}` : ev.startTime) : "";
     return time ? `${range} ${time}` : range;
   };
+
+  // 날짜 줄 — 주 = 월~일 7줄, 일 = 그날, 월 = 근무 · 휴가 · 공휴일이 있는 날만
+  const listDays: string[] = (() => {
+    if (unit === "week" && period) return weekDays(period.start);
+    if (unit === "day") return [focusDay];
+    const mm = `${cursor.year}-${String(cursor.month).padStart(2, "0")}`;
+    const last = new Date(cursor.year, cursor.month, 0).getDate();
+    return Array.from({ length: last }, (_, i) => `${mm}-${String(i + 1).padStart(2, "0")}`).filter((d) =>
+      shifts.some((x) => String(x.date).slice(0, 10) === d) || leaves.some((l) => String(l.startDate).slice(0, 10) <= d && d <= String(l.endDate).slice(0, 10)) || !!holidayName(d));
+  })();
+  const rangeStart = listDays[0] ?? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-01`;
+  const rangeEnd = unit === "month" ? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-31` : listDays[listDays.length - 1] ?? rangeStart;
+  const listEvents = (unit === "month" ? events : events.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
+    .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+  const fmtRangeLong = (a: string, b: string) => (a.slice(0, 10) === b.slice(0, 10) ? fmtDayLong(a.slice(0, 10)) : `${fmtDayLong(a.slice(0, 10))} ~ ${fmtDayLong(b.slice(0, 10))}`);
 
   const viewBar = staff ? (
     <View style={styles.viewBar}>
@@ -435,8 +463,9 @@ export default function ScheduleScreen() {
   }
 
   return (
+    <View style={styles.container}>
     <ScrollView
-      style={styles.container}
+      style={{ flex: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       {viewBar}
@@ -468,182 +497,97 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <>
-          {/* 주 보기: 7일 띠 — 누르면 그 날(일 보기) */}
-          {unit === "week" && period && (
-            <View style={styles.weekStrip}>
-              {weekDays(period.start).map((d) => {
-                const dd = dateOf(d);
-                const dow = dd.getDay();
-                const my = shifts.filter((s) => String(s.date).slice(0, 10) === d);
-                const work = my.find((s) => s.type === "work");
-                const hol = holidayName(d);
-                const isToday = d === todayStr;
-                const red = dow === 0 || !!hol;
+          {/* 날짜 줄 — 날짜마다 근무 시간 · 연차 · 주말 근무(10/23 앱 6, 시안 S1-3). 주 보기는 월~일 7줄 */}
+          <View style={styles.dayList}>
+            {listDays.length === 0 ? (
+              <Text style={[styles.empty, { paddingHorizontal: 14 }]}>{unit === "month" ? "이 달에 들어 있는 근무가 없습니다." : "등록된 일정이 없습니다."}</Text>
+            ) : listDays.map((d, i) => {
+              const my = shifts.filter((x) => String(x.date).slice(0, 10) === d);
+              const work = my.find((x) => x.type === "work");
+              const lv = leaves.find((l) => String(l.startDate).slice(0, 10) <= d && d <= String(l.endDate).slice(0, 10));
+              const hol = holidayName(d);
+              const isTodayRow = d === todayStr;
+              const we = isWeekend(d);
+              const editable = !!work && d >= todayStr;
+              const lvApproved = !!lv && lv.status === "APPROVED";
+              const fullLeave = lvApproved && !(work && isPartialLeave(lv!.type));   // 반나절 · 반반차는 유형 단위로(BranchDayView 와 같은 함수 — 코드 글자로 추측하지 않는다)
+              const mid = work && !fullLeave ? fmtTime(work.startTime, work.endTime).replace("–", " – ") : lv ? "—" : hol ? hol : my.length ? (TYPE_LABEL[my[0].type]?.label ?? "쉬는 날") : "쉬는 날";
+              return (
+                <TouchableOpacity key={d} style={[styles.dayRow2, i > 0 && styles.dayLine, isTodayRow && styles.dayToday]} disabled={!editable} onPress={() => work && onShiftPress(work)} activeOpacity={0.6}>
+                  <View style={styles.dy}>
+                    <Text style={[styles.dyDow, we && { color: C.weekend }]}>{wd(d)}</Text>
+                    <Text style={styles.dyNum}>{Number(d.slice(5, 7))}/{Number(d.slice(8, 10))}</Text>
+                  </View>
+                  <Text style={[styles.dayMid, !work && styles.dayMidOff]} numberOfLines={1}>{mid}</Text>
+                  <View style={styles.dayTags}>
+                    {isTodayRow && <View style={[styles.tag, { backgroundColor: C.indBg }]}><Text style={[styles.tagText, { color: C.indInk }]}>오늘</Text></View>}
+                    {!!lv && (
+                      lvApproved
+                        ? <View style={[styles.tag, { backgroundColor: C.blueBg }]}><Text style={[styles.tagText, { color: C.blueInk }]}>{LEAVE_TYPE_LABEL[lv.type] || "휴가"}</Text></View>
+                        : <View style={[styles.tag, { backgroundColor: C.ambBg }]}><Text style={[styles.tagText, { color: C.amb }]}>{LEAVE_TYPE_LABEL[lv.type] || "휴가"} 승인 대기</Text></View>
+                    )}
+                    {!!work && we && !fullLeave && <View style={[styles.tag, { backgroundColor: C.vioBg }]}><Text style={[styles.tagText, { color: C.vio }]}>주말 근무</Text></View>}
+                    {!!hol && !!work && <View style={[styles.tag, { backgroundColor: C.grayBg }]}><Text style={[styles.tagText, { color: C.gray }]}>{hol}</Text></View>}
+                  </View>
+                  {editable && <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {listDays.some((d) => d >= todayStr && shifts.some((x) => x.type === "work" && String(x.date).slice(0, 10) === d)) && (
+            <Text style={styles.hint}>근무 줄을 누르면 시간 변경 · 빼기를 요청할 수 있습니다.</Text>
+          )}
+
+          {/* 근무 변경 요청 — 승인 대기 중인 것만(지난 요청은 더보기 › 내 요청) */}
+          {requests.filter((r) => r.status === "PENDING").length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>근무 변경 요청</Text>
+              {requests.filter((r) => r.status === "PENDING").map((r) => {
+                const st = REQ_STATUS[r.status] || REQ_STATUS.PENDING;
                 return (
-                  <TouchableOpacity key={d} style={[styles.weekDay, isToday && styles.weekDayToday]} onPress={() => { setLoading(true); setFocusDay(d); setUnitState("day"); }} activeOpacity={0.7}>
-                    <Text style={[styles.weekDow, red && { color: "#ef4444" }, dow === 6 && { color: "#2563eb" }]}>{WEEKDAYS[dow]}</Text>
-                    <Text style={[styles.weekNum, isToday && styles.weekNumToday]}>{dd.getDate()}</Text>
-                    <Text style={styles.weekShift} numberOfLines={2}>
-                      {work ? `${work.startTime}\n${work.endTime}` : my.length ? (TYPE_LABEL[my[0].type]?.label ?? "-") : hol ? "공휴일" : "-"}
-                    </Text>
-                  </TouchableOpacity>
+                  <View key={r.id} style={styles.reqItem}>
+                    <View style={styles.reqHeader}>
+                      <Text style={styles.reqTitle} numberOfLines={1}>{stripTimes(r.templateName) || "근무 변경"}</Text>
+                      <View style={[styles.badge, { backgroundColor: st.bg }]}>
+                        <Text style={[styles.badgeText, { color: st.color }]}>{st.label}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.reqMeta}>{fmtRangeLong(String(r.startDate), String(r.endDate))}</Text>
+                    {/* 서버 판정(canCancel) — 대기 중 + 지난 신청 아님(9/11 검증 D1). 반려와 다르다: 취소는 신청 자체를 거둔다 */}
+                    {(r as { canCancel?: boolean }).canCancel && (
+                      <TouchableOpacity style={styles.reqCancelBtn} disabled={cancelingId === r.id} onPress={() => cancelMyRequest(r.id)}>
+                        {cancelingId === r.id ? <ActivityIndicator size="small" color="#64748b" /> : <Text style={styles.reqCancelBtnText}>요청 취소</Text>}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 );
               })}
             </View>
           )}
 
-          {/* 내 근무일정 */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{unit === "day" ? "이 날 근무일정" : unit === "week" ? "이 주 근무일정" : "내 근무일정"}</Text>
-              <TouchableOpacity style={styles.addReqBtn} onPress={() => setReqOpen(true)}>
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.addReqText}>일정 신청</Text>
-              </TouchableOpacity>
-            </View>
-            {unit === "day" && holidayName(focusDay) && (
-              <Text style={[styles.empty, { color: "#dc2626" }]}>🎌 {holidayName(focusDay)}</Text>
-            )}
-            {shifts.length === 0 ? (
-              <Text style={styles.empty}>{unit === "day" ? "이 날 등록된 일정이 없습니다." : unit === "week" ? "이 주에 등록된 일정이 없습니다." : "이 달에 등록된 일정이 없습니다."}</Text>
-            ) : (
-              shifts.map((s) => {
-                const t = TYPE_LABEL[s.type] || TYPE_LABEL.work;
-                const editable = s.type === "work" && String(s.date).slice(0, 10) >= todayStr;
-                return (
-                  <TouchableOpacity key={s.id} style={styles.shiftItem} disabled={!editable} onPress={() => onShiftPress(s)} activeOpacity={0.6}>
-                    <Text style={styles.shiftDate}>{fmtDay(s.date)}</Text>
-                    <View style={styles.shiftMid}>
-                      {s.type === "work" ? (
-                        <Text style={styles.shiftTime}>
-                          {s.startTime} ~ {s.endTime}
-                        </Text>
-                      ) : (
-                        <Text style={styles.shiftTime}>-</Text>
-                      )}
-                    </View>
-                    <View style={[styles.badge, { backgroundColor: t.color }]}>
-                      <Text style={styles.badgeText}>{t.label}</Text>
-                    </View>
-                    {editable && <Ionicons name="chevron-forward" size={16} color="#9ca3af" style={{ marginLeft: 4 }} />}
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            {shifts.some((s) => s.type === "work" && String(s.date).slice(0, 10) >= todayStr) && (
-              <Text style={styles.empty}>일정을 누르면 수정·삭제를 요청할 수 있습니다.</Text>
-            )}
-          </View>
-
-          {/* 휴가 신청 내역 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>휴가 신청 내역</Text>
-            {leaves.length === 0 ? (
-              <Text style={styles.empty}>이 달 휴가 신청이 없습니다.</Text>
-            ) : (
-              leaves.map((l) => {
-                const st = REQ_STATUS[l.status] || REQ_STATUS.PENDING;
-                return (
-                  <View key={l.id} style={styles.reqItem}>
-                    <View style={styles.reqHeader}>
-                      <Text style={styles.reqTitle} numberOfLines={1}>
-                        {LEAVE_TYPE_LABEL[l.type] || l.type} · {l.days}일
-                      </Text>
-                      <View style={[styles.badge, { backgroundColor: st.color }]}>
-                        <Text style={styles.badgeText}>{st.label}</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.reqMeta}>
-                      {String(l.startDate).slice(0, 10)} ~ {String(l.endDate).slice(0, 10)}
-                      {l.reason ? ` · ${l.reason}` : ""}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-          </View>
-
-          {/* 일정 변경 신청 내역 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>일정 변경 신청 내역</Text>
-            {requests.length === 0 ? (
-              <Text style={styles.empty}>신청 내역이 없습니다.</Text>
-            ) : (
-              requests.map((r) => {
-                const st = REQ_STATUS[r.status] || REQ_STATUS.PENDING;
-                return (
-                  <View key={r.id} style={styles.reqItem}>
-                    <View style={styles.reqHeader}>
-                      <Text style={styles.reqTitle} numberOfLines={1}>
-                        {r.templateName || "근무일정 신청"}
-                      </Text>
-                      <View style={[styles.badge, { backgroundColor: st.color }]}>
-                        <Text style={styles.badgeText}>{st.label}</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.reqMeta}>
-                      {r.startDate} ~ {r.endDate} · {r.totalHours}시간
-                    </Text>
-                    {/* 대기 중인 것만 거둘 수 있다 — 승인된 건은 이미 근무일정에 반영돼 있다.
-                        반려와 다르다: 반려는 결재 결과로 기록에 남고, 취소는 신청 자체를 거둔다. */}
-                    {/* 서버 판정(canCancel) — 대기 중 + 지난 신청 아님(9/11 검증 D1) */}
-                    {(r as { canCancel?: boolean }).canCancel && (
-                      <TouchableOpacity
-                        style={styles.reqCancelBtn}
-                        disabled={cancelingId === r.id}
-                        onPress={() => cancelMyRequest(r.id)}
-                      >
-                        {cancelingId === r.id
-                          ? <ActivityIndicator size="small" color="#6b7280" />
-                          : <Text style={styles.reqCancelBtnText}>신청 취소</Text>}
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })
-            )}
-            <Text style={styles.hint}>
-              ℹ️ 위의 [일정 신청] 버튼으로 새 근무일정을 신청할 수 있습니다.
-            </Text>
-          </View>
-
-          {/* 이번 달 공휴일 (관리자 > 공휴일 관리 데이터) */}
-          {holidays.length > 0 && (
+          {/* 지점 일정 — 한 줄 묶음(회사 · 지점 공통 일정, 큐브티워크 캘린더) */}
+          {listEvents.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>이번 달 공휴일</Text>
-              {holidays.map((h) => (
-                <View key={h.id} style={styles.eventItem}>
-                  <View style={[styles.eventDot, { backgroundColor: "#ef4444" }]} />
-                  <Text style={[styles.eventTitle, { color: "#dc2626", flex: 1 }]} numberOfLines={1}>{h.name}</Text>
-                  <Text style={styles.eventDate}>{fmtDay(h.date)}</Text>
-                </View>
-              ))}
+              <Text style={styles.sectionTitle}>지점 일정</Text>
+              <View style={styles.dayList}>
+                {listEvents.map((ev, i) => {
+                  const sd = String(ev.startDate).slice(0, 10);
+                  return (
+                    <View key={ev.id} style={[styles.dayRow2, i > 0 && styles.dayLine]}>
+                      <View style={styles.dy}>
+                        <Text style={styles.dyDow}>{Number(sd.slice(5, 7))}/{Number(sd.slice(8, 10))}</Text>
+                        <Text style={[styles.dyNum, isWeekend(sd) && { color: C.weekend }]}>{wd(sd)}</Text>
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.eventTitle} numberOfLines={1}>{ev.title}</Text>
+                        <Text style={styles.eventSub} numberOfLines={1}>{[fmtEventRange(ev), ev.managersOnly ? "원장 전용" : ev.branch || "전사"].filter(Boolean).join(" · ")}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
           )}
-
-          {/* 이번 달 전체 일정 (큐브티워크 캘린더 — 회사·지점 공통) */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>이번 달 전체 일정</Text>
-            {events.length === 0 ? (
-              <Text style={styles.empty}>등록된 일정이 없습니다.</Text>
-            ) : (
-              events.map((ev) => (
-                <View key={ev.id} style={styles.eventItem}>
-                  <View style={[styles.eventDot, { backgroundColor: ev.color || "#6366f1" }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.eventTitle} numberOfLines={1}>{ev.title}</Text>
-                    {!!ev.description && <Text style={styles.eventDesc} numberOfLines={2}>{ev.description}</Text>}
-                  </View>
-                  <View style={styles.eventRight}>
-                    <Text style={styles.eventDate}>{fmtEventRange(ev)}</Text>
-                    <Text style={[styles.eventBranch, ev.managersOnly && styles.eventManagers]}>
-                      {ev.managersOnly ? "👑 원장" : ev.branch || "전사"}
-                    </Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
         </>
       )}
 
@@ -651,7 +595,7 @@ export default function ScheduleScreen() {
       <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={closeReq}>
         <KeyboardAvoidingView style={styles.reqBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.reqCard}>
-            <Text style={styles.reqTitle2}>{updateDate ? `근무일정 수정 요청 (${updateDate})` : "근무일정 신청"}</Text>
+            <Text style={styles.reqTitle2}>{updateDate ? `근무 시간 변경 요청 · ${fmtDayLong(updateDate)}` : "근무 변경 요청"}</Text>
             <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
               <Text style={styles.reqLabel}>근무 시간</Text>
               <View style={styles.tmplWrap}>
@@ -668,7 +612,7 @@ export default function ScheduleScreen() {
                   style={[styles.tmplChip, customOn && styles.tmplChipOn]}
                   onPress={() => { setCustomOn(true); setReqTemplate(buildCustomTemplate(customStart, customEnd)); }}
                 >
-                  <Text style={[styles.tmplChipText, customOn && styles.tmplChipTextOn]}>⚙️ 직접 설정</Text>
+                  <Text style={[styles.tmplChipText, customOn && styles.tmplChipTextOn]}>직접 입력</Text>
                 </TouchableOpacity>
               </View>
 
@@ -729,7 +673,7 @@ export default function ScheduleScreen() {
                       })
                     }
                   >
-                    <Text style={[styles.dayChipText, i === 0 && { color: "#ef4444" }, i === 6 && { color: "#2563eb" }, reqDays.has(i) && styles.dayChipTextOn]}>{d}</Text>
+                    <Text style={[styles.dayChipText, (i === 0 || i === 6) && { color: C.weekend }, reqDays.has(i) && styles.dayChipTextOn]}>{d}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -742,16 +686,16 @@ export default function ScheduleScreen() {
                   </Text>
                   {reqExcludedHolidays.length > 0 && (
                     <Text style={styles.reqHolidayNote}>
-                      🎌 공휴일 {reqExcludedHolidays.length}일 제외 ({reqExcludedHolidays.map((d) => reqHolidays[d]).join(", ")})
+                      공휴일 {reqExcludedHolidays.length}일 빠짐 ({reqExcludedHolidays.map((d) => reqHolidays[d]).join(", ")})
                     </Text>
                   )}
                   {reqHolidayState === "error" && (
                     <Text style={styles.reqWeekendNote}>
-                      ⚠️ 공휴일 정보를 불러오지 못했습니다. 연휴가 근무일로 포함될 수 있으니 날짜를 확인해주세요.
+                      공휴일 정보를 불러오지 못했습니다. 연휴가 근무일로 포함될 수 있으니 날짜를 확인해주세요.
                     </Text>
                   )}
                   {reqHasWeekend && (
-                    <Text style={styles.reqWeekendNote}>⚠️ 주말 근무 포함 — 승인 후 주말 출근이 가능해집니다.</Text>
+                    <Text style={styles.reqWeekendNote}>주말 근무 포함 — 승인되면 주말 출근을 찍을 수 있습니다.</Text>
                   )}
                 </View>
               )}
@@ -766,20 +710,44 @@ export default function ScheduleScreen() {
                 disabled={!reqTemplate || reqDates.length === 0 || reqSubmitting}
                 onPress={submitRequest}
               >
-                {reqSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reqSubmitText}>신청</Text>}
+                {reqSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reqSubmitText}>요청 보내기</Text>}
               </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
+    {/* 아래 고정 띠 — 근무 변경 요청(「일정 신청」에서 이름을 바꿨다, 10/23 앱 6) */}
+    <View style={styles.dock}>
+      <TouchableOpacity style={styles.dockBtn} onPress={() => setReqOpen(true)} accessibilityLabel="근무 변경 요청">
+        <Text style={styles.dockBtnText}>근무 변경 요청</Text>
+      </TouchableOpacity>
+    </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f3f4f6" },
+  container: { flex: 1, backgroundColor: C.bg },
+  // 날짜 줄(10/23 앱 6)
+  dayList: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: C.line, overflow: "hidden", marginHorizontal: 14, marginTop: 12 },
+  dayRow2: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 10, minHeight: 56 },
+  dayLine: { borderTopWidth: 1, borderTopColor: "#f1f5f9" },
+  dayToday: { backgroundColor: "#f7f8ff" },
+  dy: { width: 44 },
+  dyDow: { fontSize: 14, fontWeight: "700", color: "#334155" },
+  dyNum: { fontSize: 12.5, color: C.muted, marginTop: 1 },
+  dayMid: { flex: 1, fontSize: 15, fontWeight: "700", color: C.ink },
+  dayMidOff: { fontWeight: "500", color: C.muted },
+  dayTags: { flexDirection: "row", gap: 4, flexShrink: 0 },
+  tag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  tagText: { fontSize: 12.5, fontWeight: "700" },
+  eventSub: { fontSize: 13, color: C.sub, marginTop: 2 },
+  dock: { backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: C.line, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 },
+  dockBtn: { height: 46, borderRadius: 14, borderWidth: 1.5, borderColor: C.indBd, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  dockBtnText: { fontSize: 15, fontWeight: "800", color: C.ind },
   viewBar: { flexDirection: "row", margin: 12, marginBottom: 0, backgroundColor: "#e5e7eb", borderRadius: 10, padding: 3 },
-  viewTab: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 8 },
+  viewTab: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44, borderRadius: 8 },
   viewTabOn: { backgroundColor: "#fff" },
   viewTabText: { fontSize: 14, color: "#6b7280", fontWeight: "500" },
   viewTabTextOn: { color: "#4f46e5", fontWeight: "700" },
@@ -789,15 +757,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#fff",
-    paddingHorizontal: 24,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
-  monthBtn: { padding: 4 },
+  monthBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   monthText: { fontSize: 17, fontWeight: "bold", color: "#111827" },
-  todayHint: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
+  todayHint: { fontSize: 12, color: C.muted, marginTop: 2 },
   // 보기 단위(#81)
   unitBar: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: "#fff", paddingBottom: 10 },
-  unitChip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb" },
+  unitChip: { minWidth: 56, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb" },
   unitChipOn: { backgroundColor: "#111827", borderColor: "#111827" },
   unitChipText: { fontSize: 13, color: "#374151", fontWeight: "600" },
   unitChipTextOn: { color: "#fff" },
@@ -811,7 +779,7 @@ const styles = StyleSheet.create({
   section: { padding: 16, paddingTop: 12 },
   sectionTitle: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 10 },
   empty: { color: "#9ca3af", fontSize: 14, paddingVertical: 12 },
-  hint: { color: "#9ca3af", fontSize: 12, marginTop: 10, lineHeight: 18 },
+  hint: { color: C.muted, fontSize: 13, marginTop: 8, marginHorizontal: 16, lineHeight: 18 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   addReqBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#2563eb", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   addReqText: { color: "#fff", fontSize: 13, fontWeight: "600" },
@@ -831,35 +799,35 @@ const styles = StyleSheet.create({
   reqLabel: { fontSize: 13, fontWeight: "600", color: "#6b7280", marginTop: 10, marginBottom: 6 },
   tmplWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tmplChip: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#f9fafb" },
-  tmplChipOn: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
+  tmplChipOn: { borderColor: C.ind, backgroundColor: C.indBg },
   tmplChipText: { fontSize: 13, color: "#374151" },
-  tmplChipTextOn: { color: "#2563eb", fontWeight: "700" },
+  tmplChipTextOn: { color: C.ind, fontWeight: "700" },
   // 시간 직접 설정 박스
-  customBox: { borderWidth: 1, borderColor: "#2563eb", borderRadius: 10, padding: 12, marginTop: 8, gap: 8, backgroundColor: "#eff6ff" },
+  customBox: { borderWidth: 1, borderColor: C.indBd, borderRadius: 10, padding: 12, marginTop: 8, gap: 8, backgroundColor: C.indBg },
   customRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   customLabel: { fontSize: 13, color: "#6b7280", width: 30 },
   customValue: { fontSize: 17, fontWeight: "700", color: "#111827", width: 60, textAlign: "center" },
   stepBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#d1d5db", alignItems: "center", justifyContent: "center" },
   stepBtnText: { fontSize: 18, color: "#374151", lineHeight: 22 },
-  customHours: { fontSize: 13, fontWeight: "600", color: "#2563eb" },
+  customHours: { fontSize: 13, fontWeight: "600", color: C.ind },
   dateRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   dateTilde: { fontSize: 15, color: "#9ca3af" },
   dayRow: { flexDirection: "row", gap: 6 },
   dayChip: { flex: 1, height: 38, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb", alignItems: "center", justifyContent: "center", backgroundColor: "#f9fafb" },
-  dayChipOn: { borderColor: "#2563eb", backgroundColor: "#2563eb" },
+  dayChipOn: { borderColor: C.ind, backgroundColor: C.ind },
   dayChipText: { fontSize: 14, color: "#374151", fontWeight: "600" },
   dayChipTextOn: { color: "#fff" },
-  reqSummary: { marginTop: 14, backgroundColor: "#f0f9ff", borderRadius: 10, padding: 12 },
-  reqSummaryText: { fontSize: 13, color: "#0369a1", fontWeight: "600" },
+  reqSummary: { marginTop: 14, backgroundColor: C.indBg, borderRadius: 10, padding: 12 },
+  reqSummaryText: { fontSize: 13.5, color: C.indInk, fontWeight: "700" },
   reqWeekendNote: { fontSize: 12, color: "#b45309", marginTop: 4 },
-  reqHolidayNote: { fontSize: 12, color: "#dc2626", marginTop: 4 },
+  reqHolidayNote: { fontSize: 12.5, color: C.sub, marginTop: 4 },
   reqBtns: { flexDirection: "row", gap: 8, marginTop: 14 },
   reqCancel: { flex: 1, height: 48, borderRadius: 10, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
-  reqCancelBtn: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 12,
+  reqCancelBtn: { alignSelf: "flex-start", marginTop: 8, minHeight: 40, justifyContent: "center", paddingHorizontal: 12,
                   borderRadius: 6, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#fff" },
   reqCancelBtnText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
   reqCancelText: { fontSize: 15, color: "#374151", fontWeight: "600" },
-  reqSubmit: { flex: 1, height: 48, borderRadius: 10, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
+  reqSubmit: { flex: 1, height: 48, borderRadius: 12, backgroundColor: C.ind, alignItems: "center", justifyContent: "center" },
   reqSubmitText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   shiftItem: {
     flexDirection: "row",

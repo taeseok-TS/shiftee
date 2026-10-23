@@ -71,24 +71,24 @@ export default function ScheduleTemplatesPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-gray-900 mr-2">근무일정 템플릿</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mr-2">근무 시간 종류</h1>
         <Input className="w-56" placeholder="이름·코드·지점 검색" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="text-sm text-gray-600 flex items-center gap-1">
           <input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} />꺼진 것도 보기
         </label>
         <div className="flex-1" />
-        <Button className="gap-1" onClick={() => setForm({ ...EMPTY })}><Plus size={14} />템플릿 추가</Button>
+        <Button className="gap-1 bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={() => setForm({ ...EMPTY })}><Plus size={14} />종류 추가</Button>
       </div>
       <p className="text-sm text-gray-500">지점을 비우면 전사 공통, 고르면 그 지점 전용입니다. 직원 근무일정 신청·일정 등록·일괄 생성에서 이 목록을 고릅니다. 지우지 않고 끕니다(이미 만든 일정은 그대로).</p>
 
       <Card><CardContent className="pt-4 overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">
           <thead className="text-left text-gray-500 border-b">
-            <tr><th className="py-2">템플릿</th><th>시간</th><th>근무</th><th>지점</th><th>직무</th><th>메모</th><th className="text-right">관리</th></tr>
+            <tr><th className="py-2">이름</th><th>시간</th><th>근무</th><th>지점</th><th>직무</th><th>메모</th><th className="text-right">관리</th></tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-400">템플릿이 없습니다.</td></tr>
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400">근무 시간 종류가 없습니다.</td></tr>
             ) : shown.map((t) => (
               <tr key={t.id} className={`border-b last:border-0 ${t.isActive ? "" : "opacity-50"}`}>
                 <td className="py-2">
@@ -118,7 +118,7 @@ export default function ScheduleTemplatesPage() {
 
       <Dialog open={!!form} onOpenChange={(o) => { if (!o) setForm(null); }}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{form?.id ? "템플릿 고치기" : "템플릿 추가"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{form?.id ? "근무 시간 종류 고치기" : "근무 시간 종류 추가"}</DialogTitle></DialogHeader>
           {form && (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-2">

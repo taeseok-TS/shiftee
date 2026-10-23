@@ -7,32 +7,37 @@ import { Lock, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { auditLabel, type AuditScope } from "@/lib/audit-labels";
+import { auditLabel, AUDIT_KIND_OPTIONS, type AuditKind, type AuditScope } from "@/lib/audit-labels";
 
 type Row = { id: string; actorName: string; action: string; targetType: string | null; targetName: string | null; detail: string | null; createdAt: string };
 
+// 좁은 칸 날짜 「10/23 (금) 14:05」, 올해가 아니면 연도도(2026-10-23 ■4)
+const DOW = ["일", "월", "화", "수", "목", "금", "토"];
 const fmt = (s: string) => {
   const d = new Date(s);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const y = d.getFullYear() !== new Date().getFullYear() ? `${d.getFullYear()}/` : "";
+  return `${y}${d.getMonth() + 1}/${d.getDate()} (${DOW[d.getDay()]}) ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
 export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
   const [scope, setScope] = useState<AuditScope>("work");
   const [q, setQ] = useState("");
   const [applied, setApplied] = useState("");   // 실제로 서버에 보낸 검색어
+  const [kind, setKind] = useState<AuditKind>("hr");   // 종류(업무 변경 탭) — 기본 「근태 · 인사 전체」(큐브티워크 기록 빼고)
   const [rows, setRows] = useState<Row[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);   // 늦게 온 응답이 새 목록을 덮지 않게
 
-  const load = useCallback(async (sc: AuditScope, query: string, before?: string) => {
+  const load = useCallback(async (sc: AuditScope, query: string, k: AuditKind, before?: string) => {
     const my = ++seq.current;
     setLoading(true); setError(null);
     if (!before) { setRows([]); setHasMore(false); }   // 탭·검색이 바뀌면 이전 표가 새 제목 아래 잠깐 보이지 않게 비운다
     try {
       const u = new URLSearchParams({ scope: sc });
       if (query) u.set("q", query);
+      if (sc === "work") u.set("kind", k);
       if (before) u.set("before", before);
       const res = await fetch(`/api/admin/audit?${u.toString()}`);
       const d = await res.json().catch(() => ({}));
@@ -54,8 +59,8 @@ export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
   useEffect(() => {
     // 탭·검색어가 바뀌면 처음부터 다시 — load 가 바로 로딩 표시를 켠다(사이드바와 같은 예외)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load(scope, applied);
-  }, [scope, applied, load]);
+    void load(scope, applied, kind);
+  }, [scope, applied, kind, load]);
 
   const search = () => setApplied(q.trim());
   const last = rows[rows.length - 1];
@@ -74,8 +79,8 @@ export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
       )}
       <p className="text-xs text-gray-500">
         {scope === "work"
-          ? "직원·휴가·근무일정·출퇴근·계약·공휴일·지점 등 운영 중 관리자가 바꾼 기록입니다. 모든 관리자가 봅니다."
-          : "비밀번호 재설정·권한 설정·API 키·포털 연동·출퇴근 정책 같은 시스템·보안 기록입니다. 최고관리자만 봅니다. 로그인 실패 기록은 환경설정에 있습니다."}
+          ? "직원 · 휴가 · 근무일정 · 출퇴근 · 계약 · 공휴일 · 지점 등 운영 중 관리자가 바꾼 기록입니다. 모든 관리자가 봅니다. 큐브티워크(자료 제출 · 이모티콘) 기록은 「종류」에서 골라 봅니다."
+          : "비밀번호 재설정 · 권한 설정 · 외부 연동 키 · 포털 연동 · 출퇴근 정책 같은 시스템 · 보안 기록입니다. 최고 관리자만 봅니다. 로그인 실패 기록은 환경설정에 있습니다."}
       </p>
 
       <Card>
@@ -84,7 +89,13 @@ export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
             <CardTitle className="text-base">{scope === "work" ? "업무 변경 기록" : "시스템·보안 기록"}
               <span className="ml-2 text-sm font-normal text-gray-500">· 최근 것부터 100건씩</span>
             </CardTitle>
-            <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); search(); }}>
+            <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); search(); }}>
+              {scope === "work" && (
+                <select value={kind} onChange={(e) => setKind(e.target.value as AuditKind)} aria-label="기록 종류"
+                  className="h-9 rounded-md border bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                  {AUDIT_KIND_OPTIONS.map((o) => <option key={o.key} value={o.key}>종류: {o.label}</option>)}
+                </select>
+              )}
               <div className="relative">
                 <Search size={14} className="absolute left-2 top-2.5 text-gray-400" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·내용 검색" maxLength={60}
@@ -107,8 +118,8 @@ export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-xs text-gray-500 bg-gray-50 text-left">
-                    <th className="px-4 py-2 font-medium w-36">시간</th>
-                    <th className="px-4 py-2 font-medium">행위자</th>
+                    <th className="px-4 py-2 font-medium w-36">날짜</th>
+                    <th className="px-4 py-2 font-medium">바꾼 사람</th>
                     <th className="px-4 py-2 font-medium">작업</th>
                     <th className="px-4 py-2 font-medium">대상</th>
                     <th className="px-4 py-2 font-medium">내용</th>
@@ -132,7 +143,7 @@ export default function AuditLogView({ isSuper }: { isSuper: boolean }) {
           )}
           {rows.length > 0 && (hasMore || loading) && (
             <div className="p-3 border-t text-center">
-              <Button type="button" size="sm" variant="outline" disabled={loading || !last} onClick={() => last && void load(scope, applied, `${last.createdAt}|${last.id}`)}>
+              <Button type="button" size="sm" variant="outline" disabled={loading || !last} onClick={() => last && void load(scope, applied, kind, `${last.createdAt}|${last.id}`)}>
                 {loading ? "불러오는 중…" : "더 보기"}
               </Button>
             </div>

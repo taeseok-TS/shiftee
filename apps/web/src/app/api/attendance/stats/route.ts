@@ -17,6 +17,8 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayYmd, getHolidaySet } from "@/lib/holidays";
 import { countsCalendarDays } from "@/lib/leave-catalog";
 import { pastDayStatus } from "@/lib/attendance-day";
+import { showTestRows, testAccountWhere } from "@/lib/employee-scope";
+import { kstHhmm } from "@/lib/missed-out";
 
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 
@@ -72,7 +74,10 @@ export async function GET(request: NextRequest) {
   const dateParam = searchParams.get("date");
   const baseDate = dateParam ? new Date(dateParam) : new Date();
 
-  // 접근 범위 결정
+  // 접근 범위 결정 — 여러 사람(지점 · 담당 지점)을 묶어 셀 때는 테스트 계정을 뺀다(2026-10-23 검증 I). 한 사람을 지정하면 그대로
+  // 보는 사람이 테스트 계정이거나(원장 검증 계정 kim@ 등) 고른 지점이 모두 테스트지점이면 테스트 계정도 넣는다(출퇴근 현황 board 와 같은 showTestRows, 10/23 검증 M3)
+  const notTestFor = async (branches: string[] | null) =>
+    (await showTestRows(session, { branches })) ? {} : { NOT: await testAccountWhere() };
   let userWhere: Record<string, unknown>;
   if (session.role === "EMPLOYEE") {
     userWhere = { userId: session.userId };
@@ -81,18 +86,19 @@ export async function GET(request: NextRequest) {
   } else if (session.role === "MANAGER") {
     // 원장: 항상 담당 지점(대표+겸직) 한정. 지점별 조회면 지점 전체, 아니면 지정 직원(담당 지점일 때만)
     const myBranches = await getManagerBranches(session.userId);
+    const notTest = await notTestFor(myBranches);
     if (branchParam) {
-      userWhere = { user: { branch: { in: myBranches }, role: { not: "ADMIN" } } };
+      userWhere = { user: { branch: { in: myBranches }, role: { not: "ADMIN" }, ...notTest } };
     } else {
       const target = await prisma.user.findUnique({ where: { id: userId }, select: { branch: true } });
       userWhere = (target && !!target.branch && myBranches.includes(target.branch))
         ? { userId }
-        : { user: { branch: { in: myBranches }, role: { not: "ADMIN" } } };
+        : { user: { branch: { in: myBranches }, role: { not: "ADMIN" }, ...notTest } };
     }
   } else {
     // 관리자: 지점별 조회 우선, 없으면 지정 직원
     userWhere = branchParam
-      ? { user: { branch: branchParam, role: { not: "ADMIN" } } }
+      ? { user: { branch: branchParam, role: { not: "ADMIN" }, ...(await notTestFor([branchParam])) } }
       : { userId };
   }
 
@@ -242,8 +248,9 @@ export async function GET(request: NextRequest) {
       minutes,
       hours: Math.round(minutes / 60 * 10) / 10,
       status: rec?.status || null,
-      clockIn: rec?.clockIn ? format(rec.clockIn, "HH:mm") : null,
-      clockOut: rec?.clockOut ? format(rec.clockOut, "HH:mm") : null,
+      // 한국 시각으로 — 서버가 UTC 라 format(…, "HH:mm") 이면 9시간 이르게 나왔다(10/23 검증 덤)
+      clockIn: rec?.clockIn ? kstHhmm(rec.clockIn) : null,
+      clockOut: rec?.clockOut ? kstHhmm(rec.clockOut) : null,
     };
   });
 
@@ -264,6 +271,31 @@ export async function GET(request: NextRequest) {
         }, {} as Record<string, { date: string; count: number; minutes: number; hours: number }>)
       )
     : [];
+
+  // 찍은 시각 · 일한 시간은 본부만(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 날짜별 상태와 출근일 · 지각 · 누락 수만
+  const { canSeeClockTimes, maskClock } = await import("@/lib/attendance-visibility");
+  if (!(await canSeeClockTimes(session.role))) {
+    const noHours = <T extends { totalMinutes: number; avgMinutes: number }>(st: T): T => ({ ...st, totalMinutes: 0, avgMinutes: 0 });
+    return NextResponse.json({
+      period,
+      range: { start: start.toISOString(), end: end.toISOString() },
+      current: noHours(current),
+      previous: noHours(previous),
+      chartData: [],
+      timesHidden: true,
+      records: records.map(r => ({
+        ...maskClock({ clockIn: r.clockIn, clockOut: r.clockOut }, false),
+        id: r.id,
+        date: r.date,
+        status: r.status,
+        userName: r.user.name,
+        userBranch: r.user.branch,
+        edit: null,
+        minutes: 0,
+        zeroMinutes: isZeroMin(r),   // 출근 = 퇴근(0분) 기록 — 시각 없이 「확인 필요」만 보이게
+      })),
+    });
+  }
 
   return NextResponse.json({
     period,

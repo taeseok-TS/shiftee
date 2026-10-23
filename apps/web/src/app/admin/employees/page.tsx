@@ -38,6 +38,7 @@ type Employee = {
   };
   device?: { deviceName: string | null; platform: string | null; createdAt: string } | null;
   managerBranches?: string[]; // 원장 겸직 지점 (대표 지점 외 추가 담당)
+  isTest?: boolean; // 테스트 계정 — 인원 숫자에서 빠진다(lib/employee-scope testAccountWhere, 2026-10-23 ■0-9)
 };
 
 // 직책/직급 옵션 — 본부 소속은 별도 체계, 그 외 지점은 기존 학원 체계
@@ -184,17 +185,15 @@ export default function EmployeesPage() {
     });
   }, [employees, searchText, filterRole, filterBranch]);
 
-  // 통계 — "통계 포함" 꺼진 지점(테스트지점·본부 등) 소속은 카운트에서 제외 (지점 관리에서 토글)
-  const stats = useMemo(() => {
-    const excluded = new Set(branches.filter(b => b.countInStats === false).map(b => b.name));
-    const counted = employees.filter(emp => !emp.branch || !excluded.has(emp.branch));
-    const total = counted.length;
-    const active = counted.filter(emp => emp.role !== "ADMIN").length;
-    const managers = counted.filter(emp => emp.role === "MANAGER").length;
-    const uniqueBranches = branches.filter(b => b.countInStats !== false).length;
-
-    return { total, active, managers, uniqueBranches };
-  }, [employees, branches]);
+  // 인원 숫자(2026-10-23 ■0-9 · ■3) — 대시보드 · 현황과 같은 공용 기준(lib/employee-scope, /api/employees/headcount).
+  // 전체 직원 = 지점 재직 + 휴직, 원장 = 지점 원장. 본부 · 퇴사자 · 테스트 계정 · 테스트지점은 세지 않는다.
+  // 목록을 다시 불러올 때(추가 · 수정 · 삭제 뒤) 같이 다시 받는다
+  const [headcount, setHeadcount] = useState<{ total: number; staff: number; onLeave: number; managers: number; branchCount: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/employees/headcount").then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setHeadcount(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [employees]);
 
   // 사원번호 5자리 표시 (저장은 숫자, 표시는 앞자리 0 패딩 — 예: 1013 → 01013)
   const fmtEmpNo = (n: number | null | undefined) => (n == null ? "-" : String(n).padStart(5, "0"));
@@ -668,12 +667,12 @@ export default function EmployeesPage() {
       </EmployeeTabs>
 
       {/* 직원 현황(본부 10/22 — 「직원 한눈에」 대신) — 대시보드와 같은 숫자 칸. 「활동 중」은 전체와 같아 빼고 「입사일 확인 필요」 */}
-      <Box icon={<Users />} tone="vio" title="직원 현황">
-        <Tiles cols={4}>
-          <Tile label="전체 직원" value={stats.active} unit="명" note="관리자 제외" />
-          <Tile label="원장" value={stats.managers} unit="명" />
-          <Tile label="지점" value={stats.uniqueBranches} unit="개" />
-          <Tile label="입사일 확인 필요" value={hireCheck} unit="명" note="포털 명부와 다름(확정 전) · 입사일 없음" hl onClick={() => { window.location.href = "/admin/hire-dates"; }} />
+      <Box icon={<Users />} tone="vio" title="직원 현황" sub="포털 인사카드 기준 · 본부 · 퇴사자 · 테스트 계정 · 테스트지점은 세지 않음">
+        <Tiles cols={isSuper ? 4 : 3}>
+          <Tile label="전체 직원" value={headcount?.total} unit="명" note={headcount ? `지점 재직 ${headcount.staff} + 휴직 ${headcount.onLeave}` : "지점 재직 + 휴직"} />
+          <Tile label="원장" value={headcount?.managers} unit="명" note="지점 원장" />
+          <Tile label="지점" value={headcount?.branchCount} unit="개" note="운영 중" />
+          {isSuper && <Tile label="입사일 확인 필요" value={hireCheck} unit="명" note="포털 명부와 다름(확정 전) · 입사일 없음" hl onClick={() => { window.location.href = "/admin/hire-dates"; }} />}
         </Tiles>
       </Box>
 
@@ -697,7 +696,8 @@ export default function EmployeesPage() {
           {branches.length > 0 && (
             <select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} aria-label="지점" className={inputClass}>
               <option value="ALL">지점: 전체</option>
-              {branches.map(branch => <option key={branch.id} value={branch.name}>{branch.name}</option>)}
+              {/* 숨긴 지점(테스트지점 — 지점 관리 「숨긴 지점」)은 고르기에서 뺀다(2026-10-23 ■0-8). 본부는 남긴다. 수정 창의 지점 칸은 그대로 모든 지점 */}
+              {branches.filter(b => b.countInStats !== false || b.name === HQ_BRANCH).map(branch => <option key={branch.id} value={branch.name}>{branch.name}</option>)}
             </select>
           )}
         </FilterRow>
@@ -746,7 +746,7 @@ export default function EmployeesPage() {
                           }} />
                       </td>
                       <td className="font-mono text-[13px] text-[#596578]">{fmtEmpNo(emp.empNo)}</td>
-                      <td><Cell2 main={emp.name} sub={emp.email} /></td>
+                      <td><Cell2 main={<>{emp.name}{emp.isTest && <span className="ml-1.5 align-middle"><StatusPill tone="gray">테스트 계정</StatusPill></span>}</>} sub={emp.email} /></td>
                       <td><StatusPill tone={roleTone[emp.role] ?? "gray"}>{roleLabel[emp.role] || emp.role}</StatusPill></td>
                       <td className="text-[#475569]">{[emp.jobGroup, emp.position].filter(Boolean).join(" · ") || "-"}</td>
                       <td className="text-[#475569]">{emp.branch || "-"}</td>
@@ -944,7 +944,7 @@ export default function EmployeesPage() {
                                         <SelectItem value="TEMPORARY">임시휴무</SelectItem>
                                       </SelectContent>
                                     </Select>
-                                    <p className="text-[11px] text-gray-500 mt-1">휴직·임시휴무는 인원 집계·근무일정에서 빠집니다. 퇴직은 아래 퇴사일로 처리합니다.</p>
+                                    <p className="text-[11px] text-gray-500 mt-1">휴직·임시휴무는 「전체 직원」 숫자에는 들어가고, 지점 직원 · 근무일정에서는 빠집니다. 퇴직은 아래 퇴사일로 처리합니다.</p>
                                   </div>
                                   <div>
                                     <Label>퇴사일</Label>

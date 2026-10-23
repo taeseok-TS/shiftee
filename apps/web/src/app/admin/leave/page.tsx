@@ -2,7 +2,7 @@
 
 import { LEAVE_LABELS, leaveInfo, LIVE_SINGLE_DAY, LIVE_FIXED_DAYS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +17,10 @@ import {
   UmbrellaOff, Plus, X, AlertCircle, CalendarDays,
   ClipboardList, Pencil, GitBranch,
   Trash2, Search, ArrowUp, ArrowDown, RefreshCw, Calculator,
-  Upload, Download,
+  Upload, Download, ChevronDown,
 } from "lucide-react";
+import { fmtRangeKo, groupContiguous, ymdOf, type LeaveGroup } from "@/lib/leave-period";
 import * as XLSX from "xlsx";
-import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
@@ -100,8 +100,18 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEARS        = [CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 /* ── 결재 진행 점(kit FlowDots) — 끝난 사람 파랑 · 지금 차례 주황 · 남은 사람 회색 ── */
-function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
+function ApprovalChain({ steps, status }: { steps: ApprovalStepInfo[]; status?: string }) {
   if (!steps || steps.length === 0) return null;
+  // 신청자가 취소한 건은 남은 단계가 닫혀(REJECTED) 반려처럼 보이지 않게 — 끝난 단계 + 「취소함」(직원 내 휴가와 같은 표기, ■1)
+  if (status === "CANCELLED") {
+    const done = steps.filter((s) => s.status === "APPROVED");
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {done.length > 0 && <FlowDots steps={done.map((s) => ({ label: stepLabel(s), state: "done" as const }))} />}
+        <span className="text-[13px] font-semibold text-[#475569]">취소함</span>
+      </span>
+    );
+  }
   return <FlowDots steps={steps.map((s) => ({ label: stepLabel(s), state: s.status === "APPROVED" ? "done" : s.status === "PENDING" ? "now" : "todo" }))} />;
 }
 
@@ -109,6 +119,8 @@ export default function LeavePage() {
   const leaveCat = useLeaveCatalog();   // 기본 + 본부가 만든 유형·숨김(GET /api/leave/types, #216-1) — 받으면 다시 그린다
   const [role, setRole]   = useState("EMPLOYEE");
   const [myId, setMyId]   = useState("");
+  // 메인(최고) 관리자 — 「휴가 가져오기」(시프티 이관)는 이관이 끝날 때까지 메인 관리자에게만(2026-10-23 ■3). User.isSuperAdmin(설정 › 관리자 「메인」)
+  const [isSuper, setIsSuper] = useState(false);
 
   /* 신청 목록 */
   const [requests, setRequests]         = useState<LeaveRequest[]>([]);
@@ -242,8 +254,22 @@ export default function LeavePage() {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
       setRole(d.user?.role || "EMPLOYEE");
       setMyId(d.user?.id   || "");
+      setIsSuper(!!d.user?.isSuperAdmin);
     });
   }, []);
+
+  // 공휴일 — 이어진 날 묶기(사이에 주말·공휴일만 끼면 한 줄, S4)에 쓴다. 고른 해와 그다음 해(연말에 걸친 휴가)
+  const [holidaySet, setHolidaySet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    const y = Number(filterYear);
+    Promise.all([y, y + 1].map((yy) => fetch(`/api/holidays?year=${yy}`).then(r => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
+      .then((list) => { if (alive) setHolidaySet(new Set(list.flatMap((d) => ((d.holidays || []) as { date: string }[]).map((h) => h.date)))); });
+    return () => { alive = false; };
+  }, [filterYear]);
+  // 펼친 묶음(이어진 날 한 줄을 누르면 날짜별로, 하루짜리는 사유·이관 표시)
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
+  const toggleRow = (k: string) => setOpenRows((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   useEffect(() => { fetchRequests();     }, [fetchRequests]);
   useEffect(() => { fetchBalance();      }, [fetchBalance]);
@@ -377,7 +403,7 @@ export default function LeavePage() {
     ws["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 8 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "연차");
-    XLSX.writeFile(wb, `연차_일괄업로드_${CURRENT_YEAR}.xlsx`);
+    XLSX.writeFile(wb, `연차_올리기_${CURRENT_YEAR}.xlsx`);
   }
 
   async function handleBulkFile(file: File) {
@@ -506,6 +532,11 @@ export default function LeavePage() {
   const shownRequests = listQuery.trim()
     ? requests.filter(r => [r.user?.name ?? "", r.user?.branch ?? "", TYPE_LABEL[r.type] ?? r.type, r.reason ?? ""].some(v => v.includes(listQuery.trim())))
     : requests;
+  // 휴가 시작일이 최근인 것부터(S4 ①) → 이어진 날 한 줄(같은 사람·같은 유형·같은 상태, 사이 주말·공휴일만 — S4 ②, DB 는 그대로)
+  const sortedRequests = [...shownRequests].sort((a, b) =>
+    ymdOf(b.startDate).localeCompare(ymdOf(a.startDate)) || ymdOf(b.endDate).localeCompare(ymdOf(a.endDate)));
+  const requestGroups: LeaveGroup<LeaveRequest & { userId: string }>[] = groupContiguous(
+    sortedRequests.map((r) => ({ ...r, userId: r.user.id ?? r.user.name })), holidaySet);
 
   // 머리 「엑셀」(R13) — 지금 보이는 신청 목록(연·월·상태·검색 그대로)을 받는다
   function exportList() {
@@ -534,24 +565,32 @@ export default function LeavePage() {
 
   function progressColor(used: number, total: number) {
     const pct = total > 0 ? used / total : 0;
-    if (pct >= 0.9) return "bg-red-500";
-    if (pct >= 0.6) return "bg-amber-500";
-    return "bg-blue-500";
+    // 많이 쓴 것은 문제가 아니다 — 막대는 한 색(■4 숫자 · 색 규칙). 다 쓰고 넘친 것만 빨강
+    return pct > 1 ? "bg-red-500" : "bg-indigo-400";
   }
 
   /* ── 렌더 ── */
+  // 「휴가 가져오기」는 메인 관리자만 — 서브 관리자가 ?tab=import 로 들어오면 신청 목록을 보인다(상태는 그대로 두어 메인 관리자 판정이 늦게 와도 그 탭이 열린다)
+  const shownTab: LeaveTab = tab === "import" && !isSuper ? "list" : tab;
 
   /* ── 신청 목록 칸(표·카드 공용, #219-16) — 원래 표 칸에 있던 그대로. 모양만 둘이고 내용·조건은 여기 하나 ── */
-  const leavePeriod = (r: LeaveRequest) => (
-    <>
-      {format(new Date(r.startDate), "yyyy.MM.dd")}
-      {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
-    </>
-  );
+  // 「10월 30일 (금)」 · 「11월 2일 (월) ~ 4일 (수)」 — 해가 바뀌는 기간만 연도(S4 ③)
+  const leavePeriod = (r: { startDate: string; endDate: string }) => <>{fmtRangeKo(r.startDate, r.endDate)}</>;
+  // 줄을 눌렀을 때만 보이는 것 — 사유 · 시프티 이관 표시(S4 ③ · ■4 이관 흔적은 화면에서 빼고 안에서만)
+  const IMPORT_TAG = "[시프티 이관]";
+  const leaveDetail = (r: LeaveRequest) => {
+    const imported = (r.reason ?? "").startsWith(IMPORT_TAG) || (r.approvalSteps ?? []).some((s) => (s.comment ?? "").startsWith("시프티 이관"));
+    const reason = (r.reason ?? "").startsWith(IMPORT_TAG) ? (r.reason ?? "").slice(IMPORT_TAG.length).trim() : (r.reason ?? "").trim();
+    return (
+      <span className="block text-[12.5px] text-[#596578]">
+        {reason ? `사유: ${reason}` : "사유 없음"}{imported ? " · 시프티에서 옮김" : ""}
+      </span>
+    );
+  };
   const leaveApproval = (r: LeaveRequest) => (
     <>
       {r.approvalSteps && r.approvalSteps.length > 0
-        ? <ApprovalChain steps={r.approvalSteps} />
+        ? <ApprovalChain steps={r.approvalSteps} status={r.status} />
         : <span className="text-xs text-gray-400">-</span>}
       {r.status === "REJECTED" && r.rejectedReason && (
         <p className="mt-0.5 text-[12.5px] text-[#be123c]">반려: {r.rejectedReason}</p>
@@ -638,11 +677,11 @@ export default function LeavePage() {
       )}
 
       {/* ── 알약 탭 한 줄(R13) — 「내 결재함」은 결재 › 결재함, 「결재라인 설정」은 결재 › 결재 규칙으로 옮겼다 ── */}
-      {isAdmin && <LeaveTabs active={tab} superAdmin={role === "ADMIN"} onSelect={setTab} />}
-      <Tabs value={tab} onValueChange={(v) => setTab(v as LeaveTab)}>
+      {isAdmin && <LeaveTabs active={shownTab} superAdmin={role === "ADMIN"} mainAdmin={isSuper} onSelect={setTab} />}
+      <Tabs value={shownTab} onValueChange={(v) => setTab(v as LeaveTab)}>
         {/* ═══ 신청 목록 ═══ */}
         <TabsContent value="list">
-          <Box icon={<ClipboardList />} tone="sky" title="신청 목록" sub={`${shownRequests.length}건`} className="!mb-0">
+          <Box icon={<ClipboardList />} tone="sky" title="신청 목록" sub={`휴가 시작일이 최근인 것부터 · ${shownRequests.length}건`} className="!mb-0">
             <FilterRow right={[
               { value: "all", label: "전체" },
               { value: "PENDING",   label: "대기" },
@@ -685,39 +724,88 @@ export default function LeavePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {shownRequests.map(r => (
-                      <tr key={r.id} className="hover:bg-[#fafbfd]">
-                        {isAdmin && <td><Cell2 main={r.user.name} sub={[r.user.branch, r.user.department].filter(Boolean).join(" · ") || undefined} /></td>}
-                        <td className="whitespace-nowrap font-semibold text-[#0f172a]">
-                          {TYPE_LABEL[r.type] ?? r.type}
-                          {r.attachmentUrl && <div>{leaveAttach(r)}</div>}
-                        </td>
-                        <td className="whitespace-nowrap text-[#475569]">{leavePeriod(r)}</td>
-                        <td className="whitespace-nowrap text-[#475569] tabular-nums">{r.days}일</td>
-                        <td>{leaveApproval(r)}</td>
-                        <td>{leaveStatus(r)}</td>
-                        <td className="text-right">{leaveActions(r)}</td>
-                      </tr>
-                    ))}
+                    {requestGroups.map(g => {
+                      const r = g.first, multi = g.items.length > 1, open = openRows.has(g.key);
+                      return (
+                        <Fragment key={g.key}>
+                          {/* 묶음 줄 — 누르면 펼침(하루짜리는 사유·이관 표시, 이어진 날은 날짜별 줄). 처리 칸은 눌러도 펼치지 않는다 */}
+                          <tr className="cursor-pointer hover:bg-[#fafbfd]" onClick={() => toggleRow(g.key)} aria-expanded={open}>
+                            {isAdmin && <td><Cell2 main={r.user.name} sub={[r.user.branch, r.user.department].filter(Boolean).join(" · ") || undefined} /></td>}
+                            <td className="whitespace-nowrap font-semibold text-[#0f172a]">
+                              {TYPE_LABEL[r.type] ?? r.type}
+                              {!multi && r.attachmentUrl && <div onClick={(e) => e.stopPropagation()}>{leaveAttach(r)}</div>}
+                            </td>
+                            <td className="text-[#475569]">
+                              <span className="whitespace-nowrap">{leavePeriod(g)}</span>
+                              {multi && <span className="ml-2 inline-flex items-center gap-0.5 whitespace-nowrap text-[12.5px] font-semibold text-[#4f46e5]">{g.items.length}건<ChevronDown size={13} className={open ? "rotate-180" : ""} /></span>}
+                              {!multi && open && leaveDetail(r)}
+                            </td>
+                            <td className="whitespace-nowrap text-[#475569] tabular-nums">{Math.round(g.days * 100) / 100}일</td>
+                            <td>{leaveApproval(r)}</td>
+                            <td>{multi ? <StatusPill tone={(STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED).tone}>{(STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED).label}</StatusPill> : leaveStatus(r)}</td>
+                            <td className="text-right" onClick={(e) => e.stopPropagation()}>{multi ? null : leaveActions(r)}</td>
+                          </tr>
+                          {/* 펼친 날짜별 줄 — 건별 처리(승인 · 반려 · 취소 등)는 여기서 */}
+                          {multi && open && g.items.map(it => (
+                            <tr key={it.id} className="bg-[#fafbfd]">
+                              {isAdmin && <td />}
+                              <td className="whitespace-nowrap text-[13px] text-[#596578]">{it.attachmentUrl ? leaveAttach(it) : null}</td>
+                              <td className="text-[#475569]"><span className="whitespace-nowrap">{leavePeriod(it)}</span>{leaveDetail(it)}</td>
+                              <td className="whitespace-nowrap text-[#475569] tabular-nums">{it.days}일</td>
+                              <td>{leaveApproval(it)}</td>
+                              <td>{leaveStatus(it)}</td>
+                              <td className="text-right">{leaveActions(it)}</td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <div className="divide-y divide-[#f1f5f9] md:hidden">
-                {shownRequests.map(r => (
-                  <div key={r.id} className="px-4 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        {isAdmin && <p className="text-[12.5px] text-[#596578]">{r.user.name}{[r.user.branch, r.user.department].filter(Boolean).length ? ` · ${[r.user.branch, r.user.department].filter(Boolean).join(" · ")}` : ""}</p>}
-                        <p className="font-bold text-[#0f172a]">{TYPE_LABEL[r.type] ?? r.type} <span className="text-[13px] font-normal text-[#596578]">· {r.days}일</span></p>
-                        <p className="text-[13.5px] text-[#475569]">{leavePeriod(r)}</p>
+                {requestGroups.map(g => {
+                  const r = g.first, multi = g.items.length > 1, open = openRows.has(g.key);
+                  return (
+                    <div key={g.key} className="px-4 py-3">
+                      <button type="button" className="flex w-full items-start justify-between gap-2 text-left" onClick={() => toggleRow(g.key)} aria-expanded={open}>
+                        <div className="min-w-0">
+                          {isAdmin && <p className="text-[12.5px] text-[#596578]">{r.user.name}{[r.user.branch, r.user.department].filter(Boolean).length ? ` · ${[r.user.branch, r.user.department].filter(Boolean).join(" · ")}` : ""}</p>}
+                          <p className="font-bold text-[#0f172a]">{TYPE_LABEL[r.type] ?? r.type} <span className="text-[13px] font-normal text-[#596578]">· {Math.round(g.days * 100) / 100}일</span></p>
+                          <p className="text-[13.5px] text-[#475569]">
+                            {leavePeriod(g)}
+                            {multi && <span className="ml-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-semibold text-[#4f46e5]">{g.items.length}건<ChevronDown size={13} className={open ? "rotate-180" : ""} /></span>}
+                          </p>
+                          {!multi && open && leaveDetail(r)}
+                        </div>
+                        <div className="shrink-0 text-right">{multi ? <StatusPill tone={(STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED).tone}>{(STATUS_CFG[r.status] ?? STATUS_CFG.CANCELLED).label}</StatusPill> : leaveStatus(r)}</div>
+                      </button>
+                      {!multi && <>
                         {leaveAttach(r)}
-                      </div>
-                      <div className="shrink-0 text-right">{leaveStatus(r)}</div>
+                        <div className="mt-2">{leaveApproval(r)}</div>
+                        <div className="mt-1 empty:hidden">{leaveActions(r)}</div>
+                      </>}
+                      {multi && open && (
+                        <div className="mt-2 divide-y divide-[#eef1f5] rounded-[10px] bg-[#fafbfd] px-3">
+                          {g.items.map(it => (
+                            <div key={it.id} className="py-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-[13.5px] text-[#334155]">{leavePeriod(it)} <span className="text-[#596578]">· {it.days}일</span></p>
+                                  {leaveDetail(it)}
+                                  {leaveAttach(it)}
+                                </div>
+                                <div className="shrink-0 text-right">{leaveStatus(it)}</div>
+                              </div>
+                              <div className="mt-1.5">{leaveApproval(it)}</div>
+                              <div className="mt-1 empty:hidden">{leaveActions(it)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-2">{leaveApproval(r)}</div>
-                    <div className="mt-1 empty:hidden">{leaveActions(r)}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>)}
           </Box>
@@ -738,7 +826,7 @@ export default function LeavePage() {
         )}
 
         {/* ═══ 휴가 가져오기(#2) — 시프티 사용 내역 엑셀 → 승인 완료 휴가. 본부(ADMIN)만 ═══ */}
-        {role === "ADMIN" && (
+        {role === "ADMIN" && isSuper && (
           <TabsContent value="import">
             <LeaveImport />
           </TabsContent>
@@ -774,7 +862,7 @@ export default function LeavePage() {
                       checked={inclTest}
                       onChange={e => toggleInclTest(e.target.checked)}
                     />
-                    통계 제외 지점(본부·테스트) 포함
+                    숨긴 지점(본부 · 테스트) 포함
                   </label>
                 </CardTitle>
                 <div className="flex gap-2 shrink-0">
@@ -784,8 +872,8 @@ export default function LeavePage() {
                   <Button variant="outline" size="sm" className="gap-1 text-indigo-600 border-indigo-200" onClick={rolloverYear} disabled={rollingOver}>
                     <RefreshCw size={13} className={rollingOver ? "animate-spin" : ""} />{CURRENT_YEAR}년도 전환
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-1 text-emerald-600 border-emerald-200" onClick={() => setBulkOpen(true)}>
-                    <Upload size={13} />연차 일괄 업로드
+                  <Button variant="outline" size="sm" className="gap-1 text-[#4f46e5] border-indigo-200" onClick={() => setBulkOpen(true)}>
+                    <Upload size={13} />연차 엑셀로 올리기
                   </Button>
                 </div>
               </CardHeader>
@@ -831,7 +919,7 @@ export default function LeavePage() {
                                   style={{ width: `${Math.min(pct, 100)}%` }} />
                               </div>
                               <span className={`text-sm font-semibold w-10 text-right
-                                ${b.remaining <= 0 ? "text-red-500" : b.remaining <= 3 ? "text-amber-600" : "text-blue-600"}`}>
+                                ${b.remaining < 0 ? "text-red-600" : "text-gray-900"}`}>
                                 {b.remaining}일
                               </span>
                             </div>
@@ -1011,16 +1099,16 @@ export default function LeavePage() {
       {/* 연차 일괄 업로드 */}
       <Dialog open={bulkOpen} onOpenChange={(o) => { setBulkOpen(o); if (!o) { setBulkPreview(null); setBulkFileName(""); } }}>
         <DialogContent className="max-w-3xl overflow-hidden">
-          <DialogHeader><DialogTitle>연차 일괄 업로드 · {CURRENT_YEAR}년</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>연차 엑셀로 올리기 · {CURRENT_YEAR}년</DialogTitle></DialogHeader>
           <div className="space-y-3 min-w-0">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
-              <p className="font-semibold">💡 이름 · 이메일 · 연차 3개 컬럼이면 됩니다</p>
+              <p className="font-semibold">이름 · 이메일 · 연차 3개 열이면 됩니다</p>
               <p>이메일로 직원을 찾아 <b>총 연차</b>를 파일의 숫자로 바꿉니다. 이미 사용한 일수는 그대로 두고 잔여만 다시 계산합니다.</p>
-              <p>템플릿을 내려받으면 현재 직원 명단과 연차가 채워져 있어 숫자만 고쳐 올리면 됩니다.</p>
+              <p>양식을 내려받으면 현재 직원 명단과 연차가 채워져 있어 숫자만 고쳐 올리면 됩니다.</p>
             </div>
             <div className="flex gap-2 items-center">
               <Button variant="outline" size="sm" className="gap-1" onClick={downloadBulkTemplate}>
-                <Download size={13} />템플릿 다운로드
+                <Download size={13} />양식 내려받기
               </Button>
               <input id="leave-bulk-file" type="file" accept=".xlsx,.xls" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBulkFile(f); e.target.value = ""; }} />
@@ -1054,7 +1142,7 @@ export default function LeavePage() {
                           </td>
                           <td className="px-3 py-1.5">{r.newRemaining !== undefined ? `${r.newRemaining}일 (사용 ${r.used ?? 0}일)` : "-"}</td>
                           <td className="px-3 py-1.5">
-                            {r.status === "ok" && <span className="text-emerald-600">적용됨</span>}
+                            {r.status === "ok" && <span className="text-[#4f46e5]">적용됨</span>}
                             {r.status === "name_mismatch" && <span className="text-amber-600" title={r.message}>적용 (이름 확인: {r.message})</span>}
                             {r.status === "not_found" && <span className="text-red-500">건너뜀 · {r.message}</span>}
                             {r.status === "invalid" && <span className="text-red-500">건너뜀 · {r.message}</span>}
@@ -1070,7 +1158,7 @@ export default function LeavePage() {
                     건너뜀 {bulkPreview.filter(r => r.status === "not_found" || r.status === "invalid").length}행
                   </p>
                   <Button onClick={applyBulk} disabled={bulkApplying || bulkPreview.every(r => r.status === "not_found" || r.status === "invalid")}
-                    className="bg-emerald-600 hover:bg-emerald-700">
+                    className="bg-[#4f46e5] hover:bg-[#4338ca] text-white">
                     {bulkApplying ? "적용 중..." : "적용"}
                   </Button>
                 </div>

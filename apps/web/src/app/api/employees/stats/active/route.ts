@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
-import { excludedBranchNames } from "@/lib/employee-scope";
+import { countableEmployeeWhere, isManagerRow } from "@/lib/employee-scope";
+import { kstTodayMidnight } from "@/lib/resign";
 import { hiddenWhere } from "@/lib/hidden-accounts";
 import { endOfMonth, endOfYear } from "date-fns";
 
@@ -26,8 +27,6 @@ export async function GET(request: NextRequest) {
     const includeAdmins =
       searchParams.get("includeAdmins") === "true" && session.role === "ADMIN";
 
-    // 지점 관리에서 "통계 포함"을 끈 지점(본부·테스트지점)은 현황에서 뺀다
-    const excludedBranches = await excludedBranchNames();
 
     // 기본값: 현재 월/년
     let targetDate: Date;
@@ -55,43 +54,29 @@ export async function GET(request: NextRequest) {
 
     // 권한별 지점 필터 (원장: 담당 지점 목록 — 대표+겸직)
     const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
-    const branchFilter =
-      session.role === "MANAGER" ? { in: myBranches } : undefined;
 
     // 대상 일자 기준 재직자 조회
 
     let employees;
     try {
+      // 인원 숫자 공용 기준(lib/employee-scope, 2026-10-23 ■0-9 · ■3) — 전체 직원 = 지점 재직 + 휴직.
+      // 관리자 · 통계 제외 지점(본부 · 테스트지점) · 소속 없음 · 퇴사자 · 테스트 계정은 세지 않는다. 「관리자 포함」이면 관리자는 소속과 무관하게 넣는다.
+      // 대상 일자 기준: 그날까지 입사(입사일 미입력 포함) · 그날 뒤 퇴사(퇴사일이 대상 일자보다 뒤)
+      // 기준일 = 대상 기간의 끝 — 이번 달(올해)처럼 끝이 오늘 뒤면 오늘(10/23 검증 H: 대시보드 · 인사 › 직원과 같은 숫자).
+      //   그 기간 안에 퇴사 예정인 사람은 오늘까지 재직으로 세고, 입사일이 오늘보다 뒤(입사 예정)인 사람은 뺀다
+      const today = kstTodayMidnight();
+      const isNow = targetEndDate.getTime() + 1 > today.getTime();
+      const baseWhere = await countableEmployeeWhere({
+        scope: "all", includeAdmins,
+        activeOn: isNow ? today : new Date(targetEndDate.getTime() + 1),
+        hiredBy: isNow ? today : targetEndDate,
+        ...(session.role === "MANAGER" ? { branches: myBranches } : {}),
+      });
       employees = await prisma.user.findMany({
         where: {
           AND: [
-            // 입사일 미입력 직원도 재직자에 포함 (직원 관리와 동일 기준)
-            {
-              OR: [
-                { hireDate: null },
-                { hireDate: { lte: targetEndDate } },
-              ],
-            },
-            {
-              OR: [
-                { resignDate: null },
-                { resignDate: { gt: targetEndDate } },
-              ],
-            },
-            { isActive: true },
-            { employmentStatus: "ACTIVE" },
-            ...(includeAdmins ? [] : [{ role: { not: "ADMIN" as const } }]),
-            ...(excludedBranches.length > 0
-              ? [{
-                  OR: [
-                    // "관리자 포함"을 켰으면 관리자는 소속 지점과 무관하게 전원 보여준다
-                    ...(includeAdmins ? [{ role: "ADMIN" as const }] : []),
-                    { branch: null },
-                    { branch: { notIn: excludedBranches } },
-                  ],
-                }]
-              : []),
-            ...(branchFilter ? [{ branch: branchFilter }] : []),
+            baseWhere,
+            { OR: [{ hireDate: null }, { hireDate: { lte: targetEndDate } }] },
             // 「관리자 포함」을 켜도 개발자 영역(메인 관리자)은 보는 사람에게만(2026-10-17 디렉터)
             await hiddenWhere(session),
           ],
@@ -102,6 +87,7 @@ export async function GET(request: NextRequest) {
           jobGroup: true,
           position: true,
           branch: true,
+          employmentStatus: true,
         },
       });
     } catch (queryError) {
@@ -120,8 +106,9 @@ export async function GET(request: NextRequest) {
     // 지점별 집계
     const byBranch: Record<string, { total: number; [key: string]: number }> = {};
 
+    // 「원장」 칸은 원장 판정 공용 함수(lib/employee-scope isManagerRow — 직급 원장 · 대표원장 또는 직군 원장, 10/23 검증 H)
     employees.forEach((emp) => {
-      const pos = emp.jobGroup || "미정";
+      const pos = isManagerRow(emp) ? "원장" : (emp.jobGroup ?? "").trim() || "미정";
 
       byPosition[pos] = (byPosition[pos] || 0) + 1;
 
@@ -135,9 +122,12 @@ export async function GET(request: NextRequest) {
     });
 
     const total = employees.length;
+    const onLeave = employees.filter((e) => e.employmentStatus !== "ACTIVE").length;   // 휴직(임시휴무 포함) — 전체 직원에 들어 있다
 
     return NextResponse.json({
       total,
+      onLeave,
+      managers: byPosition["원장"],   // 원장(직급 원장) — headcount.managers 와 같은 기준
       byPosition,
       byBranch,
       date: targetEndDate.toISOString().split("T")[0],

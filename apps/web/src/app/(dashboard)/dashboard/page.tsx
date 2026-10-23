@@ -1,7 +1,7 @@
 "use client";
 // 직원 대시보드 — 본부 시안 R17(2026-10-21 「디자인 통일」, 관리자 대시보드 R9 와 같은 세 박스): 나의 근태 · 결재함 · 공지사항.
-//  · 나의 근태 4칸: 오늘 출근(시각 + 「퇴근 전 · 일정 13:00 ~ 22:00」) · 남은 연차(권한 「잔여 연차 숫자 보기」가 꺼지면 「연차 정리 중」)
-//    · 이번 달 근무(시간) · 내 요청 대기(연인디고). 숫자는 색칠하지 않는다
+//  · 나의 근태 3칸: 오늘 출근(상태 「출근 · 지각 · 퇴근 · 출근 전 · 휴가」 + 「일정 13:00–22:00」) · 남은 연차(권한 「잔여 연차 숫자 보기」가 꺼지면 「연차 정리 중」)
+//    · 내 요청 대기(연인디고). 숫자는 색칠하지 않는다. 시각 · 근무시간은 본부만(■0-11) — 「이번 달 근무」 칸은 뺐다(서버가 직원에게 늘 null)
 //  · 결재함 = 서명할 내 계약서(「서명 ›」 → 내 계약서에서 비밀번호 한 칸 → 서명 전체 창) + 최근 14일 반려된 내 요청(「보기 ›」)
 //  · 공지는 읽기만. 뺀 것: 「나의 업무」 바로가기 4개(레일과 겹침) · 0인 숫자 카드(대기 계약 0건 등 — 결재함이 대신) · 숫자 색칠
 import { useCallback, useEffect, useState } from "react";
@@ -22,11 +22,12 @@ type MyStats = {
   monthWorkHours: number | null;   // 직원 「본인 출퇴근 기록 열람」이 꺼지면 null
 };
 // 오늘 내 하루 — GET /api/schedule/day?scope=self 의 내 줄(출퇴근 열람이 꺼지면 시각 없이 일정 · 휴가만)
-type MyDay = { status: string; scheduleType: string | null; startTime: string | null; endTime: string | null; clockIn: string | null; clockOut: string | null; leaveType: string | null };
+// 찍은 시각은 본부만(■0-11) — 직원에게는 clockIn · clockOut 이 비어 오고 clockedIn · clockedOut(찍었는지)만 온다
+type MyDay = { status: string; scheduleType: string | null; startTime: string | null; endTime: string | null; clockIn: string | null; clockOut: string | null; clockedIn?: boolean; clockedOut?: boolean; leaveType: string | null };
 
 const KST = 9 * 3600 * 1000;
 const kstYmd = (t: number) => new Date(t + KST).toISOString().slice(0, 10);
-const REJ_WORD: Record<string, string> = { LEAVE: "휴가 신청이", LEAVE_CANCEL: "휴가 취소가", SCHEDULE: "근무일정 요청이", ATTENDANCE: "출퇴근 요청이" };
+const REJ_WORD: Record<string, string> = { LEAVE: "휴가 신청이", LEAVE_CANCEL: "휴가 취소가", SCHEDULE: "근무 변경 요청이", ATTENDANCE: "출퇴근 수정 요청이" };
 // 요청 목록(lib/request-feed)의 기간 「YYYY-MM-DD」 · 「YYYY-MM-DD ~ YYYY-MM-DD」 → 「10/30」 · 「10/26 ~ 30」(다른 모양이면 그대로)
 const feedPeriod = (p: string) => {
   const m = p.match(/^(\d{4}-\d{2}-\d{2})(?: ~ (\d{4}-\d{2}-\d{2}))?$/);
@@ -71,12 +72,13 @@ export default function SharedDashboardPage() {
       for (const c of (contracts?.contracts || []) as { id: string; title: string; userId?: string; externalName?: string | null; signDeadline?: string | null; createdAt: string }[]) {
         if (!myId || c.userId !== myId || c.externalName) continue;
         const due = c.signDeadline ? new Date(new Date(c.signDeadline).getTime() + KST).toISOString().slice(5, 10).replace("-", "/") : null;
-        next.push({ key: `sign-${c.id}`, title: c.title, sub: `서명할 계약서${due ? ` · 기한 ${due}` : ""}`, href: `/contracts?sign=${encodeURIComponent(c.id)}`, action: "서명", at: new Date(c.createdAt).getTime() });
+        next.push({ key: `sign-${c.id}`, title: c.title, sub: `서명 대기${due ? ` · 기한 ${due}` : ""}`, href: `/contracts?sign=${encodeURIComponent(c.id)}`, action: "서명", at: new Date(c.createdAt).getTime() });
       }
       // 반려된 내 요청 — 반려한 때가 최근 14일인 것, 최근 3건(흐린 줄, 반려 사유 한 줄)
       const since = now - 14 * 86400000;
-      const rej = ((rejected?.items || []) as { kind: string; id: string; title: string; period: string; createdAt: string; rejectedAt?: string; rejectReason: string | null }[])
-        .map((it) => ({ ...it, at: new Date(it.rejectedAt ?? it.createdAt).getTime() }))
+      // 출퇴근 요청은 직원에게 createdAt 이 null(■0-11) — 그때는 올린 날(createdDate)의 0시로
+      const rej = ((rejected?.items || []) as { kind: string; id: string; title: string; period: string; createdAt: string | null; createdDate?: string; rejectedAt?: string; rejectReason: string | null }[])
+        .map((it) => ({ ...it, at: ((t) => (t ? new Date(t).getTime() : 0))(it.rejectedAt ?? it.createdAt ?? (it.createdDate ? `${it.createdDate}T00:00:00+09:00` : null)) }))
         .filter((it) => it.at >= since)
         .sort((x, y) => y.at - x.at).slice(0, 3);
       for (const it of rej) {
@@ -92,14 +94,19 @@ export default function SharedDashboardPage() {
   }, []);
   useEffect(() => { Promise.resolve().then(load); }, [load]);   // 첫 읽기(렌더 중 setState 회피 — lint set-state-in-effect)
 
-  // 오늘 출근 칸 — 값 = 출근 시각(없으면 —), 설명 = 퇴근 여부 · 오늘 일정(또는 휴가 · 휴무)
-  const sched = today?.scheduleType === "WORK" && today.startTime && today.endTime ? `일정 ${today.startTime} ~ ${today.endTime}` : null;
+  // 오늘 출근 칸 — 값 = 상태(출근 · 지각 · 퇴근 · 출근 전 · 휴가, 시각은 본부만 ■0-11), 설명 = 휴가 이름 · 오늘 일정(또는 휴무 · 일정 없음)
+  const sched = today?.scheduleType === "WORK" && today.startTime && today.endTime ? `일정 ${today.startTime}–${today.endTime}` : null;
   const leaveName = today?.leaveType ? LEAVE_LABELS[today.leaveType] ?? today.leaveType : null;
-  const inValue = today?.status === "LEAVE" && !today.clockIn ? "휴가" : today?.clockIn ?? null;
+  const tin = !!today && (today.clockedIn ?? !!today.clockIn), tout = !!today && (today.clockedOut ?? !!today.clockOut);
+  const isLeave = today?.status === "LEAVE";
+  const inValue = !today ? null
+    : isLeave && !tin ? "휴가"
+    : tout ? "퇴근"
+    : tin ? (today.status === "LATE" ? "지각" : "출근")
+    : sched ? "출근 전" : null;
   const inNote = [
-    leaveName && today?.status === "LEAVE" ? leaveName : null,
-    attHidden ? null : today?.clockOut ? `퇴근 ${today.clockOut}` : today?.clockIn ? "퇴근 전" : today && today.status !== "LEAVE" && sched ? "출근 전" : null,
-    sched ?? (today && (today.scheduleType === "OFF" || today.scheduleType === "HOLIDAY") ? "오늘 휴무" : today && !today.scheduleType && today.status !== "LEAVE" ? "오늘 일정 없음" : null),
+    leaveName && isLeave ? leaveName : null,
+    sched ?? (today && (today.scheduleType === "OFF" || today.scheduleType === "HOLIDAY") ? "오늘 휴무" : today && !today.scheduleType && !isLeave ? "오늘 일정 없음" : null),
   ].filter(Boolean).join(" · ");
   const balanceHidden = !!stats && (stats.balanceHidden || stats.leaveRemaining === null);
 
@@ -109,18 +116,17 @@ export default function SharedDashboardPage() {
 
       {/* 나의 근태 — 4칸(R17). 「휴가 신청 ›」 */}
       <Box icon={<Clock />} title="나의 근태" right={<a href="/leave" className="text-[#4f46e5] hover:underline">휴가 신청 ›</a>}>
-        <Tiles cols={4}>
+        <Tiles cols={3}>
           <Tile label="오늘 출근" value={attHidden ? (inValue === "휴가" ? "휴가" : null) : inValue} note={inNote || undefined} />
           <Tile label="남은 연차" value={!stats ? null : balanceHidden ? "연차 정리 중" : stats.leaveRemaining} unit={balanceHidden ? undefined : "일"}
             onClick={() => { window.location.href = "/leave"; }} />
-          <Tile label="이번 달 근무" value={stats?.monthWorkHours} unit="시간" note={stats && stats.monthWorkHours === null ? "출퇴근 기록 열람 꺼짐" : "출퇴근 기록 기준"} />
-          <Tile label="내 요청 대기" value={stats ? stats.pendingApprovals + (stats.pendingAttendance ?? 0) : null} unit="건" note="휴가 · 근무일정 · 출퇴근 수정" hl onClick={() => { window.location.href = "/requests"; }} />
+          <Tile label="내 요청 대기" value={stats ? stats.pendingApprovals + (stats.pendingAttendance ?? 0) : null} unit="건" note="휴가 · 근무 변경 · 출퇴근 수정" hl onClick={() => { window.location.href = "/requests"; }} />
         </Tiles>
       </Box>
 
       <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <InboxBox rows={rows.slice(0, 8)} loading={loading} count={rows.filter((r) => r.action === "서명").length}
-          more={Math.max(0, rows.length - 8)} moreHref="/requests" empty="서명할 계약서 · 반려된 요청이 없습니다" />
+          more={Math.max(0, rows.length - 8)} moreHref="/requests" empty="서명 대기 · 반려된 요청이 없습니다" />
         <NoticeBox items={notices} />
       </div>
     </div>

@@ -6,7 +6,7 @@ import { PageHead, PillTabs, type PillTab } from "@/components/kit";
 
 export type AttendanceTab = "today" | "board" | "stats" | "weekend";
 
-const LABEL: Record<AttendanceTab, string> = { today: "오늘", board: "달력 · 목록", stats: "기간별 통계", weekend: "주말 근무 엑셀" };
+const LABEL: Record<AttendanceTab, string> = { today: "오늘", board: "달력 · 목록", stats: "지난 기록", weekend: "주말 근무 엑셀" };
 export const isAttendanceTab = (v: string | null): v is AttendanceTab => !!v && Object.hasOwn(LABEL, v) && v !== "board";   // in 은 constructor·toString 도 통과시킨다
 
 export default function AttendanceTabs({ active, note, onSelect, children }: {

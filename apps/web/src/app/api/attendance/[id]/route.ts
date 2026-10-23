@@ -63,7 +63,7 @@ export async function PATCH(
   // 보정해 버리면 그 요청 승인이 「이미 퇴근 기록이 있습니다」로 막힌다(옛 auto-fill 의 409 와 같은 규칙, 10/22 검증 5)
   if (body.missingFix === true) {
     const pendingReq = await prisma.attendanceRequest.findFirst({
-      where: { userId: record.userId, workDate: record.date, status: "PENDING", kind: { not: "DEVICE" } },
+      where: { userId: record.userId, workDate: record.date, status: "PENDING", kind: { notIn: ["DEVICE", "RECORD"] } },   // 기기 변경 · 출퇴근 기록 요청(기록을 바꾸지 않는다)은 막지 않는다(10/23 검증 F)
       select: { id: true },
     });
     if (pendingReq) return NextResponse.json({ error: "그날 직원이 올린 출퇴근 요청이 결재 대기 중입니다. 결재 › 결재함에서 처리해 주세요." }, { status: 409 });
@@ -73,7 +73,7 @@ export async function PATCH(
   // 기록과 수정 이력을 한 트랜잭션으로 — 이력 없이 시각만 바뀌는 일이 없게(#219-15)
   const attendance = await prisma.$transaction(async (tx) => {
     if (body.missingFix === true && await tx.attendanceRequest.findFirst({
-      where: { userId: record.userId, workDate: record.date, status: "PENDING", kind: { not: "DEVICE" } }, select: { id: true },
+      where: { userId: record.userId, workDate: record.date, status: "PENDING", kind: { notIn: ["DEVICE", "RECORD"] } }, select: { id: true },
     })) return "PENDING_REQUEST" as const;
     // 연 뒤에 다른 쓰기(요청 승인 등)가 끼었으면 덮어쓰지 않는다 — 읽은 그 값일 때만 쓴다(검증 5, 재검증)
     const hit = await tx.attendance.updateMany({

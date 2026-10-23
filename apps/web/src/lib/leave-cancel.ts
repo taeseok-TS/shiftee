@@ -64,7 +64,7 @@ function scopeDenial(v: CancelViewer, targetUserId: string, u: TargetUser): Canc
       return { status: 403, error: "담당 지점 소속의 신청만 취소할 수 있습니다.", block: "SCOPE" };
     }
     if (u.role === "MANAGER" && !v.mainBranches.includes(u.branch)) {
-      return { status: 403, error: "다른 원장의 신청은 그 지점 메인 원장만 취소할 수 있습니다.", block: "MAIN_ONLY" };
+      return { status: 403, error: "다른 원장의 신청은 그 지점 대표원장만 취소할 수 있습니다.", block: "MAIN_ONLY" };
     }
   }
   return null;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { seedDefaultBriefing } from "@/lib/bot";
 
@@ -10,7 +10,7 @@ const REPEATS = new Set(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"]);
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
 
   await seedDefaultBriefing();
   const [briefings, channels, branches] = await Promise.all([
@@ -29,7 +29,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
 
   const { name, time, repeat, repeatValue, channelId, branch, folder } = (await request.json()) as {
     name?: string; time?: string; repeat?: string; repeatValue?: string; channelId?: string | null; branch?: string | null; folder?: string | null;

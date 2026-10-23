@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { parseFieldSettings, humanFields, applyAutoSources, DERIVED_FIELD_SOURCES, withDerivedSources, type FieldSettings } from "@/lib/contract-field-settings";
+import { parseFieldSettings, humanFields, applyAutoSources, DERIVED_FIELD_SOURCES, withDerivedSources, weeklyRestPayApplies, normalizeWeekday, type FieldSettings } from "@/lib/contract-field-settings";
 import { generateDeterministic } from "@/lib/docx-zip";
 import fs from "fs/promises";
 import path from "path";
@@ -259,8 +259,13 @@ export async function buildContractMergeData(
   // 빈 칸은 0, 셋 다 비면 빈칸, 숫자가 아닌 값이 하나라도 있으면 합을 낼 수 없어 빈칸.
   // 빈칸이면 값을 두지 않는다 — 문서에는 빈칸, 미리보기에는 〔미입력〕(nullGetter). 입력값으로 들어온 같은 이름 값도 지운다(파생 칸은 서버만 만든다)
   const setDerived = (k: string, v: string) => { if (v) mergeData[k] = v; else delete mergeData[k]; };
+  // 주휴수당 — 요일 표 합계가 주 15시간 미만이면 주휴수당이 없다(근로기준법 제18조 3항, 10/23 본부). 표가 비면 판단 못 함(null) → 종전처럼 금액 그대로
+  const restPay = weeklyRestPayApplies(mergeData);
+  // {주휴수당표기} = 15시간 이상이면 {주휴수당금액}(위에서 「124,000원」으로 바뀌어 있다), 미만이면 「해당 없음」. 금액이 비면 빈칸(미리보기 〔미입력〕)
+  setDerived("주휴수당표기", restPay === false ? "해당 없음" : String(mergeData["주휴수당금액"] ?? "").trim());
   {
-    const raws = DERIVED_FIELD_SOURCES["주말급여합계"].map((k) => String(mergeData[k] ?? "").replace(/[,\s원]/g, ""));
+    // 주 15시간 미만이면 주휴수당은 0 으로 더한다(문서에 「해당 없음」으로 적히는 금액이 합계에 들어가지 않게)
+    const raws = DERIVED_FIELD_SOURCES["주말급여합계"].map((k) => (k === "주휴수당금액" && restPay === false ? "" : String(mergeData[k] ?? "").replace(/[,\s원]/g, "")));
     setDerived("주말급여합계", raws.every((r) => r === "") || raws.some((r) => r !== "" && !/^\d+$/.test(r))
       ? "" : `${raws.reduce((s, r) => s + (r ? Number(r) : 0), 0).toLocaleString()}원`);
   }
@@ -268,6 +273,13 @@ export async function buildContractMergeData(
   for (const k of ["출근시각", "퇴근시각"]) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(mergeData[k] ?? "").trim());
     setDerived(`${k}12`, m && Number(m[1]) < 24 ? `${Number(m[1]) % 12 || 12}:${m[2]}` : "");
+  }
+  // 주휴일(주말 학습실장 제5조 「주휴일({주휴일지정})」, 10/23 본부) — 「월」·「월요일」을 「월요일」로 맞추고, 비우면 기본값 「월요일」.
+  // 못 읽는 값은 그대로 둔다(검사 lib/contract-validate 가 막는다). 이 칸이 없는 양식은 값이 문서에 쓰이지 않는다.
+  // 칸 이름이 「…일」로 끝나면 작성 화면이 날짜 칸으로 띄워(isDateField) 「주휴일」 대신 「주휴일지정」
+  {
+    const raw = String(mergeData["주휴일지정"] ?? "").trim();
+    mergeData["주휴일지정"] = raw ? (normalizeWeekday(raw) ?? raw) : "월요일";
   }
   return mergeData;
 }
@@ -307,7 +319,7 @@ export const SYSTEM_FIELDS = new Set([
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
   "지점주소", // 지점 표의 주소(2026-10-13 추가 템플릿 8종 — 인사발령통지서)
-  ...Object.keys(DERIVED_FIELD_SOURCES), // 원천 칸에서 만드는 파생 표기(2026-10-23 — 주말급여합계·출근시각12·퇴근시각12)
+  ...Object.keys(DERIVED_FIELD_SOURCES), // 원천 칸에서 만드는 파생 표기(2026-10-23 — 주말급여합계·출근시각12·퇴근시각12·주휴수당표기)
 ]);
 
 // 프로필 필드지만 비어 있으면 계약자가 서명 단계에서 직접 채운다 (scanTemplateProfileFields 대상과 동일)

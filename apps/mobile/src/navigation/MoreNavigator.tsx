@@ -9,19 +9,22 @@ import SuggestionScreen from "../screens/SuggestionScreen";
 import SubmissionsScreen from "../screens/SubmissionsScreen";
 import MarketingScreen from "../screens/MarketingScreen";
 import RequestsScreen from "../screens/RequestsScreen";
+import LeaveRequestScreen from "../screens/leave/LeaveRequestScreen";
 
 const Stack = createNativeStackNavigator();
 
 /**
  * 더보기 스택: 메뉴 → 결재(원장·본부·원장대행), 계약서(목록/상세), 설정 — 휴가는 하단 탭(2026-10-07 #17)
+ * 2026-10-23(앱 1 · 8): 원장 · 본부는 아래 탭이 「승인」이라 본인 휴가는 여기 「내 휴가」. 뒤로 가기는 「‹」 하나(글자 · 테두리 없이)
  */
 export default function MoreNavigator() {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator screenOptions={{ headerBackTitleVisible: false }}>
       <Stack.Screen name="MoreMenu" component={MoreMenuScreen} options={{ title: "더보기" }} />
       <Stack.Screen name="Contracts" component={ContractListScreen} options={{ title: "계약서" }} />
       <Stack.Screen name="ContractDetail" component={ContractDetailScreen} options={{ title: "계약서 상세" }} />
-      <Stack.Screen name="Approvals" component={ApprovalsScreen} options={{ title: "결재" }} />
+      <Stack.Screen name="Approvals" component={ApprovalsScreen} options={{ title: "승인" }} />
+      <Stack.Screen name="MyLeave" component={LeaveRequestScreen} options={{ title: "내 휴가" }} />
       <Stack.Screen name="Requests" component={RequestsScreen} options={{ title: "내 요청" }} />
       <Stack.Screen name="Suggestions" component={SuggestionScreen} options={{ title: "개선 제안" }} />
       <Stack.Screen name="Submissions" component={SubmissionsScreen} options={{ title: "자료제출" }} />

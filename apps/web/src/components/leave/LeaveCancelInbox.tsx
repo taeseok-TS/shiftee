@@ -9,9 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, AlertCircle } from "lucide-react";
 import { Btn, FlowDots } from "@/components/kit";
-import { format } from "date-fns";
-import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import { fmtRangeKo } from "@/lib/leave-period";
 
 /**
  * 승인된 휴가의 **취소 결재** 결재함 — 관리자 결재함(admin/leave-approvals)과 원장 결재함
@@ -109,7 +108,7 @@ export default function LeaveCancelInbox({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(data.error || "처리하지 못했습니다"); return; }
       toast.success(action === "reject"
-        ? "취소 요청을 거절했습니다 — 휴가는 그대로 유지됩니다"
+        ? "취소 요청을 반려했습니다 — 휴가는 그대로 유지됩니다"
         : data.final
           ? (data.restoredDays > 0
               ? `휴가를 취소하고 연차 ${data.restoredDays}일을 복구했습니다`
@@ -146,7 +145,7 @@ export default function LeaveCancelInbox({
   const cancelCells = (row: Row) => {
     const c = row.cancelRequest;
     const lr = c.leaveRequest;
-    const range = `${format(new Date(lr.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(lr.endDate), "MM월 dd일", { locale: ko })}`;
+    const range = fmtRangeKo(lr.startDate, lr.endDate);
     return [
       <>
         <div className="font-medium text-gray-900">{c.user.name}</div>
@@ -170,9 +169,9 @@ export default function LeaveCancelInbox({
         )}
       </>,
       <>
-        {/* 줄마다 두 개 — 흰 「거절」 + 인디고 「승인」(승인 확인 창에서 의견 선택, 옛 「의견」 버튼 대신 — 시안 R11) */}
+        {/* 줄마다 두 개 — 흰 「반려」 + 인디고 「승인」(승인 확인 창에서 의견 선택, 옛 「의견」 버튼 대신 — 시안 R11) */}
         <div className="flex gap-1.5 justify-end">
-          <Btn className="px-3.5 py-1.5" disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>거절</Btn>
+          <Btn className="px-3.5 py-1.5" disabled={processingId === c.id} onClick={() => { setRejectId(c.id); setRejectReason(""); }}>반려</Btn>
           <Btn kind="primary" className="px-3.5 py-1.5" disabled={processingId === c.id} onClick={() => { setNoteId(c.id); setNoteText(""); }}>
             {processingId === c.id ? "처리 중…" : "승인"}
           </Btn>
@@ -261,15 +260,15 @@ export default function LeaveCancelInbox({
 
       <Dialog open={!!rejectId} onOpenChange={(o) => { if (!o) setRejectId(null); }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>취소 요청 거절</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>취소 요청 반려</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">거절하면 휴가는 그대로 유지되고, 사유가 신청자에게 전달됩니다.</p>
-            <Textarea placeholder="거절 사유 (선택)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} />
+            <p className="text-sm text-gray-600">반려하면 휴가는 그대로 유지되고, 사유가 신청자에게 전달됩니다.</p>
+            <Textarea placeholder="반려 사유 (선택)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} />
             <div className="flex gap-2 justify-end">
               <Btn onClick={() => setRejectId(null)}>닫기</Btn>
               <Btn kind="primary" disabled={processingId !== null}
                 onClick={() => rejectId && decide(rejectId, "reject", rejectReason.trim() || undefined)}>
-                {processingId !== null ? "처리 중…" : "거절"}
+                {processingId !== null ? "처리 중…" : "반려"}
               </Btn>
             </div>
           </div>

@@ -54,7 +54,8 @@ export function MobileDashboardNav({ role, children }: { role?: string; children
 
   return (
     <>
-      <button className="md:hidden p-1 -ml-1 text-gray-600" onClick={() => setOpen(true)} aria-label="메뉴 열기">
+      {/* 누르는 자리 44px(2026-10-23 본부 요청 ■4 — 햄버거도) */}
+      <button className="md:hidden inline-flex h-11 w-11 shrink-0 items-center justify-center -ml-2 text-gray-600" onClick={() => setOpen(true)} aria-label="메뉴 열기">
         <Menu size={22} />
       </button>
       {open && (

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
-import { excludedBranchNames } from "@/lib/employee-scope";
+import { excludedBranchNames, showTestRows, testAccountWhere, testAccountIds } from "@/lib/employee-scope";
 import { getHolidaySet } from "@/lib/holidays";
 import { countsCalendarDays } from "@/lib/leave-catalog";
 import { breakHours, isRealDate } from "@/lib/schedule-payload";
@@ -11,6 +11,7 @@ import { kstTodayDateUTC } from "@/lib/kst";
 import { mondayOf, weeklyMinutes, WEEK_LIMIT_MIN } from "@/lib/weekly-hours";
 import { isAllowed } from "@/lib/permission-settings";
 import { attendanceEditViews, type AttendanceEditView } from "@/lib/attendance-edit";
+import { canSeeClockTimes, placeWithoutTime } from "@/lib/attendance-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,10 @@ export async function GET(request: NextRequest) {
   } else {
     branches = wanted.length ? wanted : null;
   }
-  const excluded = branches ? [] : await excludedBranchNames();
+  // 테스트 계정은 기본으로 뺀다(■0-9). 관리자가 「테스트 포함」(?includeTest=1)을 켜거나 테스트지점만 고르면 보인다 — 라이브 검증용(10/23 이예지 답)
+  const withTests = await showTestRows(session, { includeTest: sp.get("includeTest"), branches });
+  // 지점을 고르지 않으면 통계 제외 지점(본부 · 테스트지점)은 뺀다 — 「테스트 포함」이면 테스트지점은 넣는다(본부는 그대로 뺀다)
+  const excluded = branches ? [] : (await excludedBranchNames()).filter((b) => !withTests || b === "본부");
 
   const today = kstTodayDateUTC();
   const fromD = dateOf(from), toD = dateOf(to);
@@ -64,6 +68,7 @@ export async function GET(request: NextRequest) {
       role: { not: "ADMIN" },
       ...(branches ? { branch: { in: branches } } : excluded.length ? { OR: [{ branch: null }, { branch: { notIn: excluded } }] } : {}),
       AND: [empWhere],
+      ...(withTests ? {} : { NOT: await testAccountWhere() }),   // 테스트 계정은 뺀다(■0-9) — 위 withTests 일 때만 넣는다
     },
     select: { id: true, name: true, empNo: true, branch: true, position: true, jobGroup: true, role: true, resignDate: true, hireDate: true, employmentStatus: true },
     orderBy: [{ branch: "asc" }, { name: "asc" }],
@@ -174,15 +179,34 @@ export async function GET(request: NextRequest) {
   const holidayMap: Record<string, true> = {};
   for (const h of holidays) holidayMap[h] = true;
 
+  // 찍은 시각 · 일한 시간 · 주 근무시간은 본부만(2026-10-23 ■0-11) — 원장(「출퇴근 시각 보기」 끔)에게는 칸마다 상태만.
+  // 시각 · 휴게 · 총 시간 · 수정 이력(원래 시각이 들어 있다)을 빼고, 찍었는지는 hasIn · hasOut 으로 남긴다. 49시간 초과 표시도 뺀다
+  const showTimes = await canSeeClockTimes(session.role);
+  const workDaysOf = (u: string) => Object.values(cells[u] ?? {}).filter((c) => c.in).length;   // 출근일(출근 기록이 있는 날) — 시각을 빼기 전에 센다
+  const workDays = new Map(users.map((u) => [u.id, workDaysOf(u.id)]));
+  if (!showTimes) {
+    for (const row of Object.values(cells)) for (const c of Object.values(row) as (Cell & { hasIn?: boolean; hasOut?: boolean })[]) {
+      c.hasIn = !!c.in; c.hasOut = !!c.out;
+      delete c.in; delete c.out; delete c.workMin; delete c.breakMin; delete c.edit;
+      // 장소 글자에 든 시각도 지운다 — 퇴근 누락 본인 동의는 「22:00 퇴근 처리 · 본인 동의 …」를 남긴다(10/23 검증 B)
+      if (c.inPlace !== undefined) c.inPlace = placeWithoutTime(c.inPlace);
+      if (c.outPlace !== undefined) c.outPlace = placeWithoutTime(c.outPlace);
+    }
+  }
+
+  const testIds = withTests ? await testAccountIds(ids) : new Set<string>();
   return NextResponse.json({
     from, to, days, holidays: holidayMap,
+    withTests,   // 테스트 계정을 넣어 보여 주는 중(숫자에는 늘 빠진다)
     users: users.map((u) => ({
       id: u.id, name: u.name, empNo: u.empNo, branch: u.branch, position: u.position, jobGroup: u.jobGroup, role: u.role,
       resigned: !!u.resignDate && u.resignDate < today,
-      workDays: Object.values(cells[u.id] ?? {}).filter((c) => c.in).length,   // 출근일(출근 기록이 있는 날)
+      workDays: workDays.get(u.id) ?? 0,   // 출근일(출근 기록이 있는 날)
+      isTest: testIds.has(u.id),   // 테스트 계정 — 화면에 「테스트 계정」 표시
     })),
     cells,
-    over49,
+    over49: showTimes ? over49 : {},
+    timesHidden: !showTimes,
     truncated,
     canEdit: session.role === "ADMIN",   // 원장은 보기만 — 수정은 출퇴근기록 수정 요청 승인으로(#53)
   });

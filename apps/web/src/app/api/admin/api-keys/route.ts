@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { publicKey } from "@/lib/api-key";
 import { hiddenIdsFor } from "@/lib/hidden-accounts";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 볼 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 볼 수 있습니다." }, { status: 403 });
   // 개발자 영역(메인 관리자)의 허용 행·키는 보는 사람에게만(2026-10-17 디렉터) — 키가 통하는지는 그대로다
   const hidden = await hiddenIdsFor(session);
   const [allowed, keys] = await Promise.all([

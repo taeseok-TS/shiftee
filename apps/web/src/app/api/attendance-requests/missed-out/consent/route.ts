@@ -6,7 +6,8 @@ import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { statusForAutoFill } from "@/lib/attendance-policy";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { verifyAttendanceDevice } from "@/lib/device";
-import { consentEligibility, hasPendingOutRequest, kstHhmm } from "@/lib/missed-out";
+import { CLOSE_HIDDEN_REASON, closeRevealsClockIn, consentEligibility, hasPendingOutRequest, kstHhmm } from "@/lib/missed-out";
+import { canSeeClockTimes } from "@/lib/attendance-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,10 @@ export async function POST(request: NextRequest) {
   if (att.clockOut) return NextResponse.json({ error: "이미 퇴근이 기록된 날입니다." }, { status: 409 });
 
   const elig = await consentEligibility(session.userId, att.clockIn, date);
+  // 10/23 검증 M2 — 출근 시각에서 계산된 마감(근태 규칙 출근 + n시간 · 상한)은 시각을 못 보는 사람이 동의할 수 없다(안내 GET 이 시각을 숨긴다).
+  // 아래 409 응답 · 성공 응답이 그 시각을 알려 주지 않게 자격 판단보다 먼저 막는다
+  if (!(await canSeeClockTimes(session.role)) && closeRevealsClockIn(elig.close))
+    return NextResponse.json({ error: CLOSE_HIDDEN_REASON }, { status: 400 });
   if (!elig.ok) return NextResponse.json({ error: elig.reason ?? "본인 동의로 처리할 수 없습니다." }, { status: 400 });
   const clockOut = elig.close.at;
   const hhmm = kstHhmm(clockOut);

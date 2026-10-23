@@ -15,6 +15,7 @@ import { downloadActiveEmployeesExcel, downloadResignedEmployeesExcel, downloadR
 
 type ActiveStats = {
   total: number;
+  onLeave?: number;   // 휴직(임시휴무 포함) — total 에 들어 있다(2026-10-23 ■3)
   byPosition: Record<string, number>;
   byBranch: Record<string, { total: number; [key: string]: number }>;
   date: string;
@@ -330,7 +331,8 @@ export default function EmployeeStatsPage() {
                 <p className="text-3xl font-bold text-blue-600">
                   {activeStats.total}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">총 재직인원</p>
+                <p className="text-sm text-gray-500 mt-1">전체 직원</p>
+                <p className="text-[12px] text-gray-500">지점 재직{typeof activeStats.onLeave === "number" ? ` ${activeStats.total - activeStats.onLeave} + 휴직 ${activeStats.onLeave}` : " + 휴직"}</p>
               </div>
             </CardContent>
           </Card>
@@ -348,6 +350,8 @@ export default function EmployeeStatsPage() {
             </Card>
           ))}
         </div>
+
+        <p className="text-[12.5px] text-[#596578]">포털 인사카드 기준 · 본부 · 퇴사자 · 테스트 계정 · 테스트지점은 세지 않음{inclAdmins ? " · 관리자 포함" : ""}</p>
 
         {/* 지점별 상세 */}
         {Object.keys(activeStats.byBranch).length > 0 && (

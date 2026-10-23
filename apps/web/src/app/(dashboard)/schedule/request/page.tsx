@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Calendar, ChevronRight } from "lucide-react";
 import { format, eachDayOfInterval, isWeekend, getDay } from "date-fns";
-import { ko } from "date-fns/locale";
 import { toast } from "sonner";
+import { templateLabel } from "@/lib/schedule-label";
+import { fmtRangeKo, fmtRangeShort } from "@/lib/leave-period";
 
 /* ── 타입 ── */
 type ScheduleTemplate = {
@@ -21,7 +22,8 @@ type ScheduleTemplate = {
 /* ── 근무 템플릿 — 본부가 관리하는 템플릿 표에서 받는다(2026-10-07 QA #10). 전사 공통 + 내 지점 전용 ── */
 const toTemplate = (t: { id: string; name: string; startTime: string; endTime: string }): ScheduleTemplate => {
   const [sh, sm] = t.startTime.split(":").map(Number), [eh, em] = t.endTime.split(":").map(Number);
-  return { id: t.id, name: `${t.name} (${t.startTime}~${t.endTime})`, startTime: t.startTime, endTime: t.endTime, hours: Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 6) / 10 };
+  // 이름에 이미 같은 시간이 있으면 덧붙이지 않는다(templateLabel — 「학기중(13:00–22:00)」 두 번 방지)
+  return { id: t.id, name: templateLabel(`${t.name} (${t.startTime}~${t.endTime})`), startTime: t.startTime, endTime: t.endTime, hours: Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 6) / 10 };
 };
 
 /* ── 휴게시간 계산 (근로기준법: 4.5시간 이상 30분, 9시간 이상 1시간) ── */
@@ -41,7 +43,7 @@ function buildCustomTemplate(start: string, end: string): ScheduleTemplate | nul
   const hours = Math.round((minutes / 60) * 10) / 10;
   return {
     id: "custom",
-    name: `직접설정 (${start}~${end})`,
+    name: templateLabel(`직접 입력 (${start}~${end})`),
     startTime: start,
     endTime: end,
     hours,
@@ -115,20 +117,21 @@ export default function ScheduleRequestPage() {
   useEffect(() => { fetchMyRequests(); }, [fetchMyRequests]);
 
   const cancelMyRequest = async (id: string) => {
-    if (!confirm("이 신청을 취소할까요?\n\n취소하면 결재가 중단되고 기록에는 '취소'로 남습니다.")) return;
+    if (!confirm("이 요청을 취소할까요?\n\n취소하면 결재가 중단되고 기록에는 '취소'로 남습니다.")) return;
     setCancelingId(id);
     try {
       const res = await fetch(`/api/schedule-requests/${id}`, { method: "DELETE" });
       const d = await res.json().catch(() => ({}));
-      if (res.ok) { toast.success("신청을 취소했습니다"); fetchMyRequests(); }
+      if (res.ok) { toast.success("요청을 취소했습니다"); fetchMyRequests(); }
       else toast.error(d.error || "취소하지 못했습니다");
     } catch { toast.error("오류가 발생했습니다"); }
     finally { setCancelingId(""); }
   };
 
   const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
-    PENDING:   { text: "결재 대기", cls: "bg-amber-100 text-amber-700" },
-    APPROVED:  { text: "승인",     cls: "bg-green-100 text-green-700" },
+    // 대기 = 주황 알약, 승인 = 연인디고(초록 쓰지 않음 — ■1 · ■4)
+    PENDING:   { text: "승인 대기", cls: "bg-amber-100 text-amber-800" },
+    APPROVED:  { text: "승인",     cls: "bg-indigo-50 text-indigo-700" },
     REJECTED:  { text: "반려",     cls: "bg-red-100 text-red-700" },
     CANCELLED: { text: "취소",     cls: "bg-gray-100 text-gray-600" },
   };
@@ -298,10 +301,6 @@ export default function ScheduleRequestPage() {
   }, [step, previewKey]);
   const policyPreview = serverPreview && serverPreview.key === previewKey ? serverPreview.steps : fallbackPreview;
 
-  // 날짜 미선택 시에도 안전한 포맷 (빈 값이면 "-" 표시)
-  const fmtDate = (value: string, pattern: string) =>
-    value ? format(new Date(value), pattern, { locale: ko }) : "-";
-
   // 신청 제출
   const handleSubmit = async () => {
     try {
@@ -333,13 +332,13 @@ export default function ScheduleRequestPage() {
       });
 
       if (res.ok) {
-        toast.success("근무일정 신청이 완료되었습니다");
+        toast.success("근무 변경 요청을 보냈습니다");
         // 승인되면 주 49시간을 넘는 주가 있으면 알려 준다(막지 않는다, #38) — 읽을 시간을 조금 더 준다
         const ok = await res.json().catch(() => ({}));
         const warns = (ok.warnings || []) as string[];
         if (warns.length) {
           // 경고는 읽을 때까지 둔다 — 「확인」을 누르면 일정 화면으로
-          window.alert(`신청은 접수되었습니다.\n\n${warns.slice(0, 5).map((w) => `⚠ ${w}`).join("\n")}${warns.length > 5 ? `\n그 밖에 ${warns.length - 5}건` : ""}`);
+          window.alert(`요청을 보냈습니다.\n\n${warns.slice(0, 5).map((w) => `· ${w}`).join("\n")}${warns.length > 5 ? `\n그 밖에 ${warns.length - 5}건` : ""}`);
           window.location.href = "/schedule";
         } else {
           setTimeout(() => {
@@ -348,7 +347,7 @@ export default function ScheduleRequestPage() {
         }
       } else {
         const data = await res.json();
-        toast.error(data.error || "신청 중 오류가 발생했습니다");
+        toast.error(data.error || "요청을 보내지 못했습니다");
       }
     } catch (error) {
       toast.error("오류가 발생했습니다");
@@ -359,22 +358,23 @@ export default function ScheduleRequestPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <h1 className="text-2xl font-bold text-gray-900 whitespace-nowrap">근무 변경 요청</h1>
       {/* 진행 상태 */}
       <div className="flex items-center gap-4">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-          step >= 1 ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"
+          step >= 1 ? "bg-[#4f46e5] text-white" : "bg-gray-200 text-gray-600"
         }`}>
           1
         </div>
-        <div className={`flex-1 h-1 ${step >= 2 ? "bg-blue-600" : "bg-gray-200"}`} />
+        <div className={`flex-1 h-1 ${step >= 2 ? "bg-[#4f46e5]" : "bg-gray-200"}`} />
         <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-          step >= 2 ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"
+          step >= 2 ? "bg-[#4f46e5] text-white" : "bg-gray-200 text-gray-600"
         }`}>
           2
         </div>
-        <div className={`flex-1 h-1 ${step >= 3 ? "bg-blue-600" : "bg-gray-200"}`} />
+        <div className={`flex-1 h-1 ${step >= 3 ? "bg-[#4f46e5]" : "bg-gray-200"}`} />
         <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-          step >= 3 ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"
+          step >= 3 ? "bg-[#4f46e5] text-white" : "bg-gray-200 text-gray-600"
         }`}>
           3
         </div>
@@ -384,19 +384,18 @@ export default function ScheduleRequestPage() {
       {myRequests.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">내 신청 내역</CardTitle>
+            <CardTitle className="text-base">내 요청</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {myRequests.slice(0, 10).map((r) => {
               const badge = STATUS_LABEL[r.status] ?? { text: r.status, cls: "bg-gray-100 text-gray-600" };
-              const ymd = (v: string) => format(new Date(v), "MM.dd", { locale: ko });
               return (
                 <div key={r.id} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${badge.cls}`}>{badge.text}</span>
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-gray-900 truncate">
-                      {ymd(r.startDate)} ~ {ymd(r.endDate)}
-                      {r.templateName && <span className="text-gray-400 font-normal"> · {r.templateName}</span>}
+                      {fmtRangeShort(r.startDate, r.endDate)}
+                      {r.templateName && <span className="text-gray-400 font-normal"> · {templateLabel(r.templateName)}</span>}
                     </div>
                     <div className="text-xs text-gray-500">
                       {r.totalHours}시간
@@ -430,7 +429,7 @@ export default function ScheduleRequestPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>근무 시간 템플릿 선택</CardTitle>
+              <CardTitle>근무 시간 고르기</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -440,8 +439,8 @@ export default function ScheduleRequestPage() {
                     onClick={() => setSelectedTemplate(template)}
                     className={`p-4 border-2 rounded-lg transition-all ${
                       selectedTemplate?.id === template.id
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-gray-200 hover:border-blue-300"
+                        ? "border-[#4f46e5] bg-indigo-50"
+                        : "border-gray-200 hover:border-indigo-300"
                     }`}
                   >
                     <div className="text-lg font-bold text-gray-900">{template.name}</div>
@@ -458,11 +457,11 @@ export default function ScheduleRequestPage() {
                 }}
                 className={`p-4 border-2 rounded-lg transition-all cursor-pointer ${
                   selectedTemplate?.id === "custom"
-                    ? "border-blue-600 bg-blue-50"
-                    : "border-dashed border-gray-300 hover:border-blue-300"
+                    ? "border-[#4f46e5] bg-indigo-50"
+                    : "border-dashed border-gray-300 hover:border-indigo-300"
                 }`}
               >
-                <div className="text-lg font-bold text-gray-900 mb-2">⚙️ 직접 설정</div>
+                <div className="text-lg font-bold text-gray-900 mb-2">직접 입력</div>
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-600">출근</span>
@@ -487,7 +486,7 @@ export default function ScheduleRequestPage() {
                       className="px-2 py-1.5 border rounded-md text-sm"
                     />
                   </div>
-                  <span className="text-sm font-medium text-blue-600">
+                  <span className="text-sm font-medium text-[#4f46e5]">
                     {buildCustomTemplate(customStart, customEnd)
                       ? `${buildCustomTemplate(customStart, customEnd)!.hours}시간`
                       : "시간을 확인해주세요"}
@@ -499,7 +498,7 @@ export default function ScheduleRequestPage() {
                 <Button
                   onClick={() => setStep(2)}
                   disabled={!selectedTemplate}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-[#4f46e5] hover:bg-[#4338ca] text-white"
                 >
                   다음 <ChevronRight size={16} className="ml-1" />
                 </Button>
@@ -524,7 +523,7 @@ export default function ScheduleRequestPage() {
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -533,7 +532,7 @@ export default function ScheduleRequestPage() {
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -554,14 +553,15 @@ export default function ScheduleRequestPage() {
 
                   <div className="grid grid-cols-7 gap-2">
                     {/* 요일 헤더 */}
-                    {["일", "월", "화", "수", "목", "금", "토"].map((day, idx) => (
-                      <div key={idx} className="text-center text-sm font-semibold text-gray-600 py-2">
+                    {/* 한 주 = 월 ~ 일(■4), 토 · 일은 회색 */}
+                    {["월", "화", "수", "목", "금", "토", "일"].map((day, idx) => (
+                      <div key={idx} className={`text-center text-sm font-semibold py-2 ${idx >= 5 ? "text-gray-400" : "text-gray-600"}`}>
                         {day}
                       </div>
                     ))}
 
-                    {/* 시작 요일 위치 맞춤 (빈 칸 패딩) */}
-                    {Array.from({ length: getDay(new Date(startDate)) }).map((_, i) => (
+                    {/* 시작 요일 위치 맞춤 (빈 칸 패딩, 월요일 시작) */}
+                    {Array.from({ length: (getDay(new Date(startDate)) + 6) % 7 }).map((_, i) => (
                       <div key={`pad-${i}`} />
                     ))}
 
@@ -591,15 +591,15 @@ export default function ScheduleRequestPage() {
                           }}
                           className={`p-2 rounded text-sm font-medium transition-all ${
                             isSelected
-                              ? "bg-blue-600 text-white"
+                              ? "bg-[#4f46e5] text-white"
                               : isWeekendDay
-                              ? `bg-gray-50 hover:bg-gray-200 ${getDay(day) === 0 || holidayName ? "text-red-500" : "text-blue-500"}`
+                              ? "bg-gray-50 hover:bg-gray-200 text-gray-400"
                               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                           }`}
                         >
                           {format(day, "d")}
                           {holidayName && (
-                            <span className={`block text-[9px] leading-tight truncate ${isSelected ? "text-red-100" : "text-red-500"}`}>
+                            <span className={`block text-[9px] leading-tight truncate ${isSelected ? "text-indigo-100" : "text-gray-500"}`}>
                               {holidayName}
                             </span>
                           )}
@@ -616,7 +616,7 @@ export default function ScheduleRequestPage() {
               )}
 
               {/* 선택 요약 */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-2 text-blue-700">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 flex items-start gap-2 text-indigo-800">
                 <Calendar size={16} className="mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <div>
@@ -628,16 +628,16 @@ export default function ScheduleRequestPage() {
                     )}
                   </div>
                   {excludedHolidays.length > 0 && (
-                    <div className="text-sm text-red-600">
+                    <div className="text-sm text-gray-600">
                       공휴일 <span className="font-semibold">{excludedHolidays.length}일</span> 제외
-                      <span className="ml-1 text-xs text-red-500">
+                      <span className="ml-1 text-xs text-gray-500">
                         ({excludedHolidays.slice(0, 3).join(", ")}{excludedHolidays.length > 3 ? " 외" : ""})
                       </span>
                     </div>
                   )}
                   {holidayState === "error" && (
                     <div className="text-sm text-amber-700">
-                      ⚠️ 공휴일 정보를 불러오지 못했습니다 — 연휴가 근무일로 잡힐 수 있으니 날짜를 확인해주세요.
+                      공휴일 정보를 불러오지 못했습니다 — 연휴가 근무일로 잡힐 수 있으니 날짜를 확인해주세요.
                     </div>
                   )}
                   {leaveDeduction > 0 && (
@@ -660,7 +660,7 @@ export default function ScheduleRequestPage() {
                 <Button
                   onClick={() => setStep(3)}
                   disabled={selectedDates.size === 0}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-[#4f46e5] hover:bg-[#4338ca] text-white"
                 >
                   다음 <ChevronRight size={16} className="ml-1" />
                 </Button>
@@ -675,13 +675,13 @@ export default function ScheduleRequestPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>결재라인 확인</CardTitle>
+              <CardTitle>결재 순서</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 {policyPreview.map((p, idx) => (
                   <div key={idx} className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                    <div className="w-12 h-12 rounded-full bg-indigo-50 text-[#4f46e5] flex items-center justify-center font-bold">
                       {idx + 1}
                     </div>
                     <div className="flex-1">
@@ -694,18 +694,18 @@ export default function ScheduleRequestPage() {
                   </div>
                 ))}
                 <p className="text-xs text-gray-400">
-                  {hasWeekendSel ? "주말·공휴일 근무가 포함되어" : "평일 근무만 신청하여"} 위 순서로 결재됩니다.
+                  {hasWeekendSel ? "주말 · 공휴일 근무가 들어 있어" : "평일 근무만 요청해"} 위 순서로 결재됩니다.
                 </p>
               </div>
 
               {/* 신청 요약 */}
               <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                <h4 className="font-semibold text-gray-900">신청 요약</h4>
+                <h4 className="font-semibold text-gray-900">요청 내용</h4>
                 <div className="text-sm text-gray-600 space-y-1">
                   <div>근무 시간: <span className="font-medium">{selectedTemplate?.name}</span></div>
-                  <div>기간: <span className="font-medium">{fmtDate(startDate, "yyyy년 M월 d일")} ~ {fmtDate(endDate, "M월 d일")}</span></div>
+                  <div>기간: <span className="font-medium">{startDate && endDate ? fmtRangeKo(startDate, endDate) : "-"}</span></div>
                   <div>선택 날짜: <span className="font-medium">{selectedDates.size}일</span></div>
-                  <div>총 시간: <span className="font-medium text-blue-600">{totalHours}시간</span></div>
+                  <div>총 시간: <span className="font-medium text-gray-900">{totalHours}시간</span></div>
                 </div>
               </div>
 
@@ -716,9 +716,9 @@ export default function ScheduleRequestPage() {
                 <Button
                   onClick={() => setConfirmOpen(true)}
                   disabled={selectedDates.size === 0}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-[#4f46e5] hover:bg-[#4338ca] text-white"
                 >
-                  신청하기
+                  요청하기
                 </Button>
               </div>
             </CardContent>
@@ -730,21 +730,21 @@ export default function ScheduleRequestPage() {
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>근무일정 신청 확인</DialogTitle>
+            <DialogTitle>근무 변경 요청 확인</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-              <h4 className="font-semibold text-gray-900">신청 내용</h4>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 space-y-2">
+              <h4 className="font-semibold text-gray-900">요청 내용</h4>
               <div className="text-sm text-gray-700 space-y-1">
                 <div>• 근무 시간: {selectedTemplate?.name}</div>
-                <div>• 기간: {fmtDate(startDate, "yyyy년 M월 d일")} ~ {fmtDate(endDate, "M월 d일")}</div>
+                <div>• 기간: {startDate && endDate ? fmtRangeKo(startDate, endDate) : "-"}</div>
                 <div>• 선택 날짜: {selectedDates.size}일</div>
-                <div>• 총 근무시간: <span className="font-bold text-blue-600">{totalHours}시간</span></div>
+                <div>• 총 근무시간: <span className="font-bold text-gray-900">{totalHours}시간</span></div>
               </div>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-sm text-amber-800">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <p className="text-sm text-gray-700">
                 다음 결재자에게 요청이 전달됩니다: {policyPreview[0]?.label}
               </p>
             </div>
@@ -756,15 +756,15 @@ export default function ScheduleRequestPage() {
               <Button
                 onClick={handleSubmit}
                 disabled={loading}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-[#4f46e5] hover:bg-[#4338ca] text-white"
               >
                 {loading ? (
                   <>
                     <Loader2 size={16} className="animate-spin mr-2" />
-                    제출 중...
+                    보내는 중...
                   </>
                 ) : (
-                  "제출하기"
+                  "요청 보내기"
                 )}
               </Button>
             </div>

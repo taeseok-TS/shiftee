@@ -185,7 +185,7 @@ export default function SettingsScreen({ navigation }: any) {
           <View style={{ flex: 1 }}>
             <Text style={styles.menuLabel}>결재 결과 알림</Text>
             <Text style={styles.menuHint}>
-              {notifyForced ? "관리자 정책으로 항상 발송됩니다" : "휴가·근무일정 승인/반려 푸시 알림 (꺼도 봇 대화방에는 남습니다)"}
+              {notifyForced ? "관리자 정책으로 항상 발송됩니다" : "휴가 · 근무 변경 승인 · 반려를 휴대폰 알림으로 알려드립니다 (꺼도 큐브티워크 알림방에는 남습니다)"}
             </Text>
           </View>
           <Switch

@@ -67,13 +67,13 @@ export async function GET() {
 // 한꺼번에 마감(POST)은 없앴다(2026-10-23 본부 — 근로감독 대비, 임의 값 자동 입력 금지).
 // 미마감은 출퇴근 현황 줄마다 「보정」(MissingFixDialog → PATCH /api/attendance/[id], 사유 필수 · 고친 사람 실명)으로 한 건씩.
 
-/** 그 날 대기 중인 출퇴근 요청(기기 변경 제외)이 있는 「사람:날짜」 */
+/** 그 날 대기 중인 출퇴근 요청(기기 변경 · 기록 요청 제외)이 있는 「사람:날짜」 */
 async function pendingRequestKeys(rows: { userId: string; date: Date }[]): Promise<Set<string>> {
   if (rows.length === 0) return new Set();
   const reqs = await prisma.attendanceRequest.findMany({
     where: {
       status: "PENDING",
-      kind: { not: "DEVICE" },
+      kind: { notIn: ["DEVICE", "RECORD"] },   // 출퇴근 기록 요청(RECORD)도 보정을 막지 않는다(10/23 검증 F)
       OR: rows.map((r) => ({ userId: r.userId, workDate: r.date })),
     },
     select: { userId: true, workDate: true },

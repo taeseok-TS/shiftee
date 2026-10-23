@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { absentUserIds } from "@/lib/attendance-absent";
 import { autoCloseTime, autoOpenTime, autoFillSettings } from "@/lib/attendance-policy";
+import { countableEmployeeWhere, headcountSummary, testRequesterExclusion } from "@/lib/employee-scope";
+import { templateLabel } from "@/lib/schedule-label";
 
 // 관리자 대시보드 통계 (오늘 근무 현황 + 대기 결재 + 직원 수)
 export async function GET() {
@@ -17,24 +19,14 @@ export async function GET() {
   const nowDate = new Date();
   const today = kstTodayDateUTC();
 
-  // 재직 중인 직원 (관리자 제외). "통계 포함" 꺼진 지점(테스트지점·본부 등) 소속은 카운트 제외
-  const excludedBranches = (
-    await prisma.branch.findMany({ where: { countInStats: false }, select: { name: true } })
-  ).map((b) => b.name);
-  const pendingForMe = { status: "PENDING" as const, userId: { not: session.userId } };
-
-  const employeeWhere = {
-    role: { not: "ADMIN" as const },
-    isActive: true,
-    deletedAt: null,
-    employmentStatus: "ACTIVE" as const,
-    ...(excludedBranches.length > 0
-      ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }] }
-      : {}),
-    // 퇴사일이 지난 사람은 뺀다 — 퇴사일 당일까지는 재직(lib/resign isResigned 와 같은 규칙, 2026-10-17 #219 검증 F3).
-    // employmentStatus 는 퇴사일이 지나도 배치 없이 ACTIVE 로 남을 수 있다(퇴사일 처리 — 지나면 화면에서만 퇴직자로 본다)
-    AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: today } }] }],
-  };
+  // 근태를 세는 사람 = 지점 직원(재직 · 휴직 빼고). 관리자 · 통계 제외 지점(본부 · 테스트지점) · 퇴사일 지난 사람 · 테스트 계정 제외 —
+  // 인원 숫자 공용 기준(lib/employee-scope, 2026-10-23 ■0-9 · ■3). 퇴사일 조건은 AND 에 있어 아래 「최근 7일 누락」이 바꿔 끼운다
+  // 결재 숫자 · 목록은 결재함과 같은 기준 — 테스트 계정이 올린 신청은 뺀다(2026-10-23 이예지 답, 결재함은 「테스트 포함」으로만 보인다)
+  const testEx = await testRequesterExclusion(session);
+  const pendingForMe = { status: "PENDING" as const, userId: { not: session.userId }, ...(testEx ? { user: testEx } : {}) };
+  const employeeWhere = await countableEmployeeWhere({ activeOn: today });
+  // 「전체 직원」 칸 = 지점 재직 + 휴직(인사카드 기준) — 인사 › 직원 · 현황과 같은 숫자
+  const headcount = await headcountSummary({ activeOn: today });
 
   const [members, todayRecords, onLeave, pendingLeave, pendingSchedule, pendingLeaveItems, pendingScheduleItems, missingRecords] =
     // 관리자 결재함(my-approvals)은 **본인 신청을 뺀다.** 대시보드 숫자도 같아야
@@ -94,7 +86,7 @@ export async function GET() {
       }),
     ]);
 
-  const totalEmployees = members.length;
+  const totalEmployees = headcount.total;
   const present = todayRecords.filter((r) => r.clockIn).length;
   const late = todayRecords.filter((r) => r.status === "LATE").length;
   const earlyLeave = todayRecords.filter((r) => r.status === "EARLY_LEAVE").length;
@@ -173,7 +165,7 @@ export async function GET() {
     ...pendingScheduleItems.map((r) => ({
       id: r.id,
       type: "schedule" as const,
-      title: `${r.templateName?.startsWith("근무일정") ? "" : "근무일정 "}${r.templateName ?? ""} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
+      title: `${r.templateName?.startsWith("근무일정") ? "" : "근무일정 "}${templateLabel(r.templateName)} ${fmt(r.startDate)}~${fmt(r.endDate)}`,
       requester: r.user.name,
       requestedAt: r.createdAt,
       note: `근무일정 승인${stepNote(r.approvalSteps)}`,
@@ -196,7 +188,8 @@ export async function GET() {
     ? await prisma.attendanceRequest.findMany({
         where: {
           status: "PENDING",
-          kind: { not: "DEVICE" },
+          // 기기 변경 · 출퇴근 기록 요청(RECORD — 기록을 내 달라는 요청, 기록을 바꾸지 않는다)은 보정을 막지 않는다(10/23 검증 F)
+          kind: { notIn: ["DEVICE", "RECORD"] },
           OR: missingRecords.map((r) => ({ userId: r.userId, workDate: r.date })),
         },
         select: { userId: true, workDate: true },
@@ -228,6 +221,7 @@ export async function GET() {
 
   return NextResponse.json({
     totalEmployees,
+    headcount: { total: headcount.total, staff: headcount.staff, onLeave: headcount.onLeave, managers: headcount.managers, basis: headcount.basis },
     // 휴가 = 오늘 걸친 승인 휴가가 있는 **사람 수**(지점별 표와 같은 기준 — 신청 건수(onLeave count)는 반차 두 건이면 2가 됐다, R10 검증)
     attendance: { present, late, absent, earlyLeave, onLeave: memberIds.length ? leaveSet.size : onLeave, scheduled },
     byBranch,

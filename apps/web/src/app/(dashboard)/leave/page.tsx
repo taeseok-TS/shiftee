@@ -16,10 +16,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   UmbrellaOff, Plus, X, CalendarDays,
   ClipboardList, Pencil, GitBranch, ChevronRight,
-  Trash2, Search, ArrowUp, ArrowDown,
+  Trash2, Search, ArrowUp, ArrowDown, Paperclip,
 } from "lucide-react";
-import { format } from "date-fns";
 import { toast } from "sonner";
+import { fmtDayShort, fmtRangeKo } from "@/lib/leave-period";
 import { postLeaveApprove } from "@/lib/leave-approve-client";
 import { PageHead, Btn, Box, Tiles, Tile, FilterRow, Chip, inputClass, tableClass, StatusPill, FlowDots, MoreMenu, type PillTone, type MoreItem } from "@/components/kit";
 
@@ -88,10 +88,36 @@ function stepLabel(s: ApprovalStepInfo) {
   if (s.approverRole === "ADMIN") return "관리자";
   return "결재자";
 }
-function ApprovalChain({ steps }: { steps: ApprovalStepInfo[] }) {
+function ApprovalChain({ steps, status }: { steps: ApprovalStepInfo[]; status?: string }) {
   if (!steps || steps.length === 0) return null;
+  // 본인이 취소한 신청은 남은 단계가 닫히며(REJECTED · 「신청 취소」) 「관리자 반려」로 보였다 — 상태와 같은 말 「취소함」 하나로(2026-10-23 ■1)
+  if (status === "CANCELLED") {
+    const done = steps.filter((s) => s.status === "APPROVED");
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {done.length > 0 && <FlowDots steps={done.map((s) => ({ label: stepLabel(s), state: "done" as const }))} />}
+        <span className="text-[13px] font-semibold text-[#475569]">취소함</span>
+      </span>
+    );
+  }
   // 반려한 사람은 「반려」를 이름 옆에 붙인다 — 점 색만으로는 반려와 남음이 구분되지 않는다
   return <FlowDots steps={steps.map((s) => ({ label: s.status === "REJECTED" ? `${stepLabel(s)} 반려` : stepLabel(s), state: s.status === "APPROVED" ? "done" : s.status === "PENDING" ? "now" : "todo" }))} />;
+}
+
+/* ── 날짜 버튼(S1-3) — 「연도-월-일」 빈 칸 대신 「달력 11/5 (목)」 버튼. 누르면 달력(showPicker), 아이폰은 칸을 눌러 바로 열린다 ── */
+function DateButton({ value, label, min, onChange }: { value: string; label: string; min?: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative flex-1">
+      <span aria-hidden className={`flex min-h-11 items-center gap-2 rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2 text-[14.5px] font-semibold ${value ? "text-[#0f172a]" : "text-[#94a3b8]"}`}>
+        <CalendarDays size={16} className="shrink-0 text-[#4f46e5]" />{value ? fmtDayShort(value) : label}
+      </span>
+      {/* 실제 날짜 칸은 버튼 위에 투명하게 겹친다 — 누르는 자리 전체가 칸이라 휴대폰은 그대로 열리고, PC 는 showPicker 로 연다 */}
+      <input type="date" value={value} min={min} required aria-label={label}
+        onClick={(e) => { try { (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.(); } catch { /* 지원하지 않는 브라우저는 기본 동작 */ } }}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+    </div>
+  );
 }
 
 export default function LeavePage() {
@@ -225,7 +251,8 @@ export default function LeavePage() {
     e.preventDefault();
     if (daysPreview.status === "ok" && daysPreview.data.blocked) { toast.error(daysPreview.data.reason || "신청할 수 없습니다."); return; }
     if (!canSubmit) { toast.error("올바른 날짜 범위를 선택해주세요."); return; }
-    if (!form.reason.trim()) { toast.error("신청 사유를 입력해주세요."); return; }
+    // 사유는 증빙이 필요한 휴가만 필수(연차 등은 선택 — 서버 api/leave POST 와 같은 기준, 2026-10-23 ■1)
+    if (leaveInfo(form.type)?.attachRequired && !form.reason.trim()) { toast.error("신청 사유를 입력해주세요."); return; }
     { const ti = leaveInfo(form.type); if (ti?.attachRequired && !form.attachmentUrl) { toast.error(`${ti.label}은(는) ${ti.attachRequired} 첨부가 필요합니다.`); return; } }
     const res  = await fetch("/api/leave", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -239,16 +266,24 @@ export default function LeavePage() {
     fetchRequests(); fetchBalance(); fetchMySteps(); fetchPending();
   }
 
+  const [uploading, setUploading] = useState(false);
   async function handleAttachUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/work/upload", { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok) { toast.error(data.error || "첨부 업로드에 실패했습니다."); return; }
-    setForm(f => ({ ...f, attachmentUrl: data.fileUrl, attachmentName: data.fileName }));
-    e.target.value = "";
+    setUploading(true);
+    try {
+      const res = await fetch("/api/work/upload", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || "첨부 업로드에 실패했습니다."); return; }
+      setForm(f => ({ ...f, attachmentUrl: data.fileUrl, attachmentName: data.fileName }));
+    } catch {
+      toast.error("네트워크 오류로 올리지 못했습니다.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   }
 
   /* ── 승인 ── */
@@ -367,16 +402,12 @@ export default function LeavePage() {
   }
 
   /* ── 신청 내역 칸(표·카드 공용, #219-16) — 원래 표 칸에 있던 그대로. 모양만 둘이고 내용·조건은 여기 하나 ── */
-  const leavePeriod = (r: LeaveRequest) => (
-    <>
-      {format(new Date(r.startDate), "yyyy.MM.dd")}
-      {r.startDate !== r.endDate && ` ~ ${format(new Date(r.endDate), "MM.dd")}`}
-    </>
-  );
+  // 「10월 5일 (월) ~ 7일 (수)」 — 해가 바뀌는 기간만 연도(lib/leave-period, ■4)
+  const leavePeriod = (r: LeaveRequest) => <>{fmtRangeKo(r.startDate, r.endDate)}</>;
   const leaveApproval = (r: LeaveRequest) => (
     <>
       {r.approvalSteps && r.approvalSteps.length > 0
-        ? <ApprovalChain steps={r.approvalSteps} />
+        ? <ApprovalChain steps={r.approvalSteps} status={r.status} />
         : <span className="text-[13px] text-[#94a3b8]">—</span>}
       {r.status === "REJECTED" && r.rejectedReason && (
         <p className="mt-0.5 text-[12.5px] font-semibold text-[#be123c]">반려: {r.rejectedReason}</p>
@@ -473,6 +504,8 @@ export default function LeavePage() {
             {requests.length === 0 ? (
               <div className="py-16 text-center text-[14px] text-[#596578]">
                 <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />신청 내역이 없습니다.
+                {/* 빈 화면에도 그 화면의 버튼을(■4) */}
+                <div className="mt-3"><Btn kind="primary" onClick={() => setAddOpen(true)}><Plus size={15} />휴가 신청</Btn></div>
               </div>
             ) : (<>
               <div className="hidden overflow-x-auto md:block">
@@ -693,26 +726,38 @@ export default function LeavePage() {
                 </SelectContent>
               </Select>
             </div>
+            {/* 날짜 — 「연도-월-일」 빈 칸 대신 달력 버튼(누르면 달력, S1-3). 하루짜리 유형(반차 등)은 하루만 고르면 끝 */}
             {SINGLE_DAY_TYPES.has(form.type) ? (
               <div className="space-y-2">
                 <Label>날짜 *</Label>
-                <Input type="date" value={form.startDate} required
-                  onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: e.target.value }))} />
+                <DateButton value={form.startDate} label="날짜 고르기"
+                  onChange={v => setForm(f => ({ ...f, startDate: v, endDate: v }))} />
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>시작일 *</Label>
-                  <Input type="date" value={form.startDate} required
-                    onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              <div className="space-y-2">
+                <Label>날짜 *</Label>
+                <div className="flex items-center gap-2">
+                  <DateButton value={form.startDate} label="시작일"
+                    onChange={v => setForm(f => ({ ...f, startDate: v, endDate: !f.endDate || f.endDate < v ? v : f.endDate }))} />
+                  <span className="text-[#94a3b8]">~</span>
+                  <DateButton value={form.endDate} label="종료일" min={form.startDate}
+                    onChange={v => setForm(f => ({ ...f, endDate: v }))} />
                 </div>
-                <div className="space-y-2">
-                  <Label>종료일 *</Label>
-                  <Input type="date" value={form.endDate} required min={form.startDate}
-                    onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
-                </div>
+                <p className="text-[12.5px] text-[#596578]">하루만 쉬면 시작일만 고르면 됩니다.</p>
               </div>
             )}
+            {/* 「연차 2일 사용 → 남은 연차 15일」(S1-3) — 서버 미리보기 값 그대로. 잔여 숫자 숨김(#219-1)이면 일수만 */}
+            {daysPreview.status === "ok" && daysPreview.data.days > 0 && !daysPreview.data.blocked && leaveInfo(form.type)?.deducts && (() => {
+              const d = daysPreview.data;
+              // 연도를 걸친 휴가(해마다 몫이 둘 이상)는 남은 일수를 한 숫자로 말할 수 없어 일수만 — 해마다 몫은 아래 칸이 보여 준다
+              const split = (d.limit?.years?.length ?? 0) > 1;
+              const avail = !d.balanceHidden && !balanceHidden && !split && d.limit?.kind === "annual" ? d.limit.available : null;
+              return (
+                <div className="rounded-[10px] bg-[#eef2ff] px-4 py-2.5 text-[14px] font-bold text-[#4338ca]">
+                  연차 {d.days}일 사용{avail !== null && avail !== undefined ? ` → 남은 연차 ${Math.round((avail - d.days) * 100) / 100}일` : ""}
+                </div>
+              );
+            })()}
             {yearBal && (
               <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
                 <span className="text-sm text-amber-800">
@@ -727,9 +772,11 @@ export default function LeavePage() {
             )}
             <LeaveDaysPreviewBox state={daysPreview} fixed={!!FIXED_DAYS[form.type]} />
             <div className="space-y-2">
-              <Label>사유 <span className="text-red-500">*</span></Label>
+              {leaveInfo(form.type)?.attachRequired
+                ? <Label>사유 <span className="text-red-500">*</span></Label>
+                : <Label>사유 <span className="text-gray-400 font-normal text-xs">(선택)</span></Label>}
               <Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                placeholder="신청 사유를 입력하세요 (필수)" rows={2} />
+                placeholder={leaveInfo(form.type)?.attachRequired ? "신청 사유를 적어 주세요 (필수)" : "적지 않아도 됩니다"} rows={2} />
             </div>
             <div className="space-y-2">
               <Label>
@@ -745,7 +792,11 @@ export default function LeavePage() {
                     onClick={() => setForm(f => ({ ...f, attachmentUrl: "", attachmentName: "" }))}><X size={15} /></button>
                 </div>
               ) : (
-                <Input type="file" accept="image/*,.pdf,.doc,.docx,.hwp" onChange={handleAttachUpload} />
+                // 「파일 선택 선택된 파일 없음」 기본 칸 대신 버튼 하나(■1 · ■4). 실제 input 은 숨기고 label 로 연다
+                <label className={`flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-[#e2e8f0] bg-white px-4 py-2 text-[14px] font-semibold text-[#4f46e5] hover:bg-[#f8fafc] ${uploading ? "pointer-events-none opacity-60" : ""}`}>
+                  <Paperclip size={15} />{uploading ? "올리는 중…" : "사진 · 파일 올리기"}
+                  <input type="file" accept="image/*,.pdf,.doc,.docx,.hwp" onChange={handleAttachUpload} className="sr-only" disabled={uploading} />
+                </label>
               )}
             </div>
             <div className="flex gap-2 justify-end">

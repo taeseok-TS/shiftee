@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -7,7 +7,7 @@ import { logAudit } from "@/lib/audit";
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 끌 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 끌 수 있습니다." }, { status: 403 });
   const { id } = await params;
   const key = await prisma.apiKey.findUnique({ where: { id } });
   if (!key) return NextResponse.json({ error: "키를 찾을 수 없습니다." }, { status: 404 });

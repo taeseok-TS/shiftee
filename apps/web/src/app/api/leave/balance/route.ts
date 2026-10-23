@@ -56,8 +56,12 @@ export async function GET(request: NextRequest) {
   // 지점 관리에서 「통계 포함」을 끈 지점(본부·테스트지점 등)도 기본으로 뺀다 — 테스트 계정이 실제 인원에 섞여 보였다
   // (2026-10-06 QA 조사). 화면의 「통계 제외 지점(본부·테스트) 포함」을 켜면 넣는다. 원장은 자기 지점만 보므로 손대지 않는다.
   const includeTest = searchParams.get("includeTest") === "true";
-  const { excludedBranchNames } = await import("@/lib/employee-scope");
+  const { excludedBranchNames, showTestRows, testAccountWhere } = await import("@/lib/employee-scope");
   const excludedBranches = session.role === "ADMIN" && !includeTest ? await excludedBranchNames() : [];
+  // 테스트 계정은 기본으로 뺀다(10/23 검증 M3) — 관리자 「통계 제외 지점 포함」(includeTest) · 보는 사람이 테스트 계정 ·
+  // 원장 담당 지점이 모두 테스트지점이면 넣는다(lib/employee-scope showTestRows — 출퇴근 현황과 같은 규칙)
+  const withTests = await showTestRows(session, { includeTest: searchParams.get("includeTest"), branches: session.role === "MANAGER" ? myBranches : null });
+  const notTest = withTests ? [] : [{ NOT: await testAccountWhere() }];
   // 「관리자 포함」을 켜도 개발자 영역(메인 관리자)은 보는 사람에게만(2026-10-17 디렉터)
   const { hiddenWhere } = await import("@/lib/hidden-accounts");
   const hideWhere = await hiddenWhere(session);
@@ -74,6 +78,7 @@ export async function GET(request: NextRequest) {
           ? { OR: [{ branch: null }, { branch: { notIn: excludedBranches } }, ...(includeAdmins ? [{ role: "ADMIN" as const }] : [])] }
           : {}),
         ...hideWhere,
+        ...(notTest.length ? { AND: notTest } : {}),
       },
       select: { id: true, name: true, email: true, department: true, position: true, branch: true, hireDate: true, resignDate: true, leaveNote: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],

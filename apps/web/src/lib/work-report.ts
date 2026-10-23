@@ -4,7 +4,7 @@ import { getHolidaySet } from "@/lib/holidays";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { mondayOf } from "@/lib/weekly-hours";
 import { leaveInfo } from "@/lib/leave-catalog";
-import { excludedBranchNames } from "@/lib/employee-scope";
+import { excludedBranchNames, testAccountWhere } from "@/lib/employee-scope";
 import { pastDayStatus } from "@/lib/attendance-day";
 
 // ─── 근로시간 리포트(2026-10-08 QA76 #41) ─────────────────────────────────
@@ -67,6 +67,7 @@ export async function workReport(opts: {
       deletedAt: null, role: { not: "ADMIN" },
       ...(opts.branches ? { branch: { in: opts.branches } } : excluded.length ? { OR: [{ branch: null }, { branch: { notIn: excluded } }] } : {}),
       AND: [empWhere],
+      NOT: await testAccountWhere(),   // 테스트 계정은 리포트에서 뺀다(■0-9)
     },
     select: { id: true, name: true, empNo: true, branch: true, position: true, jobGroup: true, resignDate: true, hireDate: true, employmentStatus: true },
     orderBy: [{ branch: "asc" }, { name: "asc" }],

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { C, fmtShort } from "../services/fmt";
 
 type Props = {
   value: string; // "YYYY-MM-DD" 또는 ""
@@ -11,6 +12,7 @@ type Props = {
   disabled?: boolean;
 };
 
+// 달력 색(2026-10-23 본부 요청 ■4) — 토 · 일은 회색 글자(빨강 · 파랑 아님), 고른 날은 인디고. 칸 글자는 좁은 칸 「11/5 (목)」
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const pad = (n: number) => String(n).padStart(2, "0");
 const toStr = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
@@ -73,7 +75,7 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
   return (
     <>
       <TouchableOpacity style={[styles.field, disabled && styles.fieldDisabled]} onPress={openModal} activeOpacity={0.7}>
-        <Text style={[styles.fieldText, !value && styles.placeholder]}>{value || placeholder}</Text>
+        <Text style={[styles.fieldText, !value && styles.placeholder]}>{value ? (Number(value.slice(0, 4)) !== new Date().getFullYear() ? `${value.slice(0, 4)}/${fmtShort(value)}` : fmtShort(value)) : placeholder}</Text>
         <Ionicons name="calendar-outline" size={18} color="#6b7280" />
       </TouchableOpacity>
 
@@ -82,11 +84,11 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
           <TouchableOpacity activeOpacity={1} style={styles.calendar} onPress={() => {}}>
             {/* 헤더: 연월 + 이동 */}
             <View style={styles.header}>
-              <TouchableOpacity style={styles.navBtn} onPress={() => move(-1)}>
+              <TouchableOpacity style={styles.navBtn} onPress={() => move(-1)} accessibilityLabel="이전 달">
                 <Ionicons name="chevron-back" size={22} color="#374151" />
               </TouchableOpacity>
               <Text style={styles.headerText}>{view.year}년 {view.month + 1}월</Text>
-              <TouchableOpacity style={styles.navBtn} onPress={() => move(1)}>
+              <TouchableOpacity style={styles.navBtn} onPress={() => move(1)} accessibilityLabel="다음 달">
                 <Ionicons name="chevron-forward" size={22} color="#374151" />
               </TouchableOpacity>
             </View>
@@ -94,7 +96,7 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
             {/* 요일 */}
             <View style={styles.weekRow}>
               {WEEKDAYS.map((w, i) => (
-                <Text key={w} style={[styles.weekday, i === 0 && styles.sun, i === 6 && styles.sat]}>{w}</Text>
+                <Text key={w} style={[styles.weekday, (i === 0 || i === 6) && styles.weekend]}>{w}</Text>
               ))}
             </View>
 
@@ -113,8 +115,7 @@ export default function DatePicker({ value, onChange, placeholder = "날짜 선�
                           <Text
                             style={[
                               styles.dayText,
-                              dow === 0 && styles.sun,
-                              dow === 6 && styles.sat,
+                              (dow === 0 || dow === 6) && styles.weekend,
                               off && styles.dayOff,
                               selected && styles.daySelectedText,
                             ]}
@@ -154,16 +155,15 @@ const styles = StyleSheet.create({
   calendar: { backgroundColor: "#fff", borderRadius: 14, padding: 16 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   headerText: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  navBtn: { padding: 6 },
+  navBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   weekRow: { flexDirection: "row" },
   weekday: { flex: 1, textAlign: "center", fontSize: 12, color: "#6b7280", marginBottom: 6 },
   weekLine: { flexDirection: "row" },
   cell: { flex: 1, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
   dayWrap: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  daySelected: { backgroundColor: "#2563eb" },
+  daySelected: { backgroundColor: C.ind },
   dayText: { fontSize: 15, color: "#1f2937" },
   daySelectedText: { color: "#fff", fontWeight: "700" },
   dayOff: { color: "#d1d5db" },
-  sun: { color: "#ef4444" },
-  sat: { color: "#2563eb" },
+  weekend: { color: C.weekend },
 });

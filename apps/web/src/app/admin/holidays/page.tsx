@@ -94,7 +94,7 @@ export default function AdminHolidaysPage() {
               onKeyDown={(e) => { if (e.key === "Enter") addHoliday(); }} />
           </div>
           <label className="flex items-center gap-1.5 text-xs text-gray-600 h-10 cursor-pointer select-none" title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
-            <input type="checkbox" checked={newGrants} onChange={(e) => setNewGrants(e.target.checked)} />대체휴무 부여
+            <input type="checkbox" checked={newGrants} onChange={(e) => setNewGrants(e.target.checked)} />대체휴무도 부여
           </label>
           <Button onClick={addHoliday} className="gap-1 bg-[#4f46e5] text-white hover:bg-[#4338ca]"><Plus size={14} />추가</Button>
         </CardContent>
@@ -111,21 +111,26 @@ export default function AdminHolidaysPage() {
             const d = new Date(h.date + "T00:00:00");
             const dow = WEEKDAYS[d.getDay()];
             return (
-              <div key={h.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                <span className="font-mono text-gray-600 w-28 shrink-0">{h.date}</span>
-                <span className={`w-8 shrink-0 ${dow === "일" ? "text-red-500" : dow === "토" ? "text-blue-500" : "text-gray-400"}`}>({dow})</span>
-                <span className="flex-1 font-medium">{h.name}</span>
-                {/* 대체휴무 부여 지정(#56) — 켜 두면 이 날(평일) 근무 기록에 대체휴일 1일이 자동 부여된다. 주말은 부여 대상이 아니고 5/1 은 보상휴가로 계산 */}
+              <div key={h.id} className="px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                {/* 날짜는 「10월 3일 (금)」, 토 · 일은 회색 글자(2026-10-23 ■4) */}
+                <span className="w-28 shrink-0 tabular-nums text-gray-700">{d.getMonth() + 1}월 {d.getDate()}일 <span className="text-gray-400">({dow})</span></span>
+                <span className="flex-1 min-w-[8rem] font-medium">{h.name}</span>
+                {/* 대체휴무(#56) — 켜 두면 이 날(평일) 근무 기록에 대체휴일 1일이 자동 부여된다. 주말은 대상이 아니고 5/1 은 보상휴가로 계산.
+                    표시와 버튼을 나눈다(2026-10-23 본부 요청 ■3): 이미 부여 = 「대체휴무 있음」 알약 + 「끄기」, 아니면 「대체휴무 부여」 버튼 */}
                 {dow === "토" || dow === "일" ? (
-                  <span className="text-[11px] text-gray-300" title="주말 공휴일은 대체휴무 부여 대상이 아닙니다">주말</span>
+                  <span className="text-[12.5px] text-gray-400" title="주말 공휴일은 대체휴무 대상이 아닙니다">주말 — 대상 아님</span>
                 ) : h.date.endsWith("-05-01") ? (
-                  <span className="text-[11px] text-gray-400" title="5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다">보상휴가 자동</span>
+                  <span className="text-[12.5px] text-gray-500" title="5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다">보상휴가 자동</span>
+                ) : h.grantsLeave ? (
+                  <span className="flex items-center gap-1">
+                    <span className="rounded-full bg-[#eef2ff] px-2.5 py-0.5 text-[12.5px] font-bold text-[#4f46e5]">대체휴무 있음</span>
+                    <button type="button" onClick={() => toggleGrants(h)} className="min-h-11 px-2 text-[12.5px] font-semibold text-gray-500 hover:underline" title="이 날 대체휴무를 끕니다(부여분 회수)">끄기</button>
+                  </span>
                 ) : (
-                  <label className={`flex items-center gap-1 text-xs cursor-pointer select-none ${h.grantsLeave ? "text-[#4f46e5]" : "text-gray-400"}`} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여">
-                    <input type="checkbox" checked={!!h.grantsLeave} onChange={() => toggleGrants(h)} />대체휴무 부여
-                  </label>
+                  <button type="button" onClick={() => toggleGrants(h)} title="이 날(평일)에 근무하면 대체휴일 1일 자동 부여"
+                    className="inline-flex min-h-11 sm:min-h-9 items-center rounded-[10px] border border-[#c7d2fe] bg-white px-3 text-[12.5px] font-semibold text-[#4f46e5] hover:bg-[#eef2ff]">대체휴무 부여</button>
                 )}
-                <button onClick={() => removeHoliday(h)} className="text-gray-400 hover:text-red-500" title="삭제">
+                <button onClick={() => removeHoliday(h)} className="inline-flex h-11 w-11 items-center justify-center text-gray-400 hover:text-red-500" title="삭제" aria-label={`${h.name} 삭제`}>
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -134,7 +139,7 @@ export default function AdminHolidaysPage() {
         </div>
       )}
       <p className="text-xs text-gray-400">2026~2027년 법정공휴일(대체공휴일 포함)은 기본 등록되어 있습니다. 이미 승인된 과거 휴가의 차감 일수는 소급 변경되지 않습니다.<br />
-        「대체휴무 부여」를 켠 공휴일(평일)에 출퇴근 기록이 있으면 대체휴일 1일이 자동 부여됩니다(휴가 관리 → 종류별 잔여). 5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다.</p>
+        「대체휴무 있음」인 공휴일(평일)에 출퇴근 기록이 있으면 대체휴일 1일이 자동 부여됩니다(휴가 관리 → 종류별 잔여). 5/1 근로자의 날 근무는 지정 없이 보상휴가로 계산됩니다.</p>
     </div>
   );
 }

@@ -10,7 +10,7 @@
 //  · 그 날 퇴근 쪽 요청(퇴근 누락·기록 수정·지점 밖/사진/본부 퇴근)이 대기 중이면 불가 — 두 갈래로 처리되지 않게
 // (주말·공휴일도 근무일정이 있으면 그 퇴근 시각으로 처리할 수 있다 — 상한은 승인 근무시간 + 45분. 종전 22:00 고정은 불가였다)
 import { prisma } from "@/lib/db";
-import { autoCloseTime, type AutoFillResult } from "@/lib/attendance-policy";
+import { autoCloseTime, FIXED_CLOSE_HHMM, type AutoFillResult } from "@/lib/attendance-policy";
 
 /** "HH:mm"(KST) */
 export function kstHhmm(d: Date): string {
@@ -34,6 +34,20 @@ export async function consentEligibility(userId: string, clockIn: Date, ymd: str
     return { ok: false, close, reason: "근무 시간 상한을 넘어 관리자 확인이 필요합니다. 「퇴근 처리 요청하기」로 실제 시각을 넣어 주세요." };
   return { ok: true, close };
 }
+
+/**
+ * 처리될 퇴근 시각이 출근 시각에서 계산된 값인가(근태 규칙 「출근 + n시간」 · 일정 없음 대체값 · 상한으로 자름) — 10/23 검증 M2.
+ * 그렇다면 시각을 못 보는 사람(직원 · 「출퇴근 시각 보기」 꺼진 원장)에게 그 시각을 알려 주면 본인 출근 시각을 거꾸로 셀 수 있다.
+ * 근무일정 퇴근 시각 · 근태 규칙 22:00 고정처럼 정해진 시각이면 false.
+ */
+export function closeRevealsClockIn(close: AutoFillResult): boolean {
+  if (close.basis === "SCHEDULE") return false;
+  if (close.basis === "RULE" && close.label === `근태 규칙 ${FIXED_CLOSE_HHMM} 퇴근`) return false;
+  return true;
+}
+
+/** 시각을 못 보는 사람에게 출근 기준 퇴근 시각을 숨길 때의 안내 — 본인 동의 대신 퇴근 처리 요청(수정 요청)으로 */
+export const CLOSE_HIDDEN_REASON = "출근 시각을 기준으로 퇴근 시각이 정해지는 날이라 본인 동의로 처리할 수 없습니다. 「퇴근 처리 요청하기」(수정 요청)로 올려 주세요.";
 
 /** 그 날 퇴근 쪽 요청이 대기 중인가(퇴근 누락·기록 수정·지점 밖/사진/본부 퇴근) */
 export async function hasPendingOutRequest(userId: string, workDate: Date): Promise<boolean> {

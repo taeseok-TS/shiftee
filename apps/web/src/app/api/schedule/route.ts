@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { eachDayOfInterval, format, startOfDay } from "date-fns";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isAllowed } from "@/lib/permission-settings";
-import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { countableEmployeeWhere, testAccountWhere } from "@/lib/employee-scope";
 import { isRealDate, toMin, asHhmm, asScheduleType } from "@/lib/schedule-payload";
 import { kstTodayMidnight } from "@/lib/resign";
 
@@ -69,14 +69,20 @@ export async function GET(request: NextRequest) {
     session.role === "MANAGER" ? { branches: myBranches } : {}
   );
 
-  // 지점 내 활성 직원 ID 목록 (집계 기준)
+  // 지점 내 활성 직원 ID 목록 (일정 · 출퇴근 · 휴가를 읽을 사람) — 입사 예정자도 조회 기간 안에 입사하면 넣는다
+  // (10/23 검증 H2: 기본 입사일 기준이 오늘이라 다음 주 입사자의 일정이 원장 달력에서 사라졌다). 직원 수(totalEmployees)는 오늘 기준 그대로
   const branchUserIds = !selfOnly && session.role === "MANAGER"
-    ? (await prisma.user.findMany({ where: countableUserWhere, select: { id: true } })).map(u => u.id)
+    ? (await prisma.user.findMany({
+        where: await countableEmployeeWhere({ branches: myBranches, hiredBy: endDate }),
+        select: { id: true },
+      })).map(u => u.id)
     : null; // null = 전체
 
   const userIdFilter = selfOnly
     ? { userId: session.userId }
-    : branchUserIds ? { userId: { in: branchUserIds } } : {};
+    : branchUserIds ? { userId: { in: branchUserIds } }
+    // 본부(전체)도 테스트 계정은 월 집계 · 목록에서 뺀다(2026-10-23 검증 I) — 원장은 branchUserIds 가 이미 공용 기준이라 빠져 있다
+    : { user: { NOT: await testAccountWhere() } };
 
   // 병렬 조회: 일정 / 출퇴근 / 승인된 휴가 / 전체 직원 수
   const [schedules, attendances, leaves, totalEmployees] = await Promise.all([

@@ -114,7 +114,7 @@ export default function LeaveSettlement() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/branches").then((r) => (r.ok ? r.json() : null))
+    fetch("/api/branches?pick=1").then((r) => (r.ok ? r.json() : null))
       .then((d) => setBranches(((d?.branches ?? []) as { name: string }[]).map((b) => b.name)))
       .catch(() => {});
   }, []);

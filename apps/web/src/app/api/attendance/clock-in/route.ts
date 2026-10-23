@@ -135,5 +135,7 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return NextResponse.json({ success: true, attendance });
+  // 찍은 시각은 본부만(■0-11) — 응답에도 찍었는지만
+  const { canSeeClockTimes, maskClock } = await import("@/lib/attendance-visibility");
+  return NextResponse.json({ success: true, attendance: maskClock(attendance, await canSeeClockTimes(session.role)) });
 }

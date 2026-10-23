@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { isHoliday } from "@/lib/holidays";
 import { calcStatus } from "@/lib/attendance-status";
 import { approverScopeFor, isMyStep, type ApproverScope } from "@/lib/approval-delegate";
+import { dayLabel } from "@/lib/attendance-visibility";
 
 // ─── 출퇴근 요청(2026-10-07 QA #9 #13 #15, 본부 답변 #5 #6 #10 #11) ─────────────
 // 종류
@@ -12,10 +13,14 @@ import { approverScopeFor, isMyStep, type ApproverScope } from "@/lib/approval-d
 //  · CORRECTION 출퇴근기록 수정(지각·누락) — 원장 승인(#5), 원장 본인은 본부
 //  · MISSED_OUT 전날 퇴근 누락 → 퇴근 시각 넣어 요청 — 원장 승인, 원장 본인은 본부
 //  · DEVICE     기기 변경(로그인 화면 「미등록 기기」에서 접수) — 본부 승인(#6)
+//  · RECORD     출퇴근 기록 요청 — 직원 · 원장이 본인 기록(시각)이 필요할 때 본부에 요청, 본부가 내준다(2026-10-23 ■0-11). 기록은 바꾸지 않는다
 // 결재는 한 단계. 원장 단계 판정은 휴가·근무일정과 같은 함수(isMyStep — 원장대행 포함, 대행자는 원장 건 제외).
+// 단 출퇴근 수정(CORRECTION · MISSED_OUT)은 「지점 원장 → 본부」 두 단계(2026-10-23 ■0-11): 원장은 상태만 보고 1차 승인하고
+// (approverRole 을 ADMIN 으로 넘긴다 — 상태는 PENDING 그대로), 넣을 시각은 본부가 확인 · 확정해 최종 승인할 때 기록에 반영한다.
+// 1차 승인한 원장은 AuditLog(ATTENDANCE_REQUEST_STEP1)에 남는다 — 스키마를 바꾸지 않으려고.
 // 승인되면 **누른 시각**으로 기록하고 지각도 그 시각으로 판정한다(#10). 반려하면 기록하지 않는다.
 
-export const REQUEST_KINDS = ["OUTSIDE", "PHOTO", "HQ", "CORRECTION", "MISSED_OUT", "DEVICE"] as const;
+export const REQUEST_KINDS = ["OUTSIDE", "PHOTO", "HQ", "CORRECTION", "MISSED_OUT", "DEVICE", "RECORD"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export const KIND_LABEL: Record<RequestKind, string> = {
@@ -25,7 +30,33 @@ export const KIND_LABEL: Record<RequestKind, string> = {
   CORRECTION: "출퇴근기록 수정",
   MISSED_OUT: "퇴근 누락",
   DEVICE: "기기 변경",
+  RECORD: "출퇴근 기록 요청",
 };
+
+/** 원장 1차 → 본부 최종 두 단계로 가는 종류(출퇴근 수정) */
+export const TWO_STEP_KINDS: readonly string[] = ["CORRECTION", "MISSED_OUT"];
+/** 1차(원장) 승인 기록 — AuditLog.action */
+export const STEP1_AUDIT = "ATTENDANCE_REQUEST_STEP1";
+/** 두 단계 규칙이 생긴 때(2026-10-23 0시 KST) — 그 전에 올라온 출퇴근 수정은 한 단계였다 */
+export const TWO_STEP_SINCE = new Date("2026-10-22T15:00:00.000Z");
+
+/**
+ * 결재 단계 수(10/23 검증 E — 끝난 요청이 「결재 1/2」로 보였다).
+ *  · 원장 1차 승인 기록이 있으면 2단계
+ *  · 대기 중이고 지금 원장 차례면 2단계(원장이 승인하면 본부로 간다)
+ *  · 원장 차례에서 반려 · 취소로 끝난 건은 두 단계 규칙이 생긴 뒤 올라온 것만 2단계
+ *  · 그 밖(옛 1단계 건 · 본부가 원장 차례에서 바로 최종 승인한 건 · 처음부터 본부 차례)은 1단계
+ */
+export function attendanceStepsOf(
+  r: { kind: string; status: string; approverRole: string; createdAt: Date },
+  hasStep1: boolean,
+): 1 | 2 {
+  if (!TWO_STEP_KINDS.includes(r.kind)) return 1;
+  if (hasStep1) return 2;
+  if (r.approverRole !== "MANAGER") return 1;
+  if (r.status === "PENDING") return 2;
+  return (r.status === "REJECTED" || r.status === "CANCELLED") && r.createdAt >= TWO_STEP_SINCE ? 2 : 1;
+}
 
 /** 지점 밖 출퇴근 사유 — 이 셋 말고는 「기타」로 직접 입력(50자) */
 export const OUTSIDE_REASONS = ["본사 방문", "서점(교재 구입)", "외근"] as const;
@@ -129,6 +160,8 @@ export async function applyApproved(
   const kind = r.kind as RequestKind;
   const ymd = ymdOfDate(r.workDate);
 
+  if (kind === "RECORD") return {};   // 출퇴근 기록 요청 — 기록은 바꾸지 않는다(본부가 따로 내준다)
+
   if (kind === "DEVICE") {
     if (!r.deviceId) throw new RequestConflict("기기 정보가 없는 요청입니다.");
     await tx.userDevice.upsert({
@@ -211,7 +244,7 @@ export async function weekendClockInBlock(userId: string, ymd: string): Promise<
 }
 
 /** 요청 한 줄 요약(알림·목록) — 「지점 밖 출근 10/14 09:49 · 본사 방문」 */
-export function summaryOf(r: { kind: string; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null; clockOut: Date | null; reason: string | null }): string {
+export function summaryOf(r: { kind: string; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null; clockOut: Date | null; reason: string | null; memo?: string | null }): string {
   const kind = r.kind as RequestKind;
   const md = ymdOfDate(r.workDate).slice(5).replace("-", "/");
   if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
@@ -219,9 +252,36 @@ export function summaryOf(r: { kind: string; action: string | null; workDate: Da
     return `${head} ${r.action === "OUT" ? "퇴근" : "출근"} ${md} ${kstHHmm(r.requestedAt)}${r.reason ? ` · ${r.reason}` : ""}`;
   }
   if (kind === "MISSED_OUT") return `퇴근 누락 ${md} · 퇴근 ${r.clockOut ? kstHHmm(r.clockOut) : "-"}`;
+  if (kind === "RECORD") return `출퇴근 기록 요청 · ${recordPeriodLabel(r.memo ?? null) ?? md}${r.reason ? ` · ${r.reason}` : ""}`;
   if (kind === "CORRECTION") {
     const parts = [r.clockIn ? `출근 ${kstHHmm(r.clockIn)}` : "", r.clockOut ? `퇴근 ${kstHHmm(r.clockOut)}` : ""].filter(Boolean);
     return `기록 수정 ${md} · ${parts.join(" / ")}`;
   }
   return "기기 변경";
+}
+
+/** 출퇴근 기록 요청(RECORD)의 기간 — memo 에 "YYYY-MM-DD~YYYY-MM-DD" 로 둔다 */
+export function recordPeriodLabel(memo: string | null): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$/.exec(memo ?? "");
+  if (!m) return null;
+  return m[1] === m[2] ? dayLabel(m[1]) : `${dayLabel(m[1])} ~ ${m[1].slice(0, 4) !== m[2].slice(0, 4) ? `${m[2].slice(0, 4)}년 ` : ""}${dayLabel(m[2])}`;
+}
+
+/**
+ * 시각 없는 요약(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게. 「10월 23일 (금) 퇴근 누락 → 퇴근」
+ * 기기 변경 · 기록 요청은 시각이 없어 summaryOf 와 같다
+ */
+export function statusSummaryOf(r: { kind: string; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null; clockOut: Date | null; reason: string | null; memo?: string | null }): string {
+  const kind = r.kind as RequestKind;
+  const day = dayLabel(r.workDate);
+  if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
+    const head = kind === "OUTSIDE" ? "지점 밖" : kind === "PHOTO" ? "사진" : "본부 처리";
+    return `${day} ${head} ${r.action === "OUT" ? "퇴근" : "출근"}${r.reason ? ` · ${r.reason}` : ""}`;
+  }
+  if (kind === "MISSED_OUT") return `${day} 퇴근 누락 → 퇴근`;
+  if (kind === "CORRECTION") {
+    const what = [r.clockIn ? "출근" : "", r.clockOut ? "퇴근" : ""].filter(Boolean).join(" · ");
+    return `${day} 출퇴근 수정${what ? ` → ${what}` : ""}`;
+  }
+  return summaryOf(r);
 }

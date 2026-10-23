@@ -2,22 +2,25 @@
 
 import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { useWeekHours, showWeekWarnings } from "@/components/schedule/WeekHours";
-import { useRangeLeaves, useBranchColors } from "@/components/schedule/WeekExtras";
-import { ScheduleBoard, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
+import { useRangeLeaves } from "@/components/schedule/WeekExtras";
+import { ScheduleBoard, ScheduleLegend, ScheduleViewBar, useScheduleView, type BoardEmployee, type BoardSchedule } from "@/components/schedule/ScheduleBoard";
+import { ScheduleEditDialog, type EditTarget } from "@/components/schedule/ScheduleDialogs";
 import { MultiPick } from "@/components/schedule/ScheduleControls";
 import { sortEmployees, yearsOf } from "@/lib/schedule-view";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PageHead, Box, Btn, FilterRow, inputClass } from "@/components/kit";
 import { Plus, Search, FileSpreadsheet } from "lucide-react";
 import { ScheduleImport } from "@/components/schedule/ScheduleImport";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
+// 본부 근태 › 근무일정(2026-10-23 오픈 전 ■3, 시안 R18) — 제목 「근무일정」(메뉴와 같게), 「일정 추가」 · 「엑셀 업로드」,
+// 「부서」 고르기는 뺐다(직영점은 부서를 쓰지 않음). 칸 · 띠를 누르면 그날 일정(고치기 · 지우기), 빈 칸은 「+ 추가」.
 type Employee = BoardEmployee;
 type Schedule = BoardSchedule;
 
@@ -25,15 +28,14 @@ export default function AdminSchedulePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
-  // 보기 전환(#71): 일·주·월 × 달력형·목록형, 정렬·표시·주 시작 요일(#73) — 사람마다 저장
+  // 보기 전환(#71): 하루·1주·한 달 × 달력형·목록형, 정렬·표시(#73) — 사람마다 저장. 한 주는 늘 월~일
   const view = useScheduleView();
-  // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38). 저장하면 다시 센다. 주 보기에서만
+  // 주 근로시간(분, 휴게 제외) — 49시간을 넘으면 빨간 표시(#38). 저장하면 다시 센다. 1주 보기에서만
   const [weekReload, setWeekReload] = useState(0);
   const weekHours = useWeekHours(view.weekMonday, weekReload);
 
-  // 휴가 함께 보기(#61, 보기 설정 「승인된 휴가」)·지점 색(#74)
-  const leaves = useRangeLeaves(view.startYmd, view.endYmd, view.show.leave, weekReload);
-  const branchColor = useBranchColors();
+  // 휴가(승인 · 결재 대기)와 결재 대기 근무 변경 — 휴가인 날은 근무 대신 휴가만 보인다(■0-5)
+  const leaves = useRangeLeaves(view.startYmd, view.endYmd, true, weekReload);
 
   // 공휴일 (관리자 > 공휴일 관리 데이터) — 날짜별 이름 맵. 기간이 두 해에 걸치면 둘 다
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
@@ -46,24 +48,18 @@ export default function AdminSchedulePage() {
   }, [yearsKey]);
   // 필터(#72): 여러 개 동시 선택(빈 배열 = 전체) + 이름 검색
   const [selBranches, setSelBranches] = useState<string[]>([]);
-  const [selDepartments, setSelDepartments] = useState<string[]>([]);
   const [selJobGroups, setSelJobGroups] = useState<string[]>([]);
   const [searchName, setSearchName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);   // 엑셀 업로드(#75)
-  // 근무일정 추가 — 종전 창은 입력값을 어디에도 담지 않고 "추가되었습니다"만 띄워 실제로는 저장되지 않았다(2026-10-06 QA 조사에서 적발)
+  const [edit, setEdit] = useState<EditTarget>(null);    // 칸 · 띠를 누르면 그날 일정(■3 시안 R18)
+  // 일정 추가 — 종전 창은 입력값을 어디에도 담지 않고 "추가되었습니다"만 띄워 실제로는 저장되지 않았다(2026-10-06 QA 조사에서 적발)
   const emptyForm = () => ({ userId: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "10:00", endTime: "19:00", type: "WORK" as "WORK" | "OFF", note: "" });
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  // 모든 지점과 부서 추출
   const branches = useMemo(() => {
     const unique = new Set(employees.map(e => e.branch).filter((b): b is string => !!b));
-    return Array.from(unique).sort();
-  }, [employees]);
-
-  const departments = useMemo(() => {
-    const unique = new Set(employees.map(e => e.department).filter((d): d is string => !!d));
     return Array.from(unique).sort();
   }, [employees]);
   const jobGroups = useMemo(() => {
@@ -84,7 +80,7 @@ export default function AdminSchedulePage() {
     }
   }, []);
 
-  // 근무 일정 데이터 불러오기 (보기 기간 기준)
+  // 근무일정 불러오기 (보기 기간 기준)
   const { startYmd, endYmd } = view;
   // 기간이 바뀐 뒤 늦게 도착한 옛 기간 응답은 버린다 — 저장된 보기가 월이면 첫 화면에서 주→월 순으로 두 번 조회된다(#71 검증 1)
   const reqKey = useRef("");
@@ -102,15 +98,15 @@ export default function AdminSchedulePage() {
       }
       setWeekReload((n) => n + 1);
     } catch {
-      if (reqKey.current === key) toast.error("근무 일정을 불러올 수 없습니다");
+      if (reqKey.current === key) toast.error("근무일정을 불러올 수 없습니다");
     } finally {
       if (reqKey.current === key) setLoading(false);
     }
   }, [startYmd, endYmd]);
 
   useEffect(() => {
-    fetchEmployees();
-    fetchSchedules();
+    // 효과 안에서 바로 setState 하지 않게 한 박자 뒤에(react-hooks/set-state-in-effect)
+    Promise.resolve().then(() => { fetchEmployees(); fetchSchedules(); });
   }, [fetchEmployees, fetchSchedules]);
 
   // 필터링·정렬된 직원 목록
@@ -118,15 +114,14 @@ export default function AdminSchedulePage() {
   const sortKey = view.prefs.sort;
   const filteredEmployees = useMemo(() => {
     // 목록에서 사라진 값(이름이 바뀐 지점 등)은 세지 않는다 — MultiPick 이 「전체」로 보이는 것과 같은 기준(10/12 검증 4)
-    const fb = selBranches.filter((v) => branches.includes(v)), fd = selDepartments.filter((v) => departments.includes(v)), fj = selJobGroups.filter((v) => jobGroups.includes(v));
+    const fb = selBranches.filter((v) => branches.includes(v)), fj = selJobGroups.filter((v) => jobGroups.includes(v));
     const list = employees.filter(emp => {
       if (fb.length && !(emp.branch && fb.includes(emp.branch))) return false;
-      if (fd.length && !(emp.department && fd.includes(emp.department))) return false;
       if (fj.length && !fj.includes(emp.jobGroup || emp.position || "")) return false;
       return !q || emp.name.includes(q);
     });
     return sortEmployees(list, sortKey);
-  }, [employees, branches, departments, jobGroups, selBranches, selDepartments, selJobGroups, q, sortKey]);
+  }, [employees, branches, jobGroups, selBranches, selJobGroups, q, sortKey]);
 
   const handleCreate = async () => {
     if (!form.userId) { toast.error("직원을 선택해주세요."); return; }
@@ -137,7 +132,7 @@ export default function AdminSchedulePage() {
       if (chk.ok) {
         const d = await chk.json();
         const ex = (d.schedules || []).find((x: Schedule) => x.userId === form.userId && x.date === form.date);
-        if (ex && !window.confirm(`이미 ${ex.startTime}~${ex.endTime} 일정이 있습니다. 바꿀까요?`)) return;
+        if (ex && !window.confirm(`이미 ${ex.startTime}–${ex.endTime} 일정이 있습니다. 바꿀까요?`)) return;
       }
     } catch { /* 확인 실패는 저장을 막지 않는다 — 서버가 같은 날 하나만 남긴다 */ }
     setSaving(true);
@@ -148,8 +143,8 @@ export default function AdminSchedulePage() {
         body: JSON.stringify({ userId: form.userId, date: form.date, startTime: form.startTime, endTime: form.endTime, type: form.type, note: form.note.trim() || null, overwrite: true }),   // 위에서 이미 덮어쓰기를 물었다
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d.error || "근무 일정을 저장하지 못했습니다."); return; }
-      toast.success("근무 일정이 추가되었습니다");
+      if (!res.ok) { toast.error(d.error || "일정을 저장하지 못했습니다."); return; }
+      toast.success("일정을 추가했습니다");
       // 주 49시간을 넘으면 경고만(막지 않는다, #38)
       showWeekWarnings(d.warnings);
       setCreateOpen(false);
@@ -161,142 +156,124 @@ export default function AdminSchedulePage() {
     }
   };
 
+  const filtered = !!(selBranches.length || selJobGroups.length || searchName);
   return (
-    <div className="space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">근무 일정</h1>
-        <div className="flex gap-2">
-          <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (o) setForm(emptyForm()); }}>
-            <DialogTrigger className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-              <Plus size={16} /> 근무일정 추가하기
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>근무 일정 추가</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>직원</Label>
-                    <Select value={form.userId} onValueChange={(v) => setForm((f) => ({ ...f, userId: v ?? "" }))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="직원 선택">
-                          {(() => { const e = employees.find((x) => x.id === form.userId); return e ? `${e.name}${e.branch ? ` (${e.branch})` : ""}` : "직원 선택"; })()}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[...employees].sort((x, y) => (x.branch || "").localeCompare(y.branch || "") || x.name.localeCompare(y.name)).map(emp => (
-                          <SelectItem key={emp.id} value={emp.id}>
-                            {emp.name}{emp.branch ? ` (${emp.branch})` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>날짜</Label>
-                    <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
-                  </div>
-                  <div className="col-span-full">
-                    <Label>근무일정 템플릿</Label>
-                    <TemplatePicker branch={employees.find((x) => x.id === form.userId)?.branch ?? null}
-                      onPick={(st, et) => setForm((f) => ({ ...f, startTime: st, endTime: et }))} />
-                  </div>
-                  <div>
-                    <Label>시작 시간</Label>
-                    <Input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>종료 시간</Label>
-                    <Input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>유형</Label>
-                    <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: (v as "WORK" | "OFF") ?? "WORK" }))}>
-                      <SelectTrigger>
-                        <SelectValue>{form.type === "OFF" ? "휴무" : "근무"}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="WORK">근무</SelectItem>
-                        <SelectItem value="OFF">휴무</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>메모 (선택)</Label>
-                    <Input value={form.note} maxLength={200} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="예: 방학 특강" />
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500">휴가는 근무일정이 아니라 휴가 신청으로 등록합니다. 지점은 직원의 소속 지점을 따릅니다.</p>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>
-                    취소
-                  </Button>
-                  <Button onClick={handleCreate} disabled={saving}>
-                    {saving ? "저장 중…" : "추가"}
-                  </Button>
-                </div>
+    <div>
+      <PageHead crumb="근태 › 근무일정" title={<span className="whitespace-nowrap">근무일정</span>}>
+        {/* 엑셀 업로드·양식 내려받기(#75) — 달력형·목록형 */}
+        <Btn onClick={() => setImportOpen(true)}><FileSpreadsheet size={15} />엑셀 업로드</Btn>
+        <Btn kind="primary" onClick={() => { setForm(emptyForm()); setCreateOpen(true); }}><Plus size={15} />일정 추가</Btn>
+      </PageHead>
+
+      <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (o) setForm(emptyForm()); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>일정 추가</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>직원</Label>
+                <Select value={form.userId} onValueChange={(v) => setForm((f) => ({ ...f, userId: v ?? "" }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="직원 선택">
+                      {(() => { const e = employees.find((x) => x.id === form.userId); return e ? `${e.name}${e.branch ? ` (${e.branch})` : ""}` : "직원 선택"; })()}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...employees].sort((x, y) => (x.branch || "").localeCompare(y.branch || "") || x.name.localeCompare(y.name)).map(emp => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.name}{emp.branch ? ` (${emp.branch})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </DialogContent>
-          </Dialog>
-          {/* 엑셀 업로드·양식 내려받기(#75) — 달력형·목록형 */}
-          <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} />엑셀 업로드</Button>
-          <Dialog open={importOpen} onOpenChange={setImportOpen}>
-            <DialogContent className="max-w-5xl">
-              <DialogHeader><DialogTitle>근무일정 엑셀 업로드</DialogTitle></DialogHeader>
-              <ScheduleImport employees={filteredEmployees} schedules={schedules} rangeStart={view.startYmd} rangeEnd={view.endYmd} onApplied={fetchSchedules} />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      {/* 날짜 네비게이션 + 보기 전환(#71) */}
-      <Card>
-        <CardContent className="pt-6">
-          <ScheduleViewBar view={view} />
-
-          {/* 필터(#72) — 지점·직무·부서를 여러 개 동시에, 이름 검색 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <MultiPick label="지점" options={branches} value={selBranches} onChange={setSelBranches} allLabel="모든 지점" />
-            <MultiPick label="직무" options={jobGroups} value={selJobGroups} onChange={setSelJobGroups} allLabel="모든 직무" />
-            <MultiPick label="부서" options={departments} value={selDepartments} onChange={setSelDepartments} allLabel="모든 부서" />
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-              <Input placeholder="직원 이름 검색" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="pl-9 h-9 w-48" />
+              <div>
+                <Label>날짜</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+              </div>
+              <div className="col-span-full">
+                <Label>근무 시간 종류</Label>
+                <TemplatePicker branch={employees.find((x) => x.id === form.userId)?.branch ?? null}
+                  onPick={(st, et) => setForm((f) => ({ ...f, startTime: st, endTime: et }))} />
+              </div>
+              <div>
+                <Label>시작 시간</Label>
+                <Input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} />
+              </div>
+              <div>
+                <Label>종료 시간</Label>
+                <Input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
+              </div>
+              <div>
+                <Label>유형</Label>
+                <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: (v as "WORK" | "OFF") ?? "WORK" }))}>
+                  <SelectTrigger>
+                    <SelectValue>{form.type === "OFF" ? "휴무" : "근무"}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="WORK">근무</SelectItem>
+                    <SelectItem value="OFF">휴무</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>메모 (선택)</Label>
+                <Input value={form.note} maxLength={200} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="예: 방학 특강" />
+              </div>
             </div>
-            {(selBranches.length || selJobGroups.length || selDepartments.length || searchName) ? (
-              <button type="button" className="text-xs text-gray-500 underline" onClick={() => { setSelBranches([]); setSelJobGroups([]); setSelDepartments([]); setSearchName(""); }}>필터 지우기</button>
-            ) : null}
-            <span className="ml-auto text-xs text-gray-400">{filteredEmployees.length}명 / 전체 {employees.length}명</span>
+            <p className="text-xs text-gray-500">휴가는 근무일정이 아니라 휴가 신청으로 등록합니다. 지점은 직원의 소속 지점을 따릅니다.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>
+                취소
+              </Button>
+              <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={handleCreate} disabled={saving}>
+                {saving ? "저장 중…" : "추가"}
+              </Button>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader><DialogTitle>근무일정 엑셀 업로드</DialogTitle></DialogHeader>
+          <ScheduleImport employees={filteredEmployees} schedules={schedules} rangeStart={view.startYmd} rangeEnd={view.endYmd} onApplied={fetchSchedules} />
+        </DialogContent>
+      </Dialog>
 
-      {/* 일정 표 — 일·주·월 / 달력형·목록형 */}
-      <Card className="overflow-x-auto">
-        <CardContent className="p-0">
+      {/* 일정 표 박스 — 위: 기간 이동 + 보기 전환(#71), 필터 줄(#72), 범례, 아래: 표 */}
+      <Box>
+        <div className="border-b border-[#eef1f5] px-6 py-4">
+          <ScheduleViewBar view={view} />
+        </div>
+        {/* 필터(#72) — 지점·직무를 여러 개 동시에, 이름 검색 */}
+        <FilterRow right={<span className="self-center text-[13px] text-[#596578]">{filteredEmployees.length}명 / 전체 {employees.length}명</span>}>
+          <MultiPick label="지점" options={branches} value={selBranches} onChange={setSelBranches} allLabel="전체" />
+          <MultiPick label="직무" options={jobGroups} value={selJobGroups} onChange={setSelJobGroups} allLabel="전체" />
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+            <input placeholder="직원 이름 찾기" aria-label="직원 이름 찾기" value={searchName} onChange={(e) => setSearchName(e.target.value)} className={`${inputClass} w-48 pl-8`} />
+          </div>
+          {filtered ? (
+            <Btn kind="text" className="text-[13px]" onClick={() => { setSelBranches([]); setSelJobGroups([]); setSearchName(""); }}>필터 지우기</Btn>
+          ) : null}
+        </FilterRow>
+        <ScheduleLegend className="border-b border-[#eef1f5] bg-[#fcfdff] px-6 py-2.5" />
+        {/* 일정 표 — 하루·1주·한 달 / 달력형·목록형. 칸 · 띠를 누르면 그날 일정, 빈 칸은 「+ 추가」 */}
+        <div className="overflow-x-auto">
           <ScheduleBoard view={view} employees={filteredEmployees} schedules={schedules} loading={loading}
-            holidayMap={holidayMap} leaves={leaves} weekHours={weekHours} branchColor={branchColor} />
-        </CardContent>
-      </Card>
+            holidayMap={holidayMap} leaves={leaves} weekHours={weekHours}
+            onEmptyCell={(userId, date) => setEdit({ userId, date, startTime: "10:00", endTime: "19:00" })}
+            onSchedule={(s, emp) => setEdit({ id: s.id, userId: emp.id, date: s.date, startTime: s.startTime, endTime: s.endTime, type: s.type, note: s.note ?? null })} />
+        </div>
+        <p className="border-t border-[#eef1f5] px-6 py-3 text-[12.5px] text-[#596578]">
+          기본 근무 = 그 직원이 이 기간 평일에 가장 많이 한 시간. 결재 대기인 휴가 · 근무 변경은 점선으로 보이고 승인되면 면으로 바뀝니다. 한 달 보기의 합계는 화면에 보이는 일정의 근로시간(휴게 제외)입니다.
+        </p>
+      </Box>
 
-      {/* 범례 */}
-      <div className="flex flex-wrap gap-6 text-sm text-gray-600">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-blue-100 rounded border border-blue-300" />
-          근무
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-[#eff6ff] rounded border border-[#bfdbfe]" />
-          휴가
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-gray-100 rounded border border-gray-300" />
-          휴무
-        </div>
-        <div className="text-gray-400">왼쪽 색 띠 = 지점 · 월 보기의 합계는 화면에 보이는 일정의 근로시간(휴게 제외)</div>
-      </div>
+      <ScheduleEditDialog key={edit ? `${edit.id ?? "new"}-${edit.userId}-${edit.date}` : "none"} target={edit} employees={employees.map((e) => ({ id: e.id, name: e.name, branch: e.branch }))}
+        onClose={() => setEdit(null)} onSaved={fetchSchedules} />
     </div>
   );
 }

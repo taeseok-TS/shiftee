@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WeekHours } from "@/components/schedule/WeekHours";
+import { week52Of, type WeekHours } from "@/components/schedule/WeekHours";
 
 /**
  * 근무일정 주간 표 공용(2026-10-07 QA 묶음 5-다) — 관리자 근무일정 표와 원장 팀 일정 표가 같이 쓴다.
- *  · #61 useRangeLeaves / <LeaveChips>: 기간의 승인된 휴가를 칸에 함께. 켜기·끄기는 보기 설정(사람마다 저장, #73)
+ *  · #61 useRangeLeaves: 기간의 휴가(승인 · 결재 대기)와 결재 대기 근무 변경 — 표(ScheduleBoard)가 칸에 그린다
  *  · #74 useBranchColors: 지점마다 색 — 지점이 만들어진 순서로 배정(새 지점은 다음 색, 이름을 바꿔도 그대로.
  *    지점을 비활성화하면 그 뒤에 만든 지점 색이 한 칸씩 당겨진다)
  *  · #40 empNoText: 사번 5자리
@@ -14,9 +14,18 @@ import type { WeekHours } from "@/components/schedule/WeekHours";
 export const empNoText = (n: number | null | undefined) => (n == null ? "" : String(n).padStart(5, "0"));
 
 // ── #61 휴가 표시 ──
-export type RangeLeaves = { from: string; to: string; leaves: Record<string, Record<string, { type: string; label: string }[]>> };
+// unit: FULL 하루 · HALF 반차 · QUARTER 반반차(2026-10-23 ■0-5 — 하루 휴가인 날은 표가 근무 대신 휴가만 그린다). 옛 응답(unit 없음)은 하루로 본다
+export type DayLeave = { type: string; label: string; unit?: string };
+/** 결재 대기 근무 변경 요청 한 날(■4 점선 테두리) — kind: CREATE · UPDATE · DELETE */
+export type PendingSchedule = { startTime: string | null; endTime: string | null; kind: string };
+export type RangeLeaves = {
+  from: string; to: string;
+  leaves: Record<string, Record<string, DayLeave[]>>;                       // 승인된 휴가
+  pendingLeaves?: Record<string, Record<string, DayLeave[]>>;               // 결재 대기 휴가
+  pendingSchedules?: Record<string, Record<string, PendingSchedule>>;       // 결재 대기 근무 변경
+};
 
-/** 기간(start~end, yyyy-MM-dd, 62일까지)에 걸친 승인 휴가 — 일·주·월 보기(#71)가 같은 훅을 쓴다 */
+/** 기간(start~end, yyyy-MM-dd, 62일까지)에 걸친 휴가(승인 · 결재 대기)와 결재 대기 근무 변경 — 일·주·월 보기(#71)가 같은 훅을 쓴다 */
 export function useRangeLeaves(start: string, end: string, enabled: boolean, reloadKey = 0) {
   const [data, setData] = useState<RangeLeaves | null>(null);
   useEffect(() => {
@@ -29,32 +38,6 @@ export function useRangeLeaves(start: string, end: string, enabled: boolean, rel
     return () => { alive = false; };
   }, [start, end, enabled, reloadKey]);
   return enabled && data && data.from === start && data.to === end ? data : null;   // 다른 기간 응답은 쓰지 않는다
-}
-
-export function LeaveChips({ data, userId, date, compact = false }: { data: RangeLeaves | null; userId: string; date: string; compact?: boolean }) {
-  const list = data?.leaves[userId]?.[date];
-  if (!list?.length) return null;
-  if (compact) {
-    // 월간 칸(좁다) — 이름 앞 두 글자, 전체 이름은 마우스를 올리면
-    return (
-      <div className="flex flex-wrap gap-0.5 mb-0.5">
-        {list.map((l, i) => (
-          <span key={i} title={l.label} className="px-1 rounded bg-[#eff6ff] border border-[#bfdbfe] text-[10px] font-medium text-[#1d4ed8] leading-4">
-            {l.label.slice(0, 2)}
-          </span>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1 mb-1">
-      {list.map((l, i) => (
-        <div key={i} className="px-2 py-1 rounded bg-[#eff6ff] border border-[#bfdbfe] text-[11px] font-medium text-[#1d4ed8]">
-          {l.label}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // ── #74 지점 색 ──
@@ -84,19 +67,30 @@ export function useBranchColors(): (branch: string | null | undefined) => string
 }
 
 // ── #40 주간 합계 열 ──
+// 주 근무시간 숫자는 본부만(2026-10-23 ■0-11) — 서버가 숨기면(hoursHidden) 숫자 대신 「52시간 안 / 넘음」만
 
 export function WeekTotalCell({ data, userId }: { data: WeekHours | null; userId: string }) {
-  const wh = data?.hours[userId];
+  if (!data) return null;
+  const wh = data.hours[userId];
+  // 숫자를 숨긴 응답(원장)이면 일정 기준 「주 52시간 안 / 넘음」만
+  if (data.hoursHidden) {
+    const w = week52Of(wh);
+    if (!w) return null;
+    return (
+      <div className={`flex h-full flex-col justify-center px-3 text-[12px] leading-snug ${w === "OVER_52" ? "bg-[#fff1f2] font-semibold text-[#be123c]" : "text-[#475569]"}`}
+        title="이번 주 일정 기준(휴게 제외)">
+        {w === "OVER_52" ? "52시간 넘음" : "52시간 안"}
+      </div>
+    );
+  }
   const h = (m: number) => `${Math.round(m / 6) / 10}h`;
-  // 불러오는 중·실패면 0h 로 보이지 않게 비워 둔다
-  if (!data) return <div className="w-28 flex-shrink-0 p-3 text-xs bg-gray-50 text-gray-300">—</div>;
   const over = !!wh && (wh.sched > data.limitMin || wh.actual > data.limitMin);
   return (
-    <div className={`w-28 flex-shrink-0 p-3 text-xs ${over ? "bg-red-50 text-red-700 font-semibold" : "bg-gray-50 text-gray-700"}`}
+    <div className={`flex h-full flex-col justify-center px-3 text-[12px] leading-snug ${over ? "bg-[#fff1f2] font-semibold text-[#be123c]" : "text-[#475569]"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
       <div>일정 {h(wh?.sched ?? 0)}</div>
-      <div className="mt-0.5">실제 {h(wh?.actual ?? 0)}</div>
-      {over && <div className="mt-0.5">49h 초과</div>}
+      {!data.actualHidden && <div>실제 {h(wh?.actual ?? 0)}</div>}
+      {over && <div>49h 초과</div>}
     </div>
   );
 }

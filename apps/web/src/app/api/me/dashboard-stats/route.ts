@@ -67,9 +67,9 @@ export async function GET() {
     ? balance.remaining
     : ((await yearBalanceFor(prisma, session.userId, currentLeaveYear()))?.remaining ?? 0);
 
-  // 직원은 「본인 출퇴근 기록 열람」(기본 끔)이 꺼지면 출퇴근으로 계산한 근무 시간도 주지 않는다 — api/attendance/stats 403 과 같은 정책(R17 검증 C)
-  const { isAllowed } = await import("@/lib/permission-settings");
-  const hideHours = session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance"));
+  // 출퇴근으로 계산한 근무 시간은 본부만(2026-10-23 ■0-11) — 직원은 늘, 원장은 「출퇴근 시각 보기」가 꺼지면 null
+  const { canSeeClockTimes } = await import("@/lib/attendance-visibility");
+  const hideHours = !(await canSeeClockTimes(session.role));
 
   return NextResponse.json({
     leaveRemaining,

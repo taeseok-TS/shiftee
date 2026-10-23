@@ -3,7 +3,7 @@
 // 원장 모드는 「팀」이라는 말을 쓰지 않는다 — 모두 「지점」.
 import {
   LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
-  Calendar, BarChart3, Settings, Inbox, Lightbulb, User,
+  Calendar, Settings, Inbox, Lightbulb, User,
 } from "lucide-react";
 import type { NavGroup } from "./admin-nav";
 
@@ -12,15 +12,15 @@ export const MANAGER_NAV: NavGroup[] = [
   { key: "attendance", title: "근태", icon: Clock, items: [
     { href: "/manager/team-attendance", label: "지점 출퇴근기록", icon: Clock, needs: "manager.viewAttendance" },
     { href: "/manager/team-schedule", label: "지점 근무일정", icon: Calendar },
-    { href: "/manager/work-report", label: "근로시간 리포트", icon: BarChart3, needs: "manager.viewAttendance" },
+    // 근로시간 리포트는 원장 메뉴에서 뺐다 — 근무시간은 본부만(2026-10-23 본부 요청 ■0-11). 옛 주소는 대시보드로 보낸다
   ] },
   { key: "approval", title: "결재", icon: CheckCircle, items: [
     // 원장 차례인 지점 휴가 · 근무일정 · 휴가 취소 · 출퇴근 요청(옛 「팀 휴가」 결재 화면). 처리한 요청은 그 화면 · 메뉴 찾기로
     { href: "/manager/team-leave", label: "결재함", icon: CheckCircle, countKey: "leaveInbox",
       find: [
-        { href: "/manager/team-leave?tab=schedule", label: "근무일정" },
+        { href: "/manager/team-leave?tab=schedule", label: "근무 변경" },
         { href: "/manager/team-leave?tab=cancel", label: "휴가 취소" },
-        { href: "/manager/team-leave?tab=attendance", label: "출퇴근 요청" },
+        { href: "/manager/team-leave?tab=attendance", label: "출퇴근 수정" },
         { href: "/requests?who=decided", label: "처리한 요청" },
       ] },
   ] },
@@ -46,8 +46,9 @@ export const EMPLOYEE_NAV: NavGroup[] = [
     { href: "/attendance", label: "내 출퇴근", icon: Clock, needs: "employee.viewOwnAttendance" },
     { href: "/schedule", label: "근무일정", icon: Calendar },
   ] },
+  // 직원은 결재(승인)할 일이 없다 — 「결재」 대분류는 원장대행으로 지정된 직원에게만 남는다(그 밖에는 항목이 없어 레일에서 빠진다, ■1).
+  // 「내 요청」(내가 올린 휴가 · 근무 변경 · 출퇴근 수정 상태)은 휴가 안으로 옮겼다
   { key: "approval", title: "결재", icon: CheckCircle, items: [
-    { href: "/requests", label: "내 요청", icon: Inbox },
     // 원장대행으로 지정된 직원에게만(2026-10-07)
     { href: "/approvals", label: "결재(원장대행)", icon: CheckCircle, countKey: "leaveInbox", delegateOnly: true },
   ] },
@@ -56,6 +57,7 @@ export const EMPLOYEE_NAV: NavGroup[] = [
   ] },
   { key: "leave", title: "휴가", icon: UmbrellaOff, items: [
     { href: "/leave", label: "내 휴가", icon: UmbrellaOff },
+    { href: "/requests", label: "내 요청", icon: Inbox },
   ] },
   { key: "settings", title: "설정", icon: SlidersHorizontal, items: [
     { href: "/settings", label: "환경설정", icon: Settings },

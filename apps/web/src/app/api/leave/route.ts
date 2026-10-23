@@ -201,10 +201,14 @@ export async function POST(request: NextRequest) {
     if (!(await canAttachWorkUrl(attachmentUrl, { userId: session.userId, role: session.role })))
       return NextResponse.json({ error: UNATTACHABLE_MSG }, { status: 403 });
   }
-  // 신청 사유 필수(모든 유형)
-  if (typeof reason !== "string" || !reason.trim()) {
+  // 신청 사유 — 증빙이 필요한 휴가(기준표 attachRequired)만 필수, 연차 등은 선택(2026-10-23 오픈 전 요청 ■1). 문자열이 아닌 값은 막는다
+  if (reason !== undefined && reason !== null && typeof reason !== "string") {
+    return NextResponse.json({ error: "신청 사유 형식이 올바르지 않습니다." }, { status: 400 });
+  }
+  if (info.attachRequired && (typeof reason !== "string" || !reason.trim())) {
     return NextResponse.json({ error: "신청 사유를 입력해주세요." }, { status: 400 });
   }
+  const reasonText = typeof reason === "string" && reason.trim() ? reason : null;
   // 필수 첨부(동의서·증빙) — 기준표 attachRequired. 본부 대리 등록은 본부가 서류를 받아 확인하고 넣으므로 첨부를 강제하지 않는다
   if (info.attachRequired && !attachmentUrl && !proxy) {
     return NextResponse.json({ error: `${info.label}은(는) ${info.attachRequired} 첨부가 필요합니다.` }, { status: 400 });
@@ -297,7 +301,7 @@ export async function POST(request: NextRequest) {
           startDate: start,
           endDate:   end,
           days,
-          reason,
+          reason: reasonText,
           attachmentUrl: attachmentUrl ?? null,
           attachmentName: attachmentName ?? null,
           status: policySteps.length > 0 ? "PENDING" : "APPROVED",

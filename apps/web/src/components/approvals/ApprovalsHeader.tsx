@@ -7,7 +7,7 @@ import { PageHead, PillTabs, type PillTab } from "@/components/kit";
 export type ApprovalTab = "all" | "leave" | "schedule" | "cancel" | "attendance" | "contract" | "decided";
 
 const LABEL: Record<ApprovalTab, string> = {
-  all: "결재 대기", leave: "휴가", schedule: "근무일정", cancel: "휴가 취소", attendance: "출퇴근 요청", contract: "계약", decided: "처리한 요청",
+  all: "결재 대기", leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", decided: "처리한 요청",
 };
 
 export default function ApprovalsHeader({ active, counts, onSelect }: {

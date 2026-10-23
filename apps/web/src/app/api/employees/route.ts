@@ -66,6 +66,9 @@ export async function GET(request: NextRequest) {
   // 원장에게는 잔여 연차 숫자 숨김 설정(2026-10-16 #219-1)을 따른다 — 꺼져 있으면 leaveBalance 를 빼고 null
   const { canSeeLeaveBalance } = await import("@/lib/permission-settings");
   const balanceVisible = await canSeeLeaveBalance(session.role);
+  // 테스트 계정 표시(2026-10-23 ■0-9) — 인원 숫자에서 빠지는 계정. 목록에는 남겨 본부가 지울 수 있게 하고 알약만 붙인다
+  const { testAccountIds } = await import("@/lib/employee-scope");
+  const testIds = await testAccountIds(employees.map((e) => e.id));
   const filteredEmployees = employees.map(emp => ({
     id: emp.id,
     name: emp.name,
@@ -86,6 +89,7 @@ export async function GET(request: NextRequest) {
     leaveBalance: balanceVisible ? (emp.leaveBalance[0] ?? null) : null, // 연도별 다중 행 중 현재 연도 1행 (기존 응답 형태 유지)
     device: emp.device,
     managerBranches: emp.managerBranches.map(b => b.branchName), // 원장 겸직 지점 목록
+    isTest: testIds.has(emp.id),
   }));
 
   // 지점명은 이미 DB에서 정규화된 실제 지점명이므로 그대로 반환

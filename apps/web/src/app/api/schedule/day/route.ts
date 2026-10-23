@@ -7,6 +7,7 @@ import { getManagerBranches } from "@/lib/manager-branches";
 import { countableEmployeeWhere } from "@/lib/employee-scope";
 import { isAllowed } from "@/lib/permission-settings";
 import { kstHour, kstMinute } from "@/lib/kst";
+import { canSeeClockTimes } from "@/lib/attendance-visibility";
 
 // 출퇴근 시각은 한국 시각으로 — 서버는 UTC 라 format(…, "HH:mm") 이 9시간 이르게 보였다(2026-10-06 QA 조사)
 const kstHHmm = (d: Date) => `${String(kstHour(d)).padStart(2, "0")}:${String(kstMinute(d)).padStart(2, "0")}`;
@@ -29,20 +30,24 @@ export async function GET(request: NextRequest) {
   const selfOnly = session.role === "EMPLOYEE" || searchParams.get("scope") === "self";
   // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 원장에게는 출퇴근 시각·상태를 섞지 않는다 — 일정·휴가만(10/14 검증 1)
   // 직원은 「본인 출퇴근 기록 열람」(기본 끔)이 꺼져 있으면 출근·퇴근 시각·지각 상태를 섞지 않는다 — 일정·휴가만(2026-10-16 #219-14)
-  const hideAtt = (session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance")))
-    || (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")));
+  // 2026-10-23 ■0-11: 직원 본인 상태(출근 · 지각 · 퇴근)는 늘 섞는다 — 시각은 아래 showTimes 로 늘 빠지므로, 「본인 출퇴근 기록 열람(웹)」은 웹 메뉴만 정한다
+  const hideAtt = session.role === "MANAGER" && !selfOnly && !(await isAllowed("manager.viewAttendance"));
+
+  // 찍은 시각은 본부만(2026-10-23 ■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 상태와 찍었는지(clockedIn · clockedOut)만
+  const showTimes = await canSeeClockTimes(session.role);
 
   const myBranches = session.role === "MANAGER" ? await getManagerBranches(session.userId) : [];
   // 현황 명단 = 지점 근무 직원만 (관리자 + "통계 포함" 꺼진 지점 제외)
+  // 입사일 기준은 이 날짜 — 입사 예정자도 그날 이미 입사했으면 일정이 보이게(10/23 검증 H2, 기본은 오늘이라 앞날 일정에서 빠졌다)
   const userWhere   = selfOnly
     ? { id: session.userId }
-    : await countableEmployeeWhere(session.role === "MANAGER" ? { branches: myBranches } : {});
+    : await countableEmployeeWhere({ ...(session.role === "MANAGER" ? { branches: myBranches } : {}), hiredBy: dayEnd });
   const recordWhere = selfOnly ? { userId: session.userId } : {};
 
   const [employees, schedules, attendances, leaves] = await Promise.all([
     prisma.user.findMany({
       where: userWhere,
-      select: { id: true, name: true, department: true, position: true, branch: true },
+      select: { id: true, name: true, department: true, position: true, branch: true, phone: true },
       orderBy: [{ department: "asc" }, { name: "asc" }],
     }),
     prisma.schedule.findMany({
@@ -94,8 +99,14 @@ export async function GET(request: NextRequest) {
       startTime:   sched?.startTime ?? null,
       endTime:     sched?.endTime   ?? null,
       note:        sched?.note      ?? null,
-      clockIn:     att?.clockIn  ? kstHHmm(new Date(att.clockIn))  : null,
-      clockOut:    att?.clockOut ? kstHHmm(new Date(att.clockOut)) : null,
+      clockIn:     showTimes && att?.clockIn  ? kstHHmm(new Date(att.clockIn))  : null,
+      clockOut:    showTimes && att?.clockOut ? kstHHmm(new Date(att.clockOut)) : null,
+      clockedIn:   !!att?.clockIn,
+      clockedOut:  !!att?.clockOut,
+      hasClockIn:  !!att?.clockIn,    // 앱이 읽는 이름(clockedIn 과 같다)
+      hasClockOut: !!att?.clockOut,
+      // 미출근 「전화」 버튼용 — 원장 · 본부가 지점 현황을 볼 때만(본인 줄만 보는 직원 · scope=self 에는 싣지 않는다)
+      phone:       !selfOnly && (session.role === "MANAGER" || session.role === "ADMIN") ? emp.phone ?? null : null,
       leaveType:   leave?.type   ?? null,
       status,
     };
@@ -113,5 +124,5 @@ export async function GET(request: NextRequest) {
     off:         result.filter(r => ["OFF","NO_SCHEDULE"].includes(r.status)).length,
   };
 
-  return NextResponse.json({ date: dateStr, employees: result, summary, attendanceHidden: hideAtt });
+  return NextResponse.json({ date: dateStr, employees: result, summary, attendanceHidden: hideAtt, timesHidden: !showTimes });
 }

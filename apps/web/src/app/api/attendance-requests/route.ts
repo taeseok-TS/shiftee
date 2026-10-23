@@ -7,9 +7,11 @@ import { verifyAttendanceDevice } from "@/lib/device";
 import { kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import {
-  KIND_LABEL, OUTSIDE_REASONS, dateOfYmd, kstDateTime, kstYmdOf, resolveApprover, inboxWhere, summaryOf,
-  weekendClockInBlock, type RequestKind,
+  KIND_LABEL, OUTSIDE_REASONS, STEP1_AUDIT, TWO_STEP_KINDS, attendanceStepsOf, dateOfYmd, kstDateTime, kstYmdOf, resolveApprover, inboxWhere, summaryOf,
+  statusSummaryOf, weekendClockInBlock, type RequestKind,
 } from "@/lib/attendance-request";
+import { canSeeClockTimes } from "@/lib/attendance-visibility";
+import { testRequesterExclusion } from "@/lib/employee-scope";
 
 
 // 큐브티로 출퇴근을 찍기 시작한 날(2026-10-26 지점 전환) — 그 전 기록은 시프티 원본
@@ -30,13 +32,47 @@ const num = (v: unknown) => {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 };
 
-function shapeRow(r: {
+type RowIn = {
   id: string; userId: string; kind: string; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null;
   clockOut: Date | null; reason: string | null; memo: string | null; photoPath: string | null; deviceName: string | null;
   platform: string | null; approverRole: string; branch: string | null; status: string; decidedAt: Date | null;
   rejectReason: string | null; createdAt: Date; latitude: number | null; longitude: number | null;
   user: { name: string; branch: string | null; position: string | null };
-}, deciderNames: Map<string, string>, decidedBy: string | null) {
+};
+type Extra = {
+  showTimes: boolean;
+  /** 1차(원장) 승인 — 출퇴근 수정 두 단계(■0-11) */
+  step1: Map<string, { name: string; at: Date }>;
+  /** 그날 기록 상태 「출근 · 퇴근 누락」 — 원장 카드에 시각 대신 */
+  recordState: Map<string, string>;
+};
+
+/** 시각을 감추는 사람(직원 · 원장)에게는 시각 칸을 비우고 시각 없는 요약을 준다(■0-11). 본부는 그대로 */
+function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string | null, x: Extra) {
+  const step1 = x.step1.get(r.id) ?? null;
+  // 두 단계 판정은 공용 함수(10/23 검증 E — 끝난 옛 1단계 건 · 본부가 바로 최종 승인한 건이 「결재 1/2」로 보였다)
+  const twoStep = attendanceStepsOf(r, !!step1) === 2;
+  const masked = !x.showTimes;
+  return {
+    ...shapeBase(r, deciderNames, decidedBy),
+    // 올린 때(createdAt)도 시각이다 — 지점 밖 · 사진 · 본부 요청은 누른 때 = 출근 · 퇴근 시각(10/23 검증 C). 숨길 때는 날짜(createdDate)만
+    ...(masked ? { requestedAt: null, clockIn: null, clockOut: null, createdAt: null, summary: statusSummaryOf(r) } : {}),
+    ...(r.kind === "RECORD" ? { memo: null } : {}),   // 기록 요청의 memo 는 기간("from~to") — 요약(summary)에 사람이 읽는 말로 들어 있다
+    timesHidden: masked,
+    wantIn: !!r.clockIn,    // 출퇴근 수정이 고치려는 칸(시각 없이도 무엇을 고치는지)
+    wantOut: !!r.clockOut,
+    recordState: x.recordState.get(`${r.userId}|${r.workDate.toISOString().slice(0, 10)}`) ?? null,
+    // 결재 흐름 — 출퇴근 수정은 「지점 원장 → 본부」. 1차 승인한 원장 이름 · 시각(본부 단계에서 보인다)
+    steps: twoStep ? 2 : 1,
+    // 지금 차례 · 다음 차례(앱 카드 「승인하면 본부로」) — 대기 중일 때만
+    currentStep: r.status === "PENDING" ? (r.approverRole === "ADMIN" ? "HQ" : "MANAGER") : null,
+    nextStep: r.status === "PENDING" && twoStep && r.approverRole === "MANAGER" ? "HQ" : null,
+    step1: step1 ? { name: step1.name, at: step1.at } : null,
+    approverLabel: r.approverRole === "ADMIN" ? (step1 ? "본부 (원장 승인 완료)" : "본부") : twoStep ? `${r.branch ?? ""} 원장 → 본부` : `${r.branch ?? ""} 원장`,
+  };
+}
+
+function shapeBase(r: RowIn, deciderNames: Map<string, string>, decidedBy: string | null) {
   return {
     id: r.id,
     userId: r.userId,
@@ -62,7 +98,8 @@ function shapeRow(r: {
     decidedByName: decidedBy ? deciderNames.get(decidedBy) ?? null : null,
     decidedAt: r.decidedAt,
     rejectReason: r.rejectReason,
-    createdAt: r.createdAt,
+    createdAt: r.createdAt as Date | null,
+    createdDate: kstYmdOf(r.createdAt),   // 올린 날(KST "YYYY-MM-DD") — 시각을 숨겨도 늘 준다
     summary: summaryOf(r),
   };
 }
@@ -75,10 +112,12 @@ const ROW_SELECT = {
 } as const;
 
 // GET ?scope=mine(기본) | inbox(내가 처리할 대기) | history(관리자 전체·원장 담당 지점, 최근 60일)
+//  · inbox · history 는 테스트 계정이 올린 요청을 기본으로 뺀다 — 관리자가 &includeTest=1 을 주면 넣는다(2026-10-23 이예지 답)
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  const scope = new URL(request.url).searchParams.get("scope") || "mine";
+  const sp = new URL(request.url).searchParams;
+  const scope = sp.get("scope") || "mine";
   const since = new Date(Date.now() - 60 * 86400_000);
 
   let where: Record<string, unknown> | null;
@@ -92,6 +131,10 @@ export async function GET(request: NextRequest) {
     where = { userId: session.userId, createdAt: { gte: since } };
   }
   if (!where) return NextResponse.json({ requests: [] });
+  if (scope === "inbox" || scope === "history") {
+    const testEx = await testRequesterExclusion(session, sp.get("includeTest"));
+    if (testEx) where = { AND: [where, { user: testEx }] };
+  }
 
   const rows = await prisma.attendanceRequest.findMany({
     where,
@@ -104,10 +147,34 @@ export async function GET(request: NextRequest) {
     (ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [])
       .map((u) => [u.id, u.name] as [string, string]),
   );
-  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy)) });
+  const showTimes = await canSeeClockTimes(session.role);
+  // 1차(원장) 승인 기록 — 출퇴근 수정 두 단계(■0-11). 스키마를 바꾸지 않고 AuditLog 에서 읽는다
+  const twoStepIds = rows.filter((r) => TWO_STEP_KINDS.includes(r.kind)).map((r) => r.id);
+  const step1 = new Map<string, { name: string; at: Date }>();
+  if (twoStepIds.length) {
+    const logs = await prisma.auditLog.findMany({ where: { action: STEP1_AUDIT, targetId: { in: twoStepIds } }, select: { targetId: true, actorName: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+    for (const l of logs) if (l.targetId && !step1.has(l.targetId)) step1.set(l.targetId, { name: l.actorName, at: l.createdAt });
+  }
+  // 그날 기록 상태(시각 없이) — 출퇴근 수정 카드에 「기록 · 출근 · 퇴근 누락」
+  const recordState = new Map<string, string>();
+  const fixRows = rows.filter((r) => TWO_STEP_KINDS.includes(r.kind));
+  if (fixRows.length) {
+    const atts = await prisma.attendance.findMany({
+      where: { OR: fixRows.map((r) => ({ userId: r.userId, date: r.workDate })) },
+      select: { userId: true, date: true, clockIn: true, clockOut: true, status: true },
+    });
+    const got = new Map(atts.map((a) => [`${a.userId}|${a.date.toISOString().slice(0, 10)}`, a]));
+    for (const r of fixRows) {
+      const k = `${r.userId}|${r.workDate.toISOString().slice(0, 10)}`;
+      const a = got.get(k);
+      recordState.set(k, !a || (!a.clockIn && !a.clockOut) ? "기록 없음"
+        : [a.clockIn ? (a.status === "LATE" ? "지각" : "출근") : "출근 누락", a.clockOut ? "퇴근" : "퇴근 누락"].join(" · "));
+    }
+  }
+  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy, { showTimes, step1, recordState })), timesHidden: !showTimes });
 }
 
-// POST — JSON(OUTSIDE·HQ·CORRECTION·MISSED_OUT) 또는 multipart(PHOTO: file + 칸들)
+// POST — JSON(OUTSIDE·HQ·CORRECTION·MISSED_OUT·RECORD) 또는 multipart(PHOTO: file + 칸들)
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -131,7 +198,7 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body !== "object") return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400 });
 
   const kind = body.kind as RequestKind;
-  if (!["OUTSIDE", "PHOTO", "HQ", "CORRECTION", "MISSED_OUT"].includes(kind))
+  if (!["OUTSIDE", "PHOTO", "HQ", "CORRECTION", "MISSED_OUT", "RECORD"].includes(kind))
     return NextResponse.json({ error: "요청 종류가 올바르지 않습니다." }, { status: 400 });
 
   const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true, role: true, branch: true } });
@@ -149,7 +216,21 @@ export async function POST(request: NextRequest) {
     reason: string | null; memo: string | null; latitude: number | null; longitude: number | null; photoPath: string | null;
   } = { kind, action: null, workDate: dateOfYmd(todayYmd), requestedAt: now, clockIn: null, clockOut: null, reason: null, memo, latitude, longitude, photoPath: null };
 
-  if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
+  if (kind === "RECORD") {
+    // 출퇴근 기록 요청(■0-11) — 찍은 시각은 본부만 보므로, 기록이 필요한 사람은 본부에 요청하고 본부가 내준다.
+    // body: { kind: "RECORD", from: "YYYY-MM-DD", to: "YYYY-MM-DD", reason?: 쓰는 곳 }. 기간은 memo 에 "from~to"
+    const from = typeof body.from === "string" && YMD.test(body.from) ? body.from : null;
+    const to = typeof body.to === "string" && YMD.test(body.to) ? body.to : null;
+    if (!from || !to || Number.isNaN(dateOfYmd(from).getTime()) || Number.isNaN(dateOfYmd(to).getTime()) || from > to)
+      return NextResponse.json({ error: "기간을 확인해 주세요." }, { status: 400 });
+    if (to > todayYmd) return NextResponse.json({ error: "오늘까지의 기록만 요청할 수 있습니다." }, { status: 400 });
+    if (dateOfYmd(to).getTime() - dateOfYmd(from).getTime() > 366 * 86400_000) return NextResponse.json({ error: "한 번에 1년까지 요청할 수 있습니다." }, { status: 400 });
+    const dup = await prisma.attendanceRequest.findFirst({ where: { userId: session.userId, kind: "RECORD", status: "PENDING" }, select: { id: true } });
+    if (dup) return NextResponse.json({ error: "출퇴근 기록 요청이 이미 본부에 가 있습니다." }, { status: 409 });
+    data.workDate = dateOfYmd(from);
+    data.memo = `${from}~${to}`;
+    data.reason = str(body.reason, 100);
+  } else if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
     // 출퇴근 대신이므로 출근 버튼과 같은 기기 검증(대리 출퇴근 방지)
     const deviceError = await verifyAttendanceDevice(session.userId, session.role, request.headers.get("x-device-id"));
     if (deviceError) return NextResponse.json({ error: deviceError }, { status: 403 });
@@ -212,9 +293,12 @@ export async function POST(request: NextRequest) {
         (head.subarray(4, 8).toString("ascii") === "ftyp" &&
           ["heic", "heix", "hevc", "heim", "heis", "mif1", "msf1"].includes(head.subarray(8, 12).toString("ascii")));   // HEIC
       if (!isImage) return NextResponse.json({ error: "사진 파일만 올릴 수 있습니다." }, { status: 400 });
+      // 아이폰 HEIC 는 JPG 로 바꿔 저장한다(2026-10-23 ■1 — 본부 PC 에서 열리게). 못 바꾸면 원본 그대로
+      const { heicToJpeg } = await import("@/lib/heic-jpeg");
+      const jpg = await heicToJpeg(buf);
       await fs.mkdir(PHOTO_DIR, { recursive: true });
-      const name = `${session.userId}-${Date.now()}${ext}`;
-      await fs.writeFile(path.join(PHOTO_DIR, name), buf);
+      const name = `${session.userId}-${Date.now()}${jpg ? ".jpg" : ext}`;
+      await fs.writeFile(path.join(PHOTO_DIR, name), jpg ?? buf);
       data.photoPath = name;
     }
   } else {
@@ -268,12 +352,16 @@ export async function POST(request: NextRequest) {
     data: { userId: session.userId, ...data, approverRole: approver.approverRole, branch: approver.branch },
   });
 
-  // 결재 차례인 사람에게 알림(원장 단계면 원장+대행, 본부 단계면 본부) + 본부 진행 알림
+  // 결재 차례인 사람에게 알림(원장 단계면 원장+대행, 본부 단계면 본부) + 본부 진행 알림.
+  // 원장 단계 알림에는 시각을 싣지 않는다(■0-11 — 원장은 상태만, 「출퇴근 시각 보기」를 켜면 시각도)
+  const managerTurn = approver.approverRole === "MANAGER";
+  const period = managerTurn && !(await canSeeClockTimes("MANAGER")) ? statusSummaryOf(row) : summaryOf(row);
   const { botNotifyApprovalRequest } = await import("@/lib/bot");
   botNotifyApprovalRequest(
     { approverRole: approver.approverRole, branch: approver.branch, approverId: null },
-    { kind: "출퇴근 요청", requesterName: me.name, period: summaryOf(row), requesterId: session.userId },
+    { kind: "출퇴근 요청", requesterName: me.name, period, requesterId: session.userId },
   ).catch(() => {});
 
-  return NextResponse.json({ success: true, id: row.id, approverLabel: approver.approverRole === "ADMIN" ? "본부" : "원장" });
+  const approverLabel = !managerTurn ? "본부" : TWO_STEP_KINDS.includes(kind) ? "원장 → 본부" : "원장";
+  return NextResponse.json({ success: true, id: row.id, approverLabel });
 }

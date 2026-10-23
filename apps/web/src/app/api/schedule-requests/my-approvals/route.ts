@@ -1,26 +1,29 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { scheduleCancelDenial, cancelFlags, type CancelViewer } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
+import { testRequesterExclusion } from "@/lib/employee-scope";
 
 // 내가 결재해야 하는 근무일정 신청 목록
-export async function GET() {
+// 테스트 계정이 올린 신청은 기본으로 빼고, 관리자가 ?includeTest=1 을 주면 넣는다(2026-10-23 이예지 답 — lib/employee-scope)
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
   // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
   const scope = await approverScopeFor(session);
   const viewer = await cancelViewerFor(session);
+  const testEx = await testRequesterExclusion(session, request.nextUrl.searchParams.get("includeTest"));
   const steps = await prisma.scheduleApprovalStep.findMany({
     where: {
       status: "PENDING",
       // 본인 신청은 본인 결재함에 뜨지 않는다. 원장 신청에 원장 단계가 생기면서
       // 자기 것이 자기 결재함에 뜨는데, 누르면 403 이다 — 누를 수 없는 버튼을
       // 보여주지 않는다(2026-09-09 검증에서 적발).
-      scheduleRequest: { userId: { not: session.userId } },
+      scheduleRequest: { userId: { not: session.userId }, ...(testEx ? { user: testEx } : {}) },
       // 관리자는 **대기 중인 모든 단계**를 본다. 결재 요청 DM 이 전체 관리자에게
       // 가는데(디렉터 지시) 결재함에는 ADMIN 단계만 보이면, 받아놓고 열었을 때
       // 빈 화면이 된다(2026-09-09 검증에서 적발). 관리자는 어차피 어떤 건이든
@@ -64,6 +67,7 @@ export async function GET() {
         status: "PENDING",
         approvalSteps: { none: {} },
         userId: { not: session.userId },   // 본인 신청은 결재함에 띄우지 않는다
+        ...(testEx ? { user: testEx } : {}),
       },
       include: {
         user: { select: { id: true, name: true, department: true, position: true, branch: true, role: true } },   // role 은 취소 판정용 — 응답에서 뺀다

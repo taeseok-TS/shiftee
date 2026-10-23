@@ -79,10 +79,13 @@ export default function ManagerDashboardPage() {
         next.push({ key: `cancel-${s.id}`, title: `${c?.user?.name ?? ""} · 휴가 취소${lr ? ` ${labels[lr.type] ?? lr.type} ${periodLabel(lr.startDate, lr.endDate)}` : ""}`,
           sub: "지점 휴가 취소 승인", href: "/manager/team-leave?tab=cancel", at: new Date(s.createdAt).getTime() });
       }
-      for (const r of (att?.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string }[]) {
+      // 출퇴근 요청 — 원장에게는 찍은 시각이 오지 않는다(■0-11, requestedAt · createdAt = null). 순서는 요청을 올린 때로 —
+      // 시각이 없으면 올린 날(createdDate, KST "YYYY-MM-DD")의 0시로(0 으로 두면 맨 뒤로 밀려 8줄 안에서 잘렸다)
+      for (const r of (att?.requests || []) as { id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
         if (r.status && r.status !== "PENDING") continue;
+        const t = r.createdAt ?? r.requestedAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null);
         next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 요청"}`, sub: `출퇴근 요청 승인 · ${periodLabel(r.workDate, r.workDate)}`,
-          href: "/manager/team-leave?tab=attendance", at: r.requestedAt ? new Date(r.requestedAt).getTime() : 0 });
+          href: "/manager/team-leave?tab=attendance", at: t ? new Date(t).getTime() : 0 });
       }
       for (const c of (contracts?.contracts || []) as { id: string; title: string; userId?: string; externalName?: string | null; signDeadline?: string | null; createdAt: string }[]) {
         const due = c.signDeadline ? new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/") : null;   // 시안 「기한 11/04」(관리자 · 직원 대시보드와 같게)
@@ -122,7 +125,7 @@ export default function ManagerDashboardPage() {
           <Tile label="조퇴" value={a?.earlyLeave} unit="명" note={namesNote(stats?.names?.earlyLeave)} alert onClick={toAttendance} />
           <Tile label="휴가" value={stats?.attendance.onLeave} unit="명" />
           {/* 원장 = 담당 지점 재직자, 본부 계정으로 원장 모드를 열면 전체(본부 · 테스트 지점 제외) */}
-          <Tile label="지점 인원" value={stats?.teamCount} unit="명" note={me?.role === "ADMIN" ? "본부 계정 — 전체 지점" : "우리 지점 재직"} hl
+          <Tile label="지점 인원" value={stats?.teamCount} unit="명" note={me?.role === "ADMIN" ? "본부 계정 — 전체 지점" : "지점 재직 · 휴직 빼고"} hl
             onClick={() => { window.location.href = "/manager/team-employees"; }} />
         </Tiles>
       </Box>

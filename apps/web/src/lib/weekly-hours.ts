@@ -89,7 +89,11 @@ export async function weeklyMinutes(userIds: string[], mondays: string[], propos
 export async function over49Warnings(entries: { userId: string; date: string }[], proposed?: Proposed, viewer?: { role: string }): Promise<string[]> {
   if (!entries.length) return [];
   // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 원장에게는 실제 근로시간 문구를 보여 주지 않는다(일정 기준 경고만)
-  const hideActual = viewer?.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"));
+  // 주 근무시간 숫자 · 실제(출퇴근) 기준은 본부만(2026-10-23 ■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 일정 기준 「넘습니다」만, 숫자 없이.
+  // viewer 를 넘기지 않는 곳(본인 근무일정 신청)은 신청자 본인이 받으므로 숨기는 쪽으로 본다
+  const { canSeeClockTimes } = await import("@/lib/attendance-visibility");
+  const hideNumbers = !(await canSeeClockTimes(viewer?.role));
+  const hideActual = hideNumbers || (viewer?.role === "MANAGER" && !(await isAllowed("manager.viewAttendance")));
   const userIds = [...new Set(entries.map((e) => e.userId))];
   const mondays = [...new Set(entries.map((e) => mondayOf(e.date)))];
   const mins = await weeklyMinutes(userIds, mondays, proposed);
@@ -102,6 +106,7 @@ export async function over49Warnings(entries: { userId: string; date: string }[]
     if (!v || (v.sched <= WEEK_LIMIT_MIN && (hideActual || v.actual <= WEEK_LIMIT_MIN))) continue;
     const [u, mon] = key.split("|");
     const span = `${mon.slice(5).replace("-", "/")}~${plusDays(mon, 6).slice(5).replace("-", "/")}`;
+    if (hideNumbers) { out.push(`${names.get(u) ?? "직원"} · ${span} 주 근무일정이 주 49시간을 넘습니다`); continue; }
     const parts = [v.sched > WEEK_LIMIT_MIN ? `근무일정 ${h(v.sched)}` : "", !hideActual && v.actual > WEEK_LIMIT_MIN ? `실제 ${h(v.actual)}` : ""].filter(Boolean);
     out.push(`${names.get(u) ?? "직원"} · ${span} 주 ${parts.join(", ")} — 주 49시간을 넘습니다`);
   }

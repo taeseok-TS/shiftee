@@ -418,7 +418,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 금액 칸은 "입력 중엔 숫자만, 벗어나면 콤마" — 매 글자마다 다시 포맷하면 커서가 끝으로 튄다(검증관 F4)
   const [salaryFocus, setSalaryFocus] = useState(false);
   // 포털 연봉 기본값·연봉 확인(2026-10-23 본부) — 포털 값은 화면 기억에만(큐브티에 저장하지 않는다). 권한은 인사 › 연봉과 같다(/api/admin/portal-salary)
-  const [portalSalary, setPortalSalary] = useState<Record<string, { found: boolean; amount?: number | null; from?: string; to?: string; reason?: string }>>({});
+  const [portalSalary, setPortalSalary] = useState<Record<string, { found: boolean; amount?: number | null; from?: string; to?: string; reason?: string; message?: string }>>({});
   const [portalSalaryGate, setPortalSalaryGate] = useState<"" | "ok" | "locked" | "forbidden" | "fail" | "unconfigured">("");
   const [salaryOk, setSalaryOk] = useState<Record<string, string>>({});   // 받는 사람(외부 계약은 "__ext__") → 「연봉 확인」을 누른 그때의 연봉 값. 값이 바뀌면 확인이 풀린다
   const [salaryPw, setSalaryPw] = useState("");
@@ -1088,7 +1088,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     if (typed) return bulkMode ? "공통 연봉(위 칸)" : "직접 입력";
     if (salaryDefaultOn) return "기본값 3,400만 원 — 이 사람 연봉이 맞는지 확인";
     if (!portalFillOn) return "직접 입력";
-    if (p) return p.found ? "포털에 연봉이 비어 있습니다 — 직접 입력" : `${p.reason || "포털에서 찾지 못했습니다"} — 직접 입력`;
+    if (p) return p.found ? "포털에 연봉이 비어 있습니다 — 직접 입력" : p.reason === "name_mismatch" ? "확인 필요 — 포털 이름이 다릅니다 · 직접 입력" : `${p.message || "포털에서 찾지 못했습니다"} — 직접 입력`;
     return "직접 입력";
   };
 
@@ -3606,6 +3606,7 @@ ${url}`;
                     onChange={setBulkValues}
                     common={{ ...extraFields, 연봉: effSalary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
                     rowCommon={bulkRowCommon}
+                    fieldTypes={fieldTypes}
                     {...(needsSalaryNow ? {
                       salaryInfo: Object.fromEntries(bulkUserIds.map(uid => { const v = salaryOf(uid); return [uid, { value: v, confirmed: !!v && salaryOk[uid] === v, note: v ? salarySourceOf(uid) : "연봉을 넣어 주세요" }]; })),
                       onSalaryConfirm: (uid: string, on: boolean) => setSalaryOk(p => ({ ...p, [uid]: on ? salaryOf(uid) : "" })),

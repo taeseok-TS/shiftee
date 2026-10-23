@@ -9,9 +9,10 @@ import { TemplatePicker } from "@/components/schedule/TemplatePicker";
 import { showWeekWarnings } from "@/components/schedule/WeekHours";
 
 /**
- * 원장 팀 근무일정 관리 창(2026-10-07 QA #18 #12) — 일정 추가·고치기·지우기, 일괄 생성.
+ * 근무일정 관리 창(2026-10-07 QA #18 #12) — 일정 추가·고치기·지우기, 여러 날 한 번에 넣기(옛 이름 「일괄 생성」).
+ * 원장 지점 근무일정과 본부 근무일정(2026-10-23 ■3 — 칸 · 띠를 누르면 그날 일정)이 같이 쓴다.
  * 서버 규칙: 원장은 담당 지점 직원·원장과 본인 일정을 바꿀 수 있다(본인 변경은 본부에 알림),
- * 일괄 생성은 이미 일정이 있는 날·휴가인 날을 건너뛴다. 주 49시간을 넘으면 경고만.
+ * 여러 날 한 번에 넣기는 이미 일정이 있는 날·휴가인 날을 건너뛴다. 주 49시간을 넘으면 경고만.
  */
 export type Emp = { id: string; name: string; branch: string | null };
 export type EditTarget = { id?: string; userId: string; date: string; startTime: string; endTime: string; type?: string; note?: string | null } | null;
@@ -68,7 +69,7 @@ export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>{editing ? "근무일정 고치기" : "근무일정 추가"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? "근무일정 고치기" : "일정 추가"}</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
           <label className="block space-y-1">
             <span className="text-xs text-gray-500">직원</span>
@@ -83,7 +84,7 @@ export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
             <Input type="date" value={form.date} disabled={editing} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </label>
           <div className="space-y-1">
-            <span className="text-xs text-gray-500">근무일정 템플릿</span>
+            <span className="text-xs text-gray-500">근무 시간 종류</span>
             <TemplatePicker branch={emp?.branch ?? null} onPick={(st, et) => setForm((f) => ({ ...f, startTime: st, endTime: et }))} />
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -133,9 +134,9 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
         body: JSON.stringify({ userIds, ...range, weekdays, ...time, type: "WORK" }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d.error || "만들지 못했습니다."); return; }
+      if (!res.ok) { toast.error(d.error || "넣지 못했습니다."); return; }
       const skipped = [d.skippedExisting ? `일정 있는 날 ${d.skippedExisting}건` : "", d.skippedLeave ? `휴가인 날 ${d.skippedLeave}건` : "", d.skippedHoliday ? `공휴일 ${d.skippedHoliday}건` : ""].filter(Boolean).join(", ");
-      toast.success(`${d.count}개 일정을 만들었습니다${skipped ? ` · 건너뜀: ${skipped}` : ""}`);
+      toast.success(`일정 ${d.count}개를 넣었습니다${skipped ? ` · 건너뜀: ${skipped}` : ""}`);
       showWeekWarnings(d.warnings);
       onSaved();
       onClose();
@@ -145,12 +146,12 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>근무일정 일괄 생성</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>여러 날 한 번에 넣기</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">직원 ({userIds.length}명)</span>
-              <button className="text-xs text-blue-600" onClick={() => setUserIds(userIds.length === employees.length ? [] : employees.map((e) => e.id))}>
+              <button className="text-xs text-[#4f46e5]" onClick={() => setUserIds(userIds.length === employees.length ? [] : employees.map((e) => e.id))}>
                 {userIds.length === employees.length ? "모두 해제" : "모두 선택"}
               </button>
             </div>
@@ -169,13 +170,14 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
             <label className="space-y-1"><span className="text-xs text-gray-500">종료일</span><Input type="date" value={range.endDate} onChange={(e) => setRange({ ...range, endDate: e.target.value })} /></label>
           </div>
           <div className="flex gap-1">
-            {WEEK.map((w, i) => (
-              <button key={w} onClick={() => setWeekdays((d) => (d.includes(i) ? d.filter((x) => x !== i) : [...d, i]))}
-                className={`w-9 h-8 rounded border text-xs ${weekdays.includes(i) ? "bg-blue-600 text-white border-blue-600" : "text-gray-600"}`}>{w}</button>
+            {/* 월 ~ 일 순서(■4 한 주 = 월 ~ 일), 고른 요일은 인디고. 값은 getDay 번호(일 = 0) 그대로 */}
+            {[1, 2, 3, 4, 5, 6, 0].map((i) => (
+              <button key={i} type="button" aria-pressed={weekdays.includes(i)} onClick={() => setWeekdays((d) => (d.includes(i) ? d.filter((x) => x !== i) : [...d, i]))}
+                className={`w-9 h-8 rounded border text-xs ${weekdays.includes(i) ? "bg-[#4f46e5] text-white border-[#4f46e5]" : "text-gray-600"}`}>{WEEK[i]}</button>
             ))}
           </div>
           <div className="space-y-1">
-            <span className="text-xs text-gray-500">근무일정 템플릿 (담당 지점에서 쓸 수 있는 것 — 여러 직원·여러 날에 한 번에)</span>
+            <span className="text-xs text-gray-500">근무 시간 종류 (담당 지점에서 쓸 수 있는 것 — 여러 직원 · 여러 날에 한 번에)</span>
             <TemplatePicker onPick={(st, et) => setTime({ startTime: st, endTime: et })} />
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -185,7 +187,7 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
           <p className="text-xs text-gray-400">이미 일정이 있는 날과 휴가(반차 포함)인 날은 건너뜁니다.</p>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>닫기</Button>
-            <Button disabled={busy} onClick={submit}>{busy ? "만드는 중…" : "만들기"}</Button>
+            <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={busy} onClick={submit}>{busy ? "넣는 중…" : "넣기"}</Button>
           </div>
         </div>
       </DialogContent>

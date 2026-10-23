@@ -15,7 +15,7 @@ const Stack = createNativeStackNavigator();
  */
 export default function WorkNavigator() {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator screenOptions={{ headerBackTitleVisible: false }}>
       <Stack.Screen
         name="WorkChannels"
         component={WorkChannelListScreen}

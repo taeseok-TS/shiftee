@@ -6,6 +6,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import DatePicker from "./DatePicker";
 import * as attendance from "../services/attendance";
+import { fmtDay } from "../services/fmt";
 
 /**
  * 출퇴근 요청 창(2026-10-07 QA #9 #13 #15) — 출퇴근 화면에서 띄운다.
@@ -14,9 +15,10 @@ import * as attendance from "../services/attendance";
  *  · HQ         위치 인증 3번 실패 → 본부에 출퇴근 처리 요청(본부 승인)
  *  · MISSED_OUT 어제 퇴근 누락 → 퇴근 시각 넣어 요청
  *  · CORRECTION 출퇴근기록 수정(지각·누락) → 날짜·시각·사유
+ *  · RECORD     출퇴근 기록 요청(2026-10-23 ■0-11, 시안 S1-1) — 찍은 시각은 본부만 보므로 기간(from~to)과 쓰는 곳을 골라 본부에 요청. 기록은 안 바뀐다
  */
 export type RequestDraft = {
-  kind: "OUTSIDE" | "PHOTO" | "HQ" | "MISSED_OUT" | "CORRECTION";
+  kind: "OUTSIDE" | "PHOTO" | "HQ" | "MISSED_OUT" | "CORRECTION" | "RECORD";
   action?: "IN" | "OUT";
   pressedAt?: string;                                  // 출퇴근 버튼을 누른 순간
   location?: { latitude: number; longitude: number } | null;
@@ -24,6 +26,8 @@ export type RequestDraft = {
 };
 
 const OUTSIDE_REASONS = ["본사 방문", "서점(교재 구입)", "외근", "기타"] as const;
+// 출퇴근 기록 요청 — 쓰는 곳(본부가 알아보기 쉽게). 「기타」는 직접 적는다
+const RECORD_REASONS = ["근무시간 확인", "급여 확인", "서류 제출(관공서 · 은행 등)", "기타"] as const;
 const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 const pad = (n: number) => String(n).padStart(2, "0");
 const hhmmOf = (iso?: string) => {
@@ -45,8 +49,16 @@ const TITLE: Record<RequestDraft["kind"], string> = {
   PHOTO: "지점 사진으로 출퇴근 요청",
   HQ: "본부에 출퇴근 처리 요청",
   MISSED_OUT: "퇴근 처리 요청",
-  CORRECTION: "출퇴근기록 수정 요청",
+  CORRECTION: "출퇴근 기록 고치기 요청",
+  RECORD: "출퇴근 기록 요청",
 };
+// 기록 고치기는 큐브티 기록만(10/26부터) · 31일 안(서버 규칙과 같게) — 그 밖의 날은 달력에서 고를 수 없게
+const fixMinYmd = () => {
+  const d = new Date(Date.now() - 31 * 86400_000);
+  const m = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return m < "2026-10-26" ? "2026-10-26" : m;
+};
+const monthStartYmd = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`; };
 
 export default function AttendanceRequestModal({
   draft, onClose, onDone,
@@ -60,6 +72,9 @@ export default function AttendanceRequestModal({
   const [inTime, setInTime] = useState("");
   const [outTime, setOutTime] = useState("");
   const [fixReason, setFixReason] = useState("");
+  const [fromDate, setFromDate] = useState(monthStartYmd());
+  const [toDate, setToDate] = useState(todayYmd());
+  const [recReason, setRecReason] = useState<string>("근무시간 확인");
   const [sending, setSending] = useState(false);
   const busy = useRef(false);   // 빠른 두 번 누름 방지 — state 는 다음 렌더 전까지 안 바뀐다(출퇴근 버튼과 같은 처리)
 
@@ -75,11 +90,15 @@ export default function AttendanceRequestModal({
     setInTime("");
     setOutTime("");
     setFixReason("");
+    setFromDate(monthStartYmd());
+    setToDate(todayYmd());
+    setRecReason("근무시간 확인");
   }, [draft]);
 
   if (!draft) return null;
   const kind = draft.kind;
   const isClock = kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ";
+  const isRecord = kind === "RECORD";
 
   const takePhoto = async () => {
     try {
@@ -99,6 +118,24 @@ export default function AttendanceRequestModal({
 
   const submit = async () => {
     if (busy.current) return;
+    if (isRecord) {
+      // 기간 — 오늘까지, 한 번에 1년까지(서버가 다시 본다). 쓰는 곳은 고르기, 「기타」면 적은 말
+      if (!fromDate || !toDate || fromDate > toDate) { Alert.alert("기간을 확인해 주세요", "시작 날짜가 끝 날짜보다 늦습니다."); return; }
+      const why = recReason === "기타" ? otherReason.trim() : recReason;
+      if (recReason === "기타" && !why) { Alert.alert("쓰는 곳을 적어 주세요"); return; }
+      busy.current = true;
+      setSending(true);
+      try {
+        await attendance.createRecordRequest(fromDate, toDate, why ? (recReason === "기타" ? `기타: ${why}` : why) : undefined);
+        onDone("본부에 출퇴근 기록을 요청했습니다. 본부가 확인해 기록을 전해 드립니다.");
+      } catch (e: any) {
+        Alert.alert("보내지 못했어요", e?.response?.data?.error || "잠시 후 다시 시도해 주세요.");
+      } finally {
+        busy.current = false;
+        setSending(false);
+      }
+      return;
+    }
     const loc = draft.location ?? null;
     const base: Record<string, unknown> = { kind, memo: memo.trim() || undefined };
     if (isClock) {
@@ -135,7 +172,8 @@ export default function AttendanceRequestModal({
     }
   };
 
-  const approver = kind === "HQ" ? "본부" : "원장(원장 본인은 본부)";
+  // 결재 순서 — 출퇴근 수정은 「지점 원장 → 본부」(■0-11, 넣을 시각은 본부가 확인), 기록 요청 · 본부 처리는 본부
+  const approver = kind === "HQ" || isRecord ? "본부" : kind === "CORRECTION" || kind === "MISSED_OUT" ? "지점 원장 → 본부(원장 본인은 본부)" : "원장(원장 본인은 본부)";
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -179,17 +217,40 @@ export default function AttendanceRequestModal({
                 <Text style={styles.help}>지점 간판이나 입구가 보이게 찍어 주세요.</Text>
                 {photo ? <Image source={{ uri: photo.uri }} style={styles.photo} /> : null}
                 <TouchableOpacity style={styles.ghostBtn} onPress={takePhoto}>
-                  <Text style={styles.ghostText}>{photo ? "다시 찍기" : "📷 사진 찍기"}</Text>
+                  <Text style={styles.ghostText}>{photo ? "다시 찍기" : "사진 찍기"}</Text>
                 </TouchableOpacity>
               </>
             )}
 
-            {!isClock && (
+            {isRecord && (
+              <>
+                <Text style={styles.help}>찍은 출퇴근 시각은 본부만 봅니다. 기록이 필요하면 기간을 골라 요청해 주세요. 본부가 확인해 기록을 전해 드립니다.</Text>
+                <Text style={styles.label}>기간</Text>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}><DatePicker value={fromDate} onChange={setFromDate} maxDate={toDate || todayYmd()} placeholder="시작" /></View>
+                  <Text style={styles.tilde}>~</Text>
+                  <View style={{ flex: 1 }}><DatePicker value={toDate} onChange={setToDate} minDate={fromDate || undefined} maxDate={todayYmd()} placeholder="끝" /></View>
+                </View>
+                <Text style={styles.label}>쓰는 곳</Text>
+                <View style={styles.wrap}>
+                  {RECORD_REASONS.map((r) => (
+                    <TouchableOpacity key={r} style={[styles.chip, recReason === r && styles.chipOn]} onPress={() => setRecReason(r)}>
+                      <Text style={[styles.chipText, recReason === r && styles.chipTextOn]}>{r === "기타" ? "기타 (직접 입력)" : r}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {recReason === "기타" && (
+                  <TextInput style={styles.input} value={otherReason} onChangeText={setOtherReason} maxLength={60} placeholder="쓰는 곳을 적어 주세요" />
+                )}
+              </>
+            )}
+
+            {!isClock && !isRecord && (
               <>
                 <Text style={styles.label}>날짜</Text>
                 {kind === "MISSED_OUT"
-                  ? <Text style={styles.fixed}>{workDate}</Text>
-                  : <DatePicker value={workDate} onChange={setWorkDate} maxDate={yesterdayYmd()} />}
+                  ? <Text style={styles.fixed}>{workDate ? fmtDay(workDate) : ""}</Text>
+                  : <DatePicker value={workDate} onChange={setWorkDate} minDate={fixMinYmd()} maxDate={yesterdayYmd()} />}
                 {kind === "CORRECTION" && (
                   <>
                     <Text style={styles.label}>출근 시각 (고칠 때만)</Text>
@@ -204,16 +265,20 @@ export default function AttendanceRequestModal({
               </>
             )}
 
-            <Text style={styles.label}>{kind === "HQ" ? "본부에 전할 내용" : "메모 (선택)"}</Text>
-            <TextInput style={[styles.input, styles.memo]} value={memo} onChangeText={setMemo} maxLength={200} multiline
-              placeholder={kind === "HQ" ? "예: 위치가 계속 안 잡혀요. 9:58 지점 도착" : "예: 10시 본사 교육 참석"} />
+            {!isRecord && (
+              <>
+                <Text style={styles.label}>{kind === "HQ" ? "본부에 전할 내용" : "메모 (선택)"}</Text>
+                <TextInput style={[styles.input, styles.memo]} value={memo} onChangeText={setMemo} maxLength={200} multiline
+                  placeholder={kind === "HQ" ? "예: 위치가 계속 안 잡혀요. 9:58 지점 도착" : "예: 10시 본사 교육 참석"} />
+              </>
+            )}
 
             <Text style={styles.help}>
               {isClock ? `요청 시각 ${hhmmOf(draft.pressedAt)} · 위치 ${draft.location ? "자동 기록" : "없음"} · ` : ""}승인: {approver}
             </Text>
 
             <TouchableOpacity style={[styles.sendBtn, sending && { opacity: 0.6 }]} onPress={submit} disabled={sending}>
-              {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>요청 보내기</Text>}
+              {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>{isRecord ? "본부에 요청" : "요청 보내기"}</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose} disabled={sending}>
               <Text style={styles.cancelText}>닫기</Text>
@@ -232,19 +297,20 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, color: "#6b7280", marginTop: 14, marginBottom: 6 },
   row: { flexDirection: "row", gap: 8 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 },
-  chipOn: { borderColor: "#1d4ed8", backgroundColor: "#eff6ff" },
+  chip: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: "center" },
+  tilde: { alignSelf: "center", color: "#6b7280", fontSize: 15, marginBottom: 12 },
+  chipOn: { borderColor: "#4f46e5", backgroundColor: "#eef2ff" },
   chipText: { fontSize: 15, color: "#374151" },
-  chipTextOn: { color: "#1d4ed8", fontWeight: "600" },
+  chipTextOn: { color: "#4f46e5", fontWeight: "600" },
   input: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: "#111827", marginTop: 6 },
   memo: { minHeight: 64, textAlignVertical: "top" },
   fixed: { fontSize: 16, color: "#111827", paddingVertical: 6 },
   help: { fontSize: 12, color: "#9ca3af", marginTop: 12 },
   photo: { width: "100%", height: 200, borderRadius: 10, marginVertical: 8, backgroundColor: "#f3f4f6" },
-  ghostBtn: { borderWidth: 1, borderColor: "#1d4ed8", borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
-  ghostText: { color: "#1d4ed8", fontWeight: "600", fontSize: 15 },
-  sendBtn: { backgroundColor: "#1d4ed8", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 18 },
+  ghostBtn: { borderWidth: 1, borderColor: "#4f46e5", borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
+  ghostText: { color: "#4f46e5", fontWeight: "600", fontSize: 15 },
+  sendBtn: { backgroundColor: "#4f46e5", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 18 },
   sendText: { color: "#fff", fontSize: 17, fontWeight: "700" },
-  cancelBtn: { paddingVertical: 12, alignItems: "center" },
+  cancelBtn: { paddingVertical: 12, alignItems: "center", minHeight: 44, justifyContent: "center" },
   cancelText: { color: "#6b7280", fontSize: 15 },
 });

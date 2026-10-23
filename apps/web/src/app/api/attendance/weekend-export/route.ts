@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { excludedBranchNames } from "@/lib/employee-scope";
+import { excludedBranchNames, testAccountWhere } from "@/lib/employee-scope";
 import { getHolidaySet } from "@/lib/holidays";
 import { breakHours, isRealDate } from "@/lib/schedule-payload";
 
@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
   const userWhere = {
     deletedAt: null, role: { not: "ADMIN" as const },
     ...(excluded.length ? { OR: [{ branch: null }, { branch: { notIn: excluded } }] } : {}),
+    NOT: await testAccountWhere(),   // 테스트 계정은 뺀다(■0-9)
   };
   const [schedules, atts] = weekendDays.length
     ? await Promise.all([

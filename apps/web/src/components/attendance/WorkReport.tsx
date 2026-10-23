@@ -36,7 +36,7 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
 
   useEffect(() => {
     // 지점 목록은 전체가 내려온다 — 원장이 담당 밖 지점을 골라도 서버가 담당 지점 밖은 거른다(/api/attendance/work-report)
-    fetch("/api/branches").then((r) => (r.ok ? r.json() : null))
+    fetch("/api/branches?pick=1").then((r) => (r.ok ? r.json() : null))   // 숨긴 지점은 고르기에서 뺀다
       .then((d) => setBranches(((d?.branches ?? []) as { name: string }[]).map((b) => b.name)))
       .catch(() => {});
   }, []);

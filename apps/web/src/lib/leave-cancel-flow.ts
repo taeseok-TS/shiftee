@@ -76,7 +76,9 @@ export async function applyLeaveCancel(
 export function cancelStepWhere(
   session: { userId: string; role: string },
   scope: ApproverScope,
-  today: Date = kstTodayMidnight()
+  today: Date = kstTodayMidnight(),
+  /** 요청자 조건 — 테스트 계정 빼기(lib/employee-scope testRequesterExclusion, 2026-10-23). null 이면 거르지 않는다 */
+  requester: Prisma.UserWhereInput | null = null,
 ) {
   return {
     status: "PENDING" as const,
@@ -86,6 +88,7 @@ export function cancelStepWhere(
       userId: { not: session.userId },
       status: "PENDING" as const,
       leaveRequest: { startDate: { gt: today } },
+      ...(requester ? { user: requester } : {}),
     },
     ...(session.role === "ADMIN"
       ? {}

@@ -30,9 +30,10 @@ export async function GET(request: NextRequest) {
   const inboxUrl = new URL("/api/attendance-requests?scope=inbox", request.url);
 
   const [leave, schedule, cancel, attendance, contract, mySign] = await Promise.all([
-    safe(leaveInbox().then((r) => countOf(r, "steps"))),
-    safe(scheduleInbox().then((r) => countOf(r, "steps"))),
-    safe(cancelInbox().then((r) => countOf(r, "steps"))),
+    // 결재함과 같은 함수에 이 요청을 넘긴다 — 메뉴 숫자는 includeTest 가 없어 테스트 계정 요청이 늘 빠진다(2026-10-23)
+    safe(leaveInbox(request).then((r) => countOf(r, "steps"))),
+    safe(scheduleInbox(request).then((r) => countOf(r, "steps"))),
+    safe(cancelInbox(request).then((r) => countOf(r, "steps"))),
     safe(attendanceRequests(new NextRequest(inboxUrl, { headers: request.headers })).then((r) => countOf(r, "requests"))),
     safe(contractInbox(request).then((r) => countOf(r, "contracts"))),
     // 내 계약서 — 근로자 본인 서명 차례(서명 화면 「내 서명 대기」와 같은 조건)

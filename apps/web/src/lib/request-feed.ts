@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { leaveLabel } from "@/lib/leave-catalog";
-import { KIND_LABEL as ATT_KIND_LABEL } from "@/lib/attendance-request";
+import { KIND_LABEL as ATT_KIND_LABEL, STEP1_AUDIT as ATT_STEP1, TWO_STEP_KINDS as ATT_TWO_STEP, attendanceStepsOf } from "@/lib/attendance-request";
 import { SYSTEM_CLOSE_COMMENTS } from "@/lib/approval-close";
+import { templateLabel } from "@/lib/schedule-label";
 
 // ─── 요청 한눈에(2026-10-07 QA76 묶음 9: #51 #43 #76) ─────────────────────
 // 휴가·휴가 취소·근무일정·출퇴근 요청을 한 목록으로. 진행(결재 n/N)·마지막 의견·반려 사유를 함께 준다.
@@ -16,7 +17,10 @@ export type FeedItem = {
   period: string;
   requester: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  createdAt: string;
+  /** 올린 때(ISO). 출퇴근 요청은 보는 사람이 시각을 못 보면 null — 지점 밖 · 사진 · 본부 요청은 누른 때 = 출퇴근 시각(10/23 검증 C) */
+  createdAt: string | null;
+  /** 올린 날(KST "YYYY-MM-DD") — 늘 준다 */
+  createdDate: string;
   reason: string | null;
   progress: { done: number; total: number } | null;
   lastComment: { by: string; text: string } | null;
@@ -25,12 +29,17 @@ export type FeedItem = {
   rejectedAt?: string;   // 반려된 요청만 — 반려한 때(요청 마지막 갱신, 출퇴근 요청은 처리 시각). 직원 대시보드 「최근 반려」(R17)
 };
 
-export type FeedQuery = { from?: string | null; to?: string | null; status?: string | null; q?: string | null; kind?: string | null };
+export type FeedQuery = {
+  from?: string | null; to?: string | null; status?: string | null; q?: string | null; kind?: string | null;
+  /** 보는 사람이 출퇴근 시각을 볼 수 있나(lib/attendance-visibility canSeeClockTimes) — false 면 출퇴근 요청의 createdAt 을 비운다 */
+  showTimes?: boolean;
+};
 
 const KST = 9 * 3600 * 1000;
 const PER_KIND = 300;
 const MAX_ITEMS = 500;
 const utcYmd = (d: Date) => d.toISOString().slice(0, 10);   // @db.Date 는 UTC 자정
+const kstYmd = (d: Date) => new Date(d.getTime() + KST).toISOString().slice(0, 10);   // 실제 시각 → KST 날짜
 const range = (s: Date, e: Date) => (utcYmd(s) === utcYmd(e) ? utcYmd(s) : `${utcYmd(s)} ~ ${utcYmd(e)}`);
 const okYmd = (v?: string | null) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 2000 && (() => { const d = new Date(`${v}T00:00:00Z`); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v; })();
 const SCHED_KIND: Record<string, string> = { CREATE: "근무일정 신청", UPDATE: "근무일정 수정", DELETE: "근무일정 삭제" };
@@ -89,7 +98,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
     note(rows.length);
     for (const r of rows) items.push({
       kind: "LEAVE", id: r.id, title: `${leaveLabel(r.type)} ${r.days}일`, period: range(r.startDate, r.endDate), requester: r.user.name,
-      status: normStatus(r.status), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
+      status: normStatus(r.status), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: r.reason ?? null,
       progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: r.rejectedReason ?? null,
       myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
       rejectedAt: r.status === "REJECTED" ? r.updatedAt.toISOString() : undefined,
@@ -105,7 +114,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
     note(rows.length);
     for (const r of rows) items.push({
       kind: "LEAVE_CANCEL", id: r.id, title: `휴가 취소 — ${leaveLabel(r.leaveRequest.type)}`, period: range(r.leaveRequest.startDate, r.leaveRequest.endDate),
-      requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
+      requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: r.reason ?? null,
       progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: r.rejectedReason ?? null,
       myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
       rejectedAt: r.status === "REJECTED" ? r.updatedAt.toISOString() : undefined,
@@ -123,8 +132,8 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
       // 근무일정은 요청에 반려 사유 칸이 없다 — 사람이 의견을 남기고 반려한 단계에서 가져온다
       const rej = [...r.approvalSteps].reverse().find((s) => s.status === "REJECTED" && s.comment && isRealDecision(s));
       items.push({
-        kind: "SCHEDULE", id: r.id, title: `${SCHED_KIND[r.kind] ?? "근무일정 신청"}${r.templateName ? ` · ${r.templateName}` : ""}`, period: range(r.startDate, r.endDate),
-        requester: r.user.name, status: normStatus(String(r.status)), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
+        kind: "SCHEDULE", id: r.id, title: `${SCHED_KIND[r.kind] ?? "근무일정 신청"}${r.templateName ? ` · ${templateLabel(r.templateName)}` : ""}`, period: range(r.startDate, r.endDate),
+        requester: r.user.name, status: normStatus(String(r.status)), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: r.reason ?? null,
         progress: progressOf(r.approvalSteps), lastComment: lastCommentOf(r.approvalSteps), rejectReason: rej?.comment ?? null,
         myDecision: who === "decided" ? myDecisionOf(r.approvalSteps, userId) : undefined,
         rejectedAt: String(r.status) === "REJECTED" ? r.updatedAt.toISOString() : undefined,
@@ -133,31 +142,50 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
   }
   // 출퇴근 요청은 단계가 없다 — decidedBy 가 처리한 사람(본인 취소·자동 취소는 CANCELLED 라 decided 에 안 든다)
   if (want("ATTENDANCE") && !(who === "decided" && (st === "PENDING" || st === "CANCELLED"))) {
-    const decidedWhere = { decidedBy: userId, status: st ?? { in: ["APPROVED", "REJECTED"] } };
+    // 출퇴근 수정은 「지점 원장 → 본부」 두 단계(■0-11) — 원장이 1차 승인한 건(AuditLog)도 「내가 처리한 것」에 넣는다
+    const myStep1 = who === "decided" && st !== "REJECTED"
+      ? (await prisma.auditLog.findMany({ where: { action: ATT_STEP1, actorId: userId }, select: { targetId: true }, orderBy: { createdAt: "desc" }, take: PER_KIND }))
+        .map((l) => l.targetId).filter((x): x is string => !!x)
+      : [];
+    const decidedWhere = { OR: [{ decidedBy: userId, status: st ?? { in: ["APPROVED", "REJECTED"] } }, ...(myStep1.length ? [{ id: { in: myStep1 } }] : [])] };
     const rows = await prisma.attendanceRequest.findMany({
       where: { ...base, ...(who === "mine" ? mineWhere : decidedWhere) },
-      select: { id: true, kind: true, action: true, workDate: true, status: true, reason: true, rejectReason: true, decidedBy: true, decidedAt: true, createdAt: true, updatedAt: true, user: { select: { name: true } } },
+      select: { id: true, kind: true, action: true, workDate: true, status: true, reason: true, rejectReason: true, decidedBy: true, decidedAt: true, createdAt: true, updatedAt: true, approverRole: true, user: { select: { name: true } } },
       orderBy: { createdAt: "desc" }, take: PER_KIND,
     });
     note(rows.length);
     const deciders = new Map((await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.decidedBy).filter((x): x is string => !!x))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
-    for (const r of rows) items.push({
+    const twoIds = rows.filter((r) => ATT_TWO_STEP.includes(r.kind)).map((r) => r.id);
+    const step1Done = new Set(twoIds.length
+      ? (await prisma.auditLog.findMany({ where: { action: ATT_STEP1, targetId: { in: twoIds } }, select: { targetId: true } })).map((l) => l.targetId)
+      : []);
+    const mine1 = new Set(myStep1);
+    for (const r of rows) {
+      // 결재 n/N — 두 단계 판정은 출퇴근 요청 목록과 같은 함수(10/23 검증 E — 끝난 옛 1단계 건이 「결재 1/2」로 보였다)
+      const two = attendanceStepsOf(r, step1Done.has(r.id)) === 2;
+      const done = (step1Done.has(r.id) ? 1 : 0) + (r.status === "APPROVED" ? 1 : 0);
+      items.push({
       kind: "ATTENDANCE", id: r.id,
       title: `${(ATT_KIND_LABEL as Record<string, string>)[r.kind] ?? "출퇴근 요청"}${r.action === "IN" ? " · 출근" : r.action === "OUT" ? " · 퇴근" : ""}`,
-      period: utcYmd(r.workDate), requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), reason: r.reason ?? null,
-      progress: { done: r.status === "APPROVED" ? 1 : 0, total: 1 },
+      period: utcYmd(r.workDate), requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: r.reason ?? null,
+      progress: two ? { done: Math.min(done, 2), total: 2 } : { done: r.status === "APPROVED" ? 1 : 0, total: 1 },
       lastComment: r.decidedBy && r.status === "REJECTED" && r.rejectReason ? { by: deciders.get(r.decidedBy) ?? "결재자", text: r.rejectReason } : null,
       rejectReason: r.status === "REJECTED" ? r.rejectReason ?? null : null,
-      myDecision: who === "decided" && (r.status === "APPROVED" || r.status === "REJECTED") ? r.status : undefined,
+      myDecision: who !== "decided" ? undefined
+        : r.decidedBy === userId && (r.status === "APPROVED" || r.status === "REJECTED") ? r.status
+        : mine1.has(r.id) ? "APPROVED" : undefined,
       rejectedAt: r.status === "REJECTED" ? (r.decidedAt ?? r.updatedAt).toISOString() : undefined,
-    });
+      });
+    }
   }
 
   // 검색(#76) — 제목·요청자·기간·사유·마지막 의견·반려 사유에서, 대소문자 무시
   const term = (q.q || "").trim().toLowerCase();
   const found = items
     .filter((i) => !term || [i.title, i.requester, i.period, i.reason ?? "", i.lastComment?.text ?? "", i.rejectReason ?? ""].some((v) => v.toLowerCase().includes(term)))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   if (found.length > MAX_ITEMS) limited = true;
-  return { items: found.slice(0, MAX_ITEMS), limited };
+  // 출퇴근 요청의 올린 시각은 시각을 볼 수 있는 사람에게만 — 정렬을 마친 뒤 비운다(순서는 그대로)
+  const out = found.slice(0, MAX_ITEMS);
+  return { items: q.showTimes === false ? out.map((i) => (i.kind === "ATTENDANCE" ? { ...i, createdAt: null } : i)) : out, limited };
 }

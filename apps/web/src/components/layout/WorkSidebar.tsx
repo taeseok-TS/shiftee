@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid, School } from "lucide-react";
+import { MessageSquare, Megaphone, CalendarDays, Video, FileUp, Camera, GraduationCap, LogOut, ArrowLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Box, LayoutGrid, School, Smile } from "lucide-react";
 import { useIsDirectHost } from "@/lib/direct-host";
 import { openJinhakInfo, useJinhakInfoEnabled } from "@/components/layout/openJinhakInfo";
 
@@ -21,6 +21,8 @@ const workNavItems = [
   { href: "/work/marketing", label: "마케팅 자료", icon: Camera }, // 2026-09-14 본부장 과제 — 지점 마케팅 자료 올리기 → 큐브마케팅 블로그 발행
   { href: "/work/admission", label: "입학정보", icon: GraduationCap }, // 2026-10-14 디렉터 지시 — 고입 기본계획(2027 서울·경기, 진학입시EX 묶음) 확인용
 ];
+// 이모티콘(채팅 스티커) 관리 — 설정 › 개발자에서 옮겨 옴(2026-10-23 본부 요청 ■0-3). 권한은 종전과 같게 관리자(본부)만
+const workNavItemsFor = (role?: string) => role === "ADMIN" ? [...workNavItems, { href: "/work/emoticons", label: "이모티콘", icon: Smile }] : workNavItems;
 
 // 직영 포털 바로가기 (2026-09-18 직영 주간회의 건의 — 이예지 대리, 본부장 지시).
 // 포털을 매니저까지 전체 공유하기로 해서, 큐브티워크 안에서 바로 들어갈 수 있게 한다. 외부 사이트라 새 탭으로 연다.
@@ -170,7 +172,7 @@ export function WorkSidebar({ role }: { role?: HomeRole }) {
       </div>
 
       <nav className={cn("flex-1 py-4 space-y-1", collapsed ? "px-2" : "px-3")}>
-        {workNavItems.map(({ href, label, icon: Icon }) => (
+        {workNavItemsFor(role).map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
@@ -297,7 +299,7 @@ export function WorkMobileNav({ role }: { role?: HomeRole }) {
       {/* py-1: 가로 스크롤은 세로도 잘라서 알림 점 윗부분이 잘렸다(검증관 2). 스크롤바는 감춘다 — 좁힌 PC 창에서
           메뉴 밑에 15px 막대가 생기던 것(검증관 3). 폰은 손가락으로 민다. */}
       <nav ref={navRef} className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {workNavItems.map(({ href, label, icon: Icon }) => (
+        {workNavItemsFor(role).map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href}
             aria-current={pathname === href || pathname.startsWith(href + "/") ? "page" : undefined}
             className={cn(

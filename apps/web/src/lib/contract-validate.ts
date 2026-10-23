@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import PizZip from "pizzip";
 import { prisma } from "@/lib/db";
 import { buildContractMergeData, templateFieldNames, isFillableTemplate } from "@/lib/contract-fields";
+import { hoursNum, dayTableWeekHours, normalizeWeekday } from "@/lib/contract-field-settings";
 
 // ─── 전자계약 값 검증(2026-10-07 QA #24, 본부 답변 #32 「최저임금 미만이면 발송을 막아 주세요(경고 아님)」) ───
 // 작성·수정·발송 때 서버가 본다. 하나라도 걸리면 저장·발송하지 않고 이유를 돌려준다.
@@ -58,20 +59,7 @@ const num = (v: string | undefined | null): number | null => {
   const n = Number(m[0].replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
 };
-// 시간 칸은 적힌 숫자 중 **가장 큰 값** — 「1일 9시간」→9, 「주 5일 45시간」→45(첫 숫자만 읽으면 초과를 놓친다, 재검증 F7)
-// 「7시간 30분」→7.5 처럼 시간·분 표기는 합쳐 읽고, 연도 같은 4자리 이상 숫자는 무시한다(재검증 N2)
-const hoursNum = (v: string | undefined | null): number | null => {
-  const t = v || "";
-  const hm = [...t.matchAll(/(\d+(?:\.\d+)?)\s*시간(?:\s*(\d+)\s*분)?/g)].map((m) => Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0));
-  if (hm.length) return Math.max(...hm);
-  // 「7:30」→7.5(하루 시간 표기), 「30분」→0.5
-  const colon = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(t);
-  if (colon) return Number(colon[1]) + Number(colon[2]) / 60;
-  const onlyMin = /^\s*(\d+)\s*분\s*$/.exec(t);
-  if (onlyMin) return Number(onlyMin[1]) / 60;
-  const all = [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => Number(m[0])).filter((n) => Number.isFinite(n) && n < 1000);
-  return all.length ? Math.max(...all) : null;
-};
+// 시간 칸 읽기(hoursNum)는 lib/contract-field-settings 로 옮겼다 — 파생 칸 {주휴수당표기}(요일 표 합계)와 같은 규칙으로 읽게(10/23)
 const won = (n: number) => `${Math.floor(n).toLocaleString()}원`;
 
 /** 치환값(mergeData)으로 검사 — 문제 목록(비면 통과) */
@@ -135,6 +123,16 @@ export async function validateContractMerge(
     }
   }
 
+  // 주휴일(주말 학습실장 제5조 「주휴일({주휴일지정})」, 2026-10-23 본부) — 월~일 중 하나이고, 요일 표에서 근무가 없는 날이어야 한다.
+  // 값은 lib/contract-fields 가 「월」·「월요일」을 「월요일」로 맞춰 두고, 비우면 「월요일」이 들어간다
+  if (has("주휴일지정")) {
+    const raw = (merge["주휴일지정"] || "").trim();
+    const day = normalizeWeekday(raw);
+    if (!day) errors.push(`주휴일「${raw}」을(를) 요일로 읽지 못했습니다 — 월요일~일요일 중 하나(「월요일」 또는 「월」)로 넣어 주세요.`);
+    else if ((hoursNum(merge[`${day}근로시간`]) ?? 0) > 0)
+      errors.push(`주휴일은 근무하지 않는 날이어야 합니다 — ${day}은 요일 표에 근무가 있습니다. 주휴일 칸에 근무가 없는 요일을 넣어 주세요(비우면 월요일).`);
+  }
+
   // 최저임금
   const year = Number(sd.slice(0, 4)) || new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
   const mw = await minWageFor(year);
@@ -155,8 +153,8 @@ export async function validateContractMerge(
     // 주말 학습실장(2026-10-23) — 월 급여 = 기본급 + 주말수당 + 주휴수당(파생 {주말급여합계}) ÷ {월근로시간}, 그리고 적힌 {통상시급}
     const pay = num(merge["주말급여합계"]);
     // 월 근로시간 — 입력값과 요일 표(월~일 근로시간)로 계산한 값((주+주휴)×4.345) 중 큰 쪽. 손으로 낮춰 검사를 피하지 못하게({월급여액} 분기와 같은 방어)
-    const DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"];
-    const wk = DAYS.reduce((sum, d) => sum + (hoursNum(merge[`${d}근로시간`]) ?? 0), 0);
+    // 주 15시간 미만은 주휴가 없다 — 시간에 주휴를 넣지 않고, 금액({주말급여합계})도 주휴수당을 0 으로 더한 값이다(lib/contract-fields, 10/23 본부)
+    const wk = dayTableWeekHours(merge);
     const computedW = wk > 0 ? Math.round((wk + (wk >= 15 ? Math.min((wk / 40) * 8, 8) : 0)) * 4.345) : null;
     const hours = Math.max(hoursNum(merge["월근로시간"]) ?? 0, computedW ?? 0) || null;
     const hourly = num(merge["통상시급"]);

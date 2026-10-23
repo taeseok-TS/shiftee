@@ -5,7 +5,7 @@ import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
 import { scanEmployeeFillFields, SYSTEM_FIELDS, isEmployeeInputField } from "@/lib/contract-fields";
-import { parseFieldSettings, withDerivedSources, type FieldMode } from "@/lib/contract-field-settings";
+import { parseFieldSettings, withDerivedSources, WEEK_DAYS, type FieldMode } from "@/lib/contract-field-settings";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -87,7 +87,10 @@ export async function GET(
     //    #144·#145(파생 필드 노출) 때문에 여기서 SYSTEM_FIELDS 를 걸렀더니 계약 기간·연봉 입력란이
     //    통째로 사라져 빈 값으로 계약이 발송될 뻔했다 (#175·#176, 2026-08-31 이예지대리).
     //    파생 필드를 입력란에서 감추는 일은 작성 폼의 AUTO_FIELDS 가 담당한다 — 기준은 한 곳에만 둔다.
-    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields, settings, defaults });
+    // {주휴일지정} 은 요일 고르기 칸(10/23 본부) — 작성 화면이 types 로 드롭다운을 띄운다
+    const types: Record<string, { type: string; options?: string[] }> = {};
+    if (fields.includes("주휴일지정")) types["주휴일지정"] = { type: "select", options: [...WEEK_DAYS] };
+    return NextResponse.json({ fields, conditions: [...conditions], fieldConditions, employeeFields, settings, defaults, types });
   } catch (e) {
     console.error("템플릿 필드 스캔 오류:", e);
     return NextResponse.json({ fields: [] });

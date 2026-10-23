@@ -18,7 +18,7 @@ const FIELDS: { key: Field; label: string; hints: RegExp[]; exclude?: RegExp; re
   { key: "name", label: "이름", hints: [/^(이름|성명|직원명|직원|name)$/i, /이름|성명|직원명/], required: true },
   { key: "empNo", label: "사번", hints: [/사번|사원\s*번호|empno/i] },
   { key: "date", label: "날짜", hints: [/^(날짜|일자|근무일|date)$/i, /날짜|일자|근무일/], exclude: /입사|퇴사/, required: true },
-  { key: "code", label: "템플릿(코드·이름)", hints: [/템플릿|근무\s*(코드|유형명|명)|코드|template/i], exclude: /유형$/ },
+  { key: "code", label: "근무 시간 종류(코드·이름)", hints: [/템플릿|근무\s*시간\s*종류|근무\s*(코드|유형명|명)|코드|template/i], exclude: /유형$/ },
   { key: "startTime", label: "시작", hints: [/^(시작|출근|시작\s*시간|출근\s*시간|start)$/i, /시작|출근/], exclude: /실제|기록/ },
   { key: "endTime", label: "종료", hints: [/^(종료|퇴근|종료\s*시간|퇴근\s*시간|end)$/i, /종료|퇴근/], exclude: /실제|기록/ },
   { key: "type", label: "유형(근무·휴무)", hints: [/^(유형|구분|type)$/i] },
@@ -32,10 +32,10 @@ type Result = {
 };
 type Batch = { batch: string; count: number; from: string | null; to: string | null; createdAt: string | null };
 const STATUS: Record<Result["status"], { label: string; cls: string }> = {
-  ok: { label: "적용 예정", cls: "text-emerald-600" }, overwrite: { label: "덮어쓰기 예정", cls: "text-amber-600" }, applied: { label: "적용됨", cls: "text-emerald-700 font-semibold" },
+  ok: { label: "적용 예정", cls: "text-[#4f46e5]" }, overwrite: { label: "덮어쓰기 예정", cls: "text-amber-600" }, applied: { label: "적용됨", cls: "text-[#3730a3] font-semibold" },
   exists: { label: "건너뜀 · 이미 일정 있음", cls: "text-gray-500" }, leave: { label: "건너뜀 · 휴가", cls: "text-gray-500" }, duplicate: { label: "건너뜀 · 파일 안 중복", cls: "text-gray-500" },
   user_not_found: { label: "건너뜀 · 직원 없음", cls: "text-red-500" }, user_ambiguous: { label: "건너뜀 · 동명이인", cls: "text-red-500" }, user_mismatch: { label: "건너뜀 · 이름 불일치", cls: "text-red-500" },
-  forbidden: { label: "건너뜀 · 권한 밖", cls: "text-red-500" }, code_unknown: { label: "건너뜀 · 템플릿 모름", cls: "text-red-500" }, invalid: { label: "건너뜀 · 값 오류", cls: "text-red-500" },
+  forbidden: { label: "건너뜀 · 권한 밖", cls: "text-red-500" }, code_unknown: { label: "건너뜀 · 근무 시간 종류 모름", cls: "text-red-500" }, invalid: { label: "건너뜀 · 값 오류", cls: "text-red-500" },
 };
 const TYPE_LABEL: Record<string, string> = { WORK: "근무", OFF: "휴무", HOLIDAY: "공휴일" };
 const kst = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") : "");
@@ -156,7 +156,7 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
 
   const run = async (apply: boolean) => {
     if (missing.length) { toast.error(`${missing.join("·")} 열을 골라 주세요.`); return; }
-    if (mode === "list" && !map.code && !(map.startTime && map.endTime)) { toast.error("템플릿 열이나 시작·종료 열을 골라 주세요."); return; }
+    if (mode === "list" && !map.code && !(map.startTime && map.endTime)) { toast.error("근무 시간 종류 열이나 시작·종료 열을 골라 주세요."); return; }
     if (apply && !confirm(`적용 예정 ${counts.ok ?? 0}건${counts.overwrite ? ` + 덮어쓰기 ${counts.overwrite}건` : ""}을 근무일정에 넣습니다. 계속할까요?`)) return;
     setBusy(apply ? "apply" : "preview");
     try {
@@ -198,18 +198,18 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
     ws["!cols"] = [{ wch: 7 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, ...days.map(() => ({ wch: 12 }))];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "근무일정");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["칸에 적는 법"], ["템플릿 코드 또는 이름(예: 10-7)"], ["시간 「10:00-19:00」"], ["휴무 → 「휴무」"], ["비워 두면 그 날은 건드리지 않음"]]), "안내");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["칸에 적는 법"], ["근무 시간 종류 코드 또는 이름(예: 10-7)"], ["시간 「10:00-19:00」"], ["휴무 → 「휴무」"], ["비워 두면 그 날은 건드리지 않음"]]), "안내");
     XLSX.writeFile(wb, `근무일정_달력형_${rangeStart}_${rangeEnd}.xlsx`);
   };
   const downloadList = async () => {
-    const ws = XLSX.utils.aoa_to_sheet([["사번", "이름", "날짜", "템플릿", "시작", "종료", "유형", "메모"], ["", "홍길동", rangeStart, "10-7", "", "", "", ""], ["", "홍길동", rangeStart, "", "13:00", "22:00", "", "직접 시간"], ["", "홍길동", rangeStart, "", "", "", "휴무", ""]]);
+    const ws = XLSX.utils.aoa_to_sheet([["사번", "이름", "날짜", "근무 시간 종류", "시작", "종료", "유형", "메모"], ["", "홍길동", rangeStart, "10-7", "", "", "", ""], ["", "홍길동", rangeStart, "", "13:00", "22:00", "", "직접 시간"], ["", "홍길동", rangeStart, "", "", "", "휴무", ""]]);
     ws["!cols"] = [{ wch: 7 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "근무일정");
     try {
       const r = await fetch("/api/schedule-templates?all=1"); const d = await r.json();
       const tpls = (d.templates ?? []) as { code: string | null; name: string; startTime: string; endTime: string; branches: string[]; isActive: boolean }[];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["코드", "이름", "시작", "종료", "지점(비면 전사)", "사용"], ...tpls.map((t) => [t.code ?? "", t.name, t.startTime, t.endTime, t.branches.join(", "), t.isActive ? "O" : "X"])]), "템플릿 목록");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["코드", "이름", "시작", "종료", "지점(비면 전사)", "사용"], ...tpls.map((t) => [t.code ?? "", t.name, t.startTime, t.endTime, t.branches.join(", "), t.isActive ? "O" : "X"])]), "근무 시간 종류");
     } catch { /* 템플릿 시트는 보조 */ }
     XLSX.writeFile(wb, "근무일정_목록형_양식.xlsx");
   };
@@ -217,8 +217,8 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
   return (
     <div className="space-y-4 text-sm">
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 space-y-1">
-        <p className="font-semibold">💡 달력형(행=직원, 열=날짜)과 목록형(한 줄에 직원·날짜·시간) 엑셀을 모두 올릴 수 있습니다</p>
-        <p>칸에는 템플릿 코드·이름, 「10:00-19:00」 같은 시간, 「휴무」를 적습니다. 비어 있는 칸은 건드리지 않습니다. 이미 일정이 있는 날은 건너뛰고(덮어쓰기를 켜면 바꿈), 승인된 휴가가 있는 날은 넣지 않습니다. 잘못 올렸으면 묶음째 되돌릴 수 있습니다 — 올린 뒤 손으로 고친 일정은 묶음에서 빠져 되돌리기의 영향을 받지 않습니다.</p>
+        <p className="font-semibold">달력형(행=직원, 열=날짜)과 목록형(한 줄에 직원·날짜·시간) 엑셀을 모두 올릴 수 있습니다</p>
+        <p>칸에는 근무 시간 종류 코드·이름, 「10:00-19:00」 같은 시간, 「휴무」를 적습니다. 비어 있는 칸은 건드리지 않습니다. 이미 일정이 있는 날은 건너뛰고(덮어쓰기를 켜면 바꿈), 승인된 휴가가 있는 날은 넣지 않습니다. 잘못 올렸으면 묶음째 되돌릴 수 있습니다 — 올린 뒤 손으로 고친 일정은 묶음에서 빠져 되돌리기의 영향을 받지 않습니다.</p>
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <input id="schedule-import-file" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
@@ -248,8 +248,8 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
           </label>
           {results && (
             <>
-              <span className="text-xs text-gray-500">적용 예정 {counts.ok ?? 0}{counts.overwrite ? ` · 덮어쓰기 ${counts.overwrite}` : ""} · 이미 있음 {counts.exists ?? 0} · 휴가 {counts.leave ?? 0} · 직원 없음 {(counts.user_not_found ?? 0) + (counts.user_ambiguous ?? 0) + (counts.user_mismatch ?? 0)} · 템플릿 모름 {counts.code_unknown ?? 0} · 값 오류 {counts.invalid ?? 0}</span>
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 ml-auto" onClick={() => run(true)} disabled={!!busy || !willApply}>{busy === "apply" ? "적용 중…" : `적용 (${willApply}건)`}</Button>
+              <span className="text-xs text-gray-500">적용 예정 {counts.ok ?? 0}{counts.overwrite ? ` · 덮어쓰기 ${counts.overwrite}` : ""} · 이미 있음 {counts.exists ?? 0} · 휴가 {counts.leave ?? 0} · 직원 없음 {(counts.user_not_found ?? 0) + (counts.user_ambiguous ?? 0) + (counts.user_mismatch ?? 0)} · 근무 시간 종류 모름 {counts.code_unknown ?? 0} · 값 오류 {counts.invalid ?? 0}</span>
+              <Button size="sm" className="bg-[#4f46e5] hover:bg-[#4338ca] text-white ml-auto" onClick={() => run(true)} disabled={!!busy || !willApply}>{busy === "apply" ? "적용 중…" : `적용 (${willApply}건)`}</Button>
             </>
           )}
         </div>

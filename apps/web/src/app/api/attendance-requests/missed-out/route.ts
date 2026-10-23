@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
-import { consentEligibility, hasPendingOutRequest, kstHhmm } from "@/lib/missed-out";
+import { CLOSE_HIDDEN_REASON, closeRevealsClockIn, consentEligibility, hasPendingOutRequest, kstHhmm } from "@/lib/missed-out";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +30,24 @@ export async function GET() {
   const ymd = att.date.toISOString().slice(0, 10);
   const elig = await consentEligibility(session.userId, att.clockIn!, ymd);
   const closeHhmm = kstHhmm(elig.close.at);
+  // 찍은 출근 시각은 본부만(■0-11) — 직원 · 원장에게는 날짜와 「출근 · 퇴근 누락」만(동의할 퇴근 시각은 근무일정 기준이라 그대로)
+  const { canSeeClockTimes } = await import("@/lib/attendance-visibility");
+  const showTimes = await canSeeClockTimes(session.role);
+  // 10/23 검증 M2 — 마감 시각이 출근 시각에서 계산되면(근태 규칙 출근 + n시간 · 상한) 시각을 못 보는 사람에게 그 시각을 내리지 않는다
+  // (「퇴근 처리 19:30」 − 10시간 30분 = 출근 시각). 그날은 본인 동의를 막고 퇴근 처리 요청(수정 요청)만 안내한다
+  if (!showTimes && closeRevealsClockIn(elig.close)) {
+    return NextResponse.json({
+      missed: {
+        date: ymd, clockIn: null, clockedIn: true,
+        canConsent: false, consentReason: CLOSE_HIDDEN_REASON,
+        closeAt: null, closeHhmm: null, closeLabel: null, closeHidden: true,
+        can22: false, can22Reason: CLOSE_HIDDEN_REASON,
+      },
+    });
+  }
   return NextResponse.json({
     missed: {
-      date: ymd, clockIn: att.clockIn,
+      date: ymd, clockIn: showTimes ? att.clockIn : null, clockedIn: true,
       canConsent: elig.ok, consentReason: elig.ok ? null : (elig.reason ?? null),
       closeAt: elig.close.at,             // 동의하면 기록될 퇴근 시각 — 동의할 때 그대로 돌려보낸다(expectAt)
       closeHhmm,

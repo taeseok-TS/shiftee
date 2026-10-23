@@ -6,14 +6,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, Settings2 } from "lucide-react";
 import {
-  type SchedulePrefs, type ShowKey, type SortKey, type WeekStart,
-  SHOW_KEYS, SHOW_LABEL, SORT_KEYS, SORT_LABEL, WEEK_START_OPTIONS,
+  type SchedulePrefs, type ShowKey, type SortKey,
+  SHOW_KEYS, SHOW_LABEL, SORT_KEYS, SORT_LABEL,
 } from "@/lib/schedule-view";
+
+// 보기 설정 이름표 — 지점은 묶음 제목에 한 번만 나오므로(■3 시안 R18) 「직무·지점」 → 「직무」
+const SHOW_TEXT: Record<ShowKey, string> = { ...SHOW_LABEL, subline: "직무", typeBadge: "유형(목록형)", leave: "휴가(목록형)" };
 
 /**
  * 근무일정 필터·보기 설정 조각(2026-10-12 QA #72 #73) — 본부·원장 근무일정이 같이 쓴다.
- *  · <MultiPick>: 지점·직무·부서를 여러 개 동시에 고르는 체크 목록. 아무것도 고르지 않으면 「전체」. 바깥을 누르면 닫힌다
- *  · <ViewSettingsMenu>: 정렬 · 표시 항목 · 주 시작 요일. 값은 사람마다 저장(/api/me/prefs)
+ *  · <MultiPick>: 지점·직무를 여러 개 동시에 고르는 체크 목록. 아무것도 고르지 않으면 「전체」. 바깥을 누르면 닫힌다
+ *  · <ViewSettingsMenu>: 정렬 · 표시 항목. 값은 사람마다 저장(/api/me/prefs)
+ *    한 주는 늘 월~일(2026-10-23 ■4) — 예전 「한 주의 시작 요일」 고르기는 뺐다(저장된 값은 쓰지 않는다)
  */
 export function MultiPick({ label, options, value, onChange, allLabel = "전체", className }: {
   label: string; options: string[]; value: string[]; onChange: (v: string[]) => void; allLabel?: string; className?: string;
@@ -24,9 +28,9 @@ export function MultiPick({ label, options, value, onChange, allLabel = "전체"
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className={`inline-flex h-9 items-center gap-1.5 rounded-md border bg-white px-3 text-sm hover:bg-gray-50 ${picked.length ? "border-blue-400 text-blue-800" : "text-gray-700"} ${className ?? ""}`}
+        className={`inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border bg-white px-3 text-[13.5px] hover:bg-[#f8fafc] ${picked.length ? "border-[#c7d2fe] text-[#4f46e5]" : "border-[#e2e8f0] text-[#334155]"} ${className ?? ""}`}
         aria-label={`${label} 필터`}>
-        <span className="text-xs text-gray-500">{label}</span>
+        <span className="text-[12.5px] text-[#596578]">{label}</span>
         <span className="font-medium max-w-[200px] truncate">{text}</span>
         <ChevronDown size={14} className="text-gray-400" />
       </DropdownMenuTrigger>
@@ -50,7 +54,7 @@ export function ViewSettingsMenu({ prefs, onChange, hideShow = [] }: {
   const setShow = (k: ShowKey, on: boolean) => onChange({ show: { ...prefs.show, [k]: on } });
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-white px-2.5 text-xs text-gray-700 hover:bg-gray-50" aria-label="보기 설정">
+      <DropdownMenuTrigger className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#e2e8f0] bg-white px-3 text-[13px] font-semibold text-[#475569] hover:bg-[#f8fafc]" aria-label="보기 설정">
         <Settings2 size={14} />보기 설정
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[220px] max-h-[70vh] overflow-y-auto">
@@ -63,15 +67,9 @@ export function ViewSettingsMenu({ prefs, onChange, hideShow = [] }: {
         <DropdownMenuGroup>
           <DropdownMenuLabel>표시 항목</DropdownMenuLabel>
           {SHOW_KEYS.filter((k) => !hideShow.includes(k)).map((k) => (
-            <DropdownMenuCheckboxItem key={k} checked={prefs.show[k]} onCheckedChange={(on) => setShow(k, !!on)} closeOnClick={false}>{SHOW_LABEL[k]}</DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem key={k} checked={prefs.show[k]} onCheckedChange={(on) => setShow(k, !!on)} closeOnClick={false}>{SHOW_TEXT[k]}</DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={String(prefs.weekStart)} onValueChange={(v) => onChange({ weekStart: Number(v) as WeekStart })}>
-          <DropdownMenuLabel>한 주의 시작 요일</DropdownMenuLabel>
-          {WEEK_START_OPTIONS.map((o) => <DropdownMenuRadioItem key={o.value} value={String(o.value)} closeOnClick={false}>{o.label}</DropdownMenuRadioItem>)}
-        </DropdownMenuRadioGroup>
-        <div className="px-2 pt-1.5 pb-1 text-[11px] text-gray-400 leading-4">주 49시간 합계는 법정 기준(월~일)이라 월요일 시작일 때만 실제 시간까지 보입니다.</div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

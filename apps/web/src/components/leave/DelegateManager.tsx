@@ -48,7 +48,7 @@ export default function DelegateManager() {
 
   useEffect(() => {
     fetchRows().then((r) => setRows(r.delegates || []));
-    fetch("/api/branches").then((x) => (x.ok ? x.json() : null)).then((d) => {
+    fetch("/api/branches?pick=1").then((x) => (x.ok ? x.json() : null)).then((d) => {
       const list = (d?.branches || []) as { name: string; isActive?: boolean }[];
       setBranches(list.filter((b) => b.isActive !== false).map((b) => b.name).sort());
     }).catch(() => {});

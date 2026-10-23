@@ -6,6 +6,8 @@ import { calcStatus } from "@/lib/attendance-status";
 import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isAllowed } from "@/lib/permission-settings";
+import { canSeeClockTimes, maskClock } from "@/lib/attendance-visibility";
+import { showTestRows, testAccountWhere } from "@/lib/employee-scope";
 
 // 출퇴근 기록 수동 생성 (관리자 전용) — 기록이 없는 날짜용
 // body: { userId | userIds: string[], date: "YYYY-MM-DD", clockIn?: string, clockOut?: string, reason?: string, preview?: boolean } (시각은 ISO 8601, 최소 1개)
@@ -98,10 +100,9 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  // 직원은 「본인 출퇴근 기록 열람」(권한 설정, 기본 끔)이 꺼져 있으면 API 로도 기록을 볼 수 없다(2026-10-17 #219 검증 P1 —
-  // 종전엔 웹 화면·메뉴만 막혀 있어 주소를 직접 부르면 보였다). 앱의 /api/attendance/today·수정 요청 흐름은 그대로.
-  if (session.role === "EMPLOYEE" && !(await isAllowed("employee.viewOwnAttendance")))
-    return NextResponse.json({ error: "출퇴근 기록 열람 권한이 없습니다." }, { status: 403 });
+  // 직원은 본인 기록만, 시각 없이 상태만 받는다(2026-10-23 ■0-11 — 앱 「지난 기록」 날짜별 상태 알약).
+  // 종전(10/17 #219 검증 P1)에는 「본인 출퇴근 기록 열람」이 꺼지면 403 이었다 — 그때 막은 것은 시각이었고, 이제 시각은 늘 빠지므로
+  // 이 설정은 웹 「내 출퇴근」 메뉴 · 화면(과 웹 기간 합계 api/attendance/stats)만 정한다.
 
   const { searchParams } = new URL(request.url);
   const year   = parseInt(searchParams.get("year")  || String(new Date().getFullYear()));
@@ -125,7 +126,9 @@ export async function GET(request: NextRequest) {
       userWhere = { userId };
     } else {
       // 담당 지점 구성원 전체 (관리자·서브관리자 제외 — 관리자 화면과 동일 기준)
-      userWhere = { user: { branch: { in: myBranches }, role: { not: "ADMIN" } } };
+      // 테스트 계정은 기본으로 뺀다 — 테스트지점 원장(검증 계정)은 그대로 본다(lib/employee-scope showTestRows, 2026-10-23)
+      const withTests = await showTestRows(session, { branches: myBranches });
+      userWhere = { user: { branch: { in: myBranches }, role: { not: "ADMIN" }, ...(withTests ? {} : { NOT: await testAccountWhere() }) } };
     }
   } else {
     userWhere = { userId };
@@ -137,5 +140,10 @@ export async function GET(request: NextRequest) {
     orderBy: { date: "desc" },
   });
 
-  return NextResponse.json({ records });
+  // 찍은 시각은 본부만(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 상태와 찍었는지만
+  const showTimes = await canSeeClockTimes(session.role);
+  return NextResponse.json({
+    records: records.map((r) => maskClock(r, showTimes)),
+    timesHidden: !showTimes,
+  });
 }

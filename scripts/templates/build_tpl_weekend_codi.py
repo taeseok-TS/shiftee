@@ -10,6 +10,8 @@
 #       제9조 가.·나. 한 문단 → 두 문단, 제3조 다. 들여쓰기를 가.·나.와 같게, 제10조 「갑의 제규정」→「"갑"의 제규정」
 #       요일 표 끝에 일요일 칸 추가, ④ 월 급여합계 = 서버 파생 칸 {주말급여합계}(①+②+③). 원장 줄은 「대치 재수종합」 고정.
 #       결재 순서는 본부 → 원장 → 근로자(직인 {대표서명}·《원장서명》 자리는 문서에 그대로).
+#     10/23 본부 둘째 답: 제5조 주휴일 「(일요일)」 → 「({주휴일지정})」(계약서마다 고름, 기본 월요일, 근무 없는 요일만),
+#       ③ 주휴수당 금액 자리 {주휴수당금액} → 파생 칸 {주휴수당표기}(주 15시간 미만이면 「해당 없음」).
 #  2) 「코디 근로계약서(계약직 일반)」 오전·오후 두 판 — 큐브티 v1(7/31, 코디근로계약서_계약직일반_템플릿.docx)을 그대로 읽어
 #     제4조 나. 한 문장만 바꾼다. 모두싸인 원본 두 판(일반 2025-05-08 / 오전시간 2026-07-20)의 차이는 이 문장 하나뿐이다(글자·픽셀 대조).
 #       · 일반(오후) : 근무시간은 통상적인 근무일 기준 오후 ___ ～ 오후 ___ 로 한다.
@@ -187,7 +189,9 @@ def t_weekend():
     p.paragraph_format.page_break_before = True
     para(d, ["1. 본 계약의 모든 법정 수당 산정의 기준이 되는 통상시급은 ", ("{통상시급}", True), "원으로 정한다."], indent=43)
     head(d, "제 5조 【휴일 및 연차휴가】", before=GAP + 3.3)
-    para(d, '가. "을"의 휴일은 주당 1일의 주휴일(일요일)과 법정공휴일로 정한다.', indent=IND)
+    # 주휴일은 계약서마다 고른다(10/23 본부 이예지) — 원본 「(일요일)」 자리에 {주휴일지정}(「월요일」 꼴, 비우면 월요일 — lib/contract-fields).
+    # 요일 표에서 근무가 없는 날만 받는다(lib/contract-validate). 칸 이름이 「…일」로 끝나면 작성 화면이 날짜 칸으로 띄워 「주휴일지정」
+    para(d, '가. "을"의 휴일은 주당 1일의 주휴일({주휴일지정})과 법정공휴일로 정한다.', indent=IND)
     para(d, "나. “을”의 휴가는 근로기준법에 따른 연차휴가가 있으며, 그 세부사항은 회사 내규에 따른다.", indent=IND)
     head(d, "제 6조 【임금】")
     para(d, '가. "을"의 근무기간 중 임금은 월급제로 한다.', indent=IND)
@@ -200,11 +204,12 @@ def t_weekend():
     TOP = WD_CELL_VERTICAL_ALIGNMENT.TOP
     cell(t2.cell(1, 0), "월 급여", size=9, align=C, valign=TOP, line=16.3)
     cell(t2.cell(1, 1), ["① 기본급", "② 주말수당", "③ 주휴수당"], size=9, indent=5.5, valign=TOP, line=16.3)
-    cell(t2.cell(1, 2), ["{기본급금액}", "{주말수당금액}", "{주휴수당금액}"], size=9, align=C, valign=TOP, line=16.3)
+    # ③ 주휴수당 = 파생 칸 {주휴수당표기}(요일 표 합계 주 15시간 이상이면 {주휴수당금액}, 미만이면 「해당 없음」 — lib/contract-fields, 10/23 본부)
+    cell(t2.cell(1, 2), ["{기본급금액}", "{주말수당금액}", "{주휴수당표기}"], size=9, align=C, valign=TOP, line=16.3)
     cell(t2.cell(1, 3), "약 {월근로시간} H", size=9, align=C, valign=TOP, line=16.3)
     tot = t2.cell(2, 0).merge(t2.cell(2, 1))
     cell(tot, "④ 월 급여합계", size=9, indent=5.5)
-    cell(t2.cell(2, 2), "{주말급여합계}", size=9, align=C)   # 서버 파생 칸 = ①+②+③(lib/contract-fields.ts)
+    cell(t2.cell(2, 2), "{주말급여합계}", size=9, align=C)   # 서버 파생 칸 = ①+②+③(lib/contract-fields.ts, 주 15시간 미만이면 ③은 0)
     cell(t2.cell(2, 3), "", size=9)
     for c in (t2.cell(1, 0), t2.cell(1, 1), t2.cell(1, 2), t2.cell(1, 3)): c.paragraphs[0].paragraph_format.space_before = Pt(3)
     row_height(t2.rows[0], 22.6); row_height(t2.rows[1], 59.4); row_height(t2.rows[2], 26.4)

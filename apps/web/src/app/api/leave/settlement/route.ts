@@ -9,7 +9,7 @@ import { isLeaveDeductible } from "@/lib/leave-types";
 import { approvedDaysByYear } from "@/lib/leave-days";
 import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { groupCodes, groupOfType, isGrantGroup, type GrantGroup } from "@/lib/leave-grant";
-import { excludedBranchNames } from "@/lib/employee-scope";
+import { excludedBranchNames, showTestRows, testAccountWhere } from "@/lib/employee-scope";
 import {
   activeCalc, resignedCalc,
   type ActiveRow, type ResignedRow, type GrantLeft,
@@ -48,7 +48,7 @@ type Who = {
 const WHO_SELECT = { id: true, empNo: true, name: true, branch: true, position: true, role: true, hireDate: true, resignDate: true } as const;
 
 /** 대상 범위 where — api/leave/balance GET 과 같은 규칙(관리자·통계 제외 지점) + 지점 고르기 */
-async function scopeWhere(sp: URLSearchParams): Promise<Prisma.UserWhereInput> {
+async function scopeWhere(sp: URLSearchParams, session: { userId: string; role: string }): Promise<Prisma.UserWhereInput> {
   const includeAdmins = sp.get("includeAdmins") === "true";
   const includeTest = sp.get("includeTest") === "true";
   const branches = (sp.get("branches") || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -59,6 +59,9 @@ async function scopeWhere(sp: URLSearchParams): Promise<Prisma.UserWhereInput> {
     and.push({ OR: [{ branch: null }, { branch: { notIn: excluded } }, ...(includeAdmins ? [{ role: "ADMIN" as const }] : [])] });
   }
   if (branches.length) and.push({ branch: { in: branches } });
+  // 테스트 계정은 기본으로 뺀다(10/23 검증 M3) — 「통계 제외 지점 포함」(includeTest) · 테스트지점만 고름 · 보는 사람이 테스트 계정이면 넣는다(lib/employee-scope showTestRows)
+  if (!(await showTestRows(session, { includeTest: sp.get("includeTest"), branches: branches.length ? branches : null })))
+    and.push({ NOT: await testAccountWhere() });
   return {
     deletedAt: null,
     ...(includeAdmins ? {} : { role: { not: "ADMIN" as const } }),
@@ -152,7 +155,7 @@ export async function GET(request: NextRequest) {
   await ensureLeaveCatalog();   // 본부가 만든 유형(#216-1)의 차감 여부·보상/대체 그룹까지 보게
   // 메인 관리자(개발자 영역)는 김태석 본부장 계정에게만 — 「관리자 포함」을 켜도 다른 관리자에겐 안 보인다(10/17 디렉터)
   const { hiddenWhere } = await import("@/lib/hidden-accounts");
-  const base: Prisma.UserWhereInput = { AND: [await scopeWhere(sp), await hiddenWhere(session)] };
+  const base: Prisma.UserWhereInput = { AND: [await scopeWhere(sp, session), await hiddenWhere(session)] };
 
   if (mode === "active") {
     const thisYear = Number(today.slice(0, 4));

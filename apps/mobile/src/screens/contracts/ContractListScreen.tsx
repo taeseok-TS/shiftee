@@ -21,6 +21,17 @@ import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { API_URL } from "../../config";
 import { fileUri, useUploadsTicketVersion } from "../../services/work";
+import { refreshBadges } from "../../services/badges";
+import { C, fmtDay, ymd } from "../../services/fmt";
+
+// 계약 기간 「2026년 11월 1일 ~ 2027년 10월 31일」(요일 없이 — 긴 기간이라 연도가 먼저)
+const longDate = (v?: string | null) => { const d = ymd(v); if (!d) return "?"; const [y, m, dd] = d.split("-").map(Number); return `${y}년 ${m}월 ${dd}일`; };
+// 요약 칸에서 연봉(없으면 월급 · 급여) — 서명 카드 둘째 줄(2026-10-23 앱 8 · ■1 내 계약서)
+const salaryOf = (f: Record<string, string> | null | undefined): [string, string, string] | null => {
+  if (!f) return null;
+  const k = Object.keys(f).find((x) => /연봉/.test(x)) || Object.keys(f).find((x) => /월급|급여|시급/.test(x));
+  return k && f[k] ? [/연봉/.test(k) ? "연봉" : k, String(f[k]), k] : null;
+};
 
 // 상태 배지가 영문 그대로 나왔다. 다른 상태는 예전부터 그랬지만, 하필 **한국어 설명이 가장
 // 필요한 "반려"** 가 REJECTED 로 뜬다(2026-09-04 검증관 F5).
@@ -151,6 +162,7 @@ export default function ContractListScreen() {
       ]);
       setContracts(data);
       setMyApprovals(approvals);
+      refreshBadges().catch(() => {});   // 아래 탭 「더보기」 · 「계약서」 줄 숫자
     } catch (error) {
       console.error("❌ Failed to load contracts:", error);
     } finally {
@@ -230,7 +242,7 @@ export default function ContractListScreen() {
         await api.signContractWithConsent(id, sig, true, undefined, undefined, undefined, ver, approverPw);
       }
       setSignPw("");
-      Alert.alert("완료", own ? "서명을 제출했습니다." : "결재를 승인했습니다.");
+      Alert.alert("완료", own ? "서명을 제출했습니다." : "서명했습니다. 다음 순서로 넘어갑니다.");
       await loadContracts();
     } catch (error: any) {
       if (error?.response?.data?.code === "PASSWORD_REQUIRED") setUnlocked(false);   // 확인 시간이 지났다 — 다시 확인
@@ -253,7 +265,7 @@ export default function ContractListScreen() {
     try {
       await api.signContractSaved(id, ver, pw);
       setSignPw("");
-      Alert.alert("완료", "저장된 서명으로 결재를 승인했습니다.");
+      Alert.alert("완료", "저장된 서명으로 서명했습니다. 다음 순서로 넘어갑니다.");
       await loadContracts();
     } catch (error: any) {
       Alert.alert("오류", error?.response?.data?.error || "결재 처리에 실패했습니다.");
@@ -263,15 +275,13 @@ export default function ContractListScreen() {
   };
 
   const renderContract = ({ item }: { item: Contract }) => {
-    const statusColor =
-      {
-        DRAFT: "#6b7280",
-        SENT: "#f59e0b",
-        SIGNED: "#3b82f6",
-        APPROVED: "#10b981",
-        REJECTED: "#ef4444",
-        EXPIRED: "#9ca3af",
-      }[item.status] || "#6b7280";
+    const tone =
+      ({
+        SENT: { fg: C.amb, bg: C.ambBg },
+        SIGNED: { fg: C.blueInk, bg: C.blueBg },
+        APPROVED: { fg: C.blueInk, bg: C.blueBg },
+        REJECTED: { fg: C.red, bg: C.redBg },
+      } as Record<string, { fg: string; bg: string }>)[item.status] || { fg: C.gray, bg: C.grayBg };
 
     return (
       <TouchableOpacity
@@ -280,19 +290,19 @@ export default function ContractListScreen() {
       >
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.title}</Text>
-          <View style={[styles.badge, { backgroundColor: statusColor }]}>
-            <Text style={styles.badgeText}>{STATUS_LABEL[item.status] || item.status}</Text>
+          <View style={[styles.badge, { backgroundColor: tone.bg }]}>
+            <Text style={[styles.badgeText, { color: tone.fg }]}>{STATUS_LABEL[item.status] || item.status}</Text>
           </View>
         </View>
-        <Text style={styles.cardSubtitle}>{item.user.name}</Text>
-        {item.startDate && item.endDate && (
-          <Text style={styles.cardDate}>
-            {item.startDate} ~ {item.endDate}
-          </Text>
-        )}
+        {item.startDate && item.endDate ? (
+          <Text style={styles.cardDate}>계약 기간 {longDate(item.startDate)} ~ {longDate(item.endDate)}</Text>
+        ) : null}
       </TouchableOpacity>
     );
   };
+  // 서명 창 열기(카드 버튼 · 아래 고정 띠 같은 동작)
+  const openSign = (c: any) => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setUnlocked(false); setUnlockPw(""); setSignTarget(c); };
+  const [moreOpen, setMoreOpen] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -302,39 +312,49 @@ export default function ContractListScreen() {
     );
   }
 
-  // 내 결재 대기 카드 (결재자용 — 요약 확인 후 서명 승인)
+  // 서명 대기 카드(2026-10-23 앱 8 · 시안 S1-4) — 위 왼쪽 「서명 대기」 주황 알약 · 오른쪽 기한, 제목, 계약 기간 · 연봉 두 줄.
+  // 나머지 칸(교육 · 실무평가 날짜 등)은 「내용 더 보기」 안에서. 버튼은 카드 아래 가로로 꽉 차게
   const renderApprovalHeader = () =>
     myApprovals.length === 0 ? null : (
       <View style={styles.approvalSection}>
-        <Text style={styles.approvalTitle}>내 결재 대기 ({myApprovals.length})</Text>
+        <Text style={styles.approvalTitle}>서명 대기 {myApprovals.length}</Text>
         {myApprovals.map((c) => {
           const view = viewerUrl(c.fileUrl);
           // 요약은 그 문서 템플릿 필드만(서버 계산 summaryFields, #206-2) — 구 서버면 종전처럼 전체
-          const extras: [string, string][] = Object.entries(c.summaryFields || c.extraFields || {}) as [string, string][];
+          const fields = (c.summaryFields || c.extraFields || {}) as Record<string, string>;
+          const sal = salaryOf(fields);
+          const extras: [string, string][] = Object.entries(fields).filter(([k]) => !sal || k !== sal[2]) as [string, string][];
+          const own = c.userId === myId && !c.externalName;
           return (
             <View key={c.id} style={styles.approvalCard}>
-              <Text style={styles.cardTitle}>{c.title}</Text>
-              <Text style={styles.cardSubtitle}>{c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}</Text>
+              <View style={styles.cardHeader}>
+                <View style={[styles.badge, { backgroundColor: C.ambBg }]}><Text style={[styles.badgeText, { color: C.amb }]}>서명 대기</Text></View>
+                {!!c.signDeadline && <Text style={styles.deadline}>기한 {fmtDay(ymd(c.signDeadline))}</Text>}
+              </View>
+              <Text style={[styles.cardTitle, { flex: 0, fontSize: 17, fontWeight: "800" }]}>{c.title}</Text>
+              {!own && <Text style={styles.cardSubtitle}>{c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}</Text>}
               {(c.startDate || c.endDate) && (
-                <Text style={styles.cardDate}>계약기간 {String(c.startDate || "?").slice(0, 10)} ~ {String(c.endDate || "?").slice(0, 10)}</Text>
+                <View style={styles.kv}><Text style={styles.kvLab}>계약 기간</Text><Text style={styles.kvVal}>{longDate(c.startDate)} ~ {longDate(c.endDate)}</Text></View>
               )}
-              {extras.map(([k, v]) => (
-                <Text key={k} style={styles.cardDate}>{k} {v}</Text>
+              {!!sal && <View style={styles.kv}><Text style={styles.kvLab}>{sal[0]}</Text><Text style={styles.kvVal}>{sal[1]}</Text></View>}
+              {extras.length > 0 && (
+                <TouchableOpacity style={styles.moreBtn} onPress={() => setMoreOpen(moreOpen === c.id ? null : c.id)}>
+                  <Text style={styles.moreText}>{moreOpen === c.id ? "내용 접기" : `내용 더 보기 (${extras.length})`}</Text>
+                </TouchableOpacity>
+              )}
+              {moreOpen === c.id && extras.map(([k, v]) => (
+                <Text key={k} style={styles.cardDate}>{k} · {v}</Text>
               ))}
               <View style={styles.approvalBtns}>
                 {/* 본인 서명 차례 문서는 서명 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 「계약서 보기」는 두지 않는다 */}
                 {view && !(c.userId === myId && !c.externalName) && (
                   <TouchableOpacity style={styles.viewBtn} onPress={() => { api.recordContractViewed(c.id).catch(() => {}); Linking.openURL(view); }}>
-                    <Ionicons name="eye-outline" size={16} color="#374151" />
-                    <Text style={styles.viewBtnText}>계약서 보기</Text>
+                    <Text style={styles.viewBtnText}>보기</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.approveBtn} onPress={() => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setUnlocked(false); setUnlockPw(""); setSignTarget(c); }} disabled={signing}>
+                <TouchableOpacity style={styles.approveBtn} onPress={() => openSign(c)} disabled={signing}>
                   {signing ? <ActivityIndicator size="small" color="#fff" /> : (
-                    <>
-                      <Ionicons name="create-outline" size={16} color="#fff" />
-                      <Text style={styles.approveBtnText}>승인 (서명)</Text>
-                    </>
+                    <Text style={styles.approveBtnText}>{own ? "계약서 보고 서명하기" : "서명하기"}</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -347,12 +367,12 @@ export default function ContractListScreen() {
                 onPress={() => { setRejectReason(""); setRejectTarget(c); }}
                 disabled={signing || rejecting}
               >
-                <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
-                <Text style={styles.rejectBtnText}>반려</Text>
+                <Text style={styles.rejectBtnText}>{own ? "서명 거부" : "반려"}</Text>
               </TouchableOpacity>
             </View>
           );
         })}
+        {contracts.length > 0 && <Text style={styles.pastTitle}>지난 계약서</Text>}
       </View>
     );
 
@@ -370,6 +390,16 @@ export default function ContractListScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={renderApprovalHeader}
         />
+      )}
+
+      {myApprovals.length > 0 && (
+        <View style={styles.dock}>
+          <TouchableOpacity style={styles.dockBtn} onPress={() => openSign(myApprovals[0])} disabled={signing}>
+            {signing ? <ActivityIndicator color="#fff" /> : (
+              <Text style={styles.dockBtnText}>{myApprovals[0].userId === myId && !myApprovals[0].externalName ? "계약서 보고 서명하기" : "서명하기"}{myApprovals.length > 1 ? ` (${myApprovals.length}건 중 첫 건)` : ""}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* 결재 승인 서명 패드 */}
@@ -414,13 +444,13 @@ export default function ContractListScreen() {
       <Modal visible={!!signTarget} animationType="slide" onRequestClose={() => setSignTarget(null)}>
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>결재 승인 서명</Text>
+            <Text style={styles.modalTitle}>{isOwnSign ? "계약서 서명" : "서명하기"}</Text>
             <TouchableOpacity onPress={() => setSignTarget(null)}>
               <Ionicons name="close" size={26} color="#374151" />
             </TouchableOpacity>
           </View>
           <Text style={styles.modalHint}>
-            '{signTarget?.title}'{consentKeys.length > 0 && signStep === 1 ? " — 동의 항목을 확인하고 선택하세요." : " — 승인하면 다음 결재자에게 전달됩니다."}
+            '{signTarget?.title}'{consentKeys.length > 0 && signStep === 1 ? " — 동의 항목을 확인하고 선택하세요." : isOwnSign ? " — 서명하면 다음 순서로 넘어갑니다." : " — 서명하면 다음 순서로 넘어갑니다."}
           </Text>
           {/* 문서 열기 전 본인 확인(#20) — 근로자 본인 서명이면 비밀번호를 넣어야 아래(문서·동의·서명)가 열린다 */}
           {isOwnSign && !unlocked && (
@@ -436,7 +466,7 @@ export default function ContractListScreen() {
           )}
           {/* 본부 발송 메시지(#65) */}
           {!!signTarget?.sendMessage && (
-            <Text style={{ fontSize: 13, color: "#3730a3", backgroundColor: "#eef2ff", borderRadius: 8, padding: 8, marginBottom: 8 }}>💬 본부 메시지 · {signTarget.sendMessage}</Text>
+            <Text style={{ fontSize: 13, color: "#3730a3", backgroundColor: "#eef2ff", borderRadius: 8, padding: 8, marginBottom: 8 }}>본부 메시지 · {signTarget.sendMessage}</Text>
           )}
 
           {/* ── 1단계: 개인정보동의서 동의 확인 ── */}
@@ -532,7 +562,7 @@ export default function ContractListScreen() {
                 return (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 8 }}>
                     {/* 남은 칸은 근로자 본인 서명에만(결재자는 입력 칸이 없다, #32 검증 F3) */}
-                    <Text style={{ flex: 1, fontSize: 13, color: left.length ? "#b45309" : "#047857", fontWeight: "600" }}>
+                    <Text style={{ flex: 1, fontSize: 13, color: left.length ? "#b45309" : "#4f46e5", fontWeight: "600" }}>
                       {!isOwnSign ? "" : left.length ? `남은 칸 ${left.length}개 — 다음: ${left[0].label}` : "남은 칸 없음 — 서명만 하면 됩니다"}
                     </Text>
                     {left.length > 0 && (
@@ -676,7 +706,7 @@ export default function ContractListScreen() {
                   <View style={styles.padActions}>
                     <TouchableOpacity style={styles.padConfirm} onPress={handleApproveSaved} disabled={signing}>
                       <Ionicons name="checkmark" size={18} color="#fff" />
-                      <Text style={styles.padConfirmText}>저장된 서명으로 승인</Text>
+                      <Text style={styles.padConfirmText}>저장된 서명으로 서명하기</Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -705,7 +735,7 @@ export default function ContractListScreen() {
                     <TouchableOpacity style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 8 }}
                       onPress={() => setSaveSigDefault(v => !v)}>
                       <Ionicons name={saveSigDefault ? "checkbox" : "square-outline"} size={20} color="#2563eb" />
-                      <Text style={{ fontSize: 13, color: "#374151" }}>이 서명을 저장해두고 다음 결재부터 자동 사용</Text>
+                      <Text style={{ fontSize: 13, color: "#374151" }}>이 서명을 저장해두고 다음부터 같은 서명 쓰기</Text>
                     </TouchableOpacity>
                   )}
                   <View style={styles.padActions}>
@@ -719,7 +749,7 @@ export default function ContractListScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.padConfirm} onPress={() => sigRef.current?.readSignature()}>
                       <Ionicons name="checkmark" size={18} color="#fff" />
-                      <Text style={styles.padConfirmText}>승인 완료</Text>
+                      <Text style={styles.padConfirmText}>{isOwnSign ? "서명 제출" : "서명하기"}</Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -775,11 +805,11 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: "#2563eb",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.line,
+    padding: 15,
+    marginBottom: 10,
   },
   cardHeader: {
     flexDirection: "row",
@@ -794,14 +824,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   badgeText: {
     color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 12.5,
+    fontWeight: "700",
   },
   cardSubtitle: {
     fontSize: 14,
@@ -809,9 +839,20 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   cardDate: {
-    fontSize: 12,
-    color: "#9ca3af",
+    fontSize: 13.5,
+    color: C.sub,
+    marginTop: 2,
   },
+  deadline: { fontSize: 13.5, color: C.sub },
+  kv: { marginTop: 10 },
+  kvLab: { fontSize: 13, color: C.sub },
+  kvVal: { fontSize: 15, fontWeight: "700", color: C.ink, marginTop: 2 },
+  moreBtn: { minHeight: 40, justifyContent: "center", alignSelf: "flex-start" },
+  moreText: { fontSize: 13.5, fontWeight: "700", color: C.ind },
+  pastTitle: { fontSize: 16, fontWeight: "700", color: C.ink, marginTop: 8 },
+  dock: { backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: C.line, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 },
+  dockBtn: { height: 54, borderRadius: 14, backgroundColor: C.ind, alignItems: "center", justifyContent: "center" },
+  dockBtnText: { color: "#fff", fontSize: 17, fontWeight: "800" },
   empty: {
     flex: 1,
     justifyContent: "center",
@@ -822,31 +863,30 @@ const styles = StyleSheet.create({
     color: "#9ca3af",
   },
   approvalSection: { marginBottom: 12 },
-  approvalTitle: { fontSize: 15, fontWeight: "bold", color: "#c2410c", marginBottom: 8 },
+  approvalTitle: { fontSize: 16, fontWeight: "700", color: C.ink, marginBottom: 8 },
   approvalCard: {
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#fed7aa",
-    borderRadius: 8,
-    padding: 14,
+    borderColor: C.line,
+    borderRadius: 16,
+    padding: 15,
     marginBottom: 10,
   },
   approvalBtns: { flexDirection: "row", gap: 8, marginTop: 10 },
   viewBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#fff",
+    flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1.5, borderColor: C.indBd, backgroundColor: "#fff",
   },
-  viewBtnText: { fontSize: 13, fontWeight: "600", color: "#374151" },
+  viewBtnText: { fontSize: 15, fontWeight: "700", color: C.ind },
   approveBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#2563eb",
+    flex: 2, minHeight: 46, borderRadius: 12, backgroundColor: C.ind,
   },
   rejectBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 10, marginTop: 8, borderRadius: 8,
-    borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fef2f2",
+    minHeight: 44, marginTop: 6, borderRadius: 10,
   },
-  rejectBtnText: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
+  rejectBtnText: { color: C.sub, fontSize: 14, fontWeight: "600" },
   rejectWarn: { color: "#dc2626", fontSize: 13, lineHeight: 19, marginBottom: 12 },
   rejectInput: {
     borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12,
@@ -858,11 +898,11 @@ const styles = StyleSheet.create({
     alignItems: "center", marginTop: 16,
   },
   rejectSubmitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  approveBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
+  approveBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
   padActions: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },
   padClear: { flex: 1, paddingVertical: 14, borderRadius: 8, borderWidth: 1, borderColor: "#d1d5db", alignItems: "center" },
   padClearText: { fontSize: 15, fontWeight: "600", color: "#374151" },
-  padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 8, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
+  padConfirm: { flex: 2, flexDirection: "row", gap: 6, paddingVertical: 14, borderRadius: 12, backgroundColor: C.ind, alignItems: "center", justifyContent: "center" },
   padConfirmText: { fontSize: 15, fontWeight: "600", color: "#fff" },
   viewerLoading: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
   viewerFooter: { padding: 16, paddingBottom: 34, borderTopWidth: 1, borderTopColor: "#e5e7eb" },

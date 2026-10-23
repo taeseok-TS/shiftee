@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import {
-  Clock, LogIn, LogOut, TrendingUp, TrendingDown, Minus,
+  TrendingUp, TrendingDown, Minus,
   ChevronLeft, ChevronRight, RotateCcw,
 } from "lucide-react";
 import {
@@ -20,6 +20,8 @@ import {
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import EditedMark from "@/components/attendance/EditedMark";
+import { PageHead } from "@/components/kit";
+import { TodayPanel, StatusHistory, FixDialog, RecordRequestDialog, kstYmd, type MyRecord, type MyDay } from "./MyAttendanceParts";
 import type { AttendanceEditView } from "@/lib/attendance-edit";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -29,6 +31,7 @@ import {
 type Period = "daily" | "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
 type AttendanceRecord = {
   id: string; date: string; clockIn: string | null; clockOut: string | null;
+  clockedIn?: boolean; clockedOut?: boolean; zeroMinutes?: boolean;   // 시각을 뺀 응답(■0-11)이면 찍었는지만
   status: string; minutes: number;
   userName?: string;   // 지점 전체 조회 때 누구 기록인지(서버가 보내 줌)
   edit?: AttendanceEditView | null;   // 수정 이력 요약(#219-15)
@@ -44,6 +47,7 @@ type StatsResponse = {
   current: Stats; previous: Stats;
   chartData: ChartItem[];
   records: AttendanceRecord[];
+  timesHidden?: boolean;   // 직원 · 원장 — 시각 · 일한 시간 없이 상태만(■0-11)
 };
 type Employee = { id: string; name: string; department: string | null; branch?: string | null };
 
@@ -118,10 +122,14 @@ function isNextFuture(period: Period, date: Date): boolean {
 }
 
 export default function AttendancePage() {
-  /* 출퇴근 탭 */
-  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
+  /* 오늘 탭 — 지난 7일 상태 · 오늘 내 근무(■0-7 · ■0-11, 시안 S1-1) */
+  const [recent, setRecent] = useState<MyRecord[]>([]);
+  const [timesHidden, setTimesHidden] = useState(true);
+  const [myDay, setMyDay] = useState<MyDay | null | undefined>(undefined);
   const [clockLoading, setClockLoading] = useState(false);
-  const [now, setNow] = useState<Date | null>(null); // 마운트 후에만 채워 hydration mismatch 방지
+  const [fixTarget, setFixTarget] = useState<MyRecord | null>(null);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [todayYmd] = useState(() => kstYmd());
 
   /* 통계 탭 */
   const [period, setPeriod]           = useState<Period>("monthly");
@@ -137,13 +145,16 @@ export default function AttendancePage() {
   /* 날짜 직접 입력 (input[type=date] 용) */
   const [dateInput, setDateInput] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  /* ── 오늘 출퇴근 조회 ── */
+  /* ── 오늘 · 지난 7일 조회 — 이번 달(달 초면 지난달도). 직원 · 원장에게는 서버가 시각을 빼고 보낸다(■0-11) ── */
   const fetchToday = useCallback(async () => {
-    const res = await fetch(`/api/attendance?year=${new Date().getFullYear()}&month=${new Date().getMonth() + 1}`);
-    const data = await res.json();
-    const todayStr = format(new Date(), "yyyy-MM-dd");
-    const rec = data.records?.find((r: AttendanceRecord) => r.date?.startsWith(todayStr));
-    setTodayRecord(rec || null);
+    const [y, m, d] = kstYmd().split("-").map(Number);
+    const months = d < 8 ? [[m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1], [y, m]] : [[y, m]];
+    const got = await Promise.all(months.map(([yy, mm]) => fetch(`/api/attendance?year=${yy}&month=${mm}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)));
+    const recs = got.flatMap((g) => (g?.records ?? []) as MyRecord[]).sort((a, b) => (a.date < b.date ? 1 : -1));
+    setRecent(recs);
+    setTimesHidden(got.some((g) => g?.timesHidden !== false));
+    const day = await fetch(`/api/schedule/day?date=${kstYmd()}&scope=self`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    setMyDay((day?.employees?.[0] as MyDay | undefined) ?? null);
   }, []);
 
   /* ── 기간별 통계 조회 ── */
@@ -160,14 +171,9 @@ export default function AttendancePage() {
     setStatsLoading(false);
   }, [period, baseDate, selectedUser, selectedBranch]);
 
-  useEffect(() => {
-    fetchToday();
-    setNow(new Date()); // 마운트 즉시 1회
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, [fetchToday]);
+  useEffect(() => { Promise.resolve().then(fetchToday); }, [fetchToday]);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { Promise.resolve().then(fetchStats); }, [fetchStats]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => setMyRole(d.user?.role || "EMPLOYEE")).catch(() => setMyRole("EMPLOYEE"));
@@ -262,7 +268,7 @@ export default function AttendancePage() {
       const data = await res.json();
       if (!res.ok) {
         if (data.outsideGeofence) {
-          toast.error(`📍 ${data.error}`, { duration: 5000 });
+          toast.error(data.error, { duration: 5000 });
         } else {
           toast.error(data.error);
         }
@@ -273,9 +279,10 @@ export default function AttendancePage() {
     } finally { setClockLoading(false); }
   }
 
+  const statsHidden = statsData?.timesHidden === true;
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">출퇴근 관리</h1>
+      <PageHead crumb="근태 › 내 출퇴근" title="내 출퇴근" />
 
       {/* 직원은 웹에서 본인 출퇴근 기록을 보지 않는다 — 시프티 설정 「직원 본인 출퇴근기록 열람 OFF」와 같게(2026-10-08 본부 답변 #3).
           출퇴근 찍기·오늘 상태·기록 수정 요청은 앱에서 한다. 원장(담당 지점)·본부 화면은 그대로 */}
@@ -285,71 +292,21 @@ export default function AttendancePage() {
         <Card>
           <CardContent className="py-10 text-center text-sm text-gray-500 space-y-2">
             <p className="font-medium text-gray-700">출퇴근은 큐브티 앱에서 합니다.</p>
-            <p>오늘 출근·퇴근 상태와 「출퇴근기록 수정 요청(지각·누락)」은 앱 [출퇴근] 화면에 있습니다.</p>
+            <p>오늘 출근 · 퇴근 상태와 「출퇴근 기록 고치기 요청」은 앱 [출퇴근] 화면에 있습니다.</p>
             <p className="text-xs text-gray-400">월별 출퇴근 기록은 지점 원장·본부가 관리합니다.</p>
           </CardContent>
         </Card>
       ) : (
       <Tabs defaultValue="today">
         <TabsList>
-          <TabsTrigger value="today">오늘 출퇴근</TabsTrigger>
-          <TabsTrigger value="stats">기간별 통계</TabsTrigger>
+          <TabsTrigger value="today">오늘</TabsTrigger>
+          <TabsTrigger value="stats">지난 기록</TabsTrigger>
         </TabsList>
 
-        {/* ── 오늘 출퇴근 탭 ── */}
-        <TabsContent value="today" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-6">
-                {/* 시계 */}
-                <div className="text-center">
-                  <p className="text-5xl font-mono font-bold text-gray-900">{now ? format(now, "HH:mm:ss") : "--:--:--"}</p>
-                  <p className="text-gray-500 mt-1 text-sm">{now ? format(now, "yyyy년 MM월 dd일 (EEEE)", { locale: ko }) : ""}</p>
-                </div>
-                {/* 현황 */}
-                <div className="flex-1 grid grid-cols-2 gap-4 min-w-[220px]">
-                  <div className="bg-green-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-green-700 font-medium whitespace-nowrap">출근 시각</p>
-                    <p className="text-3xl font-bold text-green-800 mt-1">
-                      {todayRecord?.clockIn ? format(new Date(todayRecord.clockIn), "HH:mm") : "--:--"}
-                    </p>
-                  </div>
-                  <div className="bg-blue-50 rounded-xl p-4 text-center">
-                    <p className="text-sm text-blue-700 font-medium whitespace-nowrap">퇴근 시각</p>
-                    <p className="text-3xl font-bold text-blue-800 mt-1">
-                      {todayRecord?.clockOut ? format(new Date(todayRecord.clockOut), "HH:mm") : "--:--"}
-                    </p>
-                  </div>
-                </div>
-                {/* 버튼 — 직원은 등록된 휴대폰 앱에서만 찍는다(기기 잠금). 웹 열람을 켜 줘도(#39) 버튼은 보이지 않는다 */}
-                {myRole === "EMPLOYEE" ? (
-                  <p className="text-xs text-gray-500 self-center">출근·퇴근은 큐브티 앱에서 찍습니다.</p>
-                ) : (
-                <div className="flex gap-3">
-                  <Button onClick={() => handleClock("in")} disabled={clockLoading || !!todayRecord?.clockIn}
-                    className="bg-green-600 hover:bg-green-700 gap-2" size="lg">
-                    <LogIn size={18} />출근
-                  </Button>
-                  <Button onClick={() => handleClock("out")}
-                    disabled={clockLoading || !todayRecord?.clockIn || !!todayRecord?.clockOut}
-                    variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50 gap-2" size="lg">
-                    <LogOut size={18} />퇴근
-                  </Button>
-                </div>
-                )}
-              </div>
-              {todayRecord && (
-                <div className="mt-4 pt-4 border-t flex items-center gap-3">
-                  <Badge variant={STATUS_CONFIG[todayRecord.status]?.variant || "outline"}>
-                    {STATUS_CONFIG[todayRecord.status]?.label || todayRecord.status}
-                  </Badge>
-                  {todayRecord.minutes > 0 && (
-                    <span className="text-sm text-gray-600">오늘 근무시간: <strong>{fmtMin(todayRecord.minutes)}</strong></span>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* ── 오늘 탭 — 오늘 내 근무 · 상태 · 지난 7일 · 아래 큰 출근 버튼(■0-7, 시안 S1-1) ── */}
+        <TabsContent value="today" className="mt-4">
+          <TodayPanel role={myRole} today={todayYmd} recent={recent} myDay={myDay} timesHidden={timesHidden}
+            clockLoading={clockLoading} onClock={handleClock} onFix={setFixTarget} onRecordRequest={() => setRecordOpen(true)} />
         </TabsContent>
 
         {/* ── 기간별 통계 탭 ── */}
@@ -364,7 +321,7 @@ export default function AttendancePage() {
                   key={value}
                   onClick={() => setPeriod(value)}
                   className={`px-4 py-2 text-sm font-medium transition-colors border-r last:border-r-0
-                    ${period === value ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}
+                    ${period === value ? "bg-[#4f46e5] text-white" : "text-gray-600 hover:bg-gray-50"}`}
                 >
                   {label}
                 </button>
@@ -423,7 +380,7 @@ export default function AttendancePage() {
 
             {/* 현재 조회 대상 표시 */}
             {selectedBranch && (
-              <span className="text-sm text-blue-600 font-medium">📍 {selectedBranch} 지점 전체 통계</span>
+              <span className="text-sm text-blue-600 font-medium">{selectedBranch} 지점 전체</span>
             )}
           </div>
 
@@ -475,9 +432,12 @@ export default function AttendancePage() {
             </Button>
           </div>
 
-          {/* ── 통계 본문 ── */}
+          {/* ── 통계 본문 — 직원 · 원장(시각 숨김)은 날짜별 상태만(■0-11) ── */}
           {statsLoading ? (
             <div className="text-center py-16 text-gray-400">불러오는 중...</div>
+          ) : c && statsHidden ? (
+            <StatusHistory records={statsData.records} today={todayYmd} showName={!!selectedBranch} mine={!selectedBranch && selectedUser === "me"}
+              current={c} onFix={setFixTarget} />
           ) : c && (
             <>
               {/* 요약 카드 */}
@@ -635,6 +595,8 @@ export default function AttendancePage() {
         </TabsContent>
       </Tabs>
       )}
+      <FixDialog target={fixTarget} onClose={() => setFixTarget(null)} onDone={() => { setFixTarget(null); fetchToday(); fetchStats(); }} />
+      <RecordRequestDialog open={recordOpen} onClose={() => setRecordOpen(false)} />
     </div>
   );
 }

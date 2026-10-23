@@ -6,6 +6,7 @@ import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
+import { convertSavedHeic, jpgName } from "@/lib/heic-jpeg";
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]);
 // 브라우저에서 재생 가능한 포맷만 video로 (avi/mkv는 <video>가 재생 못해 일반 파일로 취급)
@@ -71,6 +72,11 @@ export async function POST(request: NextRequest) {
   });
 
   if ("_error" in result) return NextResponse.json({ error: result._error }, { status: result.status });
+
+  // 아이폰 HEIC 사진은 JPG 로 바꿔 저장한다(2026-10-23 ■1 — 회사 PC 에서 안 열린다). 내용(매직바이트)으로 판별 — 이름만 .jpg 인 HEIC 도.
+  // 채팅 사진 · 휴가 첨부가 이 업로드를 쓴다. 바꾸지 못하면 원본 그대로(업로드는 성공)
+  const converted = await convertSavedHeic(dir, result.safeName);
+  if (converted) { result.safeName = converted; result.fileName = jpgName(result.fileName); }
 
   const ext = path.extname(result.fileName).toLowerCase();
   const fileUrl = `/api/uploads/work/${result.safeName}`;

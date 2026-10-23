@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { ORG_SCOPES, MAX_TTL_DAYS, generateApiKey, publicKey, type ApiScope } from "@/lib/api-key";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN") return NextResponse.json({ error: "본부 관리자만 연동 키를 발급할 수 있습니다." }, { status: 403 });
+  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 연동 키를 발급할 수 있습니다." }, { status: 403 });
   const body = await request.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
   if (!name) return NextResponse.json({ error: "용도를 적어주세요. (예: 큐브마케팅 블로그 발행)" }, { status: 400 });

@@ -9,6 +9,7 @@ import { leaveInfo } from "@/lib/leave-catalog";
 import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { isLeaveDeductible } from "@/lib/leave-types";
 import { kstTodayMidnight, isResigned } from "@/lib/resign";
+import { testAccountWhere } from "@/lib/employee-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
       startDate: { lte: toD }, endDate: { gte: fromD },
       user: {
         deletedAt: null,
+        NOT: await testAccountWhere(),   // 테스트 계정은 휴가 리포트에서 뺀다(2026-10-23 검증 I)
         ...(branchIn ? { branch: { in: branchIn } } : {}),
         ...(activeOnly ? {
           isActive: true, employmentStatus: { not: "RESIGNED" as const },

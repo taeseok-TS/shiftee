@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
-import { countableEmployeeWhere } from "@/lib/employee-scope";
+import { countableEmployeeWhere, hiredOnlyAnd, testRequesterExclusion } from "@/lib/employee-scope";
 import { absentUserIds } from "@/lib/attendance-absent";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
@@ -32,26 +32,29 @@ export async function GET() {
   //   대시보드 전체가 500 이 된다(2026-09-09 검증에서 지적).
   //   · 원장대행 중인 지점도 결재함처럼 센다(lib/approval-delegate.ts myStepOr)
   const scope = await approverScopeFor(session);
+  // 테스트 계정이 올린 신청은 결재함(기본)처럼 숫자에서도 뺀다(2026-10-23 이예지 답) — 보는 사람이 테스트 계정이면 결재함처럼 넣는다
+  const testEx = await testRequesterExclusion(session);
   const scheduleOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope, "scheduleRequest");
   const leaveOr = session.role === "ADMIN" ? undefined : myStepOr(session, scope, "leaveRequest");
   const scheduleStepWhere = {
     status: "PENDING" as const,
-    scheduleRequest: { userId: { not: session.userId } },
+    scheduleRequest: { userId: { not: session.userId }, ...(testEx ? { user: testEx } : {}) },
     ...(scheduleOr ? { OR: scheduleOr } : {}),
   };
   const leaveStepWhere = {
     status: "PENDING" as const,
-    leaveRequest: { userId: { not: session.userId } },
+    leaveRequest: { userId: { not: session.userId }, ...(testEx ? { user: testEx } : {}) },
     ...(leaveOr ? { OR: leaveOr } : {}),
   };
   // 휴가 취소 결재도 **결재함과 같은 함수**로 센다(lib/leave-cancel-flow.ts cancelStepWhere)
-  const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, scope) });
+  const pendingCancelSteps = await prisma.leaveCancelStep.count({ where: cancelStepWhere(session, scope, undefined, testEx) });
 
   // 퇴사일이 지난 사람은 팀 인원·미출근에서 뺀다 — 퇴사일 당일까지는 재직(lib/resign isResigned 와 같은 규칙, 2026-10-17 #219 검증 F3)
-  const baseMemberWhere = await countableEmployeeWhere(session.role === "MANAGER" ? { branches: myBranches } : {});
+  // activeOn = 1970 — 아래 금월 결근자 목록용이라 퇴사일로 거르지 않는다(공용 기준은 기본으로 오늘 퇴사일을 거른다, 2026-10-23)
+  const baseMemberWhere = await countableEmployeeWhere({ ...(session.role === "MANAGER" ? { branches: myBranches } : {}), activeOn: new Date(0) });
   const memberWhere = {
     ...baseMemberWhere,
-    AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayDateUTC() } }] }],
+    AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayDateUTC() } }] }, ...hiredOnlyAnd(baseMemberWhere)],   // 입사 예정자도 뺀다(10/23 검증 H)
   };
   // 지난 날을 보는 목록(금월 결근자)은 퇴사 거르기를 하지 않는다 — 이달 중 퇴사한 사람의 결근도 남아야 한다(재검증 N2)
 
