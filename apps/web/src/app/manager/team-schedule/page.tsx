@@ -73,12 +73,13 @@ export default function ManagerSchedulePage() {
 
   // 공휴일 — 날짜별 이름 맵(본부 근무일정과 같은 표시). 기간이 두 해에 걸치면 둘 다
   const [holidayMap, setHolidayMap] = useState<Map<string, string>>(new Map());
-  // 폰 「이번 주」(KST 오늘 ± 6일)가 보기 기간과 다른 해일 수 있어 그 해도 함께 받는다(10/24 검증 P3)
-  const kstYear = (dayOffset: number) => String(new Date(Date.now() + 9 * 3600 * 1000 + dayOffset * 86400000).getUTCFullYear());
-  const yearsKey = [...new Set([...yearsOf(view.range).map(String), kstYear(-6), kstYear(6)])].sort().join(",");
+  const yearsKey = yearsOf(view.range).join(",");
   useEffect(() => {
     let alive = true;
-    Promise.all(yearsKey.split(",").map((y) => fetch(`/api/holidays?year=${y}`).then((r) => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
+    // 폰 「이번 주」(KST 오늘 ± 6일)가 보기 기간과 다른 해일 수 있어 그 해도 함께 받는다(10/24 검증 P3) — 시각은 그리는 중이 아니라 여기서 읽는다(react-hooks/purity)
+    const kstYear = (dayOffset: number) => String(new Date(Date.now() + 9 * 3600 * 1000 + dayOffset * 86400000).getUTCFullYear());
+    const years = [...new Set([...yearsKey.split(","), kstYear(-6), kstYear(6)])];
+    Promise.all(years.map((y) => fetch(`/api/holidays?year=${y}`).then((r) => (r.ok ? r.json() : { holidays: [] })).catch(() => ({ holidays: [] }))))
       .then((list) => { if (alive) setHolidayMap(new Map(list.flatMap((d) => (d.holidays || []) as { date: string; name: string }[]).map((h) => [h.date, h.name]))); });
     return () => { alive = false; };
   }, [yearsKey]);
