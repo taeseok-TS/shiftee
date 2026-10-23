@@ -4,6 +4,7 @@ import { useState } from "react";
 import { evalPeriodsFor, type Cohort } from "@/lib/route-course";
 import { toast } from "sonner";
 import { koreanMoney } from "@/lib/korean-money";
+import { DERIVED_FIELD_SOURCES } from "@/lib/contract-field-settings";
 
 /**
  * 여러 명 계약서 — 개인별 값 표(2026-10-07 QA #19 #34).
@@ -23,6 +24,7 @@ const AUTO = new Set([
   "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자", "식대", "생년월일", "근무시작일", "연차시작일", "원장명",
   "일근무시간", "월근로시간", "이메일", "연락처",
   "입사일", "직책", "직급", "제목", "주소",
+  ...Object.keys(DERIVED_FIELD_SOURCES),   // 서버가 원천 칸으로 만드는 파생 표기(주말급여합계·출근시각12·퇴근시각12) — 원천 칸만 열로 둔다
 ]);
 const KEY_NAMES = new Set(["사번", "사원번호", "이름", "직원명", "직원", "성명"]);
 // 사람마다 다를 수 있는 날짜 칸 — 근로시작일·교육/실무평가 기간(2026-10-16 이예지 QA: 입사일이 다른 신규입사자를 한 번에 만들면 평가 기간이 모두 같아졌다).
@@ -113,7 +115,7 @@ function parseTsv(text: string): string[][] {
 /** 사람마다 「보내기 전 확인」 결과(계약서 보내기 2단계, 2026-10-20 시안 v2 3번) — error = 고치거나 빼야 넘어감, warn = 「그래도 보내기」 또는 빼기 */
 export type RowStatus = { level: "ok" | "warn" | "error"; text: string; acked?: boolean };
 
-export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon, status, onRemove, onAck, onlyIssues }: {
+export default function BulkValuesTable({ userIds, employees, columns, values, onChange, common, rowCommon, status, onRemove, onAck, onlyIssues, salaryInfo, onSalaryConfirm }: {
   userIds: string[];
   employees: Emp[];
   columns: string[];
@@ -125,6 +127,9 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
   onRemove?: (uid: string) => void;     // 줄 빼기(×)
   onAck?: (uid: string) => void;        // 경고 줄 「그래도 보내기」
   onlyIssues?: boolean;                 // 「확인 필요」만 보기
+  // 연봉 확인(2026-10-23 본부) — 사람마다 들어갈 연봉(value)·확인 여부·출처 한 줄(「포털 연봉 · 2026-03-01~」). 있으면 연봉 칸 아래 「확인」 체크
+  salaryInfo?: Record<string, { value: string; confirmed: boolean; note: string }>;
+  onSalaryConfirm?: (uid: string, on: boolean) => void;
 }) {
   const [paste, setPaste] = useState("");
   const emp = (id: string) => employees.find((e) => e.id === id);
@@ -188,6 +193,20 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
   };
 
   if (!userIds.length || (!columns.length && !status)) return null;
+  // 사람마다 「연봉 확인」 체크 — 값이 비면 누를 수 없고, 값이 바뀌면 화면이 확인을 푼다(ContractsScreen salaryOk)
+  const salaryCheck = (uid: string) => {
+    const si = salaryInfo?.[uid];
+    if (!si) return null;
+    return (
+      <div className="pl-1 pt-0.5 text-[10px] leading-tight">
+        {si.note && <div className="text-gray-400 whitespace-nowrap">{si.note}</div>}
+        <label className={`inline-flex items-center gap-1 whitespace-nowrap ${si.confirmed ? "text-indigo-700" : "text-red-600 font-semibold"} ${si.value ? "cursor-pointer" : "opacity-60"}`}>
+          <input type="checkbox" checked={si.confirmed} disabled={!si.value} onChange={(ev) => onSalaryConfirm?.(uid, ev.target.checked)} />
+          {si.confirmed ? "연봉 확인함" : "연봉 확인"}
+        </label>
+      </div>
+    );
+  };
   const issue = (uid: string) => { const st = status?.[uid]; return !!st && (st.level === "error" || (st.level === "warn" && !st.acked)); };
   const shown = onlyIssues ? userIds.filter(issue) : userIds;
   return (
@@ -209,7 +228,9 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
               const st = status?.[uid];
               return (
                 <tr key={uid} id={`bulk-row-${uid}`} className={`border-t scroll-mt-24 ${issue(uid) ? "bg-red-50/70" : ""}`}>
-                  <td className="px-2 py-1 whitespace-nowrap">{e?.name}{e?.empNo != null ? <span className="text-gray-400"> {String(e.empNo).padStart(5, "0")}</span> : null}{e?.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">{e?.name}{e?.empNo != null ? <span className="text-gray-400"> {String(e.empNo).padStart(5, "0")}</span> : null}{e?.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}
+                    {!columns.includes("연봉") && salaryCheck(uid)}
+                  </td>
                   {columns.map((c) => {
                     const v = values[uid]?.[c] ?? "";
                     const bad = DATE_COLS.includes(c) && v && normDate(v) === null;
@@ -224,6 +245,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
                           onChange={(ev) => set(uid, c, ev.target.value)}
                           className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : diff ? "border-amber-300 bg-amber-50" : "border-gray-200"}`} />
                         {c === "연봉" && won > 0 && <div className="pl-1 text-[10px] font-semibold text-indigo-600 whitespace-nowrap">{koreanMoney(won)}</div>}
+                        {c === "연봉" && salaryCheck(uid)}
                       </td>
                     );
                   })}

@@ -124,6 +124,17 @@ export async function validateContractMerge(
   const day = hoursNum(merge["일근무시간"]);
   if (has("일근무시간") && day != null && day > 8) errors.push(`하루 근무시간 ${day}시간 — 소정근로시간은 하루 8시간을 넘을 수 없습니다.`);
 
+  // 코디 오후판(문장이 「오후 {출근시각12} ～ 오후 {퇴근시각12}」) — 오전 시각을 넣으면 「오후 9:00」처럼 틀린 문서가 된다
+  if (has("출근시각12") || has("퇴근시각12")) {
+    for (const [k, label] of [["출근시각", "출근 시각"], ["퇴근시각", "퇴근 시각"]] as const) {
+      const v = (merge[k] || "").trim();
+      const m = v.match(/^(\d{1,2}):(\d{2})$/);
+      if (!v) continue;
+      if (!m || Number(m[2]) > 59) errors.push(`${label}「${v}」을(를) 시각(예: 14:00)으로 읽지 못했습니다.`);
+      else if (Number(m[1]) < 12 || Number(m[1]) > 23) errors.push(`${label} ${v} — 오후 근무 계약서입니다. 12:00~23:59 사이 시각을 넣어 주세요(오전 근무는 오전판 양식으로).`);
+    }
+  }
+
   // 최저임금
   const year = Number(sd.slice(0, 4)) || new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear();
   const mw = await minWageFor(year);
@@ -140,6 +151,21 @@ export async function validateContractMerge(
     else if (pay / hours < mw.won) {
       errors.push(`최저임금 미만입니다 — 월 급여 ${won(pay)} ÷ 월 ${hours}시간 = 시급 ${won(pay / hours)} (${mwLabel}). 금액을 고쳐야 저장·발송할 수 있습니다.`);
     }
+  } else if (has("주말급여합계")) {
+    // 주말 학습실장(2026-10-23) — 월 급여 = 기본급 + 주말수당 + 주휴수당(파생 {주말급여합계}) ÷ {월근로시간}, 그리고 적힌 {통상시급}
+    const pay = num(merge["주말급여합계"]);
+    // 월 근로시간 — 입력값과 요일 표(월~일 근로시간)로 계산한 값((주+주휴)×4.345) 중 큰 쪽. 손으로 낮춰 검사를 피하지 못하게({월급여액} 분기와 같은 방어)
+    const DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"];
+    const wk = DAYS.reduce((sum, d) => sum + (hoursNum(merge[`${d}근로시간`]) ?? 0), 0);
+    const computedW = wk > 0 ? Math.round((wk + (wk >= 15 ? Math.min((wk / 40) * 8, 8) : 0)) * 4.345) : null;
+    const hours = Math.max(hoursNum(merge["월근로시간"]) ?? 0, computedW ?? 0) || null;
+    const hourly = num(merge["통상시급"]);
+    if (!pay) errors.push("기본급 · 주말수당 · 주휴수당 금액을 입력해 주세요.");
+    else if (!hours) errors.push("월 근로시간을 입력해 주세요 — 최저임금을 확인할 수 없습니다.");
+    else if (pay / hours < mw.won) {
+      errors.push(`최저임금 미만입니다 — 월 급여 ${won(pay)} ÷ 월 ${hours}시간 = 시급 ${won(pay / hours)} (${mwLabel}). 금액을 고쳐야 저장·발송할 수 있습니다.`);
+    }
+    if (hourly != null && hourly < mw.won) errors.push(`통상시급 ${won(hourly)}이 최저임금보다 낮습니다 (${mwLabel}).`);
   } else if (has("기본급") || has("연봉") || has("연봉숫자")) {
     const base = num(merge["기본급"]);
     const monthly = num(merge["월급여합계"]) ?? (base != null ? base + (num(merge["식대"]) ?? 0) : null);

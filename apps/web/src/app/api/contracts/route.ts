@@ -280,6 +280,10 @@ export async function POST(request: NextRequest) {
     const testSend = formData.get("testSend") === "1";
     if (testSend && session.role !== "ADMIN")
       return NextResponse.json({ error: "테스트 발송은 관리자만 할 수 있습니다." }, { status: 403 });
+    // 연봉 칸 확인(2026-10-23 본부) — 작성 화면이 사람마다 「연봉 확인」을 받은 뒤에만 salaryConfirmed=1 을 붙인다.
+    // 기본값(3,400만 원·포털 연봉)이 확인 없이 문서에 박히지 않게 — 배포 전에 열어 둔 옛 화면에서 만드는 길도 여기서 막는다. 나에게 테스트 발송은 제외
+    if (!testSend && (salary || "").replace(/[^0-9]/g, "") && formData.get("salaryConfirmed") !== "1")
+      return NextResponse.json({ code: "SALARY_UNCONFIRMED", error: "연봉 확인이 빠졌습니다. 화면을 새로 고친 뒤 연봉 칸을 확인(체크)하고 다시 만들어 주세요." }, { status: 400 });
     const { TEST_TITLE_PREFIX } = await import("@/lib/contract-test");
     const finalTitle = testSend ? (title || "").startsWith(TEST_TITLE_PREFIX) ? title : `${TEST_TITLE_PREFIX}${(title || "").trim() || "테스트 문서"}` : title;
     // 외부(미가입) 계약자 — 이름·연락처를 관리자가 직접 입력, 계약 소유자는 작성 관리자

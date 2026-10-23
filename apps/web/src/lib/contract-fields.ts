@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { parseFieldSettings, humanFields, applyAutoSources, type FieldSettings } from "@/lib/contract-field-settings";
+import { parseFieldSettings, humanFields, applyAutoSources, DERIVED_FIELD_SOURCES, withDerivedSources, type FieldSettings } from "@/lib/contract-field-settings";
 import { generateDeterministic } from "@/lib/docx-zip";
 import fs from "fs/promises";
 import path from "path";
@@ -255,6 +255,20 @@ export async function buildContractMergeData(
   mergeData["지급기타표기"] = gitaOn && gitaTxt ? `( ${gitaTxt} )` : "";
   // 개인정보동의서 필수 항목 — 서명 시 명시 동의(동의필수="동의")해야 ☒, 그 전엔 빈 체크 (#104)
   mergeData["동의필수표기"] = consentBox(opts.extraFields?.["동의필수"]);
+  // 주말 학습실장 월 급여합계 — 세 금액의 합(2026-10-23 본부). 원천 칸 값은 위에서 「620,000원」으로 바뀌어 있거나 원문이라 쉼표·「원」을 떼고 더한다.
+  // 빈 칸은 0, 셋 다 비면 빈칸, 숫자가 아닌 값이 하나라도 있으면 합을 낼 수 없어 빈칸.
+  // 빈칸이면 값을 두지 않는다 — 문서에는 빈칸, 미리보기에는 〔미입력〕(nullGetter). 입력값으로 들어온 같은 이름 값도 지운다(파생 칸은 서버만 만든다)
+  const setDerived = (k: string, v: string) => { if (v) mergeData[k] = v; else delete mergeData[k]; };
+  {
+    const raws = DERIVED_FIELD_SOURCES["주말급여합계"].map((k) => String(mergeData[k] ?? "").replace(/[,\s원]/g, ""));
+    setDerived("주말급여합계", raws.every((r) => r === "") || raws.some((r) => r !== "" && !/^\d+$/.test(r))
+      ? "" : `${raws.reduce((s, r) => s + (r ? Number(r) : 0), 0).toLocaleString()}원`);
+  }
+  // 12시간제 시각 — 「14:00」→「2:00」, 「00:30」→「12:30」. 오전/오후 글자는 양식 문장에 있다(코디 오후판 「오후 {출근시각12}」)
+  for (const k of ["출근시각", "퇴근시각"]) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(mergeData[k] ?? "").trim());
+    setDerived(`${k}12`, m && Number(m[1]) < 24 ? `${Number(m[1]) % 12 || 12}:${m[2]}` : "");
+  }
   return mergeData;
 }
 
@@ -293,6 +307,7 @@ export const SYSTEM_FIELDS = new Set([
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
   "지점주소", // 지점 표의 주소(2026-10-13 추가 템플릿 8종 — 인사발령통지서)
+  ...Object.keys(DERIVED_FIELD_SOURCES), // 원천 칸에서 만드는 파생 표기(2026-10-23 — 주말급여합계·출근시각12·퇴근시각12)
 ]);
 
 // 프로필 필드지만 비어 있으면 계약자가 서명 단계에서 직접 채운다 (scanTemplateProfileFields 대상과 동일)
@@ -424,8 +439,10 @@ export async function templateFieldNames(templateFileUrl: string): Promise<strin
         if (!names.includes(name)) names.push(name);
       }
     }
-    fieldNameCache.set(file, { mtimeMs: st.mtimeMs, names });
-    return names;
+    // 파생 칸({출근시각12} 등)만 있는 양식도 원천 칸(출근시각) 입력값이 요약에 남게(2026-10-23)
+    const withSrc = withDerivedSources(names);
+    fieldNameCache.set(file, { mtimeMs: st.mtimeMs, names: withSrc });
+    return withSrc;
   } catch {
     return null;
   }

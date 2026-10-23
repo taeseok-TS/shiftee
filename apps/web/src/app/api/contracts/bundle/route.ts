@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
 
   const body = (await request.json()) as {
     userId?: string;
+    salaryConfirmed?: boolean; // 작성 화면이 연봉 칸 확인을 받았다(2026-10-23 본부)
     externalName?: string | null; // 외부(미가입) 계약자 패키지 — 소유자는 작성 관리자
     externalPhone?: string | null;
     items?: Array<{
@@ -38,6 +39,9 @@ export async function POST(request: NextRequest) {
   const userId = externalName ? session.userId : body.userId;
   if (!userId || !Array.isArray(items) || items.length === 0)
     return NextResponse.json({ error: "직원과 문서를 선택해주세요." }, { status: 400 });
+  // 연봉 칸 확인(2026-10-23 본부) — 단건 작성(app/api/contracts)과 같은 규칙. 연봉이 든 서류가 있으면 화면의 확인 표시가 있어야 만든다
+  if (items.some((it) => String(it?.salary ?? "").replace(/[^0-9]/g, "")) && body.salaryConfirmed !== true)
+    return NextResponse.json({ code: "SALARY_UNCONFIRMED", error: "연봉 확인이 빠졌습니다. 화면을 새로 고친 뒤 연봉 칸을 확인(체크)하고 다시 만들어 주세요." }, { status: 400 });
   // 외부 계약은 휴대폰 번호 필수(디렉터 9/11) — 게스트 서명 링크의 본인 확인이 이 번호로 한다
   if (externalName && !isValidMobile(externalPhone))
     return NextResponse.json({ error: "외부 계약자 휴대폰 번호를 입력해주세요. 본인 확인(뒷자리 4자리)과 서명 링크 전달에 필요합니다." }, { status: 400 });

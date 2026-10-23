@@ -55,6 +55,8 @@ services:
       # 직영포털 인사카드 연락처 자동 채움(#25, 2026-10-12) — 비우면 기능 꺼짐(계약 작성은 그대로)
       PORTAL_HR_CONTACT_URL: ${PORTAL_HR_CONTACT_URL:-}
       PORTAL_HR_CONTACT_KEY: ${PORTAL_HR_CONTACT_KEY:-}
+      PORTAL_HR_SALARY_KEY: ${PORTAL_HR_SALARY_KEY:-}
+      PORTAL_HR_SALARY_URL: ${PORTAL_HR_SALARY_URL:-}
       # 진학입시EX 입학정보실 입장권 서명 열쇠(2026-10-19) — 진학입시EX 와 같은 값. 비우면 단추가 「연결 준비 중」
       INFO_PASS_SECRET: ${INFO_PASS_SECRET:-}
       # 입학정보실 단추 켜기(2026-10-19 「잠깐 숨겨놔」) — 1 일 때만 보인다. 바꾼 뒤 web 컨테이너만 다시 만들면 된다(빌드·앱 업데이트 불필요)

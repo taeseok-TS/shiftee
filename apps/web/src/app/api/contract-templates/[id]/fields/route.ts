@@ -5,7 +5,7 @@ import PizZip from "pizzip";
 import fs from "fs/promises";
 import path from "path";
 import { scanEmployeeFillFields, SYSTEM_FIELDS, isEmployeeInputField } from "@/lib/contract-fields";
-import { parseFieldSettings, type FieldMode } from "@/lib/contract-field-settings";
+import { parseFieldSettings, withDerivedSources, type FieldMode } from "@/lib/contract-field-settings";
 
 // 템플릿 워드(.docx)에 들어 있는 치환 필드({...}) 목록 조회.
 // 계약서 작성 폼이 이 목록으로 템플릿별 추가 입력란을 자동 구성한다.
@@ -73,6 +73,9 @@ export async function GET(
         }
       }
     }
+    // 파생 칸({출근시각12}·{주말급여합계})의 원천 칸을 덧붙인다 — 양식에 원천 칸 글자가 없어도 작성 화면이 입력란을 띄우게(2026-10-23).
+    // 파생 칸 자체는 작성 폼의 AUTO_FIELDS 가 감춘다
+    for (const f of withDerivedSources(fields)) if (!fields.includes(f)) fields.push(f);
     // 직원이 서명 시 직접 입력하는 필드(퇴사일자 등) — 관리자 입력란에서 제외 대상
     const employeeFields = await scanEmployeeFillFields(template.fileUrl, id);
     // 칸 설정(#22 1단계) — 저장된 설정과, 설정이 없을 때의 기본 방식(자동/서명 때 직원/본부)

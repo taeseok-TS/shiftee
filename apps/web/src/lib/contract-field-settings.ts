@@ -25,11 +25,27 @@ export const AUTO_SOURCES: { key: string; label: string }[] = [
   { key: "제목", label: "계약 제목" }, { key: "계약시작일", label: "계약 시작일" }, { key: "계약종료일", label: "계약 종료일" }, { key: "지점주소", label: "지점 주소(지점 표)" },
 ];
 const MODES = new Set<string>(FIELD_MODES.map((m) => m.value));
+/** 원천 칸에서 서버가 만들어 내는 파생 표기 칸(2026-10-23 주말 학습실장·코디 오후판) → 그 원천 칸.
+ *  양식에는 파생 칸만 있어도 작성 화면은 원천 칸을 입력란으로 띄우고(fields API·요약 칸이 원천을 덧붙인다) 파생 칸은 숨긴다.
+ *  · 주말급여합계 = 기본급금액 + 주말수당금액 + 주휴수당금액(「1,234원」, 빈 칸은 0, 셋 다 비면 빈칸)
+ *  · 출근시각12·퇴근시각12 = 「14:00」→「2:00」(12시간제 숫자만 — 오전/오후 글자는 양식 문장에 적는다) */
+export const DERIVED_FIELD_SOURCES: Record<string, string[]> = {
+  주말급여합계: ["기본급금액", "주말수당금액", "주휴수당금액"],
+  출근시각12: ["출근시각"],
+  퇴근시각12: ["퇴근시각"],
+};
+/** 칸 이름 목록에 파생 칸의 원천 칸을 덧붙인다(이미 있으면 그대로) — 작성 화면 입력란·요약 칸 거르기용 */
+export function withDerivedSources(names: string[]): string[] {
+  const out = [...names];
+  for (const n of names) for (const src of DERIVED_FIELD_SOURCES[n] ?? []) if (!out.includes(src)) out.push(src);
+  return out;
+}
 /** 설정으로 건드릴 수 없는 칸 — 서명 이미지 자리 마커와 서버가 다른 값에서 만들어내는 파생 표기(설정 실수 한 번에 서명본이 깨진다, 10/13 검증 7) */
 export const PROTECTED_FIELDS = new Set([
   "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", "신규입사", "재계약", "동의고유식별", "동의채용정보",
   "연봉한글", "연봉총액", "월급여합계", "기본급", "식대", "연봉숫자",
+  ...Object.keys(DERIVED_FIELD_SOURCES),
 ]);
 const SOURCES = new Set(AUTO_SOURCES.map((s) => s.key));
 const MAX_FIELDS = 150;

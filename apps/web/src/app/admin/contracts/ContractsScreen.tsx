@@ -27,7 +27,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import { FileSignature, Plus, PenLine, Download, Send, ChevronDown, X, Eye, Upload, Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import type { FieldSettings } from "@/lib/contract-field-settings";
+import { DERIVED_FIELD_SOURCES, type FieldSettings } from "@/lib/contract-field-settings";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -417,6 +417,12 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [editForm, setEditForm] = useState({ title: "", type: "", startDate: "", endDate: "", salary: "" });
   // 금액 칸은 "입력 중엔 숫자만, 벗어나면 콤마" — 매 글자마다 다시 포맷하면 커서가 끝으로 튄다(검증관 F4)
   const [salaryFocus, setSalaryFocus] = useState(false);
+  // 포털 연봉 기본값·연봉 확인(2026-10-23 본부) — 포털 값은 화면 기억에만(큐브티에 저장하지 않는다). 권한은 인사 › 연봉과 같다(/api/admin/portal-salary)
+  const [portalSalary, setPortalSalary] = useState<Record<string, { found: boolean; amount?: number | null; from?: string; to?: string; reason?: string }>>({});
+  const [portalSalaryGate, setPortalSalaryGate] = useState<"" | "ok" | "locked" | "forbidden" | "fail" | "unconfigured">("");
+  const [salaryOk, setSalaryOk] = useState<Record<string, string>>({});   // 받는 사람(외부 계약은 "__ext__") → 「연봉 확인」을 누른 그때의 연봉 값. 값이 바뀌면 확인이 풀린다
+  const [salaryPw, setSalaryPw] = useState("");
+  const [salaryUnlocking, setSalaryUnlocking] = useState(false);
   const [editSalaryFocus, setEditSalaryFocus] = useState(false);
   const wonView = (v: string, focused: boolean) => (focused ? v : v ? Number(v).toLocaleString() : "");
   const [editExtraFields, setEditExtraFields] = useState<Record<string, string>>({}); // 템플릿 동적 필드 수정값
@@ -856,6 +862,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     "동의고유식별", "동의채용정보", // 개인정보 선택 동의 — 직원이 서명 시 토글(관리자 입력란 미표시)
     "지점명", "지급기타표기", "동의필수표기", // 서버가 다른 값에서 만들어내는 파생 표기 필드 (#144·#145)
     "지점주소", // 지점 표의 주소 — 인사발령통지서 현 근무지(2026-10-13)
+    ...Object.keys(DERIVED_FIELD_SOURCES), // 원천 칸에서 서버가 만드는 파생 표기(주말급여합계·출근시각12·퇴근시각12, 2026-10-23) — 원천 칸만 입력
     "신규입사", "재계약"]; // 계약 구분 라디오가 담당 — 입력란으로 노출하지 않는다
   const FORM_FIELDS = ["제목", "계약시작일", "계약종료일", "연봉"];
   const [templateFields, setTemplateFields] = useState<string[]>([]);
@@ -1056,7 +1063,34 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const SALARY_DEFAULT = "34000000";
   const salaryDefaultOn = useTemplate && !bulkMode && !!empTemplate && selectedTemplate === empTemplate.id && contractKind === "신규입사"
     && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
-  const effSalary = String(createForm.salary || "").trim() || (salaryDefaultOn ? SALARY_DEFAULT : "");
+  // 포털 연봉 기본값(2026-10-23 본부) — 재계약 등 연봉 칸이 있는 양식에서, 신규입사(계약 구분·입사 패키지)·외부 계약·퇴사 서류가 아닐 때.
+  // 손으로 적은 값 > 포털 연봉 > 3,400만 원(신규입사 한 명). 어느 값이든 사람마다 「연봉 확인」을 눌러야 만든다(salaryOk)
+  const needsSalaryNow = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
+  const portalFillOn = needsSalaryNow && !externalMode && !resignBundleMode
+    && !(contractKind === "신규입사" && (templateConditions.includes("신규입사") || bundleMode || codiBundleMode));
+  const portalAmt = (uid: string): string => {
+    const p = portalFillOn && uid ? portalSalary[uid] : undefined;
+    return p?.found && p.amount ? String(p.amount) : "";
+  };
+  // 여러 명 작성이면 공통값에 포털 값을 넣지 않는다 — 첫 사람의 연봉이 모두에게 가지 않게(사람별은 salaryOf)
+  const effSalary = String(createForm.salary || "").trim() || (!bulkMode ? portalAmt(createForm.userId) : "") || (salaryDefaultOn ? SALARY_DEFAULT : "");
+  const bulkSalaryCol = needsSalaryNow && (!fieldConditions["연봉"] || fieldConditions["연봉"] === contractKind);   // 개인별 값 표에 연봉 열이 있는가(bulkColumns 와 같은 조건)
+  /** 그 사람 문서에 들어갈 연봉 — 여러 명: 표에 적은 값 > 포털 연봉 > 공통값, 한 명: effSalary */
+  const salaryOf = (uid: string): string => !bulkMode ? effSalary
+    : ((bulkSalaryCol ? (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, "") : "") || portalAmt(uid) || effSalary);
+  /** 연봉 칸 옆 회색 한 줄 — 값이 어디서 왔는지 */
+  const salarySourceOf = (uid: string): string => {
+    // salaryOf 와 같은 순서로 — 여러 명: 표 > 포털 > 공통, 한 명: 직접 입력 > 포털 > 3,400만 원
+    if (bulkMode && bulkSalaryCol && (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, "")) return "표에 직접 입력";
+    const typed = !!String(createForm.salary || "").trim();
+    const p = portalFillOn ? portalSalary[uid] : undefined;
+    if (!(typed && !bulkMode) && p?.found && p.amount) return `포털 연봉 · ${p.from || "?"}~${p.to || ""}`;
+    if (typed) return bulkMode ? "공통 연봉(위 칸)" : "직접 입력";
+    if (salaryDefaultOn) return "기본값 3,400만 원 — 이 사람 연봉이 맞는지 확인";
+    if (!portalFillOn) return "직접 입력";
+    if (p) return p.found ? "포털에 연봉이 비어 있습니다 — 직접 입력" : `${p.reason || "포털에서 찾지 못했습니다"} — 직접 입력`;
+    return "직접 입력";
+  };
 
   // 작성 종류 고르기(#87) — 각 체크박스가 하던 일을 한 번에(입사=신규입사 패키지, 재계약=근로계약서+계약 구분 재계약, 퇴사=퇴사 패키지)
   const startKind = (k: "hire" | "renew" | "resign" | "other") => {
@@ -1138,6 +1172,46 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     fetch(`/api/admin/hr-contact?userId=${encodeURIComponent(uid)}`).then(r => (r.ok ? r.json() : null)).then(d => { if (!stop && d) setPortalFill({ userId: uid, fields: d.fillable || [] }); }).catch(() => {});
     return () => { stop = true; };
   }, [createForm.userId]);
+
+  // 포털 연봉(2026-10-23 본부) — 받는 사람이 정해지면 아직 안 받은 사람만 묻는다. 잠김(비밀번호)·권한 없음·연동 전·실패면 다시 묻지 않는다(「다시 받기」·비밀번호 확인으로 풂)
+  const portalWantKey = (portalFillOn ? (bulkMode ? bulkUserIds : createForm.userId ? [createForm.userId] : []) : [])
+    .filter((uid) => !(uid in portalSalary)).join(",");
+  useEffect(() => {
+    if (!portalWantKey || (portalSalaryGate !== "" && portalSalaryGate !== "ok")) return;
+    const ids = portalWantKey.split(",");
+    let stop = false;
+    fetch("/api/admin/portal-salary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: ids }) })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (stop) return;
+        if (r.status === 403) { setPortalSalaryGate(d?.code === "LOCKED" ? "locked" : "forbidden"); return; }
+        if (!r.ok || d?.portal === "fail") { setPortalSalaryGate("fail"); return; }
+        if (d?.portal === "unconfigured") { setPortalSalaryGate("unconfigured"); return; }
+        setPortalSalaryGate("ok");
+        setPortalSalary((prev) => {
+          const next = { ...prev };
+          for (const id of ids) next[id] = d?.results?.[id] ?? { found: false, reason: "포털 연봉 목록에 없습니다" };
+          return next;
+        });
+      })
+      .catch(() => { if (!stop) setPortalSalaryGate("fail"); });
+    return () => { stop = true; };
+  }, [portalWantKey, portalSalaryGate]);
+  /** 연봉 보기 비밀번호 확인 — 인사 › 연봉과 같은 창구(/api/salary/unlock: 같은 권한·잠금 횟수·열람 기록) */
+  async function unlockPortalSalary() {
+    if (!salaryPw || salaryUnlocking) return;
+    setSalaryUnlocking(true);
+    const res = await fetch("/api/salary/unlock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: salaryPw }) }).catch(() => null);
+    setSalaryUnlocking(false); setSalaryPw("");
+    const d = await res?.json().catch(() => ({}));
+    if (!res?.ok) { toast.error(d?.error || "확인하지 못했습니다."); return; }
+    setPortalSalaryGate("");   // 다시 받는다
+  }
+  // 양식·계약 구분·작성 창이 바뀌면 연봉 확인을 처음부터(앞 작성에서 누른 확인이 다음 작성에 남지 않게)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSalaryOk({});
+  }, [selectedTemplate, contractKind, externalMode, createOpen]);
 
   // 「보내기 전 수정」 칸의 자동값(#22 1단계) — 직원 선택 효과와 일괄 작성 루프가 같이 쓴다
   const empAutoValues = (emp: Employee): Record<string, string> => ({
@@ -1336,6 +1410,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (base && base !== evalBaseDate && contractKind === "신규입사" && templateFields.includes("교육평가시작")) Object.assign(row, evalPeriods(base, routeCohorts) || EMPTY_EVAL);   // 일정표에 없으면 빈칸(2026-10-21)
       bulkRowCommon[uid] = row;
     }
+  }
+  // 사람별 포털 연봉(2026-10-23) — 표의 연봉 칸에 회색으로(비워 두면 이 값이 들어간다, salaryOf)
+  if (bulkMode && portalFillOn) for (const uid of bulkUserIds) {
+    const a = portalAmt(uid);
+    if (a) bulkRowCommon[uid] = { ...(bulkRowCommon[uid] || {}), 연봉: a };
   }
 
   useEffect(() => {
@@ -1725,7 +1804,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       }
       // 출퇴근·휴게·주근무시간을 사람별로 넣었을 때만 일·월 근로시간을 그 사람 값으로 다시 센다(공통값을 손으로 고친 것은 둔다)
       if (["출근시각", "퇴근시각", "휴게시간", "주근무시간"].some(k => (row[k] || "").trim())) Object.assign(per, deriveHours(per, templateFields));
-      const rowSalary = (cols.includes("연봉") ? (row["연봉"] || "").replace(/[^0-9]/g, "") : "") || effSalary;
+      const rowSalary = salaryOf(uid);   // 표에 적은 값 > 포털 연봉 > 공통값(2026-10-23) — 표시·확인(salaryOk)과 같은 계산
       // 묶인 시작일(재요청 D) — 표에 계약시작일을 따로 적지 않았으면 그 사람 근로시작일, 종료일도 그 시작일 기준 자동
       const rowStart = rowDate(uid, "계약시작일", (startBound && (per["근로시작일"] || "").trim()) || createForm.startDate) || "";
       const rowEnd = rowDate(uid, "계약종료일", endFor(rowStart)) || "";
@@ -1772,6 +1851,15 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     return c ? `${c.no}기 · ${md} 입과` : `${md} 입과 · 일정표에 없음 — 날짜 직접 입력`;
   };
   const flowRecipients = (): string[] => (bulkMode ? bulkUserIds : createForm.userId ? [createForm.userId] : []);
+  /** 연봉 확인을 아직 안 한 받는 사람 이름(2026-10-23 본부: 기본값 3,400만 원·포털 값이 확인 없이 나가지 않게). 계약서 보내기에서 이미 만든 사람은 뺀다 */
+  const salaryUnconfirmed = (): string[] => {
+    if (!needsSalaryNow) return [];
+    if (externalMode) return effSalary && salaryOk["__ext__"] === effSalary ? [] : [externalForm.name.trim() || "외부 계약자"];
+    return flowRecipients()
+      .filter((uid) => !(flow && flowDoneUids.current.has(uid)))
+      .filter((uid) => { const v = salaryOf(uid); return !v || salaryOk[uid] !== v; })
+      .map((uid) => employees.find((e) => e.id === uid)?.name || "?");
+  };
   /** 받는 사람 더하기 — 둘 이상이면 여러 명 작성으로 바꾼다. 관리자·없는 사람·퇴사 서류(한 명)는 막는다 */
   function addRecipients(ids: string[]) {
     const ok = ids.filter(id => employees.some(e => e.id === id && e.role !== "ADMIN"));
@@ -1883,6 +1971,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
     if (needsSalary && !String((bulkMode ? p?.rowSalary : effSalary) || "").trim()) out.push("연봉");
+    else if (needsSalary && salaryOk[uid] !== String(bulkMode ? p?.rowSalary : effSalary)) out.push("연봉 확인 체크");   // 2026-10-23 본부 — 사람마다 확인해야 만든다
     for (const f of dynamicFields.filter(x => fieldSettings[x]?.required))
       if (!(extraFields[f] || "").trim() && !(bulkMode && (bulkValues[uid]?.[f] || "").trim())) out.push(f);
     return out;
@@ -1900,6 +1989,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
     if (needsSalary && !String(effSalary || "").trim()) out.push("연봉");
+    else if (needsSalary && salaryOk["__ext__"] !== effSalary) out.push("연봉 확인 체크");   // 2026-10-23 본부
     for (const f of dynamicFields.filter(x => fieldSettings[x]?.required)) if (!(extraFields[f] || "").trim()) out.push(f);
     if (extBundleMode) for (const f of ["생년월일", "주소", "원장명"]) if (templateFields.includes(f) && !(extraFields[f] || "").trim() && !out.includes(f)) out.push(f);
     return out;
@@ -1929,7 +2019,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     return out;
   }
   // 입력이 멈추면 1.2초 뒤 다시 확인한다(2단계에서만)
-  const precheckKey = flow && flowStep === 2 ? JSON.stringify({ r: flowRecipients(), v: bulkValues, x: extraFields, f: createForm, t: selectedTemplate, b: customBundle, k: contractKind, s: effSalary, m: [bundleMode, resignBundleMode, codiBundleMode], p: resignPicks, fs: forceSeverance }) : "";   // 퇴직금 정산 신청서 직접 포함도 서류 구성을 바꾼다(N2)
+  const precheckKey = flow && flowStep === 2 ? JSON.stringify({ r: flowRecipients(), v: bulkValues, x: extraFields, f: createForm, t: selectedTemplate, b: customBundle, k: contractKind, s: effSalary, so: salaryOk, ps: portalSalary, m: [bundleMode, resignBundleMode, codiBundleMode], p: resignPicks, fs: forceSeverance }) : "";   // 퇴직금 정산 신청서 직접 포함도 서류 구성을 바꾼다(N2)
   useEffect(() => { precheckKeyRef.current = precheckKey; }, [precheckKey]);
   useEffect(() => { const r = precheckAbort; const k = precheckKeyRef; return () => { r.current?.abort(); k.current = ""; }; }, []);   // 떠난 뒤 「다음」 확인이 엉뚱한 화면에 묻지 않게(N1)   // 화면을 떠나면 진행 중 확인도 끊는다(F4a)
   useEffect(() => {
@@ -1995,8 +2085,13 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     // 임금(연봉)은 기본급·월급여합계·연봉총액·연봉한글이 모두 여기서 계산된다 — 비우면 문서에 빈칸이 박힌다(2026-09-16 디렉터 지시)
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
     // 여러 명 작성이면 개인별 표에 모두 연봉을 넣었을 때도 통과(#19)
-    const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => (bulkValues[uid]?.["연봉"] || "").replace(/[^0-9]/g, ""));
+    const allRowSalary = bulkMode && bulkUserIds.length > 0 && bulkUserIds.every(uid => salaryOf(uid));   // 표 값·포털 연봉 포함(2026-10-23)
     if (needsSalary && !String(effSalary || "").trim() && !allRowSalary) { toast.error("연봉을 입력해주세요. 급여표와 연봉 한글 표기가 이 값으로 계산됩니다."); return; }
+    // 연봉 확인(2026-10-23 본부) — 기본값 3,400만 원·포털 연봉이 확인 없이 나가지 않게, 한 명·여러 명·묶음·외부 계약 모든 만들기가 여기를 지난다
+    {
+      const un = salaryUnconfirmed();
+      if (un.length) { toast.error(`연봉을 확인해 주세요 — 연봉 칸의 「연봉 확인」을 체크해야 만듭니다: ${un.slice(0, 6).join(", ")}${un.length > 6 ? ` 외 ${un.length - 6}명` : ""}`, { duration: 8000 }); return; }
+    }
     // 양식에서 필수로 정한 칸(#22 1단계) — 비면 보내지 않는다. 여러 명 작성은 공통값이나 개인별 표 둘 중 하나에 있으면 된다
     {
       const reqFields = dynamicFields.filter(f => fieldSettings[f]?.required);
@@ -2066,7 +2161,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
           if (customBundle) {
             res = await fetch("/api/contracts/bundle", {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ userId: uid, items: customBundleItems(uid, per, rowStart, rowEnd, rowSalary) }),
+              body: JSON.stringify({ userId: uid, items: customBundleItems(uid, per, rowStart, rowEnd, rowSalary), salaryConfirmed: true }),
             });
           } else if (bundleMode && privacyTemplate) {
             const items = [
@@ -2078,7 +2173,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
             ];
             res = await fetch("/api/contracts/bundle", {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ userId: uid, items }),
+              body: JSON.stringify({ userId: uid, items, salaryConfirmed: true }),
             });
           } else {
             const fd = new FormData();
@@ -2090,6 +2185,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
             fd.append("endDate", rowEnd);
             fd.append("salary", rowSalary);
             fd.append("extraFields", JSON.stringify(per));
+            fd.append("salaryConfirmed", "1");   // 위에서 사람마다 연봉 확인을 받았다(서버도 이 표시 없이는 만들지 않는다)
             res = await fetch("/api/contracts", { method: "POST", body: fd });
           }
           // 실패 이유(최저임금 미만 등)도 함께 보여 준다 — 이름만으로는 무엇을 고칠지 모른다
@@ -2158,7 +2254,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ externalName: extName, externalPhone: externalForm.phone.trim(), items }),
+        body: JSON.stringify({ externalName: extName, externalPhone: externalForm.phone.trim(), items, salaryConfirmed: true }),
       });
       const data = await res.json();
       setUploading(false);
@@ -2193,7 +2289,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: createForm.userId, items }),
+        body: JSON.stringify({ userId: createForm.userId, items, salaryConfirmed: true }),
       });
       const data = await res.json();
       setUploading(false);
@@ -2236,7 +2332,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: createForm.userId, items }),
+        body: JSON.stringify({ userId: createForm.userId, items, salaryConfirmed: true }),
       });
       const data = await res.json();
       setUploading(false);
@@ -2278,7 +2374,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       ];
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: createForm.userId, items }),
+        body: JSON.stringify({ userId: createForm.userId, items, salaryConfirmed: true }),
       });
       const data = await res.json();
       setUploading(false);
@@ -2299,7 +2395,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       { const bp = customBundleProblem(); if (bp) { toast.error(bp); setUploading(false); return; } }
       const res = await fetch("/api/contracts/bundle", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: createForm.userId, items: customBundleItems(createForm.userId, buildSingleExtra(), createForm.startDate, createForm.endDate, effSalary) }),
+        body: JSON.stringify({ userId: createForm.userId, items: customBundleItems(createForm.userId, buildSingleExtra(), createForm.startDate, createForm.endDate, effSalary), salaryConfirmed: true }),
       });
       const data = await res.json().catch(() => ({}));
       setUploading(false);
@@ -2336,6 +2432,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (Object.keys(allExtra).length > 0) formData.append("extraFields", JSON.stringify(allExtra));
     }
 
+    formData.append("salaryConfirmed", "1");   // 위에서 연봉 확인을 받았다(서버도 이 표시 없이는 만들지 않는다)
     const res = await fetch("/api/contracts", { method: "POST", body: formData });
     const data = await res.json();
     setUploading(false);
@@ -3188,6 +3285,47 @@ ${url}`;
                   {effSalary && (
                     <p className="text-xs text-gray-500">{Number(effSalary).toLocaleString()}원 · 문서 표기: <b>金 {koreanMoney(Number(effSalary))}</b></p>
                   )}
+                  {/* 포털 연봉 상태(2026-10-23 본부) — 권한은 인사 › 연봉과 같다. 못 받으면 직접 입력 */}
+                  {portalFillOn && (bulkMode ? bulkUserIds.length > 0 : !!createForm.userId) && (
+                    portalSalaryGate === "locked" ? (
+                      <div className="flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                        <span>포털 연봉을 채우려면 로그인 비밀번호를 한 번 더 넣어 주세요(인사 › 연봉과 같은 확인, 30분)</span>
+                        <ReauthPasswordInput plain value={salaryPw} onChange={e => setSalaryPw(e.target.value)} placeholder="로그인 비밀번호" aria-label="연봉 보기 로그인 비밀번호"
+                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void unlockPortalSalary(); } }}   // 작성 폼이 제출되지 않게
+                          className="w-40 rounded border border-amber-300 bg-white px-2 py-1" />
+                        <button type="button" onClick={() => void unlockPortalSalary()} disabled={!salaryPw || salaryUnlocking} className="rounded bg-amber-600 px-2 py-1 text-white disabled:bg-gray-300">{salaryUnlocking ? "확인 중…" : "확인"}</button>
+                        <span className="w-full text-[11px] text-amber-700">건너뛰려면 연봉을 직접 입력하세요. 5번 틀리면 15분 잠기고, 열람은 변경 로그에 남습니다.</span>
+                      </div>
+                    ) : portalSalaryGate === "forbidden" ? (
+                      <p className="text-xs text-gray-500">연봉 보기 권한이 없어 포털 연봉을 채우지 않았습니다 — 직접 입력</p>
+                    ) : portalSalaryGate === "fail" ? (
+                      <p className="text-xs text-gray-500">포털 연봉을 받지 못했습니다 — 직접 입력 <button type="button" onClick={() => setPortalSalaryGate("")} className="ml-1 underline hover:text-indigo-600">다시 받기</button></p>
+                    ) : portalSalaryGate === "unconfigured" ? (
+                      <p className="text-xs text-gray-500">포털 연봉 연동 전입니다 — 직접 입력</p>
+                    ) : !bulkMode ? (
+                      <p className="text-xs text-gray-500">{portalSalaryGate === "ok" || createForm.userId in portalSalary ? salarySourceOf(createForm.userId) : "포털 연봉 확인 중…"}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500">{portalSalaryGate === "ok" ? "사람별 포털 연봉은 아래 개인별 값 표에 회색으로 들어갑니다(표에 적으면 그 값)" : "포털 연봉 확인 중…"}</p>
+                    )
+                  )}
+                  {/* 연봉 확인(2026-10-23 본부) — 기본값이 그대로 나가지 않게 사람마다 확인. 여러 명은 아래 표의 줄마다 */}
+                  {needsSalaryNow && (bulkMode && !externalMode ? (
+                    bulkUserIds.length > 0 && <p className="text-xs font-medium text-red-600">개인별 값 표에서 사람마다 연봉을 보고 「확인」을 체크해야 만들 수 있습니다.</p>
+                  ) : (() => {
+                    const k = externalMode ? "__ext__" : createForm.userId;
+                    const ok = !!effSalary && salaryOk[k] === effSalary;
+                    return (
+                      <label className={`flex items-start gap-2 rounded border px-2 py-1.5 text-xs ${ok ? "border-indigo-200 bg-indigo-50/50 text-indigo-800" : "border-red-200 bg-red-50 text-red-700"} ${effSalary && k ? "cursor-pointer" : "opacity-60"}`}>
+                        <input type="checkbox" className="mt-0.5" checked={ok} disabled={!effSalary || !k}
+                          onChange={e => setSalaryOk(p => ({ ...p, [k]: e.target.checked ? effSalary : "" }))} />
+                        <span>
+                          <b>연봉 확인</b> — {effSalary ? `${Number(effSalary).toLocaleString()}원이 이 사람 연봉이 맞습니다` : "연봉을 넣은 뒤 체크해 주세요"}
+                          {!externalMode && effSalary && !portalFillOn && <span className="ml-1 text-gray-500">({salarySourceOf(createForm.userId)})</span>}
+                          {!ok && <span className="block text-[11px]">체크해야 만들 수 있습니다{salaryDefaultOn && !String(createForm.salary || "").trim() ? " — 지금 값은 기본값 3,400만 원입니다" : ""}</span>}
+                        </span>
+                      </label>
+                    );
+                  })())}
                 </div>
                 )}
 
@@ -3468,6 +3606,10 @@ ${url}`;
                     onChange={setBulkValues}
                     common={{ ...extraFields, 연봉: effSalary, 계약시작일: createForm.startDate, 계약종료일: createForm.endDate }}
                     rowCommon={bulkRowCommon}
+                    {...(needsSalaryNow ? {
+                      salaryInfo: Object.fromEntries(bulkUserIds.map(uid => { const v = salaryOf(uid); return [uid, { value: v, confirmed: !!v && salaryOk[uid] === v, note: v ? salarySourceOf(uid) : "연봉을 넣어 주세요" }]; })),
+                      onSalaryConfirm: (uid: string, on: boolean) => setSalaryOk(p => ({ ...p, [uid]: on ? salaryOf(uid) : "" })),
+                    } : {})}
                     {...(flow ? {
                       status: shownStatus, onlyIssues,
                       onRemove: removeRecipient,
@@ -3505,7 +3647,7 @@ ${url}`;
                               externalName: externalMode ? externalForm.name.trim() : undefined,
                               externalPhone: externalMode ? externalForm.phone.trim() : undefined,
                               title: createForm.title, startDate: createForm.startDate, endDate: createForm.endDate,
-                              salary: effSalary, extraFields: allExtra,
+                              salary: bulkMode ? salaryOf(createForm.userId || bulkUserIds[0]) : effSalary, extraFields: allExtra,   // 여러 명이면 미리보는 그 사람 연봉(포털 값 포함)
                               highlight: true, // 입력값 노랑·미입력 붉은 표시 (#100)
                             }),
                           });
