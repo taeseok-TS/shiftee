@@ -472,6 +472,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   const [filterTo, setFilterTo] = useState("");
   const [filterStale, setFilterStale] = useState(false);
   const [showTest, setShowTest] = useState(false);       // 내 테스트 문서만(#67)
+  const [showImported, setShowImported] = useState(false);   // 모두싸인 이관 서류 포함 — 옮긴 날(10/21~22)이 만든 날이라 「이번 달」을 1,400여 건이 덮는다. 「이번 달」 숫자 칸과 같이 기본은 뺀다(10/23 운영 확인)
   // 보낸 계약서 새 톤(2026-10-21 본부 시안 R12) — 상태는 알약 탭으로(목록 안에서 거름), 숫자 칸은 이번 달 기준, 드문 필터는 「더 보기」
   const [listTab, setListTab] = useState<ListTab>("all");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1495,12 +1496,14 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     fetchTemplates();
   }, [fetchContracts, fetchTemplates]);
 
-  // 화면 정렬 — 진행 중 먼저 → 나머지, 이관본은 각 묶음 맨 뒤(서버 순서는 만든 날 내림차순뿐)
-  const shownContracts = sortForList(listTab === "all" ? contracts
-    : listTab === "mine" ? contracts.filter(c => myApprovals.some(a => a.id === c.id))
-    : contracts.filter(c => TAB_STATUS[listTab].includes(c.status)));
-  const tabCount = (k: Exclude<ListTab, "all" | "mine">) => contracts.filter(c => TAB_STATUS[k].includes(c.status)).length;
-  const moreCount = [showHiddenRevoked, filterStale, showTest, !!filterUserId, !!filterPkg, !!(filterFrom || filterTo)].filter(Boolean).length;
+  // 화면 정렬 — 진행 중 먼저 → 나머지, 이관본은 각 묶음 맨 뒤(서버 순서는 만든 날 내림차순뿐). 이관 서류는 「이관 서류 포함」을 켰을 때만
+  const listed = showImported ? contracts : contracts.filter(c => !c.importBatch);
+  const importedCount = contracts.length - listed.length;
+  const shownContracts = sortForList(listTab === "all" ? listed
+    : listTab === "mine" ? listed.filter(c => myApprovals.some(a => a.id === c.id))
+    : listed.filter(c => TAB_STATUS[listTab].includes(c.status)));
+  const tabCount = (k: Exclude<ListTab, "all" | "mine">) => listed.filter(c => TAB_STATUS[k].includes(c.status)).length;
+  const moreCount = [showHiddenRevoked, filterStale, showTest, showImported, !!filterUserId, !!filterPkg, !!(filterFrom || filterTo)].filter(Boolean).length;
   // 기간 select 의 지금 값 — 날짜 범위가 있거나 「직접 고르기」를 골랐으면 custom, 그 밖엔 연·월로 판정. 결재 대기 · 7일 넘게 멈춤 칸이 기간을 비우면 「전체 기간」(그때만 보이는 항목)
   const setPeriod = (y: string, m: string) => { setFilterYear(y); setFilterMonth(m); setFilterFrom(""); setFilterTo(""); setCustomPeriod(false); };
   // 7일 넘게 멈춤은 서버가 기간을 버리므로(전체 기간) select 도 「전체 기간」으로 고정 · 비활성(10/23 검증 4)
@@ -4234,6 +4237,7 @@ ${url}`;
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b border-[#eef1f5] bg-[#fafbfd] px-6 py-3 text-[13px] text-[#475569]">
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={showHiddenRevoked} onChange={(e) => setShowHiddenRevoked(e.target.checked)} />숨긴 결재 포함</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={filterStale} onChange={(e) => setFilterStale(e.target.checked)} />7일 넘게 멈춘 것만</label>
+              <label className="flex items-center gap-1.5" title="모두싸인에서 옮겨 온 체결본 — 옮긴 날이 만든 날로 적혀 있어 기본으로는 뺍니다"><input type="checkbox" checked={showImported} onChange={(e) => setShowImported(e.target.checked)} />이관 서류 포함{importedCount ? ` (${importedCount.toLocaleString()})` : ""}</label>
               {role === "ADMIN" && <label className="flex items-center gap-1.5" title="나에게 테스트 발송한 시험 문서만 — 7일 뒤 자동 삭제"><input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />내 테스트 문서만</label>}
               {role !== "EMPLOYEE" && (
                 <select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)} className={`${inputClass} py-1.5`} aria-label="직원">
