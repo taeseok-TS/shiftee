@@ -198,7 +198,12 @@ ${opts.kind}: ${opts.requesterName}
 ${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" : "기간"}: ${opts.period}${opts.prevApprover ? `\n1차 승인: ${opts.prevApprover} → ${turnLabel} 결재 차례` : ""}
 
 결재함에서 확인해주세요.`;
+    // 원장이 환경설정에서 「결재 요청 알림」을 껐으면 그 원장에게만 봇 DM·푸시를 보내지 않는다(2026-10-23, lib/notify-prefs).
+    // 결재 차례는 그대로다(결재함에 뜬다). 본부 강제·직원·관리자는 늘 보낸다. 끈 원장을 「대상 없음」으로 보고 본부로 돌리지 않는다.
+    const { approvalRequestMutedIds } = await import("@/lib/notify-prefs");
+    const muted = await approvalRequestMutedIds(list, "dm");
     for (const id of list) {
+      if (muted.has(id)) continue;
       await botSendDM(id, text).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
     }
 

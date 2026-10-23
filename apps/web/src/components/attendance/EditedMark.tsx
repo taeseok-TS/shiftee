@@ -23,7 +23,7 @@ export default function EditedMark({ edit }: { edit?: AttendanceEditView | null 
   return (
     <span ref={box} className="relative inline-block align-middle">
       <button type="button" onClick={() => setOpen((o) => !o)} title={edit.lines.join("\n")}
-        className="ml-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 whitespace-nowrap">
+        className="ml-1 rounded border border-[#fde68a] bg-[#fffbeb] px-1.5 py-0.5 text-[10px] font-medium text-[#b45309] hover:bg-[#fef3c7] whitespace-nowrap">
         수정됨{edit.count > 1 ? ` ${edit.count}` : ""}
       </button>
       {open && (

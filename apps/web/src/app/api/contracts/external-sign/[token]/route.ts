@@ -294,7 +294,8 @@ export async function POST(
     ).catch((e) => console.error("[external-sign] 작성자 알림 오류:", e));
     // 다음 내부 결재자에게 차례 알림 — 이 경로에만 빠져 있어 2단계 결재자가
     // 자기 차례를 모르는 문제가 있었다 (QA 2026-08-25, 이예지대리)
-    if (nextStep.approverId) {
+    // 원장이 환경설정에서 「결재 요청 알림」을 껐으면 건너뛴다(본부 강제면 보냄, lib/notify-prefs)
+    if (nextStep.approverId && await (await import("@/lib/notify-prefs")).wantsApprovalRequest(nextStep.approverId, "dm")) {
       const { hrBotSendDM } = await import("@/lib/bot");
       const { getAppUrl, approvalPageUrl } = await import("@/lib/app-url");
       const contractRow = step.approvalLine.contract;

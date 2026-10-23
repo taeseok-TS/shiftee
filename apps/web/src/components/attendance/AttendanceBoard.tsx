@@ -2,12 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Chip } from "@/components/kit";
+import { Box, Btn, Chip, FilterRow, PageHead, PillTabs, StatusPill, btnClass, inputClass, type PillTone } from "@/components/kit";
 import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
 import type { AttendanceEditView } from "@/lib/attendance-edit";
 
@@ -43,9 +40,11 @@ const statusText = (c: Cell) => {
   // 반차처럼 휴가와 출근이 같이 있는 날은 둘 다 보인다(목록·엑셀에서 휴가 정보가 사라지지 않게)
   return c.leave ? (base ? `${base} · ${c.leave}` : c.leave) : base;
 };
+// 상태 알약 색(R10) — 누락 · 결근 분홍 · 지각 · 승인 대기 주황 · 휴가만 파랑 · 정상 회색
+const statusTone = (c: Cell): PillTone => (c.absent || c.missing ? "rej" : c.pending || c.late ? "wait" : c.leave && !c.in ? "done" : "gray");
 
-// 지점 색 띠 — 이름으로 정해지는 색(지점이 늘어도 따로 정할 필요 없음)
-const BRANCH_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6", "#ec4899", "#6366f1", "#84cc16", "#f97316"];
+// 지점 색 띠 — 이름으로 정해지는 색(지점이 늘어도 따로 정할 필요 없음). 초록 계열은 뺐다(R10 — 초록 없음, 개수는 그대로 10)
+const BRANCH_COLORS = ["#3b82f6", "#0ea5e9", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b", "#ec4899", "#6366f1", "#a855f7", "#f97316"];
 const branchColor = (b: string | null) => {
   if (!b) return "#9ca3af";
   let h = 0;
@@ -182,101 +181,114 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
   const toggleKind = (k: Kind) => setKinds((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const togglePick = (b: string) => { setLoading(true); setPicked((p) => (p.includes(b) ? p.filter((x) => x !== b) : [...p, b])); };
 
+  const monthLabel = `${ym.replace("-", "년 ")}월`;
+  const excelBtn = <Btn onClick={exportExcel}><Download size={14} />엑셀</Btn>;
+  // 달력형 · 목록형 — 원장 화면은 머리 아래 알약 탭 한 줄(R10), 본부 「달력 · 목록」 탭 안(embedded)은 위에 이미 알약 탭이 있어 필터 줄의 알약으로(탭 두 겹 금지)
+  const viewTabs = [{ key: "calendar", label: "달력형" }, { key: "list", label: "목록형" }];
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        {!embedded && <div className="mr-2"><p className="text-xs text-[#596578]">{scope === "admin" ? "근태 › 출퇴근 현황" : "근태 › 지점 출퇴근기록"}</p><h1 className="mt-0.5 text-[26px] font-bold leading-tight text-[#0f172a]">{scope === "admin" ? "출퇴근기록" : "지점 출퇴근기록"}</h1></div>}
-        {/* 달력형 · 목록형 — 검정 채움 버튼 대신 알약(R10) */}
-        <Chip on={view === "calendar"} onClick={() => setView("calendar")}>달력형</Chip>
-        <Chip on={view === "list"} onClick={() => setView("list")}>목록형</Chip>
-        <div className="flex-1" />
-        <Button size="icon" variant="outline" onClick={() => moveMonth(-1)} aria-label="이전 달"><ChevronLeft size={16} /></Button>
-        <span className="font-medium w-24 text-center">{ym.replace("-", "년 ")}월</span>
-        <Button size="icon" variant="outline" onClick={() => moveMonth(1)} aria-label="다음 달"><ChevronRight size={16} /></Button>
-
-        <div className="relative" ref={branchBox}>
-          <Button size="sm" variant="outline" onClick={() => setBranchOpen((o) => !o)}>
-            지점: {picked.length ? (picked.length > 2 ? `${picked.slice(0, 2).join(", ")} 외 ${picked.length - 2}` : picked.join(", ")) : "전체"} ▾
-          </Button>
-          {branchOpen && (
-            <div className="absolute right-0 z-20 mt-1 w-56 max-h-80 overflow-auto rounded-md border bg-white p-2 shadow-lg">
-              <button className="w-full text-left text-sm px-2 py-1 rounded hover:bg-gray-100" onClick={() => { if (picked.length) { setLoading(true); setPicked([]); } }}>전체</button>
-              {branchOptions.map((b) => (
-                <label key={b} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-gray-50 cursor-pointer">
-                  <input type="checkbox" checked={picked.includes(b)} onChange={() => togglePick(b)} />
-                  <span className="w-2 h-2 rounded-full" style={{ background: branchColor(b) }} />
-                  {b}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-        <select className="h-8 rounded-md border px-2 text-sm" value={emp} onChange={(e) => { setLoading(true); setEmp(e.target.value as typeof emp); }}>
-          <option value="active">재직</option>
-          <option value="resigned">퇴사</option>
-          <option value="all">전체</option>
-        </select>
-        <Button size="sm" variant="outline" onClick={exportExcel}><Download size={14} className="mr-1" />엑셀</Button>
-      </div>
-
-      {scope === "admin" && !embedded && (
-        <div className="flex flex-wrap items-center gap-2 text-sm rounded-md border bg-white px-3 py-2">
-          <span className="font-medium text-gray-700">주말 근무 엑셀</span>
-          <input type="date" className="h-8 rounded border px-2" value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
-          <span>~</span>
-          <input type="date" className="h-8 rounded border px-2" value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
-          <a className="inline-flex items-center h-8 px-3 rounded-md border text-sm hover:bg-gray-50"
-            href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}
-            onClick={(e) => {
-              const days = (new Date(wk.to).getTime() - new Date(wk.from).getTime()) / 86400_000;
-              if (!wk.from || !wk.to || days < 0) { e.preventDefault(); toast.error("기간을 확인해 주세요."); }
-              else if (days > 93) { e.preventDefault(); toast.error("한 번에 3개월까지 받을 수 있습니다."); }
-            }}>
-            <Download size={14} className="mr-1" />받기
-          </a>
-          <span className="text-xs text-gray-400">토·일·공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)</span>
-        </div>
+    <div>
+      {!embedded && (
+        <>
+          <PageHead crumb={scope === "admin" ? "근태 › 출퇴근 현황" : "근태 › 지점 출퇴근기록"} title={scope === "admin" ? "출퇴근기록" : "지점 출퇴근기록"}>
+            {excelBtn}
+          </PageHead>
+          <PillTabs tabs={viewTabs} value={view} onChange={(k) => setView(k as typeof view)} />
+        </>
       )}
 
-      {/* 범례 = 알약 필터(R10) — 칸 색: 휴가 연파랑 · 누락·결근 연분홍 · 지각 연노랑, 초록 칸 없음 */}
-      <div className="flex flex-wrap items-center gap-2">
-        {(Object.keys(KIND_LABEL) as Kind[]).map((k) => <Chip key={k} on={kinds.has(k)} onClick={() => toggleKind(k)}>{KIND_LABEL[k]}</Chip>)}
-        <span className="text-[12.5px] text-[#596578]">눌러서 켜고 끄기 · 결근은 근무일정이 있는 지난 날에 기록이 없을 때</span>
-      </div>
+      {scope === "admin" && !embedded && (
+        <Box icon={<Download />} tone="sl" title="주말 근무 엑셀" sub="토·일·공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)">
+          <div className="flex flex-wrap items-center gap-2 px-6 py-4 text-[13.5px] text-[#475569]">
+            <input type="date" aria-label="시작일" className={inputClass} value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
+            <span>~</span>
+            <input type="date" aria-label="종료일" className={inputClass} value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
+            <a className={btnClass("secondary")}
+              href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}
+              onClick={(e) => {
+                const days = (new Date(wk.to).getTime() - new Date(wk.from).getTime()) / 86400_000;
+                if (!wk.from || !wk.to || days < 0) { e.preventDefault(); toast.error("기간을 확인해 주세요."); }
+                else if (days > 93) { e.preventDefault(); toast.error("한 번에 3개월까지 받을 수 있습니다."); }
+              }}>
+              <Download size={14} />받기
+            </a>
+          </div>
+        </Box>
+      )}
+
+      <Box icon={<CalendarDays />} tone="ind" title="출퇴근기록"
+        sub={`${monthLabel}${board && !loading ? ` · ${board.users.length}명` : ""}`}
+        right={embedded ? excelBtn : undefined}>
+        <FilterRow
+          right={/* 범례 = 알약 필터(R10) — 칸 색: 휴가 연파랑 · 누락·결근 연분홍 · 지각 연노랑, 초록 칸 없음 */
+            (Object.keys(KIND_LABEL) as Kind[]).map((k) => <Chip key={k} on={kinds.has(k)} onClick={() => toggleKind(k)}>{KIND_LABEL[k]}</Chip>)}>
+          {embedded && viewTabs.map((t) => <Chip key={t.key} on={view === t.key} onClick={() => setView(t.key as typeof view)}>{t.label}</Chip>)}
+          {embedded && <span className="mx-0.5 h-5 w-px bg-[#e2e8f0]" aria-hidden />}
+          <div className="flex items-center gap-1">
+            <Btn className="px-2" onClick={() => moveMonth(-1)} aria-label="이전 달"><ChevronLeft size={16} /></Btn>
+            <span className="w-24 text-center text-[14px] font-bold text-[#0f172a]">{monthLabel}</span>
+            <Btn className="px-2" onClick={() => moveMonth(1)} aria-label="다음 달"><ChevronRight size={16} /></Btn>
+          </div>
+          <div className="relative" ref={branchBox}>
+            <button type="button" className={inputClass} onClick={() => setBranchOpen((o) => !o)} aria-expanded={branchOpen}>
+              지점: {picked.length ? (picked.length > 2 ? `${picked.slice(0, 2).join(", ")} 외 ${picked.length - 2}` : picked.join(", ")) : "전체"} ▾
+            </button>
+            {branchOpen && (
+              <div className="absolute left-0 z-20 mt-1 max-h-80 w-56 overflow-auto rounded-[10px] border border-[#e2e8f0] bg-white p-2 shadow-lg">
+                <button type="button" className="w-full rounded px-2 py-1 text-left text-[13.5px] hover:bg-[#f8fafc]" onClick={() => { if (picked.length) { setLoading(true); setPicked([]); } }}>전체</button>
+                {branchOptions.map((b) => (
+                  <label key={b} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[13.5px] hover:bg-[#f8fafc]">
+                    <input type="checkbox" className="accent-[#4f46e5]" checked={picked.includes(b)} onChange={() => togglePick(b)} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: branchColor(b) }} />
+                    {b}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <select className={inputClass} aria-label="재직 구분" value={emp} onChange={(e) => { setLoading(true); setEmp(e.target.value as typeof emp); }}>
+            <option value="active">재직</option>
+            <option value="resigned">퇴사</option>
+            <option value="all">전체</option>
+          </select>
+        </FilterRow>
+        <p className="border-b border-[#eef1f5] px-6 py-2 text-[12.5px] text-[#596578]">
+          오른쪽 알약을 눌러서 켜고 끄기 · 결근은 근무일정이 있는 지난 날에 기록이 없을 때
+          {board?.truncated && !loading && <span className="ml-2 font-semibold text-[#b45309]">직원이 1000명을 넘어 앞의 1000명만 보입니다. 지점을 골라 좁혀 주세요.</span>}
+        </p>
 
       {loading ? (
-        <div className="py-16 text-center text-gray-400"><Loader2 className="inline animate-spin mr-2" size={18} />불러오는 중…</div>
+        <div className="py-16 text-center text-[14px] text-[#596578]"><Loader2 className="mr-2 inline animate-spin" size={18} />불러오는 중…</div>
       ) : !board || board.users.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-gray-400">표시할 직원이 없습니다.</CardContent></Card>
+        <div className="py-12 text-center text-[14px] text-[#596578]">표시할 직원이 없습니다.</div>
       ) : (<>
-      {board.truncated && <div className="text-xs text-amber-700">직원이 1000명을 넘어 앞의 1000명만 보입니다. 지점을 골라 좁혀 주세요.</div>}
       {view === "calendar" ? (
-        <div className="overflow-auto border rounded-lg bg-white max-h-[75vh]">
-          <table className="text-xs border-collapse">
-            <thead className="sticky top-0 z-10 bg-gray-50">
+        <div className="max-h-[75vh] overflow-auto rounded-b-[14px]">
+          <table className="border-collapse text-xs [&_td]:border-[#eef1f5] [&_th]:border-[#eef1f5]">
+            <thead className="sticky top-0 z-10 bg-[#fafbfd]">
               <tr>
-                <th className="sticky left-0 z-20 bg-gray-50 border px-2 py-2 text-left min-w-[130px]">직원</th>
+                <th className="sticky left-0 z-20 min-w-[130px] border bg-[#fafbfd] px-2 py-2 text-left text-[13px] font-semibold text-[#596578]">직원</th>
                 {board.days.map((d) => {
                   const w = dow(d), hol = board.holidays[d];
                   return (
-                    <th key={d} className={`border px-1 py-1 min-w-[52px] font-medium ${hol || w === 0 ? "text-red-500" : w === 6 ? "text-blue-500" : "text-gray-600"}`}>
+                    <th key={d} className={`min-w-[52px] border px-1 py-1 font-semibold ${hol || w === 0 ? "text-[#be123c]" : w === 6 ? "text-[#1d4ed8]" : "text-[#596578]"}`}>
                       {Number(d.slice(8))}<div className="font-normal">{WEEK[w]}</div>
                     </th>
                   );
                 })}
-                <th className="border px-2 py-1 min-w-[48px]">출근일</th>
+                <th className="min-w-[48px] border px-2 py-1 font-semibold text-[#596578]">출근일</th>
               </tr>
             </thead>
             <tbody>
               {board.users.map((u) => (
                 <tr key={u.id}>
-                  <td className="sticky left-0 z-10 bg-white border px-2 py-1 whitespace-nowrap" style={{ boxShadow: `inset 4px 0 0 ${branchColor(u.branch)}` }}>
-                    <span className="font-medium">{u.name}</span>
-                    <span className="text-gray-400"> · {u.branch ?? "-"}</span>
-                    {u.resigned && <span className="ml-1 text-gray-400">(퇴사)</span>}
-                    {/* 주 49시간 초과(근무일정 또는 실제, #38) */}
+                  <td className="sticky left-0 z-10 whitespace-nowrap border bg-white px-2 py-1" style={{ boxShadow: `inset 4px 0 0 ${branchColor(u.branch)}` }}>
+                    <span className="font-bold text-[#0f172a]">{u.name}</span>
+                    <span className="text-[#596578]"> · {u.branch ?? "-"}</span>
+                    {u.resigned && <span className="ml-1 text-[#94a3b8]">(퇴사)</span>}
+                    {/* 주 49시간 초과(근무일정 또는 실제, #38) — 처리할 것이라 빨강 */}
                     {board.over49?.[u.id]?.length ? (
-                      <span className="ml-1 text-red-600 font-semibold"
+                      <span className="ml-1 font-semibold text-[#dc2626]"
                         title={board.over49[u.id].map((w) => `${w.monday.slice(5).replace("-", "/")} 주 — 일정 ${Math.round(w.sched / 6) / 10}h · 실제 ${Math.round(w.actual / 6) / 10}h`).join(" / ")}>
                         49h 초과
                       </span>
@@ -287,67 +299,70 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                     const hol = board.holidays[d] || dow(d) === 0 || dow(d) === 6;
                     const show = c && kindsOf(c).some((k) => kinds.has(k));
                     return (
-                      <td key={d} className={`border px-1 py-1 text-center align-middle ${!show ? (hol ? "bg-gray-50" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? "bg-[#fffbeb]" : c?.leave && !c.in ? "bg-[#eff6ff]" : hol ? "bg-gray-50" : ""}`}
+                      <td key={d} className={`border px-1 py-1 text-center align-middle text-[#334155] ${!show ? (hol ? "bg-[#f8fafc]" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? "bg-[#fffbeb]" : c?.leave && !c.in ? "bg-[#eff6ff]" : hol ? "bg-[#f8fafc]" : ""}`}
                         title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`, ...(c.edit ? ["— 수정됨", ...c.edit.lines] : [])].filter(Boolean).join("\n") : undefined}>
                         {show && c && (
                           c.absent ? <span className="text-[#be123c] font-medium">결근</span>
                           : c.leave && !c.in ? <span className="text-[#1d4ed8] font-medium">{c.leave}</span>
                           : (
                             <>
-                              <div className={c.late ? "text-[#b45309] font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-amber-600">대기</span> : c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
+                              <div className={c.late ? "text-[#b45309] font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-[#b45309]">대기</span> : c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
                               <div>{c.out ?? (c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
                               {c.leave && <div className="text-[#1d4ed8]">{c.leave}</div>}
-                              {c.edit && <div className="text-[10px] text-amber-700">수정됨</div>}
+                              {c.edit && <div className="text-[10px] text-[#b45309]">수정됨</div>}
                             </>
                           )
                         )}
                       </td>
                     );
                   })}
-                  <td className="border px-2 py-1 text-center font-semibold">{u.workDays}</td>
+                  <td className="border px-2 py-1 text-center font-semibold text-[#0f172a]">{u.workDays}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <div className="overflow-auto border rounded-lg bg-white max-h-[75vh]">
-          <table className="text-xs w-full">
-            <thead className="sticky top-0 bg-gray-50 z-10">
-              <tr>{COLS.map((c) => <th key={c.key} className="border-b px-2 py-2 text-left whitespace-nowrap">{c.label}</th>)}</tr>
-              <tr>
-                {COLS.map((c) => (
-                  <th key={c.key} className="border-b px-1 py-1">
-                    <Input className="h-7 text-xs" placeholder="검색" value={colFilter[c.key] ?? ""}
-                      onChange={(e) => setColFilter((f) => ({ ...f, [c.key]: e.target.value }))} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {listRows.length === 0 ? (
-                <tr><td colSpan={COLS.length} className="py-10 text-center text-gray-400">기록이 없습니다.</td></tr>
-              ) : listRows.map((r) => (
-                <tr key={`${r.u.id}-${r.d}`} className="border-b last:border-0 hover:bg-gray-50">
-                  {COLS.map((c) => {
-                    const v = c.get(r);
-                    const warn = c.key === "status" && (v === "결근" || v === "누락" || v === "지각");
-                    return (
-                      <td key={c.key} className={`px-2 py-1.5 whitespace-nowrap ${warn ? "text-red-600 font-medium" : ""}`}>
-                        {v || "-"}
-                        {/* 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15) */}
-                        {c.key === "status" && <EditedMark edit={r.c.edit} />}
-                      </td>
-                    );
-                  })}
+        <div>
+          <div className="max-h-[75vh] overflow-auto">
+            <table className="w-full text-[13px]">
+              <thead className="sticky top-0 z-10 bg-[#fafbfd]">
+                <tr>{COLS.map((c) => <th key={c.key} className="whitespace-nowrap border-b border-[#eef1f5] px-3 pb-2 pt-3 text-left text-[13px] font-semibold text-[#596578]">{c.label}</th>)}</tr>
+                <tr>
+                  {COLS.map((c) => (
+                    <th key={c.key} className="border-b border-[#eef1f5] px-1.5 pb-2">
+                      <input className="h-7 w-full min-w-[56px] rounded-md border border-[#e2e8f0] bg-white px-2 text-xs font-normal text-[#334155] outline-none focus:border-[#c7d2fe]" placeholder="검색" aria-label={`${c.label} 검색`} value={colFilter[c.key] ?? ""}
+                        onChange={(e) => setColFilter((f) => ({ ...f, [c.key]: e.target.value }))} />
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="px-3 py-2 text-xs text-gray-400 border-t">{listRows.length}건 · 휴게는 실제 근무 간격 기준(4.5시간 이상 30분, 9시간 이상 1시간)</div>
+              </thead>
+              <tbody>
+                {listRows.length === 0 ? (
+                  <tr><td colSpan={COLS.length} className="py-10 text-center text-[14px] text-[#596578]">기록이 없습니다.</td></tr>
+                ) : listRows.map((r) => (
+                  <tr key={`${r.u.id}-${r.d}`} className="border-b border-[#f1f5f9] last:border-0 hover:bg-[#fafbfd]">
+                    {COLS.map((c) => {
+                      const v = c.get(r);
+                      return (
+                        <td key={c.key} className={`whitespace-nowrap px-3 py-2 ${c.key === "name" ? "font-bold text-[#0f172a]" : "text-[#475569]"}`}>
+                          {/* 상태 = 상태 알약(R10) — 누락 · 결근 분홍 · 지각 · 대기 주황 · 휴가 파랑 · 정상 회색 */}
+                          {c.key === "status" && v ? <StatusPill tone={statusTone(r.c)}>{v}</StatusPill> : (v || "-")}
+                          {/* 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15) */}
+                          {c.key === "status" && <EditedMark edit={r.c.edit} />}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-[#eef1f5] px-6 py-2.5 text-[12.5px] text-[#596578]">{listRows.length}건 · 휴게는 실제 근무 간격 기준(4.5시간 이상 30분, 9시간 이상 1시간)</div>
         </div>
       )}
       </>)}
+      </Box>
     </div>
   );
 }

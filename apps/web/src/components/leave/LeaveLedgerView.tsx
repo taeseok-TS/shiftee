@@ -33,7 +33,7 @@ type Ledger = {
 const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 const STATUS: Record<string, { label: string; cls: string }> = {
   PENDING: { label: "대기", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  APPROVED: { label: "승인", cls: "bg-green-50 text-green-700 border-green-200" },
+  APPROVED: { label: "승인", cls: "bg-[#eef2ff] text-[#4f46e5] border-[#c7d2fe]" },
   REJECTED: { label: "반려", cls: "bg-red-50 text-red-700 border-red-200" },
   CANCELLED: { label: "취소", cls: "bg-gray-100 text-gray-500 border-gray-200" },
   WAITING: { label: "대기 전", cls: "bg-gray-50 text-gray-500 border-gray-200" },

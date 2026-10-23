@@ -34,7 +34,7 @@ export function WeekHoursLine({ data, userId }: { data: WeekHours | null; userId
   return (
     <div className={`text-[11px] mt-0.5 ${over ? "text-red-600 font-semibold" : "text-gray-500"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
-      주 일정 {h(wh.sched)}{data.actualHidden ? "" : ` · 실제 ${h(wh.actual)}`}{over ? " ⚠49h 초과" : ""}
+      주 일정 {h(wh.sched)}{data.actualHidden ? "" : ` · 실제 ${h(wh.actual)}`}{over ? " · 49h 초과" : ""}
     </div>
   );
 }

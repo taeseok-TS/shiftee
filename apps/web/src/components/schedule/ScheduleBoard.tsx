@@ -53,7 +53,7 @@ function Segmented<T extends string>({ value, options, label, onChange }: { valu
     <div role="radiogroup" className="inline-flex rounded-md border bg-white p-0.5 text-xs">
       {options.map((o) => (
         <button key={o} type="button" role="radio" aria-checked={value === o}
-          className={`px-2.5 py-1 rounded ${value === o ? "bg-gray-900 text-white font-semibold" : "text-gray-600 hover:bg-gray-100"}`}
+          className={`px-2.5 py-1 rounded ${value === o ? "bg-[#eef2ff] text-[#4f46e5] font-semibold" : "text-gray-600 hover:bg-gray-100"}`}
           onClick={() => onChange(o)}>
           {label(o)}
         </button>
@@ -332,7 +332,7 @@ function DayView({ view, employees, schedules, holidayMap, leaves, branchColor, 
                   onClick={() => onEmptyCell(emp.id, key)}>+ 추가</button>
               )}
               <div className="absolute left-2 top-2 flex gap-1 z-10">
-                {leaveList.map((l, i) => <span key={i} className="px-2 py-0.5 rounded bg-green-100 border border-green-300 text-[11px] font-medium text-green-800">{l.label}</span>)}
+                {leaveList.map((l, i) => <span key={i} className="px-2 py-0.5 rounded bg-[#eff6ff] border border-[#bfdbfe] text-[11px] font-medium text-[#1d4ed8]">{l.label}</span>)}
                 {others.map((s) => (
                   <span key={s.id} className={`px-2 py-0.5 rounded bg-gray-100 border text-[11px] text-gray-600 ${onSchedule ? "cursor-pointer hover:ring-2 hover:ring-blue-300" : ""}`}
                     role={onSchedule ? "button" : undefined} tabIndex={onSchedule ? 0 : undefined}
@@ -426,7 +426,7 @@ function ListView({ view, employees, schedules, holidayMap, leaves, branchColor,
                   {show.subline && <td className="px-3 py-2 text-gray-600 text-xs">{r.emp.jobGroup || r.emp.position || "-"}</td>}
                   {show.time && <td className="px-3 py-2 font-mono text-xs text-gray-800">{r.s && r.s.type === "work" ? `${r.s.startTime} - ${r.s.endTime}` : "-"}</td>}
                   {show.typeBadge && <td className="px-3 py-2 text-xs">{r.s ? <Badge variant="outline" className="text-xs">{typeLabel(r.s.type)}</Badge> : <span className="text-gray-300">-</span>}</td>}
-                  {show.leave && <td className="px-3 py-2 text-xs text-green-800">{r.leave.join(", ") || <span className="text-gray-300">-</span>}</td>}
+                  {show.leave && <td className="px-3 py-2 text-xs text-[#1d4ed8]">{r.leave.join(", ") || <span className="text-gray-300">-</span>}</td>}
                   {show.note && <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[240px]" title={r.s?.note ?? undefined}>{r.s?.note ?? ""}</td>}
                 </tr>
               );

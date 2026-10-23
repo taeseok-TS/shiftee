@@ -3,17 +3,14 @@ import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import { SIGN_CONSENT_TEXT } from "@/lib/contract-consent";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
-import { FileSignature, PenLine, Download, CheckCircle2, Clock, ArrowRight, Eye, Loader2 } from "lucide-react";
+import { FileSignature, PenLine, Eye, Loader2 } from "lucide-react";
+import { PageHead, Btn, btnClass, Box, FilterRow, inputClass, tableClass, StatusPill, FlowDots, type PillTone, type FlowStep } from "@/components/kit";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
@@ -52,6 +49,7 @@ type Contract = {
   createdAt: string;
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
+    createdAt?: string;   // 결재선은 발송·재발송 때 새로 만든다 — 「받은 날」(시안 직원 내 계약서)
     steps: Array<{
       id: string;
       order: number;
@@ -64,6 +62,7 @@ type Contract = {
   // 이 화면이 실제로 쓰는데 타입에서 빠져 있던 것들 (2026-09-03)
   startDate?: string | null;
   endDate?: string | null;
+  signDeadline?: string | null;       // 서명 기한(#45) — 목록 「기한」 칸
   hideRevoked?: boolean;              // 회수된 결재 숨김
   revocationLog?: { at?: string; by?: string; reason?: string }[] | null; // 회수 이력
 };
@@ -81,15 +80,26 @@ type ContractVersion = {
   reason?: string | null;
 };
 
-const statusConfig: Record<string, { label: string; variant: any }> = {
-  DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "결재 진행 중", variant: "secondary" },
-  APPROVED: { label: "결재 중", variant: "secondary" },
-  SIGNED: { label: "완료", variant: "default" },
-  EXPIRED: { label: "만료", variant: "destructive" },
+// 상태 알약(시안 3-9 — 대기 주황 · 완료 파랑 · 반려 분홍 · 그 밖 회색). 내 서명 차례인 문서는 목록에서 「서명 대기」로 따로 적는다
+const STATUS_PILL: Record<string, { tone: PillTone; label: string }> = {
+  DRAFT: { tone: "gray", label: "초안" },
+  SENT: { tone: "wait", label: "서명 대기" },   // 필터 「서명 대기」(SENT) · 「결재 중」(APPROVED)와 같은 말(검증 3)
+  APPROVED: { tone: "wait", label: "결재 중" },
+  SIGNED: { tone: "done", label: "체결 완료" },
+  EXPIRED: { tone: "gray", label: "만료" },
   // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
-  REJECTED: { label: "반려", variant: "destructive" },
+  REJECTED: { tone: "rej", label: "반려" },
 };
+
+// 날짜 칸(받은 날 · 기한) — 한국 시각 날짜. 올해면 「10/23」, 다른 해면 「2025/10/23」
+function kstDay(iso?: string | null): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  const d = new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const thisYear = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 4);
+  return (d.slice(0, 4) === thisYear ? d.slice(5) : d).replace(/-/g, "/");
+}
 
 // fileUrl이 JSON 배열일 경우 파싱, 첫 번째 파일 URL 반환
 // 서명 전 계약서는 다운로드 대신 브라우저 열람만 (다운로드는 서명 완료본만 허용)
@@ -130,47 +140,19 @@ function getFileUrl(fileUrl: string): string {
   }
 }
 
-function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: string; onClick?: () => void }) {
+type ChainStep = { order: number; status: string; approverId: string; approver?: { name?: string } | null; externalName?: string | null };
+function ApprovalChain({ steps, userId, onClick }: { steps?: ChainStep[]; userId?: string; onClick?: () => void }) {
   if (!steps || !Array.isArray(steps) || steps.length === 0) return null;
-
-  const stepElements = [];
-
-  // 실제 배치 순서대로 각 단계를 표시
-  (steps || []).forEach((step, idx) => {
-    // 화살표 추가 (첫 번째 단계 제외)
-    if (idx > 0) {
-      stepElements.push(
-        <ArrowRight key={`arrow-${idx}`} size={14} className="text-gray-400" />
-      );
-    }
-
-    // 각 단계 표시
-    stepElements.push(
-      <div key={`step-${step.order}`} className="flex items-center gap-1">
-        {step.status === "APPROVED" ? (
-          <CheckCircle2 size={16} className="text-green-600" />
-        ) : step.status === "PENDING" ? (
-          <Clock size={16} className="text-orange-600" />
-        ) : (
-          <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-        )}
-        {/* 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames) */}
-        <span className="text-xs font-medium">
-          {step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자")}
-        </span>
-      </div>
-    );
-  });
-
+  // 결재 진행 = 사람마다 점 + 이름(시안 3-9 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음). 실제 배치 순서대로.
+  // 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames)
+  const dots: FlowStep[] = steps.map((step) => ({
+    label: step.approver?.name || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
+    state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
+  }));
   return (
-    <div
-      className="flex items-center gap-2 flex-wrap text-xs cursor-pointer hover:opacity-70 transition-opacity"
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-    >
-      {stepElements}
-    </div>
+    <button type="button" onClick={onClick} className="text-left hover:opacity-70" title="결재 진행 자세히">
+      <FlowDots steps={dots} />
+    </button>
   );
 }
 
@@ -622,163 +604,54 @@ export default function ContractsPage() {
     </section>
   ) : null;
 
+  // 내 결재 대기 — 결재자로서 내 차례인 남의 계약서(원장 대행 등). 본인 계약은 아래 목록의 [서명]으로
+  const approvalsShown = myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName));
+  // 내 서명 차례 — 종전 「내 서명 대기」 카드와 같은 기준. 이제 목록 줄 오른쪽 인디고 [서명]으로 연다(시안 직원 내 계약서)
+  const canSign = (c: Contract) => (c.status === "SENT" || c.status === "APPROVED") && !!c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING");
+  const signCount = contracts.filter(canSign).length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">전자계약</h1>
-      </div>
+    <div>
+      {/* 머리(시안 3-3) — 제목 = 왼쪽 메뉴 이름 + 위 작은 경로 */}
+      <PageHead crumb="전자계약 › 내 계약서" title="내 계약서" />
 
-      {/* 내 결재 대기 — 결재자로서 내 차례인 계약서 */}
-      {meLoaded && myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardHeader>
-            <CardTitle className="text-base text-amber-800">내 결재 대기 ({myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {myApprovals.filter((a) => ((a.userId ?? a.user?.id) !== myId || !!a.externalName)).map((c) => (
-              <div key={c.id} className="flex items-start justify-between gap-3 bg-white rounded-lg p-3 border border-amber-200">
-                <div className="min-w-0">
-                  <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}
-                    {c.startDate || c.endDate ? ` · 계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : ""}
-                  </p>
-                  {Object.entries(c.summaryFields || c.extraFields || {}).length > 0 && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {Object.entries(c.summaryFields || c.extraFields || {}).map(([k, v]) => `${k} ${v}`).join(" · ")}
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
-                    <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
-                  </a>
-                  <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => setHostTarget(c as unknown as Contract)}>
-                    <PenLine size={14} />승인 (서명)
-                  </Button>
-                </div>
+      {/* 내 결재 대기 — 결재자로서 내 차례인 계약서. 「열기」 = 원장·본부와 같은 결재 전체 창(재요청 C) */}
+      {meLoaded && approvalsShown.length > 0 && (
+        <Box icon={<PenLine />} tone="amb" title="내 결재 대기" count={approvalsShown.length} sub="내가 승인할 계약서" bodyClassName="px-6 py-1">
+          {approvalsShown.map((c) => (
+            <div key={c.id} className="flex items-center gap-3.5 border-t border-[#f1f5f9] py-[15px] first:border-t-0">
+              <div className="min-w-0 flex-1">
+                <b className="block truncate text-[16px] font-bold text-[#0f172a]">{c.title}</b>
+                <span className="block text-[13.5px] text-[#596578]">
+                  {c.externalName ? `[외부] ${c.externalName}` : c.user?.name}{!c.externalName && c.user?.branch ? ` · ${c.user.branch}` : ""}
+                  {c.startDate || c.endDate ? ` · 계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : ""}
+                </span>
+                {Object.entries(c.summaryFields || c.extraFields || {}).length > 0 && (
+                  <span className="block text-[12.5px] text-[#596578]">
+                    {Object.entries(c.summaryFields || c.extraFields || {}).map(([k, v]) => `${k} ${v}`).join(" · ")}
+                  </span>
+                )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")}>보기</a>
+                <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => setHostTarget(c as unknown as Contract)}>열기</Btn>
+              </div>
+            </div>
+          ))}
+        </Box>
       )}
 
-      {/* 직원 서명 대기 */}
-      {contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).length > 0 && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardHeader>
-            <CardTitle className="text-base text-blue-700">내 서명 대기</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {contracts.filter(c => (c.status === "SENT" || c.status === "APPROVED") && c.approvalLine?.steps?.some(st => st.approverId === c.userId && st.status === "PENDING")).map(c => (
-              <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200">
-                <div>
-                  <p className="font-medium text-sm">{c.title}{c.isTest && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">테스트</span>}</p>
-                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.userId} />
-                </div>
-                <div className="flex gap-2">
-                  {/* 본인 서명 차례 문서는 [서명] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다 */}
-                  {!(c.userId === myId && !c.externalName) && (
-                    <a href={viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer">
-                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
-                    </a>
-                  )}
-                  <Button size="sm" onClick={() => openEmpSign(c)} className="gap-1">
-                    <PenLine size={14} />서명
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 전체 목록 */}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />계약서 목록</CardTitle></CardHeader>
-        <CardContent>
-          {/* 필터 */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 pb-4 border-b">
-            {/* 연도 */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">연도</Label>
-              <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setFilterMonth(""); }}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue>{filterYear ? `${filterYear}년` : "연도"}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (
-                    <SelectItem key={year} value={year.toString()}>{year}년</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 월 */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">월</Label>
-              <Select value={filterMonth} onValueChange={setFilterMonth} disabled={!filterYear}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="전체" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">전체</SelectItem>
-                  {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map(month => (
-                    <SelectItem key={month} value={month}>{month}월</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 상태 */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">상태</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="전체" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">전체</SelectItem>
-                  <SelectItem value="DRAFT">초안</SelectItem>
-                  <SelectItem value="SENT">직원 서명 대기</SelectItem>
-                  <SelectItem value="APPROVED">결재 중</SelectItem>
-                  <SelectItem value="SIGNED">완료</SelectItem>
-                  <SelectItem value="EXPIRED">만료</SelectItem>
-                  <SelectItem value="REJECTED">반려</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 검색 */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">검색</Label>
-              <Input
-                type="text"
-                placeholder="제목 검색"
-                value={filterSearchText}
-                onChange={(e) => setFilterSearchText(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          {/* 숨겨진 결재 포함 */}
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b">
-            <Checkbox
-              id="showHiddenRevoked"
-              checked={showHiddenRevoked}
-              onCheckedChange={(checked) => setShowHiddenRevoked(checked as boolean)}
-            />
-            <Label htmlFor="showHiddenRevoked" className="text-xs cursor-pointer">
-              숨겨진 결재 포함
-            </Label>
-          </div>
-
-          {/* 버튼 */}
-          <div className="flex gap-2 mb-4">
-            <Button
-              size="sm"
-              variant="outline"
+      {/* 계약서 목록(시안 직원 내 계약서) — 표: 서류 · 상태 알약 · 결재 진행 · 받은 날 · 기한 · 처리(서명 차례 = 인디고 「서명」, 끝난 문서 = 흰 「받기」) */}
+      <Box icon={<FileSignature />} title="계약서 목록" count={signCount} sub={listLoading ? "불러오는 중…" : signCount > 0 ? `${contracts.length}건 · 서명할 것 ${signCount}건` : `${contracts.length}건`}>
+        {/* 필터 한 줄(시안 3-8) — 찾기 · 연도 · 월 · 상태 + 오른쪽 숨긴 결재 포함 · 초기화 */}
+        <FilterRow right={
+          <span className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[13px] text-[#475569]">
+              <input type="checkbox" checked={showHiddenRevoked} onChange={(e) => setShowHiddenRevoked(e.target.checked)} />숨긴 결재 포함
+            </label>
+            <button
+              type="button"
+              className={btnClass("text", "text-[13px]")}
               onClick={() => {
                 setFilterYear(new Date().getFullYear().toString());
                 setFilterMonth("");
@@ -788,63 +661,110 @@ export default function ContractsPage() {
                 fetchContracts({ year: new Date().getFullYear().toString(), month: "", status: "", searchText: "", showHiddenRevoked: false });
               }}
             >
-              초기화
-            </Button>
-          </div>
+              필터 초기화
+            </button>
+          </span>
+        }>
+          <input type="search" value={filterSearchText} onChange={(e) => setFilterSearchText(e.target.value)} placeholder="서류 이름으로 찾기" className={`${inputClass} w-56`} aria-label="찾기" />
+          <select value={filterYear} onChange={(e) => { setFilterYear(e.target.value); setFilterMonth(""); }} className={inputClass} aria-label="연도">
+            {[2026, 2025, 2024, 2023, 2022, 2021, 2020].map(year => (
+              <option key={year} value={year.toString()}>{year}년</option>
+            ))}
+          </select>
+          <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} disabled={!filterYear} className={inputClass} aria-label="월">
+            <option value="">전체 월</option>
+            {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map(month => (
+              <option key={month} value={month}>{month}월</option>
+            ))}
+          </select>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={inputClass} aria-label="상태">
+            <option value="">상태: 전체</option>
+            <option value="DRAFT">초안</option>
+            <option value="SENT">서명 대기</option>
+            <option value="APPROVED">결재 중</option>
+            <option value="SIGNED">체결 완료</option>
+            <option value="EXPIRED">만료</option>
+            <option value="REJECTED">반려</option>
+          </select>
+        </FilterRow>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-gray-500">
-                  <th className="pb-3">제목</th>
-                  <th className="pb-3">상태</th>
-                  <th className="pb-3">결재 진행</th>
-                  <th className="pb-3">처리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listLoading ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-gray-400"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
-                ) : contracts.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-gray-400">없음</td></tr>
-                ) : contracts.map(c => {
-                  const s = statusConfig[c.status] || { label: "미정", variant: "default" };
-                  return (
-                    <tr key={c.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 font-medium">{c.title}{c.isTest && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">테스트</span>}</td>
-                      <td className="py-3"><Badge variant={s.variant}>{s.label}</Badge></td>
-                      <td className="py-3">
-                        <ApprovalChain
-                          steps={c.approvalLine?.steps}
-                          userId={c.userId}
-                          onClick={() => {
-                            setApprovalDetailsTarget(c);
-                            setApprovalDetailsOpen(true);
-                          }}
-                        />
-                      </td>
-                      <td className="py-3 space-x-1">
-                        {/* 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만 */}
-                        {/* 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24) */}
-                        {/* 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129) */}
-                        {c.status === "SIGNED" && c.postSignAccess === "none" ? (
-                          <span className="text-[11px] text-gray-400 px-1" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
-                        ) : c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
-                            && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING") ? (
-                          <span className="text-[11px] text-gray-400 px-1" title="[서명]에서 비밀번호를 넣으면 열립니다">서명에서 열기</span>
+        <div className="overflow-x-auto">
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th>서류</th>
+                <th>상태</th>
+                <th className="hidden md:table-cell">결재 진행</th>
+                <th className="hidden md:table-cell whitespace-nowrap">받은 날</th>
+                <th className="hidden md:table-cell">기한</th>
+                <th className="text-right">처리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listLoading ? (
+                <tr><td colSpan={6} className="py-8 text-center text-[#94a3b8]"><span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" />목록을 불러오는 중…</span></td></tr>
+              ) : contracts.length === 0 ? (
+                <tr><td colSpan={6} className="py-8 text-center text-[#94a3b8]">없음</td></tr>
+              ) : contracts.map(c => {
+                const mineToSign = canSign(c);
+                const pill = mineToSign ? { tone: "wait" as PillTone, label: "내 서명 차례" } : STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: "미정" };
+                // 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만
+                // 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24)
+                // 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129)
+                const noAccess = c.status === "SIGNED" && c.postSignAccess === "none";
+                // 본인 서명 차례 문서는 [서명] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다
+                const lockedSelf = c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
+                  && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING");
+                const canDownload = c.status === "SIGNED" && c.postSignAccess !== "view";
+                const openHref = c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl));
+                const received = kstDay(c.approvalLine?.createdAt);
+                const due = c.status === "SENT" || c.status === "APPROVED" ? kstDay(c.signDeadline) : null;
+                const period = c.startDate || c.endDate ? `계약기간 ${String(c.startDate || "?").slice(0, 10)} ~ ${String(c.endDate || "?").slice(0, 10)}` : null;
+                const sub = [period, c.isTest && "테스트 문서"].filter(Boolean).join(" · ");
+                return (
+                  <tr key={c.id} className="hover:bg-[#fafbfd]">
+                    <td>
+                      <b className="font-bold text-[#0f172a]">{c.title}</b>
+                      {sub && <span className="block text-[12.5px] text-[#596578]">{sub}</span>}
+                      {/* 휴대폰은 받은 날 · 기한을 회색 한 줄로(칸이 숨는다) */}
+                      {(received || due) && <span className="block text-[12.5px] text-[#596578] md:hidden">{[received && `받은 날 ${received}`, due && `기한 ${due}`].filter(Boolean).join(" · ")}</span>}
+                    </td>
+                    <td><StatusPill tone={pill.tone}>{pill.label}</StatusPill></td>
+                    <td className="hidden md:table-cell">
+                      <ApprovalChain
+                        steps={c.approvalLine?.steps}
+                        userId={c.userId}
+                        onClick={() => {
+                          setApprovalDetailsTarget(c);
+                          setApprovalDetailsOpen(true);
+                        }}
+                      />
+                    </td>
+                    <td className="hidden md:table-cell whitespace-nowrap text-[#475569] tabular-nums">{received ?? <span className="text-[#94a3b8]">—</span>}</td>
+                    <td className="hidden md:table-cell whitespace-nowrap text-[#475569] tabular-nums">{due ?? <span className="text-[#94a3b8]">—</span>}</td>
+                    <td className="whitespace-nowrap text-right">
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {noAccess ? (
+                          <span className="text-[12.5px] text-[#94a3b8]" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
+                        ) : lockedSelf ? (
+                          mineToSign ? null : <span className="text-[12.5px] text-[#94a3b8]" title="[서명]에서 비밀번호를 넣으면 열립니다">서명에서 열기</span>
                         ) : (
-                        <a href={c.status === "SIGNED" ? `/api/contracts/${c.id}/signed-document?pdf=1${c.postSignAccess === "view" ? "&inline=1" : ""}` : c.employeeSignedAt ? `/api/contracts/${c.id}/signed-document?pdf=1&inline=1` : viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}><Button size="sm" variant="ghost" className="h-7">{c.status === "SIGNED" && c.postSignAccess !== "view" ? <Download size={12} /> : <Eye size={12} />}</Button></a>
+                          <a href={openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={canDownload ? "체결본 받기(PDF)" : "열람"}
+                            onClick={() => { if (c.status === "SIGNED") fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: c.postSignAccess === "view" ? "VIEWED" : "DOWNLOADED" }) }).catch(() => {}); }}>
+                            {canDownload ? "받기" : "보기"}
+                          </a>
                         )}
-                        {/* 버전 히스토리 아이콘은 뺐다(2026-10-16 이예지 QA E3 — 근로자에게는 「버전 정보가 없습니다」만 떠 의미가 없었다) */}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                        {mineToSign && <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => openEmpSign(c)}>서명</Btn>}
+                      </span>
+                      {/* 버전 히스토리 아이콘은 뺐다(2026-10-16 이예지 QA E3 — 근로자에게는 「버전 정보가 없습니다」만 떠 의미가 없었다) */}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Box>
 
       {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}
       {/* 근로자 본인 서명 — 전체 창(재요청 C). 문서를 열기 전 비밀번호 확인은 아래 옛 창이 그대로 한다 */}
@@ -895,7 +815,7 @@ export default function ContractsPage() {
               </div>
               <form onSubmit={e => { e.preventDefault(); unlockDoc(); }} className="space-y-2">
                 <ReauthPasswordInput autoFocus value={unlockPw} onChange={e => setUnlockPw(e.target.value)} placeholder="로그인 비밀번호" />
-                <Button type="submit" className="w-full" disabled={!unlockPw || unlocking}>{unlocking ? "확인 중…" : "확인하고 문서 열기"}</Button>
+                <Button type="submit" className="w-full bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={!unlockPw || unlocking}>{unlocking ? "확인 중…" : "확인하고 문서 열기"}</Button>
                 <p className="text-[11px] text-gray-400">확인 기록(시각)은 전자서명 완료 증명서에 남습니다. 비밀번호는 저장되지 않습니다.</p>
               </form>
             </div>
@@ -906,7 +826,7 @@ export default function ContractsPage() {
                 <p className="text-sm font-medium">{signTarget.title}</p>
                 <p className="text-xs text-gray-500">{signTarget.externalName ? `[외부] ${signTarget.externalName}` : `${signTarget.user.branch ? `[${signTarget.user.branch}] ` : ''}${signTarget.user.name}`}</p>
                 {signTarget.sendMessage && (
-                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 mt-1 whitespace-pre-wrap">💬 본부 메시지 · {signTarget.sendMessage}</p>
+                  <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1.5 mt-1 whitespace-pre-wrap">본부 메시지 · {signTarget.sendMessage}</p>
                 )}
               </div>
 
@@ -914,7 +834,7 @@ export default function ContractsPage() {
               {consentKeys.length > 0 && signStep === 1 && (
                 <>
                   <button type="button" onClick={() => { setViewerAtBottom(false); setDocViewerOpen(true); }}
-                    className={`flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border text-sm font-medium ${consentRead ? "border-green-300 text-green-700 bg-green-50" : "border-indigo-300 text-indigo-700 hover:bg-indigo-50"}`}>
+                    className={`flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg border text-sm font-medium ${consentRead ? "border-[#c7d2fe] text-[#4f46e5] bg-[#eef2ff]" : "border-[#4f46e5] bg-[#4f46e5] text-white hover:bg-[#4338ca]"}`}>
                     <Eye size={15} />{consentRead ? "전문 확인 완료 (다시 보기)" : "동의서 전문 보기 (필수)"}
                   </button>
                   {/* 필수 항목도 명시적 동의 — 자동 처리는 개인정보보호법 위반 (#104, 2026-08-27) */}
@@ -922,10 +842,10 @@ export default function ContractsPage() {
                     <input type="checkbox" className="mt-0.5" checked={consentRequired} onChange={e => setConsentRequired(e.target.checked)} />
                     <span><b>[필수]</b> 개인정보 수집·이용, 민감정보, 퇴직 후 보유, 제3자 제공에 <b>동의합니다</b>. (동의하지 않으면 채용이 취소·제한될 수 있습니다)</span>
                   </label>
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                  <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-3 space-y-2">
                     {/* 괄호 안내가 미동의를 권유하는 것처럼 읽혀 중립 문구로 교체 (#181, 2026-08-31 김가산) */}
-                    <p className="text-xs font-semibold text-amber-800">선택 동의 항목</p>
-                    <p className="text-[11px] text-amber-700">동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</p>
+                    <p className="text-xs font-semibold text-[#0f172a]">선택 동의 항목</p>
+                    <p className="text-[11px] text-[#596578]">동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</p>
                     {consentKeys.map(k => (
                       <div key={k} className="space-y-1">
                         <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
@@ -943,8 +863,8 @@ export default function ContractsPage() {
                   </div>
                   {/* 프로필 미입력(생년월일 등)도 이 단계에서 */}
                   {missingProfile.length > 0 && (
-                    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-blue-800">필요한 정보 입력 (프로필에 저장됩니다)</p>
+                    <div className="rounded-lg border border-[#e0e7ff] bg-[#eef2ff]/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-[#3730a3]">필요한 정보 입력 (프로필에 저장됩니다)</p>
                       {missingProfile.includes("주소") && (
                         <div className="space-y-1"><Label className="text-xs">주소</Label>
                           <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
@@ -971,6 +891,7 @@ export default function ContractsPage() {
                         <div className="flex gap-2 justify-end">
                           <Button variant="outline" onClick={() => setSignOpen(false)}>취소</Button>
                           <Button
+                            className="bg-[#4f46e5] text-white hover:bg-[#4338ca]"
                             disabled={!!blockReason}
                             onClick={() => {
                               // 프로필 입력 검증 후 서명 단계로
@@ -990,8 +911,8 @@ export default function ContractsPage() {
                 <>
                   {/* 동의 없는 문서(근로계약서·비밀유지)의 프로필 미입력 항목 */}
                   {consentKeys.length === 0 && missingProfile.length > 0 && (
-                    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-blue-800">계약서에 필요한 정보를 입력해주세요 (프로필에 저장됩니다)</p>
+                    <div className="rounded-lg border border-[#e0e7ff] bg-[#eef2ff]/60 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-[#3730a3]">계약서에 필요한 정보를 입력해주세요 (프로필에 저장됩니다)</p>
                       {missingProfile.includes("주소") && (
                         <div className="space-y-1"><Label className="text-xs">주소</Label>
                           <input className="w-full border rounded px-2 py-1.5 text-sm" placeholder="예: 서울시 강남구 테헤란로 123"
@@ -1020,7 +941,7 @@ export default function ContractsPage() {
                           onReachEnd={() => setDocReadToEnd(true)} />
                         <button type="button" onClick={() => { setZoomLoading(true); setPreviewZoom(true); }} title="클릭하여 크게 보기"
                           className="absolute inset-0 cursor-zoom-in flex items-start justify-end p-2">
-                          <span className="text-[11px] bg-black/60 text-white rounded-full px-2.5 py-1 shadow">🔍 클릭하면 크게 보입니다</span>
+                          <span className="text-[11px] bg-white/95 text-[#334155] border border-[#e2e8f0] rounded-full px-2.5 py-1 shadow">클릭하면 크게 보입니다</span>
                         </button>
                         {/* 로딩 중 빈 화면이면 오류인지 대기 중인지 구분이 안 된다는 지적 (#179) */}
                         {previewLoading && (
@@ -1030,7 +951,7 @@ export default function ContractsPage() {
                           </div>
                         )}
                       </div>
-                      <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-blue-600">크게 보기 (새 창)</a>
+                      <a href={viewHref(getFileUrl(signTarget.fileUrl))} target="_blank" rel="noreferrer" className="text-xs text-[#4f46e5]">크게 보기 (새 창)</a>
                     </>
                   )}
                   {/* 저장된 서명이 있으면 기본으로 표시, 새로 그리기는 선택 (#127) */}
@@ -1041,7 +962,7 @@ export default function ContractsPage() {
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={mySigUrl} alt="저장된 서명" className="max-h-20 object-contain" />
                       </div>
-                      <button type="button" className="text-xs text-blue-600 underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
+                      <button type="button" className="text-xs text-[#4f46e5] underline" onClick={() => { setDrawNewSig(true); sigRef.current?.clear(); }}>
                         수정하기 (새로 그리기 — 저장 서명 교체)
                       </button>
                     </div>
@@ -1082,7 +1003,7 @@ export default function ContractsPage() {
                             onClick={() => { setRejectReason(""); setRejectOpen(true); }}>
                       서명 거부
                     </Button>
-                    <Button onClick={() => handleSign(signTarget.id, approverMode || signTarget.status === "APPROVED")} disabled={signSubmitting || !myId}>{signSubmitting ? "서명 중..." : "서명"}</Button>
+                    <Button className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" onClick={() => handleSign(signTarget.id, approverMode || signTarget.status === "APPROVED")} disabled={signSubmitting || !myId}>{signSubmitting ? "서명 중..." : "서명"}</Button>
                   </div>
                 </>
               )}
@@ -1158,7 +1079,7 @@ export default function ContractsPage() {
                           {v.createdByUser.name} · {format(new Date(v.createdAt), "yyyy-MM-dd HH:mm")} 수정
                         </p>
                         {/* 무엇을 무엇에서 무엇으로(#206-6) — 이 기능 전의 버전에는 기록이 없다 */}
-                        {v.reason && <p className="text-xs text-amber-700 mt-0.5">{v.reason}</p>}
+                        {v.reason && <p className="text-xs text-[#b45309] mt-0.5">{v.reason}</p>}
                         {Array.isArray(v.changes) && v.changes.length > 0 && (
                           <ul className="mt-1 space-y-0.5">
                             {v.changes.map((c, i) => (
@@ -1217,9 +1138,9 @@ export default function ContractsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {approvalDetailsTarget.employeeSignedAt ? (
-                      <Badge className="bg-green-100 text-green-700">완료</Badge>
+                      <StatusPill tone="done">완료</StatusPill>
                     ) : (
-                      <Badge variant="outline" className="text-orange-600">대기</Badge>
+                      <StatusPill tone="wait">대기</StatusPill>
                     )}
                   </div>
                 </div>
@@ -1240,13 +1161,13 @@ export default function ContractsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {step.status === "APPROVED" ? (
-                        <Badge className="bg-green-100 text-green-700">승인됨</Badge>
+                        <StatusPill tone="done">승인됨</StatusPill>
                       ) : step.status === "PENDING" ? (
-                        <Badge variant="outline" className="text-orange-600">대기</Badge>
+                        <StatusPill tone="wait">대기</StatusPill>
                       ) : step.status === "REJECTED" ? (
-                        <Badge variant="destructive">반려</Badge>
+                        <StatusPill tone="rej">반려</StatusPill>
                       ) : (
-                        <Badge variant="outline">미정</Badge>
+                        <StatusPill tone="gray">미정</StatusPill>
                       )}
                     </div>
                   </div>
@@ -1280,14 +1201,14 @@ export default function ContractsPage() {
                       <p className="text-sm font-medium">최종 서명</p>
                       <p className="text-xs text-gray-500">완료</p>
                     </div>
-                    <Badge className="bg-green-100 text-green-700">완료</Badge>
+                    <StatusPill tone="done">완료</StatusPill>
                   </div>
                   <p className="text-xs text-gray-500">
                     {format(new Date(approvalDetailsTarget.signedAt), "yyyy-MM-dd HH:mm")}
                   </p>
                   {approvalDetailsTarget.status === "SIGNED" && (
-                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document?pdf=1`} className="block" onClick={() => { fetch(`/api/contracts/${approvalDetailsTarget.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }}>
-                      <Button className="w-full gap-1 bg-green-600 hover:bg-green-700"><Download size={14} />서명 완료본 다운로드</Button>
+                    <a href={`/api/contracts/${approvalDetailsTarget.id}/signed-document?pdf=1`} className={btnClass("secondary", "w-full")} onClick={() => { fetch(`/api/contracts/${approvalDetailsTarget.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "DOWNLOADED" }) }).catch(() => {}); }}>
+                      서명 완료본 받기
                     </a>
                   )}
                 </div>

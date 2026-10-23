@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     let created = 0;
+    const createdList: { id: string; name: string; branch: string | null; hireDate: Date | null }[] = [];   // 지점 직원 변동 알림용(지점별 한 통)
     let updated = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -281,11 +282,18 @@ export async function POST(request: NextRequest) {
         });
 
         created++;
+        createdList.push({ id: user.id, name: user.name, branch: user.branch, hireDate: user.hireDate });
       } catch (error) {
         console.error(`${rowNum}번 행 처리 오류:`, error);
         errors.push(`${rowNum}번 행: 처리 중 오류가 발생했습니다.`);
         failed++;
       }
+    }
+
+    // 새로 만든 직원 → 지점 원장에게 입사 등록 알림, 지점별 한 통(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23) — 던지지 않는다
+    if (createdList.length > 0) {
+      const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+      void notifyStaffChanges(createdList.map((u) => ({ kind: "hire" as const, userId: u.id, name: u.name, branch: u.branch, date: u.hireDate })), { actorId: session.userId });
     }
 
     if (updated > 0) {

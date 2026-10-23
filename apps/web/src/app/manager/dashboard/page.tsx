@@ -88,7 +88,7 @@ export default function ManagerDashboardPage() {
         const due = c.signDeadline ? new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/") : null;   // 시안 「기한 11/04」(관리자 · 직원 대시보드와 같게)
         const mine = !!myId && c.userId === myId && !c.externalName;   // 원장 본인 계약서 — 서명은 직원 모드 「내 계약서」에서
         next.push({ key: `contract-${c.id}`, title: c.title, sub: `${mine ? "서명할 내 계약서" : "지점 계약서 승인"}${due ? ` · 기한 ${due}` : ""}`,
-          href: mine ? `/contracts?sign=${encodeURIComponent(c.id)}` : "/manager/team-contracts", action: mine ? "서명" : undefined, at: new Date(c.createdAt).getTime() });
+          href: mine ? `/contracts?sign=${encodeURIComponent(c.id)}` : `/manager/team-contracts?id=${encodeURIComponent(c.id)}`, action: mine ? "서명" : undefined, at: new Date(c.createdAt).getTime() });
       }
       setRows(next.sort((a, b) => b.at - a.at));
       if (st) setLoadedAt(new Date());

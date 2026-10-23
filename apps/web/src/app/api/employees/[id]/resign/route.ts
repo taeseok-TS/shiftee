@@ -111,6 +111,12 @@ export async function PATCH(
       detail: `퇴사 처리 (${resignDate}${resignReason ? ", " + resignReason : ""})`,
     });
 
+    // 지점 원장에게 퇴사 처리 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23) — 이미 퇴사였던 사람은 다시 알리지 않는다. 던지지 않는다
+    if (user.employmentStatus !== "RESIGNED" && user.isActive && user.resignDate?.getTime() !== resignDateObj.getTime()) {
+      const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+      void notifyStaffChanges([{ kind: "resign", userId: id, name: updated.name, branch: updated.branch, date: resignDateObj, immediate: true }], { actorId: session.userId });
+    }
+
     return NextResponse.json({
       success: true,
       user: updated,

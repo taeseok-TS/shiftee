@@ -9,8 +9,11 @@ export const dynamic = "force-dynamic";
 //  · 최상위 키는 허용 목록만(schedule …). 값은 JSON 객체, 키마다 4KB 까지. 서버는 내용을 해석하지 않는다(화면이 검증).
 //  GET → { userId, prefs: { schedule?: {...} } } / PUT { schedule: {...} } → 그 키만 바꾼다(다른 키는 유지), null 이면 지운다
 //  userId 를 실어 주는 이유: 화면 훅이 같은 브라우저에서 사람이 바뀐 것을 알아채기 위해(10/12 검증 1)
-const ALLOWED = ["schedule", "myCalendar"] as const;
+//  · `notify`(2026-10-23 원장 환경설정 — lib/notify-prefs-core)만은 서버가 읽는다(결재 요청·지점 직원 변동 알림 발송 판정).
+//    그래서 이 키는 정해진 칸(approvalRequest·approvalEmail·staffChange)의 참/거짓만 받고, 보낸 칸만 기존 값에 덮어쓴다.
+const ALLOWED = ["schedule", "myCalendar", "notify"] as const;
 const MAX_BYTES = 4096;
+const NOTIFY_FIELDS = ["approvalRequest", "approvalEmail", "staffChange"];
 const keyOf = (userId: string) => `userpref:${userId}`;
 
 async function load(userId: string): Promise<Record<string, unknown>> {
@@ -39,6 +42,14 @@ export async function PUT(request: NextRequest) {
     const v = body[k];
     if (v === null) { delete cur[k]; continue; }
     if (!v || typeof v !== "object" || Array.isArray(v)) return NextResponse.json({ error: `${k} 설정은 객체여야 합니다.` }, { status: 400 });
+    if (k === "notify") {
+      const entries = Object.entries(v as Record<string, unknown>);
+      if (!entries.length || entries.some(([f, b]) => !NOTIFY_FIELDS.includes(f) || typeof b !== "boolean"))
+        return NextResponse.json({ error: `알림 설정은 ${NOTIFY_FIELDS.join("·")} 의 켬/끔(true/false)만 저장할 수 있습니다.` }, { status: 400 });
+      const prev = cur.notify && typeof cur.notify === "object" && !Array.isArray(cur.notify) ? (cur.notify as Record<string, unknown>) : {};
+      cur.notify = { ...prev, ...(v as Record<string, boolean>) };
+      continue;
+    }
     if (Buffer.byteLength(JSON.stringify(v), "utf8") > MAX_BYTES) return NextResponse.json({ error: `${k} 설정이 너무 큽니다(4KB까지).` }, { status: 400 });
     cur[k] = v;
   }

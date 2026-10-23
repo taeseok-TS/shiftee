@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { sendApprovalRequest, sendContractCompletion, sendContractNotification } from "@/lib/email";
 import { hrBotSendDM } from "@/lib/bot";
+import { wantsApprovalRequest } from "@/lib/notify-prefs";
 import { messageDmLine } from "@/lib/contract-send-meta";
 import { notifyStepApprovedToCreator, notifyContractCompleted } from "@/lib/contract-notify";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, isFillableTemplate, layoutForTemplateFile } from "@/lib/contract-fields";
@@ -322,8 +323,8 @@ export async function POST(
         approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
       );
     } else if (nextStep?.approver?.email) {
-      // 다음 승인자에게 알림
-      await sendApprovalRequest(
+      // 다음 승인자에게 알림 — 원장이 「결재 요청 메일」을 껐으면 보내지 않는다(본부 강제면 보냄, lib/notify-prefs)
+      if (await wantsApprovalRequest(nextStep.approverId, "email")) await sendApprovalRequest(
         nextStep.approver.email,
         nextStep.approver.name,
         updated.title,
@@ -350,7 +351,8 @@ export async function POST(
 
     // 봇 DM (개선 제안 2026-08-24): 다음 결재자에게 결재 요청, 없으면 완료 알림 (#136 재정리)
     if (nextStep?.approverId) {
-      hrBotSendDM(nextStep.approverId, `🖋 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}` + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+      // 원장이 「결재 요청 알림」을 껐으면 건너뛴다(본부 강제면 보냄)
+      if (await wantsApprovalRequest(nextStep.approverId, "dm")) hrBotSendDM(nextStep.approverId, `🖋 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}` + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
     } else if (!nextStep) {
       // 전체 완료 — 작성자 + 결재 참여 내부 결재자 전원 (근로자가 마지막 스텝이면 근로자 DM 생략) (#136)
       notifyContractCompleted(id).catch((e) => console.error("[contract] 완료 알림 오류:", e));
@@ -419,8 +421,9 @@ export async function POST(
           contract.signDeadline,
           approvalProgress(approvalLine.steps, nextStep.order, contract.userId, !!contract.externalName)
         );
-      } else if (nextStep.approver?.email) {
+      } else if (nextStep.approver?.email && await wantsApprovalRequest(nextStep.approverId, "email")) {
         // 다음 승인자에게 알림 (외부 서명 단계는 이메일 없음 — 관리자가 링크 전달)
+        // 원장이 「결재 요청 메일」을 껐으면 보내지 않는다(본부 강제면 보냄, lib/notify-prefs)
         await sendApprovalRequest(
           nextStep.approver.email,
           nextStep.approver.name,
@@ -453,7 +456,10 @@ export async function POST(
         const dm = nextStep.approverId === finalContract.userId && !contract.externalName
           ? `📝 전자계약 서명 요청\n「${finalContract.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
           : `🖋 전자계약 결재 요청\n「${finalContract.title}」 — 대상: ${contract.externalName || finalContract.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((nextStep as { approver?: { role?: string } }).approver?.role)}`;
-        hrBotSendDM(nextStep.approverId, dm + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
+        // 결재자 차례 알림은 원장이 「결재 요청 알림」을 껐으면 건너뛴다(근로자 서명 요청은 늘 보냄)
+        const toEmployee = nextStep.approverId === finalContract.userId && !contract.externalName;
+        if (toEmployee || await wantsApprovalRequest(nextStep.approverId, "dm"))
+          hrBotSendDM(nextStep.approverId, dm + messageDmLine(contract.sendMessage)).catch((e) => console.error("[contract] 결재 DM 오류:", e));
       }
       // 중간 단계 결재 완료 → 작성자(createdBy)에게 진행 알림 (#136)
       // 마지막 단계는 아래 완료 알림이 대신한다. 작성자가 이 단계 결재자 본인이면 헬퍼가 생략.

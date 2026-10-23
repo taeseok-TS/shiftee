@@ -164,5 +164,9 @@ export async function POST(request: NextRequest) {
     detail: `직원 생성 (${user.role}${finalBranch ? ", " + finalBranch : ""})`,
   });
 
+  // 지점 원장에게 입사 등록 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23) — 던지지 않는다
+  const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+  void notifyStaffChanges([{ kind: "hire", userId: user.id, name: user.name, branch: user.branch, date: user.hireDate }], { actorId: session.userId });
+
   return NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email } });
 }

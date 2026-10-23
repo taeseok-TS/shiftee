@@ -498,6 +498,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
     // 계정이 만들어진 뒤에 보낸다(트랜잭션 밖) — 메일이 실패해도 계정은 남고, 관리자가 직원 관리에서 초기화하면 다시 간다
     const emailed = tempPassword ? await sendTempPassword(email, c.name, tempPassword, "new") : false;
     await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_CREATE", targetType: "USER", targetId: user.id, targetName: user.name, detail: `인사명부 입사 반영 (${branch ?? "휴직 · 지점 없음"}, 사번 ${c.empNo}, ${d.onLeave ? "비밀번호 미발급 — 복직 때 초기화" : `임시 비밀번호 메일 ${emailed ? "발송" : "발송 실패 — 직원 관리에서 초기화해 다시 보내기"}`})` });
+    // 지점 원장에게 입사 등록 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23) — 휴직자(지점 없음)는 빠진다. 던지지 않는다
+    const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+    void notifyStaffChanges([{ kind: "hire", userId: user.id, name: user.name, branch: user.branch, date: user.hireDate }], { actorId: actor.id });
     return;
   }
   if (!c.userId) throw new Error("대상 직원이 없습니다.");
@@ -527,6 +530,9 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       await cleanupResignedUserChannels(u.id).catch((e) => console.error("[퇴사 채팅 정리] 실패:", u.id, e));
     }
     await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_RESIGN", targetType: "USER", targetId: u.id, targetName: u.name, detail: `인사명부 퇴사 반영 (${rd})` });
+    // 지점 원장에게 퇴사 처리 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23) — 던지지 않는다
+    const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+    void notifyStaffChanges([{ kind: "resign", userId: u.id, name: u.name, branch: u.branch, date }], { actorId: actor.id });
     return;
   }
   if (c.kind === "LEAVE") {
@@ -554,6 +560,11 @@ async function applyChange(c: ChangeRow, actor: Actor) {
       clearSessionCache(u.id); // 되살렸는데 "비활성" 캐시가 30초 남아 있으면 그동안 로그인이 안 된다(restore 와 같게)
     }
     await logAudit({ actorId: actor.id, actorName: actor.name, action: fromResigned ? "EMPLOYEE_RESTORE" : "EMPLOYEE_UPDATE", targetType: "USER", targetId: u.id, targetName: u.name, detail: fromResigned ? `인사명부 재입사 반영 — 퇴사일 ${dstr(u.resignDate)} 해제, 계정 다시 켬` : "인사명부 복직 반영" });
+    // 재입사(퇴사 해제)는 지점 원장에게 알린다(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23). 휴직→복직은 변동이 아니다. 던지지 않는다
+    if (fromResigned) {
+      const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+      void notifyStaffChanges([{ kind: "rehire", userId: u.id, name: u.name, branch: u.branch }], { actorId: actor.id });
+    }
     return;
   }
   if (c.kind === "LINK") {

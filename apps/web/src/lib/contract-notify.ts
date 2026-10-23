@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { recordContractEvent } from "@/lib/contract-events";
 import { hrBotSendDM } from "@/lib/bot";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
+import { wantsApprovalRequest } from "@/lib/notify-prefs";
 
 /**
  * 전자계약 알림 정리 (#136) + 미결재·미서명 리마인더 (#128)
@@ -187,7 +188,10 @@ export async function runContractReminders() {
       const due = contract.signDeadline ? ` (기한 ${new Date(contract.signDeadline.getTime() + KST_MS).toISOString().slice(5, 10).replace("-", "/")})` : "";
 
       // 담당자 리마인더 — 외부 스텝(approverId null)은 DM 불가, 작성자 통지만
-      if (step.approverId) {
+      // 결재자(원장)가 환경설정에서 「결재 요청 알림」을 껐으면 미결재 리마인더도 보내지 않는다(본부 강제면 보냄 — lib/notify-prefs).
+      // 작성자 지연 현황 DM 은 그대로 간다 — 멈춘 건은 작성자가 안다.
+      const approverMuted = !!step.approverId && !isEmployeeStep && !(await wantsApprovalRequest(step.approverId, "dm"));
+      if (step.approverId && !approverMuted) {
         const msg = isEmployeeStep
           ? `⏰ 서명 리마인더 — 「${contract.title}」 ${days}일째 대기 중${due}\n${appUrl}/contracts`
           : `⏰ 미결재 리마인더 — 「${contract.title}」 ${days}일째 대기 중${due}\n${appUrl}${approvalPageUrl(step.approver?.role)}`;
@@ -216,7 +220,7 @@ export async function runContractReminders() {
       });
       // 감사 기록(#66) — 누구에게 몇 일째 알렸는지
       await recordContractEvent({ contractId: contract.id, type: "REMINDED", actorName: "큐브티 봇", stepOrder: step.order,
-        meta: { to: step.approverId ? step.approver?.name ?? null : `작성자 통지(외부 ${step.externalName || contract.externalName || "계약자"} 미서명)`, days } });
+        meta: { to: approverMuted ? `작성자 통지(${step.approver?.name ?? "결재자"} 결재 요청 알림 끔)` : step.approverId ? step.approver?.name ?? null : `작성자 통지(외부 ${step.externalName || contract.externalName || "계약자"} 미서명)`, days } });
       sentCount++;
     } catch (e) {
       console.error("[contract] 리마인더 발송 오류:", step.id, e);

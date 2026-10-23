@@ -263,7 +263,11 @@ export async function POST(
       })
     ).map((u) => [u.id, u.role as string] as [string, string])
   );
+  // 원장이 환경설정에서 「결재 요청 알림」을 껐으면 결재 요청 DM 만 건너뛴다(근로자 서명 요청은 늘 보냄, 본부 강제면 보냄 — lib/notify-prefs)
+  const { approvalRequestMutedIds } = await import("@/lib/notify-prefs");
+  const approvalMuted = await approvalRequestMutedIds([...dmTargets].filter(([, info]) => !info.isEmployee).map(([uid]) => uid), "dm");
   for (const [uid, info] of dmTargets) {
+    if (!info.isEmployee && approvalMuted.has(uid)) continue;
     const head = info.titles.length > 1 ? `「${info.titles[0]}」 외 ${info.titles.length - 1}건` : `「${info.titles[0]}」`;
     const dm = info.isEmployee
       ? `\ud83d\udcdd 전자계약 서명 요청\n${head}\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${getAppUrl()}/contract-open/${uid}?for=sign`

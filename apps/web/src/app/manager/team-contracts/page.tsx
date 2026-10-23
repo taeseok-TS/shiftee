@@ -1,15 +1,12 @@
 "use client";
-
-import { PageHead } from "@/components/kit";
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+// 원장 「전자계약 › 지점 계약서」 — 본부 시안 R12(보낸 계약서)와 같은 숫자 칸 · 알약 탭 · 표(2026-10-21 「디자인 통일」, 범위만 우리 지점).
+//  · 옛 주황 「내 결재 대기」 판 대신 숫자 칸 「결재 대기」(1 이상 빨강, 누르면 아래 표가 내가 승인할 것만)
+//  · 원장 차례인 줄 = 인디고 「열기」(승인 전체 창), 나머지 = 흰 「보기」(열람만 — 원장에게 내려받기는 두지 않는다)
+//  · 주소 ?id=<계약 id> 로 들어오면 한 번만: 원장 차례면 승인 전체 창, 아니면 그 줄 강조 · 스크롤 — 그 뒤 주소에서 id 를 지운다
+import { PageHead, Btn, btnClass, Box, Tiles, Tile, PillTabs, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type FlowStep } from "@/components/kit";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { FileSignature, PenLine, ArrowRight, CheckCircle2, Clock, Eye } from "lucide-react";
+import { FileSignature, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import ApprovalFullView, { type SignPayload } from "@/components/contracts/ApprovalFullView";
@@ -37,6 +34,7 @@ type Contract = {
   isTest?: boolean;
   startDate: string | null;
   endDate: string | null;
+  signDeadline?: string | null; // 서명 기한(표 「기한」 칸 — 보기만)
   extraFields?: Record<string, string> | null; // 작성 시 입력값 요약 (연봉·수습 기간 등)
   summaryFields?: Record<string, string> | null; // 서명 창 요약 — 그 문서 템플릿 필드만(서버 계산, #206-2)
   createdAt: string;
@@ -47,14 +45,15 @@ type Contract = {
 const typeLabel: Record<string, string> = {
   EMPLOYMENT: "근로계약서", PART_TIME: "단시간근로계약서", CONFIDENTIAL: "비밀유지계약", OTHER: "기타",
 };
-const statusConfig: Record<string, { label: string; variant: any }> = {
-  DRAFT: { label: "초안", variant: "outline" },
-  SENT: { label: "결재 진행 중", variant: "secondary" },
-  APPROVED: { label: "결재 중", variant: "secondary" },
-  SIGNED: { label: "완료", variant: "default" },
-  EXPIRED: { label: "만료", variant: "destructive" },
-  // 반려 — 2026-09-11 부터 최종이 아니다: 관리자가 고쳐(수정) 또는 그대로(재발송) 다시 보낼 수 있다(#206-4)
-  REJECTED: { label: "반려", variant: "destructive" },
+// 상태 알약 — 보낸 계약서(R12)와 같은 이름 · 색(대기 주황 · 체결 파랑 · 반려 분홍 · 초안 · 만료 회색)
+const STATUS_PILL: Record<string, { tone: PillTone; label: string }> = {
+  DRAFT: { tone: "gray", label: "초안" }, SENT: { tone: "wait", label: "서명 대기" }, APPROVED: { tone: "wait", label: "결재 중" },
+  SIGNED: { tone: "done", label: "체결 완료" }, REJECTED: { tone: "rej", label: "반려" }, EXPIRED: { tone: "gray", label: "만료" },
+};
+// 알약 탭(R12 — 전체 · 서명 대기 · 체결 완료 · 반려 · 만료, 초안은 있을 때만). 「mine」 = 숫자 칸 「결재 대기」를 눌렀을 때(내가 승인할 것만)
+type ListTab = "all" | "waiting" | "signed" | "rejected" | "expired" | "draft" | "mine";
+const TAB_STATUS: Record<Exclude<ListTab, "all" | "mine">, string[]> = {
+  waiting: ["SENT", "APPROVED"], signed: ["SIGNED"], rejected: ["REJECTED"], expired: ["EXPIRED"], draft: ["DRAFT"],
 };
 
 function getFileUrl(fileUrl: string): string {
@@ -92,34 +91,28 @@ function recordViewed(id: string) {
   }).catch(() => {});
 }
 
+// 결재 진행 = 사람마다 점 + 이름(R12 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음)
 function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
-  if (!steps || steps.length === 0) return <span className="text-xs text-gray-400">결재선 없음</span>;
-  return (
-    <div className="flex items-center gap-2 flex-wrap text-xs">
-      {steps.map((step, idx) => (
-        <div key={step.id} className="flex items-center gap-1">
-          {idx > 0 && <ArrowRight size={14} className="text-gray-400" />}
-          {step.status === "APPROVED" ? (
-            <CheckCircle2 size={16} className="text-green-600" />
-          ) : step.status === "PENDING" ? (
-            <Clock size={16} className="text-orange-600" />
-          ) : (
-            <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-          )}
-          <span className="font-medium">{step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자")}</span>
-        </div>
-      ))}
-    </div>
-  );
+  if (!steps || steps.length === 0) return <span className="text-[13px] text-[#94a3b8]">결재선 없음</span>;
+  const dots: FlowStep[] = steps.map((step) => ({
+    label: step.approver?.name || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
+    state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
+  }));
+  return <FlowDots steps={dots} />;
+}
+
+// 기한 「MM/DD」(KST) — 진행 중(서명 대기 · 결재 중)일 때만
+function deadlineOf(c: Contract): string | null {
+  if (!c.signDeadline || !(c.status === "SENT" || c.status === "APPROVED")) return null;
+  return new Date(new Date(c.signDeadline).getTime() + 9 * 3600 * 1000).toISOString().slice(5, 10).replace("-", "/");
 }
 
 export default function ManagerContractsPage() {
   const [branch, setBranch] = useState("");
-  const [myName, setMyName] = useState("");
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [myApprovals, setMyApprovals] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState("");
+  const [listTab, setListTab] = useState<ListTab>("all");
   const [search, setSearch] = useState("");
 
   const [signOpen, setSignOpen] = useState(false);
@@ -138,6 +131,10 @@ export default function ManagerContractsPage() {
   const [rejectBusy, setRejectBusy] = useState(false);
   // 저장된 결재 서명 — 있으면 원클릭 승인
   const [mySignatureUrl, setMySignatureUrl] = useState<string | null>(null);
+  // 주소 ?id= — 처음 한 번만 읽어 둔다(목록이 오면 열기 · 강조, 주소에서는 바로 지운다)
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const openDone = useRef(false);   // ?id= 는 한 번만(개발 모드 이중 실행 · 목록 다시 받기에 다시 열리지 않게)
 
   const [myId, setMyId] = useState("");
   const [myRole, setMyRole] = useState("");   // 승인 창 제목·내 단계 이름 — 본부(관리자)가 열면 「본부」(2026-10-21 디렉터 지적)
@@ -146,16 +143,20 @@ export default function ManagerContractsPage() {
       setMyId(d.user?.id || "");
       setMyRole(d.user?.role || "");
       setBranch(d.user?.branch || d.branch || "");
-      setMyName(d.user?.name || "");
       setMySignatureUrl(d.user?.signatureUrl || null);
     }).catch(() => {});
+    const id = new URLSearchParams(window.location.search).get("id");
+    if (id) {
+      window.history.replaceState(null, "", window.location.pathname);   // 한 번만 — 새로고침 · 뒤로 가기에 다시 열리지 않게
+      Promise.resolve().then(() => setOpenId(id));
+    }
   }, []);
 
+  // 상태는 화면에서 거른다(알약 탭 · 숫자 칸이 같은 목록을 센다). 찾기는 서버가(이름 · 서류 이름)
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (filterStatus) params.set("status", filterStatus);
       if (search.trim()) params.set("searchText", search.trim());
       // MANAGER 세션 → API가 자기 지점 직원 계약서만 반환
       const [listRes, apprRes] = await Promise.all([
@@ -169,9 +170,27 @@ export default function ManagerContractsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, search]);
+  }, [search]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void Promise.resolve().then(fetchData); }, [fetchData]);
+
+  // ?id= 처리 — 목록이 처음 온 뒤 한 번. 원장 차례면 승인 전체 창, 지점 목록에 있으면 그 줄 강조 · 스크롤
+  useEffect(() => {
+    if (!openId || loading || openDone.current) return;
+    openDone.current = true;
+    const id = openId;
+    Promise.resolve().then(() => {
+      setOpenId(null);
+      const mine = myApprovals.find((c) => c.id === id);
+      if (mine) { setSignTarget(mine); setSignOpen(true); return; }
+      if (contracts.some((c) => c.id === id)) { setListTab("all"); setHighlightId(id); return; }
+      toast.info("이 계약서는 지점 목록에 없습니다(이미 처리됐거나 볼 수 없는 문서).");
+    });
+  }, [openId, loading, myApprovals, contracts]);
+  useEffect(() => {
+    if (!highlightId) return;
+    document.getElementById("contract-" + highlightId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId, listTab, contracts]);
 
   // 전체 창(시안 v2 6번)에서 승인 — 규칙·API 는 handleApprove 와 같다(서명 그림 또는 저장 서명 + 비밀번호, 문서 버전 묶기)
   async function handleApproveFull(p: SignPayload) {
@@ -214,7 +233,21 @@ export default function ManagerContractsPage() {
     }
   }
 
-  const filteredContracts = useMemo(() => contracts, [contracts]);
+  // 표 · 숫자 칸 · 탭 건수가 같은 목록을 센다 — 지점 목록 + 원장 차례인데 지점 목록에 안 나오는 것(직원전용 · 외부 계약, 맨 위).
+  //   결재 대기 목록은 찾기 없이 받아 오므로 찾기 글자로 여기서 거른다(최종 검증 A · B)
+  const matchSearch = useCallback((c: Contract) => {
+    const q = search.trim().toLowerCase();
+    return !q || c.title.toLowerCase().includes(q) || (c.externalName || c.user.name).toLowerCase().includes(q);
+  }, [search]);
+  const merged = useMemo(() => [...myApprovals.filter((a) => !contracts.some((c) => c.id === a.id) && matchSearch(a)), ...contracts], [myApprovals, contracts, matchSearch]);
+  const countOf = (statuses: string[]) => merged.filter((c) => statuses.includes(c.status)).length;
+  const draftCount = countOf(TAB_STATUS.draft);
+  // 「결재 대기」(mine)는 결재 대기 목록 그대로(직원전용 · 외부 계약처럼 지점 목록에 안 나오는 것도 보인다). 찾기 글자로 한 번 더 거른다
+  const shownContracts = useMemo(() => {
+    if (listTab === "mine") return myApprovals.filter(matchSearch);
+    if (listTab === "all") return merged;
+    return merged.filter((c) => TAB_STATUS[listTab].includes(c.status));
+  }, [listTab, merged, myApprovals, matchSearch]);
 
   // 승인 창 본문 받기(R1) — docx 는 서버 변환 PDF(/api/docs/pdf), PDF 양식은 파일 그대로. 정상 PDF 일 때만 승인 가능
   // 앞 단계 서명이 이미 있으면 서명 반영본(진행본)을 띄운다(2026-10-17). 진행본을 못 받으면 원본으로 — 승인 조건(정상 PDF)은 같다
@@ -245,119 +278,107 @@ export default function ManagerContractsPage() {
   }, [signOpen, signTarget]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // 문서 보기 링크 — 서명이 있으면 지금까지의 서명 반영본(진행본)·완료본으로(원본을 열면 원장이 서명한 뒤에도 서명이 안 보였다, 2026-10-17).
+  // 원장은 열람만(서버가 inline·PDF 로만 준다) — 내려받기 버튼은 두지 않는다(개인정보 보관 방지)
+  const docLinkOf = (c: Contract) => progressHref(c) || (getFileUrl(c.fileUrl) ? viewHref(getFileUrl(c.fileUrl)) : null);
+  const openDoc = (c: Contract) => {
+    const href = docLinkOf(c);
+    if (!href) return;
+    if (progressHref(c)) recordViewed(c.id);
+    window.open(href, "_blank", "noreferrer");
+  };
+
   return (
-    <div className="space-y-6">
-      <PageHead crumb="전자계약 › 지점 계약서" title="지점 계약서" note={`${branch} · 지점 직원 계약서 조회 및 결재`} />
+    <div>
+      <PageHead crumb="전자계약 › 지점 계약서" title="지점 계약서" note={`${branch ? `${branch} · ` : ""}지점 직원 계약서 조회 및 결재`} />
 
-      {/* 내 승인 대기 */}
-      {myApprovals.length > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="text-base text-orange-700">내 결재 대기 ({myApprovals.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {myApprovals.map(c => (
-              <div key={c.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-orange-200">
-                <div className="space-y-1">
-                  <p className="font-medium text-sm">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.externalName ? `[외부] ${c.externalName}` : c.user.name} · {typeLabel[c.type] || c.type}</p>
-                  <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
-                </div>
-                <div className="flex gap-2">
-                  {(progressHref(c) || getFileUrl(c.fileUrl)) && (
-                    <a href={progressHref(c) || viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer" onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>
-                      <Button size="sm" variant="outline" className="gap-1"><Eye size={14} />보기</Button>
-                    </a>
-                  )}
-                  <Button size="sm" className="gap-1" onClick={() => { setSignTarget(c); setSignOpen(true); }}>
-                    <PenLine size={14} />승인
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {/* 숫자 칸(R12) — 옛 주황 「내 결재 대기」 판 대신. 칸을 누르면 아래 표가 그 상태로 걸러진다 */}
+      <Box icon={<FileSignature />} title="계약 현황" sub={search.trim() ? `찾기 「${search.trim()}」 기준` : "전체 기간"}>
+        <Tiles cols={5}>
+          <Tile label="결재 대기" value={loading ? null : myApprovals.length} unit="건" note="내가 승인할 것" alert active={listTab === "mine"} onClick={() => setListTab("mine")} />
+          <Tile label="서명 대기" value={loading ? null : countOf(TAB_STATUS.waiting)} unit="건" note="서명 · 결재 진행 중" active={listTab === "waiting"} onClick={() => setListTab("waiting")} />
+          <Tile label="체결 완료" value={loading ? null : countOf(TAB_STATUS.signed)} unit="건" active={listTab === "signed"} onClick={() => setListTab("signed")} />
+          <Tile label="반려" value={loading ? null : countOf(TAB_STATUS.rejected)} unit="건" active={listTab === "rejected"} onClick={() => setListTab("rejected")} />
+          <Tile label="지점 계약서" value={loading ? null : merged.length} unit="건" note="우리 지점 전체" hl active={listTab === "all"} onClick={() => setListTab("all")} />
+        </Tiles>
+      </Box>
 
-      {/* 전체 목록 */}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><FileSignature size={18} />계약서 목록</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3 mb-4 pb-4 border-b">
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">상태</Label>
-              <Select value={filterStatus || "ALL"} onValueChange={v => setFilterStatus(v === "ALL" ? "" : v)}>
-                <SelectTrigger className="h-8 text-xs w-36"><SelectValue>{({ ALL: "전체", DRAFT: "초안", SENT: "직원 서명 대기", APPROVED: "결재 중", SIGNED: "완료", EXPIRED: "만료", REJECTED: "반려" } as Record<string, string>)[filterStatus || "ALL"] ?? filterStatus}</SelectValue></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">전체</SelectItem>
-                  <SelectItem value="DRAFT">초안</SelectItem>
-                  <SelectItem value="SENT">직원 서명 대기</SelectItem>
-                  <SelectItem value="APPROVED">결재 중</SelectItem>
-                  <SelectItem value="SIGNED">완료</SelectItem>
-                  <SelectItem value="EXPIRED">만료</SelectItem>
-                  <SelectItem value="REJECTED">반려</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1 flex-1 min-w-[200px]">
-              <Label className="text-xs font-medium">검색</Label>
-              <Input className="h-8 text-xs" placeholder="제목 · 이름으로 찾기" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
+      <PillTabs value={listTab === "mine" ? "" : listTab} onChange={(k) => setListTab(k as ListTab)} tabs={[
+        { key: "all", label: "전체" },
+        { key: "waiting", label: "서명 대기", count: countOf(TAB_STATUS.waiting) },
+        { key: "signed", label: "체결 완료" },
+        { key: "rejected", label: "반려", count: countOf(TAB_STATUS.rejected) },
+        { key: "expired", label: "만료" },
+        // 초안은 원장이 직접 만든 것만 보인다 — 있을 때만 탭을 둔다
+        ...(draftCount > 0 || listTab === "draft" ? [{ key: "draft", label: "초안", count: draftCount }] : []),
+      ]} />
+
+      {/* 계약서 목록(R12) — 처리: 원장 차례 = 인디고 「열기」(승인 전체 창), 나머지 = 흰 「보기」(열람만) */}
+      <Box icon={<FileSignature />} tone="sky" title="계약서 목록"
+        sub={loading ? "불러오는 중…" : `${listTab === "mine" ? "내가 승인할 것만 · " : ""}${shownContracts.length}건`}
+        right={listTab === "mine" ? <Btn kind="text" onClick={() => setListTab("all")}>전체 보기</Btn> : undefined}>
+        <FilterRow>
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+            <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="이름 · 서류 이름으로 찾기" aria-label="찾기"
+              className={`${inputClass} w-64 pl-8`} />
           </div>
+        </FilterRow>
 
-          {loading ? (
-            <div className="py-12 text-center text-gray-500">불러오는 중...</div>
-          ) : filteredContracts.length === 0 ? (
-            <div className="py-12 text-center text-gray-500">계약서가 없습니다.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b text-left text-gray-600">
-                  <tr>
-                    <th className="pb-3 font-medium">직원</th>
-                    <th className="pb-3 font-medium">제목</th>
-                    <th className="pb-3 font-medium">상태</th>
-                    <th className="pb-3 font-medium">결재 진행</th>
-                    <th className="pb-3 font-medium text-right">처리</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {filteredContracts.map(c => {
-                    const sc = statusConfig[c.status] || { label: c.status, variant: "outline" };
-                    return (
-                      <tr key={c.id} className="hover:bg-gray-50">
-                        <td className="py-3">
-                          <div className="font-medium">{c.externalName ? `[외부] ${c.externalName}` : c.user.name}</div>
-                          <div className="text-xs text-gray-400">{c.externalName ? "외부 계약자" : c.user.branch}</div>
-                        </td>
-                        <td className="py-3">
-                          <div>{c.title}</div>
-                          <div className="text-xs text-gray-400">{typeLabel[c.type] || c.type}</div>
-                        </td>
-                        <td className="py-3"><Badge variant={sc.variant}>{sc.label}</Badge></td>
-                        <td className="py-3"><ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} /></td>
-                        <td className="py-3 text-right">
-                          <div className="flex gap-2 justify-end">
-                            {/* 서명이 있으면 지금까지의 서명 반영본(진행본)·완료본으로 — 원본을 열면 원장이 서명한 뒤에도 서명이 안 보였다(2026-10-17).
-                                원장은 열람만(서버가 inline·PDF 로만 준다) — 내려받기 버튼은 두지 않는다(개인정보 보관 방지) */}
-                            {(progressHref(c) || getFileUrl(c.fileUrl)) && (
-                              <a href={progressHref(c) || viewHref(getFileUrl(c.fileUrl))} target="_blank" rel="noreferrer"
-                                 title={progressHref(c) ? (c.status === "SIGNED" ? "완료본 보기" : "서명 진행본 보기") : "원본 보기"}
-                                 onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>
-                                <Button size="sm" variant="outline"><Eye size={14} /></Button>
-                              </a>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {loading ? (
+          <p className="px-6 py-10 text-center text-[14px] text-[#596578]">불러오는 중…</p>
+        ) : shownContracts.length === 0 ? (
+          <p className="px-6 py-10 text-center text-[14px] text-[#596578]">{listTab === "mine" ? "내가 승인할 계약서가 없습니다" : "계약서가 없습니다"}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead>
+                <tr>
+                  <th>직원</th>
+                  <th>서류</th>
+                  <th>상태</th>
+                  <th>결재 진행</th>
+                  <th>기한</th>
+                  <th className="text-right">처리</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shownContracts.map(c => {
+                  const pill = STATUS_PILL[c.status] || { tone: "gray" as PillTone, label: c.status };
+                  const mine = myApprovals.find((a) => a.id === c.id);   // 원장 결재 차례 = 인디고 「열기」 — 결재 대기 쪽 항목(문서 버전 · 요약 칸)으로 연다
+                  const link = docLinkOf(c);
+                  const due = deadlineOf(c);
+                  return (
+                    <tr key={c.id} id={"contract-" + c.id} className={highlightId === c.id ? "bg-[#eef2ff]" : "hover:bg-[#fafbfd]"}>
+                      <td><Cell2 main={c.externalName ? `[외부] ${c.externalName}` : c.user.name} sub={(c.externalName ? "외부 계약자" : c.user.branch) || undefined} /></td>
+                      <td>
+                        <span className="text-[#0f172a]">{c.title}</span>
+                        <span className="block text-[12.5px] text-[#596578]">{typeLabel[c.type] || c.type}</span>
+                      </td>
+                      <td><StatusPill tone={pill.tone}>{pill.label}</StatusPill></td>
+                      <td><ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} /></td>
+                      <td className="whitespace-nowrap">{due ? <span className="text-[#475569]">{due}</span> : <span className="text-[#94a3b8]">—</span>}</td>
+                      <td className="whitespace-nowrap text-right">
+                        <span className="inline-flex items-center gap-1">
+                          {mine ? (
+                            <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => { setSignTarget(mine); setSignOpen(true); }}>열기</Btn>
+                          ) : link ? (
+                            <a href={link} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")}
+                              title={progressHref(c) ? (c.status === "SIGNED" ? "완료본 보기" : "서명 진행본 보기") : "원본 보기"}
+                              onClick={() => { if (progressHref(c)) recordViewed(c.id); }}>보기</a>
+                          ) : null}
+                          {/* 원장 차례인 줄 — 승인 창 밖에서 문서만 먼저 볼 때(옛 「내 결재 대기」 판의 「보기」) */}
+                          <MoreMenu items={[{ label: "문서 보기", hidden: !mine || !link, onClick: () => openDoc(c) }]} />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Box>
 
       {/* 승인 — 전체 창(2026-10-20 시안 v2 6번). 왼쪽 쪽 목록 · 가운데 A4 한 쪽씩 · 오른쪽 승인 정보, 마지막 쪽까지 봐야 승인 */}
       {signOpen && signTarget && (
@@ -387,7 +408,7 @@ export default function ManagerContractsPage() {
           <div className="space-y-3">
             <div className="text-sm text-gray-700">
               <div className="font-medium">{signTarget?.title}</div>
-              <p className="mt-2 text-red-600">
+              <p className="mt-2 text-[#be123c]">
                 반려하면 결재가 멈추고 작성자·당사자에게 사유가 전달됩니다. 관리자가 내용을 고쳐 다시 보내면 1단계부터 다시 진행됩니다.
               </p>
             </div>
@@ -400,10 +421,10 @@ export default function ManagerContractsPage() {
             </div>
           </div>
           <div className="flex gap-2 justify-end pt-2">
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>취소</Button>
-            <Button variant="destructive" disabled={!rejectReason.trim() || rejectBusy} onClick={handleReject}>
+            <Btn onClick={() => setRejectOpen(false)}>닫기</Btn>
+            <Btn kind="primary" disabled={!rejectReason.trim() || rejectBusy} onClick={handleReject}>
               {rejectBusy ? "처리 중..." : "반려하기"}
-            </Button>
+            </Btn>
           </div>
         </DialogContent>
       </Dialog>

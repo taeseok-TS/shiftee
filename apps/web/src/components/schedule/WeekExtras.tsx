@@ -39,7 +39,7 @@ export function LeaveChips({ data, userId, date, compact = false }: { data: Rang
     return (
       <div className="flex flex-wrap gap-0.5 mb-0.5">
         {list.map((l, i) => (
-          <span key={i} title={l.label} className="px-1 rounded bg-green-100 border border-green-300 text-[10px] font-medium text-green-800 leading-4">
+          <span key={i} title={l.label} className="px-1 rounded bg-[#eff6ff] border border-[#bfdbfe] text-[10px] font-medium text-[#1d4ed8] leading-4">
             {l.label.slice(0, 2)}
           </span>
         ))}
@@ -49,7 +49,7 @@ export function LeaveChips({ data, userId, date, compact = false }: { data: Rang
   return (
     <div className="space-y-1 mb-1">
       {list.map((l, i) => (
-        <div key={i} className="px-2 py-1 rounded bg-green-100 border border-green-300 text-[11px] font-medium text-green-800">
+        <div key={i} className="px-2 py-1 rounded bg-[#eff6ff] border border-[#bfdbfe] text-[11px] font-medium text-[#1d4ed8]">
           {l.label}
         </div>
       ))}
@@ -96,7 +96,7 @@ export function WeekTotalCell({ data, userId }: { data: WeekHours | null; userId
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
       <div>일정 {h(wh?.sched ?? 0)}</div>
       <div className="mt-0.5">실제 {h(wh?.actual ?? 0)}</div>
-      {over && <div className="mt-0.5">⚠49h 초과</div>}
+      {over && <div className="mt-0.5">49h 초과</div>}
     </div>
   );
 }

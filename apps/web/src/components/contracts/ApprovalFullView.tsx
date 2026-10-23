@@ -151,7 +151,7 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
               {row("서류", c.docLabel)}
               {c.period && row("계약 기간", c.period)}
             </div>
-            {c.sendMessage && <p className="mt-2 rounded bg-indigo-50 px-2 py-1.5 text-xs text-indigo-800 whitespace-pre-wrap">💬 본부 메시지 · {c.sendMessage}</p>}
+            {c.sendMessage && <p className="mt-2 rounded bg-indigo-50 px-2 py-1.5 text-xs text-indigo-800 whitespace-pre-wrap">본부 메시지 · {c.sendMessage}</p>}
           </section>
           {!!Object.keys(c.summaryFields || {}).length && (
             <section className={card}>

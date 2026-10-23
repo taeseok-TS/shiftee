@@ -1,25 +1,25 @@
 "use client";
-
+// 원장 「결재 › 결재함」(탭 휴가 · 근무일정 · 휴가 취소 · 출퇴근 요청)과 「휴가 › 지점 휴가」(?tab=history) — 본부 시안 R11 · R13(2026-10-21 「디자인 통일」).
+//  · 결재함 = 관리자 결재함(R11)과 같은 모양: 알약 탭 한 줄 · 박스 안 표 · 줄마다 흰 「거절」 + 인디고 「승인」(의견은 승인 확인 창에 선택 입력), 「신청 취소」는 ⋮ 안
+//  · 지점 휴가 = 휴가 관리(R13)와 같은 표(범위 우리 지점): 숫자 칸 · 상태 알약 · 결재 점. 원장 차례인 대기 건은 그 줄에서 바로 승인 · 거절
+//  · 원장대행으로 들어온 직원(/approvals)은 결재만 — 지점 휴가는 숨긴다(2026-10-07 #3)
 import { LEAVE_LABELS } from "@/lib/leave-catalog";
 import { useLeaveCatalog } from "@/components/leave/useLeaveCatalog";
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Check, X, AlertCircle, ChevronRight, Search, Loader2, Calendar, UmbrellaOff,
-} from "lucide-react";
+import { CheckSquare, CalendarDays, UmbrellaOff, Search } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
 import AttendanceRequestInbox from "@/components/attendance/AttendanceRequestInbox";
 import { postLeaveApprove } from "@/lib/leave-approve-client";
+import {
+  PageHead, Btn, Box, Tiles, Tile, PillTabs, FilterRow, Chip, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu,
+  type FlowStep, type MoreItem, type PillTab,
+} from "@/components/kit";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -39,6 +39,19 @@ function stepLabel(s: ApprovalStep): string {
   if (s.approverRole === "ADMIN") return "관리자";
   return "결재자";
 }
+// 결재 진행 점(끝남 파랑 · 지금 차례 주황 · 남음 회색) + 결재자 의견 줄 — 옛 초록 · 주황 글자 알약 대신(R11 · R13)
+const dotsOf = (steps: ApprovalStep[] | undefined): FlowStep[] =>
+  (steps ?? []).map((s) => ({ label: stepLabel(s), state: s.status === "APPROVED" ? "done" : s.status === "PENDING" ? "now" : "todo" }));
+const commentsOf = (steps: ApprovalStep[] | undefined) => (steps ?? []).filter((s) => s.comment).map((s) => `${stepLabel(s)}: ${s.comment}`);
+function Flow({ steps }: { steps?: ApprovalStep[] }) {
+  const dots = dotsOf(steps);
+  return (
+    <>
+      {dots.length ? <FlowDots steps={dots} /> : <span className="text-[#94a3b8]">—</span>}
+      {commentsOf(steps).map((c, i) => <span key={i} className="block text-[12px] text-[#596578]">의견 · {c}</span>)}
+    </>
+  );
+}
 
 type LeaveRequest = {
   id: string;
@@ -48,8 +61,8 @@ type LeaveRequest = {
   days: number;
   reason: string | null;
   status: string;
-  user: { name: string; department: string | null; position: string | null };
-  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
+  user: { name: string; department: string | null; position: string | null; branch?: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소를 보인다
   approvalSteps?: ApprovalStep[];
   attachmentUrl?: string | null;   // 신청 때 붙인 증빙(선택) — /api/leave/my-approvals 가 그대로 내려준다
   attachmentName?: string | null;
@@ -62,7 +75,7 @@ type LeaveApprovalStep = {
   leaveRequest: LeaveRequest;
 };
 
-// 휴가 내역 탭 — GET /api/leave (원장이면 담당 지점). canCancel 은 서버가 판정해 내려준다
+// 지점 휴가(휴가 내역) — GET /api/leave (원장이면 담당 지점). canCancel 은 서버가 판정해 내려준다
 type HistoryLeave = {
   id: string;
   type: string;
@@ -79,16 +92,14 @@ type HistoryLeave = {
   attachmentName?: string | null;
 };
 
-// 휴가 증빙 링크(결재 대기·진행 중 목록 공용) — 결재 화면과 같은 주소를 그대로 연다(2026-10-19 디렉터).
+// 휴가 증빙 링크(결재 대기·지점 휴가 공용) — 결재 화면과 같은 주소를 그대로 연다(2026-10-19 디렉터).
 // 열람 권한은 /uploads 쪽 lib/work-file-access 가 판정한다 — 담당 지점 밖 직원의 첨부는 원장에게 열리지 않는다.
 // 휴가 한 건에 첨부는 하나다.
 function LeaveAttachLink({ url, name }: { url?: string | null; name?: string | null }) {
   if (!url) return null;
   return (
-    <div className="mt-1">
-      <a href={url} target="_blank" rel="noreferrer" title={name || "첨부 보기"}
-        className="text-xs text-blue-600 hover:underline whitespace-nowrap">📎 첨부 1</a>
-    </div>
+    <a href={url} target="_blank" rel="noreferrer" title={name || "첨부 보기"}
+      className="mt-0.5 block whitespace-nowrap text-[12.5px] font-semibold text-[#4f46e5] hover:underline">첨부 1</a>
   );
 }
 
@@ -100,8 +111,8 @@ type ScheduleRequest = {
   endDate: string;
   totalHours: number;
   status: string;
-  user: { id: string; name: string; department: string | null; position: string | null };
-  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소 버튼을 그린다
+  user: { id: string; name: string; department: string | null; position: string | null; branch?: string | null };
+  canCancel?: boolean;   // 서버 판정(lib/leave-cancel.ts) — 이 값으로만 취소를 보인다
   approvalSteps?: ApprovalStep[];
 };
 
@@ -123,6 +134,19 @@ const CANCEL_BLOCK_LABEL: Record<string, string> = {
   MAIN_ONLY: "메인 원장만 취소 가능",
 };
 
+// 기간 표시 — 하루면 「10월 23일 (목)」, 여러 날이면 「10월 23일 ~ 10월 25일」(저장 시각 그대로 읽던 옛 표시와 같은 기준)
+const md = (iso: string) => format(new Date(iso), "M월 d일 (EEE)", { locale: ko });
+const rangeOf = (s: string, e: string) => (s.slice(0, 10) === e.slice(0, 10) ? md(s) : `${format(new Date(s), "M월 d일", { locale: ko })} ~ ${format(new Date(e), "M월 d일", { locale: ko })}`);
+
+/** 결재 대기 표 · 카드 한 줄(휴가 · 근무일정 공용) */
+type DecideRow = {
+  key: string; kind: "leave" | "schedule"; id: string; domId: string; cardId: string;
+  name: string; nameSub: string; typeLabel: string; attach?: { url?: string | null; name?: string | null };
+  period: string; periodSub: string; steps?: ApprovalStep[]; more: MoreItem[];
+};
+
+type TabKey = "leave" | "schedule" | "history" | "cancel" | "attendance";
+
 /* ── 원장 결재 페이지 ── */
 export default function ManagerApprovalsPage() {
   useLeaveCatalog();   // 본부가 만든 휴가 유형 이름을 받아 다시 그린다(#216-1)
@@ -134,15 +158,22 @@ export default function ManagerApprovalsPage() {
   const [searchDate, setSearchDate] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
-  // 의견 남기고 승인(2026-10-07 #64) — 승인 버튼은 그대로 한 번, 의견이 있을 때만 이 창
-  const [noteTarget, setNoteTarget] = useState<{ id: string; type: "leave" | "schedule" } | null>(null);
+  const [rejectKind, setRejectKind] = useState<"leave" | "schedule">("leave");   // 거절할 건의 종류 — 탭과 따로 둔다(지점 휴가 줄에서도 거절한다)
+  const [rejectTitle, setRejectTitle] = useState("");
+  // 승인 확인 — 의견은 선택(옛 「의견」 버튼 대신, 시안 R11 · 2026-10-07 #64 의견 남기고 승인)
+  const [approveTarget, setApproveTarget] = useState<{ id: string; type: "leave" | "schedule"; title: string } | null>(null);
   const [noteText, setNoteText] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   // 메일의 "승인하기" 로 들어오면(?id=…) 그 건으로 스크롤·강조한다
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // 오늘(KST 기기 날짜) — 지점 휴가 「오늘 휴가」 칸. 그리는 중에 시계를 읽지 않게 처음 한 번 받아 둔다
+  const [today, setToday] = useState("");
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id");
-    if (id) setHighlightId(id);
+    Promise.resolve().then(() => {
+      if (id) setHighlightId(id);
+      setToday(format(new Date(Date.now()), "yyyy-MM-dd"));
+    });
   }, []);
   useEffect(() => {
     if (!highlightId) return;
@@ -153,10 +184,10 @@ export default function ManagerApprovalsPage() {
     // 의존성 배열이 없으면 **매 렌더마다** 스크롤한다 — 짝인 admin/leave-approvals 와 같게 둔다
   }, [highlightId, leaveSteps]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [activeTab, setActiveTabState] = useState("leave");
+  const [activeTab, setActiveTabState] = useState<TabKey>("leave");
   // 탭 = 주소 ?tab= (R8 검증 2 — 「휴가 내역」 탭은 레일 「휴가 › 지점 휴가」, 나머지는 「결재 › 결재함」). 다른 쿼리(?id= 강조)는 그대로 둔다
   const setActiveTab = (t: string) => {
-    setActiveTabState(t);
+    setActiveTabState(t as TabKey);
     const q = new URLSearchParams(window.location.search);
     if (t === "leave") q.delete("tab"); else q.set("tab", t);
     const qs = q.toString();
@@ -176,7 +207,7 @@ export default function ManagerApprovalsPage() {
   // 대시보드·알림에서 ?tab=cancel 처럼 들어오면 그 탭을 연다(관리자 대시보드 "휴가 취소 승인 대기" 줄)
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t && ["leave", "schedule", "history", "cancel", "attendance"].includes(t)) setActiveTabState(t);
+    if (t && ["leave", "schedule", "history", "cancel", "attendance"].includes(t)) Promise.resolve().then(() => setActiveTabState(t as TabKey));
   }, []);
   useEffect(() => {
     fetch("/api/leave/cancel-requests/my-approvals")
@@ -186,8 +217,9 @@ export default function ManagerApprovalsPage() {
   }, []);
   const [history, setHistory] = useState<HistoryLeave[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyStatus, setHistoryStatus] = useState<"all" | "PENDING" | "APPROVED">("all");   // 지점 휴가 오른쪽 알약 필터(R13)
   const [myId, setMyId] = useState("");
-  // 원장대행으로 들어온 직원(/approvals) — 결재만 하고, 팀 휴가 내역은 원장 화면 몫이라 숨긴다(2026-10-07 #3)
+  // 원장대행으로 들어온 직원(/approvals) — 결재만 하고, 지점 휴가 내역은 원장 화면 몫이라 숨긴다(2026-10-07 #3)
   const [myRole, setMyRole] = useState("");
   const delegateOnly = myRole === "EMPLOYEE";
 
@@ -257,8 +289,10 @@ export default function ManagerApprovalsPage() {
   }, []);
 
   useEffect(() => {
-    fetchApprovals();
-    fetchHistory();
+    Promise.resolve().then(() => {
+      fetchApprovals();
+      fetchHistory();
+    });
   }, [fetchApprovals, fetchHistory]);
 
   // 검색 필터링
@@ -287,9 +321,10 @@ export default function ManagerApprovalsPage() {
       return nameMatch && dateMatch;
     });
   }, [history, searchName, searchDate]);
-
-  // 승인/거절 처리
-
+  const shownHistory = useMemo(
+    () => (historyStatus === "all" ? filteredHistory : filteredHistory.filter((r) => r.status === historyStatus)),
+    [filteredHistory, historyStatus],
+  );
 
   // 휴가 신청 취소 — 근무일정과 **같은 기준**이다(원장은 담당 지점 직원의 건, 서버가 재확인).
   // 근무일정에만 붙이고 휴가를 빠뜨렸던 것을 맞춘다(2026-09-09 검증에서 적발).
@@ -373,7 +408,7 @@ export default function ManagerApprovalsPage() {
       } else if (!r.cancelled) {
         toast.error(r.error);
       }
-    } catch (error) {
+    } catch {
       toast.error("오류가 발생했습니다");
     } finally {
       setProcessingId(null);
@@ -410,7 +445,7 @@ export default function ManagerApprovalsPage() {
         const data = await res.json();
         toast.error(data.error || "거절 처리 중 오류가 발생했습니다");
       }
-    } catch (error) {
+    } catch {
       toast.error("오류가 발생했습니다");
     } finally {
       setProcessingId(null);
@@ -419,645 +454,312 @@ export default function ManagerApprovalsPage() {
 
   const totalCount = filteredLeaveSteps.length + filteredScheduleSteps.length + cancelCount + attReqCount;
 
-  /* ── 표·카드 공용 칸(2026-10-16 이예지 QA #219-16 — 휴대폰 390px 에서 결재·처리 칸이 잘렸다). 원래 표 칸 내용 그대로이고, 넓은 화면은 표·휴대폰(md 미만)은 카드로 같은 칸을 보인다 — 버튼 동작·조건은 여기 하나 ── */
-  const leaveStepCells = (step: LeaveApprovalStep) => {
+  // 승인 · 거절 창 열기(결재 대기 표 · 지점 휴가 표 공용)
+  const askApprove = (id: string, type: "leave" | "schedule", title: string) => { setNoteText(""); setApproveTarget({ id, type, title }); };
+  const askReject = (id: string, type: "leave" | "schedule", title: string) => { setRejectReason(""); setRejectingId(id); setRejectKind(type); setRejectTitle(title); setRejectOpen(true); };
+
+  /* ── 결재 대기 줄(휴가 · 근무일정) — 표 · 휴대폰 카드가 같은 줄을 쓴다(2026-10-16 이예지 QA #219-16 — 390px 에서 처리 칸이 잘렸다) ── */
+  const leaveRows: DecideRow[] = filteredLeaveSteps.map((step) => {
     const req = step.leaveRequest;
-    const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
-    const startDate = new Date(req.startDate);
-    const endDate = new Date(req.endDate);
-    const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
+    return {
+      key: step.id, kind: "leave", id: req.id, domId: "leave-" + req.id, cardId: "leave-card-" + req.id,
+      name: req.user.name, nameSub: [req.user.branch, req.user.position].filter(Boolean).join(" · ") || "-",
+      typeLabel: LEAVE_TYPE_LABEL[req.type] || req.type, attach: { url: req.attachmentUrl, name: req.attachmentName },
+      period: rangeOf(req.startDate, req.endDate), periodSub: `${req.days}일${req.reason ? ` · 사유 ${req.reason}` : ""}`,
+      steps: req.approvalSteps,
+      // 신청 자체를 거둔다(반려와 달리 결재 기록에 남지 않는다) — 서버 판정(canCancel)으로만
+      more: [{ label: "신청 취소", danger: true, hidden: !req.canCancel, onClick: () => void handleCancelLeave(req.id, req.user.name) }],
+    };
+  });
+  const scheduleRows: DecideRow[] = filteredScheduleSteps.map((step) => {
+    const req = step.scheduleRequest;
+    return {
+      key: step.id, kind: "schedule", id: req.id, domId: "schedule-" + req.id, cardId: "schedule-card-" + req.id,
+      name: req.user.name, nameSub: [req.user.branch, req.user.position].filter(Boolean).join(" · ") || "-",
+      typeLabel: "근무일정",
+      period: rangeOf(req.startDate, req.endDate), periodSub: `계획 ${req.totalHours}시간 · ${req.templateName}`,
+      steps: req.approvalSteps,
+      more: [{ label: "신청 취소", danger: true, hidden: !req.canCancel, onClick: () => void handleCancelSchedule(req.id, req.user.name) }],
+    };
+  });
 
-    return [
-      <>
-        <div className="font-medium text-gray-900">{req.user.name}</div>
-        <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
-      </>,
-      <>
-        <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
-        <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
-      </>,
-      <>
-        <div>{dateRange}</div>
-        <div className="text-xs text-gray-500">{req.days}일</div>
-      </>,
-      <>
-        {req.reason || "-"}
-      </>,
-      <>
-        <div className="flex items-center gap-1 text-xs flex-wrap">
-          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-            {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
-          </span>
-          {req.approvalSteps?.map((s, idx) => (
-            <span key={s.id} className="flex items-center gap-1">
-              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-              <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
-                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                "bg-gray-100 text-gray-600"
-              }`}>
-                {stepLabel(s)}{s.comment ? " 💬" : ""}
-              </span>
-            </span>
-          ))}
-        </div>
-        {(req.approvalSteps ?? []).some((x) => x.comment) && (
-          <div className="mt-1 space-y-0.5">
-            {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
-              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-            ))}
-          </div>
-        )}
-      </>,
-      <>
-        <div className="flex gap-2 justify-end">
-          {req.canCancel && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-gray-500 hover:bg-gray-100"
-            disabled={processingId === req.id}
-            title="신청 자체를 거둡니다 (반려와 달리 결재 기록에 남지 않습니다)"
-            onClick={() => handleCancelLeave(req.id, req.user.name)}
-          >
-            취소
-          </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-green-600 hover:bg-green-50"
-            disabled={processingId === req.id}
-            onClick={() => handleApprove(req.id, "leave")}
-          >
-            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            승인
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-gray-500 hover:bg-gray-100"
-            disabled={processingId === req.id}
-            title="의견을 남기고 승인합니다"
-            onClick={() => { setNoteTarget({ id: req.id, type: "leave" }); setNoteText(""); }}
-          >
-            의견
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-red-600 hover:bg-red-50"
-            disabled={processingId === req.id}
-            onClick={() => {
-              setRejectingId(req.id);
-              setActiveTab("leave");
-              setRejectOpen(true);
-            }}
-          >
-            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
-            거절
-          </Button>
-        </div>
-      </>,
-    ] as const;
-  };
-  /* ── 진행·예정 휴가 칸 — 위와 같이 표·카드 공용(#219-16) ── */
-  const historyCells = (req: HistoryLeave) => {
-    const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
-    const dateRange = `${format(new Date(req.startDate), "MM월 dd일", { locale: ko })} ~ ${format(new Date(req.endDate), "MM월 dd일", { locale: ko })}`;
-    const approved = req.status === "APPROVED";
-    return [
-      <>
-        <div className="font-medium text-gray-900">{req.user.name}</div>
-        <div className="text-xs text-gray-500">{req.user.branch || "-"}</div>
-      </>,
-      <>
-        <Badge variant="outline" className="bg-blue-50">{typeLabel}</Badge>
-        <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
-      </>,
-      <>
-        <div>{dateRange}</div>
-        <div className="text-xs text-gray-500">{req.days}일</div>
-      </>,
-      <>
-        <Badge variant="outline" className={approved ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}>
-          {approved ? "승인" : "진행 중"}
-        </Badge>
-        {req.pendingCancel && <div className="text-xs text-amber-700 mt-1">취소 결재 중</div>}
-      </>,
-      <>
-        <div className="flex items-center gap-1 text-xs flex-wrap">
-          <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-            {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
-          </span>
-          {req.approvalSteps?.map((s, idx) => (
-            <span key={s.id} className="flex items-center gap-1">
-              {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-              <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
-                s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                "bg-gray-100 text-gray-600"
-              }`}>
-                {stepLabel(s)}{s.comment ? " 💬" : ""}
-              </span>
-            </span>
-          ))}
-        </div>
-        {(req.approvalSteps ?? []).some((x) => x.comment) && (
-          <div className="mt-1 space-y-0.5">
-            {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
-              <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-            ))}
-          </div>
-        )}
-      </>,
-      <>
-        {req.canCancel ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-gray-500 hover:bg-gray-100"
-            disabled={processingId === req.id}
-            title="신청 자체를 거둡니다"
-            onClick={() => handleCancelLeave(req.id, req.user.name, approved, req.user.id)}
-          >
-            {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : null}
-            취소
-          </Button>
-        ) : (
-          <span className="text-xs text-gray-400">{CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "-"}</span>
-        )}
-      </>,
-    ] as const;
-  };
-  return (
-    <div className="space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
-          {/* 제목 = 메뉴 이름(R8 — 원장 결재 › 결재함, 「휴가 내역」 탭 = 휴가 › 지점 휴가) */}
-          <p className="text-xs text-[#596578]">{activeTab === "history" && !delegateOnly ? "휴가 › 지점 휴가" : "결재 › 결재함"}</p>
-          <h1 className="mt-0.5 text-[26px] font-bold leading-tight text-[#0f172a]">{activeTab === "history" && !delegateOnly ? "지점 휴가" : "결재함"}</h1>
-          <p className="mt-1 text-[13px] text-[#596578]">{delegateOnly ? "원장대행 — 지정된 지점의 휴가 · 근무일정 · 출퇴근 결재" : `${branch} · 지점 직원의 휴가 · 근무일정 · 출퇴근 결재`}</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-600">
-            대기 중: <span className="font-semibold text-amber-600">{totalCount}건</span>
-          </div>
-        </div>
+  const decideActions = (r: DecideRow) => (
+    <span className="inline-flex items-center gap-1.5">
+      <Btn className="px-3.5 py-1.5" disabled={processingId === r.id} onClick={() => askReject(r.id, r.kind, `${r.name} — ${r.typeLabel} ${r.period}`)}>거절</Btn>
+      <Btn kind="primary" className="px-3.5 py-1.5" disabled={processingId === r.id} onClick={() => askApprove(r.id, r.kind, `${r.name} — ${r.typeLabel} ${r.period}`)}>
+        {processingId === r.id ? "처리 중…" : "승인"}
+      </Btn>
+      <MoreMenu items={r.more} />
+    </span>
+  );
+
+  // 찾기 줄 — 탭마다 같은 줄(출퇴근 요청은 이름만 찾는다 — 그 목록은 날짜로 거르지 않는다)
+  const filters = (withDate: boolean, right?: ReactNode) => (
+    <FilterRow right={right}>
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+        <input type="search" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="직원 이름으로 찾기" aria-label="직원 이름"
+          className={`${inputClass} w-52 pl-8`} />
       </div>
+      {withDate && <input type="date" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
+      {(searchName || (withDate && searchDate)) && <Btn kind="text" onClick={() => { setSearchName(""); setSearchDate(""); }}>초기화</Btn>}
+    </FilterRow>
+  );
+  const emptyLine = (text: string) => <p className="px-6 py-10 text-center text-[14px] text-[#596578]">{text}</p>;
 
-      {/* 검색 영역 */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm mb-2 block">직원명 검색</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 text-gray-400" size={16} />
-                <Input
-                  placeholder="직원 이름으로 검색..."
-                  value={searchName}
-                  onChange={(e) => setSearchName(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+  const decideTable = (rows: DecideRow[], total: number, emptyText: string) => (
+    loading ? emptyLine("불러오는 중…")
+    : rows.length === 0 ? emptyLine(total === 0 ? emptyText : "검색 결과가 없습니다")
+    : (<>
+      {/* 넓은 화면 = 표 */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className={tableClass}>
+          <thead>
+            <tr><th>직원</th><th>종류</th><th>기간</th><th>결재 진행</th><th className="text-right">처리</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} id={r.domId} className={highlightId === r.id ? "bg-[#eef2ff]" : "hover:bg-[#fafbfd]"}>
+                <td><Cell2 main={r.name} sub={r.nameSub} /></td>
+                <td>
+                  <StatusPill tone="wait">{r.typeLabel}</StatusPill>
+                  <LeaveAttachLink url={r.attach?.url} name={r.attach?.name} />
+                </td>
+                <td className="max-w-[22rem]">
+                  <span className="text-[#0f172a]">{r.period}</span>
+                  <span className="block truncate text-[12.5px] text-[#596578]" title={r.periodSub}>{r.periodSub}</span>
+                </td>
+                <td><Flow steps={r.steps} /></td>
+                <td className="whitespace-nowrap text-right">{decideActions(r)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* 휴대폰 = 카드 */}
+      <div className="space-y-2 p-3 md:hidden">
+        {rows.map((r) => (
+          <div key={r.key} id={r.cardId} className={`rounded-xl border border-[#eef1f5] p-3 ${highlightId === r.id ? "bg-[#eef2ff]" : "bg-white"}`}>
+            <div className="flex items-start justify-between gap-2">
+              <Cell2 main={r.name} sub={r.nameSub} />
+              <div className="text-right"><StatusPill tone="wait">{r.typeLabel}</StatusPill><LeaveAttachLink url={r.attach?.url} name={r.attach?.name} /></div>
             </div>
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm mb-2 block">날짜 검색</Label>
-              <Input
-                type="date"
-                value={searchDate}
-                onChange={(e) => setSearchDate(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchName("");
-                  setSearchDate("");
-                }}
-              >
-                초기화
-              </Button>
-            </div>
+            <p className="mt-1.5 text-[14px] text-[#0f172a]">{r.period}</p>
+            <p className="text-[12.5px] text-[#596578]">{r.periodSub}</p>
+            {(r.steps ?? []).length > 0 && <div className="mt-1.5"><Flow steps={r.steps} /></div>}
+            <div className="mt-2 flex justify-end">{decideActions(r)}</div>
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
+    </>)
+  );
 
-      {/* 탭 */}
-      <Tabs value={delegateOnly && activeTab === "history" ? "leave" : activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${delegateOnly ? "grid-cols-4" : "grid-cols-5"}`}>
-          <TabsTrigger value="leave" className="flex items-center gap-2">
-            <UmbrellaOff size={16} />
-            휴가 ({filteredLeaveSteps.length})
-          </TabsTrigger>
-          <TabsTrigger value="schedule" className="flex items-center gap-2">
-            <Calendar size={16} />
-            근무일정 ({filteredScheduleSteps.length})
-          </TabsTrigger>
-          {!delegateOnly && (
-            <TabsTrigger value="history" className="flex items-center gap-2">
-              <UmbrellaOff size={16} />
-              휴가 내역 ({filteredHistory.length})
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="cancel" className="flex items-center gap-2">
-            휴가 취소 ({cancelCount})
-          </TabsTrigger>
-          <TabsTrigger value="attendance" className="flex items-center gap-2">
-            출퇴근 요청 ({attReqCount})
-          </TabsTrigger>
-        </TabsList>
+  /* ── 지점 휴가 줄(R13) — 상태 알약 · 처리. 원장 차례인 대기 건은 승인 · 거절 두 개, 나머지는 ⋮(첨부 · 신청 취소) 또는 못 하는 이유 ── */
+  const myTurnIds = useMemo(() => new Set(leaveSteps.map((s) => s.leaveRequest.id)), [leaveSteps]);
+  const historyStatusPill = (req: HistoryLeave) => (
+    <>
+      <StatusPill tone={req.status === "APPROVED" ? "done" : "wait"}>{req.status === "APPROVED" ? "승인" : "진행 중"}</StatusPill>
+      {req.pendingCancel && <span className="mt-0.5 block whitespace-nowrap text-[12px] font-semibold text-[#b45309]">취소 결재 중</span>}
+    </>
+  );
+  const historyActions = (req: HistoryLeave) => {
+    const approved = req.status === "APPROVED";
+    const myTurn = req.status === "PENDING" && myTurnIds.has(req.id);
+    const typeLabel = LEAVE_TYPE_LABEL[req.type] || req.type;
+    const title = `${req.user.name} — ${typeLabel} ${rangeOf(req.startDate, req.endDate)}`;
+    const more: MoreItem[] = [
+      // 신청 자체를 거둔다 — 서버 판정(canCancel)으로만
+      { label: "신청 취소", danger: true, hidden: !req.canCancel, onClick: () => void handleCancelLeave(req.id, req.user.name, approved, req.user.id) },
+    ];
+    if (!myTurn && !req.canCancel) {
+      return <span className="text-[12.5px] text-[#94a3b8]">{CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "-"}</span>;
+    }
+    // 원장 차례인데 신청 취소는 못 하면 ⋮ 대신 못 하는 이유를 마우스를 올리면 보이게(검증 4)
+    return (
+      <span className="inline-flex items-center gap-1.5" title={!req.canCancel ? `신청 취소: ${CANCEL_BLOCK_LABEL[req.cancelBlock ?? ""] ?? "불가"}` : undefined}>
+        {myTurn && (<>
+          <Btn className="px-3.5 py-1.5" disabled={processingId === req.id} onClick={() => askReject(req.id, "leave", title)}>거절</Btn>
+          <Btn kind="primary" className="px-3.5 py-1.5" disabled={processingId === req.id} onClick={() => askApprove(req.id, "leave", title)}>
+            {processingId === req.id ? "처리 중…" : "승인"}
+          </Btn>
+        </>)}
+        {req.canCancel && <MoreMenu items={more} />}
+      </span>
+    );
+  };
+  const todayCount = today ? history.filter((r) => r.status === "APPROVED" && r.startDate.slice(0, 10) <= today && today <= r.endDate.slice(0, 10)).length : null;
 
-        {/* 휴가 탭 */}
-        <TabsContent value="leave" className="space-y-6 mt-6">
-          {loading ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                <Loader2 className="inline-block animate-spin mb-2" />
-                <p>로드 중...</p>
-              </CardContent>
-            </Card>
-          ) : filteredLeaveSteps.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                {leaveSteps.length === 0 ? (
-                  <>
-                    <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
-                    <p>결재 대기 중인 휴가 요청이 없습니다</p>
-                  </>
-                ) : (
-                  <>
-                    <Search className="inline-block mb-2 text-gray-400" size={24} />
-                    <p>검색 결과가 없습니다</p>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-            <Card className="overflow-hidden hidden md:block">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">직원</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">유형</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">기간</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">사유</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">결재</th>
-                      <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">처리</th>
+  const isHistory = activeTab === "history" && !delegateOnly;
+  const inboxTab = delegateOnly && activeTab === "history" ? "leave" : activeTab;
+  const inboxTabs: PillTab[] = [
+    { key: "leave", label: "휴가", count: filteredLeaveSteps.length },
+    { key: "schedule", label: "근무일정", count: filteredScheduleSteps.length },
+    { key: "cancel", label: "휴가 취소", count: cancelCount },
+    { key: "attendance", label: "출퇴근 요청", count: attReqCount },
+    // 처리한 요청 — 같은 결재함 안 탭(관리자 R11 과 같다), 화면은 내 요청 › 내가 처리한 것
+    { key: "decided", label: "처리한 요청", href: "/requests?who=decided" },
+  ];
+
+  return (
+    <div>
+      {/* 제목 = 메뉴 이름(R8 — 원장 결재 › 결재함, 「휴가 내역」 탭 = 휴가 › 지점 휴가) */}
+      <PageHead
+        crumb={isHistory ? "휴가 › 지점 휴가" : "결재 › 결재함"}
+        title={isHistory ? "지점 휴가" : "결재함"}
+        note={isHistory
+          ? `${branch ? `${branch} · ` : ""}지점 직원의 진행 중 · 예정 휴가`
+          : delegateOnly ? `원장대행 · 지정된 지점 · 결재 대기 ${totalCount}건` : `${branch ? `${branch} · ` : ""}결재 대기 ${totalCount}건`}
+      />
+
+      {isHistory ? (<>
+        {/* 지점 휴가 숫자 칸(R13) — 승인 대기 1 이상 빨강(누르면 결재함 휴가 탭), 나머지는 누르면 아래 표가 그 상태로 */}
+        <Box icon={<CalendarDays />} tone="amb" title="휴가 현황" sub="진행 중 · 예정 휴가 기준">
+          <Tiles cols={5}>
+            <Tile label="오늘 휴가" value={historyLoading ? null : todayCount} unit="명" />
+            <Tile label="승인 대기" value={loading ? null : leaveSteps.length} unit="건" note="내 결재 대기" alert onClick={() => setActiveTab("leave")} />
+            <Tile label="결재 진행 중" value={historyLoading ? null : history.filter((r) => r.status === "PENDING").length} unit="건" active={historyStatus === "PENDING"} onClick={() => setHistoryStatus("PENDING")} />
+            <Tile label="승인 완료" value={historyLoading ? null : history.filter((r) => r.status === "APPROVED").length} unit="건" active={historyStatus === "APPROVED"} onClick={() => setHistoryStatus("APPROVED")} />
+            <Tile label="진행 · 예정 전체" value={historyLoading ? null : history.length} unit="건" note="우리 지점" hl active={historyStatus === "all"} onClick={() => setHistoryStatus("all")} />
+          </Tiles>
+        </Box>
+
+        {/* 지점 휴가 표 — 결재함에서 빠진 대기 건(내가 승인해 넘긴 건)을 여기서 거둔다. 승인된 휴가는 본인의 취소 결재로만(9/11). 버튼은 서버 판정(canCancel)으로만 */}
+        <Box icon={<UmbrellaOff />} tone="sky" title="신청 목록" sub={historyLoading ? "불러오는 중…" : `${shownHistory.length}건`}>
+          {filters(true, ([
+            { value: "all", label: "전체" },
+            { value: "PENDING", label: "대기" },
+            { value: "APPROVED", label: "승인" },
+          ] as const).map(({ value, label }) => <Chip key={value} on={historyStatus === value} onClick={() => setHistoryStatus(value)}>{label}</Chip>))}
+          {historyLoading ? emptyLine("불러오는 중…")
+          : shownHistory.length === 0 ? emptyLine(history.length && (searchName || searchDate || historyStatus !== "all") ? "검색 결과가 없습니다" : "진행 중이거나 예정된 휴가가 없습니다")
+          : (<>
+            <div className="hidden overflow-x-auto md:block">
+              <table className={tableClass}>
+                <thead>
+                  <tr>
+                    <th>직원</th>
+                    <th className="whitespace-nowrap">유형</th>
+                    <th>기간</th>
+                    <th className="whitespace-nowrap">일수</th>
+                    <th>결재</th>
+                    <th>상태</th>
+                    <th className="text-right">처리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownHistory.map((req) => (
+                    <tr key={req.id} className={highlightId === req.id ? "bg-[#eef2ff]" : "hover:bg-[#fafbfd]"}>
+                      <td><Cell2 main={req.user.name} sub={req.user.branch || "-"} /></td>
+                      <td className="whitespace-nowrap font-semibold text-[#0f172a]">
+                        {LEAVE_TYPE_LABEL[req.type] || req.type}
+                        <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
+                      </td>
+                      <td className="whitespace-nowrap text-[#475569]">{rangeOf(req.startDate, req.endDate)}</td>
+                      <td className="whitespace-nowrap tabular-nums text-[#475569]">{req.days}일</td>
+                      <td><Flow steps={req.approvalSteps} /></td>
+                      <td>{historyStatusPill(req)}</td>
+                      <td className="whitespace-nowrap text-right">{historyActions(req)}</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredLeaveSteps.map((step) => {
-                      const req = step.leaveRequest;
-                      const cells = leaveStepCells(step);
-                      return (
-                        <tr
-                          key={step.id}
-                          id={"leave-" + req.id}
-                          className={highlightId === req.id ? "bg-amber-50 ring-2 ring-amber-300" : "hover:bg-gray-50"}
-                        >
-                          <td className="px-6 py-4">{cells[0]}</td>
-                          <td className="px-6 py-4">{cells[1]}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700">{cells[2]}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">{cells[3]}</td>
-                          <td className="px-6 py-4">{cells[4]}</td>
-                          <td className="px-6 py-4 text-right">{cells[5]}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-            <div className="space-y-2 md:hidden">
-              {filteredLeaveSteps.map((step) => {
-                const req = step.leaveRequest;
-                const cells = leaveStepCells(step);
-                return (
-                  <div key={step.id} id={"leave-card-" + req.id} className={`rounded-xl border p-3 ${highlightId === req.id ? "bg-amber-50 ring-2 ring-amber-300" : "bg-white"}`}>
-                    <div className="mb-1">{cells[0]}</div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">유형</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[1]}</div>
-                    </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">기간</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[2]}</div>
-                    </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">사유</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[3]}</div>
-                    </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">결재</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[4]}</div>
-                    </div>
-                    <div className="border-t border-gray-100 pt-2">{cells[5]}</div>
-                  </div>
-                );
-              })}
+                  ))}
+                </tbody>
+              </table>
             </div>
-            </>
-          )}
-        </TabsContent>
-
-        {/* 근무일정 탭 */}
-        <TabsContent value="schedule" className="space-y-6 mt-6">
-          {loading ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                <Loader2 className="inline-block animate-spin mb-2" />
-                <p>로드 중...</p>
-              </CardContent>
-            </Card>
-          ) : filteredScheduleSteps.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                {scheduleSteps.length === 0 ? (
-                  <>
-                    <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
-                    <p>결재 대기 중인 근무일정 요청이 없습니다</p>
-                  </>
-                ) : (
-                  <>
-                    <Search className="inline-block mb-2 text-gray-400" size={24} />
-                    <p>검색 결과가 없습니다</p>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">직원</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">템플릿</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">기간</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">계획시간</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">결재</th>
-                      <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">처리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredScheduleSteps.map((step) => {
-                      const req = step.scheduleRequest;
-                      const startDate = new Date(req.startDate);
-                      const endDate = new Date(req.endDate);
-                      const dateRange = `${format(startDate, "MM월 dd일", { locale: ko })} ~ ${format(endDate, "MM월 dd일", { locale: ko })}`;
-
-                      return (
-                        <tr key={step.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900">{req.user.name}</div>
-                            <div className="text-xs text-gray-500">{req.user.position || "-"}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant="outline" className="bg-purple-50">{req.templateName}</Badge>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-700">{dateRange}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700">{req.totalHours}시간</td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-1 text-xs flex-wrap">
-                              <span className="text-gray-400 mr-1" title="승인된 단계 / 전체 단계">
-                                {(req.approvalSteps ?? []).filter((x) => x.status === "APPROVED").length}/{(req.approvalSteps ?? []).length}
-                              </span>
-                              {req.approvalSteps?.map((s, idx) => (
-                                <span key={s.id} className="flex items-center gap-1">
-                                  {idx > 0 && <ChevronRight size={12} className="text-gray-300" />}
-                                  <span title={s.comment ? `의견: ${s.comment}` : undefined} className={`px-2 py-1 rounded text-xs font-medium ${
-                                    s.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                                    s.status === "REJECTED" ? "bg-red-100 text-red-700" :
-                                    s.status === "PENDING" ? "bg-amber-100 text-amber-700" :
-                                    "bg-gray-100 text-gray-600"
-                                  }`}>
-                                    {stepLabel(s)}{s.comment ? " 💬" : ""}
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                            {(req.approvalSteps ?? []).some((x) => x.comment) && (
-                              <div className="mt-1 space-y-0.5">
-                                {(req.approvalSteps ?? []).filter((x) => x.comment).map((x) => (
-                                  <div key={x.id} className="text-xs text-gray-500">💬 {stepLabel(x)}: {x.comment}</div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex gap-2 justify-end">
-                              {req.canCancel && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-gray-500 hover:bg-gray-100"
-                                disabled={processingId === req.id}
-                                title="신청 자체를 거둡니다 (반려와 달리 결재 기록에 남지 않습니다)"
-                                onClick={() => handleCancelSchedule(req.id, req.user.name)}
-                              >
-                                취소
-                              </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-green-600 hover:bg-green-50"
-                                disabled={processingId === req.id}
-                                onClick={() => handleApprove(req.id, "schedule")}
-                              >
-                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                                승인
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-gray-500 hover:bg-gray-100"
-                                disabled={processingId === req.id}
-                                title="의견을 남기고 승인합니다"
-                                onClick={() => { setNoteTarget({ id: req.id, type: "schedule" }); setNoteText(""); }}
-                              >
-                                의견
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-red-600 hover:bg-red-50"
-                                disabled={processingId === req.id}
-                                onClick={() => {
-                                  setRejectingId(req.id);
-                                  setActiveTab("schedule");
-                                  setRejectOpen(true);
-                                }}
-                              >
-                                {processingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />}
-                                거절
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </TabsContent>
-        {/* 휴가 내역 탭 — 진행 중·예정 휴가. 결재함에서 빠진 대기 건(내가 승인해 넘긴 건)을 여기서 거둔다.
-            승인된 휴가는 본인의 취소 결재로만(9/11). 버튼은 서버 판정(canCancel)으로만 */}
-        {!delegateOnly && <TabsContent value="history" className="space-y-6 mt-6">
-          {historyLoading ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                <Loader2 className="inline-block animate-spin mb-2" />
-                <p>로드 중...</p>
-              </CardContent>
-            </Card>
-          ) : filteredHistory.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-gray-500">
-                <AlertCircle className="inline-block mb-2 text-gray-400" size={24} />
-                <p>진행 중이거나 예정된 휴가가 없습니다</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-            <Card className="overflow-hidden hidden md:block">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">직원</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">유형</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">기간</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">상태</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">결재</th>
-                      <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">처리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredHistory.map((req) => {
-                      const cells = historyCells(req);
-                      return (
-                        <tr key={req.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">{cells[0]}</td>
-                          <td className="px-6 py-4">{cells[1]}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700">{cells[2]}</td>
-                          <td className="px-6 py-4">{cells[3]}</td>
-                          <td className="px-6 py-4">{cells[4]}</td>
-                          <td className="px-6 py-4 text-right">{cells[5]}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-            <div className="space-y-2 md:hidden">
-              {filteredHistory.map((req) => {
-                const cells = historyCells(req);
-                return (
-                  <div key={req.id} className="rounded-xl border bg-white p-3">
-                    <div className="mb-1">{cells[0]}</div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">유형</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[1]}</div>
+            <div className="divide-y divide-[#f1f5f9] md:hidden">
+              {shownHistory.map((req) => (
+                <div key={req.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] text-[#596578]">{req.user.name}{req.user.branch ? ` · ${req.user.branch}` : ""}</p>
+                      <p className="font-bold text-[#0f172a]">{LEAVE_TYPE_LABEL[req.type] || req.type} <span className="text-[13px] font-normal text-[#596578]">· {req.days}일</span></p>
+                      <p className="text-[13.5px] text-[#475569]">{rangeOf(req.startDate, req.endDate)}</p>
+                      <LeaveAttachLink url={req.attachmentUrl} name={req.attachmentName} />
                     </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">기간</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[2]}</div>
-                    </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">상태</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[3]}</div>
-                    </div>
-                    <div className="flex gap-3 border-t border-gray-100 py-1.5">
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-gray-400">결재</span>
-                      <div className="min-w-0 flex-1 text-sm text-gray-700">{cells[4]}</div>
-                    </div>
-                    <div className="border-t border-gray-100 pt-2">{cells[5]}</div>
+                    <div className="shrink-0 text-right">{historyStatusPill(req)}</div>
                   </div>
-                );
-              })}
+                  <div className="mt-2"><Flow steps={req.approvalSteps} /></div>
+                  <div className="mt-2 flex justify-end">{historyActions(req)}</div>
+                </div>
+              ))}
             </div>
-            </>
-          )}
-        </TabsContent>}
+          </>)}
+        </Box>
+      </>) : (<>
+        {/* 결재함 알약 탭 한 줄(R11) — 옛 위 검색 카드 + 다섯 칸 탭 두 겹 대신 */}
+        <PillTabs tabs={inboxTabs} value={inboxTab} onChange={setActiveTab} />
+
+        {inboxTab === "leave" && (
+          <Box icon={<CheckSquare />} tone="rose" title="휴가" count={filteredLeaveSteps.length} sub="내가 승인할 것만">
+            {filters(true)}
+            {decideTable(leaveRows, leaveSteps.length, "결재 대기 중인 휴가 요청이 없습니다")}
+          </Box>
+        )}
+        {inboxTab === "schedule" && (
+          <Box icon={<CheckSquare />} tone="rose" title="근무일정" count={filteredScheduleSteps.length} sub="내가 승인할 것만">
+            {filters(true)}
+            {decideTable(scheduleRows, scheduleSteps.length, "결재 대기 중인 근무일정 요청이 없습니다")}
+          </Box>
+        )}
         {/* 휴가 취소 결재 — 관리자·원장 결재함이 **같은 컴포넌트**를 쓴다(짝 누락 방지) */}
-        <TabsContent value="cancel" className="space-y-4 mt-6">
-          <LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} />
-        </TabsContent>
+        {inboxTab === "cancel" && (
+          <Box icon={<CheckSquare />} tone="rose" title="휴가 취소" count={cancelCount} sub="승인하면 휴가가 취소되고 연차가 돌아갑니다">
+            {filters(true)}
+            <div className="px-6 py-4"><LeaveCancelInbox onCount={setCancelCount} searchName={searchName} searchDate={searchDate} /></div>
+          </Box>
+        )}
         {/* 출퇴근 요청 — 관리자·원장(대행) 결재함이 **같은 컴포넌트**를 쓴다 */}
-        <TabsContent value="attendance" className="space-y-4 mt-6">
-          <AttendanceRequestInbox onCount={setAttReqCount} searchName={searchName} />
-        </TabsContent>
-      </Tabs>
+        {inboxTab === "attendance" && (
+          <Box icon={<CheckSquare />} tone="rose" title="출퇴근 요청" count={attReqCount} sub="지점 밖 · 사진 · 본부 요청 · 기록 수정 · 퇴근 누락">
+            {filters(false)}
+            <div className="px-6 py-4"><AttendanceRequestInbox onCount={setAttReqCount} searchName={searchName} /></div>
+          </Box>
+        )}
+      </>)}
 
-      {/* 거절 사유 다이얼로그 */}
-      <Dialog open={!!noteTarget} onOpenChange={(o) => { if (!o) setNoteTarget(null); }}>
+      {/* 승인 확인 — 의견은 선택(옛 「의견」 버튼 대신, 시안 R11) */}
+      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) setApproveTarget(null); }}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>의견 남기고 승인</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              placeholder="다음 결재자와 본부가 볼 수 있는 의견입니다 (선택)"
-              value={noteText}
-              maxLength={300}
-              onChange={(e) => setNoteText(e.target.value)}
-              rows={3}
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setNoteTarget(null)}>취소</Button>
-              <Button
-                className="bg-green-600 hover:bg-green-700"
-                disabled={processingId !== null}
-                onClick={async () => {
-                  if (!noteTarget) return;
-                  const t = noteTarget;
-                  setNoteTarget(null);
-                  await handleApprove(t.id, t.type, noteText.trim() || undefined);
-                }}
-              >
-                승인
-              </Button>
+          <DialogHeader><DialogTitle>승인</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">{approveTarget?.title}</p>
+            <div>
+              <Label className="mb-1 block text-sm">의견 <span className="text-xs font-normal text-gray-400">(선택 — 다음 결재자와 본부가 봅니다)</span></Label>
+              <Textarea value={noteText} maxLength={300} onChange={(e) => setNoteText(e.target.value)} rows={3} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Btn onClick={() => setApproveTarget(null)}>닫기</Btn>
+              <Btn kind="primary" disabled={processingId !== null} onClick={async () => {
+                if (!approveTarget) return;
+                const t = approveTarget;
+                setApproveTarget(null);
+                await handleApprove(t.id, t.type, noteText.trim() || undefined);
+              }}>승인</Btn>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* 거절 사유 */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>거절 사유</DialogTitle>
+            <DialogTitle>거절</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              placeholder="거절 사유를 입력해주세요"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={4}
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setRejectOpen(false)}>
-                취소
-              </Button>
-              <Button
-                className="bg-red-600 hover:bg-red-700"
-                onClick={() => handleRejectConfirm(activeTab as "leave" | "schedule")}
-                disabled={processingId !== null}
-              >
-                {processingId !== null ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
-                거절 확인
-              </Button>
+          <div className="space-y-3">
+            {rejectTitle && <p className="text-sm text-gray-700">{rejectTitle}</p>}
+            <div>
+              <Label className="mb-1 block text-sm">거절 사유</Label>
+              <Textarea
+                placeholder="거절 사유를 입력해주세요"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Btn onClick={() => setRejectOpen(false)}>닫기</Btn>
+              <Btn kind="primary" onClick={() => handleRejectConfirm(rejectKind)} disabled={processingId !== null}>
+                {processingId !== null ? "처리 중…" : "거절하기"}
+              </Btn>
             </div>
           </div>
         </DialogContent>

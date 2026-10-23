@@ -10,32 +10,24 @@
 // 저장 버튼이 없는 이유: 토글이 바로 저장된다(디렉터 지시 — 클릭 수를 늘리지 않는다).
 // 실패하면 스위치를 되돌리고 알린다.
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Bell, MonitorSmartphone, UserRound } from "lucide-react";
+import { PageHead, Box, Btn, Toggle } from "@/components/kit";
 import {
   DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyState, saveDesktopNotifyChoice,
 } from "@/lib/desktop-notify";
 
-/** 프로필 화면과 같은 모양의 토글 — 두 화면이 달라 보이면 같은 설정인 줄 모른다. */
-function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="inline-flex items-center cursor-pointer shrink-0">
-      <input type="checkbox" className="sr-only peer" checked={checked} disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)} />
-      <div className="w-10 h-6 bg-gray-200 peer-checked:bg-blue-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-60 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2" />
-    </label>
-  );
-}
-
+// 새 톤(2026-10-21 본부 시안 「원장 · 직원 나머지 화면」 — 환경설정 = R15 권한 설정과 같은 박스 · 스위치).
+// 줄 = 제목 15.5px 굵게 → 설명(13.5px 회색) · 오른쪽 「켬 · 끔」 글자 + 인디고 스위치(kit Toggle).
+// 프로필 화면의 같은 설정도 같은 뜻이다 — 켬/끔 판정은 이 화면 그대로(바꾸면 바로 저장, 실패하면 되돌림).
 function Row({ title, desc, children }: { title: string; desc: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+    <div className="flex items-start justify-between gap-4 border-t border-[#f1f5f9] py-4 first:border-t-0">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-900">{title}</p>
-        <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+        <p className="text-[15.5px] font-bold text-[#0f172a]">{title}</p>
+        <p className="mt-1 text-[13.5px] leading-snug text-[#475569]">{desc}</p>
       </div>
-      {children}
+      <div className="mt-0.5 shrink-0">{children}</div>
     </div>
   );
 }
@@ -143,102 +135,92 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto pb-10">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">환경설정</h1>
-        <p className="text-gray-600 mt-2">알림을 켜고 끕니다. 바꾸면 바로 저장됩니다.</p>
-      </div>
+    <div className="pb-10">
+      <PageHead crumb="설정 › 환경설정" title="환경설정" note="알림을 켜고 끕니다 · 바꾸면 바로 저장" />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>PC 알림</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Row
-            title="채팅 알림 띄우기"
-            desc={
-              browser === "unsupported" ? "이 브라우저는 알림을 지원하지 않습니다."
-              : browser === "denied" ? "브라우저가 알림을 막고 있습니다. 주소창 왼쪽 자물쇠 → 알림 → 허용."
-              : "새 채팅이 오면 큐브티 어느 화면에 있어도 바탕화면에 알려드립니다."
-            }
-          >
-            <Toggle
-              checked={browser === "on"}
-              disabled={browser === "unsupported" || browser === "denied"}
-              onChange={toggleBrowser}
-            />
-          </Row>
+      <div className="grid gap-[18px] lg:grid-cols-2">
+        <Box icon={<MonitorSmartphone />} tone="ind" title="PC 알림" sub="지금 쓰는 브라우저에만" className="!mb-0 min-w-0">
+          <div className="px-6 py-1">
+            <Row
+              title="채팅 알림 띄우기"
+              desc={
+                browser === "unsupported" ? "이 브라우저는 알림을 지원하지 않습니다."
+                : browser === "denied" ? "브라우저가 알림을 막고 있습니다. 주소창 왼쪽 자물쇠 → 알림 → 허용."
+                : "새 채팅이 오면 큐브티 어느 화면에 있어도 바탕화면에 알려드립니다."
+              }
+            >
+              <Toggle
+                on={browser === "on"}
+                disabled={browser === "unsupported" || browser === "denied"}
+                onChange={toggleBrowser}
+                label={`채팅 알림 띄우기 ${browser === "on" ? "켬" : "끔"}`}
+              />
+            </Row>
 
-          {browser === "on" && (
-            <div className="flex items-center justify-between gap-4 rounded-lg bg-gray-50 border p-3">
-              <p className="text-xs text-gray-600">
-                알림이 안 보이면 윈도우 <b>집중 지원</b>이 켜져 있을 수 있습니다. 한번 확인해보세요.
-              </p>
-              <Button size="sm" variant="outline" onClick={testBrowser}>시험 알림</Button>
-            </div>
-          )}
-
-          <p className="text-xs text-gray-400">
+            {browser === "on" && (
+              <div className="mb-3 flex items-center justify-between gap-4 rounded-lg bg-[#f8fafc] px-3 py-2.5">
+                <p className="text-[13px] text-[#475569]">
+                  알림이 안 보이면 윈도우 <b>집중 지원</b>이 켜져 있을 수 있습니다. 한번 확인해보세요.
+                </p>
+                <Btn onClick={testBrowser} className="shrink-0">시험 알림</Btn>
+              </div>
+            )}
+          </div>
+          <p className="border-t border-[#eef1f5] px-6 py-3 text-[12.5px] text-[#596578]">
             PC 알림은 <b>지금 쓰는 브라우저에만</b> 적용됩니다. 다른 컴퓨터에서도 받으시려면 그
             컴퓨터에서 한 번 더 켜주세요.
           </p>
-        </CardContent>
-      </Card>
+        </Box>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>계정 알림</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Row
-            title="채팅 알림 (큐브티워크)"
-            desc="끄면 채팅·공지·리마인더 알림이 오지 않습니다. 메시지는 정상적으로 쌓입니다."
-          >
-            <Toggle
-              checked={!workMuteAll}
-              disabled={!loaded || saving}
-              onChange={(on) => {
-                const mute = !on;
-                setWorkMuteAll(mute);
-                save({ workMuteAll: mute }, () => setWorkMuteAll(!mute),
-                  mute ? "채팅 알림을 껐습니다. 메시지는 정상 수신됩니다." : "채팅 알림을 다시 받습니다.");
-              }}
-            />
-          </Row>
+        <Box icon={<Bell />} tone="vio" title="계정 알림" sub="모든 기기에 함께" className="!mb-0 min-w-0">
+          <div className="px-6 py-1">
+            <Row
+              title="채팅 알림 (큐브티워크)"
+              desc="끄면 채팅·공지·리마인더 알림이 오지 않습니다. 메시지는 정상적으로 쌓입니다."
+            >
+              <Toggle
+                on={!workMuteAll}
+                disabled={!loaded || saving}
+                label={`채팅 알림 ${!workMuteAll ? "켬" : "끔"}`}
+                onChange={(on) => {
+                  const mute = !on;
+                  setWorkMuteAll(mute);
+                  save({ workMuteAll: mute }, () => setWorkMuteAll(!mute),
+                    mute ? "채팅 알림을 껐습니다. 메시지는 정상 수신됩니다." : "채팅 알림을 다시 받습니다.");
+                }}
+              />
+            </Row>
 
-          <Row
-            title="결재 결과 알림"
-            desc={approvalForced
-              ? "관리자 정책으로 항상 발송됩니다."
-              : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다. 전자계약 반려·서명 거부는 항상 알립니다."}
-          >
-            <Toggle
-              checked={approvalForced ? true : notifyApproval}
-              disabled={approvalForced || !loaded || saving}
-              onChange={(on) => {
-                setNotifyApproval(on);
-                save({ notifyApproval: on }, () => setNotifyApproval(!on),
-                  on ? "결재 결과 푸시를 받습니다." : "결재 결과 푸시를 껐습니다. 봇 대화방에는 계속 남습니다.");
-              }}
-            />
-          </Row>
-
-          <p className="text-xs text-gray-400">
+            <Row
+              title="결재 결과 알림"
+              desc={approvalForced
+                ? "관리자 정책으로 항상 발송됩니다."
+                : "휴가·근무일정 승인/반려를 푸시로 알려드립니다. 꺼도 큐브티 봇 대화방에는 남습니다. 전자계약 반려·서명 거부는 항상 알립니다."}
+            >
+              <Toggle
+                on={approvalForced ? true : notifyApproval}
+                disabled={approvalForced || !loaded || saving}
+                label={`결재 결과 알림 ${approvalForced || notifyApproval ? "켬" : "끔"}`}
+                onChange={(on) => {
+                  setNotifyApproval(on);
+                  save({ notifyApproval: on }, () => setNotifyApproval(!on),
+                    on ? "결재 결과 푸시를 받습니다." : "결재 결과 푸시를 껐습니다. 봇 대화방에는 계속 남습니다.");
+                }}
+              />
+            </Row>
+          </div>
+          <p className="border-t border-[#eef1f5] px-6 py-3 text-[12.5px] text-[#596578]">
             계정 알림은 <b>모든 기기에 함께</b> 적용됩니다. 휴대폰 앱에서도 같은 설정입니다.
           </p>
-        </CardContent>
-      </Card>
+        </Box>
+      </div>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>개인정보</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-gray-600">
-            이름·연락처·비밀번호는 <a href="/profile" className="text-blue-600 underline underline-offset-2">프로필</a>에서 관리합니다.
-          </p>
-        </CardContent>
-      </Card>
+      <Box icon={<UserRound />} tone="sl" title="개인정보" className="mt-[18px]"
+        right={<a href="/profile" className="text-[#4f46e5] hover:underline">프로필 ›</a>}>
+        <p className="px-6 py-4 text-[14px] text-[#475569]">
+          이름·연락처·비밀번호는 <a href="/profile" className="font-semibold text-[#4f46e5] hover:underline">프로필</a>에서 관리합니다.
+        </p>
+      </Box>
     </div>
   );
 }

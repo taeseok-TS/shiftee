@@ -84,6 +84,16 @@ export async function DELETE(
     // 메인 원장 지정을 정리한다 — 떠난 사람이 못박힌 채 남으면 그 지점 결재가 멈춘다
     await syncMainManagerFor(id);
 
+    // 재직 중이던 사람을 바로 삭제(메인 관리자만 가능)하면 지점 원장에게 알린다(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23).
+    // 퇴사자 삭제는 퇴사 때 이미 알렸으므로 보내지 않는다. 던지지 않는다
+    if (user.isActive && user.employmentStatus !== "RESIGNED") {
+      const { isResigned } = await import("@/lib/resign");
+      if (!isResigned(user.resignDate)) {
+        const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+        void notifyStaffChanges([{ kind: "deactivate", userId: id, name: user.name, branch: user.branch }], { actorId: session.userId });
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "직원이 삭제되었습니다. (30일 보관 후 완전 삭제됩니다)",

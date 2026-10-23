@@ -288,7 +288,7 @@ export default function AdminSchedulePage() {
           근무
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-green-100 rounded border border-green-300" />
+          <div className="w-4 h-4 bg-[#eff6ff] rounded border border-[#bfdbfe]" />
           휴가
         </div>
         <div className="flex items-center gap-2">

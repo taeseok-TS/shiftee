@@ -241,6 +241,17 @@ export async function PATCH(
     targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
   });
 
+  // 지점 원장에게 퇴사 처리 · 퇴사일 변경 · 퇴사 예정 취소 · 재입사(지난 퇴사일 해제) 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23).
+  // 기다리지 않는다(푸시가 느려도 저장 응답이 늦어지지 않게 — 검증 1), 던지지 않는다
+  if (resignChanged && (resignVal || before?.resignDate)) {
+    const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+    void notifyStaffChanges([resignVal
+      ? { kind: "resign", userId: id, name: updated.name, branch: updated.branch, date: resignVal, prevDate: before?.resignDate ?? null }
+      : before?.resignDate && before.resignDate < todayMidnight
+        ? { kind: "rehire", userId: id, name: updated.name, branch: updated.branch }
+        : { kind: "resignCancel", userId: id, name: updated.name, branch: updated.branch }], { actorId: session.userId });
+  }
+
   await recalcIfHireChanged(updated.name);
   return NextResponse.json({ success: true, user: withoutPassword(updated) });
 }
@@ -256,7 +267,7 @@ export async function DELETE(
 
   const { id } = await params;
   // 관리자(ADMIN) 계정 비활성화는 메인 관리자 전용 (관리자 잠금 방지)
-  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, name: true } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, name: true, branch: true, isActive: true, employmentStatus: true, resignDate: true } });
   if (target?.role === "ADMIN" && !(await isSuperAdmin(session.userId))) {
     return NextResponse.json({ error: "관리자 계정 관리는 메인 관리자만 가능합니다." }, { status: 403 });
   }
@@ -270,6 +281,12 @@ export async function DELETE(
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_DELETE",
     targetType: "USER", targetId: id, targetName: target?.name ?? null, detail: "직원 비활성화",
   });
+  // 재직 중이던 사람이 비활성화되면 지점 원장에게 알린다(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23).
+  // 이미 퇴사·비활성이던 사람은 퇴사 때 알렸으므로 다시 보내지 않는다. 던지지 않는다
+  if (target && target.isActive && target.employmentStatus !== "RESIGNED" && !(target.resignDate && target.resignDate < kstTodayMidnight())) {
+    const { notifyStaffChanges } = await import("@/lib/staff-change-notify");
+    void notifyStaffChanges([{ kind: "deactivate", userId: id, name: target.name, branch: target.branch }], { actorId: session.userId });
+  }
   return NextResponse.json({ success: true });
 }
 

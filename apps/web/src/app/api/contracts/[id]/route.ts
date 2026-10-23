@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getAppUrl, approvalPageUrl } from "@/lib/app-url";
 import { hrBotSendDM } from "@/lib/bot";
+import { wantsApprovalRequest } from "@/lib/notify-prefs";
 import { logAudit } from "@/lib/audit";
 import { sendContractNotification, sendApprovalRequest } from "@/lib/email";
 import { fillDocxTemplate, buildContractMergeData, buildFieldSummary, maskPiiJson, isFillableTemplate } from "@/lib/contract-fields";
@@ -632,8 +633,9 @@ export async function PATCH(
           updated.sendMessage,
           updated.signDeadline // 서명 기한(#217-3 메일에 표시)
         );
-      } else if (firstPendingStep.approver?.email) {
+      } else if (firstPendingStep.approver?.email && await wantsApprovalRequest(firstPendingStep.approverId, "email")) {
         // 직원이 아닌 다른 승인자가 첫 번째인 경우 - 승인 요청 이메일
+        // (원장이 환경설정에서 「결재 요청 메일」을 껐으면 보내지 않는다 — 본부 강제면 보냄, lib/notify-prefs)
         console.log(`📧 첫 번째 PENDING 단계가 승인자입니다. 승인자에게 승인 요청 이메일 발송: ${firstPendingStep.approver.email}`);
         await sendApprovalRequest(
           firstPendingStep.approver.email,
@@ -658,7 +660,9 @@ export async function PATCH(
       const dm = isEmployee
         ? `\ud83d\udcdd 전자계약 서명 요청\n「${updated.title}」\n앱 [더보기] → [계약서]에서 내용 확인 후 서명해 주세요.\n웹에서 바로 서명: ${appUrl}/contracts`
         : `\ud83d\udd8b 전자계약 결재 요청\n「${updated.title}」 — 대상: ${contract.externalName || updated.user.name}\n아래 링크에서 바로 처리할 수 있습니다:\n${appUrl}${approvalPageUrl((firstPendingStep as { approver?: { role?: string } }).approver?.role)}`;
-      hrBotSendDM(firstPendingStep.approverId, dm + messageDmLine(updated.sendMessage)).catch((e) => console.error("[contract] 발송 DM 오류:", e));
+      // 결재자 차례 알림은 원장이 「결재 요청 알림」을 껐으면 건너뛴다(근로자 본인 서명 요청은 늘 보냄)
+      if (isEmployee || await wantsApprovalRequest(firstPendingStep.approverId, "dm"))
+        hrBotSendDM(firstPendingStep.approverId, dm + messageDmLine(updated.sendMessage)).catch((e) => console.error("[contract] 발송 DM 오류:", e));
     }
   }
 
