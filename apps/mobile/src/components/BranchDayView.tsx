@@ -9,7 +9,8 @@ import { C, fmtTime } from "../services/fmt";
 // 지점 일정 — 하루 단위 지점 직원 전원(2026-10-23 조혜련 원장 문의, 시프티 앱 근무일정 탭과 같은 모양).
 // 2026-10-23 본부 요청(앱 6 · 시안 S2-3): 문제 있는 사람부터(미출근 → 지각 → 퇴근 누락 → 휴가 → 정상), 정상 · 휴무는 접어 두기.
 // 오른쪽은 상태 알약 하나만(왼쪽 「휴가」 + 오른쪽 「휴가」 겹침 정리). 출퇴근 시각 · 일한 시간은 원장 화면에 보이지 않는다(본부만, ■0-11).
-// 본부(관리자) 「전체 지점 일정」은 지점별로 묶는다(「평촌 11명」). 일정 추가 · 여러 날 한 번에 넣기는 PC 원장 모드(앱은 보기만).
+// 본부(관리자) 「전체 지점 일정」은 지점별로 묶는다(「평촌 11명」).
+// 2026-10-25: 여러 날 · 여러 명 한 번에 넣기는 위 「일정 넣기」 버튼(BranchScheduleBulkScreen) — 넣고 닫히면 reloadKey 가 바뀌어 다시 불러온다.
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -25,8 +26,8 @@ const TONE: Record<Badge["tone"], { fg: string; bg: string }> = {
 const RANK = { missing: 0, late: 1, early: 2, unclosed: 3, leave: 4, before: 5, normal: 6, rest: 7 } as const;
 type Rank = keyof typeof RANK;
 
-/** showBranch = 본부(관리자) 보기 — 지점별 묶음 + 출퇴근 시각(본부만 보는 값) */
-export default function BranchDayView({ showBranch = false }: { showBranch?: boolean }) {
+/** showBranch = 본부(관리자) 보기 — 지점별 묶음 + 출퇴근 시각(본부만 보는 값). reloadKey 가 바뀌면 보던 날짜를 다시 읽는다(일정 넣기 뒤) */
+export default function BranchDayView({ showBranch = false, reloadKey = 0 }: { showBranch?: boolean; reloadKey?: number }) {
   const today = ymdOf(new Date());
   const [day, setDay] = useState(today);
   const [data, setData] = useState<BranchDay | null>(null);
@@ -51,7 +52,8 @@ export default function BranchDayView({ showBranch = false }: { showBranch?: boo
       if (my === seq.current) { setLoading(false); setRefreshing(false); }
     }
   }, []);
-  useEffect(() => { load(day); }, [day, load]);
+  // 날짜가 바뀌거나 「일정 넣기」로 넣은 뒤(reloadKey) — 한 효과로 한 번만 읽는다(따로 두면 reloadKey>0 상태로 다시 마운트될 때 같은 날을 두 번 읽었다)
+  useEffect(() => { load(day); }, [day, reloadKey, load]);
   // 탭에 다시 들어오면 새로 읽는다(처음 한 번은 위에서 — 검증 8)
   const first = useRef(true);
   const dayRef = useRef(day); dayRef.current = day;
@@ -188,7 +190,7 @@ export default function BranchDayView({ showBranch = false }: { showBranch?: boo
             ) : (
               <Group list={rows} />
             )}
-            <Text style={s.footer}>일정 추가 · 여러 날 한 번에 넣기는 PC(cubetee.co.kr) 원장 모드 「근태 › 지점 근무일정」에서 합니다.</Text>
+            <Text style={s.footer}>위 「일정 넣기」로 여러 날 · 여러 명의 근무일정을 한 번에 넣을 수 있습니다. 하루 단위 고치기는 PC(cubetee.co.kr) 원장 모드 「근태 › 지점 근무일정」에서 합니다.</Text>
           </>
         )}
       </ScrollView>

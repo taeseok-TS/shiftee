@@ -17,9 +17,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
+import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, getMyPermissions, type CalendarUnit } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
+import BranchScheduleBulkScreen from "./BranchScheduleBulkScreen";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { C, fmtDay as fmtDayLong, fmtShort as fmtShortD, fmtTime, isWeekend, stripTimes, wd } from "../../services/fmt";
 
@@ -111,6 +112,17 @@ export default function ScheduleScreen() {
     navigation.setParams({ view: undefined });   // 한 번만 — 다음에 탭을 누르면 마지막에 본 쪽 그대로
   }, [wantBranch, navigation]);
   const staff = role === "ADMIN" || role === "MANAGER";
+  // 지점 일정 「일정 넣기」(원장 · 본부, 2026-10-25 조혜련 원장 요청) — 넣고 닫히면 reloadKey 를 올려 BranchDayView 가 다시 읽는다
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [branchReloadKey, setBranchReloadKey] = useState(0);
+  // 「원장 근무일정 직접 편집」 권한(#39)이 꺼지면 웹처럼 버튼을 숨긴다(실제 차단은 서버 403). 본부는 늘 보임. 못 읽으면 보이고 서버 문구에 맡긴다
+  const [canBulk, setCanBulk] = useState(true);
+  useEffect(() => {
+    if (role !== "MANAGER") return;
+    let alive = true;
+    getMyPermissions().then((p) => { if (alive) setCanBulk(p["manager.editSchedule"] !== false); }).catch(() => {});
+    return () => { alive = false; };
+  }, [role]);
 
   // 근무일정 신청 모달
   const [reqOpen, setReqOpen] = useState(false);
@@ -457,7 +469,18 @@ export default function ScheduleScreen() {
     return (
       <View style={styles.container}>
         {viewBar}
-        <BranchDayView showBranch={role === "ADMIN"} />
+        {(role === "ADMIN" || canBulk) && (
+          <TouchableOpacity style={styles.bulkBtn} onPress={() => setBulkOpen(true)} accessibilityLabel="일정 넣기 — 여러 날 · 여러 명 한 번에" activeOpacity={0.8}>
+            <Ionicons name="add" size={20} color="#fff" />
+            <Text style={styles.bulkBtnText}>일정 넣기</Text>
+          </TouchableOpacity>
+        )}
+        <BranchDayView showBranch={role === "ADMIN"} reloadKey={branchReloadKey} />
+        <BranchScheduleBulkScreen
+          visible={bulkOpen}
+          showBranch={role === "ADMIN"}
+          onClose={(didInsert) => { setBulkOpen(false); if (didInsert) setBranchReloadKey((k) => k + 1); }}
+        />
       </View>
     );
   }
@@ -747,6 +770,9 @@ const styles = StyleSheet.create({
   dockBtn: { height: 46, borderRadius: 14, borderWidth: 1.5, borderColor: C.indBd, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   dockBtnText: { fontSize: 15, fontWeight: "800", color: C.ind },
   viewBar: { flexDirection: "row", margin: 12, marginBottom: 0, backgroundColor: "#e5e7eb", borderRadius: 10, padding: 3 },
+  // 지점 일정 「일정 넣기」 — 실행 = 인디고(■4), 누르는 자리 44px
+  bulkBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, height: 44, marginHorizontal: 12, marginTop: 10, marginBottom: 8, borderRadius: 12, backgroundColor: C.ind },
+  bulkBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   viewTab: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44, borderRadius: 8 },
   viewTabOn: { backgroundColor: "#fff" },
   viewTabText: { fontSize: 14, color: "#6b7280", fontWeight: "500" },
