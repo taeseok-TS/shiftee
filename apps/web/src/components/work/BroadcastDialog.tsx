@@ -23,6 +23,7 @@ export default function BroadcastDialog({ open, onOpenChange, onSent }: { open: 
   const [members, setMembers] = useState<Member[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [search, setSearch] = useState("");
+  const [chSearch, setChSearch] = useState(""); // 채팅방 검색(디렉터 10/26 — 사람만 검색되고 방은 안 됐다)
   const [selUsers, setSelUsers] = useState<Set<string>>(new Set());
   const [selChannels, setSelChannels] = useState<Set<string>>(new Set());
   const [content, setContent] = useState("");
@@ -41,7 +42,7 @@ export default function BroadcastDialog({ open, onOpenChange, onSent }: { open: 
   }, [open]);
 
   function reset() {
-    setSearch(""); setSelUsers(new Set()); setSelChannels(new Set()); setContent(""); setFile(null); setResult(null);
+    setSearch(""); setChSearch(""); setSelUsers(new Set()); setSelChannels(new Set()); setContent(""); setFile(null); setResult(null);
     setSending(false); sendingRef.current = false;
   }
   function handleOpenChange(v: boolean) {
@@ -66,6 +67,8 @@ export default function BroadcastDialog({ open, onOpenChange, onSent }: { open: 
   const q = search.trim().toLowerCase();
   // 새 채팅 화면 관례 — 관리자는 검색어가 있을 때만 노출
   const shownMembers = members.filter((m) => (q ? m.name.toLowerCase().includes(q) || (m.branch ?? "").toLowerCase().includes(q) : m.role !== "ADMIN"));
+  const cq = chSearch.trim().toLowerCase();
+  const shownChannels = cq ? channels.filter((c) => c.name.toLowerCase().includes(cq)) : channels;
 
   const toggleUser = (id: string, on: boolean) => setSelUsers((prev) => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
   const toggleChannel = (id: string, on: boolean) => setSelChannels((prev) => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
@@ -170,14 +173,18 @@ export default function BroadcastDialog({ open, onOpenChange, onSent }: { open: 
             {/* 채팅방 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">채팅방 <span className="text-xs font-normal text-gray-400">({nChannels}개 선택)</span></label>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                <Input className="pl-9" placeholder="채팅방 이름 검색" value={chSearch} onChange={(e) => setChSearch(e.target.value)} />
+              </div>
               <div className="max-h-36 overflow-y-auto border rounded-lg divide-y">
-                {channels.map((c) => (
+                {shownChannels.map((c) => (
                   <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50">
                     <input type="checkbox" checked={selChannels.has(c.id)} onChange={(ev) => toggleChannel(c.id, ev.target.checked)} />
                     {c.name}<span className="text-xs text-gray-400">· {c.memberCount}명</span>
                   </label>
                 ))}
-                {channels.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">들어가 있는 그룹방이 없습니다.</p>}
+                {shownChannels.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">{channels.length === 0 ? "들어가 있는 그룹방이 없습니다." : "해당하는 채팅방이 없습니다."}</p>}
               </div>
             </div>
 
