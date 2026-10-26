@@ -538,7 +538,7 @@ export default function AttendancePage() {
                   note: noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "관리자 제외" },
               ] as { key: PeopleKey; label: string; value: number | undefined; alert?: boolean; hl?: boolean; note?: string }[]).map((t) => (
                 <Tile key={t.key} label={t.label} value={t.value} unit="명" alert={t.alert} hl={t.hl} note={t.note}
-                  active={!!pick && pick.key === t.key && !pick.branch}
+                  active={!!pick && pick.key === t.key && !pick.branch && (t.value ?? 0) > 0}
                   onClick={(t.value ?? 0) > 0 ? () => togglePick(t.key) : undefined} />
               ))}
             </Tiles>
@@ -548,7 +548,7 @@ export default function AttendancePage() {
           {pick && (
             <Box icon={<Users />} tone={pick.key === "absent" || pick.key === "late" || pick.key === "earlyLeave" ? "rose" : "ind"}
               title={`${pick.branch ? `${pick.branch} · ` : ""}${PEOPLE_LABEL[pick.key]} ${picked.length}명`}
-              sub={pick.key === "absent" ? "오늘 근무일정이 있는데 출근 기록이 없는 사람(휴가 제외)" : pick.key === "onLeave" ? "오늘 걸친 승인 휴가" : undefined}
+              sub={pick.key === "absent" ? "오늘 근무일정이 있는데 출근 기록이 없는 사람(휴가 · 출근 요청 대기 중 제외)" : pick.key === "onLeave" ? "오늘 걸친 승인 휴가" : undefined}
               right={<Btn kind="text" onClick={() => setPick(null)}>닫기</Btn>}>
               {!picked.length ? (
                 <p className="px-6 py-6 text-[14px] text-[#596578]">해당하는 직원이 없습니다</p>
@@ -566,7 +566,7 @@ export default function AttendancePage() {
                         </span>
                         <span className={`min-w-0 flex-1 text-[13.5px] ${pick.key === "absent" ? "text-[#dc2626]" : "text-[#475569]"}`}>{personDetail(pick.key, x)}</span>
                         {/* 미출근 줄 — 전화번호가 있으면 바로 걸 수 있게(흰 작은 버튼). 번호 없으면 생략 */}
-                        {pick.key === "absent" && x.phone && (
+                        {pick.key === "absent" && x.phone && x.phone.replace(/[^0-9+]/g, "") && (
                           <a href={`tel:${x.phone.replace(/[^\d+]/g, "")}`} className="mt-1 inline-flex w-fit items-center rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-1.5 text-[13px] font-semibold text-[#334155] hover:bg-[#f8fafc] md:mt-0 md:ml-auto">전화</a>
                         )}
                       </li>
