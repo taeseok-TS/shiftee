@@ -2,7 +2,8 @@ import { leaveLabel } from "@/lib/leave-catalog";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { kstTodayDateUTC } from "@/lib/kst";
+import { kstHour, kstMinute, kstTodayDateUTC } from "@/lib/kst";
+import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { absentUserIds } from "@/lib/attendance-absent";
 import { autoCloseTime, autoOpenTime, autoFillSettings } from "@/lib/attendance-policy";
 import { countableEmployeeWhere, headcountSummary, testRequesterExclusion } from "@/lib/employee-scope";
@@ -32,8 +33,9 @@ export async function GET() {
     // 관리자 결재함(my-approvals)은 **본인 신청을 뺀다.** 대시보드 숫자도 같아야
     // 카드를 눌렀을 때 빈 화면이 되지 않는다.
     await Promise.all([
-      // 인원 — 미출근 계산(#219-3)에 id, 출퇴근 현황 「지점별 현황」(R10)에 지점이 필요하다
-      prisma.user.findMany({ where: employeeWhere, select: { id: true, branch: true } }),
+      // 인원 — 미출근 계산(#219-3)에 id, 출퇴근 현황 「지점별 현황」(R10)에 지점이 필요하다.
+      // 이름 · 직급 · 전화는 숫자 칸을 눌렀을 때 보이는 명단(people, 2026-10-26 디렉터 — 실사용 첫날 「미출근 16명이 누구냐」)에 쓴다. 관리자 전용 응답
+      prisma.user.findMany({ where: employeeWhere, select: { id: true, name: true, branch: true, position: true, phone: true } }),
 
       // 오늘 출퇴근 기록
       prisma.attendance.findMany({
@@ -105,13 +107,22 @@ export async function GET() {
             date: today, userId: { in: memberIds }, type: "WORK",
             user: { AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: today } }] }, { OR: [{ hireDate: null }, { hireDate: { lte: today } }] }] },
           },
-          select: { userId: true },
+          select: { userId: true, startTime: true },
         }),
-        prisma.leaveRequest.findMany({ where: { userId: { in: memberIds }, status: "APPROVED", startDate: { lte: today }, endDate: { gte: today } }, select: { userId: true } }),
+        prisma.leaveRequest.findMany({ where: { userId: { in: memberIds }, status: "APPROVED", startDate: { lte: today }, endDate: { gte: today } }, select: { userId: true, type: true } }),
       ])
     : [[], []];
   const schedSet = new Set(schedRows.map((r) => r.userId));
   const leaveSet = new Set(leaveRows.map((r) => r.userId));
+  // 명단용 보조 표 — 일정 시작 시각(사람마다 하나, userId+date unique) · 휴가 유형 이름(반차 두 건이면 「오전 반차 · 오후 반차」)
+  await ensureLeaveCatalog().catch(() => {});   // 본부가 만든 유형 이름까지(#216-1) — 못 읽어도 코드 그대로 보일 뿐 숫자는 그대로
+  const startOf = new Map(schedRows.map((r) => [r.userId, r.startTime]));
+  const leaveTypeOf = new Map<string, string>();
+  for (const l of leaveRows) {
+    const label = leaveLabel(l.type);
+    const prev = leaveTypeOf.get(l.userId);
+    leaveTypeOf.set(l.userId, prev ? (prev.split(" · ").includes(label) ? prev : `${prev} · ${label}`) : label);
+  }
   const recByUser = new Map(todayRecords.map((r) => [r.userId, r]));
   const branchOf = new Map(members.map((m) => [m.id, m.branch || "지점 없음"]));
   const byBranchMap = new Map<string, { branch: string; scheduled: number; present: number; late: number; absent: number; onLeave: number }>();
@@ -128,6 +139,40 @@ export async function GET() {
   }
   const byBranch = [...byBranchMap.values()].sort((a, b) => a.branch.localeCompare(b.branch, "ko"));
   const scheduled = schedSet.size;
+
+  // 숫자 칸을 눌렀을 때 보이는 명단(2026-10-26). **숫자와 같은 집합에서** 만든다 — 출근 · 지각 · 조퇴는 todayRecords 를 그대로 걸러 쓰고,
+  // 미출근 · 휴가 · 일정은 위 absentSet · leaveSet · schedSet 그대로. 그래서 people.X.length === attendance.X, 지점별로 모으면 byBranch 와 같다.
+  // 시각은 KST "HH:mm"(서버 TZ 가 UTC — lib/kst). 전화는 미출근 줄 「전화」 버튼용 — 이 응답은 관리자(ADMIN)에게만 간다(위 403)
+  const hhmm = (d: Date | null | undefined) => (d ? `${String(kstHour(d)).padStart(2, "0")}:${String(kstMinute(d)).padStart(2, "0")}` : undefined);
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const person = (userId: string) => {
+    const m = memberById.get(userId);
+    const rec = recByUser.get(userId);
+    return {
+      id: userId,
+      name: m?.name ?? "(이름 없음)",
+      branch: m?.branch || "지점 없음",
+      position: m?.position ?? undefined,
+      phone: m?.phone ?? undefined,
+      startTime: startOf.get(userId),
+      clockIn: hhmm(rec?.clockIn),
+      clockOut: hhmm(rec?.clockOut),
+      status: rec?.status,
+      leaveType: leaveTypeOf.get(userId),
+    };
+  };
+  type Person = ReturnType<typeof person>;
+  const byBranchThenName = (a: Person, b: Person) =>
+    a.branch.localeCompare(b.branch, "ko") || (a.startTime ?? "").localeCompare(b.startTime ?? "") || a.name.localeCompare(b.name, "ko");
+  const listOf = (ids: Iterable<string>) => [...ids].map(person).sort(byBranchThenName);
+  const people = {
+    present: listOf(todayRecords.filter((r) => r.clockIn).map((r) => r.userId)),
+    late: listOf(todayRecords.filter((r) => r.status === "LATE").map((r) => r.userId)),
+    earlyLeave: listOf(todayRecords.filter((r) => r.status === "EARLY_LEAVE").map((r) => r.userId)),
+    absent: listOf(absentSet),
+    onLeave: listOf(leaveSet),
+    scheduled: listOf(schedSet),
+  };
 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
   // 대시보드 결재함 줄 아래 회색 한 줄(2026-10-21 본부 시안 R9) — 「휴가 승인 · 원장 승인 끝」처럼 지금 어디까지 왔는지
@@ -225,6 +270,7 @@ export async function GET() {
     // 휴가 = 오늘 걸친 승인 휴가가 있는 **사람 수**(지점별 표와 같은 기준 — 신청 건수(onLeave count)는 반차 두 건이면 2가 됐다, R10 검증)
     attendance: { present, late, absent, earlyLeave, onLeave: memberIds.length ? leaveSet.size : onLeave, scheduled },
     byBranch,
+    people,
     pending: { leave: pendingLeave, schedule: pendingSchedule, leaveCancel: pendingLeaveCancel },
     pendingItems,
     missingAttendance,

@@ -141,9 +141,19 @@ export default function AttendancePage() {
 
   /* 오늘 — 숫자 칸 6 · 지점별 현황 · 확인 필요(대시보드와 같은 숫자: /api/admin/dashboard-stats) */
   type BranchRow = { branch: string; scheduled: number; present: number; late: number; absent: number; onLeave: number };
-  type DashStats = { attendance?: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number; scheduled?: number }; byBranch?: BranchRow[]; missingAttendance?: MissingAttendance[] };
+  // 숫자 칸을 누르면 보이는 명단(2026-10-26 디렉터 — 실사용 첫날 「미출근 16명이 누구냐」). 숫자와 같은 집합에서 route 가 만들어 보낸다
+  type PeopleKey = "present" | "late" | "absent" | "earlyLeave" | "onLeave" | "scheduled";
+  type Person = { id: string; name: string; branch: string; position?: string; phone?: string; startTime?: string; clockIn?: string; clockOut?: string; status?: string; leaveType?: string };
+  type DashStats = {
+    attendance?: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number; scheduled?: number };
+    byBranch?: BranchRow[]; people?: Partial<Record<PeopleKey, Person[]>>; missingAttendance?: MissingAttendance[];
+  };
   type PendingReq = { id: string; userName?: string; userBranch?: string | null; kindLabel?: string; workDate?: string; status?: string };
   const [dash, setDash] = useState<DashStats | null>(null);
+  // 열린 명단 — 칸(key) + 지점(지점별 표에서 눌렀을 때만). 같은 곳을 다시 누르면 닫힌다
+  const [pick, setPick] = useState<{ key: PeopleKey; branch?: string } | null>(null);
+  const togglePick = (key: PeopleKey, branch?: string) =>
+    setPick((cur) => (cur && cur.key === key && (cur.branch ?? "") === (branch ?? "") ? null : { key, branch }));
   const [pendingReqs, setPendingReqs] = useState<PendingReq[]>([]);
   const [branchPick, setBranchPick] = useState("");
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
@@ -470,6 +480,40 @@ export default function AttendancePage() {
   ];
   const statusTone = (st: string): PillTone => (st === "NORMAL" ? "done" : st === "LATE" || st === "EARLY_LEAVE" ? "wait" : st === "ABSENT" ? "rej" : "gray");
 
+  // 명단 상자 — 고른 칸(+지점)의 사람들을 지점별로 묶는다. 숫자 칸 값과 같은 배열(route people)이라 길이가 숫자와 같다
+  const PEOPLE_LABEL: Record<PeopleKey, string> = { present: "출근", late: "지각", absent: "미출근", earlyLeave: "조퇴", onLeave: "휴가", scheduled: "오늘 일정 있는 직원" };
+  const pickedAll = pick ? (dash?.people?.[pick.key] ?? []) : [];
+  const picked = pick?.branch ? pickedAll.filter((x) => x.branch === pick.branch) : pickedAll;
+  const pickedGroups = (() => {
+    const m = new Map<string, Person[]>();
+    for (const x of picked) m.set(x.branch, [...(m.get(x.branch) ?? []), x]);
+    return [...m.entries()];   // route 가 지점 › 일정 시각 › 이름 순으로 정렬해 보내므로 묶음 순서도 지점 가나다
+  })();
+  // 줄 둘째 칸 — 칸마다 보여 줄 것. 출근 칸은 「출근 12:54」(지각이면 「지각 · 13:07」), 휴가 칸은 유형, 미출근은 「일정 있는데 출근 전」
+  const personDetail = (key: PeopleKey, x: Person): string => {
+    const sched = x.startTime ? `일정 ${x.startTime}` : "";
+    const came = x.clockIn ? (x.status === "LATE" ? `지각 · ${x.clockIn}` : `출근 ${x.clockIn}`) : "";
+    switch (key) {
+      case "absent": return [sched, "일정 있는데 출근 전"].filter(Boolean).join(" · ");
+      case "onLeave": return [x.leaveType ?? "휴가", sched].filter(Boolean).join(" · ");
+      case "earlyLeave": return [sched, `조퇴${x.clockOut ? ` · 퇴근 ${x.clockOut}` : ""}`].filter(Boolean).join(" · ");
+      case "scheduled": return [sched, came || (x.leaveType ? x.leaveType : "출근 전")].filter(Boolean).join(" · ");
+      default: return [sched, came].filter(Boolean).join(" · ");
+    }
+  };
+  // 지점별 표의 숫자 — 0 은 글자만, 1 이상은 누르면 그 지점 · 그 상태 명단(44px 누름 자리, 글자 링크처럼)
+  const cellBtn = (b: BranchRow, key: PeopleKey, n: number, red = false) => {
+    const color = red && n > 0 ? "font-bold text-[#dc2626]" : n > 0 ? "font-semibold text-[#4f46e5]" : "";
+    if (n <= 0) return <span className={`tabular-nums ${color}`}>{n}</span>;
+    const on = !!pick && pick.key === key && pick.branch === b.branch;
+    return (
+      <button type="button" onClick={() => togglePick(key, b.branch)} aria-pressed={on} title={`${b.branch} ${PEOPLE_LABEL[key]} ${n}명 보기`}
+        className={`-my-3 -mr-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-end rounded-lg px-2 tabular-nums underline-offset-[3px] hover:underline ${color} ${on ? "bg-[#eef2ff] underline" : ""}`}>
+        {n}
+      </button>
+    );
+  };
+
   return (
     <div>
       {/* 머리 + 알약 탭 한 줄(R10) — 옛 「출퇴근 관리」 · 큰 시계 · 내 출근/퇴근 버튼(관리 화면엔 본인 출퇴근을 두지 않는다, 본부 본인 출퇴근은 직원 모드) */}
@@ -482,16 +526,56 @@ export default function AttendancePage() {
         <TabsContent value="today">
           {/* 오늘 근태 — 대시보드와 같은 6칸(R9·R10). 미출근 · 지각 · 조퇴만 1 이상 빨강 */}
           <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준">
+            {/* 칸을 누르면 바로 아래 「명단」 상자가 열린다(2026-10-26). 0 명이면 누를 것이 없어 그대로 둔다 */}
             <Tiles cols={6}>
-              <Tile label="출근" value={a?.present} unit="명" />
-              <Tile label="지각" value={a?.late} unit="명" alert />
-              <Tile label="미출근" value={a?.absent} unit="명" note={noSchedule ? "일정이 없어 셀 수 없음" : "일정 있는데 출근 전"} alert />
-              <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert />
-              <Tile label="휴가" value={a?.onLeave} unit="명" />
-              <Tile label="오늘 일정 있는 직원" value={a?.scheduled} unit="명" hl
-                note={noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "관리자 제외"} />
+              {([
+                { key: "present", label: "출근", value: a?.present },
+                { key: "late", label: "지각", value: a?.late, alert: true },
+                { key: "absent", label: "미출근", value: a?.absent, alert: true, note: noSchedule ? "일정이 없어 셀 수 없음" : "일정 있는데 출근 전" },
+                { key: "earlyLeave", label: "조퇴", value: a?.earlyLeave, alert: true },
+                { key: "onLeave", label: "휴가", value: a?.onLeave },
+                { key: "scheduled", label: "오늘 일정 있는 직원", value: a?.scheduled, hl: true,
+                  note: noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "관리자 제외" },
+              ] as { key: PeopleKey; label: string; value: number | undefined; alert?: boolean; hl?: boolean; note?: string }[]).map((t) => (
+                <Tile key={t.key} label={t.label} value={t.value} unit="명" alert={t.alert} hl={t.hl} note={t.note}
+                  active={!!pick && pick.key === t.key && !pick.branch}
+                  onClick={(t.value ?? 0) > 0 ? () => togglePick(t.key) : undefined} />
+              ))}
             </Tiles>
           </Box>
+
+          {/* 명단 — 누른 칸(또는 지점별 표의 숫자)의 사람들. 지점별 묶음, 폰에서는 이름 굵게 + 둘째 줄 */}
+          {pick && (
+            <Box icon={<Users />} tone={pick.key === "absent" || pick.key === "late" || pick.key === "earlyLeave" ? "rose" : "ind"}
+              title={`${pick.branch ? `${pick.branch} · ` : ""}${PEOPLE_LABEL[pick.key]} ${picked.length}명`}
+              sub={pick.key === "absent" ? "오늘 근무일정이 있는데 출근 기록이 없는 사람(휴가 제외)" : pick.key === "onLeave" ? "오늘 걸친 승인 휴가" : undefined}
+              right={<Btn kind="text" onClick={() => setPick(null)}>닫기</Btn>}>
+              {!picked.length ? (
+                <p className="px-6 py-6 text-[14px] text-[#596578]">해당하는 직원이 없습니다</p>
+              ) : pickedGroups.map(([branch, rows]) => (
+                <div key={branch} className="border-t border-[#eef1f5] first:border-t-0">
+                  <div className="flex items-baseline gap-2 bg-[#fafbfd] px-6 py-2 text-[13px] font-semibold text-[#596578]">
+                    <span className="text-[#0f172a]">{branch}</span><span className="tabular-nums">{rows.length}</span>
+                  </div>
+                  <ul className="px-6">
+                    {rows.map((x) => (
+                      <li key={x.id} className="flex flex-col gap-0.5 border-t border-[#f1f5f9] py-3 first:border-t-0 md:flex-row md:items-center md:gap-3">
+                        <span className="min-w-0 md:w-[220px] md:shrink-0">
+                          <b className="text-[15px] font-bold text-[#0f172a]">{x.name}</b>
+                          {x.position && <span className="ml-1.5 text-[12.5px] text-[#596578]">{x.position}</span>}
+                        </span>
+                        <span className={`min-w-0 flex-1 text-[13.5px] ${pick.key === "absent" ? "text-[#dc2626]" : "text-[#475569]"}`}>{personDetail(pick.key, x)}</span>
+                        {/* 미출근 줄 — 전화번호가 있으면 바로 걸 수 있게(흰 작은 버튼). 번호 없으면 생략 */}
+                        {pick.key === "absent" && x.phone && (
+                          <a href={`tel:${x.phone.replace(/[^\d+]/g, "")}`} className="mt-1 inline-flex w-fit items-center rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-1.5 text-[13px] font-semibold text-[#334155] hover:bg-[#f8fafc] md:mt-0 md:ml-auto">전화</a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </Box>
+          )}
 
           <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
             {/* 지점별 현황(본부 10/22 — 「지점별 오늘」 대신) */}
@@ -511,11 +595,12 @@ export default function AttendancePage() {
                     ) : branchRows.map((b) => (
                       <tr key={b.branch}>
                         <td className="font-bold text-[#0f172a]">{b.branch}</td>
-                        <td className="text-right tabular-nums">{b.scheduled}</td>
-                        <td className="text-right tabular-nums">{b.present}</td>
-                        <td className={`text-right tabular-nums ${b.late > 0 ? "font-bold text-[#dc2626]" : ""}`}>{b.late}</td>
-                        <td className={`text-right tabular-nums ${b.absent > 0 ? "font-bold text-[#dc2626]" : ""}`}>{b.absent}</td>
-                        <td className="text-right tabular-nums">{b.onLeave}</td>
+                        {/* 숫자를 누르면 위 「명단」 상자가 그 지점 · 그 상태로 열린다(2026-10-26). 0 은 누를 수 없다 */}
+                        <td className="text-right">{cellBtn(b, "scheduled", b.scheduled)}</td>
+                        <td className="text-right">{cellBtn(b, "present", b.present)}</td>
+                        <td className="text-right">{cellBtn(b, "late", b.late, true)}</td>
+                        <td className="text-right">{cellBtn(b, "absent", b.absent, true)}</td>
+                        <td className="text-right">{cellBtn(b, "onLeave", b.onLeave)}</td>
                       </tr>
                     ))}
                   </tbody>
