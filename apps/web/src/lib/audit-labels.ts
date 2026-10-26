@@ -5,6 +5,8 @@
 // 새 action 을 만들면 LABEL 에 이름표를 더하고, 보안·설정 성격이면 SYSTEM_AUDIT_ACTIONS 에도 넣는다(빠지면 업무 변경으로 분류된다).
 
 export const AUDIT_ACTION_LABEL: Record<string, string> = {
+  // 봇
+  BOT_DM_SEND: "봇 DM 수동 발송",   // 2026-10-26 /api/work/bot/run job=dm — 최고 관리자가 고른 직원에게 큐브티 봇으로 보낸 안내
   // 근무일정
   SCHEDULE_TEMPLATE_CREATE: "근무 시간 종류 추가",
   SCHEDULE_TEMPLATE_UPDATE: "근무 시간 종류 수정",
@@ -121,6 +123,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
 
 /** 최고관리자만 보는 기록 — 비밀번호·권한·API 키·포털 연동·정책·시스템 작업 */
 export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
+  "BOT_DM_SEND",   // 받는 사람 이름·본문(비밀번호 안내 등)이 들어가 최고 관리자만 본다(2026-10-26 검증)
   "PASSWORD_RESET", "PASSWORD_RESET_SELF",
   "PERMISSION_SETTINGS_UPDATE",
   "API_KEY_CREATE", "API_KEY_REVOKE", "API_KEY_SUSPEND", "API_KEY_RESUME", "API_KEY_ALLOW",
