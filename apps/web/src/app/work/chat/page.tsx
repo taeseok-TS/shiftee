@@ -1408,7 +1408,6 @@ export default function WorkChatPage() {
             </Button>
             <Button size="sm" variant="ghost" onClick={openMentions} className="gap-1" title="나를 멘션한 메시지"><AtSign size={15} /></Button>
             <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1" title="새 채팅"><Plus size={16} /></Button>
-            {isAdmin && <Button size="sm" variant="ghost" onClick={() => setBroadcastOpen(true)} className="gap-1" title="한 번에 보내기"><Megaphone size={15} /></Button>}
             {/* 나머지 기능은 ⋮ 안으로 — 헤더가 좁아 "채팅" 타이틀·이름이 깨지지 않게 */}
             <DropdownMenu>
               <DropdownMenuTrigger className="px-2 py-1.5 rounded-md hover:bg-gray-100 text-gray-500 outline-none" title="더보기">
@@ -1417,6 +1416,8 @@ export default function WorkChatPage() {
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={openSaved}><Star size={14} className="mr-2" /> 내 보관함</DropdownMenuItem>
                 <DropdownMenuItem onClick={openTrash}><Trash2 size={14} className="mr-2" /> 휴지통</DropdownMenuItem>
+                {/* 한 번에 보내기(관리자) — 헤더 아이콘 대신 ⋮ 안으로(2026-10-26 디렉터) */}
+                {isAdmin && <DropdownMenuItem onClick={() => setBroadcastOpen(true)}><Megaphone size={14} className="mr-2" /> 한 번에 보내기</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
