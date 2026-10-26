@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Trash2, Share2 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, eachDayOfInterval, getDay, isSameMonth, isToday } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ export default function WorkCalendarPage() {
   const [events, setEvents] = useState<Ev[]>([]);
   // 권한을 받아 오기 전(null)에는 등록·편집 창을 열지 않는다 — 기본값을 직원으로 두면 관리자가 「우리 지점」 화면으로 보내 전사 일정이 되던 틈(검증 지적)
   const [role, setRole] = useState<string | null>(null);
+  const [myBranch, setMyBranch] = useState<string | null>(null); // 「지점에 공유」 중복 검사용 — 내 대표 지점(서버가 공유를 넣는 지점)
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -67,7 +68,7 @@ export default function WorkCalendarPage() {
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
   useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => setRole(d.user?.role ?? null)).catch(() => {});
+    fetch("/api/auth/me").then(r => r.json()).then(d => { setRole(d.user?.role ?? null); setMyBranch(d.user?.branch ?? null); }).catch(() => {});
     fetch("/api/branches").then(r => r.ok ? r.json() : { branches: [] }).then(d => setBranches(d.branches || [])).catch(() => {});
   }, []);
 
@@ -142,8 +143,33 @@ export default function WorkCalendarPage() {
     toast.success("삭제되었습니다."); fetchEvents();
   }
 
+  // 원장 전용(👑) 일정을 우리 지점 일정으로 복사 — 지점 구성원이 본다(#225). 지점은 서버가 원장의 대표 지점으로 넣는다
+  const sharingRef = useRef(false); // 두 번 빠르게 눌러 2건 생기지 않게(검증 지적)
+  async function shareToBranch(e: Ev) {
+    if (sharingRef.current) return;
+    if (!myBranch) { toast.error("소속 지점이 없어 공유할 수 없습니다."); return; } // 지점 없는 원장이 보내면 전사 일정이 되어 버린다
+    const sd = format(new Date(e.startDate), "yyyy-MM-dd");
+    const ed = format(new Date(e.endDate), "yyyy-MM-dd");
+    // 겸직 지점 일정도 events 에 섞여 오므로 내 대표 지점 것만 본다
+    if (events.some((x) => x.branch === myBranch && !x.managersOnly && x.title === e.title && format(new Date(x.startDate), "yyyy-MM-dd") === sd && (x.startTime ?? null) === (e.startTime ?? null))) {
+      toast.info("이미 지점에 공유된 일정입니다."); return;
+    }
+    sharingRef.current = true;
+    try {
+      const res = await fetch("/api/work/calendar", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: e.title, description: e.description || "", startDate: sd, endDate: ed, startTime: e.startTime || "", endTime: e.endTime || "", branch: null, managersOnly: false, color: e.color }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || "공유 실패"); return; }
+      toast.success("우리 지점 일정으로 공유했습니다."); await fetchEvents();
+    } finally { sharingRef.current = false; }
+  }
+  const canShare = (e: Ev) => !!e.managersOnly && role === "MANAGER";
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    // 넓은 화면에서 양옆이 남지 않게 최대폭을 넓혔다(#224, 1280 → 1760)
+    <div className="p-8 max-w-[1760px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarDays size={22} className="text-indigo-500" />캘린더 <span className="text-sm font-normal text-gray-400">회사·지점 전체 일정</span></h1>
         <Button onClick={() => setOpen(true)} disabled={!role} className="gap-1 bg-indigo-500 hover:bg-indigo-600"><Plus size={16} />일정 등록</Button>
@@ -223,8 +249,11 @@ export default function WorkCalendarPage() {
                           <div className="break-words leading-snug">{e.managersOnly ? "👑 " : e.branch ? `[${e.branch}] ` : ""}{e.title}</div>
                           {e.description && <div className="text-[11px] opacity-80 mt-0.5 line-clamp-3 whitespace-pre-wrap break-words">{e.description}</div>}
                         </div>
-                        {e.canEdit && first && (
-                          <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>
+                        {(e.canEdit || canShare(e)) && first && (
+                          <div className="absolute -top-1 -right-1 flex gap-0.5 opacity-0 group-hover:opacity-100" onClick={(ev) => ev.stopPropagation()}>
+                            {canShare(e) && <button onClick={(ev) => { ev.stopPropagation(); shareToBranch(e); }} title="지점에 공유 — 우리 지점 일정으로 복사해 구성원이 보게" className="bg-white border rounded-full p-0.5 text-indigo-600"><Share2 size={10} /></button>}
+                            {e.canEdit && <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }} title="삭제" className="bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>}
+                          </div>
                         )}
                       </div>
                     );
@@ -243,7 +272,8 @@ export default function WorkCalendarPage() {
           ))}
         </div>
         <div className="grid grid-cols-7">
-          {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} className="min-h-[110px] border-b border-r bg-gray-50/40" />)}
+          {/* 칸 높이 110 → 150(#224) — 시각 붙은 일정이 두 줄까지 보이게 */}
+          {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} className="min-h-[150px] border-b border-r bg-gray-50/40" />)}
           {days.map((day) => {
             const evs = eventsOn(day);
             const dow = getDay(day);
@@ -251,7 +281,7 @@ export default function WorkCalendarPage() {
             return (
               <div
                 key={day.toISOString()}
-                className={`min-h-[110px] border-b border-r p-1.5 cursor-pointer hover:bg-indigo-50/70 transition-colors ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""}`}
+                className={`min-h-[150px] border-b border-r p-1.5 cursor-pointer hover:bg-indigo-50/70 transition-colors ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""}`}
                 title="클릭: 이 날짜로 일정 등록"
                 onClick={() => {
                   // 빈 공간 클릭 → 그 날짜가 채워진 등록 다이얼로그 (개선 제안 2026-08-24)
@@ -270,7 +300,7 @@ export default function WorkCalendarPage() {
                   {evs.map((e) => (
                     <div key={e.id + day.toISOString()} className="group relative">
                       <div
-                        className={`text-[11px] text-white rounded px-1.5 py-0.5 truncate ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-pointer" : ""}`}
+                        className={`text-[11px] text-white rounded px-1.5 py-0.5 line-clamp-2 break-words leading-snug ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-pointer" : ""}`}
                         title={`${timeLabel(e) ? timeLabel(e) + " " : ""}${e.title}${e.canEdit ? " (더블클릭: 편집)" : ""}`}
                         onClick={(ev) => ev.stopPropagation()}
                         onDoubleClick={(ev) => { ev.stopPropagation(); if (e.canEdit) openEdit(e); }}
@@ -278,8 +308,11 @@ export default function WorkCalendarPage() {
                         {e.startTime && format(new Date(e.startDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd") && <span className="font-semibold mr-1">{e.startTime}</span>}
                         {e.managersOnly ? "👑 " : e.branch ? `[${e.branch}] ` : ""}{e.title}
                       </div>
-                      {e.canEdit && format(new Date(e.startDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd") && (
-                        <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }} className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>
+                      {(e.canEdit || canShare(e)) && format(new Date(e.startDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd") && (
+                        <div className="absolute -top-1 -right-1 flex gap-0.5 opacity-0 group-hover:opacity-100" onClick={(ev) => ev.stopPropagation()}>
+                          {canShare(e) && <button onClick={(ev) => { ev.stopPropagation(); shareToBranch(e); }} title="지점에 공유 — 우리 지점 일정으로 복사해 구성원이 보게" className="bg-white border rounded-full p-0.5 text-indigo-600"><Share2 size={10} /></button>}
+                          {e.canEdit && <button onClick={(ev) => { ev.stopPropagation(); remove(e.id); }} title="삭제" className="bg-white border rounded-full p-0.5 text-red-500"><Trash2 size={10} /></button>}
+                        </div>
                       )}
                     </div>
                   ))}
