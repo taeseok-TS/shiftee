@@ -1379,6 +1379,36 @@ model AttendanceAlertLog {
   @@index([date])
 }
 
+// 시프티 요청·승인 이력 보관(2026-10-26 디렉터 승인 「요청이력은 표+화면으로」) — 시프티(10/31 종료)의 요청 22,057건(2021~2026)과 첨부 사진을
+// 법정 보존·분쟁 조회용으로 **읽기 전용**으로 담는다. 반입은 서버에서 SQL/스크립트로(deploy/ddl_shiftee_request.sql), 앱은 조회만 한다.
+//  · id = 시프티 요청번호 그대로 · userId = 큐브티 사용자(매칭 안 되면 null, relation 없이 인덱스만 — 퇴사·삭제 계정에도 기록은 남아야 한다)
+//  · requestedAt 은 UTC 로 저장(CSV 신청일은 KST — 반입 때 9시간 빼서 넣는다), 화면은 KST 로 보인다
+//  · content = CSV 「요청내용」 JSON 그대로(시프티 원문 키), attachments = uploads/private/shiftee-requests/ 아래 실제 파일명 배열
+//  · 첨부는 전용 라우트(api/shiftee-requests/[id]/attachment)로만 연다 — uploads/private 는 일반 경로에서 403
+model ShifteeRequest {
+  id          String   @id            // 시프티 요청번호(문자열)
+  userId      String?                 // 큐브티 User.id — 매칭 안 되면 null
+  empNo       String?                 // 큐브티 사번(원문 그대로, 선행 0 보존)
+  name        String                  // 신청자 이름(시프티 스냅샷)
+  branch      String?                 // 시프티 지점명(당시 이름)
+  kind        String                  // create_leaves | clock_in | clock_out | edit_attendance | create_attendance | create_shifts | edit_shifts | delete_leave … (lib/shiftee-request KIND_LABEL)
+  status      String                  // approved | rejected | cancelled | pending
+  step        Int?                    // 결재 단계
+  cancelled   Boolean  @default(false)
+  requestedAt DateTime                // 신청 시각(UTC)
+  content     Json                    // 요청내용 원문 JSON
+  approver    String?                 // 승인자 원문(예: "조혜련(승인)")
+  comment     String?                 // 결재 코멘트
+  attachments String[] @default([])   // 첨부 파일명(YYYY-MM-DD_이름_요청번호_순번.jpg|jpeg|png)
+  importBatch String?                 // 반입 묶음 표식 — 되돌리기용
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([requestedAt])
+  @@index([kind])
+  @@index([name])
+}
+
 // 근무일정 템플릿(2026-10-07 QA #10, 본부 답변 #16) — 시프티 템플릿 34개에서 시작. branches 가 비면 전사 공통, 있으면 그 지점 전용.
 // 관리자 「근무일정 템플릿」 화면에서 관리하고, 직원 신청·원장/관리자 등록·일괄 생성이 이 표를 쓴다.
 model ScheduleTemplate {

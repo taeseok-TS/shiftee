@@ -5,7 +5,7 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
   Calendar, BarChart3, GitBranch, Send, FileText, Building2, ShieldCheck, CalendarDays, History,
-  Settings, Lightbulb, Wrench, Wallet,
+  Settings, Lightbulb, Wrench, Wallet, Archive,
 } from "lucide-react";
 
 export type Icon = ComponentType<{ size?: number; className?: string }>;
@@ -35,6 +35,8 @@ export const ADMIN_NAV: NavGroup[] = [
       { href: "/admin/schedule-templates", label: "근무 시간 종류" },
     ] },
     { href: "/admin/work-report", label: "근로시간 리포트", icon: BarChart3 },
+    // 시프티(2026-10-31 종료) 요청·승인 기록 보관 — 읽기 전용(2026-10-26 디렉터 승인 「요청이력은 표+화면으로」)
+    { href: "/admin/shiftee-requests", label: "시프티 기록", icon: Archive },
   ] },
   { key: "approval", title: "결재", icon: CheckCircle, items: [
     { href: "/admin/leave-approvals", label: "결재함", icon: CheckCircle, countKey: "approvals",
