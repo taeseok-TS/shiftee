@@ -6,6 +6,7 @@ import { kstTodayMidnight } from "@/lib/resign";
 import type { Prisma } from "@prisma/client";
 import { parseAttachments, deleteWorkAttachmentFiles } from "@/lib/work-attachments";
 import { getHiddenUserIds } from "@/lib/hidden-accounts";
+import type { NotifyTopic } from "@/lib/notify-targets";
 
 /**
  * 큐브티 봇 — 자동 알림 (아침 브리핑, 결재 결과 DM, 중요 공지 재알림)
@@ -124,14 +125,16 @@ async function sendDMAs(botId: string, botName: string, userId: string, content:
  * 본부(관리자 전원)에게 **진행 상황**을 알린다 — 결재 차례가 아니어도 신청·원장 승인·반려·취소를 다 받는다
  * (2026-10-07 본부 답변 #8). 결재 요청과 구분되게 「진행 알림」으로 보낸다. 실패는 무시한다.
  */
-export async function botNotifyAdminsProgress(text: string, exclude: (string | null | undefined)[] = []) {
+// topic — 받는 사람을 종류별로 고른다(관리자 화면 > 봇 설정, lib/notify-targets · 2026-10-26). 기본은 「요청 진행 알림」,
+// 계약 만료는 contract, 원장 일정 변경은 managerChange. 아무도 안 고르면 관리자 전원(종전과 같다).
+export async function botNotifyAdminsProgress(text: string, exclude: (string | null | undefined)[] = [], topic: NotifyTopic = "progress") {
   try {
-    const { prisma } = await import("@/lib/db");
-    const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
+    const { getNotifyRecipients } = await import("@/lib/notify-targets");
+    const admins = await getNotifyRecipients(topic);
     const skip = new Set(exclude.filter(Boolean) as string[]);
-    for (const a of admins) {
-      if (skip.has(a.id)) continue;
-      await botSendDM(a.id, `📌 [진행 알림] ${text}`).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
+    for (const id of admins) {
+      if (skip.has(id)) continue;
+      await botSendDM(id, `📌 [진행 알림] ${text}`).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
     }
   } catch (e) {
     console.error("[bot] 진행 알림 오류:", e);
@@ -178,14 +181,15 @@ export async function botNotifyApprovalRequest(step: {
         console.error("[bot] 원장대행 조회 오류:", e);
       }
     }
-    const admins = (await prisma.user.findMany({
-      where: { role: "ADMIN", isActive: true },
-      select: { id: true },
-    })).map((a) => a.id);
+    // 본부 차례 결재 요청을 받는 관리자 — 봇 설정에서 고른 담당자(아무도 안 고르면 관리자 전원, lib/notify-targets 2026-10-26)
+    const { getNotifyRecipients, activeAdminIds } = await import("@/lib/notify-targets");
+    const admins = await getNotifyRecipients("approval");
 
     // 결재 차례인 사람. 원장 단계인데 결재할 원장이 없으면(퇴사 등) 본부가 대신 받는다 — 건이 멈추지 않게
     let requestTargets = adminTurn ? admins : stepTargets;
     if (requestTargets.filter((id) => id !== opts.requesterId).length === 0) requestTargets = admins;
+    // 고른 담당자가 신청자 본인뿐이면(관리자가 올린 건) 관리자 전원으로 — 결재 요청이 아무에게도 안 가면 건이 멈춘다
+    if (requestTargets.filter((id) => id !== opts.requesterId).length === 0) requestTargets = await activeAdminIds().catch(() => admins);
     const list = [...new Set(requestTargets)].filter((id) => id !== opts.requesterId);
     if (list.length === 0) {
       console.error(`[bot] ${opts.kind} 결재 대상이 없습니다 — ${opts.requesterName} (${opts.period})`);
@@ -207,13 +211,13 @@ ${opts.kind === "출퇴근 요청" || opts.kind === "기기 변경" ? "내용" :
       await botSendDM(id, text).catch(() => { /* 한 명 실패가 나머지를 막지 않게 */ });
     }
 
-    // 본부 진행 알림 — 결재 요청을 이미 받은 본부 사람은 빼고(같은 내용 두 번 방지)
-    if (!list.some((id) => admins.includes(id)) || !adminTurn) {
-      await botNotifyAdminsProgress(
-        `${opts.kind === "출퇴근 요청" ? opts.kind : `${opts.kind} ${opts.kind === "휴가" || opts.kind === "근무일정" ? "신청" : "요청"}`} — ${opts.requesterName} (${opts.period})\n${turnLabel} 결재 대기 중입니다.`,
-        [opts.requesterId, ...list],
-      );
-    }
+    // 본부 진행 알림 — 결재 요청을 이미 받은 본부 사람은 빼고(같은 내용 두 번 방지).
+    // 결재 요청 담당자와 진행 알림 담당자가 다를 수 있어(2026-10-26) 조건 대신 exclude 로 거른다 —
+    // 둘이 같으면(기본값: 전원) 본부 차례엔 아무에게도 안 가, 종전 동작과 같다.
+    await botNotifyAdminsProgress(
+      `${opts.kind === "출퇴근 요청" ? opts.kind : `${opts.kind} ${opts.kind === "휴가" || opts.kind === "근무일정" ? "신청" : "요청"}`} — ${opts.requesterName} (${opts.period})\n${turnLabel} 결재 대기 중입니다.`,
+      [opts.requesterId, ...list],
+    );
   } catch (e) {
     console.error("[bot] 결재 요청 알림 오류:", e);
   }

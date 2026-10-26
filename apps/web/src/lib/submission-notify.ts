@@ -9,7 +9,6 @@ import { botSendDM } from "@/lib/bot";
 import { getAppUrl } from "@/lib/app-url";
 import { targetUsersFor, usersInJobGroups } from "@/lib/submission-targets";
 import { dateStr, todayStrKST } from "@/lib/submissions";
-import { kstTodayMidnight } from "@/lib/resign";
 import { branchManagers } from "@/lib/manager-branches";
 import { SHARE_BRANCH_MANAGER } from "@/lib/submissions";
 
@@ -87,12 +86,10 @@ export async function notifyShared(submissionId: string) {
   }
 }
 
+/** 본부 수신자 — 봇 설정 「자료 제출 현황」 담당자(아무도 안 고르면 재직 관리자 전원 — lib/notify-targets 2026-10-26) */
 async function activeAdminIds(): Promise<string[]> {
-  const rows = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true, deletedAt: null, AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }] },
-    select: { id: true },
-  });
-  return rows.map((r) => r.id);
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  return getNotifyRecipients("submission");
 }
 
 /** 09시 잡 — 마감 전날 독촉·마감 다음날 알림. 멱등: remindedAt / overdueNotifiedAt */

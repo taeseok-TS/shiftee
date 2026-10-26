@@ -76,7 +76,8 @@ export async function noteManagerSelfChange(
       targetType: "USER", targetId: managers[0].id, targetName: who, detail: `원장 근무일정 변경(${who}): ${detail}`,
     });
     const { botNotifyAdminsProgress } = await import("@/lib/bot");
-    botNotifyAdminsProgress(`${session.name} 원장 · 원장 근무일정 변경(${who}) — ${detail}`).catch(() => {});
+    // 받는 사람은 봇 설정 「원장 근무일정 변경」 담당자(아무도 안 고르면 관리자 전원 — 2026-10-26)
+    botNotifyAdminsProgress(`${session.name} 원장 · 원장 근무일정 변경(${who}) — ${detail}`, [], "managerChange").catch(() => {});
   } catch (e) {
     console.error("[schedule] 원장 일정 변경 기록 실패:", e);
   }

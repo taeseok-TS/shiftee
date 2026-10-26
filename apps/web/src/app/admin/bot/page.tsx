@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Trash2, Send, Bot, Paperclip, X, Folder, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Send, Bot, Paperclip, X, Folder, ChevronDown, ChevronRight, BellRing } from "lucide-react";
+import { Box, tableClass } from "@/components/kit";
 
 type Attachment = { url: string; name: string; type: string };
 type Briefing = {
@@ -40,6 +41,8 @@ function monthFromFileName(name: string): number | null {
   return null;
 }
 type Channel = { id: string; name: string; isDefault: boolean };
+// 봇 알림 종류(서버 lib/notify-targets NOTIFY_TOPICS 가 원천 — 화면은 받은 목록을 그대로 그린다)
+type NotifyTopicRow = { key: string; label: string; hint: string };
 
 const ITEM_LABELS: { key: "showLeaves" | "showEvents" | "showAnniv" | "showBirthday"; label: string; desc: string }[] = [
   { key: "showLeaves", label: "🌴 오늘 휴가자", desc: "승인된 휴가 중 오늘 해당자" },
@@ -57,12 +60,13 @@ export default function AdminBotPage() {
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  // 시스템 알림 수신자 (2026-09-03) — 담당자가 바뀌면 여기서 체크만 바꾸면 된다
+  // 봇 알림 받는 담당자 (2026-09-03 시스템 알림 → 2026-10-26 종류별) — 담당자가 바뀌면 여기서 체크만 바꾸면 된다
   const [admins, setAdmins] = useState<{ id: string; name: string; email: string }[]>([]);
-  const [sysTargets, setSysTargets] = useState<string[] | null>(null); // null = 미지정(관리자 전원)
+  const [topics, setTopics] = useState<NotifyTopicRow[]>([]);
+  const [targets, setTargets] = useState<Record<string, string[] | null>>({}); // 종류별. null = 미지정(관리자 전원)
   // 화면에 안 보이는 수신자(개발자 영역 계정)가 지정에 들어 있다 — 보이는 체크가 비어도 「전원」이 아니다(2026-10-17)
-  const [sysHidden, setSysHidden] = useState(false);
-  const [sysSaving, setSysSaving] = useState(false); // 저장 중 연타하면 옛 값으로 계산돼 토글이 유실된다
+  const [hiddenTopics, setHiddenTopics] = useState<Record<string, boolean>>({});
+  const [tgtSaving, setTgtSaving] = useState(false); // 저장 중 연타하면 옛 값으로 계산돼 토글이 유실된다
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("09:00");
   const [newFolder, setNewFolder] = useState("");
@@ -104,8 +108,9 @@ export default function AdminBotPage() {
       const d = await p.json();
       setForceNotify(d.forceApprovalNotify || false);
       setAdmins(d.admins || []);
-      setSysTargets(d.systemTargets ?? null);
-      setSysHidden(!!d.hiddenTargets);
+      setTopics(d.topics || []);
+      setTargets(d.targets || {});
+      setHiddenTopics(d.hiddenTopics || {});
     }
     setLoading(false);
   }, []);
@@ -118,22 +123,26 @@ export default function AdminBotPage() {
     else toast.error("변경 실패");
   }
 
-  async function toggleSysTarget(id: string, on: boolean) {
-    if (sysSaving) return;
-    setSysSaving(true);
+  // 체크 하나 바꾸면 **그 종류만** 저장한다
+  async function toggleTarget(topic: NotifyTopicRow, id: string, on: boolean) {
+    if (tgtSaving) return;
+    setTgtSaving(true);
     try {
-    const base = sysTargets ?? admins.map((a) => a.id); // 미지정 상태에서 첫 체크 해제면 전원에서 빼는 것
-    const next = on ? [...new Set([...base, id])] : base.filter((x) => x !== id);
-    const res = await fetch("/api/admin/notify-policy", {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemTargets: next }),
-    });
-    if (res.ok) {
-      const d = await res.json();
-      setSysTargets(d.systemTargets ?? next);
-      setSysHidden(!!d.hiddenTargets);
-      toast.success(next.length ? `${next.length}명이 시스템 알림을 받습니다.` : d.hiddenTargets ? "지정된 수신자만 받습니다(일부는 표시 안 됨)." : "아무도 고르지 않아 관리자 전원에게 갑니다.");
-    } else toast.error("변경 실패");
-    } finally { setSysSaving(false); }
+      const cur = targets[topic.key] ?? null;
+      const base = cur ?? admins.map((a) => a.id); // 미지정 상태에서 첫 체크 해제면 전원에서 빼는 것
+      const next = on ? [...new Set([...base, id])] : base.filter((x) => x !== id);
+      const res = await fetch("/api/admin/notify-policy", {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targets: { [topic.key]: next } }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const saved: string[] = d.targets?.[topic.key] ?? next;
+        const hiddenAny = !!d.hiddenTopics?.[topic.key];
+        setTargets((prev) => ({ ...prev, [topic.key]: saved }));
+        setHiddenTopics((prev) => ({ ...prev, [topic.key]: hiddenAny }));
+        toast.success(saved.length ? `${topic.label} — ${saved.length}명이 받습니다.` : hiddenAny ? `${topic.label} — 지정된 수신자만 받습니다(일부는 표시 안 됨).` : `${topic.label} — 아무도 고르지 않아 관리자 전원에게 갑니다.`);
+      } else toast.error("변경 실패");
+    } finally { setTgtSaving(false); }
   }
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -242,38 +251,56 @@ export default function AdminBotPage() {
         </CardContent>
       </Card>
 
-      {/* 시스템 알림 수신자 (2026-09-03) — 종전에는 관리자 전원 7명에게 뿌렸다.
-          담당자는 바뀌므로 코드가 아니라 여기서 고른다. */}
-      <Card>
-        <CardContent className="pt-4 pb-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold">🩺 시스템 점검·오류 알림을 받을 사람</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              서버 오류·디스크·실패 응답 알림을 봇 DM 으로 받습니다. 담당자가 바뀌면 여기서 바꾸세요.
-              {/* 아무도 안 받는 상태를 만들면 알림이 조용히 사라진다 — 그게 가장 위험하다 */}
-              <br />아무도 고르지 않으면 <b>관리자 전원</b>에게 갑니다. (개선 제안 접수 알림은 전원 그대로)
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
-            {admins.map((a) => {
-              const on = sysTargets === null ? true : sysTargets.includes(a.id);
-              return (
-                <label key={a.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={on} disabled={sysSaving} onChange={(e) => toggleSysTarget(a.id, e.target.checked)} />
-                  {a.name}
-                </label>
-              );
-            })}
-            {admins.length === 0 && <span className="text-xs text-gray-400">불러오는 중…</span>}
-          </div>
-          {sysTargets !== null && sysTargets.length === 0 && !sysHidden && (
-            <p className="text-xs text-amber-600">아무도 고르지 않아 관리자 전원에게 갑니다.</p>
-          )}
-          {sysTargets !== null && sysHidden && (
-            <p className="text-xs text-gray-500">지정된 수신자만 받습니다(일부는 표시 안 됨).</p>
-          )}
-        </CardContent>
-      </Card>
+      {/* 봇 알림 받는 담당자 (2026-09-03 시스템 알림 하나 → 2026-10-26 디렉터 지시로 종류별) — 종전에는 관리자 전원에게 뿌렸다.
+          담당자는 바뀌므로 코드가 아니라 여기서 고른다. 줄 = 알림 종류, 열 = 관리자. */}
+      <Box icon={<BellRing />} title="봇 알림 받는 담당자" sub="종류별로 봇 DM 을 받을 관리자를 고릅니다. 아무도 고르지 않은 종류는 관리자 전원에게 갑니다." className="mb-0" bodyClassName="p-0">
+        {/* 아무도 안 받는 상태를 만들면 알림이 조용히 사라진다 — 그게 가장 위험하다. 그래서 빈 줄은 「전원」으로 되돌린다 */}
+        <div className="overflow-x-auto">
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className="min-w-[220px]">알림 종류</th>
+                {admins.map((a) => <th key={a.id} className="whitespace-nowrap text-center">{a.name}</th>)}
+                <th className="whitespace-nowrap text-right">받는 사람</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topics.map((t) => {
+                const cur = targets[t.key] ?? null;
+                const hiddenAny = !!hiddenTopics[t.key];
+                const everyone = cur === null || (cur.length === 0 && !hiddenAny);
+                const tally = everyone ? "전원" : cur.length === 0 ? "지정(표시 안 됨)" : `${cur.length}명${hiddenAny ? " +" : ""}`;
+                return (
+                  <tr key={t.key}>
+                    <td>
+                      <p className="font-semibold text-[#0f172a]">{t.label}</p>
+                      <p className="mt-0.5 text-[12.5px] text-[#596578]">{t.hint}</p>
+                    </td>
+                    {admins.map((a) => {
+                      const on = cur === null ? true : cur.includes(a.id);
+                      return (
+                        <td key={a.id} className="text-center">
+                          <input type="checkbox" className="h-4 w-4 cursor-pointer accent-[#4f46e5]" checked={on} disabled={tgtSaving}
+                            aria-label={`${t.label} — ${a.name}`} title={`${t.label} — ${a.name}`}
+                            onChange={(e) => toggleTarget(t, a.id, e.target.checked)} />
+                        </td>
+                      );
+                    })}
+                    <td className={`whitespace-nowrap text-right text-[13px] ${everyone ? "text-[#596578]" : "font-semibold text-[#4f46e5]"}`}>{tally}</td>
+                  </tr>
+                );
+              })}
+              {topics.length === 0 && (
+                <tr><td colSpan={admins.length + 2} className="text-[#596578]">불러오는 중…</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="px-6 py-3 text-[12.5px] text-[#596578]">
+          아무도 고르지 않은 종류는 관리자 전원에게 갑니다. 「+」는 화면에 표시되지 않는 수신자가 더 있다는 뜻입니다.
+          회사 연동 키 회수 알림은 최고 관리자에게만 가며 여기서 고르지 않습니다.
+        </p>
+      </Box>
 
       {["", ...folders].map((folderKey) => {
         const list = briefings.filter((b) => (b.folder || "") === folderKey);

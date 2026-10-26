@@ -113,7 +113,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   PORTAL_SYNC_SETTING: "포털 연동 설정 변경",
   PORTAL_SYNC_DISMISS: "포털 연동 차이 무시",
   MARKETING_PUBLISHED: "마케팅 배포",
-  NOTIFY_TARGETS_UPDATE: "시스템 알림 수신자 변경",
+  NOTIFY_TARGETS_UPDATE: "봇 알림 수신자 변경",   // 2026-10-26 종류별로 넓어짐 — 어떤 종류인지는 detail 앞머리에
   JINHAK_INFO_ENTER: "입학정보실 입장권 발급",   // 2026-10-19 — 누가 언제 열었는지만(입장권 값은 안 남긴다)
   API_CHAT_POST: "API 키로 채팅 전송(과거 기록)",
   "시스템 알림 수신자 변경": "시스템 알림 수신자 변경",   // 2026-10-14 전 기록은 한글 문장이 코드 자리에 있었다 — 과거 호환

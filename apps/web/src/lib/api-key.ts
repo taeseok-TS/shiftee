@@ -156,8 +156,10 @@ async function suspendKey(key: ApiKey, reason: string) {
   const owner = await prisma.user.findUnique({ where: { id: key.userId }, select: { name: true } });
   const msg = `⚠️ API 키 「${key.name}」(${key.prefix}…)이 이상 사용(${reason})으로 멈췄습니다. 본인이 쓴 것이 아니면 프로필에서 키를 끄고 새로 만드세요.`;
   await botSendDM(key.userId, msg);
-  const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true, deletedAt: null }, select: { id: true } });
-  for (const a of admins) await botSendDM(a.id, `⚠️ ${owner?.name ?? key.userId} 님의 API 키 「${key.name}」이 이상 사용(${reason})으로 멈췄습니다.`);
+  // 본부 수신자 = 봇 설정 「연동 키 이상 사용」 담당자(아무도 안 고르면 관리자 전원 — lib/notify-targets 2026-10-26)
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  const admins = await getNotifyRecipients("integration");
+  for (const id of admins) await botSendDM(id, `⚠️ ${owner?.name ?? key.userId} 님의 API 키 「${key.name}」이 이상 사용(${reason})으로 멈췄습니다.`);
   const { logAudit } = await import("@/lib/audit");
   await logAudit({ actorId: "system", actorName: "시스템", action: "API_KEY_SUSPEND", targetType: "API_KEY", targetId: key.id, targetName: key.name, detail: reason });
 }
@@ -183,7 +185,8 @@ export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject
 }
 
 /** 회사 연동 키가 발급자 사정(비번 초기화 등)으로 꺼졌을 때 알린다 — 조용히 끊기면 큐브마케팅 연동이 멈춘 줄 모른다.
- *  받는 사람 = 최고 관리자(2026-10-23 ■0-3 — 키 화면이 최고 관리자 전용이 되어, 열 수 없는 사람에게 보내지 않는다) */
+ *  받는 사람 = 최고 관리자(2026-10-23 ■0-3 — 키 화면이 최고 관리자 전용이 되어, 열 수 없는 사람에게 보내지 않는다).
+ *  봇 설정의 종류별 수신자(lib/notify-targets) 대상에서 **일부러 뺐다** — 고르게 두면 키 화면을 못 여는 서브 관리자에게 갈 수 있다(2026-10-26). */
 export async function notifyOrgKeysRevoked(names: string[], reason: string) {
   try {
     const { botSendDM } = await import("@/lib/bot");

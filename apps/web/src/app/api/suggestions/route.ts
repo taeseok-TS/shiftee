@@ -57,10 +57,12 @@ export async function POST(request: NextRequest) {
   });
 
   // 관리자에게 봇 DM으로 접수 알림 (응답을 막지 않게 비동기)
+  // 받는 사람 = 봇 설정 「개선 제안 접수」 담당자(아무도 안 고르면 관리자 전원 — lib/notify-targets 2026-10-26)
   (async () => {
-    const admins = await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
-    for (const a of admins) {
-      await botSendDM(a.id, `📥 [접수] #${suggestion.seqNo} ${suggestion.title}\n${suggestion.userName}${suggestion.userBranch ? ` (${suggestion.userBranch})` : ""}\n관리자 화면 → 개선 제안에서 확인해주세요.`);
+    const { getNotifyRecipients } = await import("@/lib/notify-targets");
+    const admins = await getNotifyRecipients("suggestion");
+    for (const id of admins) {
+      await botSendDM(id, `📥 [접수] #${suggestion.seqNo} ${suggestion.title}\n${suggestion.userName}${suggestion.userBranch ? ` (${suggestion.userBranch})` : ""}\n관리자 화면 → 개선 제안에서 확인해주세요.`);
     }
   })().catch((e) => console.error("[suggestion] 관리자 알림 오류:", e));
 

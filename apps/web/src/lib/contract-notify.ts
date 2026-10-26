@@ -241,6 +241,9 @@ export async function expireOverdueContracts() {
   });
   if (!due.length) return;
   const { botNotifyAdminsProgress } = await import("@/lib/bot");
+  // 본부 진행 알림(종류 contract)을 받는 담당자 — 봇 설정에서 골랐으면 그 사람들, 아니면 관리자 전원(2026-10-26)
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  const hqTargets = new Set(await getNotifyRecipients("contract").catch(() => [] as string[]));
   const expired: string[] = [];
   for (const c of due) {
     try {
@@ -255,7 +258,8 @@ export async function expireOverdueContracts() {
       expired.push(`· 「${c.title}」 (${who}) — 기한 ${ymd}`);
       if (c.createdBy) {
         const creator = await prisma.user.findUnique({ where: { id: c.createdBy }, select: { role: true } });
-        if (creator && creator.role !== "ADMIN") hrBotSendDM(c.createdBy, msg).catch(() => {});   // 관리자는 위 진행 알림으로 받는다
+        // 관리자 작성자는 아래 진행 알림으로 받는다 — 단, 진행 알림 담당자에서 빠진 관리자는 작성자 DM 으로라도 받아야 한다
+        if (creator && (creator.role !== "ADMIN" || !hqTargets.has(c.createdBy))) hrBotSendDM(c.createdBy, msg).catch(() => {});
       }
     } catch (e) {
       console.error("[contract] 만료 처리 오류:", c.id, e);
@@ -263,6 +267,6 @@ export async function expireOverdueContracts() {
   }
   // 본부에는 하루치를 한 통으로(#45 검증 M7 — 한꺼번에 보낸 30건이 같은 날 만료되면 30통이었다)
   if (expired.length) {
-    botNotifyAdminsProgress(`⌛ 서명 기한 만료 ${expired.length}건 — 다시 받으려면 계약 목록에서 재발송해 주세요.\n${expired.slice(0, 30).join("\n")}${expired.length > 30 ? `\n외 ${expired.length - 30}건` : ""}`, []).catch(() => {});
+    botNotifyAdminsProgress(`⌛ 서명 기한 만료 ${expired.length}건 — 다시 받으려면 계약 목록에서 재발송해 주세요.\n${expired.slice(0, 30).join("\n")}${expired.length > 30 ? `\n외 ${expired.length - 30}건` : ""}`, [], "contract").catch(() => {});
   }
 }

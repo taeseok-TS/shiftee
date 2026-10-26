@@ -705,10 +705,9 @@ export async function runPortalSyncDaily() {
   if (r.ok && r.newPending === 0) return;
   const { botSendDM } = await import("@/lib/bot");
   const { getAppUrl } = await import("@/lib/app-url");
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true, deletedAt: null, AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }] },
-    select: { id: true },
-  });
+  // 본부 수신자 — 봇 설정 「인사명부 연동 결과」 담당자(아무도 안 고르면 재직 관리자 전원 — lib/notify-targets 2026-10-26)
+  const { getNotifyRecipients } = await import("@/lib/notify-targets");
+  const admins = await getNotifyRecipients("roster");
   const link = `${getAppUrl()}/admin/portal-sync`;
   let msg: string;
   if (!r.ok) msg = `⚠️ 인사명부를 가져오지 못했습니다.\n${r.error}\n→ ${link}`;
@@ -717,5 +716,5 @@ export async function runPortalSyncDaily() {
     const label: Record<string, string> = { UPDATE: "정보 변경", HIRE: "입사", RESIGN: "퇴사", LEAVE: "휴직", RETURN: "복직", LINK: "사번 연결" };
     msg = `🔄 인사명부 확인 대기 ${r.pending}건 (${rows.map((x) => `${label[x.kind] ?? x.kind} ${x._count._all}`).join(" · ")})\n반영 전에는 큐브티에 바뀌지 않습니다.\n→ ${link}`;
   }
-  for (const a of admins) await botSendDM(a.id, msg);
+  for (const id of admins) await botSendDM(id, msg);
 }
