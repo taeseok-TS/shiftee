@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isMentioned } from "@/lib/mention";
 import { hiddenIdsFor } from "@/lib/hidden-accounts";
+import { findOrCreateDM } from "@/lib/work-dm";
 
 // 채널 목록 조회 (기본 '전체' 채널 자동 보장 + 본인 참여 채널)
 export async function GET() {
@@ -155,41 +156,8 @@ export async function POST(request: NextRequest) {
     const otherId = (memberIds || [])[0];
     if (!otherId) return NextResponse.json({ error: "대화 상대를 선택해주세요." }, { status: 400 });
 
-    // 기존 1:1 DM 있으면 재사용. 한쪽이 나가서 소프트 삭제됐던 DM이면 되살린다
-    // (안 그러면 deletedAt이 남아 목록에서 계속 숨겨져 "초대해도 안 생김"이 됨).
-    const existing = await prisma.workChannel.findFirst({
-      where: {
-        type: "DM",
-        AND: [
-          { members: { some: { userId: session.userId } } },
-          { members: { some: { userId: otherId } } },
-        ],
-      },
-    });
-    if (existing) {
-      // 다시 대화를 시작하면 내가 숨겼던 DM을 다시 보이게 한다.
-      await prisma.workChannelMember.updateMany({
-        where: { channelId: existing.id, userId: session.userId },
-        data: { hiddenAt: null },
-      });
-      if (existing.deletedAt) {
-        await prisma.workChannel.update({
-          where: { id: existing.id },
-          data: { deletedAt: null, permanentlyDeletedAt: null },
-        });
-        return NextResponse.json({ channel: { ...existing, deletedAt: null, permanentlyDeletedAt: null } });
-      }
-      return NextResponse.json({ channel: existing });
-    }
-
-    const channel = await prisma.workChannel.create({
-      data: {
-        name: "DM",
-        type: "DM",
-        createdBy: session.userId,
-        members: { create: [{ userId: session.userId }, { userId: otherId }] },
-      },
-    });
+    // 기존 1:1 DM 재사용·소프트 삭제된 DM 되살리기·숨김 해제 — lib/work-dm (한 번에 보내기와 같은 로직, 2026-10-26)
+    const channel = await findOrCreateDM(session.userId, otherId);
     return NextResponse.json({ channel });
   }
 

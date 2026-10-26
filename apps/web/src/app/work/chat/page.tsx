@@ -9,6 +9,7 @@ import { Send, Plus, Hash, User as UserIcon, Search, Smile, Paperclip, X, Bell, 
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { openWorkStream } from "@/lib/work-stream";
+import BroadcastDialog from "@/components/work/BroadcastDialog";
 import {
   DESKTOP_NOTIFY_EVENT, enableDesktopNotify, readDesktopNotifyState, saveDesktopNotifyChoice,
 } from "@/lib/desktop-notify";
@@ -172,6 +173,7 @@ export default function WorkChatPage() {
   const [thread, setThread] = useState<{ parent: Message; replies: Message[] } | null>(null);
   const [threadInput, setThreadInput] = useState("");
   const [newOpen, setNewOpen] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false); // 한 번에 보내기(관리자) — components/work/BroadcastDialog
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [empSearch, setEmpSearch] = useState("");
   const [newName, setNewName] = useState("");
@@ -241,6 +243,9 @@ export default function WorkChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 채널 목록 새로고침 묶기 — 「한 번에 보내기」로 DM 200개가 몇 초 안에 생기면 신호마다 GET /api/work/channels 가 200번 나가
+  // 서버 DB 풀이 막힌다(2026-10-26 검증). 신호가 몰리면 400ms 뒤 한 번만 읽는다.
+  const channelsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -365,15 +370,19 @@ export default function WorkChatPage() {
       let e: any;
       try { e = JSON.parse(ev.data); } catch { return; }
       const cur = activeIdRef.current;
+      const scheduleChannels = () => {
+        if (channelsTimer.current) clearTimeout(channelsTimer.current);
+        channelsTimer.current = setTimeout(() => { channelsTimer.current = null; fetchChannels(); }, 400);
+      };
       if (e.type === "message" || e.type === "reaction") {
         if (e.channelId === cur) {
           fetchMessages(cur).then(() => markRead(cur));
           if (threadId) refreshThread(threadId);
         }
-        fetchChannels(); // 데스크톱 알림은 전역 WorkDesktopNotifier가 처리
+        scheduleChannels(); // 데스크톱 알림은 전역 WorkDesktopNotifier가 처리
       } else if (e.type === "members") {
         // 누가 들어오거나 나갔다 — 내가 새로 초대된 방이 목록에 바로 뜨게
-        fetchChannels();
+        scheduleChannels();
       } else if (e.type === "read") {
         if (e.channelId === cur) fetchMessages(cur);
       } else if (e.type === "typing") {
@@ -1399,6 +1408,7 @@ export default function WorkChatPage() {
             </Button>
             <Button size="sm" variant="ghost" onClick={openMentions} className="gap-1" title="나를 멘션한 메시지"><AtSign size={15} /></Button>
             <Button size="sm" variant="ghost" onClick={() => setNewOpen(true)} className="gap-1" title="새 채팅"><Plus size={16} /></Button>
+            {isAdmin && <Button size="sm" variant="ghost" onClick={() => setBroadcastOpen(true)} className="gap-1" title="한 번에 보내기"><Megaphone size={15} /></Button>}
             {/* 나머지 기능은 ⋮ 안으로 — 헤더가 좁아 "채팅" 타이틀·이름이 깨지지 않게 */}
             <DropdownMenu>
               <DropdownMenuTrigger className="px-2 py-1.5 rounded-md hover:bg-gray-100 text-gray-500 outline-none" title="더보기">
@@ -2081,6 +2091,9 @@ export default function WorkChatPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 한 번에 보내기(관리자) — 보낸 뒤 새로 생긴 DM 방이 목록에 보이게 채널 목록 새로고침 */}
+      {isAdmin && <BroadcastDialog open={broadcastOpen} onOpenChange={setBroadcastOpen} onSent={() => { fetchChannels(); }} />}
 
       {/* 채널 관리: 이름 변경 / 멤버 / 내보내기 */}
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { emitWork } from "@/lib/work-events";
-import { sendPushToUsers } from "@/lib/push";
-import { isMentioned } from "@/lib/mention";
+import { notifyNewMessage } from "@/lib/work-notify";
 import { findSendableEmoticon } from "@/lib/emoticons";
 import { hiddenIdsFor } from "@/lib/hidden-accounts";
 import type { Prisma } from "@prisma/client";
@@ -33,46 +32,7 @@ function shapeReactions(reactions: { emoji: string; userId: string; user: { name
   return [...map.values()];
 }
 
-// 새 메시지에 대한 푸시 알림 발송
-async function notifyNewMessage(
-  channel: { id: string; name: string; type: string },
-  message: { id: string; content: string; fileUrl: string | null; user: { name: string } },
-  senderId: string
-) {
-  const members = await prisma.workChannelMember.findMany({
-    where: { channelId: channel.id, userId: { not: senderId } },
-    select: { userId: true, notify: true, user: { select: { name: true } } },
-  });
-
-  const recipients = members
-    .filter((m) => m.notify !== "MUTE")
-    .filter((m) =>
-      m.notify === "MENTION" ? isMentioned(message.content, m.user.name) : true
-    )
-    .map((m) => m.userId);
-
-  const albumCount = Array.isArray((message as { albumUrls?: unknown }).albumUrls)
-    ? ((message as { albumUrls?: unknown[] }).albumUrls as unknown[]).length
-    : 0;
-  const preview = message.content?.trim()
-    ? message.content.trim()
-    : albumCount > 0
-    ? `사진 ${albumCount}장을 보냈습니다.`
-    : (message as { fileType?: string | null }).fileType === "audio"
-    ? "음성 메시지를 보냈습니다."
-    : (message as { fileType?: string | null }).fileType === "sticker"
-    ? "이모티콘을 보냈습니다."
-    : message.fileUrl
-    ? "사진/파일을 보냈습니다."
-    : "";
-
-  await sendPushToUsers(recipients, {
-    title: channel.name,
-    body: `${message.user.name}: ${preview}`,
-    // 알림을 누르면 앱이 이 값으로 해당 채팅방(그리고 그 메시지)까지 바로 연다
-    data: { channelId: channel.id, channelName: channel.name, channelType: channel.type, messageId: message.id, type: "work-message" },
-  }, { respectWorkMute: true, withWorkBadge: true });
-}
+// 새 메시지 푸시 알림(notifyNewMessage)은 lib/work-notify 로 옮겼다 — 한 번에 보내기와 공용(2026-10-26)
 
 // 채널 메시지 조회 (최상위 메시지만, 댓글 수/반응 포함)
 export async function GET(

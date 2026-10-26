@@ -105,6 +105,8 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   EMOTICON_SET_CREATE: "이모티콘 세트 추가",
   EMOTICON_SET_UPDATE: "이모티콘 세트 수정",
   EMOTICON_SET_DELETE: "이모티콘 세트 삭제",
+  // 큐브티워크 채팅
+  WORK_BROADCAST: "큐브티워크 한 번에 보내기",   // 2026-10-26 /api/work/broadcast — 관리자가 여러 사람·방에 같은 글을 한 번에
   // 시스템·보안
   PERMISSION_SETTINGS_UPDATE: "역할별 권한 설정 변경",
   API_KEY_CREATE: "API 키 발급",
@@ -153,7 +155,7 @@ export const AUDIT_KIND_PREFIX: Record<Exclude<AuditKind, "hr" | "all">, string[
   approval: ["APPROVAL_"],
   contract: ["CONTRACT_", "ROUTE_COURSE_"],
   org: ["HOLIDAY_", "BRANCH_"],
-  work: ["SUBMISSION_", "EMOTICON_"],
+  work: ["SUBMISSION_", "EMOTICON_", "WORK_"],   // WORK_ = 채팅 기록(한 번에 보내기, 2026-10-26)
 };
 /** 기본 「근태 · 인사 전체」(hr)에서 빼는 앞머리 — 큐브티워크 기록 + 근태 · 인사와 상관없는 시스템 작업(마케팅 배포 · 입학정보실 입장, 10/23 검증 K) */
 export const AUDIT_HR_EXCLUDE_PREFIX: readonly string[] = [...AUDIT_KIND_PREFIX.work, "MARKETING_", "JINHAK_"];
@@ -166,7 +168,7 @@ export const AUDIT_KIND_OPTIONS: { key: AuditKind; label: string }[] = [
   { key: "approval", label: "결재 규칙 · 원장대행" },
   { key: "contract", label: "전자계약" },
   { key: "org", label: "공휴일 · 지점" },
-  { key: "work", label: "큐브티워크(자료 제출 · 이모티콘)" },
+  { key: "work", label: "큐브티워크(자료 제출 · 이모티콘 · 채팅)" },
   { key: "all", label: "모든 기록" },
 ];
 export function isAuditKind(v: string | null | undefined): v is AuditKind {
