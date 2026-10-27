@@ -19,8 +19,8 @@ import { templateLabel } from "@/lib/schedule-label";
 
 type TeamStats = {
   teamCount: number;
-  attendance: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
-  names?: { late: string[]; missing: string[]; earlyLeave: string[] };   // 누구인지(#215-6)
+  attendance: { present: number; late: number; absent: number; beforeStart?: number; earlyLeave: number; onLeave: number };
+  names?: { late: string[]; missing: string[]; beforeStart?: string[]; earlyLeave: string[] };   // 누구인지(#215-6)
   attendanceHidden?: boolean;   // 본부가 원장 출퇴근 열람을 꺼 둠(권한 설정 #39)
 };
 type Person = { id: string; name: string } | null;
@@ -127,14 +127,16 @@ export default function ManagerDashboardPage() {
 
       {/* 한 격자 — 폰(lg 미만)은 결재함 → 근태 현황 → 공지 순(order), PC(lg)는 근태 현황이 두 칸을 다 차지하고 아래 결재함 · 공지 */}
       <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        {/* 우리 지점 근태 현황 — 6칸(R16, 폰은 Tiles 가 2열로 접는다). 출퇴근 열람이 꺼지면 휴가 · 지점 인원만 */}
-        <Box icon={<Clock />} title="우리 지점 근태 현황" sub={hidden ? "본부 설정으로 출퇴근 숫자는 보이지 않습니다" : "근무일정이 있는 직원 기준"}
+        {/* 지점 근태 — 7칸(R16 + 「출근 전」, 폰은 Tiles 가 2열로 접는다). 제목은 관리자 「오늘 근태」 · 직원 「내 근태」와 같은 꼴(2026-10-27 이예지 ⑦). 출퇴근 열람이 꺼지면 휴가 · 지점 인원만 */}
+        <Box icon={<Clock />} title="지점 근태" sub={hidden ? "본부 설정으로 출퇴근 숫자는 보이지 않습니다" : "근무일정이 있는 직원 기준 · 루트코스 교육 중인 신입 제외"}
           className="order-2 !mb-0 min-w-0 lg:order-none lg:col-span-2"
           right={hidden ? undefined : <a href="/manager/team-attendance" className="text-[#4f46e5] hover:underline">지점 출퇴근기록 ›</a>}>
-          <Tiles cols={6}>
+          <Tiles cols={7}>
             <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
             <Tile label="지각" value={a?.late} unit="명" note={namesNote(stats?.names?.late)} alert onClick={toAttendance} />
-            <Tile label="미출근" value={a?.absent} unit="명" note={hidden ? undefined : namesNote(stats?.names?.missing) ?? "일정 있는데 출근 전"} alert onClick={toAttendance} />
+            {/* 근무 시작 전인 사람은 미출근이 아니라 「출근 전」(2026-10-27 이예지 ① — 오전에 13:00 근무자 107명이 미출근으로 떠 원장님들이 놀랄 일) */}
+            <Tile label="출근 전" value={hidden ? null : a?.beforeStart ?? 0} unit="명" note={hidden ? undefined : namesNote(stats?.names?.beforeStart) ?? "근무 시작 시각 전"} onClick={toAttendance} />
+            <Tile label="미출근" value={a?.absent} unit="명" note={hidden ? undefined : namesNote(stats?.names?.missing) ?? "시작 시각 지났는데 기록 없음"} alert onClick={toAttendance} />
             <Tile label="조퇴" value={a?.earlyLeave} unit="명" note={namesNote(stats?.names?.earlyLeave)} alert onClick={toAttendance} />
             <Tile label="휴가" value={stats?.attendance.onLeave} unit="명" />
             {/* 원장 = 담당 지점 재직자, 본부 계정으로 원장 모드를 열면 전체(본부 · 테스트 지점 제외) */}

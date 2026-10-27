@@ -10,6 +10,8 @@ import { isLeaveDeductible } from "@/lib/leave-types";
 import { canSeeLeaveBalance } from "@/lib/permission-settings";
 
 // 잔여 휴가 조회
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -108,9 +110,10 @@ export async function GET(request: NextRequest) {
       leaveNote: emp.leaveNote ?? null,
       balanceId: b?.id       ?? null,
       year:      b?.year     ?? year,
-      total:     visible ? (b?.total    ?? 15) : null,
-      used:      visible ? (b?.used     ?? 0) : null,
-      remaining: visible ? (b?.remaining ?? 15) : null,
+      // 둘째 자리까지(2026-10-27 이예지 ④ — 「7.800000000000001」). 저장값은 lib/leave-balance tidyBalance 가 맞추고, 보일 때도 한 번 더
+      total:     visible ? r2(b?.total    ?? 15) : null,
+      used:      visible ? r2(b?.used     ?? 0) : null,
+      remaining: visible ? r2(b?.remaining ?? 15) : null,
     };
   });
 

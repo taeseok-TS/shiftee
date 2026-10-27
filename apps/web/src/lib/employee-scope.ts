@@ -150,9 +150,14 @@ export async function countableEmployeeWhere(opts: Options = {}) {
   const activeOn = opts.activeOn ?? kstTodayMidnight();
   const hiredBy = opts.hiredBy ?? kstTodayMidnight();
 
+  const branchFilter: Prisma.UserWhereInput = { branch: excluded.length ? { not: null, notIn: excluded } : { not: null } };
+  // 휴직자는 지점 없이 둔다(인사명부 연동 규칙 — 복귀 때 새 지점). 전사 숫자에서 휴직을 셀 때(scope all · onLeave, 지점 지정 없음)는
+  // 지점이 비어 있는 휴직자도 넣는다 — 종전엔 branch not null 에 걸려 김현태 · 이보경이 빠져 「휴직 1」로 보였다(2026-10-27 이예지 ⑥, 인사카드 휴직 3)
   const branchRule: Prisma.UserWhereInput = opts.branches
     ? { branch: { in: opts.branches.filter((b) => !excluded.includes(b)) } }
-    : { branch: excluded.length ? { not: null, notIn: excluded } : { not: null } };
+    : scope === "staff"
+      ? branchFilter
+      : { OR: [branchFilter, { branch: null, employmentStatus: { in: [...ON_LEAVE_STATES] } }] };
 
   const employmentStatus = scope === "staff"
     ? ("ACTIVE" as const)
@@ -222,12 +227,14 @@ export async function headcountSummary(opts: { branches?: string[]; activeOn?: D
   const map = new Map<string, HeadcountBranch>();
   let staff = 0, onLeave = 0, managers = 0;
   for (const u of rows) {
-    const b = u.branch || "(지점 미지정)";
-    const r = map.get(b) ?? { branch: b, total: 0, staff: 0, onLeave: 0, managers: 0 };
+    if (u.employmentStatus === "ACTIVE") staff++; else onLeave++;
+    // 지점 없는 휴직자(countableEmployeeWhere 가 scope all 에서 넣어 준다)는 전체 · 휴직 숫자에만 — 지점별 표 · 원장 수에는 넣지 않는다
+    if (!u.branch) continue;
+    const r = map.get(u.branch) ?? { branch: u.branch, total: 0, staff: 0, onLeave: 0, managers: 0 };
     r.total++;
-    if (u.employmentStatus === "ACTIVE") { r.staff++; staff++; } else { r.onLeave++; onLeave++; }
+    if (u.employmentStatus === "ACTIVE") r.staff++; else r.onLeave++;
     if (isManagerRow(u)) { r.managers++; managers++; }
-    map.set(b, r);
+    map.set(u.branch, r);
   }
   const visibleBranches = opts.branches ? branchRows.filter((b) => opts.branches!.includes(b.name)) : branchRows;
   return {

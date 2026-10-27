@@ -27,7 +27,7 @@ export const KIND_LABEL: Record<RequestKind, string> = {
   OUTSIDE: "지점 밖 출퇴근",
   PHOTO: "사진 출퇴근",
   HQ: "본부 출퇴근 처리",
-  CORRECTION: "출퇴근기록 수정",
+  CORRECTION: "출퇴근 수정",   // 결재함 탭 · 원장 대시보드와 같은 이름(2026-10-27 이예지 ⑧ — 종전 「출퇴근기록 수정」)
   MISSED_OUT: "퇴근 누락",
   DEVICE: "기기 변경",
   RECORD: "출퇴근 기록 요청",

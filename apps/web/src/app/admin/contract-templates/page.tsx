@@ -419,7 +419,7 @@ export default function ContractTemplatesPage() {
                   <dt className="text-[#596578]">결재 순서</dt>
                   <dd className="text-[#0f172a]">
                     {stepsLabel(parseApprovalSteps(template.approvalSteps))}
-                    <span className="text-[#94a3b8]">{template.approvalSteps ? (template.approvalLocked === false ? " (발송 때 변경 가능)" : "") : " (기본값 — 수정에서 지정)"}</span>
+                    <span className="text-[#94a3b8]">{template.approvalSteps && template.approvalLocked === false ? " (발송 때 변경 가능)" : ""}</span>
                     {template.approvalSteps && template.approvalStepsRenewal ? <span className="block">재계약 {stepsLabel(parseApprovalSteps(template.approvalStepsRenewal))}</span> : null}
                   </dd>
                   {/* 근로자 접근 — 기본값(열람 + 다운로드)이면 줄을 생략, 열람만·접근 불가일 때만 */}

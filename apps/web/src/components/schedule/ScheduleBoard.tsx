@@ -32,7 +32,7 @@ import {
  *  · 한 주 = 월~일(설정의 「한 주의 시작 요일」은 쓰지 않는다), 토 · 일 · 공휴일은 회색 글자 + 옅은 칸
  *  · 주 근무시간 열은 서버가 숫자를 숨기면(원장) 「52시간 안 / 넘음」만 보인다. 한 달 합계 열은 hoursHidden 이면 그리지 않는다
  */
-export type BoardEmployee = { id: string; name: string; empNo?: number | null; branch: string | null; jobGroup?: string | null; position?: string | null; department?: string | null; hireDate?: string | null };
+export type BoardEmployee = { id: string; name: string; empNo?: number | null; branch: string | null; jobGroup?: string | null; position?: string | null; department?: string | null; hireDate?: string | null; isTest?: boolean };
 type Show = Record<ShowKey, boolean>;
 export type BoardSchedule = { id: string; userId: string; date: string; startTime: string; endTime: string; branch: string | null; type: string; note?: string | null };
 

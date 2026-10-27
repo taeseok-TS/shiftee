@@ -6,6 +6,7 @@ import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { scheduleCancelDenial, cancelFlags, type CancelViewer } from "@/lib/leave-cancel";
 import { cancelViewerFor } from "@/lib/cancel-viewer";
 import { testRequesterExclusion } from "@/lib/employee-scope";
+import { attachCandidates, isHqTurnStep, withManagerCandidates } from "@/lib/approval-turn";
 
 // 내가 결재해야 하는 근무일정 신청 목록
 // 테스트 계정이 올린 신청은 기본으로 빼고, 관리자가 ?includeTest=1 을 주면 넣는다(2026-10-23 이예지 답 — lib/employee-scope)
@@ -85,13 +86,22 @@ export async function GET(request: NextRequest) {
       id: `direct-${req.id}`,
       order: 0,
       status: "PENDING",
+      approverRole: null as string | null,
       scheduleRequest: req,
     }));
 
-    return NextResponse.json({ steps: [...steps, ...directSteps].map((st) => withCancel(viewer, st)) });
+    // 본부 차례인 것만 steps 로, 원장 승인 전인 건은 waiting 으로 따로(2026-10-27 이예지 ⑬) — 휴가 결재함과 같은 규칙
+    const all = [...steps, ...directSteps];
+    const names = await withManagerCandidates(all.map((st) => st.scheduleRequest.approvalSteps));
+    const decorate = (st: (typeof all)[number]) => withCancel(viewer, { ...st, scheduleRequest: { ...st.scheduleRequest, approvalSteps: attachCandidates(st.scheduleRequest.approvalSteps, names) } });
+    return NextResponse.json({
+      steps: all.filter((st) => isHqTurnStep(st)).map(decorate),
+      waiting: all.filter((st) => !isHqTurnStep(st)).map(decorate),
+    });
   }
 
-  return NextResponse.json({ steps: steps.map((st) => withCancel(viewer, st)) });
+  const names = await withManagerCandidates(steps.map((st) => st.scheduleRequest.approvalSteps));
+  return NextResponse.json({ steps: steps.map((st) => withCancel(viewer, { ...st, scheduleRequest: { ...st.scheduleRequest, approvalSteps: attachCandidates(st.scheduleRequest.approvalSteps, names) } })) });
 }
 
 

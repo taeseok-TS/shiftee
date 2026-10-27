@@ -73,7 +73,8 @@ export default function AdminSchedulePage() {
       const res = await fetch("/api/employees");
       if (res.ok) {
         const data = await res.json();
-        setEmployees(data.employees || []);
+        // 테스트 계정(김정인 · 김가산 · 김원장 등, lib/employee-scope)은 근무일정 화면에 보이지 않는다(2026-10-27 이예지 ⑫)
+        setEmployees(((data.employees || []) as Employee[]).filter((e) => !e.isTest));
       }
     } catch {
       toast.error("직원 목록을 불러올 수 없습니다");

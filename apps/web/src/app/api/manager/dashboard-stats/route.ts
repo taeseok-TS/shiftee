@@ -7,7 +7,7 @@ import { kstTodayDateUTC } from "@/lib/kst";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { approverScopeFor, myStepOr } from "@/lib/approval-delegate";
 import { countableEmployeeWhere, hiredOnlyAnd, testRequesterExclusion } from "@/lib/employee-scope";
-import { absentUserIds } from "@/lib/attendance-absent";
+import { absentSplit } from "@/lib/attendance-absent";
 
 // 원장(팀) 대시보드 통계 — 자기 지점 기준
 export async function GET() {
@@ -64,7 +64,7 @@ export async function GET() {
   // 오늘 날짜 (UTC 자정 — @db.Date 컬럼과 동일 규칙)
   const today = kstTodayDateUTC();
 
-  const [members, todayRecords, onLeaveRows, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
+  const [members, todayRecordsAll, onLeaveRows, pendingContracts, pendingLeaveSteps, pendingScheduleSteps, monthAbsent] =
     await Promise.all([
       // 팀 인원(이름까지 — 미출근 명단용 #215-6)
       prisma.user.findMany({ where: memberWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -115,25 +115,29 @@ export async function GET() {
   // 오늘 근무 현황 집계 — 숫자와 함께 **누구인지**(#215-6, 박정인 제안: 숫자만 나와 누가 지각·미입력인지 모른다)
   const teamCount = members.length;
   const onLeave = onLeaveRows.length;
+  // 미출근 = 오늘 근무일정(WORK)이 있는데 출근 기록이 없고(출근 요청 대기도 아님) 휴가도 아닌 직원 — 관리자 대시보드와 같은 함수
+  // (2026-10-16 #219-3). 종전에는 휴무·공휴일만 빼고 일정이 없는 직원도 근무로 봐서 미출근으로 셌다(a59a786 검증 F4 의 후속).
+  // 근무 시작 전은 「출근 전」으로 따로, 루트코스 교육 중인 신입은 빼고(2026-10-27 이예지 ① ②) — 관리자 대시보드와 같은 함수
+  const { absent: absentIds, beforeStart: beforeStartIds, training } = await absentSplit(members.map((m) => m.id), today, now);
+  const todayRecords = todayRecordsAll.filter((r) => !training.has(r.userId));   // 교육생 기록은 출근 · 지각 · 조퇴에도 넣지 않는다
   const presentIds = new Set(todayRecords.filter((r) => r.clockIn).map((r) => r.userId));
   const leaveIds = new Set(onLeaveRows.map((r) => r.userId));
   const present = presentIds.size;
   const lateNames = todayRecords.filter((r) => r.status === "LATE").map((r) => r.user.name);
   const earlyLeaveNames = todayRecords.filter((r) => r.status === "EARLY_LEAVE").map((r) => r.user.name);
-  // 미출근 = 오늘 근무일정(WORK)이 있는데 출근 기록이 없고(출근 요청 대기도 아님) 휴가도 아닌 직원 — 관리자 대시보드와 같은 함수
-  // (2026-10-16 #219-3). 종전에는 휴무·공휴일만 빼고 일정이 없는 직원도 근무로 봐서 미출근으로 셌다(a59a786 검증 F4 의 후속).
-  const absentIds = await absentUserIds(members.map((m) => m.id), today);
   const missingNames = members.filter((m) => absentIds.has(m.id) && !presentIds.has(m.id) && !leaveIds.has(m.id)).map((m) => m.name);
+  const beforeStartNames = members.filter((m) => beforeStartIds.has(m.id) && !presentIds.has(m.id) && !leaveIds.has(m.id)).map((m) => m.name);
   const late = lateNames.length;
   const earlyLeave = earlyLeaveNames.length;
   const absent = missingNames.length;
+  const beforeStart = beforeStartNames.length;
 
   // 본부가 「원장 지점 출퇴근 기록 열람」을 끄면(권한 설정 #39) 출퇴근 집계·이름은 내려보내지 않는다(10/14 검증 2)
   const attendanceHidden = session.role === "MANAGER" && !(await isAllowed("manager.viewAttendance"));
   return NextResponse.json({
     teamCount,
-    attendance: attendanceHidden ? { present: 0, late: 0, absent: 0, earlyLeave: 0, onLeave } : { present, late, absent, earlyLeave, onLeave },
-    names: attendanceHidden ? { late: [], missing: [], earlyLeave: [] } : { late: lateNames, missing: missingNames, earlyLeave: earlyLeaveNames },
+    attendance: attendanceHidden ? { present: 0, late: 0, absent: 0, beforeStart: 0, earlyLeave: 0, onLeave } : { present, late, absent, beforeStart, earlyLeave, onLeave },
+    names: attendanceHidden ? { late: [], missing: [], beforeStart: [], earlyLeave: [] } : { late: lateNames, missing: missingNames, beforeStart: beforeStartNames, earlyLeave: earlyLeaveNames },
     attendanceHidden,
     pendingContracts,
     pendingApprovals: pendingLeaveSteps + pendingScheduleSteps + pendingCancelSteps,

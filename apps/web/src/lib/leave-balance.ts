@@ -38,6 +38,15 @@ export async function deductLeaveBalance(db: Db, userId: string, year: number, d
     create: { userId, year, total, accruedAuto, used: days, remaining: total - days },
     update: { used: { increment: days }, remaining: { decrement: days } },
   });
+  await tidyBalance(db, userId, year);
+}
+
+/**
+ * 부동소수 꼬리 정리(2026-10-27 이예지 ④ — 「7.800000000000001일」 14명) — 0.25 · 0.5 단위 더하고 빼기를 반복하면 꼬리가 붙는다.
+ * 차감 · 복구 직후 그 행만 둘째 자리로 맞춘다(같은 트랜잭션). 화면 쪽(api/leave/balance)도 둘째 자리로 보인다
+ */
+async function tidyBalance(db: Db, userId: string, year: number): Promise<void> {
+  await db.$executeRaw`UPDATE "LeaveBalance" SET used = round(used::numeric, 2), remaining = round(remaining::numeric, 2), total = round(total::numeric, 2) WHERE "userId" = ${userId} AND year = ${year}`;
 }
 
 /** 한 해 복구 결과 — ok = 다 복구 · missing = 그 해 행 없음(복구 안 함) · clamped = 사용이 모자라 0 에서 멈춤 */
@@ -54,7 +63,7 @@ export async function restoreLeaveBalance(db: Db, userId: string, year: number, 
     where: { userId, year, used: { gte: days - 1e-9 } },
     data: { used: { decrement: days }, remaining: { increment: days } },
   });
-  if (r.count > 0) return { year, wanted: days, restored: days, status: "ok" };
+  if (r.count > 0) { await tidyBalance(db, userId, year); return { year, wanted: days, restored: days, status: "ok" }; }
   const row = await db.leaveBalance.findUnique({ where: { userId_year: { userId, year } }, select: { used: true } });
   if (!row) return { year, wanted: days, restored: 0, status: "missing" };
   const amt = Math.max(0, row.used);   // 남은 사용 그대로(반올림 없음)
@@ -64,6 +73,7 @@ export async function restoreLeaveBalance(db: Db, userId: string, year: number, 
       data: { used: { decrement: amt }, remaining: { increment: amt } },
     });
     if (u.count === 0) return { year, wanted: days, restored: 0, status: "clamped" };
+    await tidyBalance(db, userId, year);
   }
   return { year, wanted: days, restored: amt, status: "clamped" };
 }

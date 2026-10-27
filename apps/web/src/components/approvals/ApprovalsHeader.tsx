@@ -4,10 +4,11 @@
 // 결재함 화면(/admin/leave-approvals)은 탭을 화면 안에서 바꾸고(onSelect), 처리한 요청 화면은 링크로 돌아온다.
 import { PageHead, PillTabs, type PillTab } from "@/components/kit";
 
-export type ApprovalTab = "all" | "leave" | "schedule" | "cancel" | "attendance" | "contract" | "decided";
+export type ApprovalTab = "all" | "leave" | "schedule" | "cancel" | "attendance" | "contract" | "waiting" | "decided";
 
 const LABEL: Record<ApprovalTab, string> = {
-  all: "결재 대기", leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", decided: "처리한 요청",
+  // 「원장 승인 전」 = 아직 본부 차례가 아닌 건(버튼 없이 보기만, 2026-10-27 이예지 ⑬) — 「결재 대기」 숫자에는 들어가지 않는다
+  all: "결재 대기", leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", waiting: "원장 승인 전", decided: "처리한 요청",
 };
 
 export default function ApprovalsHeader({ active, counts, onSelect }: {

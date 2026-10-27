@@ -58,7 +58,8 @@ const KIND_COLOR: Record<string, string> = {
 };
 
 // onChanged — 처리한 뒤 부르는 화면이 자기 목록·건수를 다시 받게(관리자 결재함 「결재 대기」 탭)
-export default function AttendanceRequestInbox({ onCount, onChanged, searchName = "" }: { onCount?: (n: number) => void; onChanged?: () => void; searchName?: string }) {
+// hideManagerTurn — 본부 결재함: 원장 차례(currentStep MANAGER) 건은 「원장 승인 전」 탭에서만 보이고 여기서는 뺀다(2026-10-27 이예지 ⑬)
+export default function AttendanceRequestInbox({ onCount, onChanged, searchName = "", hideManagerTurn = false }: { onCount?: (n: number) => void; onChanged?: () => void; searchName?: string; hideManagerTurn?: boolean }) {
   const [rows, setRows] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,11 +79,11 @@ export default function AttendanceRequestInbox({ onCount, onChanged, searchName 
   const fetchRows = () =>
     fetch("/api/attendance-requests?scope=inbox").then((r) => (r.ok ? r.json() : { requests: [] })).catch(() => ({ requests: [] }));
   const apply = useCallback((d: { requests?: Req[] }) => {
-    const list = d.requests || [];
+    const list = (d.requests || []).filter((r) => !hideManagerTurn || r.currentStep !== "MANAGER");
     setRows(list);
     onCount?.(list.length);
     setLoading(false);
-  }, [onCount]);
+  }, [onCount, hideManagerTurn]);
   const load = useCallback(async () => apply(await fetchRows()), [apply]);
   useEffect(() => {
     fetchRows().then(apply);

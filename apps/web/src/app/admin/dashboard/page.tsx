@@ -17,7 +17,7 @@ import { InboxBox, NoticeBox, type InboxRow, type Notice } from "@/components/da
 import { useNavCounts } from "@/components/layout/useNavCounts";
 import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
 
-type AttendanceStats = { present: number; late: number; absent: number; earlyLeave: number; onLeave: number };
+type AttendanceStats = { present: number; late: number; absent: number; beforeStart?: number; earlyLeave: number; onLeave: number };
 
 
 /** 결재함 한 줄 — 제목 + 회색 한 줄 + 「열기 ›」(R9, 공용 components/dashboard/DashBoxes) */
@@ -82,8 +82,9 @@ export default function AdminDashboardPage() {
       if (reqRes?.ok) {
         const data = await reqRes.json();
         // 제목은 「이름 · 출퇴근 수정」(요청 종류 세 가지 ■4), 둘째 줄은 시각 없는 요약(「10월 23일 (금) 퇴근 누락 → 퇴근」) — 원장 대시보드와 같은 모양
-        for (const r of (data.requests || []) as { id: string; status?: string; kindLabel?: string; statusSummary?: string | null; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
+        for (const r of (data.requests || []) as { id: string; status?: string; currentStep?: string | null; kindLabel?: string; statusSummary?: string | null; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
           if (r.status && r.status !== "PENDING") continue;
+          if (r.currentStep === "MANAGER") continue;   // 원장 차례 건은 본부 결재 대기가 아니다(2026-10-27 이예지 ⑬ — nav-counts · 결재함과 같은 기준)
           const [wy, wm, wd] = r.workDate.split("-").map(Number);
           const wk = ["일", "월", "화", "수", "목", "금", "토"][new Date(Date.UTC(wy, wm - 1, wd)).getUTCDay()];
           next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · 출퇴근 수정`, sub: r.statusSummary || `${wm}월 ${wd}일 (${wk}) ${r.kindLabel ?? "출퇴근 수정"}`, href: "/admin/leave-approvals?tab=attendance", at: ((t) => (t ? new Date(t).getTime() : 0))(r.requestedAt ?? r.createdAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null)) });
@@ -145,12 +146,13 @@ export default function AdminDashboardPage() {
         <Btn kind="text" onClick={fetchDashboardData} disabled={loading}>{loading ? "불러오는 중…" : "새로고침"}</Btn>
       </PageHead>
 
-      {/* 오늘 근태 — 한 판 6칸(R9). 누르면 출퇴근 현황 */}
-      <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준" right={<a href="/admin/attendance" className="text-[#4f46e5] hover:underline">출퇴근 현황 ›</a>}>
-        <Tiles cols={6}>
+      {/* 오늘 근태 — 한 판 7칸(R9 + 「출근 전」, 2026-10-27 이예지 ①: 근무 시작 전인 사람은 미출근이 아니다). 누르면 출퇴근 현황 */}
+      <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준 · 루트코스 교육 중인 신입 제외" right={<a href="/admin/attendance" className="text-[#4f46e5] hover:underline">출퇴근 현황 ›</a>}>
+        <Tiles cols={7}>
           <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
           <Tile label="지각" value={a?.late} unit="명" alert onClick={toAttendance} />
-          <Tile label="미출근" value={a?.absent} unit="명" note="일정 있는데 출근 전" alert onClick={toAttendance} />
+          <Tile label="출근 전" value={a?.beforeStart ?? 0} unit="명" note="근무 시작 시각 전" onClick={toAttendance} />
+          <Tile label="미출근" value={a?.absent} unit="명" note="시작 시각 지났는데 기록 없음" alert onClick={toAttendance} />
           <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert onClick={toAttendance} />
           <Tile label="휴가" value={a?.onLeave} unit="명" onClick={toAttendance} />
           <Tile label="전체 직원" value={totalEmployees} unit="명" note="지점 재직 + 휴직" hl onClick={toAttendance} />

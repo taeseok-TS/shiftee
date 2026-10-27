@@ -9,11 +9,11 @@ import { Box } from "@/components/kit";
 /** 결재함 한 줄 — 제목 + 회색 한 줄 + 오른쪽 「열기 ›」(action 으로 「서명 ›」 · 「보기 ›」) */
 export type InboxRow = { key: string; title: string; sub: string; href?: string; onOpen?: () => void; alert?: boolean; muted?: boolean; action?: string; at: number };
 
-export function InboxBox({ rows, count, loading, allHref, more, moreHref, empty = "처리할 요청 없음" }: {
-  rows: InboxRow[]; count?: number; loading: boolean; allHref?: string; more?: number; moreHref?: string; empty?: string;
+export function InboxBox({ rows, count, loading, allHref, more, moreHref, empty = "처리할 요청 없음", title = "결재함" }: {
+  rows: InboxRow[]; count?: number; loading: boolean; allHref?: string; more?: number; moreHref?: string; empty?: string; title?: string;
 }) {
   return (
-    <Box icon={<CheckSquare />} tone="rose" title="결재함" count={count ?? rows.length} className="!mb-0 min-w-0"
+    <Box icon={<CheckSquare />} tone="rose" title={title} count={count ?? rows.length} className="!mb-0 min-w-0"
       right={allHref ? <a href={allHref} className="text-[#4f46e5] hover:underline">전체 보기 ›</a> : undefined}>
       <div className="px-6 py-1">
         {loading && !rows.length ? (

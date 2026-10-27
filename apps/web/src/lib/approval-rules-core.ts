@@ -49,11 +49,11 @@ export const RULE_ROWS: RuleRow[] = [
     maxSteps: 3, allowed: ["BRANCH_MANAGER", "HQ", "USER"], def: [B, H] },
   { key: "LEAVE.MANAGER", kind: "LEAVE", label: "휴가", target: "MANAGER", targetLabel: "원장", condition: "— · 휴가 취소 요청도 같은 결재선",
     maxSteps: 3, allowed: ["HQ", "USER", "PEER_MANAGER"], def: [H] },
-  { key: "SCHEDULE.EMPLOYEE.HOLIDAY", kind: "SCHEDULE", label: "근무일정 신청", target: "EMPLOYEE", targetLabel: "직원", condition: "주말·공휴일 근무 포함(휴일근무)",
+  { key: "SCHEDULE.EMPLOYEE.HOLIDAY", kind: "SCHEDULE", label: "근무 변경", target: "EMPLOYEE", targetLabel: "직원", condition: "주말·공휴일 근무 포함(휴일근무)",
     maxSteps: 3, allowed: ["BRANCH_MANAGER", "HQ", "USER"], def: [B] },
-  { key: "SCHEDULE.EMPLOYEE.WEEKDAY", kind: "SCHEDULE", label: "근무일정 신청", target: "EMPLOYEE", targetLabel: "직원", condition: "평일만(연장·야간·과거 날짜 포함)",
+  { key: "SCHEDULE.EMPLOYEE.WEEKDAY", kind: "SCHEDULE", label: "근무 변경", target: "EMPLOYEE", targetLabel: "직원", condition: "평일만(연장·야간·과거 날짜 포함)",
     maxSteps: 3, allowed: ["BRANCH_MANAGER", "HQ", "USER"], def: [B] },
-  { key: "SCHEDULE.MANAGER", kind: "SCHEDULE", label: "근무일정 신청", target: "MANAGER", targetLabel: "원장", condition: "—",
+  { key: "SCHEDULE.MANAGER", kind: "SCHEDULE", label: "근무 변경", target: "MANAGER", targetLabel: "원장", condition: "—",
     maxSteps: 3, allowed: ["PEER_MANAGER", "HQ", "USER"], def: [P, H] },
   { key: "ATT_OUTSIDE.EMPLOYEE", kind: "ATT_OUTSIDE", label: "지점 밖 출퇴근", target: "EMPLOYEE", targetLabel: "직원", condition: "본사·서점·외근 등",
     maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
@@ -61,7 +61,7 @@ export const RULE_ROWS: RuleRow[] = [
     maxSteps: 1, allowed: ["BRANCH_MANAGER", "HQ"], def: [B] },
   // 출퇴근 수정 두 줄은 「지점 원장 → 본부」(2026-10-23 ■0-11) — 원장은 상태만 보고 1차 승인, 넣을 시각은 본부가 확인해 최종 승인.
   // 종전 저장값 [지점 원장] 한 단계는 검사(hqLast)에 걸려 버려지고 기본값으로 돌아온다
-  { key: "ATT_CORRECTION.EMPLOYEE", kind: "ATT_CORRECTION", label: "출퇴근기록 수정", target: "EMPLOYEE", targetLabel: "직원", condition: "지각·누락 수정",
+  { key: "ATT_CORRECTION.EMPLOYEE", kind: "ATT_CORRECTION", label: "출퇴근 수정", target: "EMPLOYEE", targetLabel: "직원", condition: "지각·누락 수정",
     maxSteps: 2, allowed: ["BRANCH_MANAGER", "HQ"], def: [B, H], hqLast: "출퇴근 시각은 본부가 확인하므로 마지막 단계는 본부여야 합니다." },
   { key: "ATT_MISSED_OUT.EMPLOYEE", kind: "ATT_MISSED_OUT", label: "퇴근 누락", target: "EMPLOYEE", targetLabel: "직원", condition: "전날 퇴근을 안 찍음",
     maxSteps: 2, allowed: ["BRANCH_MANAGER", "HQ"], def: [B, H], hqLast: "출퇴근 시각은 본부가 확인하므로 마지막 단계는 본부여야 합니다." },

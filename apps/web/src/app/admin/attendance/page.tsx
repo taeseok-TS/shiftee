@@ -140,12 +140,12 @@ export default function AttendancePage() {
   }, []);
 
   /* 오늘 — 숫자 칸 6 · 지점별 현황 · 확인 필요(대시보드와 같은 숫자: /api/admin/dashboard-stats) */
-  type BranchRow = { branch: string; scheduled: number; present: number; late: number; absent: number; onLeave: number };
+  type BranchRow = { branch: string; scheduled: number; present: number; late: number; absent: number; beforeStart?: number; onLeave: number };
   // 숫자 칸을 누르면 보이는 명단(2026-10-26 디렉터 — 실사용 첫날 「미출근 16명이 누구냐」). 숫자와 같은 집합에서 route 가 만들어 보낸다
-  type PeopleKey = "present" | "late" | "absent" | "earlyLeave" | "onLeave" | "scheduled";
+  type PeopleKey = "present" | "late" | "absent" | "beforeStart" | "earlyLeave" | "onLeave" | "scheduled";
   type Person = { id: string; name: string; branch: string; position?: string; phone?: string; startTime?: string; clockIn?: string; clockOut?: string; status?: string; leaveType?: string };
   type DashStats = {
-    attendance?: { present: number; late: number; absent: number; earlyLeave: number; onLeave: number; scheduled?: number };
+    attendance?: { present: number; late: number; absent: number; beforeStart?: number; earlyLeave: number; onLeave: number; scheduled?: number };
     byBranch?: BranchRow[]; people?: Partial<Record<PeopleKey, Person[]>>; missingAttendance?: MissingAttendance[];
   };
   type PendingReq = { id: string; userName?: string; userBranch?: string | null; kindLabel?: string; workDate?: string; status?: string };
@@ -481,7 +481,7 @@ export default function AttendancePage() {
   const statusTone = (st: string): PillTone => (st === "NORMAL" ? "done" : st === "LATE" || st === "EARLY_LEAVE" ? "wait" : st === "ABSENT" ? "rej" : "gray");
 
   // 명단 상자 — 고른 칸(+지점)의 사람들을 지점별로 묶는다. 숫자 칸 값과 같은 배열(route people)이라 길이가 숫자와 같다
-  const PEOPLE_LABEL: Record<PeopleKey, string> = { present: "출근", late: "지각", absent: "미출근", earlyLeave: "조퇴", onLeave: "휴가", scheduled: "오늘 일정 있는 직원" };
+  const PEOPLE_LABEL: Record<PeopleKey, string> = { present: "출근", late: "지각", absent: "미출근", beforeStart: "출근 전", earlyLeave: "조퇴", onLeave: "휴가", scheduled: "오늘 일정 있는 직원" };
   const pickedAll = pick ? (dash?.people?.[pick.key] ?? []) : [];
   const picked = pick?.branch ? pickedAll.filter((x) => x.branch === pick.branch) : pickedAll;
   const pickedGroups = (() => {
@@ -494,7 +494,8 @@ export default function AttendancePage() {
     const sched = x.startTime ? `일정 ${x.startTime}` : "";
     const came = x.clockIn ? (x.status === "LATE" ? `지각 · ${x.clockIn}` : `출근 ${x.clockIn}`) : "";
     switch (key) {
-      case "absent": return [sched, "일정 있는데 출근 전"].filter(Boolean).join(" · ");
+      case "absent": return [sched, "시작 시각 지났는데 기록 없음"].filter(Boolean).join(" · ");
+      case "beforeStart": return [sched, "근무 시작 전"].filter(Boolean).join(" · ");
       case "onLeave": return [x.leaveType ?? "휴가", sched].filter(Boolean).join(" · ");
       case "earlyLeave": return [sched, `조퇴${x.clockOut ? ` · 퇴근 ${x.clockOut}` : ""}`].filter(Boolean).join(" · ");
       case "scheduled": return [sched, came || (x.leaveType ? x.leaveType : "출근 전")].filter(Boolean).join(" · ");
@@ -524,14 +525,15 @@ export default function AttendancePage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as AttendanceTab)}>
         {/* ── 오늘 ── */}
         <TabsContent value="today">
-          {/* 오늘 근태 — 대시보드와 같은 6칸(R9·R10). 미출근 · 지각 · 조퇴만 1 이상 빨강 */}
-          <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준">
+          {/* 오늘 근태 — 대시보드와 같은 7칸(R9·R10 + 「출근 전」, 2026-10-27 이예지 ①). 미출근 · 지각 · 조퇴만 1 이상 빨강 */}
+          <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준 · 루트코스 교육 중인 신입 제외">
             {/* 칸을 누르면 바로 아래 「명단」 상자가 열린다(2026-10-26). 0 명이면 누를 것이 없어 그대로 둔다 */}
-            <Tiles cols={6}>
+            <Tiles cols={7}>
               {([
                 { key: "present", label: "출근", value: a?.present },
                 { key: "late", label: "지각", value: a?.late, alert: true },
-                { key: "absent", label: "미출근", value: a?.absent, alert: true, note: noSchedule ? "일정이 없어 셀 수 없음" : "일정 있는데 출근 전" },
+                { key: "beforeStart", label: "출근 전", value: a?.beforeStart ?? 0, note: "근무 시작 시각 전" },
+                { key: "absent", label: "미출근", value: a?.absent, alert: true, note: noSchedule ? "일정이 없어 셀 수 없음" : "시작 시각 지났는데 기록 없음" },
                 { key: "earlyLeave", label: "조퇴", value: a?.earlyLeave, alert: true },
                 { key: "onLeave", label: "휴가", value: a?.onLeave },
                 { key: "scheduled", label: "오늘 일정 있는 직원", value: a?.scheduled, hl: true,
@@ -548,7 +550,7 @@ export default function AttendancePage() {
           {pick && (
             <Box icon={<Users />} tone={pick.key === "absent" || pick.key === "late" || pick.key === "earlyLeave" ? "rose" : "ind"}
               title={`${pick.branch ? `${pick.branch} · ` : ""}${PEOPLE_LABEL[pick.key]} ${picked.length}명`}
-              sub={pick.key === "absent" ? "오늘 근무일정이 있는데 출근 기록이 없는 사람(휴가 · 출근 요청 대기 중 제외)" : pick.key === "onLeave" ? "오늘 걸친 승인 휴가" : undefined}
+              sub={pick.key === "absent" ? "근무 시작 시각이 지났는데 출근 기록이 없는 사람(휴가 · 출근 요청 대기 중 제외)" : pick.key === "beforeStart" ? "오늘 근무일정이 있고 아직 시작 시각 전인 사람" : pick.key === "onLeave" ? "오늘 걸친 승인 휴가" : undefined}
               right={<Btn kind="text" onClick={() => setPick(null)}>닫기</Btn>}>
               {!picked.length ? (
                 <p className="px-6 py-6 text-[14px] text-[#596578]">해당하는 직원이 없습니다</p>
@@ -586,12 +588,12 @@ export default function AttendancePage() {
               </select>}>
               <div className="overflow-x-auto">
                 <table className={tableClass}>
-                  <thead><tr><th>지점</th><th className="text-right">일정</th><th className="text-right">출근</th><th className="text-right">지각</th><th className="text-right">미출근</th><th className="text-right">휴가</th></tr></thead>
+                  <thead><tr><th>지점</th><th className="text-right">일정</th><th className="text-right">출근</th><th className="text-right">지각</th><th className="text-right">출근 전</th><th className="text-right">미출근</th><th className="text-right">휴가</th></tr></thead>
                   <tbody>
                     {!dash ? (
-                      <tr><td colSpan={6} className="text-center text-[#596578]">불러오는 중…</td></tr>
+                      <tr><td colSpan={7} className="text-center text-[#596578]">불러오는 중…</td></tr>
                     ) : !branchRows.length ? (
-                      <tr><td colSpan={6} className="text-center text-[#596578]">직원이 없습니다</td></tr>
+                      <tr><td colSpan={7} className="text-center text-[#596578]">직원이 없습니다</td></tr>
                     ) : branchRows.map((b) => (
                       <tr key={b.branch}>
                         <td className="font-bold text-[#0f172a]">{b.branch}</td>
@@ -599,6 +601,7 @@ export default function AttendancePage() {
                         <td className="text-right">{cellBtn(b, "scheduled", b.scheduled)}</td>
                         <td className="text-right">{cellBtn(b, "present", b.present)}</td>
                         <td className="text-right">{cellBtn(b, "late", b.late, true)}</td>
+                        <td className="text-right">{cellBtn(b, "beforeStart", b.beforeStart ?? 0)}</td>
                         <td className="text-right">{cellBtn(b, "absent", b.absent, true)}</td>
                         <td className="text-right">{cellBtn(b, "onLeave", b.onLeave)}</td>
                       </tr>

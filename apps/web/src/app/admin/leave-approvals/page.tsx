@@ -32,11 +32,13 @@ type ApprovalStep = {
   approverRole?: string | null;
   branch?: string | null;
   comment?: string | null;   // 결재자 의견(승인·반려 때 남긴 것)
+  candidates?: string[];     // 승인 전 원장 단계 — 그 지점 원장 이름(서버 lib/approval-turn, 2026-10-27 이예지 ⑨)
 };
 
-// 역할/지점 기반 단계는 승인 전까지 approver가 null → 역할 라벨로 표시
+// 역할/지점 기반 단계는 승인 전까지 approver가 null → 그 지점 원장 이름(서버가 candidates 로 준다, 둘이면 둘 다)으로. 없으면 역할 라벨
 function stepLabel(s: ApprovalStep): string {
   if (s.approver) return s.approver.name;
+  if (s.approverRole === "MANAGER" && s.candidates?.length) return `${s.candidates.join(" · ")} 원장`;
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
   if (s.approverRole === "ADMIN") return "관리자";
   return "결재자";
@@ -105,6 +107,9 @@ export default function ApprovalsPage() {
   const { labels: leaveLabels } = useLeaveCatalog();   // 본부가 만든 휴가 유형 이름(#216-1) — 늦게 와도 rows 를 다시 계산한다
   const [leaveSteps, setLeaveSteps] = useState<LeaveApprovalStep[]>([]);
   const [scheduleSteps, setScheduleSteps] = useState<ScheduleApprovalStep[]>([]);
+  // 원장 승인 전인 건(서버 waiting) — 「원장 승인 전」 탭에만, 버튼 없이(2026-10-27 이예지 ⑬)
+  const [waitingLeave, setWaitingLeave] = useState<LeaveApprovalStep[]>([]);
+  const [waitingSchedule, setWaitingSchedule] = useState<ScheduleApprovalStep[]>([]);
   const [cancelSteps, setCancelSteps] = useState<CancelStep[]>([]);
   const [attReqs, setAttReqs] = useState<AttReq[]>([]);
   const [contracts, setContracts] = useState<ContractRow[]>([]);
@@ -129,7 +134,7 @@ export default function ApprovalsPage() {
     const t = q.get("tab");
     Promise.resolve().then(() => {
       if (id) setHighlightId(id);
-      if (t && ["all", "leave", "schedule", "cancel", "attendance", "contract"].includes(t)) setTab(t as ApprovalTab);
+      if (t && ["all", "leave", "schedule", "cancel", "attendance", "contract", "waiting"].includes(t)) setTab(t as ApprovalTab);
     });
     fetch("/api/auth/me").then((r) => r.json()).then((d) => setMyId(d.user?.id || d.userId || "")).catch(() => {});
   }, []);
@@ -144,8 +149,8 @@ export default function ApprovalsPage() {
         fetch("/api/attendance-requests?scope=inbox"),
         fetch("/api/contracts/my-approvals"),
       ]);
-      if (leaveRes.ok) setLeaveSteps((await leaveRes.json()).steps || []);
-      if (scheduleRes.ok) setScheduleSteps((await scheduleRes.json()).steps || []);
+      if (leaveRes.ok) { const d = await leaveRes.json(); setLeaveSteps(d.steps || []); setWaitingLeave(d.waiting || []); }
+      if (scheduleRes.ok) { const d = await scheduleRes.json(); setScheduleSteps(d.steps || []); setWaitingSchedule(d.waiting || []); }
       if (cancelRes.ok) setCancelSteps((await cancelRes.json()).steps || []);
       if (attRes.ok) setAttReqs(((await attRes.json()).requests || []).filter((r: AttReq) => !r.status || r.status === "PENDING"));
       if (contractRes.ok) setContracts((await contractRes.json()).contracts || []);
@@ -265,12 +270,33 @@ export default function ApprovalsPage() {
         ? [{ label: "지점 원장", state: a.currentStep === "HQ" ? "done" : "now" }, { label: "본부", state: a.currentStep === "HQ" ? "now" : "todo" }]
         : a.currentStep ? [{ label: a.currentStep === "HQ" ? "본부" : "지점 원장", state: "now" }] : [];
       out.push({
-        key: `att-${a.id}`, kind: "attendance", id: a.id, name: a.userName || "", nameSub: [a.userBranch, a.userPosition].filter(Boolean).join(" · "),
+        key: `att-${a.id}`, kind: managerTurn ? "waiting" : "attendance", id: a.id, name: a.userName || "", nameSub: [a.userBranch, a.userPosition].filter(Boolean).join(" · "),
         typeLabel: a.kindLabel || "출퇴근 수정", tone: managerTurn ? "gray" : "wait",
         period: md(a.workDate),
         periodSub: managerTurn ? "원장 차례 · 원장이 승인하면 본부 차례로 넘어옵니다" : "출퇴근 수정 · 사진 · 위치 · 사유를 보고 처리",
-        dots, comments: [], action: "open", onOpen: () => setTab("attendance"), more: [], at: new Date(a.workDate).getTime(), viewOnly: managerTurn,
+        dots, comments: [], action: "open", onOpen: managerTurn ? undefined : () => setTab("attendance"), more: [], at: new Date(a.workDate).getTime(), viewOnly: managerTurn,
         s: a.workDate.slice(0, 10), e: a.workDate.slice(0, 10),
+      });
+    }
+    // 원장 승인 전(본부 차례 아님) — 「원장 승인 전」 탭에만, 결재 · 반려 버튼 없이 진행 상태만 본다(2026-10-27 이예지 ⑬)
+    for (const step of waitingLeave) {
+      const r = step.leaveRequest;
+      out.push({
+        key: `wleave-${r.id}`, kind: "waiting", id: r.id, name: r.user.name, nameSub: [r.user.branch, r.user.position].filter(Boolean).join(" · "),
+        typeLabel: leaveLabels[r.type] || r.type, tone: "gray",
+        period: range(r.startDate, r.endDate), periodSub: `${r.days}일${r.reason ? ` · 사유 ${r.reason}` : ""} · 원장 승인 뒤 본부 차례`,
+        dots: dotsOf(r.approvalSteps), comments: commentsOf(r.approvalSteps), action: "open", more: [], at: new Date(r.startDate).getTime(), viewOnly: true,
+        s: r.startDate.slice(0, 10), e: r.endDate.slice(0, 10),
+      });
+    }
+    for (const step of waitingSchedule) {
+      const r = step.scheduleRequest;
+      out.push({
+        key: `wschedule-${r.id}`, kind: "waiting", id: r.id, name: r.user.name, nameSub: [r.user.branch, r.user.position].filter(Boolean).join(" · "),
+        typeLabel: "근무 변경", tone: "gray",
+        period: range(r.startDate, r.endDate), periodSub: `계획 ${r.totalHours}시간 · ${templateLabel(r.templateName)} · 원장 승인 뒤 본부 차례`,
+        dots: dotsOf(r.approvalSteps), comments: commentsOf(r.approvalSteps), action: "open", more: [], at: new Date(r.startDate).getTime(), viewOnly: true,
+        s: r.startDate.slice(0, 10), e: r.endDate.slice(0, 10),
       });
     }
     for (const c of contracts) {
@@ -290,22 +316,25 @@ export default function ApprovalsPage() {
       });
     }
     return out;
-  }, [leaveSteps, scheduleSteps, cancelSteps, attReqs, contracts, leaveLabels]);
+  }, [leaveSteps, scheduleSteps, cancelSteps, attReqs, contracts, waitingLeave, waitingSchedule, leaveLabels]);
 
   const shown = useMemo(() => {
     const q = searchName.trim().toLowerCase();
-    return rows.filter((r) => (tab === "all" || r.kind === tab)
+    return rows.filter((r) => (tab === "all" ? r.kind !== "waiting" : r.kind === tab)
       && (!q || r.name.toLowerCase().includes(q))
       && (!searchDate || (r.s <= searchDate && searchDate <= r.e)))
       .sort((a, b) => a.at - b.at);
   }, [rows, tab, searchName, searchDate]);
 
+  const attManagerTurn = attReqs.filter((a) => a.currentStep === "MANAGER").length;
   const counts = {
     leave: leaveSteps.length, schedule: scheduleSteps.length,
-    cancel: cancelSteps.length, attendance: attReqs.length, contract: contracts.length,
+    cancel: cancelSteps.length, attendance: attReqs.length - attManagerTurn, contract: contracts.length,
+    waiting: waitingLeave.length + waitingSchedule.length + attManagerTurn,
   };
+  // 「결재 대기」 = 본부 차례만(원장 승인 전은 빼고, 2026-10-27 이예지 ⑬) — 메뉴 숫자(api/nav-counts)와 같은 기준
   const total = counts.leave + counts.schedule + counts.cancel + counts.attendance + counts.contract;
-  const title = tab === "all" ? "결재 대기" : { leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", decided: "처리한 요청" }[tab];
+  const title = tab === "all" ? "결재 대기" : { leave: "휴가", schedule: "근무 변경", cancel: "휴가 취소", attendance: "출퇴근 수정", contract: "계약", waiting: "원장 승인 전", decided: "처리한 요청" }[tab];
 
   // 찾기 줄 — 모든 탭에 같은 줄(휴가 취소·출퇴근 요청 탭에서 보이지 않는 검색어로 걸러지지 않게). 출퇴근 요청은 이름만 찾는다
   const filters = (withDate: boolean) => (
@@ -325,7 +354,9 @@ export default function ApprovalsPage() {
           onClick={() => { setNote(""); setApproveTarget({ id: r.id, kind: r.kind as "leave" | "schedule", title: `${r.name} — ${r.typeLabel} ${r.period}` }); }}>
           {processingId === r.id ? "처리 중…" : "승인"}
         </Btn>
-      </>) : (
+      </>) : r.kind === "waiting" && !r.onOpen ? (
+        <span className="text-[12.5px] text-[#94a3b8]">원장 승인 전</span>
+      ) : (
         r.viewOnly
           ? <Btn className="px-3.5 py-1.5" onClick={r.onOpen}>보기</Btn>
           : <Btn kind="primary" className="px-3.5 py-1.5" onClick={r.onOpen}>열기</Btn>
@@ -347,10 +378,10 @@ export default function ApprovalsPage() {
       ) : tab === "attendance" ? (
         <Box icon={<CheckSquare />} tone="rose" title="출퇴근 수정" count={counts.attendance} sub="지점 밖 · 사진 · 본부 요청 · 기록 수정 · 퇴근 누락">
           {filters(false)}
-          <div className="px-6 py-4"><AttendanceRequestInbox onChanged={() => void fetchApprovals()} searchName={searchName} /></div>
+          <div className="px-6 py-4"><AttendanceRequestInbox onChanged={() => void fetchApprovals()} searchName={searchName} hideManagerTurn /></div>
         </Box>
       ) : (
-        <Box icon={<CheckSquare />} tone="rose" title={title} count={shown.length} sub="내 결재 대기만">
+        <Box icon={<CheckSquare />} tone={tab === "waiting" ? "sl" : "rose"} title={title} count={shown.length} sub={tab === "waiting" ? "원장이 승인하면 본부 차례로 넘어옵니다 — 여기서는 진행만 봅니다" : "내 결재 대기만"}>
           {filters(true)}
           {loading ? (
             <p className="px-6 py-8 text-center text-[14px] text-[#596578]">불러오는 중…</p>
