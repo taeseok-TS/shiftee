@@ -171,17 +171,18 @@ export async function consentMissedOut(date: string, expectAt: string) {
  *  서버 GET /api/attendance?year&month. 본부 권한 설정 「본인 출퇴근 기록 열람」이 꺼져 있으면 403 → null(화면은 퇴근 누락 안내만).
  *  hasClockIn / hasClockOut(찍었는지 여부만)을 서버가 주면 그것을, 없으면 시각 유무를 본다 */
 // imported = 시프티에서 옮겨 온 기록(서버 importBatch) — 이 앱에서 고치지 않는다(수정 요청 버튼을 그리지 않음)
-export type MyDayRecord = { date: string; status: string; hasIn: boolean | undefined; hasOut: boolean | undefined; imported: boolean };
+// inAt · outAt — 서버가 시각을 풀어 준 날만 온다(본부 · 승인된 「출퇴근 기록 요청」 기간, 2026-10-27 ⑦). 그 밖에는 undefined
+export type MyDayRecord = { date: string; status: string; hasIn: boolean | undefined; hasOut: boolean | undefined; imported: boolean; inAt?: string; outAt?: string; granted?: boolean };
 /** myUserId 를 주면 그 사람 줄만 남긴다 — 원장은 서버가 지점 사람 기록까지 함께 줄 수 있다(지점 출퇴근 기록 열람이 켜져 있으면) */
 export async function getMyAttendanceMonth(year: number, month: number, myUserId?: string): Promise<MyDayRecord[] | null> {
   try {
     const res = await axios.get(`${API_URL}/attendance`, { params: { year, month, ...(myUserId ? { userId: myUserId } : {}) }, headers: await authHeaders() });
-    type Raw = { userId?: string; date: string; status: string; clockIn?: string | null; clockOut?: string | null; hasClockIn?: boolean; hasClockOut?: boolean; importBatch?: string | null };
+    type Raw = { userId?: string; date: string; status: string; clockIn?: string | null; clockOut?: string | null; hasClockIn?: boolean; hasClockOut?: boolean; importBatch?: string | null; timesGranted?: boolean };
     const rows = ((res.data?.records ?? []) as Raw[]).filter((r) => !myUserId || !r.userId || r.userId === myUserId);
     return rows.map((r) => {
       const hasIn = typeof r.hasClockIn === "boolean" ? r.hasClockIn : r.clockIn ? true : undefined;
       const hasOut = typeof r.hasClockOut === "boolean" ? r.hasClockOut : r.clockOut ? true : r.clockIn ? false : undefined;
-      return { date: String(r.date).slice(0, 10), status: r.status, hasIn, hasOut, imported: !!r.importBatch };
+      return { date: String(r.date).slice(0, 10), status: r.status, hasIn, hasOut, imported: !!r.importBatch, inAt: r.clockIn || undefined, outAt: r.clockOut || undefined, granted: !!r.timesGranted };
     });
   } catch (e: any) {
     if (e?.response?.status === 403) return null;

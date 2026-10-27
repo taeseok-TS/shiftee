@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const approve = body.action === "approve";
   const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 300) : null;
 
-  const r = await prisma.attendanceRequest.findUnique({ where: { id }, include: { user: { select: { name: true, role: true } } } });
+  const r = await prisma.attendanceRequest.findUnique({ where: { id }, include: { user: { select: { name: true, role: true, branch: true } } } });
   if (!r) return NextResponse.json({ error: "요청을 찾을 수 없습니다." }, { status: 404 });
   if (r.status !== "PENDING") return NextResponse.json({ error: "이미 처리된 요청입니다." }, { status: 409 });
   if (r.userId === session.userId) return NextResponse.json({ error: "본인 요청은 직접 처리할 수 없습니다." }, { status: 403 });
@@ -153,11 +153,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // 신청자(직원 · 원장)에게 가는 결과 알림에는 시각을 싣지 않는다(■0-11)
   const { botNotifyDecision } = await import("@/lib/bot");
   const told = (await canSeeClockTimes(r.user.role)) ? summaryOf(req) : statusSummaryOf(req);
-  botNotifyDecision(r.userId, `${label} (${told})`, approve, session.name, reason,
+  // 기록 요청 승인이면 결과 알림 한 통에 「어디서 보이는지」를 합친다(알림 두 통 대신, 2026-10-27 이예지 ⑦)
+  const recordHint = approve && r.kind === "RECORD" ? " — 출퇴근 › 지난 기록(웹 「내 출퇴근」 지난 7일 · 날짜별 상태, 앱 지난 기록)에서 그 기간의 출근 · 퇴근 시각이 보입니다. 다른 날짜는 상태만 보입니다" : "";
+  botNotifyDecision(r.userId, `${label} (${told})${recordHint}`, approve, session.name, reason,
     { actorId: session.userId, actorRole: session.role }).catch(() => {});
+  // 출퇴근 기록 요청 승인 = 요청 기간 열람 허용(lib/record-grants, 2026-10-27 이예지 ⑦) — 본인과 그 지점 원장(둘이면 둘 다)에게 알린다
+  if (approve && r.kind === "RECORD") {
+    const { recordPeriodLabel } = await import("@/lib/attendance-request");
+    const { botSendDM } = await import("@/lib/bot");
+    const { branchManagers } = await import("@/lib/manager-branches");
+    const period = recordPeriodLabel(r.memo ?? null) ?? "요청 기간";
+    // 원장은 「지점 출퇴근 기록 열람」(권한 설정)이 켜져 있을 때만 — 꺼져 있으면 보드가 열리지 않아 알림이 거짓이 된다
+    const { isAllowed } = await import("@/lib/permission-settings");
+    const managers = r.user.branch && (await isAllowed("manager.viewAttendance")) ? await branchManagers(r.user.branch).catch(() => [] as { id: string }[]) : [];
+    for (const m of managers) {
+      if (m.id === r.userId) continue;
+      botSendDM(m.id, `${r.user.name} 님의 출퇴근 기록 요청이 승인되었습니다 (${period}).\n「지점 출퇴근기록」에서 그 기간의 출근 · 퇴근 시각 · 일한 시간이 보입니다(보기만 — 수정은 수정 요청 → 본부).`).catch(() => {});
+    }
+  }
   return NextResponse.json({
     success: true, step: "DONE",
-    message: !approve ? "반려했습니다." : r.kind === "RECORD" ? "승인했습니다. 기록은 본부가 따로 전해 주세요." : "승인했습니다. 출퇴근 기록에 반영했습니다.",
+    message: !approve ? "반려했습니다." : r.kind === "RECORD" ? "승인했습니다. 본인과 지점 원장에게 요청 기간의 출퇴근 시각이 열립니다." : "승인했습니다. 출퇴근 기록에 반영했습니다.",
   });
 }
 

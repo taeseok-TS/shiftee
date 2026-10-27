@@ -28,7 +28,7 @@ const KIND_TONE: Record<string, string> = {
   UPDATE: "bg-gray-100 text-gray-700", HIRE: "bg-[#eff6ff] text-[#1d4ed8]", RESIGN: "bg-red-100 text-red-700",
   LEAVE: "bg-amber-100 text-amber-800", RETURN: "bg-blue-100 text-blue-800", LINK: "bg-indigo-100 text-indigo-800",
 };
-const FIELD_LABEL: Record<string, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일" };
+const FIELD_LABEL: Record<string, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일", phone: "전화" };
 const STATUS_LABEL: Record<string, string> = { APPLIED: "자동 반영", DONE: "확인 후 반영", DISMISSED: "무시" };
 const pad = (n: number | null | undefined) => (n == null ? "-" : String(n).padStart(5, "0"));
 const s = (v: unknown) => (v === null || v === undefined || v === "" ? "-" : String(v));

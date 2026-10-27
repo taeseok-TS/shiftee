@@ -358,6 +358,8 @@ export default function AttendanceScreen() {
       pills.push({ text: "기록 없음", tone: "red" });
       fix = { kind: "CORRECTION", workDate: d };
     }
+    // 서버가 시각을 풀어 준 날(본부가 승인한 출퇴근 기록 요청 기간)은 시각도 한 알약으로(2026-10-27 ⑦)
+    if (rec && (rec.inAt || rec.outAt)) pills.push({ text: `${rec.inAt ? hhmm(rec.inAt) : "—"} → ${rec.outAt ? hhmm(rec.outAt) : "—"}${rec.granted ? " · 기록 요청 승인" : ""}`, tone: "blue" });
     if (fix && !canFix(d, rec)) fix = undefined;
     if (pills.length) pastRows.push({ date: d, pills, fix });
   }

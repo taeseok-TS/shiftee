@@ -20,7 +20,7 @@ import type { AttendanceEditView } from "@/lib/attendance-edit";
  */
 
 type Cell = {
-  sched?: string; in?: string; out?: string; hasIn?: boolean; hasOut?: boolean; inPlace?: string | null; outPlace?: string | null;
+  sched?: string; in?: string; out?: string; hasIn?: boolean; hasOut?: boolean; inPlace?: string | null; outPlace?: string | null; granted?: boolean;
   leave?: string; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
   edit?: AttendanceEditView;   // 수정된 기록 — 원래 시각·사유·수정/승인자(#219-15)
 };
@@ -340,7 +340,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                     return (
                       <td key={d} className={`border px-1 py-1 text-center align-middle text-[#334155] ${!show ? (hol ? "bg-[#f8fafc]" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? (hidden ? "bg-[#fff1f2]" : "bg-[#fffbeb]") : c?.leave && !hasIn(c) ? "bg-[#eff6ff]" : hol ? "bg-[#f8fafc]" : ""}`}
                         title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`, ...(c.edit ? ["— 수정됨", ...c.edit.lines] : [])].filter(Boolean).join("\n") : undefined}>
-                        {show && c && hidden ? (
+                        {show && c && hidden && !(c.granted && (c.in || c.out)) ? (
                           /* 시각 없이 상태 한 마디(■0-11) — 「12:51 / 22:25」 대신 출근 · 지각 · 퇴근 · 퇴근 누락 · 미출근 · 휴가 */
                           (() => { const t = stateText(c, d, today, nowMin); const st = dayState(c, d, today, nowMin);
                             return t ? <span className={`whitespace-nowrap font-medium ${CELL_TONE[st?.tone ?? (c.leave ? "done" : "gray")]}`}>{t}</span> : null; })()
@@ -353,6 +353,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                               <div>{c.out ?? (c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
                               {c.leave && <div className="text-[#1d4ed8]">{c.leave}</div>}
                               {c.edit && <div className="text-[10px] text-[#b45309]">수정됨</div>}
+                              {hidden && c.granted && <div className="text-[10px] text-[#4f46e5]" title="본부가 승인한 출퇴근 기록 요청 기간 — 이 날짜만 시각이 보입니다">기록 요청 승인</div>}
                             </>
                           )
                         )}

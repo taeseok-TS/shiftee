@@ -19,6 +19,7 @@ const COL = {
   routeDate: ["루트입과일"],
   leaveDate: ["퇴사일", "퇴직일"], // 지금 원장에는 없는 열 — 생기면 자동으로 쓰인다
   email: ["회사 E-Mail", "회사 이메일", "회사메일"],
+  phone: ["전화번호", "휴대폰", "휴대전화", "핸드폰", "연락처", "전화"],   // 2026-10-27 이예지 ① — 큐브티에 전화가 비어 있는 사람만 채운다
 } as const;
 
 /**
@@ -75,6 +76,17 @@ export function parseCsv(text: string): string[][] {
  *   그 표기만 빈칸으로 보고, 그 밖에 날짜로 못 읽는 값은 입사일을 건드리지 않는 쪽으로 둔다.
  */
 const ROUTE_RULE_FROM = "2026-07-01";
+
+/** 전화번호 정리 — 숫자만 남겨 010-1234-5678 꼴로. 숫자가 9~11자리가 아니면 빈 값(엉뚱한 글을 전화로 넣지 않게) */
+export function normalizePhone(s: string): string {
+  let digits = (s || "").replace(/\D/g, "");
+  if (digits.startsWith("82") && digits.length === 12) digits = `0${digits.slice(2)}`;   // +82 10-1234-5678
+  if (digits.length < 9 || digits.length > 11) return "";
+  if (digits.startsWith("01") && digits.length !== 11) return "";   // 휴대폰은 11자리만(10자리 01x 는 오타)
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return digits.startsWith("02") ? `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}` : `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+}
 
 const dateOnly = (s: string) => {
   // 한국어 구글 시트 기본 표시는 "2026. 7. 6" / "2026. 7. 6." 이고 CSV 로 그대로 나온다 — 점 뒤 공백·끝 점을 받아준다
@@ -142,7 +154,7 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
   const at = {
     empNo: pick(COL.empNo), name: pick(COL.name), status: pick(COL.status), job: pick(COL.job),
     position: pick(COL.position), branch: pick(COL.branch), joinDate: pick(COL.joinDate),
-    routeDate: pick(COL.routeDate), leaveDate: pick(COL.leaveDate), email: pick(COL.email),
+    routeDate: pick(COL.routeDate), leaveDate: pick(COL.leaveDate), email: pick(COL.email), phone: pick(COL.phone),
   };
   // 열 이름이 바뀌면 조용히 빈 값으로 읽혀 **전원 정보가 지워진 것처럼** 보인다 — 필수 열이 없으면 멈춘다
   const missing = (["empNo", "name", "status", "branch"] as const).filter((k) => at[k] < 0);
@@ -188,6 +200,7 @@ export async function fetchSheetRoster(url: string): Promise<PortalRow[]> {
       hireDateEditable,
       leaveDate: dateOnly(cell(r, at.leaveDate)),
       email: cell(r, at.email).toLowerCase(),
+      phone: normalizePhone(cell(r, at.phone)),
     });
   }
   if (out.length > 5000) throw new Error(`인사 원장이 너무 큽니다(${out.length}행).`);

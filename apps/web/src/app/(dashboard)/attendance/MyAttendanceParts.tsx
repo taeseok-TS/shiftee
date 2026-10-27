@@ -142,7 +142,7 @@ export function TodayPanel({ role, today, recent, myDay, timesHidden, clockLoadi
         </div>
       </Box>
 
-      <Box title="지난 7일" sub="출근 · 퇴근을 찍었는지만 보입니다">
+      <Box title="지난 7일" sub={timesHidden ? "출근 · 퇴근을 찍었는지만 보입니다 — 본부가 승인한 「출퇴근 기록 요청」 기간은 시각도 보입니다" : "출근 · 퇴근 시각"}>
         <ul className="px-6 py-1">
           {past7.map((d) => {
             const r = recent.find((x) => ymdOf(x.date) === d) ?? null;
@@ -150,7 +150,13 @@ export function TodayPanel({ role, today, recent, myDay, timesHidden, clockLoadi
             return (
               <li key={d} className="flex min-h-[52px] flex-wrap items-center gap-2 border-t border-[#f1f5f9] py-2.5 first:border-t-0">
                 <span className="w-[76px] text-[14px] font-semibold text-[#0f172a]">{dayShort(d)}</span>
-                <span className="flex flex-1 flex-wrap gap-1.5">{pills.map((p) => <StatusPill key={p.label} tone={p.tone}>{p.label}</StatusPill>)}</span>
+                <span className="flex flex-1 flex-wrap items-center gap-1.5">
+                  {pills.map((p) => <StatusPill key={p.label} tone={p.tone}>{p.label}</StatusPill>)}
+                  {/* 시각은 서버가 풀어 준 날만 온다(본부 · 승인된 기록 요청 기간, 2026-10-27 이예지 ⑦) */}
+                  {r && (hhmmOf(r.clockIn) || hhmmOf(r.clockOut)) && (
+                    <span className="text-[13px] tabular-nums text-[#4f46e5]">{hhmmOf(r.clockIn) || "—"} → {hhmmOf(r.clockOut) || "—"}</span>
+                  )}
+                </span>
                 {r && fixable(r, today) && <Btn kind="text" className="min-h-[44px]" onClick={() => onFix(r)}>수정 요청 ›</Btn>}
               </li>
             );
@@ -214,14 +220,18 @@ export function StatusHistory({ records, today, showName, mine, current, onFix }
           ))}
         </div>
       )}
-      <Box title="날짜별 상태" sub="출퇴근 시각 · 일한 시간은 본부가 관리합니다">
+      <Box title="날짜별 상태" sub="출퇴근 시각 · 일한 시간은 본부가 관리합니다 — 본부가 승인한 「출퇴근 기록 요청」 기간은 시각도 보입니다">
         <ul className="px-6 py-1">
           {rows.length === 0 && <li className="py-6 text-center text-[14px] text-[#596578]">이 기간에 기록이 없습니다.</li>}
           {rows.map((r) => (
             <li key={r.id} className="flex min-h-[52px] flex-wrap items-center gap-2 border-t border-[#f1f5f9] py-2.5 first:border-t-0">
               <span className="w-[120px] text-[14px] font-semibold text-[#0f172a]">{dayLong(ymdOf(r.date))}</span>
               {showName && <span className="w-20 truncate text-[14px] text-[#475569]">{r.userName ?? "-"}</span>}
-              <span className="flex flex-1 flex-wrap gap-1.5">{pillsOf(r, today).map((p) => <StatusPill key={p.label} tone={p.tone}>{p.label}</StatusPill>)}</span>
+              <span className="flex flex-1 flex-wrap items-center gap-1.5">
+                {pillsOf(r, today).map((p) => <StatusPill key={p.label} tone={p.tone}>{p.label}</StatusPill>)}
+                {/* 시각은 서버가 풀어 준 날만 온다(본부 · 승인된 기록 요청 기간, 2026-10-27 이예지 ⑦) */}
+                {(hhmmOf(r.clockIn) || hhmmOf(r.clockOut)) && <span className="text-[13px] tabular-nums text-[#4f46e5]">{hhmmOf(r.clockIn) || "—"} → {hhmmOf(r.clockOut) || "—"}</span>}
+              </span>
               {mine && fixable(r, today) && <Btn kind="text" className="min-h-[44px]" onClick={() => onFix(r)}>수정 요청 ›</Btn>}
             </li>
           ))}

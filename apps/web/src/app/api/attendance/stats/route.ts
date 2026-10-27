@@ -276,6 +276,10 @@ export async function GET(request: NextRequest) {
   const { canSeeClockTimes, maskClock } = await import("@/lib/attendance-visibility");
   if (!(await canSeeClockTimes(session.role))) {
     const noHours = <T extends { totalMinutes: number; avgMinutes: number }>(st: T): T => ({ ...st, totalMinutes: 0, avgMinutes: 0 });
+    // 본부가 승인한 「출퇴근 기록 요청」 기간의 날짜는 시각을 푼다(2026-10-27 이예지 ⑦, lib/record-grants) — api/attendance GET 과 같은 규칙
+    const { recordGrantDays, isGranted } = await import("@/lib/record-grants");
+    const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
+    const grants = records.length ? await recordGrantDays([...new Set(records.map((r) => r.userId))], ymdOf(start), ymdOf(end)) : new Map<string, Set<string>>();
     return NextResponse.json({
       period,
       range: { start: start.toISOString(), end: end.toISOString() },
@@ -284,7 +288,8 @@ export async function GET(request: NextRequest) {
       chartData: [],
       timesHidden: true,
       records: records.map(r => ({
-        ...maskClock({ clockIn: r.clockIn, clockOut: r.clockOut }, false),
+        ...maskClock({ clockIn: r.clockIn, clockOut: r.clockOut }, isGranted(grants, r.userId, ymdOf(r.date))),
+        ...(isGranted(grants, r.userId, ymdOf(r.date)) ? { timesGranted: true } : {}),
         id: r.id,
         date: r.date,
         status: r.status,

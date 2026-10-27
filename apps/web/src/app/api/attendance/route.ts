@@ -7,6 +7,7 @@ import { personLabelOf, recordAttendanceEdit } from "@/lib/attendance-edit";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { isAllowed } from "@/lib/permission-settings";
 import { canSeeClockTimes, maskClock } from "@/lib/attendance-visibility";
+import { isGranted, recordGrantDays } from "@/lib/record-grants";
 import { showTestRows, testAccountWhere } from "@/lib/employee-scope";
 
 // 출퇴근 기록 수동 생성 (관리자 전용) — 기록이 없는 날짜용
@@ -140,10 +141,18 @@ export async function GET(request: NextRequest) {
     orderBy: { date: "desc" },
   });
 
-  // 찍은 시각은 본부만(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 상태와 찍었는지만
+  // 찍은 시각은 본부만(■0-11) — 직원 · 원장(「출퇴근 시각 보기」 끔)에게는 상태와 찍었는지만.
+  // 단, 본부가 승인한 「출퇴근 기록 요청」 기간의 날짜는 본인 · 지점 원장에게 시각을 푼다(2026-10-27 이예지 ⑦, lib/record-grants)
   const showTimes = await canSeeClockTimes(session.role);
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const grants = showTimes || !records.length
+    ? new Map<string, Set<string>>()
+    : await recordGrantDays([...new Set(records.map((r) => r.userId))], ymd(new Date(Date.UTC(year, month - 1, 1))), ymd(new Date(Date.UTC(year, month, 0))));
   return NextResponse.json({
-    records: records.map((r) => maskClock(r, showTimes)),
+    records: records.map((r) => {
+      const granted = !showTimes && isGranted(grants, r.userId, ymd(r.date));
+      return { ...maskClock(r, showTimes || granted), ...(granted ? { timesGranted: true } : {}) };
+    }),
     timesHidden: !showTimes,
   });
 }

@@ -32,7 +32,7 @@ const BOT_EMAILS = ["bot@cubetee.co.kr", "hr-bot@cubetee.co.kr", "notice-bot@cub
 
 export type Kind = "UPDATE" | "HIRE" | "RESIGN" | "LEAVE" | "RETURN" | "LINK";
 type Actor = { id: string; name: string };
-type FieldKey = "name" | "branch" | "jobGroup" | "position" | "hireDate";
+type FieldKey = "name" | "branch" | "jobGroup" | "position" | "hireDate" | "phone";
 export type Fields = Partial<Record<FieldKey, [string | null, string]>>;
 
 // ── 연결 설정 ───────────────────────────────────────────────
@@ -68,6 +68,8 @@ export type PortalRow = {
   // false 면 입사일을 고치지 않는다 — 인사명부 규칙상 7월 이전 입사자(roster-sheet.ts ROUTE_RULE_FROM).
   // 없으면(예전 포털 DB 경로) 종전처럼 고칠 수 있는 것으로 본다.
   hireDateEditable?: boolean;
+  /** 전화(시트 전화번호 열, 정리된 꼴) — 큐브티에 비어 있는 사람만 채운다(2026-10-27 이예지 ①). 없으면 건드리지 않는다 */
+  phone?: string;
 };
 const t = (v: unknown) => (v === null || v === undefined ? "" : String(v).trim());
 const dateOnly = (v: unknown) => {
@@ -160,7 +162,7 @@ function portalState(r: PortalRow): PState {
 
 const userSelect = {
   id: true, name: true, email: true, empNo: true, role: true, branch: true, jobGroup: true, position: true,
-  hireDate: true, resignDate: true, employmentStatus: true, isActive: true,
+  hireDate: true, resignDate: true, employmentStatus: true, isActive: true, phone: true,
 } as const;
 type CUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 type CState = "ACTIVE" | "LEAVE" | "RESIGNED" | "DISABLED";
@@ -322,6 +324,8 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
     if (pos && pos !== u.position) fields.position = [u.position, pos];
     // 7월 이전 입사자는 입사일을 건드리지 않는다(디렉터 확정 2026-09-18) — 교육 수료 후 입사라 기준이 다르다
     if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate) && confirmedHire.get(u.id) !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
+    // 전화 — 큐브티에 비어 있을 때만 채운다(있는 번호는 덮어쓰지 않는다 — 본인이 바꾼 번호가 있을 수 있다, 2026-10-27 이예지 ①)
+    if (r.phone && !(u.phone ?? "").trim()) fields.phone = [null, r.phone];
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
       // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 바뀌는 건은 항상 확인받는다.
@@ -418,7 +422,7 @@ function sigOf(p: Plan): string {
 
 // ── 반영 ───────────────────────────────────────────────────
 const utcDate = (s: string) => new Date(`${s}T00:00:00.000Z`);
-const stateSelect = { id: true, name: true, role: true, branch: true, empNo: true, deletedAt: true, isActive: true, employmentStatus: true, resignDate: true } as const;
+const stateSelect = { id: true, name: true, role: true, branch: true, empNo: true, deletedAt: true, isActive: true, employmentStatus: true, resignDate: true, phone: true } as const;
 
 async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
   const u = await prisma.user.findUnique({ where: { id: userId }, select: stateSelect });
@@ -436,6 +440,9 @@ async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
   if (fields.jobGroup) data.jobGroup = fields.jobGroup[1];
   if (fields.position) data.position = fields.position[1];
   if (fields.hireDate) data.hireDate = utcDate(fields.hireDate[1]);
+  // 전화는 반영 순간에도 비어 있을 때만(확인 대기가 묵는 사이 본인이 앱에서 넣은 번호를 덮지 않는다 — 10/27 검증)
+  const phoneFill = !!fields.phone && !(u.phone ?? "").trim();
+  if (phoneFill) data.phone = fields.phone![1];
   if (!Object.keys(data).length) return;
   await prisma.user.update({ where: { id: userId }, data });
   // 지점이 바뀌면 토큰에 박힌 지점이 낡는다 — 직원 수정(PATCH)과 같은 규칙으로 끊고, 메인 원장 지정을 정리한다
@@ -443,8 +450,8 @@ async function applyUpdate(userId: string, fields: Fields, actor: Actor) {
     await bumpTokenVersion(userId).catch(() => {});
     await syncMainManagerFor(userId);
   }
-  const labels: Record<FieldKey, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일" };
-  const detail = (Object.entries(fields) as [FieldKey, [string | null, string]][]).map(([k, v]) => `${labels[k]} ${v[0] ?? "-"}→${v[1]}`).join(", ");
+  const labels: Record<FieldKey, string> = { name: "이름", branch: "지점", jobGroup: "직책", position: "직급", hireDate: "입사일", phone: "전화" };
+  const detail = (Object.entries(fields) as [FieldKey, [string | null, string]][]).filter(([k]) => k !== "phone" || phoneFill).map(([k, v]) => `${labels[k]} ${v[0] ?? "-"}→${v[1]}`).join(", ");
   await logAudit({ actorId: actor.id, actorName: actor.name, action: "EMPLOYEE_UPDATE", targetType: "USER", targetId: userId, targetName: u.name, detail: `인사명부 반영 — ${detail}` });
   // 입사일이 바뀌면 올해 연차 총량도 근속으로 다시 센다 — 입사일 대조표(#5)와 같은 함수(2026-10-08 검증 R2)
   if (fields.hireDate) {

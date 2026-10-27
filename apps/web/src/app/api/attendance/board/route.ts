@@ -12,6 +12,7 @@ import { mondayOf, weeklyMinutes, WEEK_LIMIT_MIN } from "@/lib/weekly-hours";
 import { isAllowed } from "@/lib/permission-settings";
 import { attendanceEditViews, type AttendanceEditView } from "@/lib/attendance-edit";
 import { canSeeClockTimes, placeWithoutTime } from "@/lib/attendance-visibility";
+import { isGranted, recordGrantDays } from "@/lib/record-grants";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,7 @@ export async function GET(request: NextRequest) {
     sched?: string; in?: string; out?: string; inPlace?: string | null; outPlace?: string | null; attId?: string;
     leave?: string; leaveAm?: boolean; late?: boolean; missing?: boolean; absent?: boolean; pending?: boolean; workMin?: number; breakMin?: number;
     edit?: AttendanceEditView;
+    granted?: boolean;   // 시각을 숨기는 응답인데 본부가 승인한 기록 요청 기간이라 이 칸만 시각이 있다(2026-10-27 이예지 ⑦)
   };
   const cells: Record<string, Record<string, Cell>> = {};
   const cell = (u: string, d: string) => ((cells[u] ??= {})[d] ??= {});
@@ -185,8 +187,11 @@ export async function GET(request: NextRequest) {
   const workDaysOf = (u: string) => Object.values(cells[u] ?? {}).filter((c) => c.in).length;   // 출근일(출근 기록이 있는 날) — 시각을 빼기 전에 센다
   const workDays = new Map(users.map((u) => [u.id, workDaysOf(u.id)]));
   if (!showTimes) {
-    for (const row of Object.values(cells)) for (const c of Object.values(row) as (Cell & { hasIn?: boolean; hasOut?: boolean })[]) {
+    // 본부가 승인한 「출퇴근 기록 요청」 기간의 칸은 시각 · 총 시간을 남긴다(수정 이력은 뺀다 — 원래 시각이 들어 있다)(2026-10-27 이예지 ⑦)
+    const grants = await recordGrantDays(ids, from, to);
+    for (const [uid, row] of Object.entries(cells)) for (const [d, c] of Object.entries(row) as [string, Cell & { hasIn?: boolean; hasOut?: boolean }][]) {
       c.hasIn = !!c.in; c.hasOut = !!c.out;
+      if (isGranted(grants, uid, d)) { c.granted = true; delete c.edit; continue; }
       delete c.in; delete c.out; delete c.workMin; delete c.breakMin; delete c.edit;
       // 장소 글자에 든 시각도 지운다 — 퇴근 누락 본인 동의는 「22:00 퇴근 처리 · 본인 동의 …」를 남긴다(10/23 검증 B)
       if (c.inPlace !== undefined) c.inPlace = placeWithoutTime(c.inPlace);
