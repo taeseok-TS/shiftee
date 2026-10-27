@@ -53,7 +53,8 @@ export default function AttendanceScreen() {
   const [phase, setPhase] = useState<Phase>("LOADING");
   const [pending, setPending] = useState<{ in: boolean; out: boolean }>({ in: false, out: false });
   const [isLoading, setIsLoading] = useState(false);
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);   // 요청에 실어 보낼 위치(화면에는 숫자를 보이지 않는다)
+  const [location, setLocation] = useState<{ latitude: number; longitude: number; accuracy?: number | null } | null>(null);   // 요청에 실어 보낼 위치(화면에는 숫자를 보이지 않는다)
+  const [relocating, setRelocating] = useState(false);   // 「위치를 다시 잡는 중」(2026-10-27 — 첫 판정이 지점 밖이면 정밀 측위로 한 번 더 재서 판정)
   // 같은 출근(또는 퇴근)에서 연속 실패 횟수 — 3번이면 사진·본부 요청을 안내한다(본부 답변 #11)
   const [fail, setFail] = useState<{ count: number; reason: FailReason; detail?: string; pressedAt: string } | null>(null);
   const [missed, setMissed] = useState<attendance.MissedOut | null>(null);
@@ -159,21 +160,23 @@ export default function AttendanceScreen() {
 
   // 위치를 **누르는 순간마다 새로** 잰다(2026-10-06). 종전에는 화면을 처음 열 때 한 번만 재서,
   // 지점 밖에서 앱을 열었다가 걸어 들어와 누르면 옛 위치로 계속 「반경 밖」이 됐다(하단 탭 화면은 계속 살아 있다).
-  type Fix = { ok: true; latitude: number; longitude: number } | { ok: false; reason: "permission" | "services" | "timeout" };
-  const measure = async (): Promise<Fix> => {
+  type Fix = { ok: true; latitude: number; longitude: number; accuracy: number | null } | { ok: false; reason: "permission" | "services" | "timeout" };
+  // precise = 정밀 측위(지점 밖 판정 뒤 다시 잡을 때) — 시간을 더 주고(최대 8초) 마지막 저장 위치는 쓰지 않는다
+  const measure = async (precise = false): Promise<Fix> => {
     try {
       let perm = await Location.getForegroundPermissionsAsync();
       if (perm.status !== "granted") perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== "granted") return { ok: false, reason: "permission" };
       if (!(await Location.hasServicesEnabledAsync())) return { ok: false, reason: "services" };
       const fresh = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        new Promise<null>((r) => setTimeout(() => r(null), 12000)),
+        Location.getCurrentPositionAsync({ accuracy: precise ? Location.Accuracy.Highest : Location.Accuracy.Balanced }),
+        new Promise<null>((r) => setTimeout(() => r(null), precise ? 8000 : 12000)),
       ]);
-      if (fresh) return { ok: true, latitude: fresh.coords.latitude, longitude: fresh.coords.longitude };
+      if (fresh) return { ok: true, latitude: fresh.coords.latitude, longitude: fresh.coords.longitude, accuracy: fresh.coords.accuracy ?? null };
+      if (precise) return { ok: false, reason: "timeout" };
       // 새 위치가 늦으면 1분 안에 잰 위치까지는 쓴다(실내에서 GPS 가 늦게 잡히는 경우)
       const last = await Location.getLastKnownPositionAsync({ maxAge: 60_000 });
-      if (last) return { ok: true, latitude: last.coords.latitude, longitude: last.coords.longitude };
+      if (last) return { ok: true, latitude: last.coords.latitude, longitude: last.coords.longitude, accuracy: last.coords.accuracy ?? null };
       return { ok: false, reason: "timeout" };
     } catch {
       return { ok: false, reason: "timeout" };
@@ -184,7 +187,7 @@ export default function AttendanceScreen() {
     const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
     if (perm?.status !== "granted") return; // 화면 들어올 때는 권한 창을 띄우지 않는다
     const f = await measure();
-    if (f.ok) setLocation({ latitude: f.latitude, longitude: f.longitude });
+    if (f.ok) setLocation({ latitude: f.latitude, longitude: f.longitude, accuracy: f.accuracy });
   };
 
   const recordFail = (reason: FailReason, pressedAt: string, detail?: string) =>
@@ -197,7 +200,7 @@ export default function AttendanceScreen() {
     setIsLoading(true);
     const pressedAt = new Date().toISOString();   // 요청으로 넘어가면 이 시각으로 기록된다(본부 답변 #10)
     try {
-      const f = await measure();
+      let f = await measure();
       if (!f.ok) {
         recordFail(f.reason, pressedAt);
         if (f.reason === "permission") {
@@ -208,15 +211,33 @@ export default function AttendanceScreen() {
         }
         return;
       }
-      setLocation({ latitude: f.latitude, longitude: f.longitude });
+      setLocation({ latitude: f.latitude, longitude: f.longitude, accuracy: f.accuracy });
+      // 서버 판정 — 지점 밖(403)이면 바로 실패로 두지 않고 「위치를 다시 잡는 중」으로 정밀 측위 한 번 더(2026-10-27 이예지:
+      //  건물 안에서는 첫 위치가 수백 m 튀어 지점 안인데 지점 밖으로 떴다). 두 번째도 밖이면 그때 실패 카드
+      const send = async (fix: typeof f & { ok: true }) =>
+        phase === "IN" ? attendance.clockOut(fix.latitude, fix.longitude, fix.accuracy) : attendance.clockIn(fix.latitude, fix.longitude, fix.accuracy);
+      let r: any;
+      try {
+        r = await send(f);
+      } catch (first: any) {
+        if (!first?.response?.data?.outsideGeofence) throw first;
+        setRelocating(true);
+        try {
+          const again = await measure(true);
+          if (!again.ok) throw first;   // 정밀 측위가 안 되면 첫 판정 그대로
+          f = again;
+          setLocation({ latitude: f.latitude, longitude: f.longitude, accuracy: f.accuracy });
+          r = await send(f);
+        } finally {
+          setRelocating(false);
+        }
+      }
       if (phase === "IN") {
-        const r = await attendance.clockOut(f.latitude, f.longitude);
         // 출근 요청 승인 대기 중이면 퇴근은 요청에 담겨, 승인될 때 함께 기록된다
         setInsideNow(true);
         Alert.alert("퇴근했어요", r?.pendingIn ? r.message || "퇴근을 남겼습니다. 출근 요청이 승인되면 함께 기록됩니다." : "퇴근이 기록되었습니다.");
         setPhase("DONE");
       } else {
-        await attendance.clockIn(f.latitude, f.longitude);
         setInsideNow(true);
         Alert.alert("출근했어요", "출근이 기록되었습니다.");
         setPhase("IN");
@@ -225,7 +246,11 @@ export default function AttendanceScreen() {
     } catch (error: any) {
       const d = error?.response?.data;
       if (d?.outsideGeofence) {
-        recordFail("outside", pressedAt, d?.distance != null ? `지점에서 약 ${d.distance}m 떨어져 있어요(출근 인정 거리 ${d.radius}m).` : undefined);
+        // 거리 · 오차를 그대로 보여 준다 — 오차가 크면 폰 설정(정확한 위치) 안내가 붙는다(아래 실패 카드)
+        const acc = d?.accuracy ?? location?.accuracy ?? null;
+        recordFail("outside", pressedAt, d?.distance != null
+          ? `지점에서 약 ${d.distance}m 떨어져 있어요(인정 거리 ${d.radius}m)${acc != null ? ` · 위치 오차 약 ${Math.round(acc)}m` : ""}.`
+          : undefined);
         setInsideNow(false);
       } else if (d?.needsLocation) {
         recordFail("nolocation", pressedAt);
@@ -388,6 +413,14 @@ export default function AttendanceScreen() {
           <View style={styles.failCard}>
             <Text style={styles.failTitle}>{word} 위치를 확인하지 못했어요 ({fail.count}번째)</Text>
             <Text style={styles.failText}>{FAIL_TEXT[fail.reason]}{fail.detail ? ` ${fail.detail}` : ""}</Text>
+            {fail.reason === "outside" && (location?.accuracy ?? 0) > 100 && (
+              <>
+                <Text style={styles.failText}>위치가 정확하지 않아요(오차 약 {Math.round(location?.accuracy ?? 0)}m). 폰 설정에서 큐브티 위치를 「정확한 위치」로 켜 주세요.{"\n"}아이폰: 설정 › 큐브티 › 위치 › 「정확한 위치」 켬 · 안드로이드: 설정 › 위치 › 「정확한 위치 사용」 켬(절전 모드도 꺼 주세요)</Text>
+                <TouchableOpacity style={styles.outlineBtn} onPress={() => Linking.openSettings().catch(() => {})}>
+                  <Text style={styles.outlineText}>폰 위치 설정 열기</Text>
+                </TouchableOpacity>
+              </>
+            )}
             {fail.reason === "outside" && (
               <>
                 <Text style={styles.failText}>본사·서점 등 지점 밖이라면 요청으로 {word}해 주세요.</Text>
@@ -499,7 +532,7 @@ export default function AttendanceScreen() {
           disabled={buttonDisabled}
           accessibilityLabel={buttonLabel}
         >
-          {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={[styles.buttonText, buttonDisabled && { color: C.muted }]}>{buttonLabel}</Text>}
+          {isLoading ? (relocating ? <Text style={styles.buttonText}>위치를 다시 잡는 중…</Text> : <ActivityIndicator color="#fff" />) : <Text style={[styles.buttonText, buttonDisabled && { color: C.muted }]}>{buttonLabel}</Text>}
         </TouchableOpacity>
       </View>
 

@@ -51,6 +51,7 @@ model User {
 
   attendances           Attendance[]
   attendanceRequests    AttendanceRequest[]
+  geofenceAttempts      GeofenceAttempt[]   // 출퇴근 위치 판정 시도 기록(2026-10-27)
   attendanceEdits       AttendanceEdit[]   // 내 출퇴근 기록이 고쳐진 이력(#219-15)
   schedules             Schedule[]
   leaveRequests         LeaveRequest[]
@@ -1349,6 +1350,7 @@ model AttendanceRequest {
   memo         String?
   latitude     Float?
   longitude    Float?
+  accuracy     Float?   // 요청 때 폰이 알려 준 위치 오차 반경(m, 2026-10-27 이예지 — 결재 카드 「지점까지 ○m · 오차 ○m」). deploy/ddl_geofence_attempt.sql
   photoPath    String?   // uploads/private/attendance-photos/<파일> — 전용 라우트로만 연다
   deviceId     String?
   deviceName   String?
@@ -1365,6 +1367,31 @@ model AttendanceRequest {
   @@index([userId, status])
   @@index([branch, status])
   @@index([status])
+}
+
+// 출퇴근 위치 판정 시도 기록(2026-10-27 이예지 — 「지점 안인데 지점 밖으로 뜬다」가 여러 지점에서 생기는데 본부가 누가 몇 번 실패했는지 볼 수 없었다).
+// 출근 · 퇴근 버튼마다 한 줄: 찍힌 위치 · 폰 위치 오차 · 가장 가까운 담당 지점까지 거리 · 인정 거리 · 결과(OK · OUTSIDE · NO_LOCATION) · 기기 · OS · 앱 버전.
+// 성공(OK)도 남긴다 — 실패 뒤 다시 눌러 들어온 것을 알 수 있게. 기록이 실패해도 출퇴근은 막지 않는다(lib/geofence-log). 운영 DDL: deploy/ddl_geofence_attempt.sql
+model GeofenceAttempt {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  at         DateTime @default(now())
+  action     String   // IN | OUT
+  latitude   Float?
+  longitude  Float?
+  accuracy   Float?   // 폰이 알려 준 위치 오차 반경(m) — 옛 앱은 null
+  branch     String?  // 가장 가까운 담당 지점(판정 기준)
+  distance   Int?     // 그 지점까지 거리(m)
+  radius     Int?     // 그 지점 인정 거리(m)
+  result     String   // OK | OUTSIDE | NO_LOCATION
+  deviceId   String?
+  platform   String?
+  appVersion String?
+
+  @@index([userId, at])
+  @@index([result, at])
+  @@index([at])
 }
 
 // 휴대폰 근태 알림 발송 기록(2026-10-07 QA #11) — 같은 사람·같은 날·같은 알림은 한 번만(유니크로 먼저 잡은 쪽만 보낸다)

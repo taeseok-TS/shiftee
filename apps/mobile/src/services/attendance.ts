@@ -8,6 +8,8 @@
 import axios from "axios";
 import { API_URL } from "../config";
 import { getToken } from "./storage";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 import { getDeviceId } from "./device";
 
 async function authHeaders() {
@@ -15,9 +17,11 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// 출퇴근 전용: 기기 검증 헤더 포함 (서버가 등록 기기와 대조)
+// 출퇴근 전용: 기기 검증 헤더 포함 (서버가 등록 기기와 대조) + OS · 앱 버전(위치 판정 시도 기록용, 2026-10-27 — 본부가 기기 쪽 원인을 가려 볼 수 있게)
+// runtimeVersion 은 app.json 에서 { policy: "appVersion" } 객체라 version 과 같다 — version 만 쓴다(String(객체) 는 "[object Object]", 10/27 검증)
+const APP_VERSION = String(Constants.expoConfig?.version ?? "?");
 async function clockHeaders() {
-  return { ...(await authHeaders()), "x-device-id": await getDeviceId() };
+  return { ...(await authHeaders()), "x-device-id": await getDeviceId(), "x-platform": Platform.OS, "x-app-version": APP_VERSION };
 }
 
 export type TodayStatus = {
@@ -36,19 +40,20 @@ export async function getTodayStatus(): Promise<TodayStatus> {
   return res.data as TodayStatus;
 }
 
-export async function clockIn(latitude: number, longitude: number) {
+// accuracy = 폰이 알려 준 위치 오차 반경(m) — 서버가 판정 시도 기록에 남기고, 지점 밖이면 응답에 되돌려 준다(2026-10-27)
+export async function clockIn(latitude: number, longitude: number, accuracy?: number | null) {
   const res = await axios.post(
     `${API_URL}/attendance/clock-in`,
-    { latitude, longitude },
+    { latitude, longitude, accuracy: accuracy ?? undefined },
     { headers: await clockHeaders() }
   );
   return res.data;
 }
 
-export async function clockOut(latitude: number, longitude: number) {
+export async function clockOut(latitude: number, longitude: number, accuracy?: number | null) {
   const res = await axios.post(
     `${API_URL}/attendance/clock-out`,
-    { latitude, longitude },
+    { latitude, longitude, accuracy: accuracy ?? undefined },
     { headers: await clockHeaders() }
   );
   return res.data;
@@ -74,6 +79,8 @@ export type AttendanceRequestRow = {
   step1?: { name: string; at: string } | null;   // 1차(원장) 승인한 사람 · 시각
   recordState?: string | null;             // 그날 기록 상태 「출근 · 퇴근 누락」(시각 없이)
   timesHidden?: boolean;                   // 이 줄에서 시각이 빠졌는지(직원 · 원장)
+  // 지점 밖 · 사진 · 본부 요청의 판정 근거(2026-10-27) — 찍힌 위치 ↔ 소속 지점 거리 · 폰 위치 오차 · 인정 거리(m). 좌표 숫자는 오지 않는다
+  distanceM?: number | null; accuracyM?: number | null; radiusM?: number | null; nearBranch?: string | null;
 };
 
 /** 지점 밖·본부 처리·기록 수정·퇴근 누락 요청(JSON). 출퇴근 대신인 것은 기기 헤더를 붙인다 */

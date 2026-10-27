@@ -209,6 +209,12 @@ function attItem(r: attendance.AttendanceRequestRow, admin: boolean): Item {
   if (r.reason) lines.push({ label: r.kind === "RECORD" ? "쓰는 곳" : "사유", text: r.reason });
   if (r.memo) lines.push({ label: "메모", text: r.memo });
   if (r.hasPhoto) lines.push({ label: "사진", text: "카드를 눌러서 보기" });
+  // 지점 밖 · 사진 · 본부 요청 — 판정 근거(2026-10-27 본부): 지점까지 거리 · 폰 위치 오차. 오차가 100m 넘으면 폰 설정 문제일 수 있다
+  if (r.distanceM != null || r.accuracyM != null) {
+    const far = r.distanceM != null && r.radiusM != null && r.distanceM > r.radiusM;
+    const parts = [r.distanceM != null ? `${r.nearBranch && r.nearBranch !== r.userBranch ? `${r.nearBranch} ` : ""}지점까지 약 ${r.distanceM}m${r.radiusM != null ? ` (인정 ${r.radiusM}m)` : ""}` : "", r.accuracyM != null ? `위치 오차 약 ${r.accuracyM}m${r.accuracyM > 100 ? " — 폰 정확한 위치 꺼짐 의심" : ""}` : ""].filter(Boolean);
+    lines.push({ label: "위치", text: parts.join(" · "), tone: far || (r.accuracyM ?? 0) > 100 ? "red" : undefined });
+  }
   if (showTimes && r.createdAt) lines.push({ label: "접수", text: new Date(r.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) });
   // 두 단계(원장 → 본부) 진행 — 원장 차례면 「시각 확인은 본부 단계에서」, 본부 차례면 1차 승인한 원장 이름 · 시각
   if (fix && r.step1) {

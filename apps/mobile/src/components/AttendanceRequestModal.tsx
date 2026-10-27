@@ -21,7 +21,7 @@ export type RequestDraft = {
   kind: "OUTSIDE" | "PHOTO" | "HQ" | "MISSED_OUT" | "CORRECTION" | "RECORD";
   action?: "IN" | "OUT";
   pressedAt?: string;                                  // 출퇴근 버튼을 누른 순간
-  location?: { latitude: number; longitude: number } | null;
+  location?: { latitude: number; longitude: number; accuracy?: number | null } | null;
   workDate?: string;                                   // MISSED_OUT·CORRECTION 기본 날짜
 };
 
@@ -139,7 +139,7 @@ export default function AttendanceRequestModal({
     const loc = draft.location ?? null;
     const base: Record<string, unknown> = { kind, memo: memo.trim() || undefined };
     if (isClock) {
-      Object.assign(base, { action, pressedAt: draft.pressedAt, latitude: loc?.latitude, longitude: loc?.longitude });
+      Object.assign(base, { action, pressedAt: draft.pressedAt, latitude: loc?.latitude, longitude: loc?.longitude, accuracy: loc?.accuracy ?? undefined });
       if (kind === "OUTSIDE") {
         const r = reason === "기타" ? otherReason.trim() : reason;
         if (!r) { Alert.alert("사유를 적어 주세요"); return; }

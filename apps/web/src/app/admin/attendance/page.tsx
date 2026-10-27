@@ -17,6 +17,7 @@ import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark
 import type { AttendanceEditView } from "@/lib/attendance-edit";
 import AttendanceTabs, { isAttendanceTab, type AttendanceTab } from "@/components/attendance/AttendanceTabs";
 import WeekendExportBox from "@/components/attendance/WeekendExportBox";
+import GeofenceAttemptsBox from "@/components/attendance/GeofenceAttemptsBox";
 import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
 import { Btn, Box, Tiles, Tile, tableClass, Cell2, StatusPill, type PillTone } from "@/components/kit";
 import {
@@ -703,6 +704,11 @@ export default function AttendancePage() {
         </TabsContent>
 
         {/* ── 주말 근무 엑셀(R10 알약 탭) ── */}
+        {/* 지점 밖 · 위치 실패(2026-10-27 이예지) — 지점 목록은 지점별 현황과 같은 것 */}
+        <TabsContent value="geo">
+          <GeofenceAttemptsBox />
+        </TabsContent>
+
         <TabsContent value="weekend">
           <WeekendExportBox />
         </TabsContent>

@@ -29,6 +29,8 @@ type Req = {
   timesHidden?: boolean; recordState?: string | null;
   steps?: number; currentStep?: "MANAGER" | "HQ" | null; nextStep?: "HQ" | null;
   step1?: { name: string; at: string } | null;
+  // 지점 밖 · 사진 · 본부 요청의 판정 근거(2026-10-27 이예지) — 요청 때 찍힌 위치와 소속 지점 사이 거리 · 폰 위치 오차 · 인정 거리(m). 좌표 숫자는 없다
+  distanceM?: number | null; accuracyM?: number | null; radiusM?: number | null; nearBranch?: string | null;
 };
 
 const TWO_STEP = new Set(["CORRECTION", "MISSED_OUT"]);
@@ -166,6 +168,13 @@ export default function AttendanceRequestInbox({ onCount, onChanged, searchName 
               {r.nextStep === "HQ" && isHq === false && <div className="text-xs text-gray-500">승인하면 본부가 시각을 확인해 최종 승인합니다.</div>}
               {(r.kind === "CORRECTION" || r.kind === "MISSED_OUT") && r.reason && <div className="text-sm text-gray-600">사유: {r.reason}</div>}
               {r.memo && <div className="text-sm text-gray-600">메모: {r.memo}</div>}
+              {/* 판정 근거 — 진짜 지점 밖인지 판정 오류인지 보고 승인하게(2026-10-27 이예지). 오차가 100m 넘으면 폰 설정 문제일 가능성 */}
+              {(r.distanceM != null || r.accuracyM != null) && (
+                <div className="text-xs text-gray-500">
+                  {r.distanceM != null && <>{r.nearBranch && r.nearBranch !== r.userBranch ? `${r.nearBranch} ` : ""}지점까지 약 <b className={r.radiusM != null && r.distanceM > r.radiusM ? "text-red-600" : ""}>{r.distanceM}m</b>{r.radiusM != null ? ` (인정 ${r.radiusM}m)` : ""}</>}
+                  {r.accuracyM != null && <>{r.distanceM != null ? " · " : ""}위치 오차 약 <b className={r.accuracyM > 100 ? "text-amber-600" : ""}>{r.accuracyM}m</b>{r.accuracyM > 100 ? " — 폰 「정확한 위치」 꺼짐 의심" : ""}</>}
+                </div>
+              )}
               <div className="text-xs text-gray-400">
                 {requestedAt(r) && <>요청 {requestedAt(r)}</>}
                 {r.hasPhoto && <Btn kind="text" className="ml-2 text-[12.5px]" onClick={() => setPhoto(`/api/attendance-requests/${r.id}/photo`)}>사진 보기</Btn>}

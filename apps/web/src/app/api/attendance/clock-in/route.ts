@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { haversineDistance } from "@/lib/geofence";
+import { judgeGeofence, logGeofenceAttempt, parseAccuracy } from "@/lib/geofence-log";
 import { verifyAttendanceDevice } from "@/lib/device";
 import { kstTodayDateUTC } from "@/lib/kst";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const { latitude, longitude } = body;
+  const accuracy = parseAccuracy(body.accuracy);   // 폰 위치 오차(m) — 옛 앱은 안 보낸다(null)
 
   // 출근 장소(2026-10-07 #36) — 반경 안에 든 지점명. 위치 확인을 안 하는 경우(관리자·좌표 없는 지점)는 소속 지점명
   let place: string | null = null;
@@ -76,27 +77,26 @@ export async function POST(request: NextRequest) {
       : [];
 
     if (geoBranches.length > 0) {
-      // 위치 정보 없으면 거부
+      // 위치 정보 없으면 거부 — 시도는 남긴다(2026-10-27 이예지 「지점 밖 판정」 조사, lib/geofence-log)
       if (latitude == null || longitude == null) {
+        logGeofenceAttempt({ userId: session.userId, action: "IN", latitude: null, longitude: null, accuracy, verdict: null, result: "NO_LOCATION", headers: request.headers });
         return NextResponse.json(
           { error: "위치 정보가 필요합니다. GPS를 허용해주세요.", needsLocation: true },
           { status: 400 }
         );
       }
-      // 담당 지점 중 한 곳이라도 반경 안이면 통과, 전부 밖이면 가장 가까운 지점 기준으로 안내
-      let nearest: { dist: number; radius: number } | null = null;
-      let inside = false;
-      for (const b of geoBranches) {
-        const dist = haversineDistance(latitude, longitude, b.latitude!, b.longitude!);
-        if (dist <= b.radius) { inside = true; place = b.name; break; }   // 장소 = 반경 안에 든 지점(#36)
-        if (!nearest || dist < nearest.dist) nearest = { dist, radius: b.radius };
-      }
-      if (!inside && nearest) {
+      // 담당 지점 중 한 곳이라도 반경 안이면 통과, 전부 밖이면 가장 가까운 지점 기준으로 안내 — 판정은 공용 함수(judgeGeofence), 매 시도 기록
+      const verdict = judgeGeofence(latitude, longitude, geoBranches);
+      logGeofenceAttempt({ userId: session.userId, action: "IN", latitude, longitude, accuracy, verdict, result: verdict.inside ? "OK" : "OUTSIDE", headers: request.headers });
+      if (verdict.inside) {
+        place = verdict.branch;   // 장소 = 반경 안에 든 지점(#36)
+      } else if (verdict.distance != null) {
         return NextResponse.json(
           {
-            error: `출퇴근 지역을 벗어나셨습니다.\n현재 위치: ${Math.round(nearest.dist)}m / 허용 반경: ${nearest.radius}m`,
-            distance: Math.round(nearest.dist),
-            radius: nearest.radius,
+            error: `출퇴근 지역을 벗어나셨습니다.\n현재 위치: ${verdict.distance}m / 허용 반경: ${verdict.radius}m`,
+            distance: verdict.distance,
+            radius: verdict.radius,
+            accuracy,   // 앱이 「위치 오차 약 ○m」 안내에 쓴다
             outsideGeofence: true,
           },
           { status: 403 }

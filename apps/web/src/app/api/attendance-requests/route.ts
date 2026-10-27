@@ -11,6 +11,8 @@ import {
   statusSummaryOf, weekendClockInBlock, type RequestKind,
 } from "@/lib/attendance-request";
 import { canSeeClockTimes } from "@/lib/attendance-visibility";
+import { haversineDistance } from "@/lib/geofence";
+import { parseAccuracy, type GeoBranch } from "@/lib/geofence-log";
 import { testRequesterExclusion } from "@/lib/employee-scope";
 
 
@@ -36,8 +38,8 @@ type RowIn = {
   id: string; userId: string; kind: string; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null;
   clockOut: Date | null; reason: string | null; memo: string | null; photoPath: string | null; deviceName: string | null;
   platform: string | null; approverRole: string; branch: string | null; status: string; decidedAt: Date | null;
-  rejectReason: string | null; createdAt: Date; latitude: number | null; longitude: number | null;
-  user: { name: string; branch: string | null; position: string | null };
+  rejectReason: string | null; createdAt: Date; latitude: number | null; longitude: number | null; accuracy?: number | null;
+  user: { name: string; branch: string | null; position: string | null; role?: string };
 };
 type Extra = {
   showTimes: boolean;
@@ -45,7 +47,26 @@ type Extra = {
   step1: Map<string, { name: string; at: Date }>;
   /** 그날 기록 상태 「출근 · 퇴근 누락」 — 원장 카드에 시각 대신 */
   recordState: Map<string, string>;
+  /** 지점 좌표(이름 → 좌표 · 인정 거리) — 지점 밖 · 사진 · 본부 요청 카드의 「지점까지 약 ○m · 오차 ○m」(2026-10-27 이예지) */
+  geo: Map<string, GeoBranch>;
+  /** 원장 요청자의 담당 지점(대표 + 겸직) — 거리는 그중 가장 가까운 지점 기준(clock-in 판정과 같은 규칙, 10/27 검증) */
+  managerBranches: Map<string, string[]>;
 };
+
+/** 요청 때 찍힌 위치와 소속 지점 사이 거리(m) — 좌표 숫자는 내려보내지 않는다 */
+function geoOf(r: RowIn, geo: Map<string, GeoBranch>, managerBranches: Map<string, string[]>) {
+  const accuracyM = r.accuracy == null ? null : Math.round(r.accuracy);
+  const names = managerBranches.get(r.userId) ?? (r.user.branch ? [r.user.branch] : []);
+  if (r.latitude == null || r.longitude == null || !names.length) return { distanceM: null as number | null, radiusM: null as number | null, nearBranch: null as string | null, accuracyM };
+  let best: { distanceM: number; radiusM: number; nearBranch: string } | null = null;
+  for (const n of names) {
+    const b = geo.get(n);
+    if (!b || b.latitude == null || b.longitude == null) continue;
+    const d = Math.round(haversineDistance(r.latitude, r.longitude, b.latitude, b.longitude));
+    if (!best || d < best.distanceM) best = { distanceM: d, radiusM: b.radius, nearBranch: n };
+  }
+  return best ? { ...best, accuracyM } : { distanceM: null, radiusM: null, nearBranch: null, accuracyM };
+}
 
 /** 시각을 감추는 사람(직원 · 원장)에게는 시각 칸을 비우고 시각 없는 요약을 준다(■0-11). 본부는 그대로 */
 function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string | null, x: Extra) {
@@ -70,6 +91,8 @@ function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string
     nextStep: r.status === "PENDING" && twoStep && r.approverRole === "MANAGER" ? "HQ" : null,
     step1: step1 ? { name: step1.name, at: step1.at } : null,
     approverLabel: r.approverRole === "ADMIN" ? (step1 ? "본부 (원장 승인 완료)" : "본부") : twoStep ? `${r.branch ?? ""} 원장 → 본부` : `${r.branch ?? ""} 원장`,
+    // 지점 밖 · 사진 · 본부 요청 — 판정 근거(거리 · 오차 · 인정 거리). 진짜 지점 밖인지 판정 오류인지 보고 승인할 수 있게(2026-10-27 이예지)
+    ...(r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ" ? geoOf(r, x.geo, x.managerBranches) : {}),
   };
 }
 
@@ -108,8 +131,8 @@ function shapeBase(r: RowIn, deciderNames: Map<string, string>, decidedBy: strin
 const ROW_SELECT = {
   id: true, userId: true, kind: true, action: true, workDate: true, requestedAt: true, clockIn: true, clockOut: true,
   reason: true, memo: true, photoPath: true, deviceName: true, platform: true, approverRole: true, branch: true,
-  status: true, decidedBy: true, decidedAt: true, rejectReason: true, createdAt: true, latitude: true, longitude: true,
-  user: { select: { name: true, branch: true, position: true } },
+  status: true, decidedBy: true, decidedAt: true, rejectReason: true, createdAt: true, latitude: true, longitude: true, accuracy: true,
+  user: { select: { name: true, branch: true, position: true, role: true } },
 } as const;
 
 // GET ?scope=mine(기본) | inbox(내가 처리할 대기) | history(관리자 전체·원장 담당 지점, 최근 60일)
@@ -172,7 +195,16 @@ export async function GET(request: NextRequest) {
         : [a.clockIn ? (a.status === "LATE" ? "지각" : "출근") : "출근 누락", a.clockOut ? "퇴근" : "퇴근 누락"].join(" · "));
     }
   }
-  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy, { showTimes, step1, recordState })), timesHidden: !showTimes });
+  // 지점 좌표 — 지점 밖 · 사진 · 본부 요청 카드의 거리 계산용(한 번만)
+  const geo = new Map<string, GeoBranch>(
+    rows.some((r) => r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ")
+      ? (await prisma.branch.findMany({ select: { name: true, latitude: true, longitude: true, radius: true } })).map((b) => [b.name, b] as [string, GeoBranch])
+      : [],
+  );
+  const managerBranches = new Map<string, string[]>();
+  for (const uid of new Set(rows.filter((r) => r.user.role === "MANAGER" && (r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ")).map((r) => r.userId)))
+    managerBranches.set(uid, await getManagerBranches(uid));
+  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy, { showTimes, step1, recordState, geo, managerBranches })), timesHidden: !showTimes });
 }
 
 // POST — JSON(OUTSIDE·HQ·CORRECTION·MISSED_OUT·RECORD) 또는 multipart(PHOTO: file + 칸들)
@@ -209,13 +241,14 @@ export async function POST(request: NextRequest) {
   const memo = str(body.memo, 200);
   const latitude = num(body.latitude);
   const longitude = num(body.longitude);
+  const accuracy = parseAccuracy(body.accuracy);   // 폰 위치 오차(m, 2026-10-27) — 옛 앱은 null
   const now = new Date();
   const todayYmd = kstTodayYmd();
 
   const data: {
     kind: RequestKind; action: string | null; workDate: Date; requestedAt: Date; clockIn: Date | null; clockOut: Date | null;
-    reason: string | null; memo: string | null; latitude: number | null; longitude: number | null; photoPath: string | null;
-  } = { kind, action: null, workDate: dateOfYmd(todayYmd), requestedAt: now, clockIn: null, clockOut: null, reason: null, memo, latitude, longitude, photoPath: null };
+    reason: string | null; memo: string | null; latitude: number | null; longitude: number | null; accuracy: number | null; photoPath: string | null;
+  } = { kind, action: null, workDate: dateOfYmd(todayYmd), requestedAt: now, clockIn: null, clockOut: null, reason: null, memo, latitude, longitude, accuracy, photoPath: null };
 
   if (kind === "RECORD") {
     // 출퇴근 기록 요청(■0-11) — 찍은 시각은 본부만 보므로, 기록이 필요한 사람은 본부에 요청하고 본부가 내준다.
