@@ -273,7 +273,11 @@ export default function FlowSendStep({ ids, employees, mainManagerIds, title, st
               )}
               {!orderEditable && orderUnits.length > 1 && <p className="mt-2 text-xs text-gray-500">양식·순서가 서로 다른 문서가 섞여 있어 여기서는 순서를 바꿀 수 없습니다(각자 양식 순서로 보냅니다).</p>}
               {effMultiHq.length > 0 && <p className="mt-3 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">본부 단계가 둘 이상인 양식 {effMultiHq.length}건은 여기서 못 보냅니다 — 「보낸 계약서」에서 각각 보내 주세요.</p>}
-              {units.some((u) => !u.c.employeeOnly && !mgrOf(u.c, employees, mainManagerIds)) && <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">지점 원장을 찾지 못한 건은 원장 단계 없이 보냅니다.</p>}
+              {units.some((u) => !u.c.employeeOnly && !mgrOf(u.c, employees, mainManagerIds)) && (() => {
+                // 해당자 이름 — 「누가」 원장 단계 없이 가는지 보이게(2026-10-28 이예지)
+                const names = [...new Set(units.filter((u) => !u.c.employeeOnly && !mgrOf(u.c, employees, mainManagerIds)).map((u) => `${u.c.user.name}${u.c.user.branch ? `(${u.c.user.branch})` : ""}`))];
+                return <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">지점 원장을 찾지 못한 건은 원장 단계 없이 보냅니다 — {names.slice(0, 10).join(", ")}{names.length > 10 ? ` 외 ${names.length - 10}명` : ""}</p>;
+              })()}
             </section>
 
             {/* 보낼 문서 */}

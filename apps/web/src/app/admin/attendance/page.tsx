@@ -1,5 +1,6 @@
 "use client";
 
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -450,7 +451,7 @@ export default function AttendancePage() {
   function exportToday() {
     if (!todayList.length) { toast.error("오늘 출근 기록이 없습니다."); return; }
     const rows = todayList.map((r) => ({
-      이름: r.name, 지점: r.branch ?? "", 직무: r.jobGroup || r.position || "",
+      이름: r.name, 지점: r.branch ?? "", 직무: jobGroupLabel(r.jobGroup || r.position || ""),
       출근: r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "", 출근장소: r.clockInPlace ?? "",
       퇴근: r.clockOut ? format(new Date(r.clockOut), "HH:mm") : "", 퇴근장소: r.clockOut ? r.clockOutPlace ?? "" : "",
       상태: STATUS_CONFIG[r.status]?.label ?? r.status, "근무시간(분)": r.minutes || 0,
@@ -695,7 +696,7 @@ export default function AttendancePage() {
                   <tbody>
                     {todayList.map((r) => (
                       <tr key={r.id}>
-                        <td><Cell2 main={r.name} sub={[r.branch, r.jobGroup || r.position].filter(Boolean).join(" · ") || undefined} /></td>
+                        <td><Cell2 main={r.name} sub={[r.branch, jobGroupLabel(r.jobGroup || r.position)].filter(Boolean).join(" · ") || undefined} /></td>
                         <td className="tabular-nums">{r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}</td>
                         <td className={`text-[12.5px] ${placeCls(r.clockInPlace)}`}>{r.clockInPlace || "-"}</td>
                         <td className="tabular-nums">{r.clockOut ? format(new Date(r.clockOut), "HH:mm") : <span className="text-[#596578]">근무 중</span>}</td>

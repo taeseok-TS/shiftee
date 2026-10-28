@@ -1,5 +1,6 @@
 "use client";
 
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Clock } from "lucide-react";
 import { Box, Btn, StatusPill } from "@/components/kit";
@@ -72,7 +73,7 @@ export default function BoardPhoneToday({ branches, onShowMonth }: { branches: s
     })).filter((r) => r.days.length > 0);
   }, [board, today, nowMin]);
 
-  const who = (u: User) => [u.jobGroup || u.position, branches.length !== 1 && u.branch].filter(Boolean).join(" · ");
+  const who = (u: User) => [jobGroupLabel(u.jobGroup || u.position), branches.length !== 1 && u.branch].filter(Boolean).join(" · ");
 
   return (
     <div className="sm:hidden">

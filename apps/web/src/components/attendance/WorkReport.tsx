@@ -2,6 +2,7 @@
 
 // 근로시간 리포트(2026-10-08 QA76 #41) — 본부·원장 공용. 기간·지점·재직 조건으로 직원별 근로시간을 집계하고 엑셀로 내려받는다.
 // 숫자는 서버(GET /api/attendance/work-report, lib/work-report)가 계산한다. 시간 칸은 「시간」 단위(소수 1자리), 횟수 칸은 건수.
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -59,12 +60,12 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
   const shown = useMemo(() => {
     const k = q.trim();
     if (!rows) return [];
-    return k ? rows.filter((r) => [r.name, empNoText(r.empNo), r.branch ?? "", r.jobGroup ?? "", r.position ?? ""].some((v) => v.includes(k))) : rows;
+    return k ? rows.filter((r) => [r.name, empNoText(r.empNo), r.branch ?? "", r.jobGroup ?? "", jobGroupLabel(r.jobGroup ?? ""), r.position ?? ""].some((v) => v.includes(k))) : rows;
   }, [rows, q]);
 
   // 표 하나 = [머리, ...줄] — 화면과 엑셀이 같은 값을 쓴다
   const table = useMemo((): (string | number)[][] => [HEAD, ...shown.map((r) => [
-    empNoText(r.empNo), r.name + (r.resigned ? " (퇴사)" : ""), r.branch ?? "", r.jobGroup ?? r.position ?? "",
+    empNoText(r.empNo), r.name + (r.resigned ? " (퇴사)" : ""), r.branch ?? "", jobGroupLabel(r.jobGroup ?? r.position ?? ""),
     r.schedDays, r.workDays, h(r.workMin), Math.round(r.leaveHours * 10) / 10, h(r.overtimeMin), h(r.nightMin), h(r.holidayWithinMin), h(r.holidayOverMin), h(r.publicHolidayMin),
     h(r.maxWeekMin), h(r.remain52Min), r.over52Weeks, r.late, r.missing, r.absent,
   ])], [shown]);

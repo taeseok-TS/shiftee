@@ -1,5 +1,6 @@
 "use client";
 
+import { jobGroupLabel } from "@/lib/job-group-label";
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -23,7 +24,8 @@ export function MultiPick({ label, options, value, onChange, allLabel = "전체"
   label: string; options: string[]; value: string[]; onChange: (v: string[]) => void; allLabel?: string; className?: string;
 }) {
   const picked = value.filter((v) => options.includes(v));   // 목록에서 사라진 값(퇴사 지점 등)은 세지 않는다
-  const text = picked.length === 0 ? allLabel : picked.length <= 2 ? picked.join(", ") : `${picked.slice(0, 2).join(", ")} 외 ${picked.length - 2}`;
+  const shown = picked.map(jobGroupLabel);   // 직군 저장 값 「코디」는 「코디네이터」로 보인다(2026-10-28 이예지 — 다른 선택지는 그대로)
+  const text = picked.length === 0 ? allLabel : picked.length <= 2 ? shown.join(", ") : `${shown.slice(0, 2).join(", ")} 외 ${picked.length - 2}`;
   const toggle = (o: string, on: boolean) => onChange(on ? [...new Set([...value, o])] : value.filter((v) => v !== o));
   return (
     <DropdownMenu>
@@ -40,7 +42,7 @@ export function MultiPick({ label, options, value, onChange, allLabel = "전체"
         {options.length === 0 && <div className="px-2 py-1.5 text-xs text-gray-400">항목이 없습니다</div>}
         {options.map((o) => (
           <DropdownMenuCheckboxItem key={o} checked={picked.includes(o)} onCheckedChange={(on) => toggle(o, !!on)} closeOnClick={false}>
-            {o}
+            {jobGroupLabel(o)}
           </DropdownMenuCheckboxItem>
         ))}
       </DropdownMenuContent>

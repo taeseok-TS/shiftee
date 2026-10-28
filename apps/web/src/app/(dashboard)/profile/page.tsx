@@ -1,5 +1,6 @@
 "use client";
 
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { useEffect, useState } from "react";
 import { ApiKeysPanel } from "@/components/profile/ApiKeysPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -366,7 +367,7 @@ export default function ProfilePage() {
                 <div className="space-y-1.5">
                   <Label className="text-gray-700">직군</Label>
                   <Input
-                    value={user.jobGroup || ""}
+                    value={jobGroupLabel(user.jobGroup)}
                     disabled
                     className="bg-gray-50"
                   />

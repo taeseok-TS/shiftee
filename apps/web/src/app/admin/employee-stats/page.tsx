@@ -1,4 +1,5 @@
 "use client";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import EmployeeTabs from "@/components/hr/EmployeeTabs";
 
 import { useState, useEffect } from "react";
@@ -344,7 +345,7 @@ export default function EmployeeStatsPage() {
                   <p className="text-2xl font-bold text-gray-700">
                     {activeStats.byPosition[pos] || 0}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">{pos}</p>
+                  <p className="text-sm text-gray-500 mt-1">{jobGroupLabel(pos)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -463,7 +464,7 @@ export default function EmployeeStatsPage() {
                   <p className="text-2xl font-bold text-gray-700">
                     {resignedStatsAnnual.byPosition[pos] || 0}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">{pos}</p>
+                  <p className="text-sm text-gray-500 mt-1">{jobGroupLabel(pos)}</p>
                 </div>
               </CardContent>
             </Card>

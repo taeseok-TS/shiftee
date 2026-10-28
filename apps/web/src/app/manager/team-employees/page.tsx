@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { fmtDayKo } from "@/lib/leave-period";
+import { jobGroupLabel } from "@/lib/job-group-label";
 
 // 원장 「인사 › 지점 직원」 — R14(관리자 인사 › 직원)와 같은 박스 · 표. 원장은 보기만이라 엑셀 올리기 · 직원 추가 버튼은 없다.
 // 표(md 이상): 사번 · 이름(+ 메일 회색 한 줄) · 역할 알약 · 직책 · 직급 · 지점 · 입사일 · ⋮(지금 있는 동작 — 직원의 연차 대장 보기)
@@ -83,7 +84,7 @@ export default async function ManagerEmployeesPage() {
           {/* 폰 카드 — 이름(옆에 직급 · 직책) / 사번 · 역할 · 지점 / 입사일, 오른쪽 ⋮ */}
           <div className="divide-y divide-[#f1f5f9] md:hidden">
             {employees.map((employee) => {
-              const rank = [employee.position, employee.jobGroup].filter(Boolean).join(" · ");
+              const rank = [...new Set([jobGroupLabel(employee.position), jobGroupLabel(employee.jobGroup)].filter(Boolean))].join(" · ");
               return (
                 <div key={employee.id} className="flex items-start gap-2 px-4 py-3.5">
                   <div className="min-w-0 flex-1 space-y-1">
@@ -126,7 +127,7 @@ export default async function ManagerEmployeesPage() {
                     <td className="font-mono text-[13px] text-[#596578]">{fmtEmpNo(employee.empNo)}</td>
                     <td><Cell2 main={employee.name} sub={employee.email} /></td>
                     <td><RolePill role={employee.role} /></td>
-                    <td className="text-[#475569]">{employee.jobGroup || "-"}</td>
+                    <td className="text-[#475569]">{jobGroupLabel(employee.jobGroup) || "-"}</td>
                     <td className="text-[#475569]">{employee.position || "-"}</td>
                     <td className="text-[#475569]">{employee.branch || "-"}</td>
                     <td className="whitespace-nowrap tabular-nums text-[#475569]">{hireLabel(employee.hireDate)}</td>

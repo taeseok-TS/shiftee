@@ -1,5 +1,6 @@
 "use client";
 
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
@@ -174,7 +175,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
     { key: "date", label: "날짜", get: (r) => `${Number(r.d.slice(5, 7))}/${Number(r.d.slice(8, 10))} (${WEEK[dow(r.d)]})` },
     { key: "sched", label: "근무일정", get: (r) => r.c.sched?.replace("-", "–") ?? "" },
     { key: "branch", label: "지점", get: (r) => r.u.branch ?? "" },
-    { key: "job", label: "직무", get: (r) => r.u.jobGroup || r.u.position || "" },
+    { key: "job", label: "직무", get: (r) => jobGroupLabel(r.u.jobGroup || r.u.position || "") },
     { key: "in", label: "출근", get: (r) => r.c.in ?? "" },
     { key: "inPlace", label: "출근 장소", get: (r) => r.c.inPlace ?? "" },
     { key: "out", label: "퇴근", get: (r) => r.c.out ?? "" },

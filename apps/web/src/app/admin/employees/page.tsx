@@ -2,6 +2,7 @@
 import PortalSyncNote from "@/components/admin/PortalSyncNote";
 
 import { Fragment, useState, useEffect, useCallback, useMemo } from "react";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -531,7 +532,7 @@ export default function EmployeesPage() {
                                   <td className="px-4 py-2 whitespace-nowrap">{row.email || "-"}</td>
                                   <td className="px-4 py-2 whitespace-nowrap">{row.role || "-"}</td>
                                   <td className="px-4 py-2 whitespace-nowrap">{row.branch || "-"}</td>
-                                  <td className="px-4 py-2 whitespace-nowrap">{row.jobGroup || "-"}</td>
+                                  <td className="px-4 py-2 whitespace-nowrap">{jobGroupLabel(row.jobGroup) || "-"}</td>
                                   <td className="px-4 py-2 whitespace-nowrap">{row.position || "-"}</td>
                                 </tr>
                               ))}
@@ -628,11 +629,11 @@ export default function EmployeesPage() {
                     {/* 본부 선택 시 본부 체계(본부/대표이사/본부장/팀장)로 전환 */}
                     <Select value={formData.jobGroup} onValueChange={(value) => setFormData({ ...formData, jobGroup: value })}>
                       <SelectTrigger>
-                        <SelectValue placeholder="직책 선택" />
+                        <SelectValue placeholder="직책 선택">{(v: unknown) => (v ? jobGroupLabel(String(v)) : "직책 선택")}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {jobGroupOptions(formData.branch).map((o) => (
-                          <SelectItem key={o} value={o}>{o}</SelectItem>
+                          <SelectItem key={o} value={o}>{jobGroupLabel(o)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -641,11 +642,11 @@ export default function EmployeesPage() {
                     <Label>직급</Label>
                     <Select value={formData.position} onValueChange={(value) => setFormData({ ...formData, position: value })}>
                       <SelectTrigger>
-                        <SelectValue placeholder="직급 선택" />
+                        <SelectValue placeholder="직급 선택">{(v: unknown) => (v ? jobGroupLabel(String(v)) : "직급 선택")}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {positionOptions(formData.branch).map((o) => (
-                          <SelectItem key={o} value={o}>{o}</SelectItem>
+                          <SelectItem key={o} value={o}>{jobGroupLabel(o)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -781,7 +782,7 @@ export default function EmployeesPage() {
                       <td className="font-mono text-[13px] text-[#596578]">{fmtEmpNo(emp.empNo)}</td>
                       <td><Cell2 main={<>{emp.name}{emp.isTest && <span className="ml-1.5 align-middle"><StatusPill tone="gray">테스트 계정</StatusPill></span>}</>} sub={emp.email} /></td>
                       <td><StatusPill tone={roleTone[emp.role] ?? "gray"}>{roleLabel[emp.role] || emp.role}</StatusPill></td>
-                      <td className="text-[#475569]">{[emp.jobGroup, emp.position].filter(Boolean).join(" · ") || "-"}</td>
+                      <td className="text-[#475569]">{[...new Set([jobGroupLabel(emp.jobGroup), jobGroupLabel(emp.position)].filter(Boolean))].join(" · ") || "-"}</td>
                       <td className="text-[#475569]">{emp.branch || "-"}</td>
                       <td className="whitespace-nowrap tabular-nums text-[#475569]">
                         {emp.hireDate ? format(new Date(emp.hireDate), "yyyy-MM-dd") : "-"}
@@ -900,12 +901,12 @@ export default function EmployeesPage() {
                                       }
                                     >
                                       <SelectTrigger>
-                                        <SelectValue placeholder="직책 선택" />
+                                        <SelectValue placeholder="직책 선택">{(v: unknown) => (v ? jobGroupLabel(String(v)) : "직책 선택")}</SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
                                         {/* 본부 선택 시 본부 체계로 전환 */}
                                         {jobGroupOptions(editEmployee.branch).map((o) => (
-                                          <SelectItem key={o} value={o}>{o}</SelectItem>
+                                          <SelectItem key={o} value={o}>{jobGroupLabel(o)}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
@@ -919,11 +920,11 @@ export default function EmployeesPage() {
                                       }
                                     >
                                       <SelectTrigger>
-                                        <SelectValue placeholder="직급 선택" />
+                                        <SelectValue placeholder="직급 선택">{(v: unknown) => (v ? jobGroupLabel(String(v)) : "직급 선택")}</SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
                                         {positionOptions(editEmployee.branch).map((o) => (
-                                          <SelectItem key={o} value={o}>{o}</SelectItem>
+                                          <SelectItem key={o} value={o}>{jobGroupLabel(o)}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
