@@ -112,7 +112,7 @@ function DateButton({ value, label, min, onChange }: { value: string; label: str
         <CalendarDays size={16} className="shrink-0 text-[#4f46e5]" />{value ? fmtDayShort(value) : label}
       </span>
       {/* 실제 날짜 칸은 버튼 위에 투명하게 겹친다 — 누르는 자리 전체가 칸이라 휴대폰은 그대로 열리고, PC 는 showPicker 로 연다 */}
-      <input type="date" value={value} min={min} required aria-label={label}
+      <input type="date" max="9999-12-31" value={value} min={min} required aria-label={label}
         onClick={(e) => { try { (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.(); } catch { /* 지원하지 않는 브라우저는 기본 동작 */ } }}
         onChange={(e) => onChange(e.target.value)}
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
