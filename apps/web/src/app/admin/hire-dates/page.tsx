@@ -171,7 +171,7 @@ export default function HireDatesPage() {
                         {r.portal && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "portal"} onChange={() => set({ pick: "portal" })} />포털</label>}
                         {r.shiftee && <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "shiftee"} onChange={() => set({ pick: "shiftee" })} />시프티</label>}
                         <label className="flex items-center gap-1"><input type="radio" name={`p-${r.userId}`} checked={p.pick === "manual"} onChange={() => set({ pick: "manual" })} />직접</label>
-                        {p.pick === "manual" && <Input type="date" value={p.manual} onChange={(e) => set({ manual: e.target.value })} className="h-7 w-36" />}
+                        {p.pick === "manual" && <Input type="date" max="9999-12-31" value={p.manual} onChange={(e) => set({ manual: e.target.value })} className="h-7 w-36" />}
                       </div>
                     </td>
                   </tr>

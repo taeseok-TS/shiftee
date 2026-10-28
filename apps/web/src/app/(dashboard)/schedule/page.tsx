@@ -744,7 +744,7 @@ export default function SchedulePage() {
             </div>
             <div className="space-y-2">
               <Label>날짜 *</Label>
-              <Input type="date" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} required />
+              <Input type="date" max="9999-12-31" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} required />
             </div>
             <div className="space-y-2">
               <Label>유형</Label>
@@ -816,8 +816,8 @@ export default function SchedulePage() {
                 </Button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Input type="date" value={bulk.startDate} onChange={e => setBulk(b => ({ ...b, startDate: e.target.value }))} />
-                <Input type="date" value={bulk.endDate}   onChange={e => setBulk(b => ({ ...b, endDate:   e.target.value }))} />
+                <Input type="date" max="9999-12-31" value={bulk.startDate} onChange={e => setBulk(b => ({ ...b, startDate: e.target.value }))} />
+                <Input type="date" max="9999-12-31" value={bulk.endDate}   onChange={e => setBulk(b => ({ ...b, endDate:   e.target.value }))} />
               </div>
             </div>
 

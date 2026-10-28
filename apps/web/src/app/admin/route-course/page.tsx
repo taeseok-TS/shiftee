@@ -88,8 +88,8 @@ export default function RouteCoursePage() {
               return (
                 <tr key={r.key} className={why ? "bg-red-50/60" : "border-b last:border-b-0"}>
                   <td className="px-3 py-1.5"><input value={r.no} onChange={(e) => set(r.key, { no: e.target.value })} className="w-20 rounded border px-2 py-1" aria-label="기수" /></td>
-                  <td className="px-3 py-1.5"><input type="date" value={r.start} onChange={(e) => set(r.key, { start: e.target.value })} className="rounded border px-2 py-1" aria-label="입과일" /></td>
-                  <td className="px-3 py-1.5"><input type="date" value={r.end} onChange={(e) => set(r.key, { end: e.target.value })} className="rounded border px-2 py-1" aria-label="수료일" /></td>
+                  <td className="px-3 py-1.5"><input type="date" max="9999-12-31" value={r.start} onChange={(e) => set(r.key, { start: e.target.value })} className="rounded border px-2 py-1" aria-label="입과일" /></td>
+                  <td className="px-3 py-1.5"><input type="date" max="9999-12-31" value={r.end} onChange={(e) => set(r.key, { end: e.target.value })} className="rounded border px-2 py-1" aria-label="수료일" /></td>
                   <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{ev ? `${ev.실무평가시작} ~ ${ev.실무평가종료}` : <span className="text-red-600 text-xs">{why || "—"}</span>}</td>
                   <td className="px-3 py-1.5 text-right">
                     <button type="button" onClick={() => setRows((p) => (p || []).filter((x) => x.key !== r.key))} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500" aria-label={`${r.no}기 빼기`}><Trash2 size={15} /></button>

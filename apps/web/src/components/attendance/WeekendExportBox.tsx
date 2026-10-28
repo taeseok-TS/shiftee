@@ -16,9 +16,9 @@ export default function WeekendExportBox() {
   return (
     <Box icon={<FileSpreadsheet />} tone="sl" title="주말 근무 엑셀" sub="토 · 일 · 공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)">
       <div className="flex flex-wrap items-center gap-2.5 px-6 py-5">
-        <input type="date" className={inputClass} value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} aria-label="시작일" />
+        <input type="date" max="9999-12-31" className={inputClass} value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} aria-label="시작일" />
         <span className="text-[#596578]">~</span>
-        <input type="date" className={inputClass} value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} aria-label="종료일" />
+        <input type="date" max="9999-12-31" className={inputClass} value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} aria-label="종료일" />
         <a className={btnClass("secondary")} href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}
           onClick={(e) => {
             const days = (new Date(wk.to).getTime() - new Date(wk.from).getTime()) / 86400_000;

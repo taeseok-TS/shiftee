@@ -134,9 +134,9 @@ export default function LeaveReport() {
             <div>
               <div className="text-xs text-gray-500 mb-1">기간</div>
               <div className="flex items-center gap-1">
-                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-40" />
+                <Input type="date" max="9999-12-31" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-40" />
                 <span className="text-gray-400">~</span>
-                <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-8 w-40" />
+                <Input type="date" max="9999-12-31" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-8 w-40" />
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 h-8 cursor-pointer select-none">

@@ -86,7 +86,7 @@ export default function AdminHolidaysPage() {
         <CardContent className="pt-4 pb-4 flex items-end gap-2 flex-wrap">
           <div>
             <label className="text-xs text-gray-500">날짜</label>
-            <Input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-40" />
+            <Input type="date" max="9999-12-31" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-40" />
           </div>
           <div className="flex-1 min-w-[160px]">
             <label className="text-xs text-gray-500">이름</label>

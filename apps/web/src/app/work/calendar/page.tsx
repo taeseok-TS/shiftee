@@ -336,8 +336,8 @@ export default function WorkCalendarPage() {
             <Input placeholder="일정 제목" value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} />
             <Textarea placeholder="설명 (선택)" rows={3} value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} />
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-xs text-gray-500">시작일</label><Input type="date" value={form.startDate} onChange={(e) => setForm(f => ({ ...f, startDate: e.target.value }))} /></div>
-              <div><label className="text-xs text-gray-500">종료일</label><Input type="date" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} /></div>
+              <div><label className="text-xs text-gray-500">시작일</label><Input type="date" max="9999-12-31" value={form.startDate} onChange={(e) => setForm(f => ({ ...f, startDate: e.target.value }))} /></div>
+              <div><label className="text-xs text-gray-500">종료일</label><Input type="date" max="9999-12-31" value={form.endDate} onChange={(e) => setForm(f => ({ ...f, endDate: e.target.value }))} /></div>
             </div>
             {/* 시각(선택, #221) — 비우면 종일 */}
             <div className="grid grid-cols-2 gap-3">

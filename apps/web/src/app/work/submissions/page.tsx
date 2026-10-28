@@ -595,7 +595,7 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
               <option value="">선택</option>
               {(["EDU", "PROMO", "EVENT"] as const).map((g) => <optgroup key={g} label={CATEGORY_GROUP_LABEL[g]}>{categories.filter((c) => c.group === g && c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>)}
             </select></div>
-          <div><label className="text-xs text-gray-500">마감일 (비우면 마감 없음)</label><Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+          <div><label className="text-xs text-gray-500">마감일 (비우면 마감 없음)</label><Input type="date" max="9999-12-31" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
 
           {/* ── 받는 사람 ── */}
           <div className="md:col-span-2 border rounded-lg p-3 space-y-2.5 bg-gray-50/60">

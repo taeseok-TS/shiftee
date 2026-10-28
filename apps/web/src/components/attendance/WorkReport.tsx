@@ -88,10 +88,10 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
       <Box icon={<SlidersHorizontal />} tone="sl" title="조회 조건" sub="직원별 실근로·연장·야간·휴일 근로시간과 주 52시간 — 가산수당 근거">
         <FilterRow>
           <label className="flex items-center gap-1.5 text-[13px] font-semibold text-[#596578]">기간
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} w-40 font-normal`} />
+            <input type="date" max="9999-12-31" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} w-40 font-normal`} />
           </label>
           <span className="text-[#94a3b8]">~</span>
-          <input type="date" aria-label="종료일" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={`${inputClass} w-40`} />
+          <input type="date" max="9999-12-31" aria-label="종료일" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={`${inputClass} w-40`} />
           <select aria-label="대상" value={emp} onChange={(e) => setEmp(e.target.value as typeof emp)} className={inputClass}>
             <option value="active">재직자</option><option value="resigned">퇴사자(기간 안에 다닌 사람)</option><option value="all">전체</option>
           </select>

@@ -326,9 +326,9 @@ export default function LeaveSettlement() {
               <div>
                 <div className="text-xs text-gray-500 mb-1">퇴사 기간(직원 관리의 퇴사일)</div>
                 <div className="flex flex-wrap items-center gap-1">
-                  <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-40" />
+                  <Input type="date" max="9999-12-31" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-40" />
                   <span className="text-gray-400">~</span>
-                  <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-8 w-40" />
+                  <Input type="date" max="9999-12-31" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-8 w-40" />
                 </div>
               </div>
             )}

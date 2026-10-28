@@ -555,7 +555,7 @@ export default function ContractsPage() {
                         return (
                           <div key={f} className="space-y-1"><Label className="text-xs">{empFieldLabel(f)}</Label>
                             {type === "date" ? (
-                              <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                              <input type="date" max="9999-12-31" className="w-full border rounded px-2 py-1.5 text-sm"
                                 value={empFieldInput[f] || ""} onChange={e => setEmpFieldInput(p => ({ ...p, [f]: e.target.value }))} />
                             ) : f === "주민등록번호" ? (
                               // 숫자만 입력받아 하이픈 자동 삽입 + 13자리 제한 (개선 제안 #74)
@@ -629,7 +629,7 @@ export default function ContractsPage() {
           )}
           {missingProfile.includes("생년월일") && (
             <div className="space-y-1"><Label className="text-xs">생년월일</Label>
-              <input type="date" className="w-full rounded border px-2 py-1.5 text-sm"
+              <input type="date" max="9999-12-31" className="w-full rounded border px-2 py-1.5 text-sm"
                 value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
           )}
         </div>
@@ -961,7 +961,7 @@ export default function ContractsPage() {
                       )}
                       {missingProfile.includes("생년월일") && (
                         <div className="space-y-1"><Label className="text-xs">생년월일</Label>
-                          <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                          <input type="date" max="9999-12-31" className="w-full border rounded px-2 py-1.5 text-sm"
                             value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
                       )}
                     </div>
@@ -1009,7 +1009,7 @@ export default function ContractsPage() {
                       )}
                       {missingProfile.includes("생년월일") && (
                         <div className="space-y-1"><Label className="text-xs">생년월일</Label>
-                          <input type="date" className="w-full border rounded px-2 py-1.5 text-sm"
+                          <input type="date" max="9999-12-31" className="w-full border rounded px-2 py-1.5 text-sm"
                             value={profileInput.생년월일} onChange={e => setProfileInput(p => ({ ...p, 생년월일: e.target.value }))} /></div>
                       )}
                     </div>

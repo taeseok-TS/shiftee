@@ -530,7 +530,7 @@ export default function ManagerApprovalsPage() {
         <input type="search" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="직원 이름으로 찾기" aria-label="직원 이름"
           className={`${inputClass} w-52 pl-8`} />
       </div>
-      {withDate && <input type="date" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
+      {withDate && <input type="date" max="9999-12-31" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
       <Btn kind="text" className="min-h-11" onClick={() => { setSearchName(""); setSearchDate(""); setFindOpen(false); }}>{searchName || (withDate && searchDate) ? "지우고 닫기" : "닫기"}</Btn>
     </FilterRow>
   ));

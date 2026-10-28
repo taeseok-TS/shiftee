@@ -230,9 +230,9 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
       {scope === "admin" && !embedded && (
         <Box icon={<Download />} tone="sl" title="주말 근무 엑셀" sub="토·일·공휴일 · 원장 포함 · 본부 양식(직영 재직자 급여 자료)">
           <div className="flex flex-wrap items-center gap-2 px-6 py-4 text-[13.5px] text-[#475569]">
-            <input type="date" aria-label="시작일" className={inputClass} value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
+            <input type="date" max="9999-12-31" aria-label="시작일" className={inputClass} value={wk.from} onChange={(e) => setWk((w) => ({ ...w, from: e.target.value }))} />
             <span>~</span>
-            <input type="date" aria-label="종료일" className={inputClass} value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
+            <input type="date" max="9999-12-31" aria-label="종료일" className={inputClass} value={wk.to} onChange={(e) => setWk((w) => ({ ...w, to: e.target.value }))} />
             <a className={btnClass("secondary")}
               href={`/api/attendance/weekend-export?from=${wk.from}&to=${wk.to}`}
               onClick={(e) => {

@@ -1996,11 +1996,52 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (!(bulkMode ? p?.rowEnd : createForm.endDate)) out.push("계약 종료일");
     }
     const needsSalary = useTemplate && templateFields.some((f) => ["연봉", "연봉한글", "연봉총액", "월급여합계", "기본급", "연봉숫자"].includes(f));
-    if (needsSalary && !String((bulkMode ? p?.rowSalary : effSalary) || "").trim()) out.push("연봉");
+    if (needsSalary && portalFillOn && portalSalaryGate === "forbidden") out.push("연봉 — 연봉 보기 권한이 있는 관리자가 보내야 합니다");   // 2026-10-28 이예지 ③ — 손으로 쳐 넣다 틀리는 사고 막기
+    else if (needsSalary && !String((bulkMode ? p?.rowSalary : effSalary) || "").trim()) out.push("연봉");
     else if (needsSalary && salaryOk[uid] !== String(bulkMode ? p?.rowSalary : effSalary)) out.push("연봉 확인 체크");   // 2026-10-23 본부 — 사람마다 확인해야 만든다
     for (const f of dynamicFields.filter(x => fieldSettings[x]?.required))
       if (!(extraFields[f] || "").trim() && !(bulkMode && (bulkValues[uid]?.[f] || "").trim())) out.push(f);
     return out;
+  }
+  /** 신입인가 — 입사일이 기준일(계약 시작일, 없으면 오늘)로부터 330일 안. 입사일 없으면 모른다(null) */
+  const todayYmdStr = new Date(nowMs + 9 * 3600_000).toISOString().slice(0, 10);   // 렌더 중 Date.now() 금지(react-hooks/purity) — 화면이 가진 기준 시각
+  const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400_000);
+  // 「신입」 = 입사 330일 안(갱신월 직전 입사자는 첫 계약이 364일에 끝나 재계약 대상이라 365 로 보면 정상 재계약 묶음이 막힌다, 10/28 검증). 입사일 없으면 모른다(null)
+  // 기준일을 오늘로 두면 재계약을 미리 준비하는 시기에 따라 신입 판정이 흔들린다(12/1 입사 · 11/30 첫 계약 종료인 사람을 10/15 에 준비하면 319일) — 계약 시작일 기준(10/28 재검증)
+  const isNewHire = (e: Employee | undefined, baseYmd: string): boolean | null => (e?.hireDate ? daysBetween(String(e.hireDate).slice(0, 10), baseYmd || todayYmdStr) <= 330 : null);
+  /**
+   * 잘못 고른 것 잡기(2026-10-28 이예지 ①②) — 「보내기 전 확인」에 경고 줄로, 「그래도 보내기」를 눌러야 넘어간다(경계 사례가 있어 막지는 않는다, 10/28 검증).
+   *  · 신규입사인데 입사일이 계약 시작일 또는 오늘보다 1년 넘게 앞(김주엽 입사 2021 → 신규입사 계약?) → 기존 직원 재계약으로 잘못 고른 것
+   *  · 계약 시작일이 오늘보다 한 달 넘게 과거(시작일 = 입사일인 신규입사는 정상 — 입과 뒤 몇 주 지나 기수 전원 발송)
+   *  · 받는 사람에 신입(계약 시작일 기준 입사 330일 안)과 기존 직원이 섞임 — 계약 구분은 화면에 하나뿐이다
+   * 첫째 · 셋째는 계약 구분이 있는 양식(신규입사 조건) · 입사 묶음에서만, 둘째는 모든 양식
+   */
+  function sanityOf(uid: string, e: Employee | undefined): string | null {
+    const p = bulkMode ? bulkBuilder().payload(uid) : null;
+    const startYmd = String((bulkMode ? p?.rowStart : createForm.startDate) || "").slice(0, 10);
+    const kindOn = templateConditions.includes("신규입사") || bundleMode;
+    const hire = e?.hireDate ? String(e.hireDate).slice(0, 10) : "";
+    // 시작일이 입사일에 묶인 양식(startBound · 묶음)은 시작일 = 입사일이라 hire 와 비교하면 늘 0 — 오늘과도 비교해야 기존 직원이 잡힌다(10/28 재검증)
+    if (kindOn && contractKind === "신규입사" && hire && (daysBetween(hire, startYmd || todayYmdStr) > 365 || daysBetween(hire, todayYmdStr) > 365))
+      return `입사 ${hire} — 신규입사 계약이 맞는지 확인(재계약이면 계약 구분을 바꿔 주세요)`;
+    // 과거 시작일 — 신규입사는 시작일이 입사일(인사카드 없으면 표에 넣은 입과일)과 같은 것이 정상이라 그때는 묻지 않는다(10/28 검증)
+    const startIsHire = !!startYmd && (startYmd === hire || (!hire && startBound));
+    if (startYmd && !startIsHire && daysBetween(startYmd, todayYmdStr) > 31) return `계약 시작일 ${startYmd} — 한 달 넘게 지난 날짜입니다`;
+    if (kindOn) {
+      const recips = flowRecipients();
+      // 기준일: 재계약은 계약 시작일(미리 준비하는 시기에 흔들리지 않게), 신규입사는 오늘(startBound 면 각자 시작일 = 입사일이라 시작일 기준으론 전원 0일)
+      const base = contractKind === "신규입사" ? todayYmdStr : startYmd;
+      const nh = (id: string) => isNewHire(employees.find((x) => x.id === id), base);
+      const known = recips.filter((id) => nh(id) !== null);   // 입사일 없는 사람은 어느 쪽인지 모르니 뺀다
+      const mine = isNewHire(e, base);
+      if (known.length > 1 && mine !== null) {
+        const newer = known.filter((id) => nh(id) === true);
+        const mixed = newer.length > 0 && newer.length < known.length;
+        if (mixed && (contractKind === "신규입사" ? mine === false : mine === true))
+          return contractKind === "신규입사" ? "계약 구분이 다른 사람이 있습니다 — 입사 11개월(330일)이 지난 직원은 신규입사와 함께 보낼 수 없습니다" : "계약 구분이 다른 사람이 있습니다 — 입사 11개월(330일) 안 신입은 재계약과 함께 보낼 수 없습니다";
+      }
+    }
+    return null;
   }
   /** 외부 계약자 — 이름·휴대폰(본인 확인·링크 전달)·빈 필수 칸 */
   function extMissing(): string[] {
@@ -2032,14 +2073,20 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (noHire) { out[uid] = { level: "error", text: bulkMode ? "인사카드 입사일 없음 — 표의 근로시작일에 넣어 주세요" : startBound ? "인사카드 입사일 없음 — 계약 시작일(근로시작일)을 직접 넣어 주세요" : "인사카드 입사일 없음 — 근로시작일을 직접 넣어 주세요" }; continue; }
       const miss = missingOf(uid);
       if (miss.length) { out[uid] = { level: "error", text: `빈 칸: ${miss.join(", ")}` }; continue; }
-      if (!r) continue;   // 아직 확인 전
+      // 화면에서만 하는 검사 — 잘못 고른 것(2026-10-28 이예지 ①②: 기존 직원에 「신규입사」, 한 달 넘게 지난 시작일, 신입 · 기존 섞어 담기).
+      // 서버 확인(r)이 아직 없거나 실패했을 때도 이 경고는 보여야 한다 — 서버가 다시 보지 않는다(10/28 재검증)
+      const sanity = sanityOf(uid, e);
+      if (!r) { if (sanity) out[uid] = { level: "warn", text: sanity }; continue; }   // 아직 확인 전
       if (r.errors.length) { out[uid] = { level: "error", text: r.errors.join(" · ") }; continue; }
+      // 경고(막지 않고 「그래도 보내기」) — 같은 양식 중복 + 잘못 고른 것. 서버 오류 뒤에 두고 둘을 한 줄로 합친다 — 경고 하나가 다른 경고 · 오류를 가리지 않게
+      const warns: string[] = [];
       if (r.duplicates.length) {
         const d = r.duplicates[0];
         const md = d.lastSentAt ? (() => { const k = new Date(new Date(d.lastSentAt).getTime() + 9 * 3600_000); return `${k.getUTCMonth() + 1}/${String(k.getUTCDate()).padStart(2, "0")}`; })() : "";
-        out[uid] = { level: "warn", text: md ? `${md}에 같은 양식 보냄` : "같은 양식이 진행 중" };
-        continue;
+        warns.push(md ? `${md}에 같은 양식 보냄` : "같은 양식이 진행 중");
       }
+      if (sanity) warns.push(sanity);
+      if (warns.length) { out[uid] = { level: "warn", text: warns.join(" · ") }; continue; }
       out[uid] = { level: "ok", text: "준비됨" };
     }
     return out;
@@ -2056,7 +2103,10 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     return () => { clearTimeout(t); if (precheckTimer.current === t) precheckTimer.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [precheckKey]);
-  const shownStatus: Record<string, RowStatus> = Object.fromEntries(Object.entries(rowStatus).map(([u, x]) => [u, x.level === "warn" ? { ...x, acked: ackDup.has(u) } : x]));
+  // 「그래도 보내기」는 사람 + 경고 문구 단위 — 계약 구분 · 시작일을 바꿔 새 경고가 뜨면 다시 눌러야 한다(10/28 재검증: uid 만으로는 새 경고까지 미리 넘겨졌다)
+  const ackKey = (uid: string, text: string) => `${uid}|${text}`;
+  const isAcked = (uid: string, x: RowStatus | undefined) => !!x && x.level === "warn" && ackDup.has(ackKey(uid, x.text));
+  const shownStatus: Record<string, RowStatus> = Object.fromEntries(Object.entries(rowStatus).map(([u, x]) => [u, x.level === "warn" ? { ...x, acked: isAcked(u, x) } : x]));
   /** 2단계 「다음」 — 확인을 다시 돌려 막을 것이 없을 때만 만든다 */
   async function flowNext() {
     if (uploading || flowChecking.current) return;
@@ -2079,8 +2129,9 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
     // 서버 확인이 실패해도 화면에서만 하는 검사(인사카드 입사일 없음 등)는 막는다 — 그건 서버가 다시 보지 않는다(재검증 F3)
     const st = statusOf(byUser ?? undefined);
-    const bad = flowRecipients().filter(uid => { const x = st[uid]; return byUser ? (!x || x.level === "error" || (x.level === "warn" && !ackDup.has(uid))) : x?.level === "error"; });
-    if (bad.length) { setRowStatus(st); setOnlyIssues(true); toast.error(`확인 필요 ${bad.length}명 — 빨간 줄을 고치거나 빼 주세요(같은 양식을 보낸 사람은 「그래도 보내기」).`, { duration: 8000 }); return; }
+    // 서버 확인이 안 됐을 때(byUser null)도 화면 경고(잘못 고른 것 · 과거 시작일)는 넘기지 않은 채 두지 않는다 — 그건 서버가 다시 보지 않는다
+    const bad = flowRecipients().filter(uid => { const x = st[uid]; return byUser ? (!x || x.level === "error" || (x.level === "warn" && !isAcked(uid, x))) : (x?.level === "error" || (x?.level === "warn" && !isAcked(uid, x))); });
+    if (bad.length) { setRowStatus(st); setOnlyIssues(true); toast.error(`확인 필요 ${bad.length}명 — 빨간 줄을 고치거나 빼 주세요(경고 줄은 내용을 확인한 뒤 「그래도 보내기」).`, { duration: 8000 }); return; }
     if (byUser === null && !confirm("보내기 전 확인을 하지 못했습니다(서버 응답 없음). 그래도 진행할까요? 최저임금·기간·필수 칸·같은 양식 발송은 만들기·발송 때 서버가 다시 검사합니다.")) return;
     (document.getElementById("compose-form") as HTMLFormElement | null)?.requestSubmit();
   }
@@ -2757,8 +2808,25 @@ ${url}`;
   }
 
   // 작성 폼 — 「보낸 계약서」 팝업과 「계약서 보내기」 2단계가 같은 폼·같은 검사·같은 만들기(handleCreate)를 쓴다
+  // 2단계에 지금 결재 순서 한 줄(2026-10-28 이예지 ①) — 양식의 순서, 재계약이면 양식의 「재계약 순서」. 계약 구분을 바꾸면 바로 바뀐다
+  const composeOrderText = (() => {
+    // 직접 만든 묶음의 대표 서류 = 근로자 전용이 아닌 첫 서류(서버 bundle/send · customBundleItems 와 같은 규칙) — 끌어 놓은 순서가 동의서 먼저여도 순서는 근로계약서 것(10/28 재검증)
+    const repId = customBundle
+      ? (customBundle.ids.find((id) => { const x = templates.find((y) => y.id === id); return !!x && !isEmployeeOnlyDoc(x); }) ?? customBundle.ids[0])
+      : selectedTemplate;
+    const t = templates.find((x) => x.id === repId);
+    if (!useTemplate || !t) return "";
+    // 서버(api/contracts templateStepsFor)와 같은 조건 — 재계약 순서는 계약 구분이 있는 양식({#신규입사})에서 「재계약」일 때만
+    const renewal = contractKind === "재계약" && templateConditions.includes("신규입사") && !!t.approvalStepsRenewal;
+    const raw = renewal ? t.approvalStepsRenewal : t.approvalSteps;
+    const note = bundleMode && privacyTemplate ? " (대표 서류 기준 — 개인정보 동의서는 근로자 서명만)" : customBundle ? " (대표 서류 기준 — 근로자 전용 서류는 근로자 서명만)" : "";
+    return stepsLabel(parseApprovalSteps(raw) ?? DEFAULT_STEPS, externalMode) + note;
+  })();
   const composeForm = (
               <form id="compose-form" onSubmit={handleCreate} className="space-y-4">
+                {flow && composeOrderText && (
+                  <p className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-1.5 text-xs text-indigo-900">결재 순서: <b>{composeOrderText}</b>{templateConditions.includes("신규입사") ? ` · 계약 구분 「${contractKind}」` : ""}</p>
+                )}
                 {flow && !resignBundleMode && !externalMode && (
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-gray-900"><span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] text-white">1</span>받는 사람 추가 <span className="text-xs font-normal text-gray-400">— 셋 중 편한 방법 하나</span></p>
@@ -2786,7 +2854,13 @@ ${url}`;
                         {addSearch.trim() && (
                           <div className="absolute left-2 right-2 z-20 mt-1 max-h-48 overflow-y-auto rounded border bg-white shadow">
                             {employees.filter(e => e.role !== "ADMIN" && (e.name.includes(addSearch.trim()) || (e.branch || "").includes(addSearch.trim()))).slice(0, 20).map(e => (
-                              <button key={e.id} type="button" onClick={() => { addRecipients([e.id]); setAddSearch(""); }} className="block w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">{e.name}{e.branch ? ` · ${e.branch}` : ""}</button>
+                              <button key={e.id} type="button"
+                                onClick={() => { if (e.role === "MANAGER" && !confirm(`${e.name} 님은 원장입니다. 원장님께 보내는 서류가 맞나요?`)) return; addRecipients([e.id]); setAddSearch(""); }}
+                                className="block w-full px-2 py-1 text-left text-xs hover:bg-indigo-50">
+                                {e.name}{e.branch ? ` · ${e.branch}` : ""}
+                                {/* 직무 · 입사일 — 원장 · 기존 직원을 잘못 고르지 않게(2026-10-28 이예지 ⑤) */}
+                                <span className="text-gray-400">{e.position || (e as { jobGroup?: string | null }).jobGroup ? ` · ${e.position || (e as { jobGroup?: string | null }).jobGroup}` : ""}{e.hireDate ? ` · 입사 ${String(e.hireDate).slice(0, 10)}` : ""}</span>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -2795,7 +2869,7 @@ ${url}`;
                     {templateFields.includes("작성일") && (
                       <label className="flex items-center gap-2 text-sm">{/* 오늘 날짜를 미리 넣어 둔다(재요청 D) — 지우면 보내는 날 */}
                         <span className="text-gray-600">작성일</span>
-                        <input type="date" value={extraFields["작성일지정"] || ""} onChange={(e) => setExtraFields(p => ({ ...p, 작성일지정: e.target.value }))} className="rounded border px-2 py-1 text-sm" />
+                        <input type="date" max="9999-12-31" value={extraFields["작성일지정"] || ""} onChange={(e) => setExtraFields(p => ({ ...p, 작성일지정: e.target.value }))} className="rounded border px-2 py-1 text-sm" />
                         <span className="text-[11px] text-gray-400">{extraFields["작성일지정"] ? "모두에게 같은 날" : "비우면 보내는 날(종전과 같음)"}</span>
                       </label>
                     )}
@@ -3252,7 +3326,7 @@ ${url}`;
                     <div className="space-y-1">
                       <label className="text-xs text-gray-600">시작일{startBound && <span className="text-gray-400"> (= 근로시작일 · 인사카드 입사일)</span>}</label>
                       <Input
-                        type="date"
+                        type="date" max="9999-12-31"
                         value={createForm.startDate}
                         onChange={e => {
                           const v = e.target.value;
@@ -3281,7 +3355,7 @@ ${url}`;
                     <div className="space-y-1">
                       <label className="text-xs text-gray-600">종료일 <span className="text-gray-400">(자동: 다음 해의 연봉 종료월 말일 — 2·5·8·11월)</span></label>
                       <Input
-                        type="date"
+                        type="date" max="9999-12-31"
                         value={createForm.endDate}
                         onChange={e => { setManualEnd(e.target.value); setCreateForm(f => ({ ...f, endDate: e.target.value })); }}
                         required={!flow}
@@ -3304,12 +3378,17 @@ ${url}`;
                     inputMode="numeric"
                     placeholder={salaryDefaultOn ? "34,000,000 (기본값 — 비워 두면 이 값)" : "예: 34,000,000"}
                     value={wonView(salaryFocus ? createForm.salary : effSalary, salaryFocus)}
+                    disabled={portalFillOn && portalSalaryGate === "forbidden"}   // 연봉 보기 권한이 없으면 손으로 넣지 못한다(2026-10-28 이예지 ③)
                     onFocus={() => setSalaryFocus(true)}
                     onBlur={() => setSalaryFocus(false)}
                     onChange={e => setCreateForm(f => ({ ...f, salary: e.target.value.replace(/[^0-9]/g, "") }))}
                   />
                   {effSalary && (
                     <p className="text-xs text-gray-500">{Number(effSalary).toLocaleString()}원 · 문서 표기: <b>金 {koreanMoney(Number(effSalary))}</b></p>
+                  )}
+                  {/* 손으로 넣은 연봉이 포털 연봉과 다르면(2026-10-28 이예지 ③) — 틀린 값이 그대로 나가지 않게 */}
+                  {!bulkMode && !externalMode && effSalary && portalSalary[createForm.userId]?.amount != null && Number(effSalary) !== Number(portalSalary[createForm.userId]?.amount) && (
+                    <p className="text-xs font-medium text-red-600">포털 연봉 {Number(portalSalary[createForm.userId]?.amount).toLocaleString()}원과 다릅니다 — 맞는지 확인해 주세요</p>
                   )}
                   {/* 포털 연봉 상태(2026-10-23 본부) — 권한은 인사 › 연봉과 같다. 못 받으면 직접 입력 */}
                   {portalFillOn && (bulkMode ? bulkUserIds.length > 0 : !!createForm.userId) && (
@@ -3323,7 +3402,7 @@ ${url}`;
                         <span className="w-full text-[11px] text-amber-700">건너뛰려면 연봉을 직접 입력하세요. 5번 틀리면 15분 잠기고, 열람은 변경 로그에 남습니다.</span>
                       </div>
                     ) : portalSalaryGate === "forbidden" ? (
-                      <p className="text-xs text-gray-500">연봉 보기 권한이 없어 포털 연봉을 채우지 않았습니다 — 직접 입력</p>
+                      <p className="text-xs font-medium text-red-600">연봉 보기 권한이 없어 연봉을 넣을 수 없습니다 — 연봉 보기 권한이 있는 관리자가 보내 주세요. 권한은 메인 관리자가 설정 › 관리자 계정 「연봉 보기」에서 켭니다.</p>
                     ) : portalSalaryGate === "fail" ? (
                       <p className="text-xs text-gray-500">포털 연봉을 받지 못했습니다 — 직접 입력 <button type="button" onClick={() => setPortalSalaryGate("")} className="ml-1 underline hover:text-indigo-600">다시 받기</button></p>
                     ) : portalSalaryGate === "unconfigured" ? (
@@ -3640,7 +3719,7 @@ ${url}`;
                     {...(flow ? {
                       status: shownStatus, onlyIssues,
                       onRemove: removeRecipient,
-                      onAck: (uid: string) => setAckDup(s => new Set([...s, uid])),
+                      onAck: (uid: string) => { const x = rowStatus[uid]; if (x) setAckDup(s => new Set([...s, ackKey(uid, x.text)])); },
                     } : {})}
                   />
                 )}
@@ -3778,7 +3857,7 @@ ${url}`;
                           {issues.slice(0, 8).map(uid => (
                             <li key={uid} className={st[uid].level === "error" ? "text-red-600" : "text-amber-700"}>
                               ! {empName(uid)} — {st[uid].text}{" "}
-                              {st[uid].level === "warn" && <button type="button" className="underline mr-1" onClick={() => setAckDup(s => new Set([...s, uid]))}>그래도 보내기</button>}
+                              {st[uid].level === "warn" && <button type="button" className="underline mr-1" onClick={() => setAckDup(s => new Set([...s, ackKey(uid, st[uid].text)]))}>그래도 보내기</button>}
                               {bulkMode && <button type="button" className="underline" onClick={() => { setOnlyIssues(false); document.getElementById(`bulk-row-${uid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>바로 가기</button>}
                             </li>
                           ))}
@@ -4066,7 +4145,7 @@ ${url}`;
                   <div className="space-y-1">
                     <label className="text-xs text-gray-600">시작일</label>
                     <Input
-                      type="date"
+                      type="date" max="9999-12-31"
                       value={editForm.startDate}
                       onChange={e => setEditForm(f => ({ ...f, startDate: e.target.value }))}
                     />
@@ -4074,7 +4153,7 @@ ${url}`;
                   <div className="space-y-1">
                     <label className="text-xs text-gray-600">종료일</label>
                     <Input
-                      type="date"
+                      type="date" max="9999-12-31"
                       value={editForm.endDate}
                       onChange={e => setEditForm(f => ({ ...f, endDate: e.target.value }))}
                     />
@@ -4260,9 +4339,9 @@ ${url}`;
                   <option value="signed">체결일</option>
                   <option value="activity">마지막 활동일</option>
                 </select>
-                <input type="date" value={filterFrom} onChange={e => setRange(e.target.value, filterTo)} className={`${inputClass} py-1.5`} aria-label="시작일" />
+                <input type="date" max="9999-12-31" value={filterFrom} onChange={e => setRange(e.target.value, filterTo)} className={`${inputClass} py-1.5`} aria-label="시작일" />
                 ~
-                <input type="date" value={filterTo} onChange={e => setRange(filterFrom, e.target.value)} className={`${inputClass} py-1.5`} aria-label="끝일" />
+                <input type="date" max="9999-12-31" value={filterTo} onChange={e => setRange(filterFrom, e.target.value)} className={`${inputClass} py-1.5`} aria-label="끝일" />
                 {customPeriod && !filterFrom && !filterTo && <span className="text-[12px] text-[#596578]">날짜를 넣으면 위 기간 대신 이 범위로 봅니다</span>}
               </span>
               <button type="button" className={btnClass("text", "ml-auto text-[13px]")} onClick={() => {

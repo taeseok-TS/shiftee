@@ -192,7 +192,7 @@ export default function AdminSchedulePage() {
               </div>
               <div>
                 <Label>날짜</Label>
-                <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+                <Input type="date" max="9999-12-31" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="col-span-full">
                 <Label>근무 시간 종류</Label>

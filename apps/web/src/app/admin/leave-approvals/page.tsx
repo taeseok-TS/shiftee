@@ -340,7 +340,7 @@ export default function ApprovalsPage() {
   const filters = (withDate: boolean) => (
     <FilterRow>
       <input type="search" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="직원 이름으로 찾기" className={`${inputClass} w-52`} aria-label="직원 이름" />
-      {withDate && <input type="date" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
+      {withDate && <input type="date" max="9999-12-31" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
       {(searchName || (withDate && searchDate)) && <Btn kind="text" onClick={() => { setSearchName(""); setSearchDate(""); }}>초기화</Btn>}
     </FilterRow>
   );

@@ -325,11 +325,11 @@ export default function AdminSettingsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>입사일</Label>
-                  <Input type="date" value={editHireDate} onChange={(e) => setEditHireDate(e.target.value)} />
+                  <Input type="date" max="9999-12-31" value={editHireDate} onChange={(e) => setEditHireDate(e.target.value)} />
                 </div>
                 <div>
                   <Label>생일 <span className="text-xs text-gray-400">(봇 축하용)</span></Label>
-                  <Input type="date" value={editBirthDate} onChange={(e) => setEditBirthDate(e.target.value)} />
+                  <Input type="date" max="9999-12-31" value={editBirthDate} onChange={(e) => setEditBirthDate(e.target.value)} />
                 </div>
                 <div>
                   <Label>직책</Label>

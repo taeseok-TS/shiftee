@@ -23,7 +23,7 @@ type Template = {
   id: string; name: string; description?: string | null; type: string; createdAt?: string; fileUrl?: string;
   postSignAccess?: string; approvalSteps?: unknown; approvalStepsRenewal?: unknown; pinned?: boolean;
 };
-type Employee = { id: string; name: string; branch?: string | null; department?: string | null; role?: string };
+type Employee = { id: string; name: string; branch?: string | null; department?: string | null; role?: string; position?: string | null; jobGroup?: string | null; hireDate?: string | null };
 type PurposeKey = ContractPurpose | "other";
 // 고른 서류 — 양식 하나, 신규입사 묶음, 퇴사 서류 고르기, 묶음(직접 만든 것 또는 이번만 고른 여러 장 — id 가 null 이면 저장 안 된 묶음).
 // purpose 는 고를 때의 용도(재계약 탭에서 고르면 작성 폼의 계약 구분이 재계약)
@@ -37,11 +37,10 @@ export type Pick =
 export type SendSelection = { pick: NonNullable<Pick>; recipients: string[]; resignPicks: boolean[]; purpose: PurposeKey; multi: boolean; external?: boolean; pack?: "codi" | "ext" | null };
 
 const ACCESS_LABEL: Record<string, string> = { full: "열람·다운로드", view: "열람만", none: "보관만" };
-/** 카드에 쓰는 표시용 짧은 양식 이름 — DB 이름은 그대로 두고 「코디 근로계약서(계약직 일반·오후)」 → 「코디 · 계약직 일반·오후」.
- *  앞이 같은 코디 계약서 4종이 이름만으로 구분되게(2026-10-23 본부 요청 ■3 계약서 보내기). 괄호가 겹치면(「(사본)」 등) 원래 이름 */
+/** 카드에 쓰는 양식 이름 — 양식 관리의 이름 그대로(2026-10-28 이예지: 「코디 · 계약직 일반·오후」처럼 줄인 이름은 양식 관리와 달라 헷갈린다).
+ *  함수는 호출부가 많아 남겨 둔다 */
 export function displayTplName(name: string): string {
-  const m = /^(.+?)\s*근로계약서\s*\(([^()]+)\)$/.exec(name.trim());
-  return m ? `${m[1].trim()} · ${m[2].trim()}` : name;
+  return name.trim();
 }
 // 용도 탭 점 색(묶음마다 다른 색 — 시안 v2 톤 안내)
 const PURPOSE_DOT: Record<string, string> = { recruit: "bg-rose-500", hire: "bg-indigo-500", renew: "bg-violet-500", resign: "bg-slate-500", leave: "bg-amber-600", other: "bg-gray-400" };
@@ -201,6 +200,9 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const multiAllowed = pick?.kind !== "resign" && !toExt && !(pack === "codi" && packOn);   // 퇴사 서류·외부 계약자·코디 채용 묶음은 한 명씩
   const multiOn = multi && multiAllowed;
   const toggleRecipient = (id: string) => {
+    // 원장을 고르면 한 번 묻는다(2026-10-28 이예지 ⑤ — 원장도 근로계약서 받는 사람으로 그냥 골라졌다)
+    const e0 = empOf(id);
+    if (e0?.role === "MANAGER" && !recipients.includes(id) && !confirm(`${e0.name} 님은 원장입니다. 원장님께 보내는 서류가 맞나요?`)) return;
     setRecipients(prev => {
       if (!multiOn) return prev[0] === id ? [] : [id];
       return prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
@@ -570,6 +572,9 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                         <span className="w-4">{sel && <Check size={14} className="text-indigo-600" />}</span>
                         <span>{e.name}</span>
                         {e.branch && <span className="text-xs text-gray-500">· {e.branch}</span>}
+                        {/* 직무 · 입사일(2026-10-28 이예지 ⑤) */}
+                        {(e.position || e.jobGroup) && <span className="text-xs text-gray-400">· {e.position || e.jobGroup}</span>}
+                        {e.hireDate && <span className="text-xs text-gray-400">· 입사 {String(e.hireDate).slice(0, 10)}</span>}
                       </button>
                     );
                   })}

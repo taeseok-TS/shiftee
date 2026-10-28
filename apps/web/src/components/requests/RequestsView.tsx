@@ -120,9 +120,9 @@ export default function RequestsView({ initialWho, embedded = false }: { initial
           </select>
           <div className="flex flex-wrap items-center gap-1.5 text-[13.5px]">
             <span className="text-[#596578]">올린 날</span>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="올린 날 시작" className={inputClass} />
+            <input type="date" max="9999-12-31" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="올린 날 시작" className={inputClass} />
             <span className="text-[#596578]">~</span>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="올린 날 끝" className={inputClass} />
+            <input type="date" max="9999-12-31" value={to} onChange={(e) => setTo(e.target.value)} aria-label="올린 날 끝" className={inputClass} />
           </div>
         </FilterRow>
 

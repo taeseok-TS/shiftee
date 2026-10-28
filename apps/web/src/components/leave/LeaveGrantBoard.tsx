@@ -99,7 +99,7 @@ export default function LeaveGrantBoard() {
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <div className="text-xs text-gray-500 mb-1">기준일</div>
-              <Input type="date" value={asOf} onChange={(e) => e.target.value && setAsOf(e.target.value)} className="h-8 w-40" />
+              <Input type="date" max="9999-12-31" value={asOf} onChange={(e) => e.target.value && setAsOf(e.target.value)} className="h-8 w-40" />
             </div>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 h-8 cursor-pointer select-none">
               <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />부여·사용 있는 직원만

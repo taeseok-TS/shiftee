@@ -520,7 +520,7 @@ export default function ScheduleRequestPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">시작일</label>
                   <input
-                    type="date"
+                    type="date" max="9999-12-31"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -529,7 +529,7 @@ export default function ScheduleRequestPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">종료일</label>
                   <input
-                    type="date"
+                    type="date" max="9999-12-31"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"

@@ -129,11 +129,11 @@ export default function DelegateManager() {
           </div>
           <div>
             <Label className="text-xs">시작일</Label>
-            <Input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+            <Input type="date" max="9999-12-31" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
           </div>
           <div>
             <Label className="text-xs">종료일</Label>
-            <Input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+            <Input type="date" max="9999-12-31" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
           </div>
         </div>
         <div className="flex gap-2 items-end">

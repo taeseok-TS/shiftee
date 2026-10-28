@@ -81,7 +81,7 @@ export function ScheduleEditDialog({ target, employees, onClose, onSaved }: {
           </label>
           <label className="block space-y-1">
             <span className="text-xs text-gray-500">날짜</span>
-            <Input type="date" value={form.date} disabled={editing} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+            <Input type="date" max="9999-12-31" value={form.date} disabled={editing} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           </label>
           <div className="space-y-1">
             <span className="text-xs text-gray-500">근무 시간 종류</span>
@@ -166,8 +166,8 @@ export function ScheduleBulkDialog({ open, employees, onClose, onSaved }: {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <label className="space-y-1"><span className="text-xs text-gray-500">시작일</span><Input type="date" value={range.startDate} onChange={(e) => setRange({ ...range, startDate: e.target.value })} /></label>
-            <label className="space-y-1"><span className="text-xs text-gray-500">종료일</span><Input type="date" value={range.endDate} onChange={(e) => setRange({ ...range, endDate: e.target.value })} /></label>
+            <label className="space-y-1"><span className="text-xs text-gray-500">시작일</span><Input type="date" max="9999-12-31" value={range.startDate} onChange={(e) => setRange({ ...range, startDate: e.target.value })} /></label>
+            <label className="space-y-1"><span className="text-xs text-gray-500">종료일</span><Input type="date" max="9999-12-31" value={range.endDate} onChange={(e) => setRange({ ...range, endDate: e.target.value })} /></label>
           </div>
           <div className="flex gap-1">
             {/* 월 ~ 일 순서(■4 한 주 = 월 ~ 일), 고른 요일은 인디고. 값은 getDay 번호(일 = 0) 그대로 */}

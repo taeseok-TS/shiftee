@@ -140,7 +140,7 @@ export default function ShifteeRequestsPage() {
           <span className="inline-flex items-center gap-1.5">
             <input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setF({ from: e.target.value })} className={inputClass} aria-label="신청일 시작" />
             <span className="text-[13px] text-[#94a3b8]">~</span>
-            <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} className={inputClass} aria-label="신청일 끝" />
+            <input type="date" max="9999-12-31" value={filters.to} min={filters.from || undefined} onChange={(e) => setF({ to: e.target.value })} className={inputClass} aria-label="신청일 끝" />
           </span>
           <select value={filters.branch} onChange={(e) => setF({ branch: e.target.value })} className={inputClass} aria-label="지점">
             <option value="">지점: 전체</option>
