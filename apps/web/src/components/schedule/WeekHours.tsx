@@ -47,18 +47,18 @@ export function WeekHoursLine({ data, userId }: { data: WeekHours | null; userId
     const w = week52Of(wh);
     if (!w) return null;
     return (
-      <div className={`text-[11px] mt-0.5 ${w === "OVER_52" ? "text-red-600 font-semibold" : "text-gray-500"}`} title="이번 주 일정 기준(휴게 제외)">
+      <div className={`text-[12px] mt-0.5 ${w === "OVER_52" ? "text-red-600 font-semibold" : "text-gray-500"}`} title="이번 주 일정 기준(휴게 제외)">
         {w === "OVER_52" ? "주 52시간 넘음" : "주 52시간 안"}
       </div>
     );
   }
   if (!data || !wh || (!wh.sched && !wh.actual)) return null;
-  const h = (m: number) => `${Math.round(m / 6) / 10}h`;
+  const h = (m: number) => { const t = Math.round(m); return `${Math.floor(t / 60)}시간${t % 60 ? ` ${t % 60}분` : ""}`; };   // 「18시간 20분」(18.3h 대신 — 이예지 10/28 디자인 ④)
   const over = wh.sched > data.limitMin || wh.actual > data.limitMin;
   return (
-    <div className={`text-[11px] mt-0.5 ${over ? "text-red-600 font-semibold" : "text-gray-500"}`}
+    <div className={`text-[12px] mt-0.5 ${over ? "text-red-600 font-semibold" : "text-gray-500"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
-      주 일정 {h(wh.sched)}{data.actualHidden ? "" : ` · 실제 ${h(wh.actual)}`}{over ? " · 49h 초과" : ""}
+      주 일정 {h(wh.sched)}{data.actualHidden ? "" : ` · 실제 ${h(wh.actual)}`}{over ? " · 49시간 초과" : ""}
     </div>
   );
 }

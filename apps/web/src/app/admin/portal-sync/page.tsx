@@ -47,7 +47,7 @@ function TargetLine({ c }: { c: Change }) {
   const pt = portalOf(c);
   if (!tg) return null;
   return (
-    <div className="text-[11px] text-gray-500 space-y-0.5">
+    <div className="text-[12px] text-gray-500 space-y-0.5">
       {c.diff.weakIdentity ? <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />이름만 같습니다{Array.isArray(c.diff.weakReasons) && (c.diff.weakReasons as string[]).length ? `(${(c.diff.weakReasons as string[]).join("·")})` : ""}. 동명이인일 수 있으니 같은 사람인지 확인해주세요.</p> : null}
       {!c.diff.weakIdentity && c.diff.unverified ? <p className="text-amber-700">이메일·지점·입사일로 같은 사람임이 확인되지 않았습니다 — 양쪽을 보고 반영해주세요.</p> : null}
       <p>큐브티 대상: <b className="text-gray-700">{tg.branch ?? "-"} {tg.name}</b> (사번 {pad(tg.empNo ?? null)}{tg.hireDate ? ` · 입사 ${tg.hireDate}` : ""})</p>
@@ -80,7 +80,7 @@ function Detail({ c }: { c: Change }) {
           : d.onLeave
             ? <p className="text-gray-500">휴직자라 지점 없이 휴직으로 만들고, 비밀번호는 알려진 값으로 열어 두지 않습니다. 복직하면 명부의 지점이 정보 변경으로 올라오니 먼저 반영하시고, 직원 관리에서 비밀번호 초기화(임시 비밀번호)를 해 주세요.</p>
             : <p className="text-gray-500">반영하면 계정을 만들고 무작위 임시 비밀번호를 등록 이메일로 보냅니다. 24시간 안에 바꾸지 않으면 봇이 변경을 요청합니다.</p>}
-        {portalOf(c) ? <p className="text-[11px] text-gray-500">명부: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
+        {portalOf(c) ? <p className="text-[12px] text-gray-500">명부: {portalOf(c)?.branch ?? "-"} {c.name} (사번 {c.portalId}{portalOf(c)?.joinDate ? ` · 입사 ${portalOf(c)?.joinDate}` : ""})</p> : null}
         {Array.isArray(d.sameNameInCubetee) && (d.sameNameInCubetee as Target[]).length > 0 ? (
           <p className="text-red-700 flex items-center gap-1"><AlertTriangle size={12} />큐브티에 같은 이름이 있습니다: {(d.sameNameInCubetee as Target[]).map((x) => `${x.branch ?? "-"} ${x.name}(${pad(x.empNo ?? null)})`).join(", ")} — 같은 사람이면 입사 대신 직원 관리에서 사번을 명부 사번으로 고쳐주세요.</p>
         ) : null}
@@ -211,9 +211,9 @@ export default function PortalSyncPage() {
         <h2 className="font-semibold">확인 대기 {confirms.length}건</h2>
         {!confirms.length ? <p className="text-sm text-gray-500">확인할 항목이 없습니다.</p> : confirms.map((c) => (
           <div key={c.id} className="bg-white border rounded-lg p-3 flex items-start gap-3">
-            <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
+            <span className={`text-[12px] px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">명부 사번 {c.portalId}</span>{c.status === "APPLYING" ? <span className="ml-1 text-[11px] text-amber-700">반영 중…</span> : null}</p>
+              <p className="text-sm font-medium">{c.name} <span className="text-xs text-gray-400">명부 사번 {c.portalId}</span>{c.status === "APPLYING" ? <span className="ml-1 text-[12px] text-amber-700">반영 중…</span> : null}</p>
               <Detail c={c} />
             </div>
             <div className="flex gap-1.5 shrink-0">
@@ -234,7 +234,7 @@ export default function PortalSyncPage() {
           <div className="bg-white border rounded-lg divide-y">
             {pendingUpdates.map((c) => (
               <div key={c.id} className="p-2.5 flex items-start gap-3">
-                <p className="text-sm w-32 shrink-0">{c.name} <span className="block text-[11px] text-gray-400">사번 {c.portalId}</span></p>
+                <p className="text-sm w-32 shrink-0">{c.name} <span className="block text-[12px] text-gray-400">사번 {c.portalId}</span></p>
                 <div className="flex-1"><Detail c={c} /></div>
                 <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy === c.id} onClick={() => decide(c, "dismiss")}>무시</Button>
               </div>
@@ -248,7 +248,7 @@ export default function PortalSyncPage() {
         <section className="grid md:grid-cols-3 gap-3">
           <Card><CardContent className="p-3 space-y-1">
             <p className="text-sm font-semibold">건너뜀 {sum.skipped?.length ?? 0}</p>
-            <p className="text-[11px] text-gray-500">포털 값을 큐브티에 맞출 수 없어 반영하지 않은 것</p>
+            <p className="text-[12px] text-gray-500">포털 값을 큐브티에 맞출 수 없어 반영하지 않은 것</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.skipped ?? []).map((x, i) => <li key={i}>{x.name} <span className="text-gray-400">{x.portalId}</span> — {x.reason}</li>)}</ul>
           </CardContent></Card>
           <Card><CardContent className="p-3 space-y-1">
@@ -257,12 +257,12 @@ export default function PortalSyncPage() {
               <ul className="text-xs text-gray-700 max-h-40 overflow-y-auto space-y-0.5">{(sum.phoneMismatch ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span> · 큐브티 {x.cubetee} / 명부 {x.portal}</li>)}</ul>
             </>)}
             <p className="text-sm font-semibold">포털에 없는 큐브티 재직자 {sum.missingInPortal?.length ?? 0}</p>
-            <p className="text-[11px] text-gray-500">사번이 명부와 다르거나 명부에 아직 없는 직원 — 자동으로 퇴사시키지 않습니다</p>
+            <p className="text-[12px] text-gray-500">사번이 명부와 다르거나 명부에 아직 없는 직원 — 자동으로 퇴사시키지 않습니다</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.missingInPortal ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span></li>)}</ul>
           </CardContent></Card>
           <Card><CardContent className="p-3 space-y-1">
             <p className="text-sm font-semibold">원장 권한 확인 {sum.roleMismatch?.length ?? 0}</p>
-            <p className="text-[11px] text-gray-500">명부 직무는 원장인데 큐브티 권한은 직원 — 권한은 직원 관리에서 직접 바꿔주세요</p>
+            <p className="text-[12px] text-gray-500">명부 직무는 원장인데 큐브티 권한은 직원 — 권한은 직원 관리에서 직접 바꿔주세요</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.roleMismatch ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span></li>)}</ul>
           </CardContent></Card>
         </section>

@@ -3,7 +3,7 @@
 // 새 관리자 화면을 만들면: 메뉴로 둘지(items) 기존 메뉴의 탭으로 둘지(tabs)를 정해 여기에 넣는다. 빠지면 레일·패널 어디에도 안 보인다.
 import type { ComponentType } from "react";
 import {
-  LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
+  LayoutDashboard, Clock, CheckCircle, FileSignature, TreePalm, Users, SlidersHorizontal,
   Calendar, BarChart3, GitBranch, Send, FileText, Building2, ShieldCheck, CalendarDays, History,
   Settings, Lightbulb, Wrench, Wallet, Archive,
 } from "lucide-react";
@@ -26,7 +26,8 @@ export const ADMIN_NAV: NavGroup[] = [
     // 탭은 화면 안 알약 한 줄로(R10 — components/attendance/AttendanceTabs)
     { href: "/admin/attendance", label: "출퇴근 현황", icon: Clock, also: ["/admin/attendance-board"],
       find: [
-        { href: "/admin/attendance-board", label: "달력 · 목록(출퇴근기록)" },
+        { href: "/admin/attendance-board", label: "달력(출퇴근기록)" },
+        { href: "/admin/attendance-board?view=list", label: "목록(출퇴근기록)" },
         { href: "/admin/attendance?tab=stats", label: "지난 기록" },
         { href: "/admin/attendance?tab=weekend", label: "주말 근무 엑셀" },
       ] },
@@ -64,9 +65,9 @@ export const ADMIN_NAV: NavGroup[] = [
       { href: "/admin/route-course", label: "루트코스 일정" },
     ] },
   ] },
-  { key: "leave", title: "휴가", icon: UmbrellaOff, items: [
+  { key: "leave", title: "휴가", icon: TreePalm, items: [
     // 탭은 화면 안 알약 한 줄로(R13 — 「휴가 유형」 포함)
-    { href: "/admin/leave", label: "휴가 관리", icon: UmbrellaOff, countKey: "leavePending", also: ["/admin/leave-ledger", "/admin/leave-types"],
+    { href: "/admin/leave", label: "휴가 관리", icon: TreePalm, countKey: "leavePending", also: ["/admin/leave-ledger", "/admin/leave-types"],
       find: [
         { href: "/admin/leave?tab=balance", label: "직원별 잔여" },
         { href: "/admin/leave?tab=grants", label: "종류별 잔여" },

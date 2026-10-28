@@ -156,7 +156,7 @@ export default function StoragePage() {
               const label = JOB_LABEL[j.status] || JOB_LABEL.PENDING;
               return (
                 <div key={j.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                  <span className={`shrink-0 text-[11px] font-medium rounded-full px-2 py-0.5 ${label.cls}`}>{label.text}</span>
+                  <span className={`shrink-0 text-[12px] font-medium rounded-full px-2 py-0.5 ${label.cls}`}>{label.text}</span>
                   <span className="flex-1 truncate text-gray-600 font-mono text-xs">{j.fileUrl.split("/").pop()}</span>
                   <span className="shrink-0 text-xs text-gray-500">
                     {fmtBytes(j.origSize)}{j.status === "DONE" && j.newSize ? ` → ${fmtBytes(j.newSize)}` : ""}

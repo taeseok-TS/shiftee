@@ -46,7 +46,15 @@ export async function GET() {
   for (const s of sent) if (s.templateId && s.at) lastUsed[s.templateId] = new Date(s.at).toISOString();
   const monthCount: Record<string, number> = {};
   for (const m of monthRows) if (m.templateId) monthCount[m.templateId] = Number(m.n);
-  return NextResponse.json({ purposes, lastUsed, monthCount });
+  // 전체 사용 횟수 = 초안이 아닌(보낸) 계약 수 — 초안만 만들고 그만둔 양식은 세지 않는다(검증 지적)
+  const sentRows = await prisma.contract.groupBy({
+    by: ["templateId"],
+    where: { templateId: { not: null }, isTest: false, importBatch: null, status: { not: "DRAFT" } },
+    _count: { _all: true },
+  }).catch(() => [] as { templateId: string | null; _count: { _all: number } }[]);
+  const totalCount: Record<string, number> = {};
+  for (const u of sentRows) if (u.templateId) totalCount[u.templateId] = u._count?._all ?? 0;
+  return NextResponse.json({ purposes, lastUsed, monthCount, totalCount });
 }
 
 // 한 양식의 용도 고치기 — body { templateId, purposes: 용도[] | null }. null 이면 기본값(이름 기준)으로 되돌린다

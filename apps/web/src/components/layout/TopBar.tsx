@@ -35,7 +35,12 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
   const counts = useNavCounts();
   const modes = MODES.filter((m) => m.roles.includes(role));
   // 모드마다 내 차례 — 관리자·원장 = 결재함, 직원 = 내가 서명할 계약서(시안 v2 10번 「모드를 바꿔도 같게」)
-  const pending = (m: Mode) => (m === "employee" ? (counts.mySign || 0) : m === "manager" && role === "MANAGER" ? (counts.approvals || 0) : m === "admin" ? (counts.approvals || 0) : 0) > 0;
+  const pendingN = (m: Mode) => (m === "employee" ? (counts.mySign || 0) : m === "manager" && role === "MANAGER" ? (counts.approvals || 0) : m === "admin" ? (counts.approvals || 0) : 0);
+  // 모드 옆 빨간 점(●)은 뜻을 알 수 없어 뺐다 — 「다른 모드」에 처리할 건이 있을 때만 인디고 건수로(2026-10-28 이예지 디자인 ①). 지금 모드 건수는 왼쪽 메뉴에 있다
+  const modeCount = (m: Mode, cls = "ml-1") => {
+    const n = m === mode ? 0 : pendingN(m);
+    return n > 0 ? <span className={cn(cls, "min-w-[20px] shrink-0 rounded-full bg-[#eef2ff] px-1.5 text-center text-xs font-bold leading-5 text-[#4f46e5]")} aria-label={`처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null;
+  };
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     resetUserPrefs();   // 내 화면 설정 저장소 비움 — 같은 브라우저의 다음 사람에게 넘어가지 않게(#73)
@@ -55,7 +60,8 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
           <DropdownMenu>
             <DropdownMenuTrigger className="sm:hidden inline-flex min-h-11 min-w-0 items-center gap-1 rounded-lg px-2 text-[15px] font-bold text-indigo-700 outline-none hover:bg-indigo-50" aria-label="모드 바꾸기">
               <span className="truncate">{modes.find((m) => m.key === mode)?.label ?? "모드"}</span>
-              {modes.some((m) => m.key !== mode && pending(m.key)) && <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label="다른 모드에 처리할 건 있음" />}
+              {(() => { const n = modes.reduce((a, m) => a + (m.key === mode ? 0 : pendingN(m.key)), 0);
+                return n > 0 ? <span className="min-w-[20px] shrink-0 rounded-full bg-[#eef2ff] px-1.5 text-center text-xs font-bold leading-5 text-[#4f46e5]" aria-label={`다른 모드에 처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null; })()}
               <ChevronDown size={16} className="shrink-0" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
@@ -64,7 +70,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
                   aria-current={m.key === mode ? "page" : undefined}
                   className={cn("min-h-11 text-[15px]", m.key === mode && "font-bold text-indigo-700")}>
                   {m.label}
-                  {pending(m.key) && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label="처리할 건 있음" />}
+                  {modeCount(m.key, "ml-auto")}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -77,7 +83,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
                 className={cn("flex shrink-0 items-center border-b-2 px-2.5 md:px-3 text-sm font-semibold whitespace-nowrap",
                   m.key === mode ? "border-indigo-600 text-indigo-700" : "border-transparent text-gray-500 hover:text-gray-800")}>
                 {m.label}
-                {pending(m.key) && <span className="ml-1 h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label="처리할 건 있음" />}
+                {modeCount(m.key)}
               </Link>
             ))}
           </nav>

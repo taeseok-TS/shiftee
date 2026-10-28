@@ -177,7 +177,7 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
             {pwNeeded && (<>
               <ReauthPasswordInput plain value={pw} onChange={(e) => setPw(e.target.value)} placeholder="서명 비밀번호"
                 className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm" aria-label="서명 비밀번호(로그인 비밀번호)" />
-              <p className="text-[11px] text-gray-500">큐브티 로그인 비밀번호를 한 번 더 넣습니다</p>
+              <p className="text-[12px] text-gray-500">큐브티 로그인 비밀번호를 한 번 더 넣습니다</p>
             </>)}
             <button type="button" disabled={!canSubmit}
               onClick={() => sig && onSubmit({ ...(sig.saved ? { useSaved: true } : { signatureData: sig.data }), saveAsDefault: !signMode && !sig.saved && saveAsDefault, password: pwNeeded ? pw : "" })}

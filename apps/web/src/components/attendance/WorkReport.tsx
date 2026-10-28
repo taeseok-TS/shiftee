@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { BarChart3, Download, Search, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Box, Btn, Chip, FilterRow, PageHead, inputClass, tableClass } from "@/components/kit";
+import { Box, Btn, Chip, DateInput, FilterRow, PageHead, inputClass, selectClass, tableClass } from "@/components/kit";
 
 type Row = {
   userId: string; empNo: number | null; name: string; branch: string | null; position: string | null; jobGroup: string | null; resigned: boolean;
@@ -38,7 +38,8 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
   useEffect(() => {
     // 지점 목록은 전체가 내려온다 — 원장이 담당 밖 지점을 골라도 서버가 담당 지점 밖은 거른다(/api/attendance/work-report)
     fetch("/api/branches?pick=1").then((r) => (r.ok ? r.json() : null))   // 숨긴 지점은 고르기에서 뺀다
-      .then((d) => setBranches(((d?.branches ?? []) as { name: string }[]).map((b) => b.name)))
+      // 「본부」는 지점이 아니라 뺀다 — 직영 지점만(2026-10-28 이예지 디자인 ⑦)
+      .then((d) => setBranches(((d?.branches ?? []) as { name: string }[]).map((b) => b.name).filter((n) => !n.includes("본부"))))
       .catch(() => {});
   }, []);
 
@@ -56,6 +57,12 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
     } catch { toast.error("네트워크 오류로 불러오지 못했습니다."); }
     finally { setLoading(false); }
   };
+  // 들어오면 이번 달 1일 ~ 오늘 · 전체 지점 결과를 바로(조회 조건만 있고 아래가 비어 있던 것 — 이예지 디자인 ⑦). 처음 한 번만
+  useEffect(() => {
+    const t = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const shown = useMemo(() => {
     const k = q.trim();
@@ -89,11 +96,11 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
       <Box icon={<SlidersHorizontal />} tone="sl" title="조회 조건" sub="직원별 실근로·연장·야간·휴일 근로시간과 주 52시간 — 가산수당 근거">
         <FilterRow>
           <label className="flex items-center gap-1.5 text-[13px] font-semibold text-[#596578]">기간
-            <input type="date" max="9999-12-31" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} w-40 font-normal`} />
+            <DateInput value={from} onChange={setFrom} aria-label="시작일" className="font-normal" />
           </label>
           <span className="text-[#94a3b8]">~</span>
-          <input type="date" max="9999-12-31" aria-label="종료일" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={`${inputClass} w-40`} />
-          <select aria-label="대상" value={emp} onChange={(e) => setEmp(e.target.value as typeof emp)} className={inputClass}>
+          <DateInput aria-label="종료일" value={to} min={from} onChange={setTo} />
+          <select aria-label="대상" value={emp} onChange={(e) => setEmp(e.target.value as typeof emp)} className={selectClass}>
             <option value="active">재직자</option><option value="resigned">퇴사자(기간 안에 다닌 사람)</option><option value="all">전체</option>
           </select>
           <Btn kind="primary" onClick={load} disabled={loading}>{loading ? "불러오는 중..." : "조회"}</Btn>
@@ -101,6 +108,8 @@ export default function WorkReport({ scope }: { scope: "admin" | "manager" }) {
         <div className="px-6 py-4">
           <div className="mb-2 text-[13px] font-semibold text-[#596578]">지점 {picked.length ? `(${picked.length}개 선택)` : "(전체)"}</div>
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* 맨 앞 「전체」 — 아무 지점도 고르지 않은 상태가 켜져 보이게 */}
+            <Chip on={!picked.length} onClick={() => setPicked([])}>전체</Chip>
             {branches.map((b) => <Chip key={b} on={picked.includes(b)} onClick={() => toggle(b)}>{b}</Chip>)}
             {picked.length > 0 && <Btn kind="text" className="text-[13px]" onClick={() => setPicked([])}>선택 해제</Btn>}
           </div>

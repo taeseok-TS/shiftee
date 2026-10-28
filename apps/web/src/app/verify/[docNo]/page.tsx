@@ -75,7 +75,7 @@ export default function VerifyPage({ params }: { params: Promise<{ docNo: string
               <p className="text-sm font-medium text-gray-800">가지고 계신 PDF 파일로 확인</p>
               <input type="file" accept="application/pdf,.pdf" disabled={busy}
                 onChange={(e) => check(e.target.files?.[0])} className="block w-full text-sm" />
-              <p className="text-[11px] text-gray-400">파일은 서버로 전송되지 않고 이 브라우저 안에서만 계산합니다.</p>
+              <p className="text-[12px] text-gray-400">파일은 서버로 전송되지 않고 이 브라우저 안에서만 계산합니다.</p>
               {busy && <p className="text-sm text-gray-400">계산 중…</p>}
               {result === "match" && (
                 <p className="rounded bg-green-50 border border-green-200 p-2 text-sm text-green-800">
@@ -91,7 +91,7 @@ export default function VerifyPage({ params }: { params: Promise<{ docNo: string
             </div>
           </>
         )}
-        <p className="text-[11px] text-gray-400">큐브티 전자계약</p>
+        <p className="text-[12px] text-gray-400">큐브티 전자계약</p>
       </div>
     </div>
   );

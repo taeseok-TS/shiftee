@@ -479,7 +479,7 @@ export default function AttendancePage() {
                   <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`} title={hint}>
                     <p className="text-xs font-medium text-gray-500">{label}</p>
                     <p className={`text-2xl font-bold mt-1 ${color}`}>{typeof val === "number" ? `${val}회` : val}</p>
-                    {hint && <p className="text-[11px] text-gray-400 mt-1 leading-snug">{hint}</p>}
+                    {hint && <p className="text-[12px] text-gray-400 mt-1 leading-snug">{hint}</p>}
                   </div>
                 ))}
               </div>

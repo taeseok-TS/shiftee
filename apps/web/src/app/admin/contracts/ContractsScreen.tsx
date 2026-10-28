@@ -151,7 +151,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: any[]; userId?: str
   if (!steps || !Array.isArray(steps) || steps.length === 0) return null;
   // 결재 진행 = 사람마다 점 + 이름(2026-10-21 본부 시안 R12 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음). 단계마다 「이름 직급」(10/16 재확인 3)
   const dots: FlowStep[] = steps.map((step) => ({
-    label: step.approver?.name || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자"),
+    label: (step.approver?.name === "관리자" ? "본부" : step.approver?.name) || (step.approverId === userId ? "직원" : (step as { externalName?: string }).externalName || "외부 서명자"),
     state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
   }));
   return (
@@ -2921,7 +2921,7 @@ ${url}`;
                             <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={3} placeholder={"엑셀에서 여러 줄 복사 → 붙여넣기\n06582\n김가산"} className="w-full rounded border px-2 py-1 text-xs" />
                             <button type="button" onClick={addFromPaste} disabled={!pasteText.trim()} className="rounded bg-indigo-600 px-2 py-1 text-xs text-white disabled:bg-gray-300">추가</button>
                           </div>
-                        ) : <p className="text-[11px] text-gray-500">엑셀에서 여러 줄 복사 → 붙여넣기</p>}
+                        ) : <p className="text-[12px] text-gray-500">엑셀에서 여러 줄 복사 → 붙여넣기</p>}
                       </div>
                       <div className="rounded-lg border border-dashed border-indigo-200 p-2.5 space-y-1 relative">
                         <p className="text-sm font-semibold text-indigo-700">+ 검색해서 추가</p>
@@ -2945,7 +2945,7 @@ ${url}`;
                       <label className="flex items-center gap-2 text-sm">{/* 오늘 날짜를 미리 넣어 둔다(재요청 D) — 지우면 보내는 날 */}
                         <span className="text-gray-600">작성일</span>
                         <input type="date" max="9999-12-31" value={extraFields["작성일지정"] || ""} onChange={(e) => setExtraFields(p => ({ ...p, 작성일지정: e.target.value }))} className="rounded border px-2 py-1 text-sm" />
-                        <span className="text-[11px] text-gray-400">{extraFields["작성일지정"] ? "모두에게 같은 날" : "비우면 보내는 날(종전과 같음)"}</span>
+                        <span className="text-[12px] text-gray-400">{extraFields["작성일지정"] ? "모두에게 같은 날" : "비우면 보내는 날(종전과 같음)"}</span>
                       </label>
                     )}
                   </div>
@@ -2972,7 +2972,7 @@ ${url}`;
                           <button key={k} type="button" disabled={disabled} onClick={() => startKind(k)}
                             className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40 ${on ? "border-indigo-500 bg-indigo-50 text-indigo-800" : "border-gray-200 hover:bg-gray-50"}`}>
                             <span className="block font-medium">{label}</span>
-                            <span className="block text-[11px] text-gray-500">{sub}</span>
+                            <span className="block text-[12px] text-gray-500">{sub}</span>
                           </button>
                         );
                       })}
@@ -3009,7 +3009,7 @@ ${url}`;
                       <div className="space-y-1"><Label className="text-xs">휴대폰 번호 * <span className="text-gray-400 font-normal">(본인 확인·링크 전달용)</span></Label>
                         <Input placeholder="예: 010-1234-5678" inputMode="tel" value={externalForm.phone}
                           onChange={e => setExternalForm(p => ({ ...p, phone: e.target.value }))} /></div>
-                      <p className="text-[11px] text-violet-700">
+                      <p className="text-[12px] text-violet-700">
                         발송하면 <b>서명 링크가 바로 표시</b>됩니다 — 복사하거나, 폰에서는 [문자로 보내기]로 전달하세요.
                         <b> 문자가 자동으로 발송되지는 않습니다.</b> 외부 계약자는 가입 없이 링크로 서명합니다.
                         생년월일·주소 등 계약서에 필요한 정보는 아래 입력란에 직접 입력하세요.
@@ -3131,7 +3131,7 @@ ${url}`;
                   <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-1">
                     <p className="text-sm font-semibold text-indigo-900">「{customBundle.name}」 {customBundle.ids.length}종을 한 번에 — 사람마다 묶음 1개</p>
                     <p className="text-xs text-indigo-800">{customBundle.ids.map(id => templates.find(t => t.id === id)?.name).filter(Boolean).join(" · ")}</p>
-                    <p className="text-[11px] text-indigo-700">아래 입력 칸은 모든 서류의 칸을 합친 것입니다. 결재 순서는 첫 서류 기준, 「근로자 한 단계」 서류는 근로자만 서명합니다.</p>
+                    <p className="text-[12px] text-indigo-700">아래 입력 칸은 모든 서류의 칸을 합친 것입니다. 결재 순서는 첫 서류 기준, 「근로자 한 단계」 서류는 근로자만 서명합니다.</p>
                   </div>
                 )}
                 {useTemplate && !customBundle && (
@@ -3172,7 +3172,7 @@ ${url}`;
                             }} />
                           외부 채용 패키지로 함께 발송 (3종)
                         </label>
-                        <p className="text-[11px] text-violet-700 pl-6">
+                        <p className="text-[12px] text-violet-700 pl-6">
                           기타직무 근로계약서(계약직) + 비밀유지서약서 + 개인정보수집이용동의서.
                           외부 계약자는 <b>서명 링크 하나</b>로 3종을 확인하고 한 번에 서명합니다.
                         </p>
@@ -3202,7 +3202,7 @@ ${url}`;
                           신규입사 패키지로 함께 발송 (2종)
                         </label>
                         {bundleMode && (
-                          <p className="text-[11px] text-emerald-700 pl-6">
+                          <p className="text-[12px] text-emerald-700 pl-6">
                             근로계약서 + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
                             개인정보동의서는 <b>직원 서명만</b> 받으며 해당 직원에게만 표시됩니다. 비밀유지서약서는 채용 단계 「[채용] 비밀유지서약서」로 따로 보냅니다(2026-10-14 본부 확인).
                           </p>
@@ -3234,7 +3234,7 @@ ${url}`;
                         </label>
                         {resignBundleMode && (
                           <div className="pl-6 space-y-1">
-                            <p className="text-[11px] text-rose-700">보낼 문서를 고르세요(#203). 사직원은 대표 문서라 항상 들어갑니다. 고른 문서는 <b>전부</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.</p>
+                            <p className="text-[12px] text-rose-700">보낼 문서를 고르세요(#203). 사직원은 대표 문서라 항상 들어갑니다. 고른 문서는 <b>전부</b> 설정한 결재라인(원장·본부 등)으로 함께 진행됩니다.</p>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-rose-900">
                               {RESIGN_DOC_LABELS.map((label, i) => (
                                 <label key={label} className={`inline-flex items-center gap-1 ${i === 0 ? "opacity-70" : "cursor-pointer"}`}>
@@ -3251,7 +3251,7 @@ ${url}`;
                           </div>
                         )}
                         {resignBundleMode && resignPicks[2] && resignUnderOneYear !== false && (
-                          <p className="text-[11px] text-rose-700 pl-6">
+                          <p className="text-[12px] text-rose-700 pl-6">
                             {resignUnderOneYear === true && (
                               <>
                                 <b>근속 1년 미만</b>(입사일 ~ 퇴사일자 다음 날)이라 퇴직금 정산 신청서는 {forceSeverance ? "넣습니다(직접 포함)" : <>자동으로 뺍니다</>}.
@@ -3308,7 +3308,7 @@ ${url}`;
                                 </label>
                               ))}
                             </div>
-                            <p className="text-[11px] text-sky-700">
+                            <p className="text-[12px] text-sky-700">
                               선택한 코디 계약서 + <b>{ndaTemplate?.name}</b> + <b>{privacyTemplate?.name}</b>를 한 번에 발송합니다.
                               비밀유지·개인정보동의서는 <b>직원 서명만</b>, 계약서는 발송 시 결재라인을 직접 선택합니다 (통상 <b>1단계 본부 → 2단계 원장 → 3단계 근로자</b>).
                             </p>
@@ -3397,7 +3397,7 @@ ${url}`;
                 <div className="space-y-2">
                   <Label>계약 기간 *</Label>
                   {startBound && bulkMode && (
-                    <p className="text-[11px] text-indigo-700">시작일은 사람마다 근로시작일(인사카드 입사일)로, 종료일은 그 시작일 기준 자동으로 들어갑니다{endEdited ? `(앞서 손으로 적은 종료일 ${createForm.endDate} 은 모두에게 같이 들어갑니다)` : ""} — 아래 표에서 사람마다 바꿀 수 있습니다.</p>
+                    <p className="text-[12px] text-indigo-700">시작일은 사람마다 근로시작일(인사카드 입사일)로, 종료일은 그 시작일 기준 자동으로 들어갑니다{endEdited ? `(앞서 손으로 적은 종료일 ${createForm.endDate} 은 모두에게 같이 들어갑니다)` : ""} — 아래 표에서 사람마다 바꿀 수 있습니다.</p>
                   )}
                   <div className={`grid grid-cols-2 gap-2${startBound && bulkMode ? " hidden" : ""}`}>
                     <div className="space-y-1">
@@ -3476,7 +3476,7 @@ ${url}`;
                           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void unlockPortalSalary(); } }}   // 작성 폼이 제출되지 않게
                           className="w-40 rounded border border-amber-300 bg-white px-2 py-1" />
                         <button type="button" onClick={() => void unlockPortalSalary()} disabled={!salaryPw || salaryUnlocking} className="rounded bg-amber-600 px-2 py-1 text-white disabled:bg-gray-300">{salaryUnlocking ? "확인 중…" : "확인"}</button>
-                        <span className="w-full text-[11px] text-amber-700">건너뛰려면 연봉을 직접 입력하세요. 5번 틀리면 15분 잠기고, 열람은 변경 로그에 남습니다.</span>
+                        <span className="w-full text-[12px] text-amber-700">건너뛰려면 연봉을 직접 입력하세요. 5번 틀리면 15분 잠기고, 열람은 변경 로그에 남습니다.</span>
                       </div>
                     ) : portalSalaryGate === "forbidden" ? (
                       <p className="text-xs font-medium text-red-600">연봉 보기 권한이 없어 연봉을 넣을 수 없습니다 — 연봉 보기 권한이 있는 관리자가 보내 주세요. 권한은 메인 관리자가 설정 › 관리자 계정 「연봉 보기」에서 켭니다.</p>
@@ -3503,7 +3503,7 @@ ${url}`;
                         <span>
                           <b>연봉 확인</b> — {effSalary ? `${Number(effSalary).toLocaleString()}원이 이 사람 연봉이 맞습니다` : "연봉을 넣은 뒤 체크해 주세요"}
                           {!externalMode && effSalary && !portalFillOn && <span className="ml-1 text-gray-500">({salarySourceOf(createForm.userId)})</span>}
-                          {!ok && <span className="block text-[11px]">체크해야 만들 수 있습니다{salaryDefaultOn && !String(createForm.salary || "").trim() ? " — 지금 값은 기본값 3,400만 원입니다" : ""}</span>}
+                          {!ok && <span className="block text-[12px]">체크해야 만들 수 있습니다{salaryDefaultOn && !String(createForm.salary || "").trim() ? " — 지금 값은 기본값 3,400만 원입니다" : ""}</span>}
                         </span>
                       </label>
                     );
@@ -3567,7 +3567,7 @@ ${url}`;
                         </label>
                       ))}
                     </div>
-                    <p className="text-[11px] text-gray-400">{isCodiDoc && !templateConditions.includes("신규입사") ? "이 양식에는 수습 조항이 없어 계약 구분은 결재 순서에만 쓰입니다." : isCodiDoc ? "재계약을 선택하면 수습 문단(제3조 · 제7조 ④)이 빠지고 「재계약에는 적용하지 아니한다」 한 줄로 바뀝니다." : "재계약을 선택하면 수습기간 조항이 \"해당없음\"으로 처리되고 관련 입력란이 숨겨집니다."}{templates.find(x => x.id === selectedTemplate)?.approvalStepsRenewal ? " 이 양식은 재계약이면 결재 순서도 양식의 「재계약 순서」로 발송됩니다." : ""}</p>
+                    <p className="text-[12px] text-gray-400">{isCodiDoc && !templateConditions.includes("신규입사") ? "이 양식에는 수습 조항이 없어 계약 구분은 결재 순서에만 쓰입니다." : isCodiDoc ? "재계약을 선택하면 수습 문단(제3조 · 제7조 ④)이 빠지고 「재계약에는 적용하지 아니한다」 한 줄로 바뀝니다." : "재계약을 선택하면 수습기간 조항이 \"해당없음\"으로 처리되고 관련 입력란이 숨겨집니다."}{templates.find(x => x.id === selectedTemplate)?.approvalStepsRenewal ? " 이 양식은 재계약이면 결재 순서도 양식의 「재계약 순서」로 발송됩니다." : ""}</p>
                   </div>
                 )}
 
@@ -3637,7 +3637,7 @@ ${url}`;
                     const hint = FIELD_DOC_HINT[f] || fieldDocs[f];
                     // 회색 10px 는 사실상 안 보인다는 지적 (#142) — 진하게.
                     // 라벨(flex)은 flex-wrap 이라 한 줄에 안 들어가면 라벨 아래 줄로 내려간다
-                    return hint ? <span className="text-[11px] text-indigo-500 font-normal">→ {hint}</span> : null;
+                    return hint ? <span className="text-[12px] text-indigo-500 font-normal">→ {hint}</span> : null;
                   };
                   const renderDynField = (f: string, required = false) => (
                     f.startsWith("선택_") ? null : // 선택_ 은 아래에서 그룹으로 한 번에 그린다
@@ -3725,11 +3725,11 @@ ${url}`;
                       <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">{f}{required && " *"}{docHint(f)}</Label>
                       {f === "주근무시간" && (
                         <div className="border rounded-md p-2 bg-gray-50/60 space-y-1">
-                          <p className="text-[11px] text-gray-500">요일별 근무시간(숫자)을 넣으면 자동 합산됩니다 — 쉬는 요일은 비워두세요</p>
+                          <p className="text-[12px] text-gray-500">요일별 근무시간(숫자)을 넣으면 자동 합산됩니다 — 쉬는 요일은 비워두세요</p>
                           <div className="grid grid-cols-7 gap-1">
                             {["월", "화", "수", "목", "금", "토", "일"].map((d, i) => (
                               <div key={d} className="text-center">
-                                <div className="text-[10px] text-gray-500">{d}</div>
+                                <div className="text-[12px] text-gray-500">{d}</div>
                                 <Input
                                   className="h-7 px-1 text-center text-xs"
                                   inputMode="decimal"
@@ -3812,7 +3812,7 @@ ${url}`;
                       {ndaFields.length > 0 && (
                         <div className="space-y-3 border border-violet-200 rounded-lg p-3 bg-violet-50/40">
                           <p className="text-xs font-semibold text-violet-700">비밀유지서약서 · 개인정보동의서 입력 (필수)</p>
-                          <p className="text-[11px] text-violet-600">서약서 본문의 성명 줄(생년월일)과 주소, 수신인(원장명)에 들어갑니다.</p>
+                          <p className="text-[12px] text-violet-600">서약서 본문의 성명 줄(생년월일)과 주소, 수신인(원장명)에 들어갑니다.</p>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {ndaFields.map(f => renderDynField(f, true))}
                           </div>
@@ -3939,7 +3939,7 @@ ${url}`;
               <div className="rounded-xl border bg-white p-4 sm:p-5 min-w-0">{composeForm}</div>
               <aside className="space-y-3 lg:sticky lg:top-4">
                 <div className="rounded-xl border bg-white p-4">
-                  <p className="text-[11px] text-gray-500">보낼 내용</p>
+                  <p className="text-[12px] text-gray-500">보낼 내용</p>
                   <p className="font-bold text-gray-900 break-keep">{flowTitle}</p>
                   <p className="text-xs text-gray-500">{externalMode ? "외부 계약자 1명" : `${nPeople}명${bulkMode ? " · 사람마다 1건씩" : ""}`}</p>
                 </div>
@@ -3956,7 +3956,7 @@ ${url}`;
                         className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500">
                         {uploading ? "만드는 중…" : "다음: 결재자 · 발송"}
                       </button>
-                      <p className="text-center text-[11px] text-gray-500">누르면 초안을 만들고 결재자·받을 이메일 입력으로 넘어갑니다(아직 보내지 않음)</p>
+                      <p className="text-center text-[12px] text-gray-500">누르면 초안을 만들고 결재자·받을 이메일 입력으로 넘어갑니다(아직 보내지 않음)</p>
                     </>
                   );
                 })() : (() => {
@@ -3989,7 +3989,7 @@ ${url}`;
                         className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500">
                         {uploading ? "만드는 중…" : issues.length ? `다음: 결재자 · 발송 (${issues.length}명 확인 필요)` : "다음: 결재자 · 발송"}
                       </button>
-                      <p className="text-center text-[11px] text-gray-500">{issues.length ? `확인 필요 ${issues.length}명을 고치거나 빼면 켜져요` : "누르면 초안을 만들고 결재자·발송으로 넘어갑니다(아직 보내지 않음)"}</p>
+                      <p className="text-center text-[12px] text-gray-500">{issues.length ? `확인 필요 ${issues.length}명을 고치거나 빼면 켜져요` : "누르면 초안을 만들고 결재자·발송으로 넘어갑니다(아직 보내지 않음)"}</p>
                     </>
                   );
                 })()}
@@ -4580,7 +4580,7 @@ ${url}`;
                             <a href={viewHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")}>보기</a>
                           )}
                           {role !== "EMPLOYEE" && c.employeeOnly && c.bundleId && c.status === "DRAFT" && (
-                            <span className="text-[11px] text-[#94a3b8]">근로계약서와 함께 발송</span>
+                            <span className="text-[12px] text-[#94a3b8]">근로계약서와 함께 발송</span>
                           )}
                           <MoreMenu items={[
                             { label: "미리보기", hidden: !mine && c.status !== "SIGNED", onClick: () => window.open(viewHref, "_blank") },
@@ -4662,7 +4662,7 @@ ${url}`;
                                           {id ? (
                                             <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm ${activeSlot === i ? "border-indigo-400 bg-indigo-100 ring-2 ring-indigo-200" : "border-indigo-200 bg-indigo-50"}`}>
                                               <button type="button" onClick={() => setActiveSlot(activeSlot === i ? null : i)}
-                                                className="text-[11px] font-semibold text-indigo-500 shrink-0" title="이 칸에 다른 사람을 넣으려면 누르세요">
+                                                className="text-[12px] font-semibold text-indigo-500 shrink-0" title="이 칸에 다른 사람을 넣으려면 누르세요">
                                                 {i + 1}단계 · {slotLabel(i)}
                                               </button>
                                               <span className="truncate">{approverLabel(id)}</span>
@@ -4682,7 +4682,7 @@ ${url}`;
                                         </div>
                                       ))}
                                       {slotEditable && slotSpecs.length < 6 && (
-                                        <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                                        <div className="flex items-center gap-1 text-[12px] text-gray-500">
                                           단계 추가:
                                           {STEP_KINDS.filter(k => k !== "EXTERNAL" || !!sendTarget.externalName).map(k => (
                                             <button key={k} type="button" onClick={() => addSlot(k)} className="rounded border px-1.5 py-0.5 hover:bg-gray-50">+ {KIND_LABEL[k]}</button>
@@ -4693,7 +4693,7 @@ ${url}`;
                                     {/* 받는 사람 확인(#26) — 순서·이름·지점·이메일·휴대폰 일부, 다른 지점 원장·퇴사 예정 경고 */}
                                     {approverSlots.some(Boolean) && (
                                       <div className="rounded-md border bg-gray-50 p-2 space-y-1">
-                                        <p className="text-[11px] font-semibold text-gray-500">받는 사람 확인 (이 순서로 알림이 갑니다)</p>
+                                        <p className="text-[12px] font-semibold text-gray-500">받는 사람 확인 (이 순서로 알림이 갑니다)</p>
                                         {approverSlots.map((sid, i) => {
                                           if (!sid) return null;
                                           if (sid === "EXTERNAL") return (
@@ -4725,7 +4725,7 @@ ${url}`;
                                       const setOrder = (cid: string, next: string[]) => { setDocOrdersKey(approverIds.join(",")); setDocOrders(() => ({ ...docOrders, [cid]: next })); };
                                       return (
                                         <div className="rounded-md border p-2 space-y-2">
-                                          <p className="text-[11px] font-semibold text-gray-500">서류별 결재 순서 <span className="font-normal text-gray-400">(◀▶로 옮기기·✕로 빼기 — 이 발송에만 적용, 바꾸면 변경 로그에 남음)</span></p>
+                                          <p className="text-[12px] font-semibold text-gray-500">서류별 결재 순서 <span className="font-normal text-gray-400">(◀▶로 옮기기·✕로 빼기 — 이 발송에만 적용, 바꾸면 변경 로그에 남음)</span></p>
                                           {docs.map(d => {
                                             const ord = orderOf(d.id);
                                             const removed = approverIds.filter(x => !ord.includes(x));
@@ -4735,7 +4735,7 @@ ${url}`;
                                                 <div className="flex items-center justify-between gap-2">
                                                   <span className={`truncate ${custom ? "font-semibold text-indigo-700" : "text-gray-700"}`}>{d.title.replace(/^\d{4}\s+/, "")}</span>
                                                   {custom && (
-                                                    <button type="button" className="shrink-0 text-[11px] text-indigo-600 hover:underline"
+                                                    <button type="button" className="shrink-0 text-[12px] text-indigo-600 hover:underline"
                                                       onClick={() => setDocOrders(() => { const n = { ...docOrders }; delete n[d.id]; return n; })}>기본 순서로</button>
                                                   )}
                                                 </div>
@@ -4782,7 +4782,7 @@ ${url}`;
                                     <div className="space-y-1">
                                       <div className="flex items-center justify-between">
                                         <span className="text-xs font-medium text-gray-600">발송 메시지 <span className="font-normal text-gray-400">(선택 · 알림·메일·서명 화면에 표시)</span></span>
-                                        <button type="button" className="text-[11px] text-indigo-600 hover:underline disabled:text-gray-300" disabled={savingMsg} onClick={saveDefaultMsg}>기본 메시지로 저장</button>
+                                        <button type="button" className="text-[12px] text-indigo-600 hover:underline disabled:text-gray-300" disabled={savingMsg} onClick={saveDefaultMsg}>기본 메시지로 저장</button>
                                       </div>
                                       <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} maxLength={500} rows={2}
                                         placeholder="예) 계약 내용을 확인하신 뒤 이번 주 안에 서명 부탁드립니다."
@@ -4978,7 +4978,7 @@ ${url}`;
                   onChange={e => setSignPw(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && signPw && !signBusy && signTarget) handleSign(signTarget.id, signTarget.status === "APPROVED"); }}
                   placeholder="로그인 비밀번호" />
-                <p className="text-[11px] text-gray-400">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
+                <p className="text-[12px] text-gray-400">결재자 본인이 직접 승인하는지 확인합니다. 비밀번호는 저장되지 않으며, 완료 증명서에 확인 방법·시각이 남습니다.</p>
               </div>
               {/* 계약서 실물 확인 — 요약만으로 부족할 때 (#101·#125).
                   새 창이 아니라 그 자리에서 크게 연다 (2026-09-02 이예지대리 재확인요청) */}
@@ -5116,7 +5116,7 @@ ${url}`;
                 💬 문자로 보내기
               </Button>
             </div>
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[12px] text-gray-400">
               문자는 자동으로 발송되지 않습니다. [문자로 보내기]는 <b>폰에서 눌렀을 때</b> 문자 앱이 내용이 채워진 채 열립니다(발송은 내 번호로 나갑니다). PC에서는 [링크 복사]를 쓰세요. 링크 유효기간은 14일입니다.
             </p>
           </div>
@@ -5291,7 +5291,7 @@ ${url}`;
                           (동반 링크를 잘못 전달하면 계약서가 미서명으로 남는 사고 방지) */}
                       {!step.approverId && (step as { signToken?: string }).signToken && step.status !== "APPROVED" && (
                         approvalDetailsTarget.employeeOnly && approvalDetailsTarget.bundleId ? (
-                          <p className="mt-1 text-[11px] text-gray-400">패키지 대표 계약서의 서명 링크로 함께 서명됩니다 — 이 문서의 링크는 전달하지 마세요.</p>
+                          <p className="mt-1 text-[12px] text-gray-400">패키지 대표 계약서의 서명 링크로 함께 서명됩니다 — 이 문서의 링크는 전달하지 마세요.</p>
                         ) : (
                         <span className="mt-1 flex items-center gap-3">
                           <button type="button" className="text-xs text-violet-600 underline"
@@ -5371,7 +5371,7 @@ ${url}`;
                   )}
                   {(step as any).signatureUrl && (
                     <div className="mt-1">
-                      <p className="text-[11px] text-gray-400 mb-0.5">서명</p>
+                      <p className="text-[12px] text-gray-400 mb-0.5">서명</p>
                       <img src={(step as any).signatureUrl} alt="서명" className="h-16 border rounded bg-white" />
                     </div>
                   )}

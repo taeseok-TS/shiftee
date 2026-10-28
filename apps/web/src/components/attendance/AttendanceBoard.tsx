@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Box, Btn, Chip, FilterRow, PageHead, PillTabs, StatusPill, btnClass, inputClass, type PillTone } from "@/components/kit";
+import { Box, Btn, Chip, FilterRow, PageHead, PillTabs, StatusPill, btnClass, inputClass, selectClass, type PillTone } from "@/components/kit";
 import EditedMark, { editExcelColumns } from "@/components/attendance/EditedMark";
 import BoardPhoneToday from "@/components/attendance/BoardPhoneToday";
 import { dayState, hasIn, hasOut, kstNow } from "@/components/attendance/board-state";
@@ -59,6 +59,8 @@ const stateText = (c: Cell, d: string, today: string, nowMin: number) => {
 
 // 지점 색 띠 — 이름으로 정해지는 색(지점이 늘어도 따로 정할 필요 없음). 초록 계열은 뺐다(R10 — 초록 없음, 개수는 그대로 10)
 const BRANCH_COLORS = ["#3b82f6", "#0ea5e9", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b", "#ec4899", "#6366f1", "#a855f7", "#f97316"];
+// 「오전 반차」 → 「오전반차」(칸에서 「오전 반 / 차」로 끊기지 않게 — 이예지 디자인 ③). 다른 휴가 이름은 그대로
+const halfJoin = (v: string) => v.replace(/(오전|오후)\s+(반반차|반차)/g, "$1$2");
 const branchColor = (b: string | null) => {
   if (!b) return "#9ca3af";
   let h = 0;
@@ -78,19 +80,31 @@ const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const dow = (ymd: string) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
 
 // embedded — 본부 출퇴근 현황 「달력 · 목록」 탭(R10): 머리 · 알약 탭은 화면(AttendanceTabs)이 그리고, 주말 근무 엑셀은 따로 탭이 있어 뺀다
-export default function AttendanceBoard({ scope, embedded = false }: { scope: "admin" | "manager"; embedded?: boolean }) {
+// initialBranch · focusUser — 「확인 필요」 줄에서 누르면 그 사람 지점으로 걸러서 그 줄을 잠깐 강조(2026-10-28 이예지 디자인 ⑧)
+export default function AttendanceBoard({ scope, embedded = false, initialView = "calendar", initialBranch, focusUser }: { scope: "admin" | "manager"; embedded?: boolean; initialView?: "calendar" | "list"; initialBranch?: string; focusUser?: string }) {
   const [ym, setYm] = useState(() => {
     const now = new Date(Date.now() + 9 * 3600_000);   // 이번 달(KST)
     return `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}`;
   });
-  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [view, setView] = useState<"calendar" | "list">(initialView);   // 본부(embedded)는 위 탭 「달력」 · 「목록」 주소(?view=list)로 정한다
+  // 쿼리만 바뀐 이동(달력 ↔ 목록)은 왼쪽 메뉴가 모른다 — 알려서 브라우저 탭 제목도 바뀌게
+  useEffect(() => { if (embedded) window.dispatchEvent(new Event("rail:search")); }, [embedded]);
   const [emp, setEmp] = useState<"active" | "resigned" | "all">("active");
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(() => (initialBranch ? [initialBranch] : []));
+  const [flash, setFlash] = useState<string | null>(focusUser ?? null);   // 강조할 사람(몇 초 뒤 꺼짐)
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [branchOpen, setBranchOpen] = useState(false);
   const [kinds, setKinds] = useState<Set<Kind>>(new Set(["normal", "late", "missing", "absent", "leave", "pending"]));
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
+  // 표가 그려지면 그 사람 줄로 스크롤하고 4초 뒤 강조를 끈다
+  useEffect(() => {
+    if (!flash || !board || loading) return;
+    const el = document.getElementById(`att-row-${flash}`);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const t = window.setTimeout(() => setFlash(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [flash, board, loading]);
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const [helpOpen, setHelpOpen] = useState(false);          // 원장 — 범례 안내 「?」
   const [monthOnPhone, setMonthOnPhone] = useState(false);  // 원장 폰 — 한 달 표를 열었나(처음엔 오늘 · 이번 주 목록)
@@ -260,8 +274,6 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                   className="grid h-[30px] w-[30px] place-items-center rounded-full border border-[#e2e8f0] bg-white text-[13px] font-bold text-[#475569] hover:bg-[#f8fafc] after:absolute after:-inset-[7px] after:content-[''] relative">?</button>
               )}
             </>}>
-          {embedded && viewTabs.map((t) => <Chip key={t.key} on={view === t.key} onClick={() => setView(t.key as typeof view)}>{t.label}</Chip>)}
-          {embedded && <span className="mx-0.5 h-5 w-px bg-[#e2e8f0]" aria-hidden />}
           <div className="flex items-center gap-1">
             <Btn className="px-2" onClick={() => moveMonth(-1)} aria-label="이전 달"><ChevronLeft size={16} /></Btn>
             <span className="w-24 text-center text-[14px] font-bold text-[#0f172a]">{monthLabel}</span>
@@ -284,7 +296,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
               </div>
             )}
           </div>
-          <select className={inputClass} aria-label="재직 구분" value={emp} onChange={(e) => { setLoading(true); setEmp(e.target.value as typeof emp); }}>
+          <select className={selectClass} aria-label="재직 구분" value={emp} onChange={(e) => { setLoading(true); setEmp(e.target.value as typeof emp); }}>
             <option value="active">재직</option>
             <option value="resigned">퇴사</option>
             <option value="all">전체</option>
@@ -313,8 +325,10 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                 {board.days.map((d) => {
                   const w = dow(d), hol = board.holidays[d];
                   return (
-                    <th key={d} className={`min-w-[52px] border px-1 py-1 font-semibold ${hol || w === 0 || w === 6 ? "text-[#64748b]" : "text-[#596578]"}`}>
+                    <th key={d} className={`min-w-[52px] border px-1 py-1 font-semibold ${hol || w === 0 || w === 6 ? "bg-[#f1f5f9] text-[#64748b]" : "text-[#596578]"}`}>
+                      {/* 토 · 일 · 공휴일 열은 근무일정처럼 연회색, 공휴일은 날짜 아래 「공휴일」(2026-10-28 이예지 디자인 ③) */}
                       {Number(d.slice(8))}<div className="font-normal">{WEEK[w]}</div>
+                      {hol && <div className="whitespace-nowrap text-[12px] font-normal text-[#64748b]">공휴일</div>}
                     </th>
                   );
                 })}
@@ -323,8 +337,8 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
             </thead>
             <tbody>
               {board.users.map((u) => (
-                <tr key={u.id}>
-                  <td className="sticky left-0 z-10 whitespace-nowrap border bg-white px-2 py-1" style={{ boxShadow: `inset 4px 0 0 ${branchColor(u.branch)}` }}>
+                <tr key={u.id} id={`att-row-${u.id}`} className={flash === u.id ? "outline outline-2 -outline-offset-2 outline-[#4f46e5] [&>td:first-child]:!bg-[#eef2ff]" : undefined}>
+                  <td className="sticky left-0 z-10 whitespace-nowrap border bg-white px-2 py-1">
                     <span className="font-bold text-[#0f172a]">{u.name}</span>
                     <span className="text-[#596578]"> · {u.branch ?? "-"}</span>
                     {u.resigned && <span className="ml-1 text-[#94a3b8]">(퇴사)</span>}
@@ -332,7 +346,7 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                     {board.over49?.[u.id]?.length ? (
                       <span className="ml-1 font-semibold text-[#dc2626]"
                         title={board.over49[u.id].map((w) => `${w.monday.slice(5).replace("-", "/")} 주 — 일정 ${Math.round(w.sched / 6) / 10}h · 실제 ${Math.round(w.actual / 6) / 10}h`).join(" / ")}>
-                        49h 초과
+                        49시간 초과
                       </span>
                     ) : null}
                   </td>
@@ -341,22 +355,23 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
                     const hol = board.holidays[d] || dow(d) === 0 || dow(d) === 6;
                     const show = c && kindsOf(c).some((k) => kinds.has(k));
                     return (
-                      <td key={d} className={`border px-1 py-1 text-center align-middle text-[#334155] ${!show ? (hol ? "bg-[#f8fafc]" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? (hidden ? "bg-[#fff1f2]" : "bg-[#fffbeb]") : c?.leave && !hasIn(c) ? "bg-[#eff6ff]" : hol ? "bg-[#f8fafc]" : ""}`}
+                      <td key={d} className={`relative border px-1 py-1 text-center align-middle text-[#334155] ${!show ? (hol ? "bg-[#f1f5f9]" : "") : c?.absent || c?.missing ? "bg-[#fff1f2]" : c?.late ? (hidden ? "bg-[#fff1f2]" : "bg-[#fffbeb]") : c?.leave && !hasIn(c) ? "bg-[#eff6ff]" : hol ? "bg-[#f1f5f9]" : ""}`}
                         title={c ? [c.sched && `일정 ${c.sched}`, c.inPlace && `출근 장소 ${c.inPlace}`, c.outPlace && `퇴근 장소 ${c.outPlace}`, ...(c.edit ? ["— 수정됨", ...c.edit.lines] : [])].filter(Boolean).join("\n") : undefined}>
+                        {/* 수정된 칸 — 「수정됨」 글자 대신 오른쪽 위 작은 점, 마우스를 올리면 수정 내용(칸 높이가 들쭉날쭉하지 않게 — 이예지 디자인 ③) */}
+                        {show && c?.edit && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[#d97706]" aria-label="수정됨" />}
                         {show && c && hidden && !(c.granted && (c.in || c.out)) ? (
                           /* 시각 없이 상태 한 마디(■0-11) — 「12:51 / 22:25」 대신 출근 · 지각 · 퇴근 · 퇴근 누락 · 미출근 · 휴가 */
                           (() => { const t = stateText(c, d, today, nowMin); const st = dayState(c, d, today, nowMin);
                             return t ? <span className={`whitespace-nowrap font-medium ${CELL_TONE[st?.tone ?? (c.leave ? "done" : "gray")]}`}>{t}</span> : null; })()
                         ) : show && c && (
                           c.absent ? <span className="text-[#be123c] font-medium">결근</span>
-                          : c.leave && !c.in ? <span className="text-[#1d4ed8] font-medium">{c.leave}</span>
+                          : c.leave && !c.in ? <span className="whitespace-nowrap text-[#1d4ed8] font-medium">{halfJoin(c.leave)}</span>
                           : (
                             <>
                               <div className={c.late ? "text-[#b45309] font-semibold" : ""}>{c.in ?? (c.pending ? <span className="text-[#b45309]">대기</span> : c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
                               <div>{c.out ?? (c.missing ? <span className="text-[#be123c]">누락</span> : "")}</div>
-                              {c.leave && <div className="text-[#1d4ed8]">{c.leave}</div>}
-                              {c.edit && <div className="text-[10px] text-[#b45309]">수정됨</div>}
-                              {hidden && c.granted && <div className="text-[10px] text-[#4f46e5]" title="본부가 승인한 출퇴근 기록 요청 기간 — 이 날짜만 시각이 보입니다">기록 요청 승인</div>}
+                              {c.leave && <div className="whitespace-nowrap text-[#1d4ed8]">{halfJoin(c.leave)}</div>}
+                              {hidden && c.granted && <div className="text-[12px] text-[#4f46e5]" title="본부가 승인한 출퇴근 기록 요청 기간 — 이 날짜만 시각이 보입니다">기록 요청 승인</div>}
                             </>
                           )
                         )}

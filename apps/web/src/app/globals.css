@@ -137,3 +137,15 @@
   height: 100vh;
   height: 100dvh;
 }
+
+/* 고르기 칸(kit selectClass) — 브라우저마다 다른 화살표 대신 같은 모양 하나, 높이 38px(2026-10-28 이예지 디자인 ⑥) */
+select.kit-select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 38px;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+}

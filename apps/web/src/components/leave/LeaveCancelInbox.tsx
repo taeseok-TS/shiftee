@@ -45,9 +45,10 @@ type Row = {
 const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — useLeaveCatalog 가 본부 유형 이름을 채운다(#216-1)
 
 function stepLabel(s: Step): string {
-  if (s.approver) return s.approver.name;
+  // 메인 관리자 계정(이름 「관리자」) · 사람이 안 정해진 본부 단계는 「본부」(2026-10-28 이예지 디자인 ⑤)
+  if (s.approver) return s.approver.name === "관리자" ? "본부" : s.approver.name;
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
-  if (s.approverRole === "ADMIN") return "관리자";
+  if (s.approverRole === "ADMIN") return "본부";
   return "결재자";
 }
 

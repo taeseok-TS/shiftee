@@ -87,8 +87,8 @@ export default function AttendanceRulesPage() {
                       className={`w-full text-left rounded-xl border p-4 transition ${on ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/30" : "hover:bg-gray-50"}`}>
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-semibold flex items-center gap-2">
-                          {o.title}{o.tag && <span className="text-[11px] font-normal text-gray-500">({o.tag})</span>}
-                          {saved === o.v && <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">적용 중</span>}
+                          {o.title}{o.tag && <span className="text-[12px] font-normal text-gray-500">({o.tag})</span>}
+                          {saved === o.v && <span className="text-[12px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">적용 중</span>}
                         </div>
                         <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${on ? "border-indigo-600 bg-indigo-600" : "border-gray-300"}`} />
                       </div>
@@ -121,7 +121,7 @@ export default function AttendanceRulesPage() {
               <ul className="space-y-3">
                 {changes.map((c) => (
                   <li key={c.id} className="text-sm border-t pt-3 first:border-t-0 first:pt-0">
-                    <div className="text-[11px] text-gray-400">{fmtTime(c.createdAt)} · {c.actorName}</div>
+                    <div className="text-[12px] text-gray-400">{fmtTime(c.createdAt)} · {c.actorName}</div>
                     <div className="text-gray-700">{c.detail}</div>
                   </li>
                 ))}

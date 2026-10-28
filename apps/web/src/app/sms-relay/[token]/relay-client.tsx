@@ -55,7 +55,7 @@ export default function SmsRelayClient({
         <a href={smsHref} className="block w-full rounded-lg bg-indigo-600 py-3 text-white font-medium">
           문자 앱이 안 열리면 여기를 누르세요
         </a>
-        <p className="text-[11px] text-gray-400">
+        <p className="text-[12px] text-gray-400">
           PC에서는 문자 앱을 열 수 없습니다 — 아래 서명 링크를 복사해 전달하세요.
         </p>
         <div className="rounded-md border bg-white p-2.5 text-xs break-all select-all">{fullSignUrl}</div>

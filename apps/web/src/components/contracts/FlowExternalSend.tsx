@@ -146,7 +146,7 @@ export default function FlowExternalSend({ ids, employees, title, stepper, delet
             <button type="button" disabled={!link.phone} className="rounded-lg border bg-white py-2.5 text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-40"
               onClick={() => link.phone && openSmsApp(link.phone, smsBody(link.name, link.url))}>문자로 보내기(폰)</button>
           </div>
-          <p className="text-[11px] text-gray-500">문자는 이 기기의 문자 앱으로 열립니다(서버가 자동으로 보내지 않습니다). 링크는 「보낸 계약서」에서 다시 볼 수 있습니다.</p>
+          <p className="text-[12px] text-gray-500">문자는 이 기기의 문자 앱으로 열립니다(서버가 자동으로 보내지 않습니다). 링크는 「보낸 계약서」에서 다시 볼 수 있습니다.</p>
           <button type="button" onClick={onDone} className="w-full rounded-lg border bg-white py-2.5 text-sm text-gray-700 hover:bg-gray-50">보낸 계약서로</button>
         </div>
       ) : (
@@ -160,7 +160,7 @@ export default function FlowExternalSend({ ids, employees, title, stepper, delet
             <label className="block space-y-1">
               <span className="text-sm font-semibold text-gray-900">계약서를 받을 이메일 <span className="text-red-500">*</span></span>
               <input type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="예: hong@example.com" className={sel} />
-              <span className="block text-[11px] text-gray-500">링크를 열 때 이 이메일로 본인 확인을 하고, 서명이 끝나면 완료본 PDF 가 이 주소로 갑니다.</span>
+              <span className="block text-[12px] text-gray-500">링크를 열 때 이 이메일로 본인 확인을 하고, 서명이 끝나면 완료본 PDF 가 이 주소로 갑니다.</span>
             </label>
             <div className="space-y-2">
               <p className="text-sm font-semibold text-gray-900">결재 순서 <span className="text-xs font-normal text-gray-500">(양식 순서 그대로)</span></p>
@@ -198,7 +198,7 @@ export default function FlowExternalSend({ ids, employees, title, stepper, delet
           </div>
           <aside className="space-y-3 lg:sticky lg:top-4">
             <div className="rounded-xl border bg-white p-4">
-              <p className="text-[11px] text-gray-500">보낼 내용</p>
+              <p className="text-[12px] text-gray-500">보낼 내용</p>
               <p className="break-keep font-bold text-gray-900">{title}</p>
               <p className="text-xs text-gray-500">외부 계약자 1명 · 문서 {contracts.length || "—"}건</p>
             </div>

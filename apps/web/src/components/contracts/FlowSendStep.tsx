@@ -328,7 +328,7 @@ export default function FlowSendStep({ ids, employees, mainManagerIds, title, st
           {/* 오른쪽 — 보낼 내용·미리보기·발송 */}
           <aside className="space-y-3 lg:sticky lg:top-4">
             <div className="rounded-xl border bg-white p-4">
-              <p className="text-[11px] text-gray-500">보낼 내용</p>
+              <p className="text-[12px] text-gray-500">보낼 내용</p>
               <p className="font-bold text-gray-900 break-keep">{title}</p>
               <p className="text-xs text-gray-500">{people.length}명 · 문서 {docCount}건</p>
             </div>

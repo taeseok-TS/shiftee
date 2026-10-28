@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Upload, Pin } from "lucide-react";
 import { PageHead, Btn, btnClass, Chip, MoreMenu } from "@/components/kit";
+import { NavPills } from "@/components/layout/NavPills";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ApprovalOrderEditor from "@/components/contracts/ApprovalOrderEditor";
@@ -316,6 +317,7 @@ export default function ContractTemplatesPage() {
       <PageHead crumb="전자계약 › 양식 관리" title="양식 관리">
         <Btn kind="primary" onClick={() => { setForm(emptyForm()); setCreateOpen(true); }}><Plus size={15} />새 양식 만들기</Btn>
       </PageHead>
+      <NavPills />
 
       {/* 「양식 만드는 법」 — 기본 접힘(2026-10-23 본부 ■3: {칸}태그 · 편집기 설명은 본부 직원도 어렵다). 누르면 펼쳐진다 */}
       <div className="-mt-2">
@@ -408,7 +410,7 @@ export default function ContractTemplatesPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {(template.labels || []).length > 0 && (
-                  <div className="flex flex-wrap gap-1">{(template.labels || []).map(l => <Badge key={l} variant="secondary" className="text-[11px]">{l}</Badge>)}</div>
+                  <div className="flex flex-wrap gap-1">{(template.labels || []).map(l => <Badge key={l} variant="secondary" className="text-[12px]">{l}</Badge>)}</div>
                 )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
                   <dt className="text-[#596578]">쓰는 곳</dt>
@@ -462,12 +464,12 @@ export default function ContractTemplatesPage() {
                 <p className="text-xs text-gray-400">이전 파일 기록이 없습니다(이 기능 이후 파일을 바꾸면 남습니다).</p>
               ) : history.past.map(p => (
                 <div key={p.id} className="flex items-center justify-between rounded border px-3 py-2">
-                  <span>v{p.version} · 발송 {p.sent}건<span className="block text-[11px] text-gray-400">{format(new Date(p.replacedAt), "yyyy-MM-dd HH:mm")} 교체{p.replacedBy ? ` · ${p.replacedBy}` : ""}</span></span>
+                  <span>v{p.version} · 발송 {p.sent}건<span className="block text-[12px] text-gray-400">{format(new Date(p.replacedAt), "yyyy-MM-dd HH:mm")} 교체{p.replacedBy ? ` · ${p.replacedBy}` : ""}</span></span>
                   <a href={p.fileUrl} download className="text-[#4f46e5] hover:underline text-xs">내려받기</a>
                 </div>
               ))}
               {(history.unrecorded || []).map(u => (
-                <div key={`u${u.version}`} className="rounded border border-dashed px-3 py-2 text-gray-500">v{u.version} · 발송 {u.sent}건 <span className="text-[11px]">(파일 기록 없음 — 이력 기능 이전 버전)</span></div>
+                <div key={`u${u.version}`} className="rounded border border-dashed px-3 py-2 text-gray-500">v{u.version} · 발송 {u.sent}건 <span className="text-[12px]">(파일 기록 없음 — 이력 기능 이전 버전)</span></div>
               ))}
             </div>
           )}

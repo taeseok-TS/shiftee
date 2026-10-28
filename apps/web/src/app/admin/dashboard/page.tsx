@@ -151,7 +151,7 @@ export default function AdminDashboardPage() {
         <Tiles cols={7}>
           <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
           <Tile label="지각" value={a?.late} unit="명" alert onClick={toAttendance} />
-          <Tile label="출근 전" value={a?.beforeStart ?? 0} unit="명" note="근무 시작 시각 전" onClick={toAttendance} />
+          <Tile label="출근 전" value={a ? (a.beforeStart ?? 0) : undefined} unit="명" note="근무 시작 시각 전" onClick={toAttendance} />
           <Tile label="미출근" value={a?.absent} unit="명" note="시작 시각 지났는데 기록 없음" alert onClick={toAttendance} />
           <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert onClick={toAttendance} />
           <Tile label="휴가" value={a?.onLeave} unit="명" onClick={toAttendance} />
@@ -159,7 +159,7 @@ export default function AdminDashboardPage() {
         </Tiles>
       </Box>
 
-      <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         {/* 결재함 — 내가 승인할 것만, 다 끝나면 「처리할 요청 없음」 한 줄 */}
         <InboxBox rows={shownRows} loading={loading} count={typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length}
           allHref="/admin/leave-approvals" more={moreCount} moreHref={rows.length > 8 ? "/admin/leave-approvals" : "/admin/attendance"} />

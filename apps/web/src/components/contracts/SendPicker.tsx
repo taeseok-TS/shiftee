@@ -77,7 +77,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [purposeMap, setPurposeMap] = useState<Record<string, ContractPurpose[]>>({});
   const [lastUsed, setLastUsed] = useState<Record<string, string>>({});
-  const [monthCount, setMonthCount] = useState<Record<string, number>>({});
+  const [usedCount, setUsedCount] = useState<Record<string, number>>({});
   const [layout, setLayout] = useState<SendLayout>(DEFAULT_LAYOUT);
   const [layoutOk, setLayoutOk] = useState(false);   // 서버 배치를 받았는가 — 못 받았으면 저장하지 않는다(기본값으로 본부 배치를 덮지 않게)
   const [loading, setLoading] = useState(true);
@@ -104,7 +104,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     Promise.all([
       fetch("/api/contract-templates").then(r => (r.ok ? r.json() : { templates: [] })).catch(() => ({ templates: [] })),
       fetch("/api/employees?includeAdmins=true").then(r => (r.ok ? r.json() : { employees: [] })).catch(() => ({ employees: [] })),
-      fetch("/api/admin/contract-purposes").then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ purposes?: unknown; lastUsed?: Record<string, string>; monthCount?: Record<string, number> }>,
+      fetch("/api/admin/contract-purposes").then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ purposes?: unknown; lastUsed?: Record<string, string>; monthCount?: Record<string, number>; totalCount?: Record<string, number> }>,
       fetch("/api/admin/contract-send-layout", { cache: "no-store" }).then(r => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<{ layout?: unknown }>,
     ]).then(([t, e, p, l]) => {
       if (stop) return;
@@ -112,7 +112,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
       setEmployees(e.employees || []);
       setPurposeMap(parsePurposeMap(p.purposes));
       setLastUsed(p.lastUsed || {});
-      setMonthCount(p.monthCount || {});
+      setUsedCount(p.totalCount || p.monthCount || {});   // 전체 사용 횟수(이번 달은 전부 0건이라 — 이예지 10/28 디자인 ⑩)
       if (l.layout) { setLayout(normalizeLayout(l.layout)); setLayoutOk(true); }
       setLoading(false);
       const withRenewal = ((t.templates || []) as Template[]).filter(x => x.approvalStepsRenewal != null);
@@ -157,8 +157,8 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const allTabs = [...CONTRACT_PURPOSES, OTHER_PURPOSE] as { key: PurposeKey; label: string; hint: string }[];
   const tabs = layout.purposeOrder.map(k => allTabs.find(t => t.key === k)).filter((t): t is (typeof allTabs)[number] => !!t)
     .filter(t => t.key !== "other" || listFor("other").length > 0);
-  // 카드 순서 — 많이 쓴 순(이번 달 건수 → 최근 사용) 또는 내가 정한 순(tplOrder, 없는 것은 뒤에 많이 쓴 순)
-  const usageSort = (a: Template, b: Template) => (monthCount[b.id] || 0) - (monthCount[a.id] || 0) || (lastUsed[b.id] || "").localeCompare(lastUsed[a.id] || "") || a.name.localeCompare(b.name);
+  // 카드 순서 — 많이 쓴 순(전체 사용 횟수 → 최근 사용) 또는 내가 정한 순(tplOrder, 없는 것은 뒤에 많이 쓴 순)
+  const usageSort = (a: Template, b: Template) => (usedCount[b.id] || 0) - (usedCount[a.id] || 0) || (lastUsed[b.id] || "").localeCompare(lastUsed[a.id] || "") || a.name.localeCompare(b.name);
   const ordered = (list: Template[]) => {
     if (layout.orderMode === "usage") return [...list].sort(usageSort);
     const pos = new Map(layout.tplOrder.map((id, i) => [id, i]));
@@ -335,7 +335,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     if (!name) return null;
     const docs = f.t === "hire" ? hireDocs.map(d => displayTplName(d.name)) : f.t === "resign" ? ["사직원", "비밀유지서약서(퇴직시)", "+ 필요할 때 3종"] : b ? b.templateIds.map(id => tplOf(id)?.name).filter(Boolean).map(n => displayTplName(n as string)) : [];
     const favSub = docs.length ? docs.join(" · ") : (t?.description || "");
-    const count = f.t === "tpl" ? (monthCount[f.id] || 0) : f.t === "bundle" && b ? Math.max(0, ...b.templateIds.map(id => monthCount[id] || 0)) : f.t === "hire" && pkg.empTemplate ? (monthCount[pkg.empTemplate.id] || 0) : 0;
+    const count = f.t === "tpl" ? (usedCount[f.id] || 0) : f.t === "bundle" && b ? Math.max(0, ...b.templateIds.map(id => usedCount[id] || 0)) : f.t === "hire" && pkg.empTemplate ? (usedCount[pkg.empTemplate.id] || 0) : 0;
     const k = favKey(f);
     return (
       <div key={k} draggable onDragStart={(e) => { drag.current = { kind: "fav", key: k }; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
@@ -345,11 +345,11 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
         <div className="flex items-start gap-2">
           <button type="button" onClick={() => toggleFav(f)} title="즐겨찾기에서 빼기" className="text-amber-400 hover:text-amber-500 shrink-0 mt-0.5"><Star size={16} fill="currentColor" /></button>
           <p className="flex-1 min-w-0 font-bold text-gray-900 leading-snug break-keep">{name}</p>
-          {docs.length > 1 && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{f.t === "resign" ? "2~5종" : `${docs.length}종`}</span>}
+          {docs.length > 1 && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-700">{f.t === "resign" ? "2~5종" : `${docs.length}종`}</span>}
           <GripVertical size={14} className="shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab" aria-label="끌어서 순서 바꾸기" />
         </div>
         {/* 이름은 위 한 줄 굵게, 설명은 둘째 줄 회색 두 줄까지(잘리면 title 로 전체) */}
-        <p className="text-xs text-gray-500 line-clamp-2 break-keep" title={favSub || undefined}>{favSub || " "}{count ? ` · 이번 달 ${count}건` : ""}</p>
+        <p className="text-xs text-gray-500 line-clamp-2 break-keep" title={favSub || undefined}>{favSub || " "}{count ? ` · 전체 ${count}건` : ""}</p>
         <div className="mt-auto flex gap-2">
           <button type="button" onClick={() => chooseFav(f)}
             className={cn("flex-1 rounded-lg py-2 text-sm font-semibold border", i === 0 ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700" : "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50")}>보내기</button>
@@ -363,7 +363,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     const on = checked.includes(t.id);
     const fav = isFav({ t: "tpl", id: t.id });
     const used = lastUsed[t.id];
-    const n = monthCount[t.id] || 0;
+    const n = usedCount[t.id] || 0;
     return (
       <div key={t.id} draggable
         onDragStart={(e) => { drag.current = { kind: handleDown.current ? "reorder" : "stack", id: t.id }; handleDown.current = false; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "x"); }}
@@ -392,7 +392,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
           {t.description && <p className="text-xs text-gray-500 line-clamp-2 break-keep" title={t.description}>{t.description}</p>}
           <p className="text-xs text-gray-700">결재 {stepsOf(t, purpose === "renew")}</p>
           {/* 「근로자 열람·다운로드」는 기본값이라 쓰지 않는다 — 열람만 · 보관만일 때만 표시 */}
-          <p className="text-[11px] text-gray-500">{used ? `최근 ${kstMd(used)}` : `등록 ${kstMd(t.createdAt)}`}{` · 이번 달 ${n}건`}{t.postSignAccess && t.postSignAccess !== "full" && ACCESS_LABEL[t.postSignAccess] ? ` · 근로자 ${ACCESS_LABEL[t.postSignAccess]}` : ""}</p>
+          <p className="text-[12px] text-gray-500">{used ? `최근 ${kstMd(used)}` : `등록 ${kstMd(t.createdAt)}`}{` · 전체 ${n}건`}{t.postSignAccess && t.postSignAccess !== "full" && ACCESS_LABEL[t.postSignAccess] ? ` · 근로자 ${ACCESS_LABEL[t.postSignAccess]}` : ""}</p>
         </div>
       </div>
     );
@@ -464,7 +464,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                     {label}
                   </label>
                 ))}
-                <span className="w-full text-[11px] text-gray-500">사직원은 늘 들어가고, 근속 1년 미만이면 퇴직금 정산 신청서는 자동으로 빠집니다.</span>
+                <span className="w-full text-[12px] text-gray-500">사직원은 늘 들어가고, 근속 1년 미만이면 퇴직금 정산 신청서는 자동으로 빠집니다.</span>
               </div>
             )}
             {pickedDocs.map((d, i) => (
@@ -534,7 +534,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
                   onChange={(e) => { const k = isCodiTpl ? "codi" : "ext"; setPack(e.target.checked ? k : null); if (e.target.checked && k === "codi") { setMulti(false); setRecipients(r => r.slice(0, 1)); } }} />
                 <span>
                   <b>{isCodiTpl ? "코디 채용 묶음으로" : "외부 채용 패키지로"}</b> — {companions.map(t => displayTplName(t.name)).join(" · ")} 함께(3종)
-                  <span className="block text-[11px] text-gray-500">{isCodiTpl ? "비밀유지·개인정보동의서는 직원 서명만 받습니다. 한 명씩 보냅니다." : "외부 계약자는 링크 하나로 3종을 확인하고 한 번에 서명합니다."}</span>
+                  <span className="block text-[12px] text-gray-500">{isCodiTpl ? "비밀유지·개인정보동의서는 직원 서명만 받습니다. 한 명씩 보냅니다." : "외부 계약자는 링크 하나로 3종을 확인하고 한 번에 서명합니다."}</span>
                 </span>
               </label>
             )}
@@ -603,7 +603,7 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
               className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-40">
               다음: 내용 입력{toExt ? " (외부 계약자)" : nPeople > 0 ? ` (${nPeople}명 · ${nPeople * nDocs}건)` : ""}
             </button>
-            {!toExt && !recipients.length && <p className="text-[11px] text-gray-500 text-center">받는 사람을 고르면 다음으로 넘어갈 수 있습니다</p>}
+            {!toExt && !recipients.length && <p className="text-[12px] text-gray-500 text-center">받는 사람을 고르면 다음으로 넘어갈 수 있습니다</p>}
           </aside>
         </div>
       </div>
@@ -687,8 +687,9 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
           </p>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
-            {purpose === "hire" && pkgCard("hire")}
-            {purpose === "resign" && pkgCard("resign")}
+            {/* 즐겨찾기에 올라간 묶음은 위에 이미 있어 여기서는 뺀다(같은 카드 두 번 — 2026-10-28 이예지 디자인 ⑩) */}
+            {purpose === "hire" && !isFav({ t: "hire", id: "hire" }) && pkgCard("hire")}
+            {purpose === "resign" && !isFav({ t: "resign", id: "resign" }) && pkgCard("resign")}
             {list.map(tplCard)}
           </div>
         )}

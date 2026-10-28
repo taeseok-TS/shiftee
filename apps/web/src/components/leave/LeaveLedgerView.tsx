@@ -212,8 +212,8 @@ export default function LeaveLedgerView({ backHref, backLabel }: { backHref?: st
                         </td>
                         <td className="px-4 py-3 text-gray-700">
                           {TYPE_LABEL[e.type] ?? e.type} · {e.days}일
-                          {e.yearDays !== undefined && e.yearDays !== e.days && <div className="text-[11px] text-amber-700">연도를 걸침 — {L.year}년 몫 {e.yearDays}일</div>}
-                          {!e.deductible && <div className="text-[11px] text-gray-400">연차 미차감</div>}
+                          {e.yearDays !== undefined && e.yearDays !== e.days && <div className="text-[12px] text-amber-700">연도를 걸침 — {L.year}년 몫 {e.yearDays}일</div>}
+                          {!e.deductible && <div className="text-[12px] text-gray-400">연차 미차감</div>}
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className={STATUS[e.status]?.cls}>{STATUS[e.status]?.label ?? e.status}</Badge>

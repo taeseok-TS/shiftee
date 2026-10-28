@@ -21,7 +21,7 @@ import ApprovalsHeader, { type ApprovalTab } from "@/components/approvals/Approv
 import { postLeaveApprove } from "@/lib/leave-approve-client";
 import { fmtRangeKo } from "@/lib/leave-period";
 import { templateLabel } from "@/lib/schedule-label";
-import { Btn, Box, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type FlowStep, type PillTone, type MoreItem } from "@/components/kit";
+import { Btn, Box, DateInput, FilterRow, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type FlowStep, type PillTone, type MoreItem } from "@/components/kit";
 
 /* ── 타입 ── */
 type ApprovalStep = {
@@ -37,10 +37,12 @@ type ApprovalStep = {
 
 // 역할/지점 기반 단계는 승인 전까지 approver가 null → 그 지점 원장 이름(서버가 candidates 로 준다, 둘이면 둘 다)으로. 없으면 역할 라벨
 function stepLabel(s: ApprovalStep): string {
-  if (s.approver) return s.approver.name;
+  // 결재한 사람은 「이름 직급」(예: 이예지 대리), 메인 관리자 계정(이름 「관리자」)이나 아직 사람이 안 정해진 본부 단계는 「본부」(2026-10-28 이예지 디자인 ⑤)
+  if (s.approver && s.approver.name !== "관리자") return `${s.approver.name}${s.approver.position ? ` ${s.approver.position}` : ""}`;
+  if (s.approver) return "본부";
   if (s.approverRole === "MANAGER" && s.candidates?.length) return `${s.candidates.join(" · ")} 원장`;
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
-  if (s.approverRole === "ADMIN") return "관리자";
+  if (s.approverRole === "ADMIN") return "본부";
   return "결재자";
 }
 const dotsOf = (steps: ApprovalStep[] | undefined): FlowStep[] =>
@@ -305,7 +307,7 @@ export default function ApprovalsPage() {
         key: `contract-${c.id}`, kind: "contract", id: c.id, name: c.externalName || c.user.name, nameSub: c.externalName ? "외부 계약자" : c.user.branch || "",
         typeLabel: CONTRACT_TYPE_LABEL[c.type || ""] || "계약", tone: "ind",
         period: c.signDeadline ? `기한 ${md(ymdKst(c.signDeadline))}` : md(ymdKst(c.createdAt)), periodSub: `${c.title} · 전체 창에서 읽고 서명`,
-        dots: (c.approvalLine?.steps || []).map((st) => ({ label: st.approver?.name || st.externalName || "외부 서명자", state: st.status === "APPROVED" ? "done" : st.status === "PENDING" ? "now" : "todo" })),
+        dots: (c.approvalLine?.steps || []).map((st) => ({ label: (st.approver?.name === "관리자" ? "본부" : st.approver?.name) || st.externalName || "외부 서명자", state: st.status === "APPROVED" ? "done" : st.status === "PENDING" ? "now" : "todo" })),
         comments: c.sendMessage ? [`본부 메시지: ${c.sendMessage}`] : [], action: "open", onOpen: () => setFullTarget(c),
         more: [
           { label: "문서 보기", hidden: !file, onClick: () => window.open(/\.docx?$/i.test(file) ? `/docs/viewer?src=${encodeURIComponent(file)}` : file, "_blank") },
@@ -340,7 +342,7 @@ export default function ApprovalsPage() {
   const filters = (withDate: boolean) => (
     <FilterRow>
       <input type="search" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="직원 이름으로 찾기" className={`${inputClass} w-52`} aria-label="직원 이름" />
-      {withDate && <input type="date" max="9999-12-31" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className={inputClass} aria-label="날짜" />}
+      {withDate && <DateInput value={searchDate} onChange={setSearchDate} aria-label="날짜" />}
       {(searchName || (withDate && searchDate)) && <Btn kind="text" onClick={() => { setSearchName(""); setSearchDate(""); }}>초기화</Btn>}
     </FilterRow>
   );

@@ -7,7 +7,7 @@ import { useWorkUnread } from "./WorkUnreadBadge";
 export function DuriWorkLink() {
   const count = useWorkUnread();
   return (
-    <a href="/work/chat" className="mt-auto flex w-[64px] flex-col items-center gap-0.5 border-t border-slate-700 pt-3 text-[11px] font-medium text-slate-300 hover:text-white" title="큐브티워크">
+    <a href="/work/chat" className="mt-auto flex w-[64px] flex-col items-center gap-0.5 border-t border-slate-700 pt-3 text-[12px] font-medium text-slate-300 hover:text-white" title="큐브티워크">
       <span className="relative">
         <Image src="/icons/duri-face-64.png" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
         {count > 0 && (

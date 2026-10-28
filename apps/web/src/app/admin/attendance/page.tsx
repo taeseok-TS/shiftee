@@ -20,7 +20,7 @@ import AttendanceTabs, { isAttendanceTab, type AttendanceTab } from "@/component
 import WeekendExportBox from "@/components/attendance/WeekendExportBox";
 import GeofenceAttemptsBox from "@/components/attendance/GeofenceAttemptsBox";
 import MissingFixDialog, { type MissingAttendance } from "@/components/attendance/MissingFixDialog";
-import { Btn, Box, Tiles, Tile, tableClass, Cell2, StatusPill, type PillTone } from "@/components/kit";
+import { Btn, Box, Tiles, Tile, tableClass, selectClass, Cell2, StatusPill, type PillTone } from "@/components/kit";
 import {
   format, startOfDay, isSameDay,
   addDays, addWeeks, addMonths, addYears,
@@ -475,7 +475,9 @@ export default function AttendancePage() {
     })),
     ...todayList.filter((r) => r.status === "LATE").map((r) => ({
       key: `late-${r.id}`, title: `${r.name}${r.branch ? ` · ${r.branch}` : ""} · 오늘 지각`,
-      sub: `출근 ${r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}`, red: false, onOpen: undefined as (() => void) | undefined, href: "/admin/attendance-board",
+      sub: `출근 ${r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}`, red: false, onOpen: undefined as (() => void) | undefined,
+      // 누르면 그 사람 지점으로 걸러서 그 줄을 잠깐 강조(달력 전체가 열리던 것 — 2026-10-28 이예지 디자인 ⑧)
+      href: `/admin/attendance-board?${new URLSearchParams({ ...(r.branch ? { branch: r.branch } : {}), focus: r.userId })}`,
     })),
     ...pendingReqs.filter((r) => r.currentStep !== "MANAGER").map((r) => ({
       key: `req-${r.id}`, title: reqRow(r),
@@ -528,7 +530,7 @@ export default function AttendancePage() {
   return (
     <div>
       {/* 머리 + 알약 탭 한 줄(R10) — 옛 「출퇴근 관리」 · 큰 시계 · 내 출근/퇴근 버튼(관리 화면엔 본인 출퇴근을 두지 않는다, 본부 본인 출퇴근은 직원 모드) */}
-      <AttendanceTabs active={tab} onSelect={(t) => { setTab(t); try { window.history.replaceState(null, "", t === "today" ? "/admin/attendance" : `/admin/attendance?tab=${t}`); } catch { /* 주소만 못 바꿔도 탭은 바뀐다 */ } }} note={tab === "today" && loadedAt ? `${format(loadedAt, "M월 d일 (EEE) HH:mm", { locale: ko })} 기준` : undefined}>
+      <AttendanceTabs active={tab} onSelect={(t) => { setTab(t); try { window.history.replaceState(null, "", t === "today" ? "/admin/attendance" : `/admin/attendance?tab=${t}`); window.dispatchEvent(new Event("rail:search")); } catch { /* 주소만 못 바꿔도 탭은 바뀐다 */ } }} note={tab === "today" && loadedAt ? `${format(loadedAt, "M월 d일 (EEE) HH:mm", { locale: ko })} 기준` : undefined}>
         {tab === "today" && <Btn onClick={exportToday}><Download size={14} />엑셀</Btn>}
       </AttendanceTabs>
 
@@ -542,12 +544,12 @@ export default function AttendancePage() {
               {([
                 { key: "present", label: "출근", value: a?.present },
                 { key: "late", label: "지각", value: a?.late, alert: true },
-                { key: "beforeStart", label: "출근 전", value: a?.beforeStart ?? 0, note: "근무 시작 시각 전" },
+                { key: "beforeStart", label: "출근 전", value: a ? (a.beforeStart ?? 0) : undefined, note: "근무 시작 시각 전" },   // 불러오는 동안은 다른 칸처럼 「—」(이예지 10/28 ⑦)
                 { key: "absent", label: "미출근", value: a?.absent, alert: true, note: noSchedule ? "일정이 없어 셀 수 없음" : "시작 시각 지났는데 기록 없음" },
                 { key: "earlyLeave", label: "조퇴", value: a?.earlyLeave, alert: true },
                 { key: "onLeave", label: "휴가", value: a?.onLeave },
                 { key: "scheduled", label: "오늘 일정 있는 직원", value: a?.scheduled, hl: true,
-                  note: noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "관리자 제외" },
+                  note: noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "근무일정 있는 직원 · 관리자 제외" },
               ] as { key: PeopleKey; label: string; value: number | undefined; alert?: boolean; hl?: boolean; note?: string }[]).map((t) => (
                 <Tile key={t.key} label={t.label} value={t.value} unit="명" alert={t.alert} hl={t.hl} note={t.note}
                   active={!!pick && pick.key === t.key && !pick.branch && (t.value ?? 0) > 0}
@@ -592,7 +594,7 @@ export default function AttendancePage() {
           <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
             {/* 지점별 현황(본부 10/22 — 「지점별 오늘」 대신) */}
             <Box icon={<MapPin />} tone="sky" title="지점별 현황" className="!mb-0 min-w-0"
-              right={<select value={branchPick} onChange={(e) => setBranchPick(e.target.value)} aria-label="지점" className="rounded-[10px] border border-[#e2e8f0] bg-white px-2.5 py-1.5 text-[13px] font-medium text-[#334155]">
+              right={<select value={branchPick} onChange={(e) => setBranchPick(e.target.value)} aria-label="지점" className={selectClass}>
                 <option value="">지점: 전체</option>
                 {(dash?.byBranch || []).map((b) => <option key={b.branch} value={b.branch}>{b.branch}</option>)}
               </select>}>
@@ -889,7 +891,7 @@ export default function AttendancePage() {
                   <div key={label} className={`rounded-xl p-4 border ${bg} ${border}`} title={hint}>
                     <p className="text-xs font-medium text-gray-500">{label}</p>
                     <p className={`text-2xl font-bold mt-1 ${color}`}>{typeof val === "number" ? `${val}회` : val}</p>
-                    {hint && <p className="text-[11px] text-gray-400 mt-1 leading-snug">{hint}</p>}
+                    {hint && <p className="text-[12px] text-gray-400 mt-1 leading-snug">{hint}</p>}
                   </div>
                 ))}
               </div>
@@ -1103,7 +1105,7 @@ export default function AttendancePage() {
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs text-gray-500">직원 <span className="text-gray-400">(여러 명 선택 가능 — 같은 시각으로 들어갑니다)</span></label>
-                <button type="button" className="text-[11px] text-blue-600 hover:underline"
+                <button type="button" className="text-[12px] text-blue-600 hover:underline"
                   onClick={() => {
                     const shown = employees.filter(e => !addSearch.trim() || `${e.name} ${e.branch || ""} ${e.department || ""}`.includes(addSearch.trim())).map(e => e.id);
                     setAddForm(f => {
@@ -1122,14 +1124,14 @@ export default function AttendancePage() {
                       <input type="checkbox" checked={on}
                         onChange={(ev) => setAddForm(f => ({ ...f, userIds: ev.target.checked ? [...f.userIds, e.id] : f.userIds.filter(id => id !== e.id) }))} />
                       <span className="flex-1 truncate">{e.name}{e.branch ? <span className="text-gray-400"> · {e.branch}</span> : null}</span>
-                      {on && existsOn(e.id) && <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300">그 날 기록 있음 · 건너뜀</Badge>}
+                      {on && existsOn(e.id) && <Badge variant="outline" className="text-[12px] text-amber-700 border-amber-300">그 날 기록 있음 · 건너뜀</Badge>}
                     </label>
                   );
                 })}
                 {employees.length === 0 && <p className="px-2 py-3 text-xs text-gray-400">직원 목록을 불러오는 중…</p>}
               </div>
               {addForm.userIds.length > 0 && (
-                <p className="text-[11px] text-gray-500 mt-1">
+                <p className="text-[12px] text-gray-500 mt-1">
                   대상 {addForm.userIds.length}명: {employees.filter(e => addForm.userIds.includes(e.id)).map(e => e.name).join(", ")}
                   {addForm.userIds.some(existsOn) && <span className="text-amber-700"> (기록 있음 {addForm.userIds.filter(existsOn).length}명 제외)</span>}
                 </p>

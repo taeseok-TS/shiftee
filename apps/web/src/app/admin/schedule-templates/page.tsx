@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Pencil, Power } from "lucide-react";
 import { toast } from "sonner";
+import { PageHead } from "@/components/kit";
+import { NavPills } from "@/components/layout/NavPills";
 
 /**
  * 근무일정 템플릿 관리(2026-10-07 QA #10, 본부 답변 #16) — 본부만.
@@ -70,8 +72,12 @@ export default function ScheduleTemplatesPage() {
 
   return (
     <div className="space-y-4">
+      {/* 머리 + 알약 탭(근무일정 · 근무 시간 종류)을 근무일정 화면과 같은 자리 · 모양으로(2026-10-28 이예지 디자인 ②) */}
+      <div>
+        <PageHead crumb="근태 › 근무일정" title="근무 시간 종류" />
+        <NavPills />
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-gray-900 mr-2">근무 시간 종류</h1>
         <Input className="w-56" placeholder="이름·코드·지점 검색" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="text-sm text-gray-600 flex items-center gap-1">
           <input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} />꺼진 것도 보기

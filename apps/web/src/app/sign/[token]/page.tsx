@@ -192,7 +192,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
             className="w-full rounded-xl bg-indigo-600 py-3.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
             {verifying ? "확인 중…" : "계약서 열기"}
           </button>
-          <p className="text-center text-[11px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
+          <p className="text-center text-[12px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
         </form>
       </ArrivalCard>
     );
@@ -301,7 +301,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                     {verifying ? "확인 중..." : "확인"}
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
+                <p className="text-[12px] text-gray-400">여러 번 틀리면 잠시 잠깁니다. 번호가 다르면 담당자에게 문의해 주세요.</p>
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
@@ -325,7 +325,7 @@ export default function ExternalSignPage({ params }: { params: Promise<{ token: 
                         </div>
                       </div>
                     ))}
-                    <p className="text-[11px] text-gray-400">위 선택이 개인정보동의서 문서에 반영된 뒤 서명이 적용됩니다.</p>
+                    <p className="text-[12px] text-gray-400">위 선택이 개인정보동의서 문서에 반영된 뒤 서명이 적용됩니다.</p>
                   </div>
                 )}
                 <p className="text-sm font-semibold">

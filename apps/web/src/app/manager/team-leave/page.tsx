@@ -11,7 +11,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef, type React
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, CalendarDays, UmbrellaOff, Search } from "lucide-react";
+import { CheckSquare, CalendarDays, TreePalm, Search } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import LeaveCancelInbox from "@/components/leave/LeaveCancelInbox";
@@ -37,9 +37,11 @@ type ApprovalStep = {
 
 // 역할/지점 기반 단계는 승인 전까지 approver가 null → 역할 라벨로 표시
 function stepLabel(s: ApprovalStep): string {
-  if (s.approver) return s.approver.name;
+  // 결재한 사람은 「이름 직급」(예: 이예지 대리), 메인 관리자 계정(이름 「관리자」)이나 아직 사람이 안 정해진 본부 단계는 「본부」(2026-10-28 이예지 디자인 ⑤)
+  if (s.approver && s.approver.name !== "관리자") return `${s.approver.name}${s.approver.position ? ` ${s.approver.position}` : ""}`;
+  if (s.approver) return "본부";
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
-  if (s.approverRole === "ADMIN") return "관리자";
+  if (s.approverRole === "ADMIN") return "본부";
   return "결재자";
 }
 // 결재 진행 점(끝남 파랑 · 지금 차례 주황 · 남음 회색) + 결재자 의견 줄 — 옛 초록 · 주황 글자 알약 대신(R11 · R13)
@@ -704,7 +706,7 @@ export default function ManagerApprovalsPage() {
         </Box>
 
         {/* 지점 휴가 표 — 결재함에서 빠진 대기 건(내가 승인해 넘긴 건)을 여기서 거둔다. 승인된 휴가는 본인의 취소 결재로만(9/11). 버튼은 서버 판정(canCancel)으로만 */}
-        <Box icon={<UmbrellaOff />} tone="sky" title="신청 목록" sub={historyLoading ? "불러오는 중…" : `${historyGroups.length}건 · 오늘부터 다가오는 순`}>
+        <Box icon={<TreePalm />} tone="sky" title="신청 목록" sub={historyLoading ? "불러오는 중…" : `${historyGroups.length}건 · 오늘부터 다가오는 순`}>
           {filters(true, ([
             { value: "all", label: "전체" },
             { value: "PENDING", label: "대기" },

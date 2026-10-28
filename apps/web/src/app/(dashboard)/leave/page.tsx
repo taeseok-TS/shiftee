@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  UmbrellaOff, Plus, X, CalendarDays,
+  TreePalm, Plus, X, CalendarDays,
   ClipboardList, Pencil, GitBranch, ChevronRight,
   Trash2, Search, ArrowUp, ArrowDown, Paperclip,
 } from "lucide-react";
@@ -83,9 +83,10 @@ const kstYearNow   = () => new Date(Date.now() + 9 * 3600 * 1000).getUTCFullYear
 
 /* ── 결재 진행 점(kit FlowDots, 관리자 휴가 관리 R13과 같은 모양) — 끝난 사람 파랑 · 지금 차례 주황 · 남은 사람 회색 ── */
 function stepLabel(s: ApprovalStepInfo) {
-  if (s.approver) return s.approver.name;
+  // 메인 관리자 계정(이름 「관리자」) · 사람이 안 정해진 본부 단계는 「본부」(2026-10-28 이예지 디자인 ⑤)
+  if (s.approver) return s.approver.name === "관리자" ? "본부" : s.approver.name;
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
-  if (s.approverRole === "ADMIN") return "관리자";
+  if (s.approverRole === "ADMIN") return "본부";
   return "결재자";
 }
 function ApprovalChain({ steps, status }: { steps: ApprovalStepInfo[]; status?: string }) {
@@ -503,7 +504,7 @@ export default function LeavePage() {
                 두 모양이 같은 칸 함수(leaveApproval·leaveStatus·leaveActions)를 쓴다 — 버튼 동작·조건을 한 곳에서만 고친다 */}
             {requests.length === 0 ? (
               <div className="py-16 text-center text-[14px] text-[#596578]">
-                <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />신청 내역이 없습니다.
+                <TreePalm size={32} className="mx-auto mb-2 opacity-30" />신청 내역이 없습니다.
                 {/* 빈 화면에도 그 화면의 버튼을(■4) */}
                 <div className="mt-3"><Btn kind="primary" onClick={() => setAddOpen(true)}><Plus size={15} />휴가 신청</Btn></div>
               </div>

@@ -22,7 +22,7 @@ export function RegionTabs({ active }: { active: (typeof REGIONS)[number]["key"]
           }
         >
           {r.label}
-          <span className={r.key === active ? "ml-1.5 hidden text-[11px] font-normal text-white/70 sm:inline" : "ml-1.5 hidden text-[11px] text-gray-400 sm:inline"}>{r.note}</span>
+          <span className={r.key === active ? "ml-1.5 hidden text-[12px] font-normal text-white/70 sm:inline" : "ml-1.5 hidden text-[12px] text-gray-400 sm:inline"}>{r.note}</span>
         </Link>
       ))}
     </nav>

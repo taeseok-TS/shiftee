@@ -20,7 +20,7 @@ export default function ApprovalOrderEditor({ steps, locked, onChange, renewal =
           <input type="checkbox" checked={false} onChange={() => onChange(PRESETS[0].steps.map((s) => ({ ...s })), locked)} />
           {renewal ? "재계약(기존 근로자)은 다른 순서로 결재" : "이 양식의 결재 순서를 지정"}
         </label>
-        <p className="text-[11px] text-gray-500">
+        <p className="text-[12px] text-gray-500">
           {renewal
             ? "작성 창에서 「계약 구분」을 재계약으로 고른 계약에만 적용됩니다. 지정하지 않으면 재계약도 위 순서대로 갑니다."
             : "지정하지 않으면 발송 창은 지금처럼 「본부 → 원장 → 근로자」 3칸이고 누구든 넣을 수 있습니다(순서 검사 없음)."}
@@ -43,13 +43,13 @@ export default function ApprovalOrderEditor({ steps, locked, onChange, renewal =
       <label className="flex items-center gap-2 text-sm cursor-pointer">
         <input type="checkbox" checked onChange={() => onChange(null, locked)} />
         {renewal
-          ? <>재계약(기존 근로자)은 다른 순서로 결재 <span className="text-[11px] text-gray-400">(끄면 재계약도 위 순서대로)</span></>
-          : <>이 양식의 결재 순서를 지정 <span className="text-[11px] text-gray-400">(끄면 기본 3칸·검사 없음으로 돌아갑니다)</span></>}
+          ? <>재계약(기존 근로자)은 다른 순서로 결재 <span className="text-[12px] text-gray-400">(끄면 재계약도 위 순서대로)</span></>
+          : <>이 양식의 결재 순서를 지정 <span className="text-[12px] text-gray-400">(끄면 기본 3칸·검사 없음으로 돌아갑니다)</span></>}
       </label>
       <div className="flex flex-wrap gap-1">
         {PRESETS.map((p) => (
           <button key={p.name} type="button" onClick={() => onChange(p.steps.map((s) => ({ ...s })), locked)}
-            className={`rounded border px-2 py-0.5 text-[11px] ${same(steps, p.steps) ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
+            className={`rounded border px-2 py-0.5 text-[12px] ${same(steps, p.steps) ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
             {p.name}
           </button>
         ))}
@@ -72,13 +72,13 @@ export default function ApprovalOrderEditor({ steps, locked, onChange, renewal =
       </div>
       {err && <p className="text-xs text-red-600">{err}</p>}
       {renewal ? (
-        <p className="text-[11px] text-gray-500">작성 창에서 「계약 구분」을 재계약으로 고른 계약은 이 순서로 발송됩니다(잠금 여부는 위 설정을 같이 씁니다).</p>
+        <p className="text-[12px] text-gray-500">작성 창에서 「계약 구분」을 재계약으로 고른 계약은 이 순서로 발송됩니다(잠금 여부는 위 설정을 같이 씁니다).</p>
       ) : (<>
       <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
         <input type="checkbox" checked={!locked} onChange={(e) => onChange(steps, !e.target.checked)} />
         발송 때 순서 변경 허용 <span className="text-gray-400">(꺼져 있으면 발송 창은 이 순서대로 칸을 만들고 사람만 고릅니다)</span>
       </label>
-      <p className="text-[11px] text-gray-500">
+      <p className="text-[12px] text-gray-500">
         본부 = 발송 때 사람 선택 · 원장 = 당사자 지점의 메인 원장 자동 · 근로자 = 당사자 본인(외부 계약이면 외부 계약자 링크 서명).
         원장 본인의 계약서는 원장 단계가 자동으로 빠집니다.
       </p>

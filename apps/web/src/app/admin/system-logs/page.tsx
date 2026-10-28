@@ -180,7 +180,7 @@ export default function SystemLogsPage() {
                 <span className="text-xs font-mono text-indigo-600 shrink-0 max-w-[220px] truncate">{l.method} {l.path}</span>
                 <span className={`text-sm truncate flex-1 ${l.resolved ? "text-gray-400 line-through" : "text-gray-800"}`}>{l.message}</span>
                 {l.resolved && (
-                  <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                  <span className="shrink-0 inline-flex items-center gap-1 text-[12px] font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
                     <CheckCircle2 size={11} /> 처리 완료
                   </span>
                 )}
@@ -189,7 +189,7 @@ export default function SystemLogsPage() {
                 <div className="px-4 pb-3 border-t pt-2">
                   {l.userName && <p className="text-xs text-gray-500 mb-1">요청자: {l.userName}</p>}
                   <p className="text-sm text-red-600 whitespace-pre-wrap">{l.message}</p>
-                  {l.stack && <pre className="mt-2 text-[11px] text-gray-500 bg-gray-50 rounded p-2 overflow-x-auto max-h-48">{l.stack}</pre>}
+                  {l.stack && <pre className="mt-2 text-[12px] text-gray-500 bg-gray-50 rounded p-2 overflow-x-auto max-h-48">{l.stack}</pre>}
                   <div className="mt-2 flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => toggleResolved(l)}
                       className={`gap-1 ${l.resolved ? "text-gray-500" : "text-green-600"}`}>

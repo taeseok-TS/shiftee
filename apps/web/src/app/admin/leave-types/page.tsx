@@ -112,7 +112,7 @@ export default function LeaveTypesPage() {
                 <span className="font-medium">{c.label}</span>
                 <Badge variant="outline">{c.group}</Badge>
                 <span className="text-xs text-gray-500">{UNIT_LABEL[c.unit] ?? c.unit} · {c.paidHours > 0 ? `유급 ${c.paidHours}h` : "무급"} · {c.deducts ? "연차 차감" : "차감 없음"}{c.attachRequired ? ` · 첨부 ${c.attachRequired}` : ""}</span>
-                {!c.selectable && <Badge variant="secondary" className="text-[11px]">숨김</Badge>}
+                {!c.selectable && <Badge variant="secondary" className="text-[12px]">숨김</Badge>}
                 <span className="text-xs text-gray-400">사용 {c.used}건</span>
                 <span className="flex-1" />
                 <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditId(c.id); setEdit({ label: c.label, group: c.group, unit: c.unit, paidHours: String(c.paidHours), deducts: c.deducts, attachRequired: c.attachRequired ?? "", notice: c.notice ?? "", selectable: c.selectable, sortOrder: String(c.sortOrder) }); }}><Pencil size={13} /></Button>
@@ -139,7 +139,7 @@ export default function LeaveTypesPage() {
                       <div key={b.code} className="flex flex-wrap items-center gap-2 text-sm">
                         <span className={b.hidden || !b.selectableDefault ? "text-gray-400" : ""}>{b.label}</span>
                         <span className="text-xs text-gray-400">{UNIT_LABEL[b.unit] ?? b.unit} · {b.paidHours > 0 ? `유급 ${b.paidHours}h` : "무급"} · {b.deducts ? "연차 차감" : "차감 없음"} · 사용 {b.used}건</span>
-                        {!b.selectableDefault && <Badge variant="secondary" className="text-[11px]">{b.adminOnly ? "본부 대리 등록만" : "옛 유형(기록만)"}</Badge>}
+                        {!b.selectableDefault && <Badge variant="secondary" className="text-[12px]">{b.adminOnly ? "본부 대리 등록만" : "옛 유형(기록만)"}</Badge>}
                         <span className="flex-1" />
                         {b.selectableDefault && (
                           <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${b.code === "ANNUAL" ? "text-gray-300" : "text-gray-600"}`}>

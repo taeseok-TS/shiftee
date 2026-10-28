@@ -978,7 +978,7 @@ export default function EmployeesPage() {
                                         <SelectItem value="TEMPORARY">임시휴무</SelectItem>
                                       </SelectContent>
                                     </Select>
-                                    <p className="text-[11px] text-gray-500 mt-1">휴직·임시휴무는 「전체 직원」 숫자에는 들어가고, 지점 직원 · 근무일정에서는 빠집니다. 퇴직은 아래 퇴사일로 처리합니다.</p>
+                                    <p className="text-[12px] text-gray-500 mt-1">휴직·임시휴무는 「전체 직원」 숫자에는 들어가고, 지점 직원 · 근무일정에서는 빠집니다. 퇴직은 아래 퇴사일로 처리합니다.</p>
                                   </div>
                                   <div>
                                     <Label>퇴사일</Label>
@@ -989,7 +989,7 @@ export default function EmployeesPage() {
                                         setEditEmployee({ ...editEmployee, resignDate: e.target.value || null })
                                       }
                                     />
-                                    <p className="text-[11px] text-gray-500 mt-1">
+                                    <p className="text-[12px] text-gray-500 mt-1">
                                       {(() => {
                                         if (!editEmployee.resignDate) return "비워두면 재직 상태입니다.";
                                         const d = editEmployee.resignDate.split("T")[0];
@@ -1067,7 +1067,7 @@ export default function EmployeesPage() {
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-gray-600">임시 비밀번호</span>
                                         <b className="font-mono text-base tracking-wider select-all">{tempPwShown.password}</b>
-                                        <Button type="button" variant="outline" size="sm" className="h-6 text-[11px] px-2"
+                                        <Button type="button" variant="outline" size="sm" className="h-6 text-[12px] px-2"
                                           onClick={() => { navigator.clipboard?.writeText(tempPwShown.password).then(() => toast.success("복사했습니다."), () => {}); }}>복사</Button>
                                       </div>
                                       <p className="mt-1 text-gray-600">

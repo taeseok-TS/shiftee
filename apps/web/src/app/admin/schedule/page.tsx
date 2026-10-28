@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHead, Box, Btn, FilterRow, inputClass } from "@/components/kit";
+import { NavPills } from "@/components/layout/NavPills";
 import { Plus, Search, FileSpreadsheet } from "lucide-react";
 import { ScheduleImport } from "@/components/schedule/ScheduleImport";
 import { format } from "date-fns";
@@ -165,6 +166,8 @@ export default function AdminSchedulePage() {
         <Btn onClick={() => setImportOpen(true)}><FileSpreadsheet size={15} />엑셀 업로드</Btn>
         <Btn kind="primary" onClick={() => { setForm(emptyForm()); setCreateOpen(true); }}><Plus size={15} />일정 추가</Btn>
       </PageHead>
+      {/* 근무일정 · 근무 시간 종류 — 제목 아래 알약(다른 화면과 같은 모양, 2026-10-28 이예지 디자인 ②) */}
+      <NavPills />
 
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (o) setForm(emptyForm()); }}>
         <DialogContent className="max-w-2xl">

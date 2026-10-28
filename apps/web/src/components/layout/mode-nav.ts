@@ -2,7 +2,7 @@
 // 대시보드 · 근태 · 결재 · 전자계약 · 휴가 · 인사 · 설정, 그 모드에서 안 쓰는 대분류만 뺀다. 옛 주소는 그대로(알림 · 즐겨찾기 링크가 안 깨지게).
 // 원장 모드는 「팀」이라는 말을 쓰지 않는다 — 모두 「지점」.
 import {
-  LayoutDashboard, Clock, CheckCircle, FileSignature, UmbrellaOff, Users, SlidersHorizontal,
+  LayoutDashboard, Clock, CheckCircle, FileSignature, TreePalm, Users, SlidersHorizontal,
   Calendar, Settings, Inbox, Lightbulb, User,
 } from "lucide-react";
 import type { NavGroup } from "./admin-nav";
@@ -27,9 +27,9 @@ export const MANAGER_NAV: NavGroup[] = [
   { key: "contract", title: "전자계약", icon: FileSignature, items: [
     { href: "/manager/team-contracts", label: "지점 계약서", icon: FileSignature, countKey: "contractSign" },
   ] },
-  { key: "leave", title: "휴가", icon: UmbrellaOff, items: [
+  { key: "leave", title: "휴가", icon: TreePalm, items: [
     // 지점 직원 휴가 내역 — 결재 화면의 「휴가 내역」 탭(쿼리 메뉴 — 쿼리가 같을 때 이 메뉴가 켜진다)
-    { href: "/manager/team-leave?tab=history", label: "지점 휴가", icon: UmbrellaOff, also: ["/manager/leave-ledger"] },
+    { href: "/manager/team-leave?tab=history", label: "지점 휴가", icon: TreePalm, also: ["/manager/leave-ledger"] },
   ] },
   { key: "hr", title: "인사", icon: Users, items: [
     { href: "/manager/team-employees", label: "지점 직원", icon: Users },
@@ -55,8 +55,8 @@ export const EMPLOYEE_NAV: NavGroup[] = [
   { key: "contract", title: "전자계약", icon: FileSignature, items: [
     { href: "/contracts", label: "내 계약서", icon: FileSignature, countKey: "mySign" },
   ] },
-  { key: "leave", title: "휴가", icon: UmbrellaOff, items: [
-    { href: "/leave", label: "내 휴가", icon: UmbrellaOff },
+  { key: "leave", title: "휴가", icon: TreePalm, items: [
+    { href: "/leave", label: "내 휴가", icon: TreePalm },
     { href: "/requests", label: "내 요청", icon: Inbox },
   ] },
   { key: "settings", title: "설정", icon: SlidersHorizontal, items: [

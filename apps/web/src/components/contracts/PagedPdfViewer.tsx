@@ -161,7 +161,7 @@ export default function PagedPdfViewer({ url, downloadUrl, visited, onPage, onRe
           <button key={n} type="button" onClick={() => go(n)} className="relative block w-full text-center" aria-label={`${n}쪽`}>
             <canvas data-thumb={n} className={cn("w-full rounded border bg-white", n === page ? "ring-2 ring-indigo-500" : "")} />
             {visited?.has(n) && <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"><Check size={12} /></span>}
-            <span className="text-[11px] text-gray-500">{n}{n === total && lastPageFooter ? " · 서명" : ""}</span>
+            <span className="text-[12px] text-gray-500">{n}{n === total && lastPageFooter ? " · 서명" : ""}</span>
           </button>
         ))}
       </div>

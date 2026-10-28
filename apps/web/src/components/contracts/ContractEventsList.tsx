@@ -77,7 +77,7 @@ export default function ContractEventsList({ contractId }: { contractId: string 
             <a href={`/verify/${frozen.docNo}`} target="_blank" rel="noreferrer" className="text-indigo-600 underline shrink-0">검증 페이지</a>
           </div>
           <div className="font-mono text-[10px] text-gray-600 break-all">SHA-256 {frozen.signedSha256}</div>
-          <div className="text-[10px] text-gray-600">
+          <div className="text-[12px] text-gray-600">
             제3자 시각 인증: {frozen.tsaAt ? `${tsaName(frozen.tsaUrl)} · ${kst(frozen.tsaAt)}` : "받는 중"}
           </div>
         </div>

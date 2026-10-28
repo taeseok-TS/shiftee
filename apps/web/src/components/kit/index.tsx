@@ -1,10 +1,10 @@
 "use client";
 // 화면 공통 부품 한 벌 — 본부 시안 R9(대시보드) 톤(2026-10-21 본부 이예지 「디자인 통일」 3장, 값은 시안_소스 n-style.css·common.css 그대로).
 // 모든 관리자·원장·직원 화면이 이 부품을 쓴다 — 화면마다 따로 스타일을 쓰면 또 조금씩 달라진다(요청서 8장 「하지 말 것」).
-//  · 색은 둘만 힘을 쓴다: 인디고 #4f46e5 = 누를 것(실행·고른 것·링크), 빨강 #dc2626 = 처리할 것(1 이상인 처리 숫자·빨간 점)
+//  · 색은 둘만 힘을 쓴다: 인디고 #4f46e5 = 누를 것 · 처리할 건수(배지), 빨강 #dc2626 = 문제(지각 · 결근 · 누락 · 잔여 마이너스 · 49시간 초과) — 2026-10-28 이예지 디자인 ①
 //  · 초록·검정 채움 버튼·이모지·숫자 색칠·박스 왼쪽 색 띠는 쓰지 않는다
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -51,7 +51,8 @@ export function PillTabs({ tabs, value, onChange, className }: { tabs: PillTab[]
           on ? "border-[#4f46e5] bg-[#4f46e5] text-white" : "border-[#e2e8f0] bg-white text-[#475569] hover:bg-[#f8fafc]");
         const badge = typeof t.count === "number" && t.count > 0 ? (
           <em className={cn("rounded-full px-[7px] text-[12px] not-italic leading-[19px]",
-            t.hot ? "bg-[#dc2626] text-white" : on ? "bg-white/25 text-white" : "bg-[#f1f5f9] text-[#475569]")}>{t.count}</em>
+            // 처리할 건수(hot)는 인디고 — 빨강은 문제에만(2026-10-28 이예지 디자인 ①). 켜진 탭(인디고 바탕) 위에서는 흰 알약
+            t.hot ? (on ? "bg-white text-[#4f46e5]" : "bg-[#4f46e5] text-white") : on ? "bg-white/25 text-white" : "bg-[#f1f5f9] text-[#475569]")}>{t.count}</em>
         ) : null;
         return t.href
           ? <Link key={t.key} href={t.href} role="tab" aria-selected={on} className={cls}>{t.label}{badge}</Link>
@@ -61,7 +62,7 @@ export function PillTabs({ tabs, value, onChange, className }: { tabs: PillTab[]
   );
 }
 
-/* ── 박스: 흰 바탕·1px 테두리·모서리 14px. 머리 = 파스텔 아이콘 + 제목 17.5px + (빨간 숫자 알약) + 회색 설명 + 오른쪽 글자 버튼 ── */
+/* ── 박스: 흰 바탕·1px 테두리·모서리 14px. 머리 = 파스텔 아이콘 + 제목 17.5px + (인디고 건수 알약) + 회색 설명 + 오른쪽 글자 버튼 ── */
 export type Tone = "ind" | "rose" | "amb" | "sky" | "vio" | "sl";
 const TONE: Record<Tone, string> = {
   ind: "bg-[#eef2ff] text-[#4f46e5]", rose: "bg-[#fff1f2] text-[#e11d48]", amb: "bg-[#fffbeb] text-[#b45309]",
@@ -77,7 +78,7 @@ export function Box({ icon, tone = "ind", title, count, sub, right, children, cl
         <div className="flex flex-wrap items-center gap-2.5 border-b border-[#eef1f5] px-6 py-[17px]">
           {icon && <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-[9px] [&_svg]:h-[18px] [&_svg]:w-[18px]", TONE[tone])}>{icon}</span>}
           <h2 className="text-[17.5px] font-bold text-[#0f172a]">{title}</h2>
-          {typeof count === "number" && count > 0 && <em className="rounded-full bg-[#dc2626] px-2 text-[13px] not-italic leading-[21px] text-white">{count}</em>}
+          {typeof count === "number" && count > 0 && <em className="rounded-full bg-[#4f46e5] px-2 text-[13px] not-italic leading-[21px] text-white">{count}</em>}
           {sub && <span className="text-[13px] text-[#596578]">{sub}</span>}
           {right && <div className="ml-auto flex items-center gap-2 text-[14px] font-semibold">{right}</div>}
         </div>
@@ -105,7 +106,8 @@ export function Tile({ label, value, unit, note, alert = false, hl = false, acti
       <b className={cn("text-[34px] font-extrabold leading-[1.15] tabular-nums", red ? "text-[#dc2626]" : "text-[#0f172a]")}>
         {shown}{unit && shown !== "—" && <small className="ml-[3px] text-[14px] font-semibold text-[#596578]">{unit}</small>}
       </b>
-      {note && <i className="text-[12px] not-italic text-[#596578]">{note}</i>}
+      {/* 설명은 낱말 단위로 줄을 넘기고 두 줄 길이를 고르게 — 「…기록 없 / 음」처럼 한 글자만 넘어가지 않게(2026-10-28 이예지 ⑦) */}
+      {note && <i className="break-keep text-[12px] not-italic text-[#596578] [text-wrap:balance]">{note}</i>}
     </>
   );
   const cls = cn("flex flex-col gap-0.5 rounded-xl border px-4 pb-[13px] pt-3.5 text-left",
@@ -124,13 +126,27 @@ export function FilterRow({ children, right }: { children: ReactNode; right?: Re
   );
 }
 export const inputClass = "rounded-[10px] border border-[#e2e8f0] bg-white px-3 py-2 text-[13.5px] text-[#334155] outline-none focus:border-[#c7d2fe] focus:ring-2 focus:ring-[#eef2ff]";
+/** 고르기 칸(select) — 화살표를 브라우저 기본 대신 같은 모양 하나로, 높이 · 테두리 · 글씨는 inputClass 와 같게(2026-10-28 이예지 디자인 ⑥) */
+export const selectClass = `${inputClass} kit-select`;   // 화살표 · 높이는 globals.css .kit-select
+/** 날짜 칸 — 다른 입력 칸과 같은 높이 · 테두리 · 글씨, 비어 있으면 「날짜 고르기」(브라우저 기본 「연도-월-일」 대신 — 이예지 디자인 ⑥).
+ *  비어 있을 때는 글자 칸으로 보이다가 누르면 날짜 칸으로 바뀌어 달력이 열린다 */
+export function DateInput({ value, onChange, placeholder = "날짜 고르기", className, ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange"> & { value: string; onChange: (v: string) => void }) {
+  const [focused, setFocused] = useState(false);
+  const asText = !value && !focused;
+  return (
+    <input {...rest} type={asText ? "text" : "date"} max={rest.max ?? "9999-12-31"} value={value} placeholder={placeholder}
+      onFocus={(e) => { setFocused(true); const el = e.currentTarget; window.setTimeout(() => { try { el.showPicker?.(); } catch { /* 지원하지 않는 브라우저 */ } }, 0); }}
+      onBlur={() => setFocused(false)} onChange={(e) => onChange(e.target.value)}
+      className={cn(inputClass, "h-[38px] w-[150px] placeholder:text-[#94a3b8]", className)} />
+  );
+}
 export const tableClass = "w-full border-collapse text-[14px] [&_th]:border-b [&_th]:border-[#eef1f5] [&_th]:bg-[#fafbfd] [&_th]:px-6 [&_th]:pb-2.5 [&_th]:pt-3 [&_th]:text-left [&_th]:text-[13px] [&_th]:font-semibold [&_th]:text-[#596578] [&_td]:border-b [&_td]:border-[#f1f5f9] [&_td]:px-6 [&_td]:py-3.5 [&_td]:align-middle [&_tr:last-child_td]:border-b-0";
 export function Cell2({ main, sub }: { main: ReactNode; sub?: ReactNode }) {
   return <><b className="font-bold text-[#0f172a]">{main}</b>{sub && <span className="block text-[12.5px] text-[#596578]">{sub}</span>}</>;
 }
 export function Chip({ on = false, children, onClick }: { on?: boolean; children: ReactNode; onClick?: () => void }) {
   return <button type="button" onClick={onClick} aria-pressed={on} className={cn("rounded-full border px-3 py-[5px] text-[13px] font-semibold",
-    on ? "border-[#c7d2fe] bg-[#eef2ff] text-[#4f46e5]" : "border-[#e2e8f0] bg-white text-[#475569] hover:bg-[#f8fafc]")}>{children}</button>;
+    on ? "border-[#4f46e5] bg-[#4f46e5] text-white" : "border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]")}>{children}</button>;   // 켜짐 = 채운 인디고, 꺼짐 = 테두리만(이예지 10/28 디자인 ③)
 }
 
 /* ── 상태 알약: 대기 주황 · 완료 파랑 · 반려 분홍 · 취소·기타 회색 · 계약 연인디고 ── */
@@ -144,21 +160,23 @@ export function StatusPill({ tone, children }: { tone: PillTone; children: React
 
 /* ── 작은 표시 알약(둘째 줄 보조 표시용): 회색 글자 · 1px 테두리 · 11.5px. href 를 주면 링크(새 창) ── */
 export function MiniPill({ children, title, href, className }: { children: ReactNode; title?: string; href?: string; className?: string }) {
-  const cls = cn("inline-block whitespace-nowrap rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-1.5 text-[11.5px] font-semibold leading-[18px] text-[#596578] align-middle", href && "hover:border-[#c7d2fe] hover:text-[#4f46e5]", className);
+  const cls = cn("inline-block whitespace-nowrap rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-1.5 text-[12px] font-semibold leading-[18px] text-[#596578] align-middle", href && "hover:border-[#c7d2fe] hover:text-[#4f46e5]", className);
   return href
     ? <a href={href} target="_blank" rel="noreferrer" title={title} className={cls}>{children}</a>
     : <span title={title} className={cls}>{children}</span>;
 }
 
-/* ── 결재 진행: 사람마다 9px 점 + 이름. 끝난 사람 파랑 · 지금 차례 주황 · 남은 사람 회색 ── */
+/* ── 결재 진행: 사람마다 점 + 이름. 끝남 인디고 채움 ✓ · 지금 차례 인디고 테두리 · 아직 회색(2026-10-28 이예지 디자인 ⑤) */
 export type FlowStep = { label: string; state: "done" | "now" | "todo" };
 export function FlowDots({ steps }: { steps: FlowStep[] }) {
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] text-[#475569]">
       {steps.map((s, i) => (
         <span key={i} className="inline-flex items-center gap-1.5">
-          <i className={cn("inline-block h-[9px] w-[9px] rounded-full", s.state === "done" ? "bg-[#2563eb]" : s.state === "now" ? "bg-[#f59e0b]" : "bg-[#cbd5e1]")} aria-label={s.state === "done" ? "끝남" : s.state === "now" ? "지금 차례" : "남음"} />
-          {s.label}
+          {/* 끝남 = 인디고 채움 + ✓ · 지금 차례 = 인디고 테두리 · 아직 = 회색(점 색이 비슷해 구분이 안 됐다 — 2026-10-28 이예지 디자인 ⑤) */}
+          <i className={cn("inline-grid h-[14px] w-[14px] place-items-center rounded-full text-[9px] font-bold not-italic leading-none text-white",
+            s.state === "done" ? "bg-[#4f46e5]" : s.state === "now" ? "border-2 border-[#4f46e5] bg-white" : "bg-[#cbd5e1]")} aria-label={s.state === "done" ? "끝남" : s.state === "now" ? "지금 차례" : "남음"}>{s.state === "done" ? "✓" : null}</i>
+          <span className={s.state === "now" ? "font-semibold text-[#4f46e5]" : s.state === "todo" ? "text-[#94a3b8]" : undefined}>{s.label}</span>
         </span>
       ))}
     </span>

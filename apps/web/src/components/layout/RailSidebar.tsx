@@ -5,7 +5,6 @@
 //  · 옆 흰 패널: 고른 대분류의 메뉴. 맨 위 「메뉴 찾기」는 모든 메뉴 · 탭 이름에서 거른다. 대시보드에서는 패널 없이 레일만
 // 큐브티워크 · 모드 전환 · 로그아웃은 상단 바(TopBar). 레일을 누르면 그 대분류의 첫 화면이 바로 열린다(재요청 A)
 // 관리자(AdminSidebar) · 원장(ManagerSidebar) · 직원(SharedSidebar)이 이 부품 하나를 쓴다 — 메뉴 정의만 다르다(admin-nav · mode-nav)
-import { DuriWorkLink } from "./DuriWorkLink";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { usePathname } from "next/navigation";
@@ -44,6 +43,28 @@ export function RailSidebar({ nav, letter, home, system }: { nav: NavGroup[]; le
   const shown = groups.find((g) => g.key === activeGroup?.key) ?? groups.find((g) => g.items.length);
   const panelItems = shown ? shown.items.filter((it) => !it.hidden) : [];
 
+  // 브라우저 탭 제목 = 「화면 이름 · CUBETEE」(2026-10-28 이예지 ⑦ — 탭을 여러 개 열면 전부 「CUBETEE」라 구분이 안 됐다).
+  // 화면 이름 = 지금 주소 · 쿼리에 맞는 탭(찾기 항목 포함) → 메뉴 → 대분류 순. 화면들이 클라이언트라 메타데이터 대신 여기서 바꾼다
+  const pageLabel = (() => {
+    if (!activeItem) return activeGroup?.title ?? "";
+    const cur = new URLSearchParams(search);
+    const sub = [...(activeItem.tabs || []), ...(activeItem.find || [])].filter((t) => {
+      const [p, q] = t.href.split("?");
+      if (p !== pathname) return false;
+      const want = new URLSearchParams(q || "");
+      // 쿼리 없는 탭은 메뉴 첫 주소와 다른 화면일 때만(근무일정 › 근무 시간 종류 · 출퇴근 현황 › 달력 · 목록)
+      return q ? [...want.entries()].every(([k, v]) => cur.get(k) === v) : p !== activeItem.href.split("?")[0];
+    }).sort((a, b) => Number(b.href.includes("?")) - Number(a.href.includes("?")))[0];   // 쿼리까지 맞는 것이 먼저(달력 · 목록)
+    return sub ? `${sub.label} · ${activeItem.label}` : activeItem.label;
+  })();
+  useEffect(() => {
+    const t = pageLabel ? `${pageLabel} · CUBETEE` : "CUBETEE";
+    document.title = t;
+    // 화면을 옮길 때 Next 가 머리의 제목을 다시 그릴 수 있어 한 번 더(늦게) 맞춘다
+    const id = window.setTimeout(() => { if (document.title !== t) document.title = t; }, 400);
+    return () => window.clearTimeout(id);
+  }, [pageLabel]);
+
   const [menuQuery, setMenuQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   // 휴대폰 서랍(MobileDashboardNav)은 ESC 를 document 캡처 단계에서 받아 서랍을 닫는다 — 검색칸에 글자가 있으면 그보다 먼저(window 캡처) 받아 검색어만 지운다
@@ -80,17 +101,17 @@ export function RailSidebar({ nav, letter, home, system }: { nav: NavGroup[]; le
         {groups.map((g) => {
           const Icon = g.icon;
           const on = g.key === activeGroup?.key;
-          const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-medium",
+          const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[12px] font-medium",
             on ? "bg-red-600 text-white" : "hover:bg-slate-800 hover:text-white");
-          // 빨간 점 — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
+          // 인디고 점(10/28 이예지 디자인 ① — 빨강은 경고에만) — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
           const dot = g.items.some((it) => it.countKey && RED_KEYS.has(it.countKey) && (counts[it.countKey as keyof NavCounts] || 0) > 0);
-          const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
+          const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-indigo-400 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
           const to = groupHome(g);
           return reload(to)
             ? <a key={g.key} href={to} className={cls} aria-current={on ? "page" : undefined}>{inner}</a>
             : <Link key={g.key} href={to} onClick={onLink(to)} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>;
         })}
-        <DuriWorkLink />
+        {/* 레일 맨 아래 듀리 「큐브티워크」는 뺐다 — 상단 바 버튼 하나만(2026-10-28 이예지 디자인 ⑨, 10/21 시안도 상단에만) */}
       </div>
       {/* 패널 */}
       <div className={cn("flex w-52 flex-col border-r border-gray-200 bg-white", activeGroup?.key === "dashboard" && "hidden")}>
@@ -110,7 +131,7 @@ export function RailSidebar({ nav, letter, home, system }: { nav: NavGroup[]; le
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           {mq ? (
             hits.length ? hits.map((h) => {
-              const body = <><span className="mr-1 text-[11px] text-gray-400">{h.g.title}</span>{h.label}</>;
+              const body = <><span className="mr-1 text-[12px] text-gray-400">{h.g.title}</span>{h.label}</>;
               const cls = "block rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100";
               // ?tab= 이 붙은 주소(화면 안 알약 탭 — admin-nav find)는 새로 연다. 같은 화면에서 쿼리만 바뀌면 Next 가 화면을
               // 다시 그리지 않아 주소만 바뀌고 탭은 그대로였다(최종 검증 — 탭은 처음 열 때 한 번만 읽는다)

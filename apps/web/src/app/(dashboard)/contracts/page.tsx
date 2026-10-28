@@ -180,7 +180,7 @@ function ApprovalChain({ steps, userId, onClick }: { steps?: ChainStep[]; userId
   // 결재 진행 = 사람마다 점 + 이름(시안 3-9 — 끝남 파랑 · 지금 차례 주황 · 남음 회색, 초록 체크 아이콘 없음). 실제 배치 순서대로.
   // 단계마다 「이름 직급」(10/16 이예지 재확인 3 — 근로자도 「직원」 대신 이름. 이름 표기는 서버 labelApproverNames)
   const dots: FlowStep[] = steps.map((step) => ({
-    label: step.approver?.name || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
+    label: (step.approver?.name === "관리자" ? "본부" : step.approver?.name) || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
     state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
   }));
   return (
@@ -905,7 +905,7 @@ export default function ContractsPage() {
               <form onSubmit={e => { e.preventDefault(); unlockDoc(); }} className="space-y-2">
                 <ReauthPasswordInput autoFocus value={unlockPw} onChange={e => setUnlockPw(e.target.value)} placeholder="로그인 비밀번호" />
                 <Button type="submit" className="w-full bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={!unlockPw || unlocking}>{unlocking ? "확인 중…" : "확인하고 문서 열기"}</Button>
-                <p className="text-[11px] text-gray-400">확인 기록(시각)은 전자서명 완료 증명서에 남습니다. 비밀번호는 저장되지 않습니다.</p>
+                <p className="text-[12px] text-gray-400">확인 기록(시각)은 전자서명 완료 증명서에 남습니다. 비밀번호는 저장되지 않습니다.</p>
               </form>
             </div>
           )}
@@ -934,7 +934,7 @@ export default function ContractsPage() {
                   <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-3 space-y-2">
                     {/* 괄호 안내가 미동의를 권유하는 것처럼 읽혀 중립 문구로 교체 (#181, 2026-08-31 김가산) */}
                     <p className="text-xs font-semibold text-[#0f172a]">선택 동의 항목</p>
-                    <p className="text-[11px] text-[#596578]">동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</p>
+                    <p className="text-[12px] text-[#596578]">동의 여부와 관계없이 채용 절차에 영향을 주지 않습니다.</p>
                     {consentKeys.map(k => (
                       <div key={k} className="space-y-1">
                         <p className="text-xs text-gray-700">{CONSENT_LABELS[k]}</p>
@@ -1030,7 +1030,7 @@ export default function ContractsPage() {
                           onReachEnd={() => setDocReadToEnd(true)} />
                         <button type="button" onClick={() => { setZoomLoading(true); setPreviewZoom(true); }} title="클릭하여 크게 보기"
                           className="absolute inset-0 cursor-zoom-in flex items-start justify-end p-2">
-                          <span className="text-[11px] bg-white/95 text-[#334155] border border-[#e2e8f0] rounded-full px-2.5 py-1 shadow">클릭하면 크게 보입니다</span>
+                          <span className="text-[12px] bg-white/95 text-[#334155] border border-[#e2e8f0] rounded-full px-2.5 py-1 shadow">클릭하면 크게 보입니다</span>
                         </button>
                         {/* 로딩 중 빈 화면이면 오류인지 대기 중인지 구분이 안 된다는 지적 (#179) */}
                         {previewLoading && (
@@ -1072,7 +1072,7 @@ export default function ContractsPage() {
                       <Label>본인 확인 — 비밀번호 *</Label>
                       <ReauthPasswordInput value={signPassword}
                         onChange={e => setSignPassword(e.target.value)} placeholder="로그인 비밀번호" />
-                      <p className="text-[11px] text-gray-400">{isEmpSign ? "본인이 직접 서명하는지 확인합니다." : "결재자 본인이 직접 승인하는지 확인합니다."} 비밀번호는 저장되지 않습니다.</p>
+                      <p className="text-[12px] text-gray-400">{isEmpSign ? "본인이 직접 서명하는지 확인합니다." : "결재자 본인이 직접 승인하는지 확인합니다."} 비밀번호는 저장되지 않습니다.</p>
                     </div>
                   )}
                   {/* 전자서명 동의(#205-3) — 근로자 본인 서명만. 문구는 서버 기록과 같은 상수 */}
@@ -1275,7 +1275,7 @@ export default function ContractsPage() {
                   )}
                   {(step as any).signatureUrl && (
                     <div className="mt-1">
-                      <p className="text-[11px] text-gray-400 mb-0.5">서명</p>
+                      <p className="text-[12px] text-gray-400 mb-0.5">서명</p>
                       <img src={(step as any).signatureUrl} alt="서명" className="h-16 border rounded bg-white" />
                     </div>
                   )}

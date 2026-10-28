@@ -30,11 +30,11 @@ export function MultiPick({ label, options, value, onChange, allLabel = "전체"
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className={`inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border bg-white px-3 text-[13.5px] hover:bg-[#f8fafc] ${picked.length ? "border-[#c7d2fe] text-[#4f46e5]" : "border-[#e2e8f0] text-[#334155]"} ${className ?? ""}`}
+        className={`inline-flex h-[38px] items-center gap-1.5 rounded-[10px] border bg-white px-3 text-[13.5px] hover:bg-[#f8fafc] ${picked.length ? "border-[#c7d2fe] text-[#4f46e5]" : "border-[#e2e8f0] text-[#334155]"} ${className ?? ""}`}
         aria-label={`${label} 필터`}>
         <span className="text-[12.5px] text-[#596578]">{label}</span>
         <span className="font-medium max-w-[200px] truncate">{text}</span>
-        <ChevronDown size={14} className="text-gray-400" />
+        <ChevronDown size={14} strokeWidth={2.2} className="text-[#64748b]" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[200px] max-h-[60vh] overflow-y-auto">
         <DropdownMenuItem onClick={() => onChange([])} className={picked.length === 0 ? "font-semibold" : ""}>{allLabel}</DropdownMenuItem>

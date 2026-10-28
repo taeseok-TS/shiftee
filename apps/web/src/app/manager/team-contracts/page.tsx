@@ -97,7 +97,7 @@ function ApprovalChain({ steps, userId }: { steps?: Step[]; userId?: string }) {
   // 단계가 없으면(이관본 등) 회색 「—」만(2026-10-23 본부 ■2)
   if (!steps || steps.length === 0) return <span className="text-[13px] text-[#94a3b8]">—</span>;
   const dots: FlowStep[] = steps.map((step) => ({
-    label: step.approver?.name || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
+    label: (step.approver?.name === "관리자" ? "본부" : step.approver?.name) || (step.approverId === userId ? "직원" : step.externalName || "외부 서명자"),
     state: step.status === "APPROVED" ? "done" : step.status === "PENDING" ? "now" : "todo",
   }));
   return <FlowDots steps={dots} />;
@@ -340,7 +340,7 @@ export default function ManagerContractsPage() {
       openMine: () => { setSignTarget(mine ?? c); setSignOpen(true); },
       party: c.externalName ? `[외부] ${c.externalName}` : c.user.name,
       // 둘째 줄 — 지점(퇴사면 「퇴사」 붙임) · 외부 계약자면 「외부 계약자」
-      partySub: c.externalName ? "외부 계약자" : (c.user.branch || resigned) ? <>{c.user.branch}{resigned && <span className="ml-1 text-[11.5px] text-[#94a3b8]">퇴사</span>}</> : undefined,
+      partySub: c.externalName ? "외부 계약자" : (c.user.branch || resigned) ? <>{c.user.branch}{resigned && <span className="ml-1 text-[12px] text-[#94a3b8]">퇴사</span>}</> : undefined,
     };
   };
 

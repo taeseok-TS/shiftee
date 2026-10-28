@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  UmbrellaOff, Plus, X, AlertCircle, CalendarDays,
+  TreePalm, Plus, X, AlertCircle, CalendarDays,
   ClipboardList, Pencil, GitBranch,
   Trash2, Search, ArrowUp, ArrowDown, RefreshCw, Calculator,
   Upload, Download, ChevronDown,
@@ -25,7 +25,7 @@ import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import { getPermissionSummary, type UserRole } from "@/lib/permissions";
 import LeaveTabs, { isLeaveTab, type LeaveTab } from "@/components/leave/LeaveTabs";
-import { PageHead, Btn, Box, Tiles, Tile, FilterRow, Chip, inputClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type MoreItem } from "@/components/kit";
+import { PageHead, Btn, Box, Tiles, Tile, FilterRow, Chip, inputClass, selectClass, tableClass, Cell2, StatusPill, FlowDots, MoreMenu, type PillTone, type MoreItem } from "@/components/kit";
 import LeaveReport from "@/components/leave/LeaveReport";
 import LeaveGrantBoard from "@/components/leave/LeaveGrantBoard";
 import LeaveImport from "@/components/leave/LeaveImport";
@@ -41,9 +41,10 @@ type ApprovalStepInfo = {
 };
 // 역할 기반 단계 라벨: 결재자 미정 시 역할/지점으로 표시
 function stepLabel(s: { approver: { name: string } | null; approverRole?: string | null; branch?: string | null }) {
-  if (s.approver) return s.approver.name;
+  // 메인 관리자 계정(이름 「관리자」) · 사람이 안 정해진 본부 단계는 「본부」(2026-10-28 이예지 디자인 ⑤)
+  if (s.approver) return s.approver.name === "관리자" ? "본부" : s.approver.name;
   if (s.approverRole === "MANAGER") return `${s.branch ? `[${s.branch}] ` : ""}원장`;
-  if (s.approverRole === "ADMIN") return "관리자";
+  if (s.approverRole === "ADMIN") return "본부";
   return "결재자";
 }
 type LeaveRequest = {
@@ -691,10 +692,10 @@ export default function LeavePage() {
                 <input value={listQuery} onChange={e => setListQuery(e.target.value)} placeholder="이름 · 지점 · 유형 · 사유로 찾기" aria-label="신청 찾기"
                   className={`${inputClass} w-56 pl-8`} />
               </div>
-              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setFilterMonth("all"); }} aria-label="연도" className={inputClass}>
+              <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setFilterMonth("all"); }} aria-label="연도" className={selectClass}>
                 {YEARS.map(y => <option key={y} value={String(y)}>{y}년</option>)}
               </select>
-              <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} aria-label="월" className={inputClass}>
+              <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} aria-label="월" className={selectClass}>
                 <option value="all">전체 월</option>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={String(m)}>{m}월</option>)}
               </select>
@@ -704,7 +705,7 @@ export default function LeavePage() {
                 두 모양이 같은 칸 함수(leaveApproval·leaveStatus·leaveActions)를 쓴다 — 버튼 동작·조건을 한 곳에서만 고친다 */}
             {shownRequests.length === 0 ? (
               <div className="py-16 text-center text-[14px] text-[#596578]">
-                <UmbrellaOff size={32} className="mx-auto mb-2 opacity-30" />{requests.length ? "검색에 맞는 신청이 없습니다." : "신청 내역이 없습니다."}
+                <TreePalm size={32} className="mx-auto mb-2 opacity-30" />{requests.length ? "검색에 맞는 신청이 없습니다." : "신청 내역이 없습니다."}
               </div>
             ) : (<>
               <div className="hidden overflow-x-auto md:block">
@@ -896,17 +897,17 @@ export default function LeavePage() {
                             <p className="font-medium text-gray-900">{b.name}</p>
                             {/* 있는 값만(#219-9 — 「- · 주임매니저」로 보였다) */}
                             <p className="text-xs text-gray-400">{[b.department, b.position].filter(Boolean).join(" · ")}</p>
-                            {b.leaveNote && <p className="text-[11px] text-amber-600 mt-0.5">※ {b.leaveNote}</p>}
+                            {b.leaveNote && <p className="text-[12px] text-amber-600 mt-0.5">※ {b.leaveNote}</p>}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{b.branch || "-"}</td>
                           <td className="px-4 py-3 text-gray-600">{b.tenure || "-"}</td>
                           <td className="px-4 py-3 text-gray-700 font-medium">
                             {b.total}일
                             {b.recommended != null && b.recommended !== b.total && (
-                              <span className="text-[11px] text-amber-600 ml-1" title={b.accrualBasis || "회계연도 기준 계산"}>(계산 {b.recommended})</span>
+                              <span className="text-[12px] text-amber-600 ml-1" title={b.accrualBasis || "회계연도 기준 계산"}>(계산 {b.recommended})</span>
                             )}
                             {/* 산정 근거(#31) — 회계연도 기준: 월차·첫 해 비례·1/1 기준 근속 가산 */}
-                            {b.accrualBasis && <p className="text-[10px] font-normal text-gray-400 mt-0.5 max-w-[16rem] leading-snug">{b.accrualBasis}</p>}
+                            {b.accrualBasis && <p className="text-[12px] font-normal text-gray-400 mt-0.5 max-w-[16rem] leading-snug">{b.accrualBasis}</p>}
                           </td>
                           <td className="px-4 py-3 text-gray-600">{b.used}일</td>
                           <td className="px-4 py-3">
@@ -1220,14 +1221,14 @@ export default function LeavePage() {
                 <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1.5">
                   <div className="flex justify-between"><span className="text-gray-500">잔여 연차</span><span className="font-medium">{remaining}일</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">1일 통상임금</span><span className="font-medium">₩{won(dailyWage)}</span></div>
-                  <div className="text-[11px] text-gray-400">= (연봉 ÷ 12 ÷ 209시간) × 8시간</div>
+                  <div className="text-[12px] text-gray-400">= (연봉 ÷ 12 ÷ 209시간) × 8시간</div>
                   <div className="border-t pt-2 flex justify-between items-center">
                     <span className="text-gray-700 font-medium">연차수당</span>
                     <span className="text-lg font-bold text-indigo-600">₩{won(allowance)}</span>
                   </div>
-                  <div className="text-[11px] text-gray-400">= 1일 통상임금 × 잔여 연차 {remaining}일</div>
+                  <div className="text-[12px] text-gray-400">= 1일 통상임금 × 잔여 연차 {remaining}일</div>
                 </div>
-                <p className="text-[11px] text-gray-400">※ 통상임금 산정 방식(상여 포함 여부 등)에 따라 실제 금액은 달라질 수 있습니다.</p>
+                <p className="text-[12px] text-gray-400">※ 통상임금 산정 방식(상여 포함 여부 등)에 따라 실제 금액은 달라질 수 있습니다.</p>
                 <div className="flex justify-end"><Button variant="outline" onClick={() => setAllowTarget(null)}>닫기</Button></div>
               </div>
             );

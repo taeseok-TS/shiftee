@@ -199,7 +199,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
     const si = salaryInfo?.[uid];
     if (!si) return null;
     return (
-      <div className="pl-1 pt-0.5 text-[10px] leading-tight">
+      <div className="pl-1 pt-0.5 text-[12px] leading-tight">
         {si.note && <div className="text-gray-400 whitespace-nowrap">{si.note}</div>}
         <label className={`inline-flex items-center gap-1 whitespace-nowrap ${si.confirmed ? "text-indigo-700" : "text-red-600 font-semibold"} ${si.value ? "cursor-pointer" : "opacity-60"}`}>
           <input type="checkbox" checked={si.confirmed} disabled={!si.value} onChange={(ev) => onSalaryConfirm?.(uid, ev.target.checked)} />
@@ -253,7 +253,7 @@ export default function BulkValuesTable({ userIds, employees, columns, values, o
                           onChange={(ev) => set(uid, c, ev.target.value)}
                           className={`w-28 rounded border px-1.5 py-1 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 ${bad ? "border-red-400 bg-red-50" : diff ? "border-amber-300 bg-amber-50" : "border-gray-200"}`} />
                         )}
-                        {c === "연봉" && won > 0 && <div className="pl-1 text-[10px] font-semibold text-indigo-600 whitespace-nowrap">{koreanMoney(won)}</div>}
+                        {c === "연봉" && won > 0 && <div className="pl-1 text-[12px] font-semibold text-indigo-600 whitespace-nowrap">{koreanMoney(won)}</div>}
                         {c === "연봉" && salaryCheck(uid)}
                       </td>
                     );

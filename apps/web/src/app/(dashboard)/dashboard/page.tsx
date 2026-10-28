@@ -126,7 +126,7 @@ export default function SharedDashboardPage() {
         </Tiles>
       </Box>
 
-      <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-[18px] lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         {/* 상자 이름은 직원 메뉴와 같게 「내 요청」(2026-10-27 이예지 ⑪) */}
         <InboxBox title="내 요청" rows={rows.slice(0, 8)} loading={loading} count={rows.filter((r) => r.action === "서명").length}
           more={Math.max(0, rows.length - 8)} moreHref="/requests" empty="서명 대기 · 반려된 요청이 없습니다" />

@@ -34,7 +34,7 @@ const NO_HIRE = "입사일 없음";
 // 정산 일수 칸 — 음수(초과 사용)는 빨갛게, 값은 그대로
 const settleCell = (v: number | null | undefined) =>
   v == null ? <span className="text-gray-400">-</span>
-    : <span className={v < 0 ? "text-red-600 font-semibold" : "font-semibold text-gray-900"}>{num(v)}{v < 0 && <span className="ml-1 text-[10px] font-normal">초과 사용</span>}</span>;
+    : <span className={v < 0 ? "text-red-600 font-semibold" : "font-semibold text-gray-900"}>{num(v)}{v < 0 && <span className="ml-1 text-[12px] font-normal">초과 사용</span>}</span>;
 const hoursCell = (v: number) => <span className={v === 0 ? "text-gray-300" : v < 0 ? "text-red-600" : ""}>{num(v)}</span>;
 
 // ── 칸 정의 — 화면 표·카드·엑셀이 같은 값을 쓴다 ──
@@ -272,7 +272,7 @@ export default function LeaveSettlement() {
                     <p className="font-medium text-gray-900">{cols[1].value(r)}</p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="text-[11px] text-gray-500">{mode === "active" ? "정산(미사용)" : "정산"}</p>
+                    <p className="text-[12px] text-gray-500">{mode === "active" ? "정산(미사용)" : "정산"}</p>
                     <p className="text-base">{settleCell(r.calc?.settlement)}</p>
                   </div>
                 </div>
@@ -284,7 +284,7 @@ export default function LeaveSettlement() {
                     </Fragment>
                   ))}
                 </dl>
-                <p className="mt-1 text-[11px] text-blue-600">{open.has(r.userId) ? "산정 내역 접기" : "산정 내역 보기"}</p>
+                <p className="mt-1 text-[12px] text-blue-600">{open.has(r.userId) ? "산정 내역 접기" : "산정 내역 보기"}</p>
               </button>
               {open.has(r.userId) && <div className="mt-2 border-t pt-2">{detail(r)}</div>}
             </div>

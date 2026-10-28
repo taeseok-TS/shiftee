@@ -11,7 +11,7 @@ import { useUserPrefs } from "@/components/prefs/useUserPrefs";
 import { ViewSettingsMenu } from "@/components/schedule/ScheduleControls";
 import {
   type DateRange, type SchedulePrefs, type ShowKey, type ViewLayout, type ViewUnit,
-  LAYOUT_LABEL, SCHEDULE_PREFS_DEFAULT, VIEW_LAYOUTS, VIEW_UNITS, cleanSchedulePrefs, compactTime, daysOf, fmtHours,
+  LAYOUT_LABEL, SCHEDULE_PREFS_DEFAULT, VIEW_LAYOUTS, VIEW_UNITS, cleanSchedulePrefs, daysOf, fmtHours,
   netMinutes, rangeOf, shiftAnchor, timeAxis, timeToMin, ymd,
 } from "@/lib/schedule-view";
 
@@ -24,7 +24,7 @@ import {
  *
  * 2026-10-23 오픈 전 ■0-5 · ■3(시안 R18) · ■4
  *  · 하루 휴가(연차 등)인 날은 근무 시간 대신 휴가만. 반차는 「반차 18–22」처럼 일하는 시간까지
- *  · 1주 보기: 같은 근무가 이어지면 띠 하나(3칸 이상 「13:00–22:00」, 2칸 이하 「13–22」), 띠 안에서도 날짜마다 눌림.
+ *  · 1주 보기: 같은 근무가 이어지면 띠 하나(시간은 칸 수와 상관없이 「13:00–22:00」 — 2026-10-28 이예지 디자인 ④), 띠 안에서도 날짜마다 눌림.
  *    기본 근무 = 연회색 면, 시간 변경 = 흰 바탕 + 인디고 테두리, 휴가 = 연파랑 면, 주말 · 공휴일 근무 = 연보라 면,
  *    결재 대기(휴가 · 근무 변경) = 같은 색 점선 테두리. 칩 왼쪽 세로 막대 · 이름 칸 왼쪽 지점 막대는 뺐다
  *  · 「기본 근무」는 따로 정해 둔 값이 없어 **그 사람이 이 기간 평일에 가장 많이 한 시간**으로 본다
@@ -218,7 +218,6 @@ const KIND_CLS: Record<Kind, string> = {
 const isFull = (l: DayLeave) => !l.unit || l.unit === "FULL";
 const shortLeave = (l: DayLeave) => (l.unit === "HALF" ? "반차" : l.unit === "QUARTER" ? "반반차" : l.label);
 const dash = (a: string, b: string) => `${a}–${b}`;
-const shortTime = (st: string, et: string) => dash(compactTime(st), compactTime(et));
 
 function buildCell(empId: string, info: DayInfo, list: BoardSchedule[], leaves: RangeLeaves | null, baseKey: string | undefined, show: Show): DayCell {
   const date = info.key;
@@ -243,14 +242,14 @@ function buildCell(empId: string, info: DayInfo, list: BoardSchedule[], leaves: 
   if (ps) {
     if (ps.kind === "DELETE") return { ...base, kind: "chgp", merge: "del", text: "삭제 요청", title: `일정 삭제 요청 · 결재 대기${s ? ` (지금 ${sTitle})` : ""}`, work, leave: false };
     const st = ps.startTime ?? s?.startTime ?? "", et = ps.endTime ?? s?.endTime ?? "";
-    return { ...base, kind: info.off ? "wkp" : "chgp", merge: `p|${st}|${et}`, text: show.time ? shortTime(st, et) : "근무", long: show.time ? dash(st, et) : "근무",
+    return { ...base, kind: info.off ? "wkp" : "chgp", merge: `p|${st}|${et}`, text: show.time ? dash(st, et) : "근무", long: show.time ? dash(st, et) : "근무",
       // 결재 대기 근무 변경은 아직 확정 전 — 인원은 지금 확정된 일정대로 센다(삭제 요청 · 휴가 결재 대기와 같게)
       title: `근무 변경 ${dash(st, et)} · 결재 대기${s ? ` (지금 ${sTitle})` : ""}`, work, leave: false };
   }
   const half = appr[0] ?? pend[0];
   if (half) {
     const pending = !appr.length;
-    const t = work && show.time ? ` ${shortTime(s!.startTime, s!.endTime)}` : "";
+    const t = work && show.time ? ` ${dash(s!.startTime, s!.endTime)}` : "";
     return { ...base, kind: pending ? "vacp" : "half", merge: `half|${half.type}|${s?.startTime}|${s?.endTime}|${pending}`, text: `${shortLeave(half)}${t}${pending ? " · 결재 대기" : ""}`,
       title: `${half.label}${pending ? " 결재 대기" : ""}${s ? ` · 일정 ${sTitle}` : ""}`, work, leave: false };
   }
@@ -258,7 +257,7 @@ function buildCell(empId: string, info: DayInfo, list: BoardSchedule[], leaves: 
     if (s.type !== "work") return { ...base, kind: "off", merge: `off|${s.type}`, text: typeLabel(s.type), title: sTitle, work: false, leave: false };
     const k = `${s.startTime}-${s.endTime}`;
     const kind: Kind = info.off ? "wk" : baseKey && k !== baseKey ? "chg" : "base";
-    return { ...base, kind, merge: `${kind}|${k}`, text: show.time ? shortTime(s.startTime, s.endTime) : "근무", long: show.time ? dash(s.startTime, s.endTime) : "근무", title: sTitle, work: true, leave: false };
+    return { ...base, kind, merge: `${kind}|${k}`, text: show.time ? dash(s.startTime, s.endTime) : "근무", long: show.time ? dash(s.startTime, s.endTime) : "근무", title: sTitle, work: true, leave: false };
   }
   return { ...base, kind: "empty", merge: "", text: "", title: "", work: false, leave: false };
 }
@@ -325,7 +324,7 @@ function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, h
   // 주 합계 열 — 숫자를 숨긴 응답(원장)이면 셀이 「52시간 안 / 넘음」만 그린다(WeekTotalCell). hoursHidden prop 은 한 달 합계 열용
   void hoursHidden;
   const hoursOk = show.total && !!weekHours;
-  const cols = `minmax(150px,196px) repeat(${infos.length}, minmax(84px, 1fr))${hoursOk ? " 104px" : ""}`;
+  const cols = `minmax(150px,196px) repeat(${infos.length}, minmax(94px, 1fr))${hoursOk ? " 128px" : ""}`;
   const groups = groupByBranch(employees);
   const workCnt = infos.map(() => 0), leaveCnt = infos.map(() => 0);
   const rows = new Map<string, DayCell[]>();
@@ -344,7 +343,7 @@ function WeekView({ view, employees, schedules, holidayMap, leaves, weekHours, h
           <div key={x.key} className={`px-0.5 pb-[9px] pt-2.5 text-center leading-tight ${x.weekStart ? "border-l border-[#e2e8f0]" : ""}`} title={x.holidayName}>
             <b className={`mx-auto mb-px block h-7 w-7 rounded-full text-[15px] font-bold leading-7 tabular-nums ${x.today ? "bg-[#4f46e5] text-white" : x.off ? "text-[#64748b]" : "text-[#0f172a]"}`}>{x.day.getDate()}</b>
             <span className="text-[12px] text-[#596578]">{format(x.day, "EEE", { locale: ko })}</span>
-            {x.holidayName && <span className="block truncate px-1 text-[11px] text-[#64748b]">{x.holidayName}</span>}
+            {x.holidayName && <span className="block truncate px-1 text-[12px] text-[#64748b]">{x.holidayName}</span>}
           </div>
         ))}
         {hoursOk && <div className="flex items-center justify-center text-[12.5px] font-semibold text-[#596578]" title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">주간 합계</div>}
@@ -446,7 +445,7 @@ function MonthView({ view, employees, schedules, holidayMap, leaves, hoursHidden
         {infos.map((x) => (
           <div key={x.key} title={x.holidayName} className={`py-1.5 text-center leading-tight ${x.weekStart ? "border-l border-[#e2e8f0]" : ""} ${x.off ? "bg-[#fafbfc]" : ""}`}>
             <b className={`mx-auto block h-6 w-6 rounded-full text-[13px] font-bold leading-6 tabular-nums ${x.today ? "bg-[#4f46e5] text-white" : x.off ? "text-[#64748b]" : "text-[#0f172a]"}`}>{x.day.getDate()}</b>
-            <span className="text-[11px] text-[#596578]">{format(x.day, "EEEEE", { locale: ko })}</span>
+            <span className="text-[12px] text-[#596578]">{format(x.day, "EEEEE", { locale: ko })}</span>
           </div>
         ))}
         {showTotal && <div className="flex items-center justify-center text-[12.5px] font-semibold text-[#596578]" title="이 달 근무일정 근로시간(휴게 제외) — 화면에 보이는 일정 기준">월 합계</div>}
@@ -475,7 +474,7 @@ function MonthView({ view, employees, schedules, holidayMap, leaves, hoursHidden
                     onKeyDown={act ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } } : undefined}
                     onClick={act}>
                     {label}
-                    {addHere && <span className="pointer-events-none absolute right-0.5 top-0 text-[11px] font-bold leading-3 text-[#4f46e5] opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-hidden>+</span>}
+                    {addHere && <span className="pointer-events-none absolute right-0.5 top-0 text-[12px] font-bold leading-3 text-[#4f46e5] opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-hidden>+</span>}
                   </div>
                 )}
               </div>
@@ -511,7 +510,7 @@ function DayView({ view, employees, schedules, holidayMap, leaves, onEmptyCell, 
               <div key={hh} className="flex-1 border-r border-[#f1f5f9] py-3 text-center text-[12px] text-[#596578]">{hh}시</div>
             ))}
           </div>
-          {info.holidayName && <div className="absolute right-2 top-1 text-[11px] text-[#64748b]">{info.holidayName}</div>}
+          {info.holidayName && <div className="absolute right-2 top-1 text-[12px] text-[#64748b]">{info.holidayName}</div>}
         </div>
       </div>
       {employees.map((emp) => {
@@ -630,7 +629,7 @@ function ListView({ view, employees, schedules, holidayMap, leaves, onSchedule }
                   onClick={clickable ? () => onSchedule!(r.s!, r.emp) : undefined}>
                   <td className={`whitespace-nowrap px-6 py-2 ${r.info.off ? "text-[#64748b]" : "text-[#0f172a]"}`}>
                     {format(r.info.day, "M월 d일 (EEE)", { locale: ko })}
-                    {r.info.holidayName && <span className="ml-1 text-[11px] text-[#64748b]">{r.info.holidayName}</span>}
+                    {r.info.holidayName && <span className="ml-1 text-[12px] text-[#64748b]">{r.info.holidayName}</span>}
                   </td>
                   <td className="px-3 py-2">
                     <span className="font-semibold text-[#0f172a]">{r.emp.name}</span>

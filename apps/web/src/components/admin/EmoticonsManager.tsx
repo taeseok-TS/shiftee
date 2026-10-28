@@ -147,10 +147,10 @@ export default function EmoticonsManager() {
                   <div key={it.id} className={`border rounded-lg p-1.5 flex flex-col items-center gap-1 ${it.isActive ? "" : "opacity-40"}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={it.url} alt={it.name} className="w-20 h-20 object-contain" />
-                    <button className="text-[11px] text-gray-700 truncate max-w-full hover:underline" title="이름 바꾸기" onClick={() => renameItem(it)}>
+                    <button className="text-[12px] text-gray-700 truncate max-w-full hover:underline" title="이름 바꾸기" onClick={() => renameItem(it)}>
                       {it.name}{it.animated ? (it.url.endsWith(".gif") ? " · 움직임" : " · 움직임(웹만)") : ""}
                     </button>
-                    <div className="text-[10px] text-gray-400">{it.sentCount ? `${it.sentCount}번 보냄` : "보낸 적 없음"}</div>
+                    <div className="text-[12px] text-gray-400">{it.sentCount ? `${it.sentCount}번 보냄` : "보낸 적 없음"}</div>
                     <div className="flex items-center">
                       <button disabled={busy || ii === 0} onClick={() => moveItem(st, ii, ii - 1)} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="앞으로"><ArrowUp size={12} className="-rotate-90" /></button>
                       <button disabled={busy || ii === st.items.length - 1} onClick={() => moveItem(st, ii, ii + 1)} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30" title="뒤로"><ArrowDown size={12} className="-rotate-90" /></button>

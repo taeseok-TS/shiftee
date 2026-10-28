@@ -214,7 +214,7 @@ function StepChips({ steps, nameOf }: { steps: RuleStep[]; nameOf: (id: string) 
         <span key={i} className="inline-flex items-center gap-1">
           {i > 0 && <span className="text-gray-300">→</span>}
           <span className={`rounded px-1.5 py-0.5 text-xs ${s.type === "HQ" ? "bg-indigo-50 text-indigo-700" : s.type === "USER" ? "bg-amber-50 text-amber-800" : "bg-sky-50 text-sky-700"}`}>
-            <span className="text-[10px] text-gray-400 mr-0.5">{i + 1}차</span>
+            <span className="text-[12px] text-gray-400 mr-0.5">{i + 1}차</span>
             {s.type === "USER" ? (s.userId && nameOf(s.userId)) || "(사람 고르기)" : s.type === "HQ" ? "본부" : STEP_LABEL[s.type]}
           </span>
         </span>
@@ -236,7 +236,7 @@ function RuleRowView({ r, steps, open, err, changedFromDefault, nameOf, approver
         <td className="px-3 py-2 text-xs text-gray-500">{r.condition}</td>
         <td className="px-3 py-2">
           <StepChips steps={steps} nameOf={nameOf} />
-          {changedFromDefault && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">기본값과 다름</span>}
+          {changedFromDefault && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[12px] text-amber-800">기본값과 다름</span>}
           {err && <p className="mt-1 text-xs text-red-600">{err}</p>}
         </td>
         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -250,12 +250,12 @@ function RuleRowView({ r, steps, open, err, changedFromDefault, nameOf, approver
           )}
         </td>
       </tr>
-      {r.locked && <tr className="border-b"><td colSpan={5} className="px-3 pb-2 pt-0 text-[11px] text-gray-400">{r.locked}</td></tr>}
+      {r.locked && <tr className="border-b"><td colSpan={5} className="px-3 pb-2 pt-0 text-[12px] text-gray-400">{r.locked}</td></tr>}
       {open && !r.locked && (
         <tr className="border-b bg-indigo-50/40">
           <td colSpan={5} className="px-3 pb-3">
             <StepsEditor steps={steps} allowed={r.allowed} max={r.maxSteps} approvers={approvers} onChange={onChange} />
-            <p className="mt-1 text-[11px] text-gray-500">기본값: {describeSteps(r.def, nameOf)}{r.maxSteps === 1 ? " · 출퇴근 요청은 한 단계만 둘 수 있습니다." : ""}</p>
+            <p className="mt-1 text-[12px] text-gray-500">기본값: {describeSteps(r.def, nameOf)}{r.maxSteps === 1 ? " · 출퇴근 요청은 한 단계만 둘 수 있습니다." : ""}</p>
           </td>
         </tr>
       )}
@@ -348,7 +348,7 @@ function ExceptionForm({ draft, people, branches, approvers, nameOf, existing, o
         <Button size="sm" variant="outline" onClick={onCancel}>취소</Button>
         <Button size="sm" className="bg-[#4f46e5] text-white hover:bg-[#4338ca]" disabled={!!err} onClick={() => onApply(draft)}>적용</Button>
       </div>
-      <p className="text-[11px] text-gray-500">[적용] 뒤 위쪽 [변경 저장]을 눌러야 실제로 저장됩니다.</p>
+      <p className="text-[12px] text-gray-500">[적용] 뒤 위쪽 [변경 저장]을 눌러야 실제로 저장됩니다.</p>
     </div>
   );
 }

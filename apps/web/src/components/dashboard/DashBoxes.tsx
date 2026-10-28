@@ -13,7 +13,7 @@ export function InboxBox({ rows, count, loading, allHref, more, moreHref, empty 
   rows: InboxRow[]; count?: number; loading: boolean; allHref?: string; more?: number; moreHref?: string; empty?: string; title?: string;
 }) {
   return (
-    <Box icon={<CheckSquare />} tone="rose" title={title} count={count ?? rows.length} className="!mb-0 min-w-0"
+    <Box icon={<CheckSquare />} tone="ind" title={title} count={count ?? rows.length} className="!mb-0 min-w-0"
       right={allHref ? <a href={allHref} className="text-[#4f46e5] hover:underline">전체 보기 ›</a> : undefined}>
       <div className="px-6 py-1">
         {loading && !rows.length ? (

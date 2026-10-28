@@ -412,7 +412,7 @@ export default function AdminBotPage() {
                     onChange={(e) => patch(b.id, { [item.key]: e.target.checked }, true)} />
                   <span>
                     <span className="text-sm font-medium">{item.label}</span>
-                    <span className="block text-[11px] text-gray-400">{item.desc}</span>
+                    <span className="block text-[12px] text-gray-400">{item.desc}</span>
                   </span>
                 </label>
               ))}
@@ -443,7 +443,7 @@ export default function AdminBotPage() {
                 </div>
               </div>
               {b.monthlyAttach && (
-                <p className="mt-1 text-[11px] text-indigo-500">
+                <p className="mt-1 text-[12px] text-indigo-500">
                   파일명에서 월을 읽어 해당 월에만 발송합니다 (예: &quot;3월 카드뉴스&quot;, &quot;03_카드뉴스&quot;). 월을 읽지 못한 파일은 매번 발송됩니다.
                 </p>
               )}
@@ -462,9 +462,9 @@ export default function AdminBotPage() {
                       <span className="flex-1 truncate">{a.name}</span>
                       {b.monthlyAttach && (
                         month !== null ? (
-                          <span className="shrink-0 text-[11px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">{month}월</span>
+                          <span className="shrink-0 text-[12px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">{month}월</span>
                         ) : (
-                          <span className="shrink-0 text-[11px] text-gray-500 bg-gray-50 border rounded-full px-2 py-0.5">매번</span>
+                          <span className="shrink-0 text-[12px] text-gray-500 bg-gray-50 border rounded-full px-2 py-0.5">매번</span>
                         )
                       )}
                       <button onClick={() => patch(b.id, { attachments: b.attachments!.filter((_, idx) => idx !== i) }, true)}
@@ -476,7 +476,7 @@ export default function AdminBotPage() {
             </div>
 
             {b.lastSentAt && (
-              <p className="text-[11px] text-gray-400">마지막 발송: {new Date(b.lastSentAt).toLocaleString("ko-KR")}</p>
+              <p className="text-[12px] text-gray-400">마지막 발송: {new Date(b.lastSentAt).toLocaleString("ko-KR")}</p>
             )}
           </CardContent>
         </Card>

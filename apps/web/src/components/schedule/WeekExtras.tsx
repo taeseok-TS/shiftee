@@ -83,14 +83,14 @@ export function WeekTotalCell({ data, userId }: { data: WeekHours | null; userId
       </div>
     );
   }
-  const h = (m: number) => `${Math.round(m / 6) / 10}h`;
+  const h = (m: number) => { const t = Math.round(m); return `${Math.floor(t / 60)}시간${t % 60 ? ` ${t % 60}분` : ""}`; };   // 「18시간 20분」(18.3h 대신 — 이예지 10/28 디자인 ④)
   const over = !!wh && (wh.sched > data.limitMin || wh.actual > data.limitMin);
   return (
     <div className={`flex h-full flex-col justify-center px-3 text-[12px] leading-snug ${over ? "bg-[#fff1f2] font-semibold text-[#be123c]" : "text-[#475569]"}`}
       title="이번 주 근로시간(휴게 제외) — 49시간을 넘으면 빨간색">
       <div>일정 {h(wh?.sched ?? 0)}</div>
       {!data.actualHidden && <div>실제 {h(wh?.actual ?? 0)}</div>}
-      {over && <div>49h 초과</div>}
+      {over && <div>49시간 초과</div>}
     </div>
   );
 }

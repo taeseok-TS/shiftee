@@ -249,7 +249,7 @@ export default function ShifteeRequestsPage() {
                         {/* 전용 라우트가 권한을 다시 본다 — next/image 최적화는 쿠키를 싣지 않아 사설 사진에는 못 쓴다 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={attachmentUrl(open, name)} alt={name} loading="lazy" className="aspect-square w-full object-cover" />
-                        <span className="block truncate px-2 py-1 text-[11.5px] text-[#596578]">{name}</span>
+                        <span className="block truncate px-2 py-1 text-[12px] text-[#596578]">{name}</span>
                       </a>
                     ))}
                   </div>

@@ -83,7 +83,7 @@ export function ApiKeysPanel({ adminMode = false, onChanged }: { adminMode?: boo
             <div key={k.id} className={`border rounded-lg p-3 text-sm ${k.status === "revoked" || k.status === "expired" ? "opacity-60" : ""}`}>
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium">{k.name} <span className={`ml-1 inline-block px-2 py-0.5 rounded-full text-[11px] border ${cls}`}>{label}</span></p>
+                  <p className="font-medium">{k.name} <span className={`ml-1 inline-block px-2 py-0.5 rounded-full text-[12px] border ${cls}`}>{label}</span></p>
                   <p className="text-xs text-gray-500 mt-0.5 break-all">cbt_pk_{k.prefix}… · {k.scopes.map(scopeLabel).join(" · ")}{k.channelIds.length ? ` · 방 ${k.channelIds.length}개` : ""}</p>
                   <p className="text-xs text-gray-500">{k.lastUsedAt ? `마지막 사용 ${format(new Date(k.lastUsedAt), "M/d HH:mm")}${k.lastUsedIp ? ` · ${k.lastUsedIp}` : ""}` : "아직 사용 안 함"} · {k.revokedAt ? `${format(new Date(k.revokedAt), "M/d")} 끔` : `만료 ${format(new Date(k.expiresAt), "yyyy-MM-dd")}`}</p>
                   {k.suspendedAt && <p className="text-xs text-amber-700 mt-1">이상 사용({k.suspendReason})으로 멈췄습니다. 본인이 쓴 것이 맞으면 다시 켜고, 아니면 끄고 새로 만드세요.</p>}
@@ -96,7 +96,7 @@ export function ApiKeysPanel({ adminMode = false, onChanged }: { adminMode?: boo
             </div>
           );
         })}
-      <p className="text-[11px] text-gray-400">키가 새면 즉시 끄고 새로 만드세요. 키는 10개까지, 기본 90일(최대 1년)이며 비밀번호가 초기화되면 전부 꺼집니다.</p>
+      <p className="text-[12px] text-gray-400">키가 새면 즉시 끄고 새로 만드세요. 키는 10개까지, 기본 90일(최대 1년)이며 비밀번호가 초기화되면 전부 꺼집니다.</p>
       {create && <CreateDialog adminMode={adminMode} onClose={() => setCreate(false)} onCreated={(raw, name) => { setCreate(false); setSecret({ raw, name }); load(); onChanged?.(); }} />}
     </div>
   );
