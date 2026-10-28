@@ -821,7 +821,7 @@ model PortalSyncRun {
   pending    Int       @default(0)
   skipped    Int       @default(0)
   actorName  String?
-  summary    Json? // { skipped[], roleMismatch[], missingInPortal[] }
+  summary    Json? // { skipped[], roleMismatch[], missingInPortal[], phoneMismatch[] }
 
   changes PortalSyncChange[]
 

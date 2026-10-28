@@ -17,6 +17,7 @@ type Summary = {
   skipped?: { portalId: string; name: string; reason: string }[];
   roleMismatch?: { empNo: number; name: string; branch: string | null }[];
   missingInPortal?: { empNo: number | null; name: string; branch: string | null }[];
+  phoneMismatch?: { empNo: number; name: string; branch: string | null; cubetee: string; portal: string }[];
 };
 type Run = { id: string; trigger: string; startedAt: string; finishedAt: string | null; ok: boolean; error: string | null; fetched: number; matched: number; applied: number; pending: number; skipped: number; actorName: string | null; summary: Summary | null };
 type Data = { configured: boolean; canEditConnection: boolean; connection: { urlLabel: string; urlSet: boolean; leaversSet?: boolean; apikeySet: boolean; tokenSet: boolean }; autoApply: boolean; runs: Run[]; pending: Change[]; recent: Change[] };
@@ -243,7 +244,7 @@ export default function PortalSyncPage() {
       )}
 
       {/* 마지막 실행에서 걸린 것들 */}
-      {last?.ok && ((sum.skipped?.length ?? 0) > 0 || (sum.missingInPortal?.length ?? 0) > 0 || (sum.roleMismatch?.length ?? 0) > 0) && (
+      {last?.ok && ((sum.skipped?.length ?? 0) > 0 || (sum.missingInPortal?.length ?? 0) > 0 || (sum.roleMismatch?.length ?? 0) > 0 || (sum.phoneMismatch?.length ?? 0) > 0) && (
         <section className="grid md:grid-cols-3 gap-3">
           <Card><CardContent className="p-3 space-y-1">
             <p className="text-sm font-semibold">건너뜀 {sum.skipped?.length ?? 0}</p>
@@ -251,6 +252,10 @@ export default function PortalSyncPage() {
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.skipped ?? []).map((x, i) => <li key={i}>{x.name} <span className="text-gray-400">{x.portalId}</span> — {x.reason}</li>)}</ul>
           </CardContent></Card>
           <Card><CardContent className="p-3 space-y-1">
+            {(sum.phoneMismatch?.length ?? 0) > 0 && (<>
+              <p className="text-sm font-semibold">전화가 명부와 다른 사람 {sum.phoneMismatch?.length} <span className="font-normal text-gray-500">— 덮어쓰지 않습니다. 어느 쪽이 맞는지 확인해 직원 수정에서 고쳐 주세요</span></p>
+              <ul className="text-xs text-gray-700 max-h-40 overflow-y-auto space-y-0.5">{(sum.phoneMismatch ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span> · 큐브티 {x.cubetee} / 명부 {x.portal}</li>)}</ul>
+            </>)}
             <p className="text-sm font-semibold">포털에 없는 큐브티 재직자 {sum.missingInPortal?.length ?? 0}</p>
             <p className="text-[11px] text-gray-500">사번이 명부와 다르거나 명부에 아직 없는 직원 — 자동으로 퇴사시키지 않습니다</p>
             <ul className="text-xs text-gray-700 max-h-56 overflow-y-auto space-y-0.5">{(sum.missingInPortal ?? []).map((x, i) => <li key={i}>{x.branch ?? "-"} {x.name} <span className="text-gray-400">{pad(x.empNo)}</span></li>)}</ul>

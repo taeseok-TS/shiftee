@@ -182,6 +182,8 @@ export type PlanResult = {
   plans: Plan[]; skipped: Skip[];
   roleMismatch: { empNo: number; name: string; branch: string | null }[];
   missingInPortal: { empNo: number | null; name: string; branch: string | null }[];
+  /** 큐브티와 명부의 전화가 서로 다른 사람(둘 다 값이 있을 때) — 덮어쓰지 않고 본부가 어느 쪽이 맞는지 본다(2026-10-28 이예지 ①) */
+  phoneMismatch: { empNo: number; name: string; branch: string | null; cubetee: string; portal: string }[];
   fetched: number; matched: number;
 };
 
@@ -237,6 +239,7 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
   const plans: Plan[] = [];
   const skipped: Skip[] = [];
   const roleMismatch: PlanResult["roleMismatch"] = [];
+  const phoneMismatch: PlanResult["phoneMismatch"] = [];
   const dupCount = new Map<number, number>();
   for (const r of rows) if (r.empNo) dupCount.set(r.empNo, (dupCount.get(r.empNo) ?? 0) + 1);
   const seen = new Set<string>();
@@ -326,6 +329,7 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
     if (r.joinDate && r.hireDateEditable !== false && r.joinDate !== dstr(u.hireDate) && confirmedHire.get(u.id) !== dstr(u.hireDate)) fields.hireDate = [dstr(u.hireDate) || null, r.joinDate];
     // 전화 — 큐브티에 비어 있을 때만 채운다(있는 번호는 덮어쓰지 않는다 — 본인이 바꾼 번호가 있을 수 있다, 2026-10-27 이예지 ①)
     if (r.phone && !(u.phone ?? "").trim()) fields.phone = [null, r.phone];
+    else if (r.phone && (u.phone ?? "").replace(/\D/g, "") !== r.phone.replace(/\D/g, "")) phoneMismatch.push({ empNo: r.empNo, name: u.name, branch: u.branch, cubetee: u.phone ?? "", portal: r.phone });
     if (Object.keys(fields).length) {
       const nameMismatch = !!fields.name;
       // ⚠ 입사일은 연차 산정의 기준이다(leave-calc) — 바뀌는 건은 항상 확인받는다.
@@ -407,7 +411,7 @@ export async function planPortalSync(rows: PortalRow[], leaverRows: LeaverRow[] 
     }
     missingInPortal.push({ empNo: u.empNo, name: u.name, branch: u.branch });
   }
-  return { plans, skipped, roleMismatch, missingInPortal, fetched: rows.length, matched: seen.size };
+  return { plans, skipped, roleMismatch, missingInPortal, phoneMismatch, fetched: rows.length, matched: seen.size };
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -690,7 +694,7 @@ export async function runPortalSync(trigger: "AUTO" | "MANUAL", actor: Actor = S
       where: { id: run.id },
       data: {
         finishedAt: new Date(), ok: true, fetched: plan.fetched, matched: plan.matched, applied, pending, skipped: plan.skipped.length,
-        summary: { skipped: plan.skipped, roleMismatch: plan.roleMismatch, missingInPortal: plan.missingInPortal } as Prisma.InputJsonValue,
+        summary: { skipped: plan.skipped, roleMismatch: plan.roleMismatch, missingInPortal: plan.missingInPortal, phoneMismatch: plan.phoneMismatch } as Prisma.InputJsonValue,
       },
     });
     return { runId: run.id, ok: true, applied, pending, newPending, skipped: plan.skipped.length };

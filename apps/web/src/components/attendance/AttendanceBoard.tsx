@@ -183,8 +183,10 @@ export default function AttendanceBoard({ scope, embedded = false }: { scope: "a
     { key: "work", label: "총 시간", get: (r) => fmtH(r.c.workMin) },
     { key: "status", label: "상태", get: (r) => (hidden ? stateText(r.c, r.d, today, nowMin) : statusText(r.c)) },
   ];
-  // 시각을 뺀 응답이면 출근 · 퇴근 시각 · 휴게 · 총 시간 열도 뺀다(■0-11)
-  const COLS = hidden ? ALL_COLS.filter((c) => !TIME_COLS.has(c.key)) : ALL_COLS;
+  // 시각을 뺀 응답이면 출근 · 퇴근 시각 · 휴게 · 총 시간 열도 뺀다(■0-11). 단, 본부가 승인한 기록 요청 칸(granted)이 하나라도 있으면
+  // 열을 두고 그 칸에만 값이 온다(다른 칸은 서버가 비워 보낸다) — 원장 목록형 · 엑셀에서도 승인 기간 시각 · 일한 시간을 보게(2026-10-28 이예지 ⑦)
+  const anyGranted = hidden && rows.some((r) => r.c.granted && (r.c.in || r.c.out));
+  const COLS = hidden && !anyGranted ? ALL_COLS.filter((c) => !TIME_COLS.has(c.key)) : ALL_COLS;
   const listRows = useMemo(() => {
     const active = Object.entries(colFilter).filter(([, v]) => v.trim());
     if (!active.length) return rows;
