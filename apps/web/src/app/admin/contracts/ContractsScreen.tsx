@@ -947,6 +947,11 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   // 코디 채용 패키지 — 코디 계약서 4종(정규직 주40/주35·계약직 일반/단기) 중 선택 + 비밀유지·개인정보동의서
   const codiTemplates = pkgTemplates.filter(t => t.name.includes("코디") && t.name.includes("근로계약서"));
   const canCodiBundle = codiTemplates.length > 0 && !!ndaTemplate && !!privacyTemplate;
+  // 코디 재계약(2026-10-28 이예지 — 새 양식 없이 쓰던 코디 서식 그대로): 코디 양식은 조건 구간이 없어도 계약 구분(신규입사 · 재계약)을 가진다.
+  // 재계약이면 양식의 「재계약 순서」(본부 → 근로자 → 원장)로 가고, 정규직 양식은 수습 문단이 {#신규입사} 구간이라 숨는다
+  const isCodiDoc = codiTemplates.some(t => t.id === selectedTemplate) && !codiBundleMode;
+  const kindCapable = templateConditions.includes("신규입사") || isCodiDoc;
+  const [codiRenewInfo, setCodiRenewInfo] = useState<string>("");
 
   // 외부 채용 패키지 — 기타직무 계약서(학습실장 등) + 비밀유지·개인정보동의서, 게스트 링크 하나로 함께 서명
   const extTemplate = pkgTemplates.find(t => t.name.includes("기타직무"));
@@ -1105,7 +1110,43 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   };
 
   // 작성 종류 고르기(#87) — 각 체크박스가 하던 일을 한 번에(입사=신규입사 패키지, 재계약=근로계약서+계약 구분 재계약, 퇴사=퇴사 패키지)
-  const startKind = (k: "hire" | "renew" | "resign" | "other") => {
+  // 받는 사람이 모두 코디(직군)인가 — 코디 재계약 자동 분기(2026-10-28 이예지). 직군이 비어 있으면 코디로 보지 않는다
+  const recipientsNow = () => (bulkMode ? bulkUserIds : createForm.userId ? [createForm.userId] : []);   // flowRecipients 와 같은 값(그 함수는 아래에서 선언돼 여기선 직접 센다)
+  const jobOf = (id: string) => ((employees.find((x) => x.id === id) as { jobGroup?: string | null } | undefined)?.jobGroup ?? "").trim();
+  // 받는 사람 직군 — 전원 코디("all") · 코디와 다른 직군(또는 빈 직군) 섞임("mixed") · 코디 없음("none"). 계약서 보내기(flow)는 받는 사람이 상태에 들어가기 전에
+  // 작성 종류가 정해지므로 to 를 인자로 받는다(검증 F1 — 종전엔 직전 화면의 받는 사람으로 판단했다)
+  const codiMix = (ids: string[]): "all" | "mixed" | "none" => {
+    if (!ids.length) return "none";
+    const n = ids.filter((id) => jobOf(id) === "코디").length;
+    return n === ids.length ? "all" : n > 0 ? "mixed" : "none";
+  };
+  // 코디 재계약 — 포털 인사카드 고용형태(정규직 | 계약직)로 양식 기본값: 정규직 → 「정규직 주40시간」, 계약직 → 「계약직 일반·오후」. 아래 「코디 양식」에서 바꿀 수 있다
+  const startCodiRenew = async (ids: string[]) => {
+    const seq0 = ++scanSeqRef.current;   // 조회를 기다리는 동안 다른 양식 · 작성 종류 · 또 한 번의 코디 재계약이 있으면(순번이 오른다) 결과를 버린다(검증 F2 · N1)
+    setCodiRenewInfo("코디 재계약 — 포털 인사카드에서 고용형태를 확인하는 중…");
+    let types: Record<string, string> = {};
+    try {
+      const r = await fetch("/api/admin/portal-employment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: ids }) });
+      const d = await r.json().catch(() => null);
+      if (r.ok && d?.types) types = d.types as Record<string, string>;
+    } catch { /* 창구가 없으면 정규직 기본 */ }
+    if (scanSeqRef.current !== seq0) return;
+    const n정규 = ids.filter((id) => types[id] === "정규직").length, n계약 = ids.filter((id) => types[id] === "계약직").length;
+    const want = n계약 > 0 && n정규 === 0 ? "계약직" : "정규직";
+    const pick = (want === "계약직"
+      ? codiTemplates.find((t) => t.name.includes("계약직 일반·오후")) ?? codiTemplates.find((t) => t.name.includes("계약직"))
+      : codiTemplates.find((t) => t.name.includes("주40")) ?? codiTemplates.find((t) => t.name.includes("정규직"))) ?? codiTemplates[0];
+    setBundleMode(false); setResignBundleMode(false);
+    setSelectedTemplate(pick.id);
+    setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, pick.id, false), type: pick.type }));
+    scanFields(pick.id, false);
+    setContractKind("재계약");   // scanFields 가 첫 await 전에 「신규입사」로 되돌리므로 그 뒤
+    const unknown = ids.length - n정규 - n계약;
+    const order = stepsLabel(parseApprovalSteps(pick.approvalStepsRenewal ?? pick.approvalSteps) ?? DEFAULT_STEPS, false);   // 양식에 저장된 실제 재계약 순서(검증 F6)
+    setCodiRenewInfo(`코디 재계약 — 포털 인사카드 고용형태: 정규직 ${n정규} · 계약직 ${n계약}${unknown ? ` · 확인 안 됨 ${unknown}` : ""} → 「${pick.name}」 양식. 근무 형태가 다르면 아래 「코디 양식」에서 바꿔 주세요. 결재 순서 ${order}`);
+  };
+  const startKind = (k: "hire" | "renew" | "resign" | "other", to?: string[]) => {
+    setCodiRenewInfo("");   // 작성 종류를 바꾸면 코디 안내는 지운다(검증 F5)
     setUseTemplate(true); setExternalMode(false); setExtBundleMode(false); setCodiBundleMode(false);
     if (k === "hire" && empTemplate) {
       const et = empTemplate;
@@ -1113,9 +1154,14 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       setSelectedTemplate(et.id);
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, canBundle), type: et.type }));
       scanFields(et.id, canBundle, false, false);
+    } else if (k === "renew" && codiTemplates.length > 0 && codiMix(to ?? recipientsNow()) === "all") {
+      void startCodiRenew(to ?? recipientsNow());   // 코디 재계약 — 쓰던 코디 서식(정규직 · 계약직)을 고용형태로 고른다(2026-10-28 이예지)
     } else if (k === "renew" && empTemplate) {
       const et = empTemplate;
       setBundleMode(false); setResignBundleMode(false);
+      const mix = codiMix(to ?? recipientsNow());
+      if (mix === "mixed") setCodiRenewInfo("받는 사람에 코디와 다른 직군(또는 직군이 빈 사람)이 섞여 있어 매니저 재계약 양식(에듀플렉스 근로계약서)으로 잡았습니다. 코디는 따로 보내 주세요 — 직군은 인사 › 직원에서 확인할 수 있습니다.");   // 검증 F4
+      else if (!(to ?? recipientsNow()).length && codiTemplates.length > 0) setCodiRenewInfo("코디 재계약이면 직원을 고른 뒤 「재계약」을 다시 눌러 주세요 — 코디 양식(정규직 · 계약직)으로 바뀝니다.");   // 팝업에서 재계약을 먼저 눌렀을 때
       setSelectedTemplate(et.id);
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, et.id, false), type: et.type }));
       scanFields(et.id, false);
@@ -1154,6 +1200,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
 
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
+    setCodiRenewInfo("");   // 양식을 직접 고르면 코디 재계약 안내는 지운다(검증 N3)
     if (template) {
       setSelectedTemplate(templateId);
       setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, templateId, bundleMode, resignBundleMode), type: template.type }));
@@ -1599,7 +1646,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
       if (picks.some((v, i) => v !== RESIGN_PICK_DEFAULT[i])) { setResignPicks(picks); scanFields(resignTemplates[0].id, false, true, true, picks); }
     } else {
       if (!tpl) { toast.error("고른 양식을 찾지 못했습니다. 다시 골라 주세요."); return false; }
-      if (kind === "renew" && empTemplate && tpl.id === empTemplate.id) startKind("renew");
+      if (kind === "renew" && empTemplate && tpl.id === empTemplate.id) startKind("renew", to);   // 받는 사람은 아래에서 상태에 들어가므로 인자로(검증 F1)
       else {
         setUseTemplate(true);
         handleTemplateSelect(tpl.id);
@@ -1625,7 +1672,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
 
   /** 작성 폼을 처음 상태로(팝업을 닫을 때와 같은 정리 + 여러 명 작성) — 1단계에서 다른 서류를 고르고 다시 넘어올 때 */
   function resetCompose() {
-    setForceSeverance(false);
+    setForceSeverance(false); setCodiRenewInfo("");
     setEmployeeSearchText("");
     setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
     setFiles([]); setUseTemplate(false); setSelectedTemplate("");
@@ -1727,7 +1774,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
     // 선택_ 는 고르지 않은 항목이 빈칸으로 남지 않게 □ 로 채운다(기본은 전부 해제)
     for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
-    if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+    if (kindCapable) allExtra["계약구분"] = contractKind;
     // 개인정보동의서 "단독" 발송에도 동의 단계가 뜨도록 키를 심는다 — 키가 없으면 서명 화면이
     // 동의 확인을 건너뛰어 빈 체크로 완료되는 회귀 (검증관 2026-08-27)
     if (privacyTemplate && selectedTemplate === privacyTemplate.id) {
@@ -1796,7 +1843,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     }
     for (const f of templateFields) if (f.startsWith("체크_") && !(f in common)) common[f] = f.includes("기타") ? "□" : "☑";
     for (const f of templateFields) if (f.startsWith("선택_") && !(f in common)) common[f] = "□";
-    if (templateConditions.includes("신규입사")) common["계약구분"] = contractKind;
+    if (kindCapable) common["계약구분"] = contractKind;
     const payload = (uid: string) => {
       const emp = employees.find(x => x.id === uid);
       if (!emp) return null;
@@ -2019,7 +2066,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
   function sanityOf(uid: string, e: Employee | undefined): string | null {
     const p = bulkMode ? bulkBuilder().payload(uid) : null;
     const startYmd = String((bulkMode ? p?.rowStart : createForm.startDate) || "").slice(0, 10);
-    const kindOn = templateConditions.includes("신규입사") || bundleMode;
+    const kindOn = kindCapable || bundleMode;
     const hire = e?.hireDate ? String(e.hireDate).slice(0, 10) : "";
     // 시작일이 입사일에 묶인 양식(startBound · 묶음)은 시작일 = 입사일이라 hire 와 비교하면 늘 0 — 오늘과도 비교해야 기존 직원이 잡힌다(10/28 재검증)
     if (kindOn && contractKind === "신규입사" && hire && (daysBetween(hire, startYmd || todayYmdStr) > 365 || daysBetween(hire, todayYmdStr) > 365))
@@ -2029,6 +2076,8 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     if (startYmd && !startIsHire && daysBetween(startYmd, todayYmdStr) > 31) return `계약 시작일 ${startYmd} — 한 달 넘게 지난 날짜입니다`;
     if (kindOn) {
       const recips = flowRecipients();
+      const codiFixedTerm = isCodiDoc && !!templates.find((t) => t.id === selectedTemplate)?.name.includes("계약직");   // 계약직 코디는 1년 안 재계약이 정상(검증 F7)
+      if (codiFixedTerm) return null;
       // 기준일: 재계약은 계약 시작일(미리 준비하는 시기에 흔들리지 않게), 신규입사는 오늘(startBound 면 각자 시작일 = 입사일이라 시작일 기준으론 전원 0일)
       const base = contractKind === "신규입사" ? todayYmdStr : startYmd;
       const nh = (id: string) => isNewHire(employees.find((x) => x.id === id), base);
@@ -2817,7 +2866,7 @@ ${url}`;
     const t = templates.find((x) => x.id === repId);
     if (!useTemplate || !t) return "";
     // 서버(api/contracts templateStepsFor)와 같은 조건 — 재계약 순서는 계약 구분이 있는 양식({#신규입사})에서 「재계약」일 때만
-    const renewal = contractKind === "재계약" && templateConditions.includes("신규입사") && !!t.approvalStepsRenewal;
+    const renewal = contractKind === "재계약" && kindCapable && !!t.approvalStepsRenewal;
     const raw = renewal ? t.approvalStepsRenewal : t.approvalSteps;
     const note = bundleMode && privacyTemplate ? " (대표 서류 기준 — 개인정보 동의서는 근로자 서명만)" : customBundle ? " (대표 서류 기준 — 근로자 전용 서류는 근로자 서명만)" : "";
     return stepsLabel(parseApprovalSteps(raw) ?? DEFAULT_STEPS, externalMode) + note;
@@ -2825,8 +2874,10 @@ ${url}`;
   const composeForm = (
               <form id="compose-form" onSubmit={handleCreate} className="space-y-4">
                 {flow && composeOrderText && (
-                  <p className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-1.5 text-xs text-indigo-900">결재 순서: <b>{composeOrderText}</b>{templateConditions.includes("신규입사") ? ` · 계약 구분 「${contractKind}」` : ""}</p>
+                  <p className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-1.5 text-xs text-indigo-900">결재 순서: <b>{composeOrderText}</b>{kindCapable ? ` · 계약 구분 「${contractKind}」` : ""}</p>
                 )}
+                {/* 코디 재계약 안내(섞임 · 확인 중) — 코디 양식이 아직 아닐 때는 여기(계약서 보내기 2단계)에 보인다(검증 N2) */}
+                {flow && codiRenewInfo && !isCodiDoc && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">{codiRenewInfo}</p>}
                 {flow && !resignBundleMode && !externalMode && (
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-gray-900"><span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] text-white">1</span>받는 사람 추가 <span className="text-xs font-normal text-gray-400">— 셋 중 편한 방법 하나</span></p>
@@ -2887,10 +2938,11 @@ ${url}`;
                         ["other", "그 밖의 서류", "양식을 직접 고르기"],
                       ] as const).map(([k, label, sub]) => {
                         const isEmpDoc = !!empTemplate && selectedTemplate === empTemplate.id && !resignBundleMode;
+                        const codiRenew = isCodiDoc && contractKind === "재계약";   // 코디 재계약(2026-10-28)
                         const on = k === "hire" ? useTemplate && (bundleMode || (isEmpDoc && contractKind !== "재계약"))
-                          : k === "renew" ? useTemplate && isEmpDoc && !bundleMode && contractKind === "재계약"
+                          : k === "renew" ? useTemplate && (isEmpDoc || codiRenew) && !bundleMode && contractKind === "재계약"
                           : k === "resign" ? useTemplate && resignBundleMode
-                          : useTemplate && !bundleMode && !resignBundleMode && !isEmpDoc;
+                          : useTemplate && !bundleMode && !resignBundleMode && !isEmpDoc && !codiRenew;
                         const disabled = (k === "hire" || k === "renew") ? !empTemplate : k === "resign" ? !canResignBundle : false;
                         return (
                           <button key={k} type="button" disabled={disabled} onClick={() => startKind(k)}
@@ -2901,6 +2953,7 @@ ${url}`;
                         );
                       })}
                     </div>
+                    {codiRenewInfo && !isCodiDoc && <p className="text-xs text-amber-800">{codiRenewInfo}</p>}
                   </div>
                 )}
                 {/* 외부(미가입) 계약자 — 게스트 서명 링크로 발송. 계약서 보내기(flow)에서는 1단계에서 「외부 계약자」를 고른 때만 이름·휴대폰 칸이 보인다(재요청 F) */}
@@ -3434,8 +3487,30 @@ ${url}`;
                 </div>
                 )}
 
-                {/* 계약 구분 — 템플릿에 {#신규입사}/{#재계약} 조건 구간이 있을 때만 표시 */}
-                {useTemplate && templateConditions.includes("신규입사") && (
+                {/* 코디 재계약 — 양식 고르기(정규직 주35 · 주40 · 계약직 단기 · 오전 · 오후). 코디 채용 패키지(신규)와는 다른 자리(2026-10-28 이예지) */}
+                {useTemplate && isCodiDoc && contractKind === "재계약" && (
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-2">
+                    {codiRenewInfo && <p className="text-xs text-sky-800">{codiRenewInfo}</p>}
+                    <p className="text-xs font-medium text-sky-800">코디 양식</p>
+                    <div className="space-y-1">
+                      {codiTemplates.map(ct => (
+                        <label key={ct.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="radio" name="codiRenewTemplate" checked={selectedTemplate === ct.id}
+                            onChange={() => {
+                              setSelectedTemplate(ct.id);
+                              setCreateForm(f => ({ ...f, title: autoContractTitle(f.userId, ct.id, false), type: ct.type }));
+                              scanFields(ct.id, false);
+                              setContractKind("재계약");   // scanFields 가 「신규입사」로 되돌린 뒤에
+                              setCodiRenewInfo(`코디 재계약 — 「${ct.name}」 양식. 결재 순서 ${stepsLabel(parseApprovalSteps(ct.approvalStepsRenewal ?? ct.approvalSteps) ?? DEFAULT_STEPS, false)}`);
+                            }} />
+                          {ct.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* 계약 구분 — 템플릿에 {#신규입사}/{#재계약} 조건 구간이 있거나 코디 양식일 때 표시 */}
+                {useTemplate && kindCapable && (
                   <div className="space-y-1">
                     <Label>계약 구분</Label>
                     <div className="flex gap-4 text-sm">
@@ -3446,7 +3521,7 @@ ${url}`;
                         </label>
                       ))}
                     </div>
-                    <p className="text-[11px] text-gray-400">재계약을 선택하면 수습기간 조항이 &quot;해당없음&quot;으로 처리되고 관련 입력란이 숨겨집니다.{templates.find(x => x.id === selectedTemplate)?.approvalStepsRenewal ? " 이 양식은 재계약이면 결재 순서도 양식의 「재계약 순서」로 발송됩니다." : ""}</p>
+                    <p className="text-[11px] text-gray-400">{isCodiDoc && !templateConditions.includes("신규입사") ? "이 양식에는 수습 조항이 없어 계약 구분은 결재 순서에만 쓰입니다." : isCodiDoc ? "재계약을 선택하면 수습 문단(제3조 · 제7조 ④)이 빠지고 「재계약에는 적용하지 아니한다」 한 줄로 바뀝니다." : "재계약을 선택하면 수습기간 조항이 \"해당없음\"으로 처리되고 관련 입력란이 숨겨집니다."}{templates.find(x => x.id === selectedTemplate)?.approvalStepsRenewal ? " 이 양식은 재계약이면 결재 순서도 양식의 「재계약 순서」로 발송됩니다." : ""}</p>
                   </div>
                 )}
 
@@ -3738,7 +3813,7 @@ ${url}`;
                           }
                           for (const f of templateFields) if (f.startsWith("체크_") && !(f in allExtra)) allExtra[f] = f.includes("기타") ? "□" : "☑";
                           for (const f of templateFields) if (f.startsWith("선택_") && !(f in allExtra)) allExtra[f] = "□";
-                          if (templateConditions.includes("신규입사")) allExtra["계약구분"] = contractKind;
+                          if (kindCapable) allExtra["계약구분"] = contractKind;
                           // 패키지 모드면 포함 문서 전체를 한 PDF 로 이어 미리보기 (#117)
                           const pkgIds = customBundle ? customBundle.ids
                             : resignBundleMode && resignTemplates.every(Boolean) ? resignTemplates.filter((_, i) => resignIncluded[i]).map(t => t!.id)
@@ -3901,7 +3976,7 @@ ${url}`;
             <Dialog open={createOpen} onOpenChange={(open) => {
               setCreateOpen(open);
               if (!open) {
-                setForceSeverance(false);   // 「퇴직금 정산 신청서 포함」 선택이 다음 직원에게 넘어가지 않게(7b92cb9 검증)
+                setForceSeverance(false); setCodiRenewInfo("");   // 「퇴직금 정산 신청서 포함」 선택이 다음 직원에게 넘어가지 않게(7b92cb9 검증) · 코디 안내도(검증 N3)
                 setEmployeeSearchText("");
                 setCreateForm({ userId: "", title: "", type: "EMPLOYMENT", startDate: "", endDate: "", salary: "" }); setTemplateFields([]); setExtraFields({}); setTemplateConditions([]); setFieldConditions({}); setContractKind("신규입사"); setSalaryFocus(false);
                 setFiles([]);

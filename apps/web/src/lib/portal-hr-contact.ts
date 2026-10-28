@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db";
 import { mapBranch } from "@/lib/portal-roster";
 
 export type HrContact = { address: string; birthDate: string; phone: string };   // 비면 ""
-type Row = { name: string; branch: string; address: string; birthDate: string; phone: string; branchAssignDate: string };
+type Row = { name: string; branch: string; address: string; birthDate: string; phone: string; branchAssignDate: string; employmentType: string };
 
 const TTL_MS = 10 * 60 * 1000;
 const FAIL_TTL_MS = 60 * 1000;   // 실패도 1분은 기억 — 포털이 죽었을 때 렌더마다 8초씩 기다리지 않게(143693e 검증 P1)
@@ -57,7 +57,8 @@ async function loadRows(): Promise<Row[]> {
         if (!name) continue;
         const branchRaw = typeof o.branch === "string" ? o.branch.trim() : "";
         const branch = mapBranch(branchRaw, known).value ?? branchRaw;
-        rows.push({ name, branch, address: typeof o.address === "string" ? o.address.trim() : "", birthDate: ymd(o.birth_date), phone: phoneOf(o.phone), branchAssignDate: ymd(o.branch_assign_date) });
+        rows.push({ name, branch, address: typeof o.address === "string" ? o.address.trim() : "", birthDate: ymd(o.birth_date), phone: phoneOf(o.phone), branchAssignDate: ymd(o.branch_assign_date),
+          employmentType: typeof o.employment_type === "string" ? o.employment_type.trim() : "" });   // 정규직 | 계약직 (2026-10-28 이예지 — 코디 재계약 양식 고르기)
       }
       cache = { at: Date.now(), rows }; failedAt = 0;
       return rows;
@@ -102,6 +103,25 @@ export async function portalAssignDates(users: { id: string; name: string; branc
     const b = (u.branch || "").trim();
     const cands = b ? byName.filter((r) => !r.branch || r.branch === b) : byName;
     if (cands.length === 1 && cands[0].branchAssignDate) out.set(u.id, cands[0].branchAssignDate);
+  }
+  return out;
+}
+
+/**
+ * 고용형태(정규직 | 계약직) — 여러 사람을 한 번에. 코디 재계약에서 정규직 · 계약직 양식을 자동으로 고르는 데 쓴다(2026-10-28 이예지).
+ * 사람 맞추기는 portalAssignDates 와 같은 규칙(이름 + 지점). 없거나 못 가르면 빠진다. 창구가 꺼져 있으면 빈 Map
+ */
+export async function portalEmploymentTypes(users: { id: string; name: string; branch: string | null }[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!portalHrContactConfigured() || !users.length) return out;
+  const rows = await loadRows();
+  if (!rows.length) return out;
+  for (const u of users) {
+    const n = normName(u.name); if (!n) continue;
+    const byName = rows.filter((r) => r.name === n);
+    const b = (u.branch || "").trim();
+    const cands = b ? byName.filter((r) => !r.branch || r.branch === b) : byName;
+    if (cands.length === 1 && cands[0].employmentType) out.set(u.id, cands[0].employmentType);
   }
   return out;
 }
