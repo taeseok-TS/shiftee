@@ -34,12 +34,14 @@ export async function GET(request: NextRequest) {
     safe(leaveInbox(request).then((r) => countOf(r, "steps"))),
     safe(scheduleInbox(request).then((r) => countOf(r, "steps"))),
     safe(cancelInbox(request).then((r) => countOf(r, "steps"))),
-    // 출퇴근 수정은 원장 차례인 건(currentStep MANAGER)이 결재함에 회색으로 함께 오므로 숫자에서는 뺀다(2026-10-27 이예지 ⑬ — 본부 차례만)
+    // 출퇴근 수정 — 본부(ADMIN)에게는 원장 차례인 건(currentStep MANAGER)이 결재함에 회색으로 함께 오므로 숫자에서는 뺀다(2026-10-27 이예지 ⑬ — 본부 차례만).
+    // 원장에게 오는 건은 모두 원장 차례(inboxWhere)라 그대로 센다 — 종전엔 원장도 걸러져 배지 1 · 목록 4 로 어긋났다(2026-10-28 이예지 ②)
     safe(attendanceRequests(new NextRequest(inboxUrl, { headers: request.headers })).then(async (r) => {
       if (!r.ok) return 0;
       const d = await r.json().catch(() => null);
       const v = d?.requests;
-      return Array.isArray(v) ? v.filter((x: { currentStep?: string | null }) => x?.currentStep !== "MANAGER").length : 0;
+      if (!Array.isArray(v)) return 0;
+      return session.role === "ADMIN" ? v.filter((x: { currentStep?: string | null }) => x?.currentStep !== "MANAGER").length : v.length;
     })),
     safe(contractInbox(request).then((r) => countOf(r, "contracts"))),
     // 내 계약서 — 근로자 본인 서명 차례(서명 화면 「내 서명 대기」와 같은 조건)

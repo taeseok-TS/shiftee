@@ -58,6 +58,7 @@ export default function ManagerDashboardPage() {
     try {
       const meRes = await fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
       const myId: string = meRes?.user?.id ?? "";
+      const myRole: string = meRes?.user?.role ?? "";
       setMe({ id: myId, role: meRes?.user?.role ?? "", branch: meRes?.user?.branch ?? "" });
       const get = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       const [st, leave, sched, cancel, att, contracts] = await Promise.all([
@@ -90,11 +91,15 @@ export default function ManagerDashboardPage() {
       // 출퇴근 수정 — 원장에게는 찍은 시각이 오지 않는다(■0-11, requestedAt · createdAt = null). 둘째 줄은 서버가 만든 시각 없는 요약(summary,
       // 「10월 23일 (금) 퇴근 누락 → 퇴근」) 그대로. 순서는 요청을 올린 때로 — 시각이 없으면 올린 날(createdDate, KST "YYYY-MM-DD")의 0시로
       // (0 으로 두면 맨 뒤로 밀려 8줄 안에서 잘렸다)
-      for (const r of (att?.requests || []) as { id: string; status?: string; kindLabel?: string; summary?: string | null; statusSummary?: string | null; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
+      // 제목은 요청 종류 이름 그대로(「지점 밖 출퇴근」「출퇴근 수정」「퇴근 누락」…) — 관리자 화면과 같은 이름(2026-10-28 이예지 ④, 종전엔 모두 「출퇴근 수정」)
+      // 본부 계정이 원장 모드로 볼 때는 전 지점 대기가 다 오므로, 원장 차례(currentStep MANAGER) 건은 회색 「원장 승인 전」 — 레일 · 배지 숫자(본부 차례만)와 같은 기준(②)
+      for (const r of (att?.requests || []) as { id: string; status?: string; currentStep?: string | null; kindLabel?: string; summary?: string | null; statusSummary?: string | null; workDate: string; userName?: string; requestedAt?: string | null; createdAt?: string | null; createdDate?: string }[]) {
         if (r.status && r.status !== "PENDING") continue;
         const t = r.createdAt ?? r.requestedAt ?? (r.createdDate ? `${r.createdDate}T00:00:00+09:00` : null);
-        next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · 출퇴근 수정`, sub: r.statusSummary || `${fmtDayKo(r.workDate)} ${r.kindLabel ?? "출퇴근 수정"}`,   // 시각이 보이는 본부도 시각 없는 요약으로(줄마다 형식이 같게)
-          href: "/manager/team-leave?tab=attendance", at: t ? new Date(t).getTime() : 0 });
+        const waiting = myRole === "ADMIN" && r.currentStep === "MANAGER";
+        const sub = r.statusSummary || `${fmtDayKo(r.workDate)} ${r.kindLabel ?? "출퇴근 수정"}`;   // 시각이 보이는 본부도 시각 없는 요약으로(줄마다 형식이 같게)
+        next.push({ key: `att-${r.id}`, title: `${r.userName ?? ""} · ${r.kindLabel ?? "출퇴근 수정"}`, sub: waiting ? `원장 승인 전 · ${sub}` : sub, muted: waiting,
+          href: waiting ? "/admin/leave-approvals?tab=waiting" : "/manager/team-leave?tab=attendance", at: t ? new Date(t).getTime() : 0 });
       }
       for (const c of (contracts?.contracts || []) as { id: string; title: string; userId?: string; externalName?: string | null; signDeadline?: string | null; createdAt: string }[]) {
         const due = dueLabel(c.signDeadline);
@@ -117,7 +122,8 @@ export default function ManagerDashboardPage() {
   const a = stats && !hidden ? stats.attendance : null;
   const toAttendance = hidden ? undefined : () => { window.location.href = "/manager/team-attendance"; };
   const shown = rows.slice(0, 8);
-  const inboxCount = typeof navCounts.approvals === "number" ? navCounts.approvals : rows.length;
+  const active = rows.filter((r) => !r.muted);   // 본부 계정이 원장 모드로 볼 때 회색 「원장 승인 전」 줄은 배지 · 「더 보기」 숫자에서 뺀다(배지와 같은 기준)
+  const inboxCount = typeof navCounts.approvals === "number" ? navCounts.approvals : active.length;
 
   return (
     <div>
@@ -147,7 +153,7 @@ export default function ManagerDashboardPage() {
 
         <div className="order-1 min-w-0 lg:order-none">
           <InboxBox rows={shown} loading={loading} count={inboxCount} allHref="/manager/team-leave"
-            more={Math.max(0, rows.length - shown.length)} moreHref="/manager/team-leave" />
+            more={Math.max(0, active.length - shown.filter((r) => !r.muted).length)} moreHref="/manager/team-leave" />
         </div>
         <div className="order-3 min-w-0 lg:order-none">
           <NoticeBox items={notices} />

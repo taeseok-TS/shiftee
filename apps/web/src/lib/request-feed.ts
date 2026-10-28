@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { leaveLabel } from "@/lib/leave-catalog";
-import { KIND_LABEL as ATT_KIND_LABEL, STEP1_AUDIT as ATT_STEP1, TWO_STEP_KINDS as ATT_TWO_STEP, attendanceStepsOf } from "@/lib/attendance-request";
+import { KIND_LABEL as ATT_KIND_LABEL, STEP1_AUDIT as ATT_STEP1, TWO_STEP_KINDS as ATT_TWO_STEP, attendanceStepsOf, displayReason } from "@/lib/attendance-request";
 import { SYSTEM_CLOSE_COMMENTS } from "@/lib/approval-close";
 import { templateLabel } from "@/lib/schedule-label";
 
@@ -167,7 +167,7 @@ export async function requestFeed(userId: string, who: "mine" | "decided", q: Fe
       items.push({
       kind: "ATTENDANCE", id: r.id,
       title: `${(ATT_KIND_LABEL as Record<string, string>)[r.kind] ?? "출퇴근 요청"}${r.action === "IN" ? " · 출근" : r.action === "OUT" ? " · 퇴근" : ""}`,
-      period: utcYmd(r.workDate), requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: r.reason ?? null,
+      period: utcYmd(r.workDate), requester: r.user.name, status: normStatus(r.status), createdAt: r.createdAt.toISOString(), createdDate: kstYmd(r.createdAt), reason: displayReason(r.reason),   // 「기타: 」 떼고(2026-10-28 이예지 ④)
       progress: two ? { done: Math.min(done, 2), total: 2 } : { done: r.status === "APPROVED" ? 1 : 0, total: 1 },
       lastComment: r.decidedBy && r.status === "REJECTED" && r.rejectReason ? { by: deciders.get(r.decidedBy) ?? "결재자", text: r.rejectReason } : null,
       rejectReason: r.status === "REJECTED" ? r.rejectReason ?? null : null,

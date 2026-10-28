@@ -7,7 +7,7 @@ import { verifyAttendanceDevice } from "@/lib/device";
 import { kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import {
-  KIND_LABEL, OUTSIDE_REASONS, STEP1_AUDIT, TWO_STEP_KINDS, attendanceStepsOf, dateOfYmd, kstDateTime, kstYmdOf, resolveApprover, inboxWhere, summaryOf,
+  KIND_LABEL, OUTSIDE_REASONS, STEP1_AUDIT, TWO_STEP_KINDS, attendanceStepsOf, dateOfYmd, displayReason, kstDateTime, kstYmdOf, resolveApprover, inboxWhere, summaryOf,
   statusSummaryOf, weekendClockInBlock, type RequestKind,
 } from "@/lib/attendance-request";
 import { canSeeClockTimes } from "@/lib/attendance-visibility";
@@ -110,7 +110,7 @@ function shapeBase(r: RowIn, deciderNames: Map<string, string>, decidedBy: strin
     requestedAt: r.requestedAt,
     clockIn: r.clockIn,
     clockOut: r.clockOut,
-    reason: r.reason,
+    reason: displayReason(r.reason),   // 「기타: 」 떼고 적은 문장만(2026-10-28 이예지 ④)
     memo: r.memo,
     hasPhoto: !!r.photoPath,
     hasLocation: r.latitude != null && r.longitude != null,

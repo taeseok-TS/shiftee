@@ -149,7 +149,7 @@ export default function AttendancePage() {
     attendance?: { present: number; late: number; absent: number; beforeStart?: number; earlyLeave: number; onLeave: number; scheduled?: number };
     byBranch?: BranchRow[]; people?: Partial<Record<PeopleKey, Person[]>>; missingAttendance?: MissingAttendance[];
   };
-  type PendingReq = { id: string; userName?: string; userBranch?: string | null; kindLabel?: string; workDate?: string; status?: string };
+  type PendingReq = { id: string; userName?: string; userBranch?: string | null; kindLabel?: string; workDate?: string; status?: string; currentStep?: string | null };
   const [dash, setDash] = useState<DashStats | null>(null);
   // 열린 명단 — 칸(key) + 지점(지점별 표에서 눌렀을 때만). 같은 곳을 다시 누르면 닫힌다
   const [pick, setPick] = useState<{ key: PeopleKey; branch?: string } | null>(null);
@@ -464,7 +464,9 @@ export default function AttendancePage() {
   // 오늘 일정이 하나도 안 들어 있는 날(이관 공백 · 아직 안 넣음) — 「출근 2명 · 일정 0명」이 왜 그런지 칸 아래에 이유를(2026-10-23 오픈 전 요청 ■3)
   const noSchedule = !!a && (a.scheduled ?? 0) === 0;
   const branchRows = (dash?.byBranch || []).filter((b) => !branchPick || b.branch === branchPick);
-  // 확인 필요 — 최근 7일 누락(요청이 결재 대기인 날은 결재함 쪽으로만) · 오늘 지각 · 결재 대기 출퇴근 요청
+  // 확인 필요 — 최근 7일 누락(요청이 결재 대기인 날은 결재함 쪽으로만) · 오늘 지각 · 결재 대기 출퇴근 요청.
+  // 출퇴근 요청은 본부 차례(currentStep HQ)만 「결재 대기」, 원장 차례는 「원장 승인 전」으로 따로 — 결재함 · 대시보드와 같은 기준(2026-10-27 ⑬ · 10-28 ③)
+  const reqRow = (r: PendingReq) => `${r.userName ?? ""}${r.userBranch ? ` · ${r.userBranch}` : ""} · ${r.workDate ? format(new Date(`${r.workDate.slice(0, 10)}T00:00:00`), "M/d") : ""} ${r.kindLabel ?? "출퇴근 요청"}`;
   const checkRows = [
     ...(dash?.missingAttendance || []).filter((m) => !m.pendingRequest).map((m) => ({
       key: `miss-${m.id}`, title: `${m.name}${m.branch ? ` · ${m.branch}` : ""} · ${format(new Date(m.date), "M/d")} ${m.type}`,
@@ -474,11 +476,17 @@ export default function AttendancePage() {
       key: `late-${r.id}`, title: `${r.name}${r.branch ? ` · ${r.branch}` : ""} · 오늘 지각`,
       sub: `출근 ${r.clockIn ? format(new Date(r.clockIn), "HH:mm") : "-"}`, red: false, onOpen: undefined as (() => void) | undefined, href: "/admin/attendance-board",
     })),
-    ...pendingReqs.map((r) => ({
-      key: `req-${r.id}`, title: `${r.userName ?? ""}${r.userBranch ? ` · ${r.userBranch}` : ""} · ${r.workDate ? format(new Date(`${r.workDate.slice(0, 10)}T00:00:00`), "M/d") : ""} ${r.kindLabel ?? "출퇴근 요청"}`,
-      sub: "결재 대기 · 결재함에서 처리", red: false, onOpen: undefined as (() => void) | undefined, href: "/admin/leave-approvals?tab=attendance",
+    ...pendingReqs.filter((r) => r.currentStep !== "MANAGER").map((r) => ({
+      key: `req-${r.id}`, title: reqRow(r),
+      sub: "결재 대기 · 결재함에서 처리", red: false, muted: false, onOpen: undefined as (() => void) | undefined, href: "/admin/leave-approvals?tab=attendance",
+    })),
+    ...pendingReqs.filter((r) => r.currentStep === "MANAGER").map((r) => ({
+      key: `wait-${r.id}`, title: reqRow(r),
+      sub: "원장 승인 전 · 원장이 처리하면 본부 차례", red: false, muted: true, onOpen: undefined as (() => void) | undefined, href: "/admin/leave-approvals?tab=waiting",
     })),
   ];
+  // 숫자 = 본부가 지금 처리할 것(원장 승인 전 줄은 회색으로 보이기만, 결재함 · 배지와 같은 기준 — 10/27 ⑬)
+  const checkCount = checkRows.filter((r) => !("muted" in r && r.muted)).length;
   const statusTone = (st: string): PillTone => (st === "NORMAL" ? "done" : st === "LATE" || st === "EARLY_LEAVE" ? "wait" : st === "ABSENT" ? "rej" : "gray");
 
   // 명단 상자 — 고른 칸(+지점)의 사람들을 지점별로 묶는다. 숫자 칸 값과 같은 배열(route people)이라 길이가 숫자와 같다
@@ -613,7 +621,7 @@ export default function AttendancePage() {
             </Box>
 
             {/* 확인 필요(본부 10/22 — 「처리할 것」 대신) — 누락 · 지각 · 수정 요청 줄 */}
-            <Box icon={<AlertTriangle />} tone="rose" title="확인 필요" count={checkRows.length} className="!mb-0 min-w-0">
+            <Box icon={<AlertTriangle />} tone="rose" title="확인 필요" count={checkCount} className="!mb-0 min-w-0">
               <div className="px-6 py-1">
                 {!dash ? (
                   <p className="py-5 text-[14px] text-[#596578]">불러오는 중…</p>
@@ -623,7 +631,7 @@ export default function AttendancePage() {
                   const body = (
                     <>
                       <span className="min-w-0 flex-1">
-                        <b className={`block truncate text-[15px] font-bold ${r.red ? "text-[#dc2626]" : "text-[#0f172a]"}`}>{r.title}</b>
+                        <b className={`block truncate text-[15px] font-bold ${r.red ? "text-[#dc2626]" : "muted" in r && r.muted ? "text-[#596578]" : "text-[#0f172a]"}`}>{r.title}</b>
                         <span className="block truncate text-[13px] text-[#596578]">{r.sub}</span>
                       </span>
                       <span className="shrink-0 text-[14px] font-semibold text-[#4f46e5]">열기 ›</span>
@@ -1128,7 +1136,7 @@ export default function AttendancePage() {
             </div>
             <div>
               <label className="text-xs text-gray-500">날짜</label>
-              <Input type="date" value={addForm.date} onChange={(e) => setAddForm((f) => ({ ...f, date: e.target.value }))} />
+              <Input type="date" max="9999-12-31" value={addForm.date} onChange={(e) => setAddForm((f) => ({ ...f, date: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

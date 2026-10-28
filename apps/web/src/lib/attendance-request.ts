@@ -61,6 +61,12 @@ export function attendanceStepsOf(
 /** 지점 밖 출퇴근 사유 — 이 셋 말고는 「기타」로 직접 입력(50자) */
 export const OUTSIDE_REASONS = ["본사 방문", "서점(교재 구입)", "외근"] as const;
 
+/** 화면에 보일 사유 — 직접 입력은 「기타: …」 로 저장되는데 보일 때는 적은 문장만(2026-10-28 이예지 ④ 「기타: 출근」) */
+export function displayReason(reason: string | null | undefined): string | null {
+  const s = (reason ?? "").replace(/^기타\s*[:：]\s*/, "").trim();
+  return s || null;
+}
+
 export const KST_MS = 9 * 3600_000;
 
 /** KST 날짜(YYYY-MM-DD)의 @db.Date 값(UTC 자정) */
@@ -128,7 +134,7 @@ export async function inboxWhere(session: { userId: string; role: string }) {
 /** 장소 칸에 남길 글 — 「지점 밖 · 본사 방문 (원장 승인)」 */
 export function placeLabel(kind: RequestKind, reason: string | null, deciderRole: string): string {
   const who = deciderRole === "ADMIN" ? "본부 승인" : "원장 승인";
-  if (kind === "OUTSIDE") return `지점 밖 · ${reason || "사유 없음"} (${who})`;
+  if (kind === "OUTSIDE") return `지점 밖 · ${displayReason(reason) || "사유 없음"} (${who})`;
   if (kind === "PHOTO") return `사진 확인 (${who})`;
   if (kind === "HQ") return "본부 처리";
   return `기록 수정 (${who})`;
@@ -249,10 +255,10 @@ export function summaryOf(r: { kind: string; action: string | null; workDate: Da
   const md = ymdOfDate(r.workDate).slice(5).replace("-", "/");
   if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
     const head = kind === "OUTSIDE" ? "지점 밖" : kind === "PHOTO" ? "사진" : "본부 처리";
-    return `${head} ${r.action === "OUT" ? "퇴근" : "출근"} ${md} ${kstHHmm(r.requestedAt)}${r.reason ? ` · ${r.reason}` : ""}`;
+    return `${head} ${r.action === "OUT" ? "퇴근" : "출근"} ${md} ${kstHHmm(r.requestedAt)}${displayReason(r.reason) ? ` · ${displayReason(r.reason)}` : ""}`;
   }
   if (kind === "MISSED_OUT") return `퇴근 누락 ${md} · 퇴근 ${r.clockOut ? kstHHmm(r.clockOut) : "-"}`;
-  if (kind === "RECORD") return `출퇴근 기록 요청 · ${recordPeriodLabel(r.memo ?? null) ?? md}${r.reason ? ` · ${r.reason}` : ""}`;
+  if (kind === "RECORD") return `출퇴근 기록 요청 · ${recordPeriodLabel(r.memo ?? null) ?? md}${displayReason(r.reason) ? ` · ${displayReason(r.reason)}` : ""}`;
   if (kind === "CORRECTION") {
     const parts = [r.clockIn ? `출근 ${kstHHmm(r.clockIn)}` : "", r.clockOut ? `퇴근 ${kstHHmm(r.clockOut)}` : ""].filter(Boolean);
     return `기록 수정 ${md} · ${parts.join(" / ")}`;
@@ -276,7 +282,7 @@ export function statusSummaryOf(r: { kind: string; action: string | null; workDa
   const day = dayLabel(r.workDate);
   if (kind === "OUTSIDE" || kind === "PHOTO" || kind === "HQ") {
     const head = kind === "OUTSIDE" ? "지점 밖" : kind === "PHOTO" ? "사진" : "본부 처리";
-    return `${day} ${head} ${r.action === "OUT" ? "퇴근" : "출근"}${r.reason ? ` · ${r.reason}` : ""}`;
+    return `${day} ${head} ${r.action === "OUT" ? "퇴근" : "출근"}${displayReason(r.reason) ? ` · ${displayReason(r.reason)}` : ""}`;
   }
   if (kind === "MISSED_OUT") return `${day} 퇴근 누락 → 퇴근`;
   if (kind === "CORRECTION") {

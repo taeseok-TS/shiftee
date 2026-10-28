@@ -633,7 +633,7 @@ export default function EmployeesPage() {
                   <div>
                     <Label>입사일</Label>
                     <Input
-                      type="date"
+                      type="date" max="9999-12-31"
                       value={formData.hireDate}
                       onChange={(e) => setFormData({ ...formData, hireDate: e.target.value })}
                     />
@@ -641,7 +641,7 @@ export default function EmployeesPage() {
                   <div>
                     <Label>생년월일 (봇 생일 축하용)</Label>
                     <Input
-                      type="date"
+                      type="date" max="9999-12-31"
                       value={formData.birthDate}
                       onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
                     />
@@ -677,7 +677,7 @@ export default function EmployeesPage() {
       </Box>
 
       {/* 직원 목록 */}
-      <Box icon={<List />} tone="sky" title="직원 목록" sub={`${filteredEmployees.length}명`}
+      <Box icon={<List />} tone="sky" title="직원 목록" sub={`${filteredEmployees.length}명 · 본부 소속 · 테스트 계정 포함(직원 현황 숫자는 지점 재직 · 휴직만)`}
         right={selectedIds.size > 0 ? (
           <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#dc2626] hover:underline disabled:opacity-50">
             <Trash2 size={15} /> {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size}명)`}
@@ -908,7 +908,7 @@ export default function EmployeesPage() {
                                   <div>
                                     <Label>입사일</Label>
                                     <Input
-                                      type="date"
+                                      type="date" max="9999-12-31"
                                       value={editEmployee.hireDate ? editEmployee.hireDate.split("T")[0] : ""}
                                       onChange={(e) =>
                                         setEditEmployee({
@@ -921,7 +921,7 @@ export default function EmployeesPage() {
                                   <div>
                                     <Label>생일 (봇 생일 축하용)</Label>
                                     <Input
-                                      type="date"
+                                      type="date" max="9999-12-31"
                                       value={editEmployee.birthDate ? editEmployee.birthDate.split("T")[0] : ""}
                                       onChange={(e) =>
                                         setEditEmployee({
@@ -949,7 +949,7 @@ export default function EmployeesPage() {
                                   <div>
                                     <Label>퇴사일</Label>
                                     <Input
-                                      type="date"
+                                      type="date" max="9999-12-31"
                                       value={editEmployee.resignDate ? editEmployee.resignDate.split("T")[0] : ""}
                                       onChange={(e) =>
                                         setEditEmployee({ ...editEmployee, resignDate: e.target.value || null })

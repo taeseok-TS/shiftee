@@ -143,7 +143,8 @@ export default function LeavePage() {
     const t = new URLSearchParams(window.location.search).get("tab");
     Promise.resolve().then(() => { if (isLeaveTab(t)) setTab(t); });
   }, []);
-  /* 「휴가 현황」 — 오늘 휴가(승인·오늘 걸친 사람 수) · 이번 달 사용(이번 달 시작·승인 일수 합). 목록 필터와 따로 센다 */
+  /* 「휴가 현황」 — 오늘 휴가(관리자 대시보드 · 출퇴근 현황과 같은 숫자: 지점 재직자 기준, 휴직 · 관리자 · 테스트 계정 제외 — 2026-10-28 이예지 ①,
+     종전엔 승인 휴가가 오늘 걸친 모든 사람을 세어 휴직자 2명이 들어가 7 vs 5 로 어긋났다) · 이번 달 사용(이번 달 시작·승인 일수 합). 목록 필터와 따로 센다 */
   const [glance, setGlance] = useState<{ today: number | null; month: number | null }>({ today: null, month: null });
 
   /* 결재라인 설정 */
@@ -224,18 +225,14 @@ export default function LeavePage() {
 
   const fetchGlance = useCallback(async () => {
     const now = new Date(Date.now() + 9 * 3600 * 1000);   // 한국 날짜(UTC 면 오전 9시 전엔 어제)
-    const today = now.toISOString().slice(0, 10);
     const get = (q: string) => fetch(`/api/leave?${q}`).then(r => (r.ok ? r.json() : null)).catch(() => null);
-    const [cur, mon] = await Promise.all([
-      get("current=1&status=APPROVED"),
+    const [dash, mon] = await Promise.all([
+      fetch("/api/admin/dashboard-stats", { cache: "no-store" }).then(r => (r.ok ? r.json() : null)).catch(() => null),
       get(`status=APPROVED&year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`),
     ]);
-    const ymd = (v: string) => v.slice(0, 10);   // @db.Date = UTC 자정
-    const todayIds = cur
-      ? new Set((cur.requests as LeaveRequest[]).filter(r => ymd(r.startDate) <= today && ymd(r.endDate) >= today).map(r => r.user.id ?? r.user.name))
-      : null;
+    const todayN: number | null = typeof dash?.attendance?.onLeave === "number" ? dash.attendance.onLeave : null;
     const monthDays = mon ? (mon.requests as LeaveRequest[]).reduce((sum, r) => sum + (Number(r.days) || 0), 0) : null;
-    setGlance({ today: todayIds ? todayIds.size : null, month: monthDays === null ? null : Math.round(monthDays * 100) / 100 });
+    setGlance({ today: todayN, month: monthDays === null ? null : Math.round(monthDays * 100) / 100 });
   }, []);
 
   const fetchMySteps = useCallback(async () => {
@@ -667,7 +664,7 @@ export default function LeavePage() {
       {isAdmin && (
         <Box icon={<CalendarDays />} tone="amb" title="휴가 현황" sub={`${CURRENT_YEAR}년`}>
           <Tiles cols={5}>
-            <Tile label="오늘 휴가" value={glance.today} unit="명" />
+            <Tile label="오늘 휴가" value={glance.today} unit="명" note="근태 현황과 같은 기준 · 휴직자 제외" />
             <Tile label="승인 대기" value={mySteps.length} unit="건" note="내 결재 대기" alert onClick={() => { window.location.href = "/admin/leave-approvals?tab=leave"; }} />
             <Tile label="이번 달 사용" value={glance.month} unit="일" note="이번 달 시작 기준" onClick={showThisMonth} />
             <Tile label="올해 연차 차감" value={yearUsed} unit="일" note={inclAdmins ? "시프티 이관분 · 관리자 포함" : "시프티 이관분 포함"} />
@@ -1024,19 +1021,19 @@ export default function LeavePage() {
             {SINGLE_DAY_TYPES.has(form.type) ? (
               <div className="space-y-2">
                 <Label>날짜 *</Label>
-                <Input type="date" value={form.startDate} required
+                <Input type="date" max="9999-12-31" value={form.startDate} required
                   onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: e.target.value }))} />
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>시작일 *</Label>
-                  <Input type="date" value={form.startDate} required
+                  <Input type="date" max="9999-12-31" value={form.startDate} required
                     onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>종료일 *</Label>
-                  <Input type="date" value={form.endDate} required min={form.startDate}
+                  <Input type="date" max="9999-12-31" value={form.endDate} required min={form.startDate}
                     onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
                 </div>
               </div>
@@ -1218,7 +1215,7 @@ export default function LeavePage() {
                 </div>
                 <div className="space-y-2">
                   <Label>계산 기준일</Label>
-                  <Input type="date" value={allowBaseDate} onChange={(e) => setAllowBaseDate(e.target.value)} />
+                  <Input type="date" max="9999-12-31" value={allowBaseDate} onChange={(e) => setAllowBaseDate(e.target.value)} />
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1.5">
                   <div className="flex justify-between"><span className="text-gray-500">잔여 연차</span><span className="font-medium">{remaining}일</span></div>

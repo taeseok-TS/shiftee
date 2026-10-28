@@ -1,6 +1,6 @@
 "use client";
-// 직원 대시보드 — 본부 시안 R17(2026-10-21 「디자인 통일」, 관리자 대시보드 R9 와 같은 세 박스): 나의 근태 · 결재함 · 공지사항.
-//  · 나의 근태 3칸: 오늘 출근(상태 「출근 · 지각 · 퇴근 · 출근 전 · 휴가」 + 「일정 13:00–22:00」) · 남은 연차(권한 「잔여 연차 숫자 보기」가 꺼지면 「연차 정리 중」)
+// 직원 대시보드 — 본부 시안 R17(2026-10-21 「디자인 통일」, 관리자 대시보드 R9 와 같은 세 박스): 내 근태 · 결재함 · 공지사항.
+//  · 내 근태 3칸: 오늘 출근(상태 「출근 · 지각 · 퇴근 · 출근 전 · 휴가」 + 「일정 13:00–22:00」) · 남은 연차(권한 「잔여 연차 숫자 보기」가 꺼지면 「연차 정리 중」)
 //    · 내 요청 대기(연인디고). 숫자는 색칠하지 않는다. 시각 · 근무시간은 본부만(■0-11) — 「이번 달 근무」 칸은 뺐다(서버가 직원에게 늘 null)
 //  · 결재함 = 서명할 내 계약서(「서명 ›」 → 내 계약서에서 비밀번호 한 칸 → 서명 전체 창) + 최근 14일 반려된 내 요청(「보기 ›」)
 //  · 공지는 읽기만. 뺀 것: 「나의 업무」 바로가기 4개(레일과 겹침) · 0인 숫자 카드(대기 계약 0건 등 — 결재함이 대신) · 숫자 색칠
@@ -36,6 +36,7 @@ const feedPeriod = (p: string) => {
 
 export default function SharedDashboardPage() {
   const [name, setName] = useState("");
+  const [position, setPosition] = useState("");   // 인사말 「이예지 대리님」 — 이름과 직급 사이 띄어서, 직급 없으면 「○○○님」(2026-10-28 이예지 ⑤)
   const [stats, setStats] = useState<MyStats | null>(null);
   const [today, setToday] = useState<MyDay | null>(null);
   const [attHidden, setAttHidden] = useState(false);
@@ -62,6 +63,7 @@ export default function SharedDashboardPage() {
       ]);
       const myId: string = me?.user?.id ?? "";
       setName(me?.user?.name ?? "");
+      setPosition(String(me?.user?.position ?? "").trim());
       if (st) setStats(st);
       if (day) {
         setAttHidden(!!day.attendanceHidden);
@@ -112,10 +114,10 @@ export default function SharedDashboardPage() {
 
   return (
     <div>
-      <PageHead title={name ? `${name}님, 안녕하세요` : "안녕하세요"} note={todayLabel || undefined} />
+      <PageHead title={name ? `${name}${position ? ` ${position}` : ""}님, 안녕하세요` : "안녕하세요"} note={todayLabel || undefined} />
 
-      {/* 나의 근태 — 4칸(R17). 「휴가 신청 ›」 */}
-      <Box icon={<Clock />} title="나의 근태" right={<a href="/leave" className="text-[#4f46e5] hover:underline">휴가 신청 ›</a>}>
+      {/* 내 근태 — 4칸(R17, 이름은 10/22 「내 근태」로 확정 — 2026-10-28 이예지 ⑤). 「휴가 신청 ›」 */}
+      <Box icon={<Clock />} title="내 근태" right={<a href="/leave" className="text-[#4f46e5] hover:underline">휴가 신청 ›</a>}>
         <Tiles cols={3}>
           <Tile label="오늘 출근" value={attHidden ? (inValue === "휴가" ? "휴가" : null) : inValue} note={inNote || undefined} />
           <Tile label="남은 연차" value={!stats ? null : balanceHidden ? "연차 정리 중" : stats.leaveRemaining} unit={balanceHidden ? undefined : "일"}
