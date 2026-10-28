@@ -140,7 +140,7 @@ export function DateInput({ value, onChange, placeholder = "날짜 고르기", c
       className={cn(inputClass, "h-[38px] w-[150px] placeholder:text-[#94a3b8]", className)} />
   );
 }
-export const tableClass = "w-full border-collapse text-[14px] [&_th]:border-b [&_th]:border-[#eef1f5] [&_th]:bg-[#fafbfd] [&_th]:px-6 [&_th]:pb-2.5 [&_th]:pt-3 [&_th]:text-left [&_th]:text-[13px] [&_th]:font-semibold [&_th]:text-[#596578] [&_td]:border-b [&_td]:border-[#f1f5f9] [&_td]:px-6 [&_td]:py-3.5 [&_td]:align-middle [&_tr:last-child_td]:border-b-0";
+export const tableClass = "w-full border-collapse text-[14px] [&_th]:border-b [&_th]:border-[#eef1f5] [&_th]:bg-[#fafbfd] [&_th]:px-6 [&_th]:pb-2.5 [&_th]:pt-3 [&_th:not(.text-right):not(.text-center)]:text-left [&_th]:text-[13px] [&_th]:font-semibold [&_th]:text-[#596578] [&_td]:border-b [&_td]:border-[#f1f5f9] [&_td]:px-6 [&_td]:py-3.5 [&_td]:align-middle [&_tr:last-child_td]:border-b-0";
 export function Cell2({ main, sub }: { main: ReactNode; sub?: ReactNode }) {
   return <><b className="font-bold text-[#0f172a]">{main}</b>{sub && <span className="block text-[12.5px] text-[#596578]">{sub}</span>}</>;
 }
