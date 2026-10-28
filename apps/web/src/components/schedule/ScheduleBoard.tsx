@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { format, isToday as isTodayFn } from "date-fns";
 import { ko } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -290,7 +291,7 @@ const groupByBranch = (list: BoardEmployee[]) => {
   return [...m.entries()].sort(([a], [b]) => (a ? (b ? a.localeCompare(b, "ko") : -1) : 1));
 };
 
-const jobOf = (e: BoardEmployee) => e.jobGroup || e.position || "";
+const jobOf = (e: BoardEmployee) => jobGroupLabel(e.jobGroup || e.position || "");   // 「코디」 → 「코디네이터」(인사카드 표기, 10/28)
 const NoEmployees = () => <div className="p-8 text-center text-[14px] text-[#596578]">표시할 직원이 없습니다.</div>;
 
 function WhoCell({ emp, show, className = "" }: { emp: BoardEmployee; show: Show; className?: string }) {
