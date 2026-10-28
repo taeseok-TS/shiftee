@@ -1,7 +1,7 @@
 "use client";
 import PortalSyncNote from "@/components/admin/PortalSyncNote";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { Fragment, useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -184,6 +184,34 @@ export default function EmployeesPage() {
       return matchSearch && matchRole && matchBranch;
     });
   }, [employees, searchText, filterRole, filterBranch]);
+
+  // 목록 묶음(2026-10-28 이예지 15:59) — 숫자는 지점 재직 · 휴직만(포털 인사카드 기준 = 직원 현황과 같은 사람). 본부 소속과 테스트 계정은
+  // 아래에 접어 두고 펼쳐서 본다(검색 · 거르기는 세 묶음에 같이 적용). 테스트지점처럼 통계에서 뺀 지점 소속은 본부 묶음에 함께 둔다
+  const [showHqRaw, setShowHq] = useState(false);
+  const [showTestRaw, setShowTest] = useState(false);
+  const statsOff = useMemo(() => new Set(branches.filter((b) => b.countInStats === false).map((b) => b.name)), [branches]);
+  // 본부 묶음 = 본부 · 통계 제외 지점(테스트지점) 소속. 지점이 비어 있는 사람은 휴직자(ON_LEAVE · TEMPORARY, 복귀 때 새 지점)면 지점 재직자 쪽 —
+  // 직원 현황 「전체 직원」이 휴직을 세는 것(lib/employee-scope scope all)과 같게(검증 A)
+  const isHq = useCallback((e: Employee) => e.branch === HQ_BRANCH || (e.branch ? statsOff.has(e.branch) : !(e.employmentStatus === "ON_LEAVE" || e.employmentStatus === "TEMPORARY")), [statsOff]);
+  const testRows = useMemo(() => filteredEmployees.filter((e) => e.isTest), [filteredEmployees]);
+  const hqRows = useMemo(() => filteredEmployees.filter((e) => !e.isTest && isHq(e)), [filteredEmployees, isHq]);
+  const mainRows = useMemo(() => filteredEmployees.filter((e) => !e.isTest && !isHq(e)), [filteredEmployees, isHq]);
+  // 본부를 골랐거나 이름을 검색했으면 접어 두지 않는다 — 직접 찾은 사람이 접힌 줄 뒤에 숨지 않게(검증 B)
+  const searching = !!searchText.trim();
+  const showHq = showHqRaw || filterBranch === HQ_BRANCH || searching;
+  const showTest = showTestRaw || searching;
+  const visibleRows = useMemo(() => [...mainRows, ...(showHq ? hqRows : []), ...(showTest ? testRows : [])], [mainRows, hqRows, testRows, showHq, showTest]);
+  // 접을 때 그 묶음에서 체크한 사람은 선택에서 뺀다 — 안 보이는 사람이 「선택 삭제」에 실리지 않게(검증 C)
+  const collapse = (rows: Employee[], set: (v: boolean) => void) => { set(false); setSelectedIds((prev) => { const n = new Set(prev); rows.forEach((r) => n.delete(r.id)); return n; }); };
+  const groupRow = (label: string, n: number, open: boolean, toggle: () => void) => (
+    <tr className="bg-[#f6f7fb]">
+      <td colSpan={8} className="!py-2">
+        <button type="button" onClick={toggle} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#596578] hover:text-[#0f172a]">
+          <span className="inline-block w-3 text-center">{open ? "▾" : "▸"}</span>{label} {n}명 <span className="font-normal text-[#8b95a5]">· 직원 현황 숫자에는 들어가지 않습니다 · {open ? "접기" : "펼치기"}</span>
+        </button>
+      </td>
+    </tr>
+  );
 
   // 인원 숫자(2026-10-23 ■0-9 · ■3) — 대시보드 · 현황과 같은 공용 기준(lib/employee-scope, /api/employees/headcount).
   // 전체 직원 = 지점 재직 + 휴직, 원장 = 지점 원장. 본부 · 퇴사자 · 테스트 계정 · 테스트지점은 세지 않는다.
@@ -677,7 +705,7 @@ export default function EmployeesPage() {
       </Box>
 
       {/* 직원 목록 */}
-      <Box icon={<List />} tone="sky" title="직원 목록" sub={`${filteredEmployees.length}명 · 본부 소속 · 테스트 계정 포함(직원 현황 숫자는 지점 재직 · 휴직만)`}
+      <Box icon={<List />} tone="sky" title="직원 목록" sub={`${mainRows.length}명 · 지점 재직 · 휴직(포털 인사카드 기준)${hqRows.length || testRows.length ? ` — 본부 소속 ${hqRows.length} · 테스트 계정 ${testRows.length}은 아래 접힘` : ""}`}
         right={selectedIds.size > 0 ? (
           <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#dc2626] hover:underline disabled:opacity-50">
             <Trash2 size={15} /> {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size}명)`}
@@ -715,11 +743,11 @@ export default function EmployeesPage() {
                 <thead>
                   <tr>
                     <th className="!px-3 text-center w-10">
-                      {/* 전체 선택 (현재 필터된 목록 기준) */}
+                      {/* 전체 선택 (보이는 줄 기준 — 접힌 본부 · 테스트 계정은 빼고) */}
                       <input type="checkbox" className="w-4 h-4 cursor-pointer"
-                        checked={filteredEmployees.length > 0 && filteredEmployees.every(e => selectedIds.has(e.id))}
+                        checked={visibleRows.length > 0 && visibleRows.every(e => selectedIds.has(e.id))}
                         onChange={(e) => {
-                          setSelectedIds(e.target.checked ? new Set(filteredEmployees.map(x => x.id)) : new Set());
+                          setSelectedIds(e.target.checked ? new Set(visibleRows.map(x => x.id)) : new Set());   // 보이는 줄만(접힌 본부 · 테스트 계정은 빼고)
                         }} />
                     </th>
                     <th>사번</th>
@@ -732,8 +760,13 @@ export default function EmployeesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmployees.map(emp => (
-                    <tr key={emp.id} className={selectedIds.has(emp.id) ? "bg-[#fff1f2]/60" : "hover:bg-[#fafbfd]"}>
+                  {visibleRows.map(emp => (
+                    <Fragment key={emp.id}>
+                    {showHq && hqRows[0]?.id === emp.id && groupRow("본부 소속", hqRows.length, true, () => collapse(hqRows, setShowHq))}
+                    {/* 본부를 접고 테스트만 펼쳤을 때도 본부 줄이 테스트 줄보다 앞에 오게(검증 D) */}
+                    {!showHq && hqRows.length > 0 && showTest && testRows[0]?.id === emp.id && groupRow("본부 소속", hqRows.length, false, () => setShowHq(true))}
+                    {showTest && testRows[0]?.id === emp.id && groupRow("테스트 계정", testRows.length, true, () => collapse(testRows, setShowTest))}
+                    <tr className={selectedIds.has(emp.id) ? "bg-[#fff1f2]/60" : "hover:bg-[#fafbfd]"}>
                       <td className="!px-3 text-center">
                         <input type="checkbox" className="w-4 h-4 cursor-pointer"
                           checked={selectedIds.has(emp.id)}
@@ -1079,7 +1112,10 @@ export default function EmployeesPage() {
                         </div>
                       </td>
                     </tr>
+                    </Fragment>
                   ))}
+                  {!showHq && hqRows.length > 0 && !(showTest && testRows.length > 0) && groupRow("본부 소속", hqRows.length, false, () => setShowHq(true))}
+                  {!showTest && testRows.length > 0 && groupRow("테스트 계정", testRows.length, false, () => setShowTest(true))}
                 </tbody>
               </table>
             </div>
