@@ -97,6 +97,8 @@ type Item = {
   key: string; kind: Kind; id: string;   // id = 결재 API 에 넘기는 신청 id
   who: string; userId?: string; branch: string | null; position: string | null;
   title: string; summary: string;        // title = 카드 큰 글씨, summary = 되돌리기 띠 · 홈 목록 한 줄
+  when?: string;                          // 홈 결재 대기 한 줄의 날짜(없으면 summary) — 종류와 같은 말이 두 번 나오지 않게(2026-10-28 S6 ③)
+  managerTurn?: boolean;                  // 본부가 보는 출퇴근 요청인데 아직 원장 차례 — 홈에서는 「원장 승인 전 N건」으로만
   tag?: { text: string; tone: Tone };
   lines: Line[];
   sortKey: string;
@@ -231,6 +233,12 @@ function attItem(r: attendance.AttendanceRequestRow, admin: boolean): Item {
   return {
     key: `A:${r.id}`, kind: "ATTENDANCE", id: r.id, who: r.userName, userId: r.userId, branch: r.userBranch, position: r.userPosition,
     title: showTimes && r.kind !== "DEVICE" && r.kind !== "RECORD" ? r.summary : plain, summary: plain,
+    when: r.kind === "DEVICE" ? plain
+      : r.kind === "RECORD" ? plain.replace(/^출퇴근 기록 요청\s*·?\s*/, "") || plain
+      : r.kind === "MISSED_OUT" ? `${day} 퇴근 누락`
+      : r.kind === "CORRECTION" ? day || plain
+      : `${day} ${io}`.trim(),
+    managerTurn: admin && r.currentStep === "MANAGER",
     groupName: fix ? "출퇴근 수정" : r.kind === "RECORD" ? "출퇴근 기록 요청" : r.kindLabel,
     tag: progress,
     lines, sortKey: ymd(r.workDate || r.createdAt || r.createdDate), hasPhoto: r.hasPhoto,
@@ -856,7 +864,8 @@ const styles = StyleSheet.create({
 });
 
 /** 홈 「승인 대기」 목록(2026-10-23 앱 7 · 시안 S2-1) — 승인 화면과 같은 카드 요약 한 줄. 전부 못 받으면 null */
-export async function loadInboxPreview(admin: boolean): Promise<{ count: number; items: { key: string; who: string; group: string; summary: string }[] } | null> {
+// 홈 결재 대기(S6 ③) — 본부 차례만 목록 · 건수, 원장 차례(본부가 미리 보는 출퇴근 요청)는 waiting 으로 따로
+export async function loadInboxPreview(admin: boolean): Promise<{ count: number; waiting: number; items: { key: string; who: string; group: string; summary: string; when: string }[] } | null> {
   const r = await Promise.allSettled([getScheduleApprovals(), getLeaveApprovals(), getLeaveCancelApprovals(), attendance.getAttendanceRequestInbox()]);
   if (r.every((x) => x.status === "rejected")) return null;
   const v = <T,>(x: PromiseSettledResult<T[]>) => (x.status === "fulfilled" ? x.value : ([] as T[]));
@@ -866,5 +875,6 @@ export async function loadInboxPreview(admin: boolean): Promise<{ count: number;
     ...v(r[2] as PromiseSettledResult<LeaveCancelInboxStep[]>).map(cancelItem),
     ...v(r[3] as PromiseSettledResult<attendance.AttendanceRequestRow[]>).map((x) => attItem(x, admin)),
   ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-  return { count: items.length, items: items.map((i) => ({ key: i.key, who: i.who, group: nameOf(i), summary: i.summary })) };
+  const mine = items.filter((i) => !i.managerTurn);
+  return { count: mine.length, waiting: items.length - mine.length, items: mine.map((i) => ({ key: i.key, who: i.who, group: nameOf(i), summary: i.summary, when: i.when ?? i.summary })) };
 }

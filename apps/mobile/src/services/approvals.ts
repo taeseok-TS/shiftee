@@ -320,7 +320,13 @@ export async function canApproveNow(): Promise<boolean | null> {
 export async function myInboxCount(): Promise<number | null> {
   const r = await Promise.allSettled([getLeaveApprovals(), getScheduleApprovals(), getLeaveCancelApprovals(), getAttendanceRequestInbox()]);
   if (r.every((x) => x.status === "rejected")) return null;
-  return r.reduce((n, x) => n + (x.status === "fulfilled" ? x.value.length : 0), 0);
+  // 본부는 출퇴근 요청 중 아직 원장 차례인 건을 세지 않는다 — 홈 「결재 대기」 · 웹 결재 배지와 같은 기준(2026-10-28 S6 ③)
+  const admin = (await getUser().catch(() => null))?.role === "ADMIN";
+  return r.reduce((n, x, i) => {
+    if (x.status !== "fulfilled") return n;
+    const list = x.value as { currentStep?: string | null }[];
+    return n + (i === 3 && admin ? list.filter((a) => a.currentStep !== "MANAGER").length : list.length);
+  }, 0);
 }
 
 /** 오늘 원장대행 중인 지점 — 직원이 대행자로 지정되면 결재 메뉴를 보여 준다(2026-10-07). 실패하면 빈 배열 */

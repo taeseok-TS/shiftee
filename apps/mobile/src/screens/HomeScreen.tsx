@@ -55,7 +55,8 @@ export default function HomeScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const [inbox, setInbox] = useState<number | null>(null);   // 결재할 건수(모르면 null → 「…」)
   // 홈 맨 위 「승인 대기」 목록(2026-10-23 앱 7 · 시안 S2-1) — 승인 화면 카드와 같은 한 줄 요약
-  const [inboxItems, setInboxItems] = useState<{ key: string; who: string; group: string; summary: string }[]>([]);
+  const [inboxItems, setInboxItems] = useState<{ key: string; who: string; group: string; summary: string; when: string }[]>([]);
+  const [waiting, setWaiting] = useState(0);   // 본부 — 원장 승인 전(아직 원장 차례) 건수, 목록 맨 아래 한 줄(S6 ③)
   const [myBranch, setMyBranch] = useState("");
 
   const load = useCallback(async () => {
@@ -94,7 +95,7 @@ export default function HomeScreen() {
         if (!ok) return;
         const u = await storage.getUser().catch(() => null);
         const p = await loadInboxPreview(u?.role === "ADMIN");
-        if (p) { setInbox(p.count); setInboxItems(p.items); }
+        if (p) { setInbox(p.count); setInboxItems(p.items); setWaiting(p.waiting); }
         refreshBadges().catch(() => {});
       })
       .catch(() => {});
@@ -166,12 +167,12 @@ export default function HomeScreen() {
   const inAt = todayStatus && (typeof todayStatus.timesHidden === "boolean" ? !todayStatus.timesHidden : true) && todayStatus.clockInAt ? new Date(todayStatus.clockInAt) : null;
   const inHHmm = inAt && !Number.isNaN(inAt.getTime()) ? `${String(inAt.getHours()).padStart(2, "0")}:${String(inAt.getMinutes()).padStart(2, "0")}` : "";
   const att = todayStatus?.clockedOut
-    ? { value: "퇴근", label: inHHmm ? `오늘 근태 · ${inHHmm} 출근` : "오늘 근태", icon: "checkmark-done-outline" as const, color: "#64748b" }
+    ? { value: "퇴근", label: inHHmm ? `내 근태 · ${inHHmm} 출근` : "내 근태", icon: "checkmark-done-outline" as const, color: "#64748b" }
     : todayStatus?.clockedIn
-    ? { value: "근무 중", label: inHHmm ? `오늘 근태 · ${inHHmm} 출근` : "오늘 근태", icon: "walk-outline" as const, color: "#4f46e5" }
+    ? { value: "근무 중", label: inHHmm ? `내 근태 · ${inHHmm} 출근` : "내 근태", icon: "walk-outline" as const, color: "#4f46e5" }
     : todayStatus?.pendingIn
     ? { value: "승인 대기", label: "출근 요청", icon: "hourglass-outline" as const, color: "#b45309" }
-    : { value: "출근 전", label: "오늘 근태", icon: "time-outline" as const, color: "#64748b" };
+    : { value: "출근 전", label: "내 근태", icon: "time-outline" as const, color: "#64748b" };
 
   const leaveHidden = !!stats && ((stats as DashboardStats & { balanceHidden?: boolean }).balanceHidden === true || (stats.leaveRemaining as number | null) === null);
   const cards = [
@@ -185,15 +186,21 @@ export default function HomeScreen() {
     // 결재할 사람은 맨 위 「승인 대기」 목록이 대신한다 — 직원은 내 요청 중 결재 대기 건수
     ...(approver ? [] : [{ key: "approval", label: "결재 대기", value: `${stats?.pendingApprovals ?? 0}건`, icon: "hourglass-outline", color: "#b45309", onPress: openApproval }]),
     { key: "attendance", label: att.label, value: att.value, icon: att.icon, color: att.color, onPress: () => navigation.navigate("Attendance") },
-  ];
+  ].sort((a, b) => Number(b.key === "attendance") - Number(a.key === "attendance"));
   const openApprovals = () => (staff ? navigation.navigate("Approve") : navigation.navigate("More", { screen: "Approvals", initial: false }));
+  // 원장 · 본부 「내 것」 띠 — 남은 연차 · 서명 대기(0건은 「없음」) · 내 근태(S6 ④)
+  const mine = [
+    { key: "leave", label: "남은 연차", value: leaveHidden ? "정리 중" : `${stats?.leaveRemaining ?? 0}일`, onPress: () => navigation.navigate("More", { screen: "MyLeave", initial: false }) },
+    { key: "contract", label: "서명 대기", value: pendingContracts > 0 ? `${pendingContracts}건` : "없음", onPress: () => (pendingContracts > 0 ? navigation.navigate("More", { screen: "Contracts", initial: false }) : setModal("contract")) },
+    { key: "attendance", label: "내 근태", value: att.value, onPress: () => navigation.navigate("Attendance") },
+  ];
 
   return (
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      {/* 원장 · 본부는 맨 위가 승인 대기(10/23 앱 7) — 인사말은 직원 홈에만 */}
+      {/* 인사말은 직원 홈에만(원장 · 본부는 맨 위가 오늘 근태) */}
       {!staff && (
         <View style={styles.header}>
           <Text style={styles.greeting}>안녕하세요,</Text>
@@ -202,78 +209,107 @@ export default function HomeScreen() {
         </View>
       )}
 
+      {/* 홈 순서(2026-10-28 이예지 앱 홈 S6 ①) — ① 오늘 근태(원장은 지점 근태) → ② 결재 대기 → ③ 내 것 한 줄 → ④ 공지. 직원은 ③ 첫 칸이 내 근태 */}
+      {!!staff && <View style={{ height: 14 }} />}
+      {!!staff && <BranchNowCard reloadKey={reloadKey} title={staff === "ADMIN" ? "오늘 근태" : "지점 근태"} allBranches={staff === "ADMIN"} onOpenSchedule={() => navigation.navigate("Schedule", { view: "branch" })} />}
+
       {approver && (
-        <View style={styles.apprWrap}>
+        <View style={[styles.apprWrap, !staff && { marginTop: 14 }]}>
           <View style={styles.apprHead}>
-            <Text style={styles.sectionTitle2}>승인 대기</Text>
+            <Text style={styles.sectionTitle2}>결재 대기</Text>
             <View style={styles.cntPill}><Text style={styles.cntPillText}>{inbox === null ? "…" : inbox}</Text></View>
-            <TouchableOpacity style={styles.allLink} onPress={openApprovals} accessibilityLabel="승인 전체 보기">
+            <TouchableOpacity style={styles.allLink} onPress={openApprovals} accessibilityLabel="결재 전체 보기">
               <Text style={styles.allLinkText}>전체 ›</Text>
             </TouchableOpacity>
           </View>
-          {inbox === 0 ? (
-            <View style={styles.apprList}><Text style={styles.apprEmpty}>승인 대기가 없습니다.</Text></View>
-          ) : inboxItems.length > 0 ? (
-            <View style={styles.apprList}>
-              {inboxItems.slice(0, 3).map((it, i) => (
-                <TouchableOpacity key={it.key} style={[styles.apprRow, i > 0 && styles.apprLine]} onPress={openApprovals} activeOpacity={0.7}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.apprWho} numberOfLines={1}>{it.who} · {it.group}</Text>
-                    <Text style={styles.apprSub} numberOfLines={1}>{it.summary}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#4f46e5" />
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
+          <View style={styles.apprList}>
+            {inbox === null && inboxItems.length === 0 ? (
+              <Text style={styles.apprEmpty}>불러오는 중…</Text>
+            ) : inbox === 0 && waiting === 0 ? (
+              <Text style={styles.apprEmpty}>결재 대기가 없습니다.</Text>
+            ) : inbox === 0 ? (
+              <Text style={styles.apprEmpty}>본부 차례인 결재가 없습니다.</Text>
+            ) : null}
+            {/* 한 줄 = 이름 · 종류 · 날짜(같은 말이 두 줄에 겹치지 않게 — S6 ③). 본부 차례만, 원장 승인 전은 맨 아래 한 줄 */}
+            {inboxItems.slice(0, 5).map((it, i) => (
+              <TouchableOpacity key={it.key} style={[styles.apprRow, i > 0 && styles.apprLine]} onPress={openApprovals} activeOpacity={0.7}>
+                <Text style={styles.apprWho} numberOfLines={1}>{it.who}</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.apprKind} numberOfLines={1}>{it.group}</Text>
+                  <Text style={styles.apprSub} numberOfLines={2}>{it.when}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#4f46e5" />
+              </TouchableOpacity>
+            ))}
+            {inboxItems.length > 5 && (
+              <TouchableOpacity style={[styles.apprRow, styles.apprLine]} onPress={openApprovals} activeOpacity={0.7}>
+                <Text style={styles.apprMore}>{inboxItems.length - 5}건 더 보기 ›</Text>
+              </TouchableOpacity>
+            )}
+            {waiting > 0 && (
+              <TouchableOpacity style={[styles.apprRow, (inboxItems.length > 0 || inbox === 0) && styles.apprLine, styles.apprWaitRow]} onPress={openApprovals} activeOpacity={0.7} accessibilityLabel={`원장 승인 전 ${waiting}건 보기`}>
+                <Text style={styles.apprWaitText}>원장 승인 전 {waiting}건</Text>
+                <Text style={styles.allLinkText}>보기 ›</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
 
-      {!!staff && <BranchNowCard reloadKey={reloadKey} title={staff === "ADMIN" ? "오늘 전체 근태" : `오늘 ${myBranch || "우리 지점"} 근태`} onOpenSchedule={() => navigation.navigate("Schedule", { view: "branch" })} />}
-
-      <View style={styles.grid}>
-        {cards.map((c) => (
-          <TouchableOpacity
-            key={c.key}
-            style={styles.card}
-            activeOpacity={c.onPress ? 0.7 : 1}
-            onPress={c.onPress}
-            disabled={!c.onPress}
-          >
-            <View style={styles.cardTop}>
-              <Ionicons name={c.icon as any} size={24} color={c.color} />
-              {c.onPress && <Ionicons name="chevron-forward" size={16} color="#d1d5db" />}
-            </View>
-            <Text style={styles.cardValue}>{c.value}</Text>
-            <Text style={styles.cardLabel}>{c.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>최근 공지</Text>
-        {announcements.length === 0 ? (
-          <Text style={styles.empty}>등록된 공지가 없습니다.</Text>
-        ) : (
-          announcements.map((a) => (
-            <TouchableOpacity key={a.id} style={styles.annItem} activeOpacity={0.7} onPress={() => { setActiveAnn(a); setModal("announcement"); }}>
-              <View style={styles.annHeader}>
-                {a.pinned && (
-                  <Ionicons name="pin" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                )}
-                <Text style={styles.annTitle} numberOfLines={1}>
-                  {a.title}
-                </Text>
-              </View>
-              <Text style={styles.annContent} numberOfLines={2}>
-                {a.content}
-              </Text>
-              <Text style={styles.annMeta}>
-                {a.authorName} · {new Date(a.createdAt).toLocaleDateString("ko-KR")}
-              </Text>
+      {/* 내 것 — 원장 · 본부는 띠 하나(남은 연차 · 서명 대기 · 내 근태, S6 ④), 직원은 내 근태가 첫 칸인 네 칸 */}
+      {staff ? (
+        <View style={styles.strip}>
+          {mine.map((c, i) => (
+            <TouchableOpacity key={c.key} style={[styles.stripCell, i > 0 && styles.stripLine]} activeOpacity={0.7} onPress={c.onPress} accessibilityLabel={`${c.label} ${c.value}`}>
+              <Text style={styles.stripLab} numberOfLines={1}>{c.label}</Text>
+              <Text style={styles.stripVal} numberOfLines={1}>{c.value}</Text>
             </TouchableOpacity>
-          ))
+          ))}
+        </View>
+      ) : (
+        <View style={styles.grid}>
+          {cards.map((c) => (
+            <TouchableOpacity
+              key={c.key}
+              style={styles.card}
+              activeOpacity={c.onPress ? 0.7 : 1}
+              onPress={c.onPress}
+              disabled={!c.onPress}
+            >
+              <View style={styles.cardTop}>
+                <Ionicons name={c.icon as any} size={24} color={c.color} />
+                {c.onPress && <Ionicons name="chevron-forward" size={16} color="#d1d5db" />}
+              </View>
+              <Text style={styles.cardValue}>{c.value}</Text>
+              <Text style={styles.cardLabel}>{c.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* 공지 — 제목 한 줄 + 「작성자 · 10/22」, 고정은 작은 「고정」 알약(S6 ⑤) */}
+      <View style={styles.section}>
+        <View style={styles.apprHead}>
+          <Text style={styles.sectionTitle2}>공지</Text>
+          <TouchableOpacity style={styles.allLink} onPress={() => navigation.navigate("Work", { screen: "WorkAnnouncements", initial: false })} accessibilityLabel="공지 전체 보기">
+            <Text style={styles.allLinkText}>전체 ›</Text>
+          </TouchableOpacity>
+        </View>
+        {announcements.length === 0 ? (
+          <View style={styles.apprList}><Text style={styles.apprEmpty}>등록된 공지가 없습니다.</Text></View>
+        ) : (
+          <View style={styles.apprList}>
+            {announcements.map((a, i) => {
+              const d = new Date(a.createdAt);
+              return (
+                <TouchableOpacity key={a.id} style={[styles.annRow, i > 0 && styles.apprLine]} activeOpacity={0.7} onPress={() => { setActiveAnn(a); setModal("announcement"); }}>
+                  {a.pinned && <View style={styles.pinPill}><Text style={styles.pinPillText}>고정</Text></View>}
+                  <Text style={styles.annTitle} numberOfLines={1}>{a.title}</Text>
+                  <Text style={styles.annMeta} numberOfLines={1}>{a.authorName} · {d.getMonth() + 1}/{d.getDate()}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
       </View>
 
@@ -393,7 +429,7 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cardValue: { fontSize: 22, fontWeight: "bold", color: "#111827", marginTop: 8 },
   cardLabel: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  section: { padding: 16, paddingTop: 4 },
+  section: { paddingHorizontal: 14, paddingBottom: 24, gap: 8 },
   sectionTitle: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 10 },
   empty: { color: "#9ca3af", fontSize: 14, paddingVertical: 12 },
   annItem: {
@@ -403,9 +439,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   annHeader: { flexDirection: "row", alignItems: "center" },
-  annTitle: { fontSize: 15, fontWeight: "600", color: "#111827", flex: 1 },
+  annTitle: { fontSize: 14.5, fontWeight: "600", color: "#0f172a", flex: 1 },
   annContent: { fontSize: 13, color: "#4b5563", marginTop: 4 },
-  annMeta: { fontSize: 12, color: "#9ca3af", marginTop: 6 },
+  annMeta: { fontSize: 12.5, color: "#64748b", flexShrink: 0, maxWidth: 120 },
   // 팝업
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
   popup: { backgroundColor: "#fff", borderRadius: 14, padding: 20 },
@@ -420,7 +456,7 @@ const styles = StyleSheet.create({
   approvalText: { fontSize: 14, color: "#374151" },
   popupClose: { marginTop: 20, backgroundColor: "#4f46e5", borderRadius: 10, minHeight: 46, justifyContent: "center", alignItems: "center" },
   // 승인 대기(원장 · 본부 홈 맨 위)
-  apprWrap: { marginHorizontal: 14, marginTop: 16, marginBottom: 12, gap: 8 },
+  apprWrap: { marginHorizontal: 14, marginBottom: 11, gap: 8 },
   apprHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   sectionTitle2: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
   cntPill: { backgroundColor: "#fffbeb", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 },
@@ -428,9 +464,21 @@ const styles = StyleSheet.create({
   allLink: { marginLeft: "auto", minHeight: 44, justifyContent: "center", paddingLeft: 12 },
   allLinkText: { fontSize: 13.5, fontWeight: "700", color: "#4f46e5" },
   apprList: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e2e8f0", overflow: "hidden" },
-  apprRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12, minHeight: 56 },
+  apprRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, minHeight: 56 },
+  apprKind: { fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
+  apprMore: { flex: 1, fontSize: 13.5, color: "#475569", textAlign: "center" },
+  apprWaitRow: { backgroundColor: "#fafbfd" },
+  apprWaitText: { flex: 1, fontSize: 14, color: "#475569" },
+  strip: { flexDirection: "row", marginHorizontal: 14, marginBottom: 11, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e2e8f0", overflow: "hidden" },
+  stripCell: { flex: 1, alignItems: "center", paddingVertical: 12, paddingHorizontal: 6, minHeight: 62, justifyContent: "center" },
+  stripLine: { borderLeftWidth: 1, borderLeftColor: "#f1f5f9" },
+  stripLab: { fontSize: 12.5, fontWeight: "600", color: "#475569" },
+  stripVal: { fontSize: 16, fontWeight: "800", color: "#0f172a", marginTop: 3 },
+  annRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 12, minHeight: 50 },
+  pinPill: { backgroundColor: "#eef2ff", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  pinPillText: { fontSize: 12.5, fontWeight: "700", color: "#4f46e5" },
   apprLine: { borderTopWidth: 1, borderTopColor: "#f1f5f9" },
-  apprWho: { fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
+  apprWho: { minWidth: 56, maxWidth: 96, flexShrink: 0, fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
   apprSub: { fontSize: 13.5, color: "#475569", marginTop: 2 },
   apprEmpty: { fontSize: 13.5, color: "#64748b", padding: 14 },
   popupCloseText: { color: "#fff", fontSize: 15, fontWeight: "600" },
