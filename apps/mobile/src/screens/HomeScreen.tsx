@@ -507,8 +507,8 @@ const styles = StyleSheet.create({
   apprWrap: { marginHorizontal: 14, marginBottom: 11, gap: 8 },
   apprHead: { flexDirection: "row", alignItems: "center", gap: 6 },
   sectionTitle2: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
-  cntPill: { backgroundColor: "#fffbeb", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 },
-  cntPillText: { fontSize: 12.5, fontWeight: "700", color: "#b45309" },
+  cntPill: { backgroundColor: "#fff1f2", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 2 },   // 결재 대기 건수 — 빨강(2026-10-29 이예지)
+  cntPillText: { fontSize: 12.5, fontWeight: "700", color: "#be123c" },
   allLink: { marginLeft: "auto", minHeight: 44, justifyContent: "center", paddingLeft: 12 },
   allLinkText: { fontSize: 13.5, fontWeight: "700", color: "#4f46e5" },
   apprList: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e2e8f0", overflow: "hidden" },

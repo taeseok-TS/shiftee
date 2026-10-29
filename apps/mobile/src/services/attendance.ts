@@ -78,6 +78,7 @@ export type AttendanceRequestRow = {
   nextStep?: "HQ" | null;                  // 이 단계를 승인하면 넘어갈 차례
   step1?: { name: string; at: string } | null;   // 1차(원장) 승인한 사람 · 시각
   recordState?: string | null;             // 그날 기록 상태 「출근 · 퇴근 누락」(시각 없이)
+  outLate?: string | null;                 // 「근무일정 퇴근 22:00 + 1시간 10분 늦음」 — 본부에게만(2026-10-29 이예지)
   timesHidden?: boolean;                   // 이 줄에서 시각이 빠졌는지(직원 · 원장)
   // 지점 밖 · 사진 · 본부 요청의 판정 근거(2026-10-27) — 찍힌 위치 ↔ 소속 지점 거리 · 폰 위치 오차 · 인정 거리(m). 좌표 숫자는 오지 않는다
   distanceM?: number | null; accuracyM?: number | null; radiusM?: number | null; nearBranch?: string | null;

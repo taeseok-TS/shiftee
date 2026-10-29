@@ -208,6 +208,7 @@ function attItem(r: attendance.AttendanceRequestRow, admin: boolean): Item {
     const state = r.recordState ?? (r.kind === "MISSED_OUT" ? "출근 · 퇴근 누락" : null);
     if (state) lines.push({ label: "기록", text: state, tone: /누락|없음/.test(state) ? "red" : undefined });
   }
+  if (r.outLate) lines.push({ label: "늦음", text: r.outLate, tone: "red" });   // 퇴근 시각이 기준보다 늦음 — 본부 단계에만 온다(2026-10-29 이예지)
   if (r.reason) lines.push({ label: r.kind === "RECORD" ? "쓰는 곳" : "사유", text: r.reason });
   if (r.memo) lines.push({ label: "메모", text: r.memo });
   if (r.hasPhoto) lines.push({ label: "사진", text: "카드를 눌러서 보기" });

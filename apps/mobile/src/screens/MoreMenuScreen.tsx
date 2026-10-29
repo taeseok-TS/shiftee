@@ -78,6 +78,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f3f4f6",
   },
   label: { flex: 1, fontSize: 16, color: "#111827" },
-  count: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: "#f59e0b", alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  count: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: "#ef4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },   // 아래 탭 배지와 같은 빨강(2026-10-29)
   countText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 });

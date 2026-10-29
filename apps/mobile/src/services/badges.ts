@@ -77,5 +77,5 @@ export function useBadgeCounts(): BadgeCounts {
 }
 
 /** 아래 탭 숫자 모양 — 주황(대기) */
-export const badgeStyle = { backgroundColor: "#f59e0b", color: "#fff", fontSize: 12, fontWeight: "700" as const };   // 아래 탭 배지 모두 주황 · 11px 없이(2026-10-28 S6 ⑦⑧)
+export const badgeStyle = { backgroundColor: "#ef4444", color: "#fff", fontSize: 12, fontWeight: "700" as const };   // 아래 탭 배지 모두 빨강 한 색 · 11px 없이(2026-10-29 이예지 12:37 — 처리할 것은 빨강, 10/28 주황에서 되돌림)
 export const badgeText = (n: number | null | undefined) => (n && n > 0 ? (n > 99 ? "99+" : n) : undefined);

@@ -139,7 +139,7 @@ export default function AppNavigator() {
           title: "메신저",
           headerShown: false,
           tabBarBadge: unread > 0 ? (unread > 99 ? "99+" : unread) : undefined,
-          tabBarBadgeStyle: badgeStyle,   // 아래 탭 배지는 모두 주황 한 색(2026-10-28 이예지 앱 홈 ⑦ — 메신저만 빨강이었다)
+          tabBarBadgeStyle: badgeStyle,   // 아래 탭 배지는 모두 같은 색(빨강, 2026-10-29 이예지)
         }}
         listeners={({ navigation }) => ({
           // 이미 메신저 탭인 상태에서 다시 탭하면 채널 목록을 최상단으로 스크롤
