@@ -27,6 +27,7 @@ type Req = {
   // ■0-11 — 시각은 본부에게만(직원 · 원장 응답은 null). 두 단계 결재 흐름
   clockIn?: string | null; clockOut?: string | null; wantIn?: boolean; wantOut?: boolean;
   timesHidden?: boolean; recordState?: string | null;
+  outLate?: string | null;   // 「근무일정 퇴근 22:00 + 1시간 10분 늦음」 — 본부에게만(2026-10-29 이예지)
   steps?: number; currentStep?: "MANAGER" | "HQ" | null; nextStep?: "HQ" | null;
   step1?: { name: string; at: string } | null;
   // 지점 밖 · 사진 · 본부 요청의 판정 근거(2026-10-27 이예지) — 요청 때 찍힌 위치와 소속 지점 사이 거리 · 폰 위치 오차 · 인정 거리(m). 좌표 숫자는 없다
@@ -165,6 +166,7 @@ export default function AttendanceRequestInbox({ onCount, onChanged, searchName 
               {r.step1 && <div className="text-xs text-gray-500">원장 승인 완료 · {r.step1.name} {shortAt(r.step1.at)}</div>}
               <div className="text-sm">{r.kind === "DEVICE" ? `새 기기: ${r.deviceName ?? "이름 없음"} (${r.platform ?? "-"})` : r.summary}</div>
               {r.timesHidden && r.recordState && <div className="text-xs text-gray-500">그날 기록: {r.recordState}</div>}
+              {r.outLate && <div className="text-xs font-semibold text-amber-700">⚠ {r.outLate}</div>}
               {r.nextStep === "HQ" && isHq === false && <div className="text-xs text-gray-500">승인하면 본부가 시각을 확인해 최종 승인합니다.</div>}
               {(r.kind === "CORRECTION" || r.kind === "MISSED_OUT") && r.reason && <div className="text-sm text-gray-600">사유: {r.reason}</div>}
               {r.memo && <div className="text-sm text-gray-600">메모: {r.memo}</div>}

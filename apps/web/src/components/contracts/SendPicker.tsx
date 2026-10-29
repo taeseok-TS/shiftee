@@ -23,7 +23,7 @@ type Template = {
   id: string; name: string; description?: string | null; type: string; createdAt?: string; fileUrl?: string;
   postSignAccess?: string; approvalSteps?: unknown; approvalStepsRenewal?: unknown; pinned?: boolean;
 };
-type Employee = { id: string; name: string; branch?: string | null; department?: string | null; role?: string; position?: string | null; jobGroup?: string | null; hireDate?: string | null };
+type Employee = { id: string; name: string; branch?: string | null; department?: string | null; role?: string; position?: string | null; jobGroup?: string | null; hireDate?: string | null; resignDate?: string | null };
 type PurposeKey = ContractPurpose | "other";
 // 고른 서류 — 양식 하나, 신규입사 묶음, 퇴사 서류 고르기, 묶음(직접 만든 것 또는 이번만 고른 여러 장 — id 가 null 이면 저장 안 된 묶음).
 // purpose 는 고를 때의 용도(재계약 탭에서 고르면 작성 폼의 계약 구분이 재계약)
@@ -178,7 +178,9 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
   const hireDocs = [pkg.empTemplate, pkg.privacyTemplate].filter(Boolean) as Template[];
 
   // ── 받는 사람 ──
-  const candidates = employees.filter(e => e.role !== "ADMIN");
+  // 재계약 · 연봉 서류는 퇴사 예정자(퇴사일이 정해진 사람)를 처음부터 받는 사람 후보에서 뺀다(2026-10-29 이예지 — 박선재 10/30 퇴사)
+  const renewing = (pick?.kind === "tpl" ? pick.purpose : purpose) === "renew";
+  const candidates = employees.filter(e => e.role !== "ADMIN" && !(renewing && e.resignDate));
   const q = search.trim().toLowerCase();
   const found = q ? candidates.filter(e => e.name.toLowerCase().includes(q) || (e.branch || "").toLowerCase().includes(q) || (e.department || "").toLowerCase().includes(q)).slice(0, 30) : [];
   const empOf = (id: string) => employees.find(e => e.id === id);

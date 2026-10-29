@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { makeNavMatcher, type NavGroup, type NavItem } from "./admin-nav";
+import { DuriWorkLink } from "./DuriWorkLink";
 import { useNavCounts, CountBadge, RED_KEYS, type NavCounts } from "./useNavCounts";
 
 const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
@@ -103,15 +104,16 @@ export function RailSidebar({ nav, letter, home, system }: { nav: NavGroup[]; le
           const on = g.key === activeGroup?.key;
           const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[12px] font-medium",
             on ? "bg-indigo-600 text-white" : "hover:bg-slate-800 hover:text-white");   // 고른 칸은 인디고(빨강은 경고에만 — 2026-10-29 이예지)
-          // 인디고 점(10/28 이예지 디자인 ① — 빨강은 경고에만) — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
+          // 빨간 점(10/29 이예지 — 처리할 것은 빨강) — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
           const dot = g.items.some((it) => it.countKey && RED_KEYS.has(it.countKey) && (counts[it.countKey as keyof NavCounts] || 0) > 0);
-          const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-indigo-400 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
+          const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;
           const to = groupHome(g);
           return reload(to)
             ? <a key={g.key} href={to} className={cls} aria-current={on ? "page" : undefined}>{inner}</a>
             : <Link key={g.key} href={to} onClick={onLink(to)} className={cls} aria-current={on ? "page" : undefined}>{inner}</Link>;
         })}
-        {/* 레일 맨 아래 듀리 「큐브티워크」는 뺐다 — 상단 바 버튼 하나만(2026-10-28 이예지 디자인 ⑨, 10/21 시안도 상단에만) */}
+        {/* 레일 맨 아래 듀리 「큐브티워크」 — 10/28 뺐다가 다시 넣음(2026-10-29 이예지: 평소 여기를 눌러 왔다, 상단 버튼과 둘 다 둔다) */}
+        <DuriWorkLink />
       </div>
       {/* 패널 */}
       <div className={cn("flex w-52 flex-col border-r border-gray-200 bg-white", activeGroup?.key === "dashboard" && "hidden")}>

@@ -150,10 +150,10 @@ export default function AdminDashboardPage() {
       <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준 · 루트코스 교육 중인 신입 제외" right={<a href="/admin/attendance" className="text-[#4f46e5] hover:underline">출퇴근 현황 ›</a>}>
         <Tiles cols={7}>
           <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
-          <Tile label="지각" value={a?.late} unit="명" alert onClick={toAttendance} />
+          <Tile label="지각" value={a?.late} unit="명" onClick={toAttendance} />
           <Tile label="출근 전" value={a ? (a.beforeStart ?? 0) : undefined} unit="명" note="근무 시작 시각 전" onClick={toAttendance} />
-          <Tile label="미출근" value={a?.absent} unit="명" note="시작 시각 지났는데 기록 없음" alert onClick={toAttendance} />
-          <Tile label="조퇴" value={a?.earlyLeave} unit="명" alert onClick={toAttendance} />
+          <Tile label="미출근" value={a?.absent} unit="명" note="시작 시각 지났는데 기록 없음" onClick={toAttendance} />
+          <Tile label="조퇴" value={a?.earlyLeave} unit="명" onClick={toAttendance} />
           <Tile label="휴가" value={a?.onLeave} unit="명" onClick={toAttendance} />
           <Tile label="전체 직원" value={totalEmployees} unit="명" note="지점 재직 + 휴직" hl onClick={toAttendance} />
         </Tiles>

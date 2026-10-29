@@ -29,10 +29,26 @@ export async function GET() {
     where: { userId: session.userId, date: { lt: today, gte: new Date(today.getTime() - 7 * 86400_000) }, clockIn: { not: null }, clockOut: null, importBatch: null },
     orderBy: { date: "asc" }, select: { date: true },
   });
+  // 휴가(하루 종일 승인 휴가) · 휴무 · 공휴일 일정인 날은 뺀다(2026-10-29 이예지 — 미출근 날은 출근 기록이 없어 처음부터 빠진다)
+  await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {});   // 본부가 만든 유형의 단위(반차 등)까지(검증 3)
+  const { leaveInfo } = await import("@/lib/leave-catalog");
+  const offDays = new Set((await prisma.schedule.findMany({
+    where: { userId: session.userId, date: { in: allMissed.map((m) => m.date) }, type: { in: ["OFF", "HOLIDAY"] } }, select: { date: true },
+  })).map((x) => x.date.toISOString().slice(0, 10)));
+  const leaves = allMissed.length ? await prisma.leaveRequest.findMany({
+    where: { userId: session.userId, status: "APPROVED", startDate: { lte: allMissed[allMissed.length - 1].date }, endDate: { gte: allMissed[0].date } },
+    select: { type: true, startDate: true, endDate: true },
+  }) : [];
+  // 단위를 모르는 유형은 하루 종일로 보지 않는다(안내를 빠뜨리지 않는 쪽)
+  const onFullLeave = (d: Date) => leaves.some((l) => leaveInfo(l.type)?.unit === "FULL" && l.startDate <= d && l.endDate >= d);
   const days: string[] = [];
-  for (const m of allMissed) if (!(await hasPendingOutRequest(session.userId, m.date))) days.push(m.date.toISOString().slice(0, 10));
-  // 퇴근 쪽 요청(누락·수정·지점 밖/사진/본부 퇴근)이 대기 중이면 다시 안내하지 않는다
-  if (await hasPendingOutRequest(session.userId, att.date)) return NextResponse.json({ missed: null, days });
+  for (const m of allMissed) {
+    const ymd0 = m.date.toISOString().slice(0, 10);
+    if (offDays.has(ymd0) || onFullLeave(m.date)) continue;
+    if (!(await hasPendingOutRequest(session.userId, m.date))) days.push(ymd0);
+  }
+  // 퇴근 쪽 요청(누락·수정·지점 밖/사진/본부 퇴근)이 대기 중이면 다시 안내하지 않는다 · 휴가 · 휴무로 뺀 날이면 출퇴근 탭 카드도 띄우지 않는다(홈 안내와 같게)
+  if (!days.includes(att.date.toISOString().slice(0, 10))) return NextResponse.json({ missed: null, days });
   // 본인 동의로 처리할 퇴근 시각 — 관리자 자동 마감과 같은 기준(근무일정 퇴근 시각, 2026-10-17 디렉터 결정 · lib/missed-out)
   const ymd = att.date.toISOString().slice(0, 10);
   const elig = await consentEligibility(session.userId, att.clockIn!, ymd);

@@ -74,6 +74,7 @@ type CancelStep = {
   };
 };
 type AttReq = {
+  outLate?: string | null;   // 퇴근 시각이 기준보다 늦은 만큼(본부만, 2026-10-29)
   id: string; status?: string; kindLabel?: string; workDate: string; userName?: string; userBranch?: string | null; userPosition?: string | null; requestedAt?: string | null;
   // 출퇴근 수정은 「지점 원장 → 본부」 두 단계(■0-11) — 서버가 줄마다 싣는다(옛 서버면 없음)
   steps?: number; currentStep?: "MANAGER" | "HQ" | null;
@@ -275,7 +276,7 @@ export default function ApprovalsPage() {
         key: `att-${a.id}`, kind: managerTurn ? "waiting" : "attendance", id: a.id, name: a.userName || "", nameSub: [a.userBranch, a.userPosition].filter(Boolean).join(" · "),
         typeLabel: a.kindLabel || "출퇴근 수정", tone: managerTurn ? "gray" : "wait",
         period: md(a.workDate),
-        periodSub: managerTurn ? "원장 차례 · 원장이 승인하면 본부 차례로 넘어옵니다" : "출퇴근 수정 · 사진 · 위치 · 사유를 보고 처리",
+        periodSub: managerTurn ? "원장 차례 · 원장이 승인하면 본부 차례로 넘어옵니다" : a.outLate ? `⚠ ${a.outLate} · 사유를 보고 처리` : "출퇴근 수정 · 사진 · 위치 · 사유를 보고 처리",
         dots, comments: [], action: "open", onOpen: managerTurn ? undefined : () => setTab("attendance"), more: [], at: new Date(a.workDate).getTime(), viewOnly: managerTurn,
         s: a.workDate.slice(0, 10), e: a.workDate.slice(0, 10),
       });

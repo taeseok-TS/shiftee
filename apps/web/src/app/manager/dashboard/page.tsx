@@ -139,11 +139,11 @@ export default function ManagerDashboardPage() {
           right={hidden ? undefined : <a href="/manager/team-attendance" className="text-[#4f46e5] hover:underline">지점 출퇴근기록 ›</a>}>
           <Tiles cols={7}>
             <Tile label="출근" value={a?.present} unit="명" onClick={toAttendance} />
-            <Tile label="지각" value={a?.late} unit="명" note={namesNote(stats?.names?.late)} alert onClick={toAttendance} />
+            <Tile label="지각" value={a?.late} unit="명" note={namesNote(stats?.names?.late)} onClick={toAttendance} />
             {/* 근무 시작 전인 사람은 미출근이 아니라 「출근 전」(2026-10-27 이예지 ① — 오전에 13:00 근무자 107명이 미출근으로 떠 원장님들이 놀랄 일) */}
             <Tile label="출근 전" value={hidden || !a ? null : (a.beforeStart ?? 0)} unit="명" note={hidden ? undefined : namesNote(stats?.names?.beforeStart) ?? "근무 시작 시각 전"} onClick={toAttendance} />
-            <Tile label="미출근" value={a?.absent} unit="명" note={hidden ? undefined : namesNote(stats?.names?.missing) ?? "시작 시각 지났는데 기록 없음"} alert onClick={toAttendance} />
-            <Tile label="조퇴" value={a?.earlyLeave} unit="명" note={namesNote(stats?.names?.earlyLeave)} alert onClick={toAttendance} />
+            <Tile label="미출근" value={a?.absent} unit="명" note={hidden ? undefined : namesNote(stats?.names?.missing) ?? "시작 시각 지났는데 기록 없음"} onClick={toAttendance} />
+            <Tile label="조퇴" value={a?.earlyLeave} unit="명" note={namesNote(stats?.names?.earlyLeave)} onClick={toAttendance} />
             <Tile label="휴가" value={stats?.attendance.onLeave} unit="명" />
             {/* 원장 = 담당 지점 재직자, 본부 계정으로 원장 모드를 열면 전체(본부 · 테스트 지점 제외) */}
             <Tile label="지점 인원" value={stats?.teamCount} unit="명" note={me?.role === "ADMIN" ? "본부 계정 — 전체 지점" : "지점 재직 · 휴직 빼고"} hl

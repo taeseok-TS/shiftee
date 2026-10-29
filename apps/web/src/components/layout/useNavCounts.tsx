@@ -67,8 +67,8 @@ export function useNavCounts(): NavCounts {
 export function CountBadge({ n, red }: { n?: number; red?: boolean }) {
   if (!n || n <= 0) return null;
   return (
-    // 처리할 건수는 인디고(빨강은 지각 · 결근 · 누락 같은 문제에만 — 2026-10-28 이예지 디자인 ①). 이름 red 는 「처리할 건」이라는 뜻으로 남겨 둔다
-    <span className={red ? "ml-auto min-w-[20px] rounded-full bg-[#eef2ff] px-1.5 text-center text-xs font-bold leading-5 text-[#4f46e5]" : "ml-auto min-w-[20px] rounded-full px-1.5 text-center text-xs leading-5 text-gray-400"}>
+    // 처리할 건수는 빨강(2026-10-29 이예지 12:37 — 써 보니 파란 점이 눈에 안 들어온다: 처리할 건수 · 알림 점은 빨강, 근태 숫자는 중립 회색)
+    <span className={red ? "ml-auto min-w-[20px] rounded-full bg-red-50 px-1.5 text-center text-xs font-bold leading-5 text-red-600" : "ml-auto min-w-[20px] rounded-full px-1.5 text-center text-xs leading-5 text-gray-400"}>
       {n > 99 ? "99+" : n}
     </span>
   );

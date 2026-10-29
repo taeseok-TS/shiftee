@@ -65,9 +65,9 @@ export function useWorkUnread(): number {
 export function WorkUnreadBadge() {
   const n = useWorkUnread();
   if (n <= 0) return null;
-  // 안 읽은 수는 처리할 건수라 인디고(빨강은 문제에만 — 2026-10-28 이예지 디자인 ①)
+  // 안 읽은 수는 빨강(2026-10-29 이예지 12:37 — 써 보니 파란 점이 눈에 안 들어온다: 처리할 건수 · 알림 점은 빨강, 근태 숫자는 중립 회색)
   return (
-    <span className="ml-auto bg-[#4f46e5] text-white text-[12px] font-bold leading-none rounded-full px-1.5 min-w-[20px] h-5 inline-flex items-center justify-center">
+    <span className="ml-auto bg-red-500 text-white text-[12px] font-bold leading-none rounded-full px-1.5 min-w-[20px] h-5 inline-flex items-center justify-center">
       {n > 99 ? "99+" : n}
     </span>
   );

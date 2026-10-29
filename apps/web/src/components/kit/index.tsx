@@ -1,7 +1,7 @@
 "use client";
 // 화면 공통 부품 한 벌 — 본부 시안 R9(대시보드) 톤(2026-10-21 본부 이예지 「디자인 통일」 3장, 값은 시안_소스 n-style.css·common.css 그대로).
 // 모든 관리자·원장·직원 화면이 이 부품을 쓴다 — 화면마다 따로 스타일을 쓰면 또 조금씩 달라진다(요청서 8장 「하지 말 것」).
-//  · 색은 둘만 힘을 쓴다: 인디고 #4f46e5 = 누를 것 · 처리할 건수(배지), 빨강 #dc2626 = 문제(지각 · 결근 · 누락 · 잔여 마이너스 · 49시간 초과) — 2026-10-28 이예지 디자인 ①
+//  · 색은 둘만 힘을 쓴다: 인디고 #4f46e5 = 누를 것 · 고른 것, 빨강 #dc2626 = 내가 처리할 것(건수 배지 · 알림 점). 근태 숫자(지각 · 결근 · 조퇴)는 회색 — 2026-10-29 이예지
 //  · 초록·검정 채움 버튼·이모지·숫자 색칠·박스 왼쪽 색 띠는 쓰지 않는다
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -51,8 +51,8 @@ export function PillTabs({ tabs, value, onChange, className }: { tabs: PillTab[]
           on ? "border-[#4f46e5] bg-[#4f46e5] text-white" : "border-[#e2e8f0] bg-white text-[#475569] hover:bg-[#f8fafc]");
         const badge = typeof t.count === "number" && t.count > 0 ? (
           <em className={cn("rounded-full px-[7px] text-[12px] not-italic leading-[19px]",
-            // 처리할 건수(hot)는 인디고 — 빨강은 문제에만(2026-10-28 이예지 디자인 ①). 켜진 탭(인디고 바탕) 위에서는 흰 알약
-            t.hot ? (on ? "bg-white text-[#4f46e5]" : "bg-[#4f46e5] text-white") : on ? "bg-white/25 text-white" : "bg-[#f1f5f9] text-[#475569]")}>{t.count}</em>
+            // 처리할 건수(hot)는 빨강(2026-10-29 이예지 12:37 — 써 보니 파란 점이 눈에 안 들어온다: 처리할 건수 · 알림 점은 빨강, 근태 숫자는 중립 회색)
+            t.hot ? "bg-[#dc2626] text-white" : on ? "bg-white/25 text-white" : "bg-[#f1f5f9] text-[#475569]")}>{t.count}</em>
         ) : null;
         return t.href
           ? <Link key={t.key} href={t.href} role="tab" aria-selected={on} className={cls}>{t.label}{badge}</Link>
@@ -62,7 +62,7 @@ export function PillTabs({ tabs, value, onChange, className }: { tabs: PillTab[]
   );
 }
 
-/* ── 박스: 흰 바탕·1px 테두리·모서리 14px. 머리 = 파스텔 아이콘 + 제목 17.5px + (인디고 건수 알약) + 회색 설명 + 오른쪽 글자 버튼 ── */
+/* ── 박스: 흰 바탕·1px 테두리·모서리 14px. 머리 = 파스텔 아이콘 + 제목 17.5px + (빨간 건수 알약) + 회색 설명 + 오른쪽 글자 버튼 ── */
 export type Tone = "ind" | "rose" | "amb" | "sky" | "vio" | "sl";
 const TONE: Record<Tone, string> = {
   ind: "bg-[#eef2ff] text-[#4f46e5]", rose: "bg-[#fff1f2] text-[#e11d48]", amb: "bg-[#fffbeb] text-[#b45309]",
@@ -78,7 +78,7 @@ export function Box({ icon, tone = "ind", title, count, sub, right, children, cl
         <div className="flex flex-wrap items-center gap-2.5 border-b border-[#eef1f5] px-6 py-[17px]">
           {icon && <span className={cn("grid h-8 w-8 flex-none place-items-center rounded-[9px] [&_svg]:h-[18px] [&_svg]:w-[18px]", TONE[tone])}>{icon}</span>}
           <h2 className="text-[17.5px] font-bold text-[#0f172a]">{title}</h2>
-          {typeof count === "number" && count > 0 && <em className="rounded-full bg-[#4f46e5] px-2 text-[13px] not-italic leading-[21px] text-white">{count}</em>}
+          {typeof count === "number" && count > 0 && <em className="rounded-full bg-[#dc2626] px-2 text-[13px] not-italic leading-[21px] text-white">{count}</em>}
           {sub && <span className="text-[13px] text-[#596578]">{sub}</span>}
           {right && <div className="ml-auto flex items-center gap-2 text-[14px] font-semibold">{right}</div>}
         </div>

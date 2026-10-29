@@ -543,10 +543,10 @@ export default function AttendancePage() {
             <Tiles cols={7}>
               {([
                 { key: "present", label: "출근", value: a?.present },
-                { key: "late", label: "지각", value: a?.late, alert: true },
+                { key: "late", label: "지각", value: a?.late },   // 근태 숫자는 회색(2026-10-29 이예지 — 빨강은 처리할 것에만)
                 { key: "beforeStart", label: "출근 전", value: a ? (a.beforeStart ?? 0) : undefined, note: "근무 시작 시각 전" },   // 불러오는 동안은 다른 칸처럼 「—」(이예지 10/28 ⑦)
-                { key: "absent", label: "미출근", value: a?.absent, alert: true, note: noSchedule ? "일정이 없어 셀 수 없음" : "시작 시각 지났는데 기록 없음" },
-                { key: "earlyLeave", label: "조퇴", value: a?.earlyLeave, alert: true },
+                { key: "absent", label: "미출근", value: a?.absent, note: noSchedule ? "일정이 없어 셀 수 없음" : "시작 시각 지났는데 기록 없음" },
+                { key: "earlyLeave", label: "조퇴", value: a?.earlyLeave },
                 { key: "onLeave", label: "휴가", value: a?.onLeave },
                 { key: "scheduled", label: "오늘 일정 있는 직원", value: a?.scheduled, hl: true,
                   note: noSchedule && (a?.present ?? 0) + (a?.late ?? 0) > 0 ? "오늘 일정이 들어 있지 않음 — 일정 없이 출근한 사람만 셈" : "근무일정 있는 직원 · 관리자 제외" },
@@ -612,9 +612,9 @@ export default function AttendancePage() {
                         {/* 숫자를 누르면 위 「명단」 상자가 그 지점 · 그 상태로 열린다(2026-10-26). 0 은 누를 수 없다 */}
                         <td className="text-right">{cellBtn(b, "scheduled", b.scheduled)}</td>
                         <td className="text-right">{cellBtn(b, "present", b.present)}</td>
-                        <td className="text-right">{cellBtn(b, "late", b.late, true)}</td>
+                        <td className="text-right">{cellBtn(b, "late", b.late)}</td>
                         <td className="text-right">{cellBtn(b, "beforeStart", b.beforeStart ?? 0)}</td>
-                        <td className="text-right">{cellBtn(b, "absent", b.absent, true)}</td>
+                        <td className="text-right">{cellBtn(b, "absent", b.absent)}</td>
                         <td className="text-right">{cellBtn(b, "onLeave", b.onLeave)}</td>
                       </tr>
                     ))}

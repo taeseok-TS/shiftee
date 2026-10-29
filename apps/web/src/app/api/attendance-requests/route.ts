@@ -51,6 +51,8 @@ type Extra = {
   geo: Map<string, GeoBranch>;
   /** 원장 요청자의 담당 지점(대표 + 겸직) — 거리는 그중 가장 가까운 지점 기준(clock-in 판정과 같은 규칙, 10/27 검증) */
   managerBranches: Map<string, string[]>;
+  /** 퇴근 처리 요청 · 기록 수정의 퇴근 시각이 기준보다 늦은 만큼(본부 단계에만 — 2026-10-29 이예지 「일정 퇴근 + ○분 늦음」) */
+  outLate: Map<string, string>;
 };
 
 /** 요청 때 찍힌 위치와 소속 지점 사이 거리(m) — 좌표 숫자는 내려보내지 않는다 */
@@ -93,6 +95,8 @@ function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string
     approverLabel: r.approverRole === "ADMIN" ? (step1 ? "본부 (원장 승인 완료)" : "본부") : twoStep ? `${r.branch ?? ""} 원장 → 본부` : `${r.branch ?? ""} 원장`,
     // 지점 밖 · 사진 · 본부 요청 — 판정 근거(거리 · 오차 · 인정 거리). 진짜 지점 밖인지 판정 오류인지 보고 승인할 수 있게(2026-10-27 이예지)
     ...(r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ" ? geoOf(r, x.geo, x.managerBranches) : {}),
+    // 늦음 표시 — 시각을 보는 사람(본부)에게만. 원장 1차 카드는 상태만(10/23 · 10/29 이예지)
+    outLate: masked ? null : x.outLate.get(r.id) ?? null,
   };
 }
 
@@ -182,17 +186,46 @@ export async function GET(request: NextRequest) {
   // 그날 기록 상태(시각 없이) — 출퇴근 수정 카드에 「기록 · 출근 · 퇴근 누락」
   const recordState = new Map<string, string>();
   const fixRows = rows.filter((r) => TWO_STEP_KINDS.includes(r.kind));
+  let fixAtt = new Map<string, { clockIn: Date | null }>();
   if (fixRows.length) {
     const atts = await prisma.attendance.findMany({
       where: { OR: fixRows.map((r) => ({ userId: r.userId, date: r.workDate })) },
       select: { userId: true, date: true, clockIn: true, clockOut: true, status: true },
     });
     const got = new Map(atts.map((a) => [`${a.userId}|${a.date.toISOString().slice(0, 10)}`, a]));
+    fixAtt = got;
     for (const r of fixRows) {
       const k = `${r.userId}|${r.workDate.toISOString().slice(0, 10)}`;
       const a = got.get(k);
       recordState.set(k, !a || (!a.clockIn && !a.clockOut) ? "기록 없음"
         : [a.clockIn ? (a.status === "LATE" ? "지각" : "출근") : "출근 누락", a.clockOut ? "퇴근" : "퇴근 누락"].join(" · "));
+    }
+  }
+  // 늦음 표시(2026-10-29 이예지 — 요청은 막지 않고 본부 결재 카드에 표시): 근무일정 퇴근 시각보다 늦으면 「근무일정 퇴근 HH:mm + ○분 늦음」,
+  // 일정이 없는 날은 출근 + 10시간 30분보다 늦으면 같은 식으로. 시각을 보는 사람에게만 계산한다
+  const outLate = new Map<string, string>();
+  const lateRows = showTimes ? fixRows.filter((r) => r.clockOut) : [];
+  if (lateRows.length) {
+    const scheds = await prisma.schedule.findMany({ where: { OR: lateRows.map((r) => ({ userId: r.userId, date: r.workDate })), type: "WORK" }, select: { userId: true, date: true, startTime: true, endTime: true } });
+    const sk = new Map(scheds.map((x) => [`${x.userId}|${x.date.toISOString().slice(0, 10)}`, x]));
+    const ak = fixAtt;   // 그날 기록 — 위 「기록 상태」에서 이미 읽었다(같은 조건 두 번 읽지 않게, 검증 4)
+    const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ""}` : `${m}분`);
+    for (const r of lateRows) {
+      const ymd = r.workDate.toISOString().slice(0, 10);
+      const k = `${r.userId}|${ymd}`;
+      const sc = sk.get(k);
+      const out = r.clockOut!.getTime();
+      if (sc?.endTime && kstDateTime(ymd, sc.endTime)) {
+        let end = kstDateTime(ymd, sc.endTime);
+        const start = sc.startTime ? kstDateTime(ymd, sc.startTime) : null;
+        if (end && start && end.getTime() <= start.getTime()) end = new Date(end.getTime() + 86400_000);   // 자정 넘는 일정
+        const late = end ? Math.round((out - end.getTime()) / 60000) : 0;
+        if (late > 0) outLate.set(r.id, `근무일정 퇴근 ${sc.endTime} + ${hm(late)} 늦음`);
+      } else {
+        const cin = r.clockIn ?? ak.get(k)?.clockIn ?? null;
+        const late = cin ? Math.round((out - (cin.getTime() + 630 * 60000)) / 60000) : 0;
+        if (late > 0) outLate.set(r.id, `근무일정 없음 · 출근 + 10시간 30분보다 ${hm(late)} 늦음`);
+      }
     }
   }
   // 지점 좌표 — 지점 밖 · 사진 · 본부 요청 카드의 거리 계산용(한 번만)
@@ -204,7 +237,7 @@ export async function GET(request: NextRequest) {
   const managerBranches = new Map<string, string[]>();
   for (const uid of new Set(rows.filter((r) => r.user.role === "MANAGER" && (r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ")).map((r) => r.userId)))
     managerBranches.set(uid, await getManagerBranches(uid));
-  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy, { showTimes, step1, recordState, geo, managerBranches })), timesHidden: !showTimes });
+  return NextResponse.json({ requests: rows.map((r) => shapeRow(r, names, r.decidedBy, { showTimes, step1, recordState, geo, managerBranches, outLate })), timesHidden: !showTimes });
 }
 
 // POST — JSON(OUTSIDE·HQ·CORRECTION·MISSED_OUT·RECORD) 또는 multipart(PHOTO: file + 칸들)

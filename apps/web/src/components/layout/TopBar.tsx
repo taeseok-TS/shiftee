@@ -39,7 +39,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
   // 모드 옆 빨간 점(●)은 뜻을 알 수 없어 뺐다 — 「다른 모드」에 처리할 건이 있을 때만 인디고 건수로(2026-10-28 이예지 디자인 ①). 지금 모드 건수는 왼쪽 메뉴에 있다
   const modeCount = (m: Mode, cls = "ml-1") => {
     const n = m === mode ? 0 : pendingN(m);
-    return n > 0 ? <span className={cn(cls, "min-w-[20px] shrink-0 rounded-full bg-[#eef2ff] px-1.5 text-center text-xs font-bold leading-5 text-[#4f46e5]")} aria-label={`처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null;
+    return n > 0 ? <span className={cn(cls, "min-w-[20px] shrink-0 rounded-full bg-red-50 px-1.5 text-center text-xs font-bold leading-5 text-red-600")} aria-label={`처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null;
   };
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -61,7 +61,7 @@ export function TopBar({ mode, role, name, sub, menu, title }: {
             <DropdownMenuTrigger className="sm:hidden inline-flex min-h-11 min-w-0 items-center gap-1 rounded-lg px-2 text-[15px] font-bold text-indigo-700 outline-none hover:bg-indigo-50" aria-label="모드 바꾸기">
               <span className="truncate">{modes.find((m) => m.key === mode)?.label ?? "모드"}</span>
               {(() => { const n = modes.reduce((a, m) => a + (m.key === mode ? 0 : pendingN(m.key)), 0);
-                return n > 0 ? <span className="min-w-[20px] shrink-0 rounded-full bg-[#eef2ff] px-1.5 text-center text-xs font-bold leading-5 text-[#4f46e5]" aria-label={`다른 모드에 처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null; })()}
+                return n > 0 ? <span className="min-w-[20px] shrink-0 rounded-full bg-red-50 px-1.5 text-center text-xs font-bold leading-5 text-red-600" aria-label={`다른 모드에 처리할 건 ${n}건`}>{n > 99 ? "99+" : n}</span> : null; })()}
               <ChevronDown size={16} className="shrink-0" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
