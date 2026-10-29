@@ -10,7 +10,7 @@ import {
   ScrollView,
   RefreshControl,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import * as Location from "expo-location";
 import * as attendance from "../../services/attendance";
 import * as storage from "../../services/storage";
@@ -95,6 +95,20 @@ export default function AttendanceScreen() {
   };
   const [requests, setRequests] = useState<attendance.AttendanceRequestRow[]>([]);
   const [draft, setDraft] = useState<RequestDraft | null>(null);
+  // 홈 「어제 퇴근 기록이 없어요」 창의 「수정 요청」 → 그 날짜의 퇴근 처리 요청을 바로 연다(2026-10-29 이예지)
+  const route = useRoute<any>();
+  const navigation = useNavigation<any>();
+  const missedOutDate: string | undefined = route.params?.missedOutDate;
+  useEffect(() => {
+    if (!missedOutDate) return;
+    // 홈 안내 창이 다 닫힌 뒤에 연다 — iOS 는 닫히는 중인 창 위에 새 창을 띄우지 못한다(검증 P1).
+    // 주소 값은 연 뒤에 지운다(먼저 지우면 이 effect 가 다시 돌며 타이머가 취소된다) — 한 번만, 돌아왔을 때 다시 열리지 않게
+    const t = setTimeout(() => {
+      if (missedOutDate >= CUBETEE_ATTENDANCE_START) setDraft({ kind: "MISSED_OUT", workDate: missedOutDate });
+      navigation.setParams({ missedOutDate: undefined });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [missedOutDate, navigation]);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {

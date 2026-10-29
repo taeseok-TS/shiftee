@@ -155,6 +155,13 @@ export type MissedOut = {
   closeAt?: string; closeHhmm?: string; closeLabel?: string;
   can22?: boolean; can22Reason?: string | null;   // 구버전 호환(서버가 계속 준다)
 };
+/** 홈 안내 창(2026-10-29 이예지) — 7일 안의 퇴근 누락 날 모두(요청 대기 중인 날 제외). 옛 서버면 빈 배열 */
+export async function getMissedOutDays(): Promise<string[]> {
+  const res = await axios.get(`${API_URL}/attendance-requests/missed-out`, { headers: await authHeaders() });
+  const days = res.data?.days;
+  if (Array.isArray(days)) return days.filter((d: unknown): d is string => typeof d === "string");
+  return res.data?.missed?.date ? [String(res.data.missed.date).slice(0, 10)] : [];
+}
 export async function getMissedOut(): Promise<MissedOut | null> {
   const res = await axios.get(`${API_URL}/attendance-requests/missed-out`, { headers: await authHeaders() });
   return res.data?.missed ?? null;

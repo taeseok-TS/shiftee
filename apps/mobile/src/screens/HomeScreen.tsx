@@ -12,9 +12,10 @@ import {
   Image,
   Linking,
   Pressable,
+  AppState,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useIsFocused } from "@react-navigation/native";
 import { DashboardStats, Announcement } from "@shiftee/api";
 import * as api from "../services/api";
 import * as storage from "../services/storage";
@@ -26,6 +27,8 @@ import { refreshBadges } from "../services/badges";
 import { fileUri, useUploadsTicketVersion } from "../services/work";
 import { ImageViewerModal } from "../components/ImageViewer";
 import BranchNowCard from "../components/BranchNowCard";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getMissedOutDays } from "../services/attendance";
 
 // 휴가 유형 라벨 (대기 결재 내역 표시용)
 const TYPE_LABEL: Record<string, string> = LEAVE_LABELS;   // 공용 객체 — syncLeaveLabels 가 본부 유형 이름을 채운다(#216-1)
@@ -58,6 +61,31 @@ export default function HomeScreen() {
   const [inboxItems, setInboxItems] = useState<{ key: string; who: string; group: string; summary: string; when: string }[]>([]);
   const [waiting, setWaiting] = useState(0);   // 본부 — 원장 승인 전(아직 원장 차례) 건수, 목록 맨 아래 한 줄(S6 ③)
   const [myBranch, setMyBranch] = useState("");
+  // 퇴근 누락 안내 창(2026-10-29 이예지) — 7일 안에 퇴근 기록이 없는 날이 있으면 앱을 열 때 띄운다.
+  // 「나중에」 = 그날은 다시 안 띄움, 요청을 넣을 때까지 다음 날 또 띄운다. 큐브티 기록(10/26~)만
+  const [missedDays, setMissedDays] = useState<string[]>([]);
+  const checkMissed = useCallback(() => {
+    const t = new Date();
+    const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    Promise.all([getMissedOutDays().catch(() => [] as string[]), AsyncStorage.getItem("missedOutLater").catch(() => null)])
+      .then(([days, later]) => setMissedDays(later === today ? [] : days.filter((d) => d >= "2026-10-26")))
+      .catch(() => {});
+  }, []);
+  useFocusEffect(checkMissed);
+  // 앱을 백그라운드에서 다시 열 때도(홈이 이미 열려 있으면 포커스 이벤트가 없다 — 검증 C1)
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => { if (st === "active") checkMissed(); });
+    return () => sub.remove();
+  }, [checkMissed]);
+  const homeFocused = useIsFocused();   // 다른 탭에 있을 때는 띄우지 않는다(검증 P3)
+  const missedLater = () => {
+    const t = new Date();
+    AsyncStorage.setItem("missedOutLater", `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`).catch(() => {});
+    setMissedDays([]);
+  };
+  const missedFix = (d: string) => { setMissedDays([]); navigation.navigate("Attendance", { missedOutDate: d }); };
+  const isYesterday = (d: string) => { const y = new Date(); y.setDate(y.getDate() - 1); return d === `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`; };
+  const mdOf = (d: string) => { const [, m, dd] = d.split("-").map(Number); const w = ["일", "월", "화", "수", "목", "금", "토"][new Date(Number(d.slice(0, 4)), m - 1, dd).getDay()]; return `${m}/${dd}(${w})`; };
 
   const load = useCallback(async () => {
     try {
@@ -313,6 +341,26 @@ export default function HomeScreen() {
         )}
       </View>
 
+      {/* 퇴근 누락 안내 창 — 날짜마다 「수정 요청」(그 날짜가 들어간 퇴근 처리 요청으로 바로) */}
+      <Modal visible={missedDays.length > 0 && modal === null && homeFocused} transparent animationType="fade" onRequestClose={missedLater}>
+        <View style={styles.backdrop}>
+          <View style={styles.popup}>
+            <Text style={styles.popupTitle}>{missedDays.length === 1 ? `${isYesterday(missedDays[0]) ? `어제(${mdOf(missedDays[0])})` : mdOf(missedDays[0])} 퇴근 기록이 없어요` : `퇴근 기록이 없는 날이 ${missedDays.length}일 있어요`}</Text>
+            <Text style={styles.popupBody}>퇴근 시각을 넣어 수정 요청해 주세요. {staff ? "본부가 확인합니다." : "지점 원장 → 본부 순서로 확인합니다."}</Text>
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {missedDays.map((d) => (
+                <TouchableOpacity key={d} style={styles.missBtn} onPress={() => missedFix(d)} activeOpacity={0.8} accessibilityLabel={`${mdOf(d)} 퇴근 수정 요청`}>
+                  <Text style={styles.missBtnText}>{missedDays.length === 1 ? "수정 요청" : `${mdOf(d)} 수정 요청`}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.missLater} onPress={missedLater} activeOpacity={0.7}>
+                <Text style={styles.missLaterText}>나중에</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* 팝업 */}
       <Modal visible={modal !== null} transparent animationType="fade" onRequestClose={() => setModal(null)}>
         {/* 배경은 카드의 '형제' Pressable 로 둔다 — 터치 가능한 컴포넌트가 스크롤의 부모면
@@ -466,6 +514,10 @@ const styles = StyleSheet.create({
   apprList: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e2e8f0", overflow: "hidden" },
   apprRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, minHeight: 56 },
   apprKind: { fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
+  missBtn: { minHeight: 48, borderRadius: 12, backgroundColor: "#4f46e5", alignItems: "center", justifyContent: "center" },
+  missBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  missLater: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  missLaterText: { fontSize: 14.5, fontWeight: "600", color: "#64748b" },
   apprMore: { flex: 1, fontSize: 13.5, color: "#475569", textAlign: "center" },
   apprWaitRow: { backgroundColor: "#fafbfd" },
   apprWaitText: { flex: 1, fontSize: 14, color: "#475569" },
