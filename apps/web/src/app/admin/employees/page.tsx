@@ -2,7 +2,7 @@
 import PortalSyncNote from "@/components/admin/PortalSyncNote";
 
 import { Fragment, useState, useEffect, useCallback, useMemo } from "react";
-import { jobGroupLabel } from "@/lib/job-group-label";
+import { jobGroupLabel, jobGroupValue } from "@/lib/job-group-label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -340,8 +340,8 @@ export default function EmployeesPage() {
           password: cell(row.비밀번호),
           role: cell(row.역할) || "EMPLOYEE",
           branch: cell(row.지점),
-          jobGroup: cell(row.직책),
-          position: cell(row.직급),
+          jobGroup: row.직책 == null ? undefined : jobGroupValue(cell(row.직책)),   // 「코칭매니저」로 올려도 저장 값은 CM
+          position: cell(row.직급),   // 직급은 저장 값에 「코디네이터」가 있어 되돌리지 않는다(검증 F1)
           phone: cell(row.연락처),
           hireDate: row.입사일, // 날짜 시리얼(숫자)일 수 있어 서버에서 처리
           birthDate: row.생년월일, // 봇 생일 축하용 (서버에서 파싱)
@@ -533,7 +533,7 @@ export default function EmployeesPage() {
                                   <td className="px-4 py-2 whitespace-nowrap">{row.role || "-"}</td>
                                   <td className="px-4 py-2 whitespace-nowrap">{row.branch || "-"}</td>
                                   <td className="px-4 py-2 whitespace-nowrap">{jobGroupLabel(row.jobGroup) || "-"}</td>
-                                  <td className="px-4 py-2 whitespace-nowrap">{row.position || "-"}</td>
+                                  <td className="px-4 py-2 whitespace-nowrap">{jobGroupLabel(row.position) || "-"}</td>
                                 </tr>
                               ))}
                             </tbody>

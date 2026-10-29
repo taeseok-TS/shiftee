@@ -5,6 +5,7 @@
 //  · 좌표 숫자는 없다(거리 · 오차만). 10/27 저녁 반영 전 시도는 기록이 없다(그 전은 「지점 밖 요청」 자체만 남아 있다)
 import { useCallback, useEffect, useState } from "react";
 import * as XLSX from "xlsx";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import { Btn, Box, tableClass, StatusPill } from "@/components/kit";
@@ -53,7 +54,7 @@ export default function GeofenceAttemptsBox() {
   const exportXlsx = () => {
     if (!data?.rows.length) { toast.error("내보낼 기록이 없습니다."); return; }
     const rows = data.rows.map((r) => ({
-      날짜: r.date, 시각: r.time, 구분: r.action === "OUT" ? "퇴근" : "출근", 직원: r.name, 지점: r.userBranch ?? "", 직급: r.position ?? "",
+      날짜: r.date, 시각: r.time, 구분: r.action === "OUT" ? "퇴근" : "출근", 직원: r.name, 지점: r.userBranch ?? "", 직급: jobGroupLabel(r.position),
       "판정 지점": r.branch ?? "", "지점까지 거리(m)": r.distance ?? "", "위치 오차(m)": r.accuracy ?? "", "인정 거리(m)": r.radius ?? "",
       결과: RESULT_LABEL[r.result] ?? r.result, 기기: r.device ?? "", OS: r.platform ?? "", "앱 버전": r.appVersion ?? "",
     }));
@@ -119,7 +120,7 @@ export default function GeofenceAttemptsBox() {
               : data.rows.map((r) => (
                 <tr key={r.id}>
                   <td className="whitespace-nowrap tabular-nums">{r.date.slice(5).replace("-", "/")} {r.time} <span className="text-[#94a3b8]">{r.action === "OUT" ? "퇴근" : "출근"}</span></td>
-                  <td><span className="font-semibold text-[#0f172a]">{r.name}</span>{r.position ? <span className="ml-1 text-[12px] text-[#596578]">{r.position}</span> : null}</td>
+                  <td><span className="font-semibold text-[#0f172a]">{r.name}</span>{r.position ? <span className="ml-1 text-[12px] text-[#596578]">{jobGroupLabel(r.position)}</span> : null}</td>
                   <td>{r.userBranch ?? r.branch ?? "—"}{r.branch && r.userBranch && r.branch !== r.userBranch ? <span className="ml-1 text-[12px] text-[#596578]">(판정 {r.branch})</span> : null}</td>
                   <td className={`text-right tabular-nums ${r.distance != null && r.radius != null && r.distance > r.radius ? "font-semibold text-[#dc2626]" : ""}`}>{m(r.distance)}</td>
                   <td className={`text-right tabular-nums ${r.accuracy != null && r.accuracy > 100 ? "font-semibold text-[#d97706]" : ""}`}>{m(r.accuracy)}</td>

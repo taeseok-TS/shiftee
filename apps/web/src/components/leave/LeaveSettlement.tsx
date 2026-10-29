@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as XLSX from "xlsx";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { toast } from "sonner";
 import { ChevronDown, ChevronRight, Download, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ const hoursCell = (v: number) => <span className={v === 0 ? "text-gray-300" : v 
 const ACTIVE_COLS: Col<ActiveRow>[] = [
   { label: "지점", value: (r) => r.branch ?? "" },
   { label: "이름", value: (r) => r.name + (r.role === "ADMIN" ? " (관리자)" : "") },
-  { label: "직급", value: (r) => r.position ?? "" },
+  { label: "직급", value: (r) => jobGroupLabel(r.position) },
   { label: "사번", value: (r) => empNoText(r.empNo) },
   { label: "입사일", value: (r) => r.hireDate ?? NO_HIRE, render: (r) => r.hireDate ?? <span className="text-amber-600">{NO_HIRE}</span> },
   { label: "당해 발생(일)", num: true, value: (r) => r.calc?.accrued ?? "" },
@@ -56,7 +57,7 @@ const ACTIVE_COLS: Col<ActiveRow>[] = [
 const RESIGNED_COLS: Col<ResignedRow>[] = [
   { label: "지점", value: (r) => r.branch ?? "" },
   { label: "이름", value: (r) => r.name + (r.role === "ADMIN" ? " (관리자)" : "") },
-  { label: "직급", value: (r) => r.position ?? "" },
+  { label: "직급", value: (r) => jobGroupLabel(r.position) },
   { label: "사번", value: (r) => empNoText(r.empNo) },
   { label: "입사일", value: (r) => r.hireDate ?? NO_HIRE, render: (r) => r.hireDate ?? <span className="text-amber-600">{NO_HIRE}</span> },
   { label: "퇴사일", value: (r) => r.resignDate },
@@ -86,7 +87,7 @@ const noteOf = (r: ActiveRow | ResignedRow): string => {
 // 검색 — 이름·사번·지점·직급 어디든
 const matches = (r: ActiveRow | ResignedRow, q: string) => {
   const k = q.trim();
-  return !k || [r.name, empNoText(r.empNo), r.branch ?? "", r.position ?? ""].some((v) => v.includes(k));
+  return !k || [r.name, empNoText(r.empNo), r.branch ?? "", r.position ?? "", jobGroupLabel(r.position)].some((v) => v.includes(k));
 };
 
 /** 엑셀 한 장 — 숫자는 소수 둘째 자리 숫자 칸, 나머지는 문자열 */
@@ -154,7 +155,7 @@ export default function LeaveSettlement() {
     const head: Cell[] = ["지점", "이름", "직급", "사번", "입사일", "발생일", "종류", "일수", "비고", "상태"];
     const body: Cell[][] = [];
     for (const r of activeRows) {
-      const who: Cell[] = [r.branch ?? "", r.name, r.position ?? "", empNoText(r.empNo), r.hireDate ?? NO_HIRE];
+      const who: Cell[] = [r.branch ?? "", r.name, jobGroupLabel(r.position), empNoText(r.empNo), r.hireDate ?? NO_HIRE];
       if (!r.calc) { body.push([...who, "", "", "", r.hireDate ? "" : "입사일 없음 — 계산 안 함", ""]); continue; }
       if (!r.calc.events.length) { body.push([...who, "", "", 0, `${active.year}년 발생 없음`, ""]); continue; }
       for (const e of r.calc.events) body.push([...who, e.date, e.kind, e.days, e.note, e.future ? `예정(기준일 ${active.asOf} 뒤)` : "발생"]);
@@ -268,7 +269,7 @@ export default function LeaveSettlement() {
               <button type="button" className="w-full text-left" onClick={() => toggleOpen(r.userId)}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-xs text-gray-500">{[r.branch, r.position, empNoText(r.empNo)].filter(Boolean).join(" · ")}</p>
+                    <p className="text-xs text-gray-500">{[r.branch, jobGroupLabel(r.position), empNoText(r.empNo)].filter(Boolean).join(" · ")}</p>
                     <p className="font-medium text-gray-900">{cols[1].value(r)}</p>
                   </div>
                   <div className="shrink-0 text-right">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { excludedBranchNames, testAccountWhere } from "@/lib/employee-scope";
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
       0: typeof emp === "number" ? { t: "n", v: emp } : { t: "s", v: emp },
       1: { t: "s", v: u.name },
       2: { t: "s", v: u.branch ?? "" },
-      3: { t: "s", v: u.jobGroup || u.position || "" },
+      3: { t: "s", v: jobGroupLabel(u.jobGroup || u.position) },   // 화면과 같은 표기(2026-10-29 이예지)
       4: { t: "d", v: new Date(`${ymdOf(row.date)}T00:00:00`), z: "yyyy-mm-dd" },
       5: row.att?.in ? { t: "n", v: excelTime(row.att.in), z: "h:mm:ss" } : { t: "s", v: "" },
       6: row.att?.out ? { t: "n", v: excelTime(row.att.out), z: "h:mm:ss" } : { t: "s", v: "" },

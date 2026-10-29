@@ -173,8 +173,11 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     void saveLayout({ ...layout, favorites: on ? layout.favorites.filter(f => !(f.t === ref.t && f.id === ref.id)) : [...layout.favorites, ref] });
   };
 
+  // 코디 서식은 조건 구간이 없어도 계약 구분을 가진다(작성 폼 kindCapable · isCodiDoc 과 같은 판정 — 계약직 3종도 재계약이면 재계약 순서, 2026-10-29 이예지).
+  // 사본 양식 · 코디 채용 묶음은 작성 폼이 계약 구분을 넣지 않아 기본 순서로 간다(검증 F3)
+  const kindOf = (t: Template) => hasKindCond[t.id] === true || (t.name.includes("코디") && t.name.includes("근로계약서") && !isCopy(t.name) && !(pack === "codi" && t.id === pickedTpl?.id));
   const stepsOf = (t: Template, renewCard: boolean) =>
-    stepsLabel(parseApprovalSteps(templateStepsFor(t, renewCard && t.approvalStepsRenewal != null && hasKindCond[t.id] === true)));
+    stepsLabel(parseApprovalSteps(templateStepsFor(t, renewCard && t.approvalStepsRenewal != null && kindOf(t))));
   const hireDocs = [pkg.empTemplate, pkg.privacyTemplate].filter(Boolean) as Template[];
 
   // ── 받는 사람 ──

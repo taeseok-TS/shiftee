@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import * as XLSX from "xlsx";
+import { jobGroupLabel } from "@/lib/job-group-label";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +28,8 @@ export async function GET() {
     이름: e.name,
     이메일: e.email,
     역할: ROLE_LABEL[e.role] ?? e.role,
-    직군: e.jobGroup ?? "",
-    직급: e.position ?? "",
+    직군: jobGroupLabel(e.jobGroup),   // 화면과 같은 표기(CM → 코칭매니저, 2026-10-29 이예지)
+    직급: jobGroupLabel(e.position),
     부서: e.department ?? "",
     지점: e.branch ?? "",
     입사일: e.hireDate ? new Date(e.hireDate).toISOString().slice(0, 10) : "",

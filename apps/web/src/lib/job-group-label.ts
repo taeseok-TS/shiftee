@@ -6,3 +6,10 @@ export function jobGroupLabel(v: string | null | undefined): string {
   const s = (v ?? "").trim();
   return LABEL[s] ?? s;
 }
+
+// 표시 이름 → 저장 값(엑셀로 내려받은 「코칭매니저」 · 「코디네이터」를 다시 올려도 저장 값은 그대로 — 2026-10-29)
+const VALUE = Object.fromEntries(Object.entries(LABEL).map(([k, v]) => [v, k]));
+export function jobGroupValue(v: string | null | undefined): string {
+  const s = (v ?? "").trim();
+  return VALUE[s] ?? s;
+}

@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { jobGroupLabel } from "@/lib/job-group-label";
 
 export interface EmployeeData {
   직원명: string;
@@ -22,8 +23,8 @@ export function downloadActiveEmployeesExcel(data: any, period: string, dateStr:
     (data.employees || []).forEach((emp: any) => {
       sheet_data.push({
         직원명: emp.name,
-        직급: emp.jobGroup || '-',
-        직군: emp.position || '-',
+        직급: jobGroupLabel(emp.jobGroup) || '-',   // 화면과 같은 표기(2026-10-29 이예지)
+        직군: jobGroupLabel(emp.position) || '-',
         지점: emp.branch || '-',
         입사일: emp.hireDate ? new Date(emp.hireDate).toLocaleDateString('ko-KR') : '-',
         상태: 'ACTIVE',
@@ -60,8 +61,8 @@ export function downloadResignedEmployeesExcel(data: any, periodType: string, da
     (data.employees || []).forEach((emp: any) => {
       sheet_data.push({
         직원명: emp.name,
-        직급: emp.jobGroup || '-',
-        직군: emp.position || '-',
+        직급: jobGroupLabel(emp.jobGroup) || '-',   // 화면과 같은 표기(2026-10-29 이예지)
+        직군: jobGroupLabel(emp.position) || '-',
         지점: emp.branch || '-',
         입사일: emp.hireDate ? new Date(emp.hireDate).toLocaleDateString('ko-KR') : '-',
         상태: 'RESIGNED',

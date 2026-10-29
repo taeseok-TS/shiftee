@@ -8,6 +8,7 @@
 //  · 「양식 내려받기」: 달력형은 지금 보는 기간·직원 표(기존 일정이 칸에 채워져 나옴), 목록형은 빈 양식 + 템플릿 목록 시트
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import { jobGroupLabel } from "@/lib/job-group-label";
 import { toast } from "sonner";
 import { Upload, Undo2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -192,7 +193,7 @@ export function ScheduleImport({ employees, schedules, rangeStart, rangeEnd, onA
     const by = new Map(schedules.map((s) => [`${s.userId}|${s.date}`, s]));
     const aoa: unknown[][] = [["사번", "이름", "지점", "직무", ...days]];
     for (const e of employees) {
-      aoa.push([e.empNo ?? "", e.name, e.branch ?? "", e.jobGroup || e.position || "", ...days.map((d) => { const s = by.get(`${e.id}|${d}`); return !s ? "" : s.type === "work" ? `${s.startTime}-${s.endTime}` : s.type === "off" ? "휴무" : "공휴일"; })]);
+      aoa.push([e.empNo ?? "", e.name, e.branch ?? "", jobGroupLabel(e.jobGroup || e.position), ...days.map((d) => { const s = by.get(`${e.id}|${d}`); return !s ? "" : s.type === "work" ? `${s.startTime}-${s.endTime}` : s.type === "off" ? "휴무" : "공휴일"; })]);
     }
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [{ wch: 7 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, ...days.map(() => ({ wch: 12 }))];
