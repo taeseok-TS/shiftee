@@ -1163,8 +1163,13 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     scanFields(pick.id, false);
     setContractKind("재계약");   // scanFields 가 첫 await 전에 「신규입사」로 되돌리므로 그 뒤
     const unknown = ids.length - n정규 - n계약;
+    // 정규직 · 계약직이 섞이면 양식은 하나라 계약직은 따로 보내야 한다 · 퇴사 예정자는 재계약 대상이 아니다(2026-10-28 이예지 15명 확인)
+    const nameOfId = (id: string) => employees.find((x) => x.id === id)?.name ?? "";
+    const mixedNote = n정규 > 0 && n계약 > 0 ? ` ⚠️ 정규직과 계약직이 섞여 있습니다 — 계약직 ${ids.filter((id) => types[id] === "계약직").map(nameOfId).join(", ")}은(는) 빼고 따로 「계약직」 양식으로 보내 주세요.` : "";
+    const leaving = ids.map((id) => employees.find((x) => x.id === id)).filter((e): e is Employee => !!e?.resignDate);
+    const leavingNote = leaving.length ? ` ⚠️ 퇴사 예정 — ${leaving.map((e) => `${e.name}(${e.resignDate!.slice(0, 10)})`).join(", ")}: 재계약 대상에서 빼 주세요.` : "";
     const order = stepsLabel(parseApprovalSteps(pick.approvalStepsRenewal ?? pick.approvalSteps) ?? DEFAULT_STEPS, false);   // 양식에 저장된 실제 재계약 순서(검증 F6)
-    setCodiRenewInfo(`코디 재계약 — 포털 인사카드 고용형태: 정규직 ${n정규} · 계약직 ${n계약}${unknown ? ` · 확인 안 됨 ${unknown}` : ""} → 「${pick.name}」 양식. 근무 형태가 다르면 아래 「코디 양식」에서 바꿔 주세요. 결재 순서 ${order}`);
+    setCodiRenewInfo(`코디 재계약 — 포털 인사카드 고용형태: 정규직 ${n정규} · 계약직 ${n계약}${unknown ? ` · 확인 안 됨 ${unknown}` : ""} → 「${pick.name}」 양식. 근무 형태가 다르면 아래 「코디 양식」에서 바꿔 주세요. 결재 순서 ${order}${mixedNote}${leavingNote}`);
   };
   const startKind = (k: "hire" | "renew" | "resign" | "other", to?: string[]) => {
     setCodiRenewInfo("");   // 작성 종류를 바꾸면 코디 안내는 지운다(검증 F5)

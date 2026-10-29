@@ -151,6 +151,13 @@ export async function buildContractMergeData(
     : null;
   // 지점 주소(인사발령통지서 등) — 지점 표에서. 없으면 빈 칸
   const branchRow = targetUser?.branch ? await prisma.branch.findUnique({ where: { name: targetUser.branch }, select: { address: true } }).catch(() => null) : null;
+  // 지점 원장 이름 — 서명란 「원장 {지점원장} (인)」(2026-10-28 이예지: 코디 서식에 원장 서명 칸). 대표원장 → 없으면 그 지점 원장 첫 사람
+  const branchMgrName = targetUser?.branch
+    ? await (async () => {
+        const mb = await import("@/lib/manager-branches");
+        return (await mb.branchMainManager(targetUser.branch!).catch(() => null))?.name ?? (await mb.branchManagers(targetUser.branch!).catch(() => []))[0]?.name ?? "";
+      })()
+    : "";
   const now = new Date();
   const mergeData: Record<string, string> = {
     직원명: opts.external?.name ?? targetUser?.name ?? "",
@@ -193,6 +200,7 @@ export async function buildContractMergeData(
     // "테스트지점 지점"처럼 중복되던 문제 해결 (#96·#116·#120, 2026-08-27)
     지점명: (targetUser?.branch ?? "").replace(/\s*지점$/, ""),
     지점주소: branchRow?.address ?? "",
+    지점원장: branchMgrName,
   };
   // 계약 구분 — 템플릿의 {#신규입사}/{#재계약} 조건 구간 제어 (빈 문자열=구간 제거)
   const isRenewal = opts.extraFields?.["계약구분"] === "재계약";
@@ -319,6 +327,7 @@ export const SYSTEM_FIELDS = new Set([
   "동의고유식별", "동의채용정보", "근로자서명", "대표서명", "원장서명", "본부서명",
   "지점명", "지급기타표기", "동의필수표기", // 파생 표기 필드 (2026-08-27)
   "지점주소", // 지점 표의 주소(2026-10-13 추가 템플릿 8종 — 인사발령통지서)
+  "지점원장", // 그 지점 대표원장 이름(2026-10-28 코디 서식 원장 서명란)
   ...Object.keys(DERIVED_FIELD_SOURCES), // 원천 칸에서 만드는 파생 표기(2026-10-23 — 주말급여합계·출근시각12·퇴근시각12·주휴수당표기)
 ]);
 

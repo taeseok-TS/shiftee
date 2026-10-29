@@ -112,6 +112,23 @@ export async function validateContractMerge(
   const day = hoursNum(merge["일근무시간"]);
   if (has("일근무시간") && day != null && day > 8) errors.push(`하루 근무시간 ${day}시간 — 소정근로시간은 하루 8시간을 넘을 수 없습니다.`);
 
+  // 근무 시각 칸은 비운 채 보내지 못한다(2026-10-28 이예지 — 계약직 코디는 사람마다 시각이 달라 기본값 없이 그때그때 넣는다)
+  {
+    const timeKeys: [string, string, string[]][] = [
+      ["출근시각", "출근 시각", ["출근시각", "출근시각12"]], ["퇴근시각", "퇴근 시각", ["퇴근시각", "퇴근시각12"]], ["휴게시간", "휴게 시간", ["휴게시간"]],
+    ];
+    const empty = timeKeys.filter(([k, , ph]) => ph.some(has) && !(merge[k] || "").trim()).map(([, label]) => label);
+    if (empty.length) errors.push(`${empty.join(" · ")}을(를) 넣어 주세요 — 비워 둔 채로는 보낼 수 없습니다.`);
+  }
+  // 코디 오전판(양식 이름에 「오전」, 문장은 「{출근시각} ～ {퇴근시각}」) — 출근이 12:00 이후면 오후 근무라 오후판으로(퇴근은 오후일 수 있어 출근만 본다)
+  if (has("출근시각") && !has("출근시각12")) {
+    const tname = (await prisma.contractTemplate.findFirst({ where: { fileUrl: opts.templateFileUrl }, select: { name: true } }).catch(() => null))?.name ?? "";
+    const v = (merge["출근시각"] || "").trim();
+    const m = v.match(/^(\d{1,2}):(\d{2})$/);
+    if (tname.includes("오전") && m && Number(m[1]) >= 12)
+      errors.push(`출근 시각 ${v} — 오전 근무 계약서입니다. 12:00 전 시각을 넣어 주세요(오후 근무는 오후판 양식으로).`);
+  }
+
   // 코디 오후판(문장이 「오후 {출근시각12} ～ 오후 {퇴근시각12}」) — 오전 시각을 넣으면 「오후 9:00」처럼 틀린 문서가 된다
   if (has("출근시각12") || has("퇴근시각12")) {
     for (const [k, label] of [["출근시각", "출근 시각"], ["퇴근시각", "퇴근 시각"]] as const) {
