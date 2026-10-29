@@ -23,9 +23,16 @@ export async function GET() {
     orderBy: { date: "desc" },
     select: { date: true, clockIn: true },
   });
-  if (!att) return NextResponse.json({ missed: null });
+  if (!att) return NextResponse.json({ missed: null, days: [] });
+  // 앱 홈 안내 창(2026-10-29 이예지) — 7일 안의 퇴근 누락 날 모두(요청이 대기 중인 날은 뺀다, 시프티 이관 기록 제외). 이틀 이상이면 날짜를 다 보여 준다
+  const allMissed = await prisma.attendance.findMany({
+    where: { userId: session.userId, date: { lt: today, gte: new Date(today.getTime() - 7 * 86400_000) }, clockIn: { not: null }, clockOut: null, importBatch: null },
+    orderBy: { date: "asc" }, select: { date: true },
+  });
+  const days: string[] = [];
+  for (const m of allMissed) if (!(await hasPendingOutRequest(session.userId, m.date))) days.push(m.date.toISOString().slice(0, 10));
   // 퇴근 쪽 요청(누락·수정·지점 밖/사진/본부 퇴근)이 대기 중이면 다시 안내하지 않는다
-  if (await hasPendingOutRequest(session.userId, att.date)) return NextResponse.json({ missed: null });
+  if (await hasPendingOutRequest(session.userId, att.date)) return NextResponse.json({ missed: null, days });
   // 본인 동의로 처리할 퇴근 시각 — 관리자 자동 마감과 같은 기준(근무일정 퇴근 시각, 2026-10-17 디렉터 결정 · lib/missed-out)
   const ymd = att.date.toISOString().slice(0, 10);
   const elig = await consentEligibility(session.userId, att.clockIn!, ymd);
@@ -43,6 +50,7 @@ export async function GET() {
         closeAt: null, closeHhmm: null, closeLabel: null, closeHidden: true,
         can22: false, can22Reason: CLOSE_HIDDEN_REASON,
       },
+      days,
     });
   }
   return NextResponse.json({
@@ -57,5 +65,6 @@ export async function GET() {
       can22Reason: elig.ok && closeHhmm === "22:00" ? null
         : (elig.reason ?? `근태 규칙에 따른 퇴근 시각이 ${closeHhmm}입니다. 앱을 최신으로 업데이트하거나 「퇴근 처리 요청하기」로 넣어 주세요.`),
     },
+    days,
   });
 }

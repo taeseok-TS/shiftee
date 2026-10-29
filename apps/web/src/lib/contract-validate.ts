@@ -125,7 +125,8 @@ export async function validateContractMerge(
     const tname = (await prisma.contractTemplate.findFirst({ where: { fileUrl: opts.templateFileUrl }, select: { name: true } }).catch(() => null))?.name ?? "";
     const v = (merge["출근시각"] || "").trim();
     const m = v.match(/^(\d{1,2}):(\d{2})$/);
-    if (tname.includes("오전") && m && Number(m[1]) >= 12)
+    if (tname.includes("오전") && v && (!m || Number(m[2]) > 59)) errors.push(`출근 시각「${v}」을(를) 시각(예: 09:00)으로 읽지 못했습니다.`);
+    else if (tname.includes("오전") && m && Number(m[1]) >= 12)
       errors.push(`출근 시각 ${v} — 오전 근무 계약서입니다. 12:00 전 시각을 넣어 주세요(오후 근무는 오후판 양식으로).`);
   }
 

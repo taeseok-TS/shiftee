@@ -155,7 +155,8 @@ export async function buildContractMergeData(
   const branchMgrName = targetUser?.branch
     ? await (async () => {
         const mb = await import("@/lib/manager-branches");
-        return (await mb.branchMainManager(targetUser.branch!).catch(() => null))?.name ?? (await mb.branchManagers(targetUser.branch!).catch(() => []))[0]?.name ?? "";
+        return (await mb.branchMainManager(targetUser.branch!).catch(() => null))?.name
+          ?? (await mb.branchManagers(targetUser.branch!).catch(() => [])).map((m) => m.name).sort((a, b) => a.localeCompare(b, "ko"))[0] ?? "";   // 대표원장이 없으면 이름순 첫 사람(매번 같은 사람)
       })()
     : "";
   const now = new Date();
