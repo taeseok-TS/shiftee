@@ -537,7 +537,7 @@ export default function AttendancePage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as AttendanceTab)}>
         {/* ── 오늘 ── */}
         <TabsContent value="today">
-          {/* 오늘 근태 — 대시보드와 같은 7칸(R9·R10 + 「출근 전」, 2026-10-27 이예지 ①). 미출근 · 지각 · 조퇴만 1 이상 빨강 */}
+          {/* 오늘 근태 — 대시보드와 같은 7칸(R9·R10 + 「출근 전」, 2026-10-27 이예지 ①). 근태 숫자는 회색 — 빨강은 처리할 것에만(2026-10-29) */}
           <Box icon={<Clock />} title="오늘 근태" sub="근무일정이 있는 직원 기준 · 루트코스 교육 중인 신입 제외">
             {/* 칸을 누르면 바로 아래 「명단」 상자가 열린다(2026-10-26). 0 명이면 누를 것이 없어 그대로 둔다 */}
             <Tiles cols={7}>

@@ -96,7 +96,7 @@ function shapeRow(r: RowIn, deciderNames: Map<string, string>, decidedBy: string
     // 지점 밖 · 사진 · 본부 요청 — 판정 근거(거리 · 오차 · 인정 거리). 진짜 지점 밖인지 판정 오류인지 보고 승인할 수 있게(2026-10-27 이예지)
     ...(r.kind === "OUTSIDE" || r.kind === "PHOTO" || r.kind === "HQ" ? geoOf(r, x.geo, x.managerBranches) : {}),
     // 늦음 표시 — 시각을 보는 사람(본부)에게만. 원장 1차 카드는 상태만(10/23 · 10/29 이예지)
-    outLate: masked ? null : x.outLate.get(r.id) ?? null,
+    outLate: masked || r.approverRole !== "ADMIN" ? null : x.outLate.get(r.id) ?? null,   // 본부 단계 카드에만(원장 1차 카드는 시각 보기를 켜도 상태만 — 검증 P1)
   };
 }
 

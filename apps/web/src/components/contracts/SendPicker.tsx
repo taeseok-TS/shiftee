@@ -310,6 +310,9 @@ export default function SendPicker({ initial, onNext, onTest, stepper }: {
     // 외부 계약자 — 받는 사람은 2단계에서 이름·휴대폰으로(받을 이메일은 3단계에서)
     if (toExt && pick.kind === "tpl") { onNext({ pick, recipients: [], resignPicks, purpose, multi: false, external: true, pack: packOn ? "ext" : null }); return; }
     if (!recipients.length) { toast.error("받는 사람을 고르세요."); return; }
+    // 먼저 고른 받는 사람 중 퇴사 예정자 — 재계약 서류로 바꿨으면 보내지 않는다(검증 P2)
+    const leaving = renewing ? recipients.filter(id => empOf(id)?.resignDate) : [];
+    if (leaving.length) { toast.error(`퇴사 예정자는 재계약 대상이 아닙니다 — ${leaving.map(id => empOf(id)?.name).join(", ")} 님을 받는 사람에서 빼 주세요.`, { duration: 9000 }); return; }
     if (packOn && pack === "codi") { onNext({ pick, recipients: recipients.slice(0, 1), resignPicks, purpose, multi: false, pack: "codi" }); return; }
     if (pick.kind === "bundle") { const bp = bundleProblem(pickedDocs); if (bp) { toast.error(bp, { duration: 9000 }); return; } }
     onNext({ pick, recipients: multiOn ? recipients : recipients.slice(0, 1), resignPicks, purpose, multi: multiOn });
