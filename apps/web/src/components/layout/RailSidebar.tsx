@@ -102,7 +102,7 @@ export function RailSidebar({ nav, letter, home, system }: { nav: NavGroup[]; le
           const Icon = g.icon;
           const on = g.key === activeGroup?.key;
           const cls = cn("flex w-[64px] flex-col items-center gap-0.5 rounded-xl py-2 text-[12px] font-medium",
-            on ? "bg-red-600 text-white" : "hover:bg-slate-800 hover:text-white");
+            on ? "bg-indigo-600 text-white" : "hover:bg-slate-800 hover:text-white");   // 고른 칸은 인디고(빨강은 경고에만 — 2026-10-29 이예지)
           // 인디고 점(10/28 이예지 디자인 ① — 빨강은 경고에만) — 이 대분류 안에 아직 안 끝난 건이 있으면(시안 v2 10번)
           const dot = g.items.some((it) => it.countKey && RED_KEYS.has(it.countKey) && (counts[it.countKey as keyof NavCounts] || 0) > 0);
           const inner = <><span className="relative"><Icon size={19} />{dot && <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-indigo-400 ring-2 ring-slate-900" aria-label="처리할 건 있음" />}</span>{g.title}</>;

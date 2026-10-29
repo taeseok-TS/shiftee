@@ -345,7 +345,7 @@ export default function HomeScreen() {
       <Modal visible={missedDays.length > 0 && modal === null && homeFocused} transparent animationType="fade" onRequestClose={missedLater}>
         <View style={styles.backdrop}>
           <View style={styles.popup}>
-            <Text style={styles.popupTitle}>{missedDays.length === 1 ? `${isYesterday(missedDays[0]) ? `어제(${mdOf(missedDays[0])})` : mdOf(missedDays[0])} 퇴근 기록이 없어요` : `퇴근 기록이 없는 날이 ${missedDays.length}일 있어요`}</Text>
+            <Text style={styles.popupTitle}>{missedDays.length === 1 ? `${isYesterday(missedDays[0]) ? `어제(${Number(missedDays[0].slice(5, 7))}/${Number(missedDays[0].slice(8, 10))})` : mdOf(missedDays[0])} 퇴근 기록이 없어요` : `퇴근 기록이 없는 날이 ${missedDays.length}일 있어요`}</Text>
             <Text style={styles.popupBody}>퇴근 시각을 넣어 수정 요청해 주세요. {staff ? "본부가 확인합니다." : "지점 원장 → 본부 순서로 확인합니다."}</Text>
             <View style={{ marginTop: 12, gap: 8 }}>
               {missedDays.map((d) => (
