@@ -75,7 +75,8 @@ export default function AdminSchedulePage() {
       if (res.ok) {
         const data = await res.json();
         // 테스트 계정(김정인 · 김가산 · 김원장 등, lib/employee-scope)은 근무일정 화면에 보이지 않는다(2026-10-27 이예지 ⑫)
-        setEmployees(((data.employees || []) as Employee[]).filter((e) => !e.isTest));
+        // 본부 소속(고승재 CEO 등)도 뺀다 — 출퇴근 달력 · 근로시간 리포트와 같은 인원(통계 제외 지점, 2026-10-29 본부장님 「근무일정에서 본부 빼」)
+        setEmployees(((data.employees || []) as Employee[]).filter((e) => !e.isTest && e.branch !== "본부"));
       }
     } catch {
       toast.error("직원 목록을 불러올 수 없습니다");
