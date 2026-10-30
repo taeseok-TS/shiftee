@@ -839,9 +839,13 @@ export default function ContractsPage() {
                         ) : lockedSelf ? (
                           mineToSign ? null : <span className="text-[12.5px] text-[#94a3b8]" title="「서명하기」에서 비밀번호를 넣으면 열립니다">서명하기에서 열기</span>
                         ) : (
-                          <a href={openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={canDownload ? "체결본 받기(PDF)" : "열람"} onClick={onOpen}>
-                            {canDownload ? "받기" : "보기"}
-                          </a>
+                          <span className="inline-flex flex-col items-end gap-0.5">
+                            <a href={openHref} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={canDownload ? "체결본 받기(PDF)" : "열람"} onClick={onOpen}>
+                              {canDownload ? "받기" : "보기"}
+                            </a>
+                            {/* 받기는 새 창 없이 바로 내려받아져 「아무것도 안 뜬다」로 보였다(2026-10-30 디렉터) */}
+                            {canDownload && <span className="whitespace-nowrap text-[11px] text-[#94a3b8]">받기를 누르시면 PC에 다운로드 됩니다.</span>}
+                          </span>
                         )}
                         {mineToSign && <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => openEmpSign(c)}>서명하기</Btn>}
                       </span>
