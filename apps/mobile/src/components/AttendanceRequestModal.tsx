@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, ScrollView,
-  KeyboardAvoidingView, Platform,
-} from "react-native";
+  KeyboardAvoidingView, } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import DatePicker from "./DatePicker";
 import * as attendance from "../services/attendance";
@@ -177,7 +176,7 @@ export default function AttendanceRequestModal({
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
         <View style={styles.sheet}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{TITLE[kind]}</Text>

@@ -11,8 +11,7 @@ import {
   Modal,
   Alert,
   KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+  } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
@@ -103,8 +102,9 @@ export default function ScheduleScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const [role, setRole] = useState<string | null>(null);
+  const [myBranch, setMyBranch] = useState<string | null>(null);   // 「지점에 공유」 사본과 원본이 겹칠 때 하나만 보이게(#230)
   const [view, setView] = useState<"mine" | "branch">("mine");
-  useEffect(() => { storage.getUser().then((u) => setRole(u?.role || "")).catch(() => setRole("")); }, []);
+  useEffect(() => { storage.getUser().then((u) => { setRole(u?.role || ""); setMyBranch(u?.branch ?? null); }).catch(() => setRole("")); }, []);
   const wantBranch = route.params?.view === "branch";
   useEffect(() => {
     if (!wantBranch) return;
@@ -451,7 +451,12 @@ export default function ScheduleScreen() {
   })();
   const rangeStart = listDays[0] ?? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-01`;
   const rangeEnd = unit === "month" ? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-31` : listDays[listDays.length - 1] ?? rangeStart;
-  const listEvents = (unit === "month" ? events : events.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
+  // 내 지점에 공유한 사본(제목 · 시작일 · 시각이 같은 지점 일정)이 있으면 원본(원장 전용 · 전사)은 빼고 사본 하나만(#230, 웹 캘린더 전체 보기와 같은 기준)
+  const isCopyOf = (x: WorkCalendarEvent, e: WorkCalendarEvent) => x.id !== e.id && !!x.branch && x.branch === myBranch && !x.managersOnly && x.title === e.title
+    && String(x.startDate).slice(0, 10) === String(e.startDate).slice(0, 10) && String(x.endDate).slice(0, 10) === String(e.endDate).slice(0, 10)
+    && (x.startTime || null) === (e.startTime || null) && (x.endTime || null) === (e.endTime || null);
+  const shownEvents = events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => isCopyOf(x, e)));
+  const listEvents = (unit === "month" ? shownEvents : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
     .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
   const fmtRangeLong = (a: string, b: string) => (a.slice(0, 10) === b.slice(0, 10) ? fmtDayLong(a.slice(0, 10)) : `${fmtDayLong(a.slice(0, 10))} ~ ${fmtDayLong(b.slice(0, 10))}`);
 
@@ -616,10 +621,11 @@ export default function ScheduleScreen() {
 
       {/* 근무일정 신청 모달 */}
       <Modal visible={reqOpen} transparent animationType="slide" onRequestClose={closeReq}>
-        <KeyboardAvoidingView style={styles.reqBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.reqCard}>
+        <KeyboardAvoidingView style={styles.reqBg} behavior="padding">
+          <View style={[styles.reqCard, { maxHeight: "90%" }]}>
             <Text style={styles.reqTitle2}>{updateDate ? `근무 시간 변경 요청 · ${fmtDayLong(updateDate)}` : "근무 변경 요청"}</Text>
-            <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
+            {/* 키보드가 뜨면 남은 높이 안에서 줄어든다(카드 위쪽이 화면 밖으로 잘리지 않게, #233 검증 2) */}
+            <ScrollView style={{ maxHeight: 480, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
               <Text style={styles.reqLabel}>근무 시간</Text>
               <View style={styles.tmplWrap}>
                 {templates.map((t) => (

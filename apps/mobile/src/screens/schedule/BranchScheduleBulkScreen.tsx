@@ -182,7 +182,7 @@ export default function BranchScheduleBulkScreen({ visible, showBranch = false, 
   return (
     // iOS 시트를 아래로 끌어 내리면 onRequestClose 없이 사라져 visible 과 어긋난다 — onDismiss 때 아직 visible 이면 끌어 닫은 것
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close} onDismiss={() => { if (visible) close(); }}>
-      <KeyboardAvoidingView style={s.wrap} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={s.wrap} behavior="padding">
         {/* 머리 — iOS 는 시트로 띄운다(전체 화면이면 상태바가 닫기 버튼을 가린다) */}
         <View style={s.head}>
           <Text style={s.title}>여러 날 한 번에 넣기</Text>

@@ -258,7 +258,7 @@ function SubmitSheet({ categories, request, onClose, onDone }: { categories: Cat
   const groups: ("EDU" | "PROMO" | "EVENT")[] = ["EDU", "PROMO", "EVENT"];
   return (
     <Modal visible animationType="slide" onRequestClose={tryClose}>
-      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#fff" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#fff" }} behavior="padding">
         <View style={styles.sheetHead}>
           <TouchableOpacity onPress={tryClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close" size={24} color="#374151" /></TouchableOpacity>
           <Text style={styles.sheetTitle} numberOfLines={1}>{request ? `제출 — ${request.title}` : "자료 올리기"}</Text>

@@ -1847,7 +1847,7 @@ export default function WorkChatScreen() {
 
       {/* #5 멤버 추가 모달 */}
       <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
-        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.addBg} behavior="padding">
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>멤버 추가</Text>
             <View style={styles.searchBox}>
@@ -2005,7 +2005,7 @@ export default function WorkChatScreen() {
 
       {/* 이름 변경 */}
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
-        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior="padding">
           <View style={styles.renameCard}>
             <Text style={styles.addTitle}>채팅방 이름 변경</Text>
             <TextInput style={styles.renameInput} value={renameVal} onChangeText={setRenameVal} placeholder="새 이름" autoFocus />
@@ -2069,7 +2069,7 @@ export default function WorkChatScreen() {
         {/* 백드롭은 카드의 부모가 아니라 형제로 — Pressable이 부모면 목록 터치를 선점해 스크롤이 막힘(안드로이드).
             검색창이 생겨 키보드가 뜨므로 다른 시트 모달과 같이 KeyboardAvoidingView — 아니면 iOS 에서
             키보드가 검색 결과와 검색창까지 가리고, 한글 키보드엔 내림 키가 없어 빠져나올 수도 없다. */}
-        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.addBg} behavior="padding">
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMembersOpen(false)} />
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>
@@ -2116,7 +2116,7 @@ export default function WorkChatScreen() {
 
       {/* 메시지 전달 — 채널 선택 */}
       <Modal visible={!!forwardFor} transparent animationType="slide" onRequestClose={() => setForwardFor(null)}>
-        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.addBg} behavior="padding">
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>메시지 전달</Text>
             <Text style={styles.forwardPreview} numberOfLines={2}>
@@ -2168,7 +2168,7 @@ export default function WorkChatScreen() {
 
       {/* 예약 전송 (전송 버튼 길게 누르기) */}
       <Modal visible={scheduleOpen} transparent animationType="slide" onRequestClose={() => setScheduleOpen(false)}>
-        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.addBg} behavior="padding">
           <View style={styles.addCard}>
             <Text style={styles.addTitle}>⏰ 예약 전송</Text>
             <Text style={styles.forwardPreview} numberOfLines={3}>
@@ -2265,10 +2265,10 @@ export default function WorkChatScreen() {
 
       {/* 투표 만들기 */}
       <Modal visible={pollOpen} transparent animationType="slide" onRequestClose={() => setPollOpen(false)}>
-        <KeyboardAvoidingView style={styles.addBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.addCard}>
+        <KeyboardAvoidingView style={styles.addBg} behavior="padding">
+          <View style={[styles.addCard, { maxHeight: "90%" }]}>
             <Text style={styles.addTitle}>투표 만들기</Text>
-            <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ maxHeight: 420, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
               <TextInput style={styles.pollInput} placeholder="투표 질문 (예: 회식 날짜는?)" value={pollQ} onChangeText={setPollQ} />
               {pollOpts.map((o, i) => (
                 <View key={i} style={styles.pollOptInputRow}>

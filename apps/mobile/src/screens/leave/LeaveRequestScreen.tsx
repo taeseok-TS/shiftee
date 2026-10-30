@@ -16,8 +16,7 @@ import {
   Modal,
   Linking,
   KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+  } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useFocusEffect } from "@react-navigation/native";
@@ -421,7 +420,7 @@ export default function LeaveRequestScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
       keyboardVerticalOffset={headerHeight}
     >
     <ScrollView

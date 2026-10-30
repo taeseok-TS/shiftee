@@ -11,7 +11,6 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
-  Platform,
   Image,
   Linking,
   StyleProp,
@@ -281,7 +280,7 @@ export default function WorkAnnouncementsScreen() {
 
       {/* 공지 작성 모달 (관리자) */}
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
-        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior="padding">
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>공지 작성</Text>
             <TextInput

@@ -10,8 +10,7 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+  } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
@@ -221,7 +220,7 @@ export default function SettingsScreen({ navigation }: any) {
 
       {/* 비밀번호 변경 */}
       <Modal visible={pwOpen} transparent animationType="slide" onRequestClose={() => setPwOpen(false)}>
-        <KeyboardAvoidingView style={styles.pwBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.pwBg} behavior="padding">
           <View style={styles.pwCard}>
             <Text style={styles.pwTitle}>비밀번호 변경</Text>
             <TextInput style={styles.pwInput} placeholder="현재 비밀번호" secureTextEntry

@@ -13,7 +13,6 @@ import {
   Alert,
   Linking,
   KeyboardAvoidingView,
-  Platform,
   Image,
   AppState,
 } from "react-native";
@@ -591,7 +590,7 @@ export default function ApprovalsScreen() {
     <>
       {/* 반려 — 의견은 여기서 */}
         <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => { setRejectTarget(null); setRejectReason(""); }}>
-          <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <KeyboardAvoidingView style={styles.modalBg} behavior="padding">
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>반려</Text>
               {!!rejectTarget && <Text style={styles.modalSub}>{rejectTarget.who}님 · {rejectTarget.summary}</Text>}

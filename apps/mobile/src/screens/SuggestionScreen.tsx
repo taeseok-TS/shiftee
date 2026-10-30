@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Image, Alert, ActivityIndicator, RefreshControl, KeyboardAvoidingView, Platform,
-} from "react-native";
+  Image, Alert, ActivityIndicator, RefreshControl, KeyboardAvoidingView, } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { uploadFile, getMySuggestions, createSuggestion, updateSuggestion, SuggestionItem, fileUri, useUploadsTicketVersion } from "../services/work";
 
 // 개선 제안함 — 작성자와 관리자만 보는 비공개 창구. 처리 상태는 봇 DM으로도 통지된다.
@@ -18,6 +18,7 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; fg: string }> = 
 };
 
 export default function SuggestionScreen() {
+  const headerHeight = useHeaderHeight();   // 더보기 스택 헤더 아래라 그만큼 더 밀어 올린다(#233 검증 1)
   useUploadsTicketVersion(); // 첨부·계약서 티켓이 첫 렌더보다 늦게 와도 다시 그려지게(2026-10-06)
   const [list, setList] = useState<SuggestionItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,7 +95,7 @@ export default function SuggestionScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={headerHeight}>
       <ScrollView
         style={styles.container}
         keyboardShouldPersistTaps="handled"
