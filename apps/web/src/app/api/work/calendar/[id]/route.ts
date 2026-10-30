@@ -33,8 +33,14 @@ export async function PATCH(
   const isManagersOnly = session.role !== "EMPLOYEE" && !!managersOnly; // 직원은 원장 전용으로 바꿀 수 없다
   let finalBranch: string | null = branch || null;
   if (isManagersOnly) finalBranch = null;
-  else if (session.role === "MANAGER") finalBranch = session.branch;
-  else if (session.role === "EMPLOYEE") {
+  else if (session.role === "MANAGER") {
+    // 담당 지점(대표+겸직) 안에서 고른 지점은 그대로 — 대표 지점으로 덮으면 겸직 지점 일정이 옮겨졌다(2026-10-30 검증).
+    // 담당 밖이면 원래 지점(담당 지점일 때) → 대표 지점 순. 셋 다 없으면 전사 일정이 되어 버려 막는다
+    finalBranch = finalBranch && myBranches.includes(finalBranch) ? finalBranch
+      : event.branch && myBranches.includes(event.branch) ? event.branch
+      : session.branch && myBranches.includes(session.branch) ? session.branch : myBranches[0] ?? null;   // 토큰의 대표 지점도 지금 담당인지 확인(검증 W2)
+    if (!finalBranch) return NextResponse.json({ error: "소속 지점이 없어 일정을 고칠 수 없습니다." }, { status: 400 });
+  } else if (session.role === "EMPLOYEE") {
     finalBranch = await myBranch(session.userId); // 직원은 자기 지점 고정(2026-10-20)
     if (!finalBranch) return NextResponse.json({ error: "소속 지점이 없어 일정을 고칠 수 없습니다." }, { status: 403 });
   }
