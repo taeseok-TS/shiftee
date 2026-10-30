@@ -15,7 +15,8 @@ import * as Location from "expo-location";
 import * as attendance from "../../services/attendance";
 import * as storage from "../../services/storage";
 import * as api from "../../services/api";
-import { getMySchedulesRange, type MyShift } from "../../services/schedule";
+import { getMySchedulesRange, getMyPermissions, type MyShift } from "../../services/schedule";
+import BranchScheduleBulkScreen from "../schedule/BranchScheduleBulkScreen";
 import { LEAVE_LABELS } from "../../services/leaveLabels";
 import { C, addDaysYmd, fmtDay, fmtShort, fmtTime, isWeekend, todayYmd, wd, weekOfYmd, ymd } from "../../services/fmt";
 import AttendanceRequestModal, { RequestDraft } from "../../components/AttendanceRequestModal";
@@ -116,6 +117,17 @@ export default function AttendanceScreen() {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => { storage.getUser().then((u) => { setBranch(u?.branch || ""); setRole(u?.role || ""); }).catch(() => {}); }, []);
+  // 「근무일정 추가」(원장 · 본부) — 여러 날 · 여러 명 근무일정 한 번에. 일정 탭 「일정 넣기」에서 옮겨 왔다(#236 권경욱, 2026-10-30)
+  // 「원장 근무일정 직접 편집」 권한(#39)이 꺼지면 숨긴다(실제 차단은 서버 403). 본부는 늘 보임. 못 읽으면 보이고 서버 문구에 맡긴다
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [canBulk, setCanBulk] = useState(true);
+  useEffect(() => {
+    if (role !== "MANAGER") return;
+    let alive = true;
+    getMyPermissions().then((p) => { if (alive) setCanBulk(p["manager.editSchedule"] !== false); }).catch(() => {});
+    return () => { alive = false; };
+  }, [role]);
+  const showBulk = role === "ADMIN" || (role === "MANAGER" && canBulk);
 
   const loadStatus = async () => {
     try {
@@ -477,6 +489,11 @@ export default function AttendanceScreen() {
               );
             })}
           </View>
+          {showBulk && (
+            <TouchableOpacity style={styles.outlineBtn} onPress={() => setBulkOpen(true)} accessibilityLabel="근무일정 추가 — 여러 날 · 여러 명 한 번에">
+              <Text style={styles.outlineText}>＋ 근무일정 추가 (여러 날 · 여러 명)</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* 지난 기록 — 날짜별 상태 알약(시각은 본부만) */}
@@ -538,6 +555,14 @@ export default function AttendanceScreen() {
           </View>
         )}
       </ScrollView>
+
+      {showBulk && (
+        <BranchScheduleBulkScreen
+          visible={bulkOpen}
+          showBranch={role === "ADMIN"}
+          onClose={(didInsert) => { setBulkOpen(false); if (didInsert) loadExtras(); }}
+        />
+      )}
 
       {/* 아래 고정 띠 — 큰 버튼 하나(출근하기 → 퇴근하기) */}
       <View style={styles.dock}>

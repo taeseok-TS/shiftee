@@ -204,6 +204,15 @@ export async function cancelMyScheduleRequest(id: string): Promise<void> {
   await axios.delete(`${API_URL}/schedule-requests/${id}`, { headers: await authHeaders() });
 }
 
+/** 캘린더 일정 넣기(#236) — 웹 캘린더와 같은 서버(POST /api/work/calendar).
+ *  branch 는 본부만 쓴다(원장은 서버가 대표 지점으로 정한다). managersOnly = 「원장」 캘린더(지점 없음). 시각 null = 종일 */
+export async function createWorkCalendarEvent(payload: {
+  title: string; description?: string; startDate: string; endDate: string;
+  startTime: string | null; endTime: string | null; managersOnly: boolean; branch: string | null;
+}): Promise<void> {
+  await axios.post(`${API_URL}/work/calendar`, payload, { headers: await authHeaders() });
+}
+
 /** 「이달의 지점 공유」 글(웹 캘린더 오른쪽 칸과 같은 데이터, #234) — branch 를 안 주면 볼 수 있는 첫 지점 */
 export type CalendarNotePost = { id: string; content: string; pinned: boolean; authorName: string | null; createdAt: string; edited: boolean };
 export async function getCalendarNotes(ym: string, branch?: string | null): Promise<{ branches: string[]; branch: string | null; posts: CalendarNotePost[] }> {

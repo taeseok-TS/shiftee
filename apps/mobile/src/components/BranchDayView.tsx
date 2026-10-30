@@ -10,7 +10,7 @@ import { C, fmtTime } from "../services/fmt";
 // 2026-10-23 본부 요청(앱 6 · 시안 S2-3): 문제 있는 사람부터(미출근 → 지각 → 퇴근 누락 → 휴가 → 정상), 정상 · 휴무는 접어 두기.
 // 오른쪽은 상태 알약 하나만(왼쪽 「휴가」 + 오른쪽 「휴가」 겹침 정리). 출퇴근 시각 · 일한 시간은 원장 화면에 보이지 않는다(본부만, ■0-11).
 // 본부(관리자) 「전체 지점 일정」은 지점별로 묶는다(「평촌 11명」).
-// 2026-10-25: 여러 날 · 여러 명 한 번에 넣기는 위 「일정 넣기」 버튼(BranchScheduleBulkScreen) — 넣고 닫히면 reloadKey 가 바뀌어 다시 불러온다.
+// 2026-10-25: 여러 날 · 여러 명 한 번에 넣기(BranchScheduleBulkScreen) — 10/30 #236 부터 출퇴근 탭 「근무일정 추가」에서 연다. reloadKey 가 바뀌면 다시 불러온다.
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -190,7 +190,7 @@ export default function BranchDayView({ showBranch = false, reloadKey = 0 }: { s
             ) : (
               <Group list={rows} />
             )}
-            <Text style={s.footer}>위 「일정 넣기」로 여러 날 · 여러 명의 근무일정을 한 번에 넣을 수 있습니다. 하루 단위 고치기는 PC(cubetee.co.kr) 원장 모드 「근태 › 지점 근무일정」에서 합니다.</Text>
+            <Text style={s.footer}>여러 날 · 여러 명의 근무일정은 출퇴근 탭 「근무일정 추가」로 한 번에 넣을 수 있습니다. 하루 단위 고치기는 PC(cubetee.co.kr) 원장 모드 「근태 › 지점 근무일정」에서 합니다.</Text>
           </>
         )}
       </ScrollView>

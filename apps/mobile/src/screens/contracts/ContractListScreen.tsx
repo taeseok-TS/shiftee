@@ -95,6 +95,7 @@ export default function ContractListScreen() {
   const [docRead, setDocRead] = useState(false); // 동의서 전문을 열어봤는지 (H1)
   const [myProfile, setMyProfile] = useState<{ address: string; birthDate: string }>({ address: "", birthDate: "" });
   const [myId, setMyId] = useState("");
+  const [myRole, setMyRole] = useState("");   // 본부(관리자)는 계약서를 다 보므로 「이전 계약서 문의」 안내를 띄우지 않는다
   const [profileInput, setProfileInput] = useState<{ 주소: string; 생년월일: string }>({ 주소: "", 생년월일: "" });
   const [empFieldInput, setEmpFieldInput] = useState<Record<string, string>>({}); // 직원 직접입력 필드값(퇴사일자 등)
   // 저장된 결재 서명 — 있으면 원클릭 승인 (본인 계약 서명은 항상 직접 그림)
@@ -147,7 +148,7 @@ export default function ContractListScreen() {
 
   useEffect(() => {
     loadContracts();
-    api.getMyProfile().then(p => { setMyId(p.id || ""); setMySigUrl(p.signatureUrl || null); setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" }); }).catch(() => {});
+    api.getMyProfile().then(p => { setMyId(p.id || ""); setMyRole(p.role || ""); setMySigUrl(p.signatureUrl || null); setMyProfile({ address: p.address || "", birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "" }); }).catch(() => {});
   }, []);
 
   const loadContracts = async () => {
@@ -389,6 +390,8 @@ export default function ContractListScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           ListHeaderComponent={renderApprovalHeader}
+          // 근로계약서는 최신 1건만 보인다(2026-10-29 박정인·이예지 — 서버 api/contracts 가 거른다)
+          ListFooterComponent={myRole && myRole !== "ADMIN" ? <Text style={styles.olderNote}>이전 계약서가 필요하면 직영사업본부에 문의해 주세요.</Text> : null}
         />
       )}
 
@@ -862,6 +865,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#9ca3af",
   },
+  olderNote: { fontSize: 12, color: "#9ca3af", textAlign: "center", marginTop: 8 },
   approvalSection: { marginBottom: 12 },
   approvalTitle: { fontSize: 16, fontWeight: "700", color: C.ink, marginBottom: 8 },
   approvalCard: {
