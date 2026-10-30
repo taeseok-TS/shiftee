@@ -783,6 +783,7 @@ export default function ContractsPage() {
                   )}
                   {r.mineToSign && <Btn kind="primary" className="flex-1 py-2.5" onClick={() => openEmpSign(c)}>서명하기</Btn>}
                 </div>
+                {!r.noAccess && !r.lockedSelf && r.canDownload && <p className="text-[11px] text-[#94a3b8]">받기를 누르시면 기기에 다운로드 됩니다.</p>}
               </div>
             );
           })}
