@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
   if (isManagersOnly) {
     finalBranch = null;
   } else if (session.role === "MANAGER") {
+    // 소속 지점이 없는 원장이 보내면 전사 일정이 되어 버린다 — 화면만 막고 있던 것을 서버에서도(2026-10-30 검증)
+    if (!session.branch) return NextResponse.json({ error: "소속 지점이 없어 지점 일정을 등록할 수 없습니다." }, { status: 400 });
     finalBranch = session.branch;
   } else if (session.role === "EMPLOYEE") {
     finalBranch = employeeBranch; // 직원은 자기 지점 고정(전사 일정 불가)

@@ -18,6 +18,11 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const EMPTY_FORM = { title: "", description: "", startDate: "", endDate: "", startTime: "", endTime: "", branch: "__ALL__", color: "indigo" };
 // 칸에 보일 시각 — 「10:00」 또는 「10:00~11:30」(#221). 종일이면 빈 문자열
 const timeLabel = (e: { startTime?: string | null; endTime?: string | null }) => (e.startTime ? (e.endTime ? `${e.startTime}~${e.endTime}` : e.startTime) : "");
+// x 가 원본 e 를 「지점에 공유」로 복사한 지점 일정인가 — 공유는 제목 · 시작/끝 날짜 · 시각을 그대로 옮긴다(이름만 같은 다른 지점 일정에 원본이 가려지지 않게 끝까지 본다)
+const ymd = (d: string) => format(new Date(d), "yyyy-MM-dd");
+const isSharedCopy = (x: Ev, e: Ev) => x.id !== e.id && !!x.branch && !x.managersOnly && x.title === e.title
+  && ymd(x.startDate) === ymd(e.startDate) && ymd(x.endDate) === ymd(e.endDate)
+  && (x.startTime || null) === (e.startTime || null) && (x.endTime || null) === (e.endTime || null);
 
 export default function WorkCalendarPage() {
   const [cursor, setCursor] = useState(new Date());
@@ -83,8 +88,10 @@ export default function WorkCalendarPage() {
     if (viewFilter === "company") return events.filter((e) => !e.branch && !e.managersOnly);
     if (viewFilter === "branch") return events.filter((e) => !!e.branch);
     if (viewFilter === "managers") return events.filter((e) => e.managersOnly);
-    return events;
-  }, [events, viewFilter]);
+    // 전체 보기 — 내 지점에 공유한 사본이 있으면 원본(👑 원장 · 전사)은 감춘다(#230 「전체 일정에 두 번 보인다」). 원본은 원장 · 전사 칸에서 그대로 보인다.
+    // 내 지점 사본만 본다 — 관리자(본부)나 겸직 원장에게 다른 지점 사본 때문에 전사 원본이 사라지지 않게
+    return events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => x.branch === myBranch && isSharedCopy(x, e)));
+  }, [events, viewFilter, myBranch]);
 
   function eventsOn(day: Date) {
     const d = format(day, "yyyy-MM-dd");
@@ -143,7 +150,7 @@ export default function WorkCalendarPage() {
     toast.success("삭제되었습니다."); fetchEvents();
   }
 
-  // 원장 전용(👑) 일정을 우리 지점 일정으로 복사 — 지점 구성원이 본다(#225). 지점은 서버가 원장의 대표 지점으로 넣는다
+  // 원장 전용(👑) · 전사 일정을 우리 지점 일정으로 복사 — 지점 구성원이 지점 칸에서 함께 본다(#225 · #229 전사도). 지점은 서버가 원장의 대표 지점으로 넣는다
   const sharingRef = useRef(false); // 두 번 빠르게 눌러 2건 생기지 않게(검증 지적)
   async function shareToBranch(e: Ev) {
     if (sharingRef.current) return;
@@ -151,7 +158,7 @@ export default function WorkCalendarPage() {
     const sd = format(new Date(e.startDate), "yyyy-MM-dd");
     const ed = format(new Date(e.endDate), "yyyy-MM-dd");
     // 겸직 지점 일정도 events 에 섞여 오므로 내 대표 지점 것만 본다
-    if (events.some((x) => x.branch === myBranch && !x.managersOnly && x.title === e.title && format(new Date(x.startDate), "yyyy-MM-dd") === sd && (x.startTime ?? null) === (e.startTime ?? null))) {
+    if (events.some((x) => x.branch === myBranch && isSharedCopy(x, e))) {   // 전체 보기 숨김과 같은 기준(끝 날짜 · 시각까지)
       toast.info("이미 지점에 공유된 일정입니다."); return;
     }
     sharingRef.current = true;
@@ -165,7 +172,7 @@ export default function WorkCalendarPage() {
       toast.success("우리 지점 일정으로 공유했습니다."); await fetchEvents();
     } finally { sharingRef.current = false; }
   }
-  const canShare = (e: Ev) => !!e.managersOnly && role === "MANAGER";
+  const canShare = (e: Ev) => (!!e.managersOnly || !e.branch) && role === "MANAGER";
 
   return (
     // 넓은 화면에서 양옆이 남지 않게 최대폭을 넓혔다(#224, 1280 → 1760)
