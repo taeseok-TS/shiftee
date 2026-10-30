@@ -21,6 +21,7 @@ import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import BranchScheduleBulkScreen from "./BranchScheduleBulkScreen";
 import MonthGrid, { type DayChip } from "./MonthGrid";
+import BranchShareView from "./BranchShareView";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { C, fmtDay as fmtDayLong, fmtShort as fmtShortD, fmtTime, isWeekend, stripTimes, wd } from "../../services/fmt";
 
@@ -53,6 +54,7 @@ function shiftHalfHour(t: string, delta: number) {
 }
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+const EV_FILTER_LABEL = { all: "전체", company: "전사", branch: "지점", managers: "원장" } as const;
 
 /* 달력 보기 단위(2026-10-12 QA #81) — 월(종전) · 주(월~일) · 일. 날짜 계산은 달력 날짜 문자열로(TZ 무관) */
 const UNIT_LABEL: Record<CalendarUnit, string> = { month: "월", week: "주", day: "일" };
@@ -104,7 +106,12 @@ export default function ScheduleScreen() {
   const navigation = useNavigation<any>();
   const [role, setRole] = useState<string | null>(null);
   const [myBranch, setMyBranch] = useState<string | null>(null);   // 「지점에 공유」 사본과 원본이 겹칠 때 하나만 보이게(#230)
-  const [view, setView] = useState<"mine" | "branch">("mine");
+  const [view, setView] = useState<"mine" | "branch" | "share">("mine");   // share = 이달의 지점 공유(#234, 전 직원)
+  // 지점 일정(큐브티워크 캘린더) 종류 거르기 — 웹 캘린더 상단 필터와 같은 기준(#234). 원장 전용은 원장 · 관리자에게만 온다
+  const [evFilter, setEvFilter] = useState<"all" | "company" | "branch" | "managers">("all");
+  const [evPickOpen, setEvPickOpen] = useState(false);
+  // 다른 곳을 건드리면(탭 · 보기 단위 · 달 · 날짜) 드롭다운은 닫는다(드롭다운 규칙 — 바깥을 누르면 닫힘)
+  useEffect(() => { setEvPickOpen(false); }, [view, unit, cursor, focusDay]);
   useEffect(() => { storage.getUser().then((u) => { setRole(u?.role || ""); setMyBranch(u?.branch ?? null); }).catch(() => setRole("")); }, []);
   const wantBranch = route.params?.view === "branch";
   useEffect(() => {
@@ -457,7 +464,10 @@ export default function ScheduleScreen() {
   const isCopyOf = (x: WorkCalendarEvent, e: WorkCalendarEvent) => x.id !== e.id && !!x.branch && x.branch === myBranch && !x.managersOnly && x.title === e.title
     && String(x.startDate).slice(0, 10) === String(e.startDate).slice(0, 10) && String(x.endDate).slice(0, 10) === String(e.endDate).slice(0, 10)
     && (x.startTime || null) === (e.startTime || null) && (x.endTime || null) === (e.endTime || null);
-  const shownEvents = events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => isCopyOf(x, e)));
+  const shownEvents = evFilter === "company" ? events.filter((e) => !e.branch && !e.managersOnly)
+    : evFilter === "branch" ? events.filter((e) => !!e.branch)
+    : evFilter === "managers" ? events.filter((e) => e.managersOnly)
+    : events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => isCopyOf(x, e)));
   const eventsOnDay = (d: string) => shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= d && d <= String(ev.endDate).slice(0, 10));
   const listEvents = (unit === "month" ? (listDays[0] ? eventsOnDay(listDays[0]) : []) : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
     .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
@@ -483,9 +493,13 @@ export default function ScheduleScreen() {
     return out;
   };
 
-  const viewBar = staff ? (
+  // 보기 탭 — 내 일정 · (원장 · 본부) 지점 일정 · 지점 공유(#234 — 직원도 자기 지점 공유를 본다)
+  const viewTabs: (readonly ["mine" | "branch" | "share", string])[] = staff
+    ? [["mine", "내 일정"], ["branch", role === "ADMIN" ? "전체 지점 일정" : "지점 일정"], ["share", "지점 공유"]]
+    : [["mine", "내 일정"], ["share", "지점 공유"]];
+  const viewBar = role !== null ? (
     <View style={styles.viewBar}>
-      {([["mine", "내 일정"], ["branch", role === "ADMIN" ? "전체 지점 일정" : "지점 일정"]] as const).map(([v, label]) => (
+      {viewTabs.map(([v, label]) => (
         <TouchableOpacity key={v} style={[styles.viewTab, view === v && styles.viewTabOn]} onPress={() => setView(v)} activeOpacity={0.7}>
           <Text style={[styles.viewTabText, view === v && styles.viewTabTextOn]}>{label}</Text>
         </TouchableOpacity>
@@ -493,6 +507,7 @@ export default function ScheduleScreen() {
     </View>
   ) : null;
   if (role === null && (wantBranch || view === "branch")) return <View style={styles.container} />;
+  if (view === "share") return <View style={styles.container}>{viewBar}<BranchShareView /></View>;
   if (staff && view === "branch") {
     return (
       <View style={styles.container}>
@@ -540,6 +555,23 @@ export default function ScheduleScreen() {
             <Text style={[styles.unitChipText, unit === u && styles.unitChipTextOn]}>{UNIT_LABEL[u]}</Text>
           </TouchableOpacity>
         ))}
+      </View>
+      {/* 지점 일정 종류 고르기(#234 — 웹 캘린더처럼 전사 · 지점 · 원장을 따로) */}
+      <View style={styles.evFilterWrap}>
+        <TouchableOpacity style={styles.evFilterBtn} onPress={() => setEvPickOpen((v) => !v)} activeOpacity={0.7}>
+          <Text style={styles.evFilterLabel}>캘린더</Text>
+          <Text style={styles.evFilterValue}>{EV_FILTER_LABEL[evFilter]}</Text>
+          <Ionicons name={evPickOpen ? "chevron-up" : "chevron-down"} size={15} color={C.sub} />
+        </TouchableOpacity>
+        {evPickOpen && (
+          <View style={styles.evFilterList}>
+            {(staff ? (["all", "company", "branch", "managers"] as const) : (["all", "company", "branch"] as const)).map((k) => (
+              <TouchableOpacity key={k} style={[styles.evFilterItem, evFilter === k && { backgroundColor: C.indBg }]} onPress={() => { setEvFilter(k); setEvPickOpen(false); }}>
+                <Text style={[styles.evFilterItemText, evFilter === k && { color: C.ind, fontWeight: "700" }]}>{EV_FILTER_LABEL[k]}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       {loading ? (
@@ -824,6 +856,13 @@ const styles = StyleSheet.create({
   monthText: { fontSize: 17, fontWeight: "bold", color: "#111827" },
   todayHint: { fontSize: 12, color: C.muted, marginTop: 2 },
   // 보기 단위(#81)
+  evFilterWrap: { backgroundColor: "#fff", paddingHorizontal: 14, paddingBottom: 10, alignItems: "flex-end" },
+  evFilterBtn: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb" },
+  evFilterLabel: { fontSize: 13, color: C.muted },
+  evFilterValue: { fontSize: 14, fontWeight: "700", color: C.ink },
+  evFilterList: { marginTop: 4, minWidth: 140, backgroundColor: "#fff", borderWidth: 1, borderColor: C.line, borderRadius: 10, overflow: "hidden" },
+  evFilterItem: { minHeight: 44, justifyContent: "center", paddingHorizontal: 14 },
+  evFilterItemText: { fontSize: 15, color: C.ink },
   unitBar: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: "#fff", paddingBottom: 10 },
   unitChip: { minWidth: 56, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, borderRadius: 999, borderWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f9fafb" },
   unitChipOn: { backgroundColor: "#111827", borderColor: "#111827" },

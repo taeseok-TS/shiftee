@@ -203,3 +203,13 @@ export async function bulkCreateSchedules(payload: BulkSchedulePayload): Promise
 export async function cancelMyScheduleRequest(id: string): Promise<void> {
   await axios.delete(`${API_URL}/schedule-requests/${id}`, { headers: await authHeaders() });
 }
+
+/** 「이달의 지점 공유」 글(웹 캘린더 오른쪽 칸과 같은 데이터, #234) — branch 를 안 주면 볼 수 있는 첫 지점 */
+export type CalendarNotePost = { id: string; content: string; pinned: boolean; authorName: string | null; createdAt: string; edited: boolean };
+export async function getCalendarNotes(ym: string, branch?: string | null): Promise<{ branches: string[]; branch: string | null; posts: CalendarNotePost[] }> {
+  const res = await axios.get(`${API_URL}/work/calendar/note`, {
+    params: branch ? { ym, branch } : { ym },
+    headers: await authHeaders(),
+  });
+  return { branches: res.data?.branches || [], branch: res.data?.branch ?? null, posts: res.data?.posts || [] };
+}
