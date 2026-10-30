@@ -20,6 +20,7 @@ import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createSchedule
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import BranchScheduleBulkScreen from "./BranchScheduleBulkScreen";
+import MonthGrid, { type DayChip } from "./MonthGrid";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { C, fmtDay as fmtDayLong, fmtShort as fmtShortD, fmtTime, isWeekend, stripTimes, wd } from "../../services/fmt";
 
@@ -179,7 +180,10 @@ export default function ScheduleScreen() {
         period ? getMySchedulesRange(period.start, period.end) : api.getMySchedules(cursor.year, cursor.month),
         api.getScheduleRequests(),
         api.getLeaveRequests(),   // 내 휴가 전부 — 달을 걸치는 주도 날짜 칸에 연차가 보이게(10/23 앱 6)
-        getWorkCalendar(cursor.year, cursor.month).catch(() => []),
+        // 지점 일정은 보기 기간이 걸친 달을 모두(주가 두 달에 걸치면 둘 다 — 월 이동 뒤 주로 바꾸면 앞달 일정이 비던 것, #232 검증 M2)
+        Promise.all([...new Set([`${cursor.year}-${cursor.month}`, ...(period ? [period.start, period.end].map((x) => `${Number(x.slice(0, 4))}-${Number(x.slice(5, 7))}`) : [])])]
+          .map((k) => getWorkCalendar(Number(k.split("-")[0]), Number(k.split("-")[1])).catch(() => [] as WorkCalendarEvent[])))
+          .then((ls) => [...new Map(ls.flat().map((e) => [e.id, e])).values()]),
         Promise.all(years.map((y) => getHolidays(y).catch(() => [] as Holiday[]))),
       ]);
       if (seq !== loadSeq.current) return;   // 그 사이 다른 기간을 요청했다
@@ -212,12 +216,12 @@ export default function ScheduleScreen() {
   const move = (delta: number) => {
     setLoading(true);
     if (unit === "month") {
-      setCursor((c) => {
-        const m = c.month + delta;
-        if (m < 1) return { year: c.year - 1, month: 12 };
-        if (m > 12) return { year: c.year + 1, month: 1 };
-        return { year: c.year, month: m };
-      });
+      const m0 = cursor.month + delta;
+      const nc = m0 < 1 ? { year: cursor.year - 1, month: 12 } : m0 > 12 ? { year: cursor.year + 1, month: 1 } : { year: cursor.year, month: m0 };
+      setCursor(nc);
+      // 달력 칸에서 고른 날도 그 달로 — 이번 달이면 오늘, 아니면 1일(#232)
+      const t = ymdOf(new Date());
+      setFocusDay(t.slice(0, 7) === `${nc.year}-${String(nc.month).padStart(2, "0")}` ? t : `${nc.year}-${String(nc.month).padStart(2, "0")}-01`);
       return;
     }
     // 주·일 보기: 기준 날짜를 옮기고, 달이 바뀌면 휴가·공휴일·전체 일정도 그 달로
@@ -440,14 +444,12 @@ export default function ScheduleScreen() {
     return time ? `${range} ${time}` : range;
   };
 
-  // 날짜 줄 — 주 = 월~일 7줄, 일 = 그날, 월 = 근무 · 휴가 · 공휴일이 있는 날만
+  // 날짜 줄 — 주 = 월~일 7줄, 일 = 그날, 월 = 달력 칸에서 고른 날 하나(#232 — 달 전체는 위 달력 칸으로 본다)
+  const monthKey = `${cursor.year}-${String(cursor.month).padStart(2, "0")}`;
   const listDays: string[] = (() => {
     if (unit === "week" && period) return weekDays(period.start);
     if (unit === "day") return [focusDay];
-    const mm = `${cursor.year}-${String(cursor.month).padStart(2, "0")}`;
-    const last = new Date(cursor.year, cursor.month, 0).getDate();
-    return Array.from({ length: last }, (_, i) => `${mm}-${String(i + 1).padStart(2, "0")}`).filter((d) =>
-      shifts.some((x) => String(x.date).slice(0, 10) === d) || leaves.some((l) => String(l.startDate).slice(0, 10) <= d && d <= String(l.endDate).slice(0, 10)) || !!holidayName(d));
+    return focusDay.slice(0, 7) === monthKey ? [focusDay] : [];
   })();
   const rangeStart = listDays[0] ?? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-01`;
   const rangeEnd = unit === "month" ? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-31` : listDays[listDays.length - 1] ?? rangeStart;
@@ -456,9 +458,30 @@ export default function ScheduleScreen() {
     && String(x.startDate).slice(0, 10) === String(e.startDate).slice(0, 10) && String(x.endDate).slice(0, 10) === String(e.endDate).slice(0, 10)
     && (x.startTime || null) === (e.startTime || null) && (x.endTime || null) === (e.endTime || null);
   const shownEvents = events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => isCopyOf(x, e)));
-  const listEvents = (unit === "month" ? shownEvents : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
+  const eventsOnDay = (d: string) => shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= d && d <= String(ev.endDate).slice(0, 10));
+  const listEvents = (unit === "month" ? (listDays[0] ? eventsOnDay(listDays[0]) : []) : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
     .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
   const fmtRangeLong = (a: string, b: string) => (a.slice(0, 10) === b.slice(0, 10) ? fmtDayLong(a.slice(0, 10)) : `${fmtDayLong(a.slice(0, 10))} ~ ${fmtDayLong(b.slice(0, 10))}`);
+
+  // 월 달력 칸에 넣을 줄(#232) — 공휴일 · 휴가 · 내 근무 · 지점 일정 순. 색은 아래 날짜 줄 꼬리표와 같게, 지점 일정은 웹 캘린더 색
+  const EVENT_COLOR: Record<string, string> = { indigo: "#6366f1", blue: "#3b82f6", green: "#22c55e", red: "#ef4444", amber: "#f59e0b" };
+  const chipsOf = (d: string): DayChip[] => {
+    const out: DayChip[] = [];
+    const hol = holidayName(d);
+    if (hol) out.push({ key: "hol", label: hol, bg: C.redBg, fg: C.red });
+    const lv = leaves.find((l) => String(l.startDate).slice(0, 10) <= d && d <= String(l.endDate).slice(0, 10));
+    const work = shifts.find((x) => String(x.date).slice(0, 10) === d && x.type === "work");
+    const lvApproved = !!lv && lv.status === "APPROVED";
+    // 칸이 좁아(360dp 폰 ≈ 48dp) 띄어쓰기를 빼 「오전반차」처럼 — 승인 대기는 글자 대신 노랑 점선 테두리로(#232 검증 M1)
+    const lvLabel = (LEAVE_TYPE_LABEL[lv?.type ?? ""] || "휴가").replace(/\s+/g, "");
+    if (lv) out.push(lvApproved
+      ? { key: "lv", label: lvLabel, bg: C.blueBg, fg: C.blueInk }
+      : { key: "lv", label: lvLabel, bg: C.ambBg, fg: C.amb, striped: true });
+    const fullLeave = lvApproved && !(work && isPartialLeave(lv!.type));
+    if (work && !fullLeave) out.push({ key: "work", label: work.startTime || "근무", bg: C.indBg, fg: C.indInk });
+    for (const ev of eventsOnDay(d)) out.push({ key: ev.id, label: ev.title, bg: EVENT_COLOR[ev.color || "indigo"] || EVENT_COLOR.indigo, fg: "#fff" });
+    return out;
+  };
 
   const viewBar = staff ? (
     <View style={styles.viewBar}>
@@ -525,10 +548,15 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <>
+          {/* 월 보기 = 달력 칸(#232) — 칸을 누르면 아래 날짜 줄 · 지점 일정이 그날 것으로 */}
+          {unit === "month" && (
+            <MonthGrid year={cursor.year} month={cursor.month} today={todayStr} selected={focusDay} onSelect={setFocusDay}
+              chipsOf={chipsOf} isRedDay={(d) => !!holidayName(d)} />
+          )}
           {/* 날짜 줄 — 날짜마다 근무 시간 · 연차 · 주말 근무(10/23 앱 6, 시안 S1-3). 주 보기는 월~일 7줄 */}
           <View style={styles.dayList}>
             {listDays.length === 0 ? (
-              <Text style={[styles.empty, { paddingHorizontal: 14 }]}>{unit === "month" ? "이 달에 들어 있는 근무가 없습니다." : "등록된 일정이 없습니다."}</Text>
+              <Text style={[styles.empty, { paddingHorizontal: 14 }]}>{unit === "month" ? "달력에서 날짜를 누르면 그날 일정이 여기 나옵니다." : "등록된 일정이 없습니다."}</Text>
             ) : listDays.map((d, i) => {
               const my = shifts.filter((x) => String(x.date).slice(0, 10) === d);
               const work = my.find((x) => x.type === "work");
