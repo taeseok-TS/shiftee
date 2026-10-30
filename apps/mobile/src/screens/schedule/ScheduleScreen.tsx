@@ -112,7 +112,10 @@ export default function ScheduleScreen() {
   const [evPickOpen, setEvPickOpen] = useState(false);
   // 다른 곳을 건드리면(탭 · 보기 단위 · 달 · 날짜) 드롭다운은 닫는다(드롭다운 규칙 — 바깥을 누르면 닫힘)
   useEffect(() => { setEvPickOpen(false); }, [view, unit, cursor, focusDay]);
-  useEffect(() => { storage.getUser().then((u) => { setRole(u?.role || ""); setMyBranch(u?.branch ?? null); }).catch(() => setRole("")); }, []);
+  useEffect(() => { storage.getUser().then((u) => setRole(u?.role || "")).catch(() => setRole("")); }, []);
+  // 로그인 때 저장한 내 정보에는 지점이 없다(로그인 응답 = id · 이름 · 메일 · 역할) — 지점은 프로필에서 읽는다(#235 권경욱: 앱 전체 보기에 사본 · 원본이 둘 다 보임).
+  // 못 읽으면 다음 불러오기(달 이동 · 당겨서 새로 고침) 때 다시
+  const branchLoaded = useRef(false);
   const wantBranch = route.params?.view === "branch";
   useEffect(() => {
     if (!wantBranch) return;
@@ -180,6 +183,7 @@ export default function ScheduleScreen() {
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
+    if (!branchLoaded.current) api.getMyProfile().then((p) => { branchLoaded.current = true; setMyBranch(p?.branch ?? null); }).catch(() => {});
     try {
       // 공휴일은 보기 기간이 걸친 해를 모두(연말 주는 두 해)
       const years = [...new Set([cursor.year, ...(period ? [Number(period.start.slice(0, 4)), Number(period.end.slice(0, 4))] : [])])];
