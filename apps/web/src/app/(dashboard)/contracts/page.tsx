@@ -858,6 +858,8 @@ export default function ContractsPage() {
             </tbody>
           </table>
         </div>
+        {/* 근로계약서는 최신 1건만 보인다(2026-10-29 박정인·이예지, api/contracts latestEmploymentOnly) */}
+        {myRole && myRole !== "ADMIN" && <p className="mt-3 text-xs text-gray-400">이전 계약서가 필요하면 직영사업본부에 문의해 주세요.</p>}
       </Box>
 
       {/* 서명 모달 — 개인정보동의서는 2단계(동의 확인 → 서명), 그 외는 바로 서명 */}

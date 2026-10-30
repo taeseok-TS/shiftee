@@ -470,6 +470,8 @@ export default function ManagerContractsPage() {
             </table>
           </div>
         </>)}
+        {/* 근로계약서는 사람마다 최신 1건만 보인다(2026-10-29 박정인·이예지, api/contracts latestEmploymentOnly) */}
+        <p className="px-6 pb-4 pt-2 text-xs text-gray-400">이전 계약서가 필요하면 직영사업본부에 문의해 주세요.</p>
       </Box>
 
       {/* 승인 — 전체 창(2026-10-20 시안 v2 6번). 왼쪽 쪽 목록 · 가운데 A4 한 쪽씩 · 오른쪽 승인 정보, 마지막 쪽까지 봐야 승인 */}

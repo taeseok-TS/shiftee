@@ -6,6 +6,7 @@ import { partyCanSee, PARTY_HIDDEN_STATUSES } from "@/lib/contract-visibility";
 import { labelApproverNames } from "@/lib/person-label";
 import { isRenewalContract, templateStepsFor } from "@/lib/approval-order";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { filterContractData } from "@/lib/api-response";
 import { getManagerBranches } from "@/lib/manager-branches";
 import fs from "fs/promises";
@@ -45,6 +46,8 @@ export async function GET(request: NextRequest) {
       // 외부 계약(소유자=작성 관리자 — 지점이 겹치면 딸려 나옴)은 제외. 결재 차례면 my-approvals로 보임
       ? { user: { branch: { in: myBranches } }, employeeOnly: false, externalName: null, isTest: false }
       : { userId: session.userId, externalName: null };
+    // 근로계약서 「최신 1건」은 연 · 월 · 검색 같은 화면 필터와 상관없이 이 권한 범위 전체에서 정한다(아래 latestEmploymentIds — 10/30 검증 지적)
+    const scopeWhere = { ...whereBase };
 
     // 추가 필터 적용
     // 연 · 월 경계는 KST 자정(서버 시간대 UTC 와 무관 — 매월 1일 0~9시에 만든 계약이 전달로 세지지 않게, 10/23 검증 3)
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest) {
       whereBase.id = { in: ids };
     }
 
-    const contracts = await prisma.contract.findMany({
+    const contractsAll = await prisma.contract.findMany({
       where: whereBase,
       include: {
         user: { select: { id: true, name: true, email: true, department: true, branch: true, employmentStatus: true, resignDate: true } },
@@ -154,6 +157,11 @@ export async function GET(request: NextRequest) {
       if (session.role === "MANAGER" && c.status === "DRAFT" && c.createdBy !== session.userId) return false;
       return true;
     }).map((c) => labelApproverNames(c)));   // 결재자 이름 「이름 직급」(10/16 N1)
+    // 근로계약서는 사람마다 최신 1건만(2026-10-29 박정인·이예지 「교부 원칙」, 디렉터 승인 10/30) — 직원·원장 화면.
+    // 체결을 마친 근로·고용계약서 중 체결일이 가장 늦은 1건만 남긴다. 진행 중인 건 · 연봉계약서 · 동의서 등 다른 서류는 그대로.
+    // 관리자(본부)는 전부 본다. 지난 계약서가 필요하면 본부에 문의(화면 안내 문구)
+    const latestIds = session.role === "ADMIN" ? null : await latestEmploymentIds(scopeWhere);
+    const contracts = latestIds ? contractsAll.filter((c) => c.status !== "SIGNED" || !EMPLOYMENT_TITLE.test(c.title) || latestIds.has(c.id)) : contractsAll;
 
     // 서명 창 요약 칸 — 그 문서 템플릿의 필드만(#206-2). 템플릿마다 한 번만 읽는다(파일 캐시는 lib 에 있다)
     const namesByTemplate = new Map<string, string[] | null>();
@@ -445,4 +453,22 @@ export async function POST(request: NextRequest) {
     console.error(err);
     return NextResponse.json({ error: "파일 업로드에 실패했습니다." }, { status: 500 });
   }
+}
+
+// 띄어쓰기 · 파트타임 계약서까지(템플릿 화면 isEmploymentTpl 과 같은 범위 + 옛 「고용계약서」). 연봉계약서는 다른 서류로 본다
+const EMPLOYMENT_TITLE = /근로\s*계약서|고용\s*계약서|파트\s*타임\s*계약서/;
+/** 권한 범위(본인 · 담당 지점) 안에서 사람마다 체결일이 가장 늦은 근로계약서 id */
+async function latestEmploymentIds(scopeWhere: Prisma.ContractWhereInput): Promise<Set<string>> {
+  const rows = await prisma.contract.findMany({
+    where: { ...scopeWhere, status: "SIGNED", OR: [{ title: { contains: "근로" } }, { title: { contains: "고용" } }, { title: { contains: "파트" } }] },
+    select: { id: true, userId: true, title: true, signedAt: true, createdAt: true },
+  });
+  const keep = new Map<string, { id: string; at: number }>();   // userId → 가장 늦게 체결한 근로계약서
+  for (const c of rows) {
+    if (!EMPLOYMENT_TITLE.test(c.title)) continue;
+    const at = (c.signedAt ?? c.createdAt).getTime();
+    const k = keep.get(c.userId);
+    if (!k || at > k.at) keep.set(c.userId, { id: c.id, at });
+  }
+  return new Set([...keep.values()].map((v) => v.id));
 }

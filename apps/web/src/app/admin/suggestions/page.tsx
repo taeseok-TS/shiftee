@@ -3,6 +3,7 @@
 // 개선 제안 관리 (관리자) — 전체 제안 목록, 상태 변경 + 답변.
 // 상태를 바꾸거나 답변을 달면 작성자에게 큐브티 봇 DM으로 자동 통지된다.
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,9 +70,13 @@ export default function AdminSuggestionsPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Lightbulb size={22} className="text-amber-500" />개선 제안 관리</h1>
-        <p className="text-sm text-gray-500 mt-1">상태를 바꾸거나 답변을 저장하면 작성자에게 큐브티 봇 알림이 갑니다.</p>
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Lightbulb size={22} className="text-amber-500" />개선 제안 관리</h1>
+          <p className="text-sm text-gray-500 mt-1">상태를 바꾸거나 답변을 저장하면 작성자에게 큐브티 봇 알림이 갑니다.</p>
+        </div>
+        {/* 본부도 제안을 쓸 수 있게(2026-10-29 박정인) — 쓰기 화면은 직원 모드 /suggestions */}
+        <Link href="/suggestions" className="shrink-0 inline-flex min-h-11 items-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">제안 쓰기</Link>
       </div>
 
       <div className="flex flex-wrap gap-2">
