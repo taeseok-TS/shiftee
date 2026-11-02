@@ -224,7 +224,7 @@ export default function AdminBotPage() {
   const folders = Array.from(new Set(briefings.map((b) => b.folder).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, "ko"));
 
   return (
-    <div className="max-w-3xl mx-auto py-6 px-4 space-y-6">
+    <div className="max-w-5xl mx-auto py-6 px-4 space-y-6">
       <input ref={fileRef} type="file" multiple className="hidden" onChange={onFilePicked} />
       <div className="flex items-center justify-between">
         <div>
