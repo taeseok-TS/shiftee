@@ -186,12 +186,13 @@ export async function apiKeyFileSubject(request: NextRequest): Promise<{ subject
 
 /** 회사 연동 키가 발급자 사정(비번 초기화 등)으로 꺼졌을 때 알린다 — 조용히 끊기면 큐브마케팅 연동이 멈춘 줄 모른다.
  *  받는 사람 = 최고 관리자(2026-10-23 ■0-3 — 키 화면이 최고 관리자 전용이 되어, 열 수 없는 사람에게 보내지 않는다).
+ *  2026-11-02 디렉터 회의 3번으로 연동 키 화면은 모든 관리자에게 열렸지만(설정 › 연동 키), 받는 사람은 그대로 둔다(지시 범위 밖).
  *  봇 설정의 종류별 수신자(lib/notify-targets) 대상에서 **일부러 뺐다** — 고르게 두면 키 화면을 못 여는 서브 관리자에게 갈 수 있다(2026-10-26). */
 export async function notifyOrgKeysRevoked(names: string[], reason: string) {
   try {
     const { botSendDM } = await import("@/lib/bot");
     const admins = await prisma.user.findMany({ where: { role: "ADMIN", isSuperAdmin: true, isActive: true, deletedAt: null }, select: { id: true } });
-    const msg = `🔑 회사 연동 키 ${names.map((n) => `「${n}」`).join(", ")}이(가) ${reason}으로 꺼졌습니다. 외부 연동(큐브마케팅 등)이 멈추니 /admin/api-keys 에서 새로 발급해 전달해주세요.`;
+    const msg = `🔑 회사 연동 키 ${names.map((n) => `「${n}」`).join(", ")}이(가) ${reason}으로 꺼졌습니다. 외부 연동(큐브마케팅 등)이 멈추니 설정 › 연동 키(/admin/integration-keys)에서 새로 발급해 전달해주세요.`;
     for (const a of admins) await botSendDM(a.id, msg);
   } catch (e) { console.error("[api-key] 연동 키 회수 알림 오류:", e); }
 }

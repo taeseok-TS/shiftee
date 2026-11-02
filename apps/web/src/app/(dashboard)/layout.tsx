@@ -14,6 +14,9 @@ export default async function SharedLayout({
   if (!session) {
     redirect("/login");
   }
+  // 재무팀 전자계약 열람 전용 계정은 계약서 화면만(2026-11-02 디렉터 회의 5번 — lib/contract-viewer)
+  const { isContractViewer } = await import("@/lib/contract-viewer");
+  if (await isContractViewer(session)) redirect("/finance/contracts");
 
   return (
     <div className="flex min-h-screen bg-gray-100">

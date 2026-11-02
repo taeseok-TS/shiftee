@@ -21,7 +21,7 @@ type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; br
 type Category = { id: string; group: "EDU" | "PROMO" | "EVENT" | "MARKETING"; name: string; sortOrder: number; active: boolean };
 type Req = {
   id: string; title: string; description: string | null; categoryId: string; category?: { id: string; group: string; name: string };
-  targetJobGroups: string[]; targetBranches: string[]; targetUserIds: string[]; dueDate: string | null; createdByName: string; closedAt: string | null; createdAt: string;
+  targetJobGroups: string[]; targetBranches: string[]; targetUserIds: string[]; notifyUserIds?: string[]; dueDate: string | null; createdBy?: string; createdByName: string; closedAt: string | null; createdAt: string;
   mySubmissionId?: string | null; mySubmittedAt?: string | null; targetCount?: number; submittedCount?: number; targetLabel?: string;
 };
 type Sub = {
@@ -476,7 +476,7 @@ function RequestsTab({ me, categories, reloadKey, onChanged }: { me: Me; categor
             </div>
           );
         })}
-      {edit.open && <RequestDialog categories={categories} req={edit.req ?? null} clone={edit.clone ?? null} onClose={() => setEdit({ open: false })} onDone={() => { setEdit({ open: false }); onChanged(); }} />}
+      {edit.open && <RequestDialog me={me} categories={categories} req={edit.req ?? null} clone={edit.clone ?? null} onClose={() => setEdit({ open: false })} onDone={() => { setEdit({ open: false }); onChanged(); }} />}
       {detailId && <RequestDetail id={detailId} me={me} onClose={() => setDetailId(null)} onChanged={onChanged} onEdit={(r) => { setDetailId(null); setEdit({ open: true, req: r }); }} onClone={(r) => { setDetailId(null); setEdit({ open: true, req: null, clone: r }); }} />}
     </div>
   );
@@ -493,12 +493,26 @@ function reqTargetText(r: Pick<Req, "targetJobGroups" | "targetBranches" | "targ
 }
 
 // 요청 걸기 / 수정 / 같은 대상으로 다시 걸기(clone: 제목·마감만 비우고 분류·안내문·받는 사람은 그대로)
-function RequestDialog({ categories, req, clone, onClose, onDone }: { categories: Category[]; req: Req | null; clone?: Req | null; onClose: () => void; onDone: () => void }) {
+function RequestDialog({ me, categories, req, clone, onClose, onDone }: { me: Me; categories: Category[]; req: Req | null; clone?: Req | null; onClose: () => void; onDone: () => void }) {
   const src = req ?? clone ?? null;
+  // 요청을 건 사람 — 수정이면 원래 건 사람, 새 요청·복사면 나. 이 사람은 늘 알림을 받는다(2026-11-02 디렉터 회의 1번)
+  const ownerId = req?.createdBy ?? me.id;
+  const ownerName = req ? req.createdByName : me.name;
   const [form, setForm] = useState({
     title: req?.title ?? "", description: src?.description ?? "", categoryId: src?.categoryId ?? "", dueDate: req?.dueDate ?? "",
     targetJobGroups: src?.targetJobGroups ?? ([] as string[]), targetBranches: src?.targetBranches ?? ([] as string[]), targetUserIds: src?.targetUserIds ?? ([] as string[]),
+    notifyUserIds: (src?.notifyUserIds ?? ([] as string[])).filter((id) => id !== ownerId),
   });
+  // 알림을 함께 받을 수 있는 관리자(나·요청을 건 사람 제외). 못 받으면 빈 목록 — 요청 걸기는 막지 않는다
+  const [admins, setAdmins] = useState<{ id: string; name: string }[] | null>(null);
+  useEffect(() => {
+    // 목록에 없는 지정(숨김 계정 · 퇴사 · 강등)은 화면에서 지우지 않고 그대로 돌려보낸다 — 걸러내기는 서버(pickNotifyAdmins)만 한다(검증 3 · 4)
+    fetch("/api/employees?includeAdmins=true").then(async (r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      setAdmins(((d.employees || []) as { id: string; name: string; role: string }[]).filter((u) => u.role === "ADMIN").map((u) => ({ id: u.id, name: u.name })));
+    }).catch(() => setAdmins([]));
+  }, []);
   const initialIds = useRef<string[]>(src?.targetUserIds ?? []); // 수정·복사로 들어온 받는 사람 — 로드 후 퇴사자를 몇 명 뺐는지 알리는 데 쓴다(effect 안에서만 읽는다)
   const [initialCount] = useState(src?.targetUserIds?.length ?? 0); // 렌더에서 쓰는 값은 state 로(react-hooks/refs)
   const [branches, setBranches] = useState<string[]>([]);
@@ -658,6 +672,30 @@ function RequestDialog({ categories, req, clone, onClose, onDone }: { categories
                   : "받는 사람이 없습니다 — 직원을 고르거나 직군·지점을 다시 골라주세요."}
               </p>
             )}
+          </div>
+
+          {/* ── 알림 받는 본부 담당자(2026-11-02 디렉터 회의 1번) — 마감 지난 미제출 명단 · 18시 제출 요약이 이 사람들에게만 간다 ── */}
+          <div className="md:col-span-2 border rounded-lg p-3 space-y-2 bg-gray-50/60">
+            <p className="text-sm font-medium">알림 받는 본부 담당자</p>
+            <p className="text-xs text-gray-500">마감 지난 미제출 명단과 18시 제출 요약은 요청을 건 <b>{ownerName}</b> 님과 아래에서 고른 관리자에게만 갑니다.</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-1 rounded-md border text-xs border-indigo-500 bg-indigo-600 text-white">{ownerName} (요청자)</span>
+              {admins === null && <span className="text-xs text-gray-400 py-1">관리자 목록 불러오는 중…</span>}
+              {(admins ?? []).filter((a) => a.id !== ownerId).map((a) => {
+                const on = form.notifyUserIds.includes(a.id);
+                return (
+                  <button key={a.id} type="button" className={pill(on)}
+                    onClick={() => setForm((f) => ({ ...f, notifyUserIds: on ? f.notifyUserIds.filter((x) => x !== a.id) : [...f.notifyUserIds, a.id] }))}>
+                    {on ? "✓ " : ""}{a.name}
+                  </button>
+                );
+              })}
+              {admins !== null && (() => {
+                const shown = new Set(admins.map((a) => a.id));
+                const unseen = form.notifyUserIds.filter((id) => !shown.has(id)).length;
+                return unseen ? <span className="text-xs text-gray-500 py-1">외 {unseen}명(화면에 표시되지 않는 지정)</span> : null;
+              })()}
+            </div>
           </div>
 
           <div className="md:col-span-2"><label className="text-xs text-gray-500">안내문 (선택 — 봇 DM 에 함께 나갑니다)</label><Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>

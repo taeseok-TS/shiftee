@@ -86,10 +86,22 @@ export async function notifyShared(submissionId: string) {
   }
 }
 
-/** 본부 수신자 — 봇 설정 「자료 제출 현황」 담당자(아무도 안 고르면 재직 관리자 전원 — lib/notify-targets 2026-10-26) */
-async function activeAdminIds(): Promise<string[]> {
+/** 봇 설정 종류별 담당자(아무도 안 고르면 재직 관리자 전원 — lib/notify-targets 2026-10-26) */
+async function topicRecipients(topic: "submission" | "marketing"): Promise<string[]> {
   const { getNotifyRecipients } = await import("@/lib/notify-targets");
-  return getNotifyRecipients("submission");
+  return getNotifyRecipients(topic);
+}
+
+/**
+ * 제출 요청 하나의 본부 쪽 알림 받는 사람 = 요청을 건 사람 + 그가 고른 관리자(2026-11-02 디렉터 회의 1번
+ * 「요청자와 요청자가 추가한 사람에게만」). 지금 재직 중인 관리자만 남기고, 아무도 안 남으면(전원 퇴사·강등)
+ * 봇 설정 「자료 제출」 담당자에게 대신 보낸다 — 알림이 조용히 사라지면 안 된다(lib/notify-targets 와 같은 원칙).
+ */
+export async function requestWatchers(r: { createdBy: string; notifyUserIds?: string[] | null }): Promise<string[]> {
+  const { activeAdminIds } = await import("@/lib/notify-targets");
+  const admins = new Set(await activeAdminIds());
+  const ids = [...new Set([r.createdBy, ...(r.notifyUserIds ?? [])])].filter((id) => admins.has(id));
+  return ids.length ? ids : topicRecipients("submission");
 }
 
 /** 09시 잡 — 마감 전날 독촉·마감 다음날 알림. 멱등: remindedAt / overdueNotifiedAt */
@@ -118,7 +130,7 @@ export async function runSubmissionDailyJobs(now: Date = new Date()) {
           const done = await submittedUserIds(r.id);
           const missing = full ? (await targetUsersFor(full)).filter((t) => !done.has(t.id)) : [];
           const names = missing.map((m) => `${m.branch ?? "-"} ${m.name}`).slice(0, 60).join(", ");
-          const admins = await activeAdminIds();
+          const admins = full ? await requestWatchers(full) : await topicRecipients("submission");
           await sendMany(admins, `📋 「${r.title}」 마감(${due}) 지남 — 미제출 ${missing.length}명\n${names}${missing.length > 60 ? " …" : ""}\n→ ${pageUrl()}`);
         }
         console.log(`[submissions] 마감 지남 알림 ${n}명 — ${r.title}`);
@@ -154,8 +166,10 @@ export async function sweepOrphanUploads(now: Date = new Date()) {
   if (removed) console.log(`[submissions] 미제출 고아 파일 ${removed}개 정리`);
 }
 
-/** 18시 잡 — 어제 18시부터 오늘 18시(KST) 사이에 들어온 제출을 본부에 한 통으로. 하나도 없으면 보내지 않는다.
- *  (검증관 1: "오늘 00시부터"로 잡으면 18시 이후 제출이 어느 요약에도 안 실린다) */
+/** 18시 잡 — 어제 18시부터 오늘 18시(KST) 사이에 들어온 제출을 받는 사람마다 한 통으로. 하나도 없으면 보내지 않는다.
+ *  (검증관 1: "오늘 00시부터"로 잡으면 18시 이후 제출이 어느 요약에도 안 실린다)
+ *  받는 사람(2026-11-02 디렉터 회의 1·2번): 요청에 낸 것 = 그 요청 담당자(requestWatchers) · 마케팅 자료 = 봇 설정 「마케팅 자료 제출」 ·
+ *  요청 없는 자유 제출 = 봇 설정 「자료 제출」. 한 사람이 여러 줄에 걸리면 자기 줄만 모아 한 통. */
 export async function runSubmissionDigest(now: Date = new Date()) {
   const today = todayStrKST(now);
   // KST 오늘 18:00 = UTC 오늘 09:00
@@ -164,16 +178,33 @@ export async function runSubmissionDigest(now: Date = new Date()) {
   const start = new Date(end.getTime() - 24 * 3600 * 1000);
   const rows = await prisma.submission.findMany({
     where: { deletedAt: null, createdAt: { gte: start, lt: end } },
-    select: { requestId: true, request: { select: { title: true } }, category: { select: { name: true, group: true } } },
+    select: { requestId: true, request: { select: { title: true, createdBy: true, notifyUserIds: true } }, category: { select: { name: true, group: true } } },
   });
   if (!rows.length) return;
-  const byKey = new Map<string, number>();
+  // 받는 사람 → (줄 → 건수). 같은 요청·종류의 받는 사람은 한 번만 계산한다
+  const perUser = new Map<string, Map<string, number>>();
+  const recipCache = new Map<string, Promise<string[]>>();
+  const recipientsOf = (key: string, load: () => Promise<string[]>) => {
+    if (!recipCache.has(key)) recipCache.set(key, load());
+    return recipCache.get(key)!;
+  };
   for (const r of rows) {
-    const k = r.category.group === "MARKETING" ? `마케팅 자료 · ${r.category.name}` : r.request ? `「${r.request.title}」` : `자유 제출 · ${r.category.name}`;
-    byKey.set(k, (byKey.get(k) ?? 0) + 1);
+    const marketing = r.category.group === "MARKETING";
+    const line = marketing ? `마케팅 자료 · ${r.category.name}` : r.request ? `「${r.request.title}」` : `자유 제출 · ${r.category.name}`;
+    const req = r.request;
+    const ids = marketing ? await recipientsOf("topic:marketing", () => topicRecipients("marketing"))
+      : req && r.requestId ? await recipientsOf(`req:${r.requestId}`, () => requestWatchers(req))
+      : await recipientsOf("topic:submission", () => topicRecipients("submission"));
+    for (const id of ids) {
+      if (!perUser.has(id)) perUser.set(id, new Map());
+      const m = perUser.get(id)!;
+      m.set(line, (m.get(line) ?? 0) + 1);
+    }
   }
-  const lines = [...byKey.entries()].map(([k, n]) => `· ${k} ${n}건`).join("\n");
-  const admins = await activeAdminIds();
-  await sendMany(admins, `📥 오늘 자료 제출 ${rows.length}건\n${lines}\n→ ${pageUrl()}`);
-  console.log(`[submissions] 18시 요약 ${rows.length}건 → 본부 ${admins.length}명`);
+  for (const [id, m] of perUser) {
+    const total = [...m.values()].reduce((a, b) => a + b, 0);
+    const lines = [...m.entries()].map(([k, n]) => `· ${k} ${n}건`).join("\n");
+    await botSendDM(id, `📥 오늘 자료 제출 ${total}건\n${lines}\n→ ${pageUrl()}`, { respectWorkMute: true });
+  }
+  console.log(`[submissions] 18시 요약 ${rows.length}건 → ${perUser.size}명`);
 }

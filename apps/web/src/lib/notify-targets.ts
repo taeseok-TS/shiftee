@@ -28,7 +28,10 @@ export const NOTIFY_TOPICS = {
   contract: { label: "전자계약 서명 기한 만료", hint: "기한이 지나 만료된 계약을 하루치 한 통으로 — 재발송 안내 포함" },
   suggestion: { label: "개선 제안 접수", hint: "직원이 개선 제안을 올리면 「[접수] #번호 제목」" },
   roster: { label: "인사명부 연동 결과", hint: "매일 아침 인사명부 가져오기 실패 또는 확인 대기 건수" },
-  submission: { label: "자료 제출 현황", hint: "마감 지난 요청의 미제출 명단, 18시 오늘 제출 요약" },
+  // 제출 요청에 걸린 알림(마감 지난 미제출 명단 · 18시 요약)은 그 요청을 건 사람 + 그가 고른 관리자에게만 간다(2026-11-02 디렉터 회의 1번 — lib/submission-notify requestWatchers).
+  // 이 종류는 요청 없이 낸 자유 제출 요약과, 요청 담당자가 모두 관리자가 아니게 됐을 때의 대신 받는 사람이다.
+  submission: { label: "자료 제출 (요청 없는 제출)", hint: "요청 없이 낸 자료의 18시 요약 · 요청 담당자가 모두 퇴사했을 때 대신 받음 (제출 요청 알림은 요청을 건 사람과 그가 고른 관리자만 받습니다)" },
+  marketing: { label: "마케팅 자료 제출", hint: "지점이 올린 마케팅 자료를 18시에 한 통으로 요약" },   // 2026-11-02 디렉터 회의 2번 — 종전엔 자료 제출 요약에 섞여 따로 고를 수 없었다
   integration: { label: "연동 키 이상 사용", hint: "개인 연동 키가 이상 사용으로 멈추면 알립니다 (회사 연동 키 회수는 최고 관리자 고정)" },
 } as const;
 export type NotifyTopic = keyof typeof NOTIFY_TOPICS;

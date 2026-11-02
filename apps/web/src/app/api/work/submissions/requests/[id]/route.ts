@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { resolveSubmissionViewer } from "@/lib/submission-access";
 import { isTargeted, targetLabel, targetUsersFor } from "@/lib/submission-targets";
-import { pickBranches, pickJobGroups, pickTargetUsers, serializeRequest, serializeSubmission } from "@/lib/submission-server";
+import { pickBranches, pickJobGroups, pickNotifyAdmins, pickTargetUsers, serializeRequest, serializeSubmission } from "@/lib/submission-server";
 import { parseDateStr, dateStr } from "@/lib/submissions";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   }
   const targetIds = new Set(targets.map((t) => t.id));
   return NextResponse.json({
-    request: serializeRequest(r),
+    request: serializeRequest(r, { withNotify: true }),
     summary: { targets: targets.length, submitted: targets.filter((t) => subByUser.has(t.id)).length, extra: subs.filter((s) => !targetIds.has(s.userId)).length },
     branches: [...branches.values()].sort((a, b) => a.branch.localeCompare(b.branch, "ko")),
     submissions: subs.map(serializeSubmission),
@@ -74,6 +74,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (typeof body.categoryId === "string" && body.categoryId !== cur.categoryId) {
     const c = await prisma.submissionCategory.findUnique({ where: { id: body.categoryId } });
     if (!c || !c.active) return NextResponse.json({ error: "분류가 올바르지 않습니다." }, { status: 400 });
+    // POST 와 같게 — 마케팅 분류로 바꾸면 그 요청 알림이 요청자가 아니라 마케팅 담당자에게 간다(검증 5)
+    if (c.group === "MARKETING") return NextResponse.json({ error: "마케팅 자료는 제출 요청 대상이 아닙니다(자유 올리기만)." }, { status: 400 });
     data.categoryId = c.id; changes.push(`분류 ${c.name}`);
   }
   // 받는 사람 — 사람을 콕 집으면 직군·지점은 비우고, 직군·지점으로 바꾸면 사람 지정은 비운다(섞지 않는다)
@@ -114,6 +116,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
   }
+  // 알림을 함께 받을 관리자(2026-11-02 디렉터 회의 1번) — 요청을 건 사람은 늘 받으므로 저장에서 뺀다
+  if (body.notifyUserIds !== undefined) {
+    const n = await pickNotifyAdmins(body.notifyUserIds, cur.createdBy);
+    if (!n) return NextResponse.json({ error: "알림 받을 관리자가 올바르지 않습니다(재직 중인 관리자만 고를 수 있습니다)." }, { status: 400 });
+    const same = n.length === cur.notifyUserIds.length && n.every((x) => cur.notifyUserIds.includes(x));
+    if (!same) { data.notifyUserIds = n; changes.push(`알림 함께 받는 관리자 ${n.length}명`); }
+  }
   if (typeof body.closed === "boolean") {
     const wasClosed = !!cur.closedAt;
     if (body.closed !== wasClosed) { data.closedAt = body.closed ? new Date() : null; changes.push(body.closed ? "닫음" : "다시 엶"); }
@@ -136,5 +145,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const added = (data.targetUserIds as string[]).filter((x) => !before.has(x));
     if (added.length) { const { notifyRequestCreated } = await import("@/lib/submission-notify"); void notifyRequestCreated(id, added); }
   }
-  return NextResponse.json({ request: serializeRequest(row) });
+  return NextResponse.json({ request: serializeRequest(row, { withNotify: true }) });
 }

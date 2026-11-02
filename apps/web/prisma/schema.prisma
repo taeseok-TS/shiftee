@@ -1147,6 +1147,7 @@ model SubmissionRequest {
   targetJobGroups   String[]  @default([]) // 빈 배열 = 전 직군(본부 제외)
   targetBranches    String[]  @default([]) // 빈 배열 = 전 지점
   targetUserIds     String[]  @default([]) // 비어 있지 않으면 "이 사람들에게만" — 직군·지점 조건은 무시(2026-09-14, CM 7명 콕 집기)
+  notifyUserIds     String[]  @default([]) // 이 요청 알림(마감 지난 미제출 명단·18시 요약)을 함께 받을 관리자 — 요청을 건 사람(createdBy)은 늘 받는다(2026-11-02 디렉터 회의 1번). ⚠ 운영 DB 는 수동 ALTER
   dueDate           DateTime? @db.Date
   createdBy         String
   createdByName     String // 작성 시점 스냅샷

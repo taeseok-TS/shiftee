@@ -43,6 +43,22 @@ export async function pickTargetUsers(v: unknown, opts: { tolerate?: string[] } 
   return { ids: users.map((u) => u.id), users };
 }
 
+/** 요청 알림을 함께 받을 관리자 검증(2026-11-02 디렉터 회의 1번) — 재직 중인 관리자 id 만 남기고, 요청을 건 사람 본인은 빼고 저장(늘 받으므로).
+ *  값이 없으면 [], 형식이 틀리면 null. 관리자가 아닌 id(그 사이 퇴사 · 강등, 복사해 온 옛 지정)는 **조용히 뺀다** —
+ *  화면이 다 그리지 못하는 사람(숨김 계정)도 있으니 화면은 받은 지정을 그대로 돌려보내고, 걸러내기는 여기서만 한다(검증 3 · 4).
+ *  받는 사람을 고르는 칸이 관리자로 한정돼 있어 권한이 넓어질 일은 없다(알림만 받는다). */
+export async function pickNotifyAdmins(v: unknown, creatorId: string): Promise<string[] | null> {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return null;
+  const ids = [...new Set(v as string[])].filter((id) => id && id !== creatorId);
+  if (!ids.length) return [];
+  if (ids.length > 50) return null;
+  const { activeAdminWhere } = await import("@/lib/notify-targets");
+  const rows = await prisma.user.findMany({ where: { ...activeAdminWhere(), id: { in: ids } }, select: { id: true } });
+  const found = new Set(rows.map((r) => r.id));
+  return ids.filter((id) => found.has(id));
+}
+
 export async function pickBranches(v: unknown): Promise<string[] | null> {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || v.some((b) => typeof b !== "string")) return null;
@@ -53,7 +69,8 @@ export async function pickBranches(v: unknown): Promise<string[] | null> {
   return names;
 }
 
-export function serializeRequest(r: SubmissionRequest & { category?: SubmissionCategory | null }) {
+// withNotify — 알림 받는 관리자 id 는 본부 · 원장 관리 화면에만 싣는다(직원 · 개인 API 키 응답에는 안 나간다, 검증 7)
+export function serializeRequest(r: SubmissionRequest & { category?: SubmissionCategory | null }, opts: { withNotify?: boolean } = {}) {
   return {
     id: r.id,
     title: r.title,
@@ -63,6 +80,7 @@ export function serializeRequest(r: SubmissionRequest & { category?: SubmissionC
     targetJobGroups: r.targetJobGroups,
     targetBranches: r.targetBranches,
     targetUserIds: r.targetUserIds,
+    ...(opts.withNotify ? { notifyUserIds: r.notifyUserIds ?? [] } : {}),
     dueDate: dateStr(r.dueDate),
     createdBy: r.createdBy,
     createdByName: r.createdByName,

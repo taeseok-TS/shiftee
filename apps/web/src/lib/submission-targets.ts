@@ -22,11 +22,19 @@ export function eligibleTargetWhere() {
   };
 }
 
+/** 재무팀 전자계약 열람 전용 계정(lib/contract-viewer)은 제출 대상 · 공유 알림에서 뺀다 — 직원 역할이지만 직원 업무를 하지 않는다(2026-11-02 디렉터 회의 5번) */
+async function notViewerWhere() {
+  const { contractViewerIds } = await import("@/lib/contract-viewer");
+  const v = await contractViewerIds();
+  return v.length ? [{ id: { notIn: v } }] : [];
+}
+
 export async function targetUsersFor(spec: TargetSpec): Promise<TargetUser[]> {
   const ids = spec.targetUserIds ?? [];
   return prisma.user.findMany({
     where: {
       ...eligibleTargetWhere(),
+      AND: [...eligibleTargetWhere().AND, ...(await notViewerWhere())],
       ...(ids.length
         ? { id: { in: ids } }
         : {
@@ -91,7 +99,7 @@ export async function usersInJobGroups(groups: string[]): Promise<{ id: string }
       isActive: true,
       deletedAt: null,
       employmentStatus: { not: "RESIGNED" },
-      AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }],
+      AND: [{ OR: [{ resignDate: null }, { resignDate: { gte: kstTodayMidnight() } }] }, ...(await notViewerWhere())],
       ...(all ? {} : { jobGroup: { in: groups } }),
     },
     select: { id: true },

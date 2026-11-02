@@ -52,14 +52,22 @@ export async function GET(
       }
     }
   }
-  const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId || managerView;
+  // 재무팀 전자계약 열람 전용 계정(2026-11-02 디렉터 회의 5번, lib/contract-viewer) — 전 직원 계약서를 보고 PDF 로 받는다(디렉터 결정 「열람 + PDF 받기」).
+  // 목록(api/finance/contracts)과 같은 범위: 초안 · 시험 문서 제외. 워드 원본은 주지 않고 PDF 로만(아래 wantPdf).
+  let financeView = false;
+  if (!ticketOk && session!.role === "EMPLOYEE" && contract.userId !== session!.userId && !contract.isTest && contract.status !== "DRAFT") {
+    const { isContractViewer } = await import("@/lib/contract-viewer");
+    financeView = await isContractViewer(session);
+  }
+  const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId || managerView || financeView;
   if (!allowed) return NextResponse.json({ error: "서명본은 관리자·계약 당사자·담당 원장만 볼 수 있습니다." }, { status: 403 });
 
   // 문서별 정책은 lib/contract-access 에서 판정한다.
   // ⚠ 티켓(st)은 "당사자임"의 증명일 뿐 **정책 면제가 아니다**. 면제하면 앱이 받은 링크에서
   //   &inline=1 만 지워 열람 전용 문서를 받을 수 있다. 면제는 관리자 세션에만 준다.
   let viewOnly = false;
-  if (session?.role !== "ADMIN") {
+  // 열람 전용 계정은 당사자가 아니라 문서별 근로자 접근 정책(postSignAccess)의 대상이 아니다 — 관리자와 같게 정책은 건너뛰고 PDF 만 준다
+  if (session?.role !== "ADMIN" && !financeView) {
     const { canAccessContractFile } = await import("@/lib/contract-access");
     // 티켓만 온 요청(세션 없음)은 계약 당사자로 보고 정책만 확인한다 — 접근 자체는 위에서 허용됨
     const acc = await canAccessContractFile(
@@ -117,7 +125,7 @@ export async function GET(
   // 열람만 허용된 문서는 pdf=1 이 없어도 PDF 로 강제한다 — 종전에는 inline=1 만 붙이고
   // pdf=1 을 빼면 **서명.직인이 찍힌 워드 원본**이 그대로 나갔다(2026-09-02).
   // 앱이 받는 링크가 `?pdf=1&inline=1&st=...` 라 세 글자만 지우면 되는 상태였다.
-  const wantPdf = viewOnly || reqUrl.searchParams.get("pdf") === "1";
+  const wantPdf = viewOnly || financeView || reqUrl.searchParams.get("pdf") === "1";
   // inline=1 — 저장(다운로드) 대신 브라우저 탭에서 바로 열람 (미리보기 용도)
   const dispo = reqUrl.searchParams.get("inline") === "1" ? "inline" : "attachment";
   // PDF 응답은 전부 여기로 — 시험 문서(#67)는 어느 경로(고정본·저장본·변환·재합성)든 「테스트」 표시를 찍는다(본부 답변 2026-10-08, 검증 F1)
@@ -177,8 +185,8 @@ export async function GET(
       if (pdf0) return await pdfResponse(pdf0, contract.title + suffix + ".pdf");
       // 변환기가 실패해도 **재합성하지 않는다** — 재합성본은 지금의 서명 로직·시각 표기로 새로 만들어져 저장된 완료본과
       // 다른 문서가 된다(59fc92f 검증 R1). 열람만 허용 문서는 워드를 줄 수 없으니 잠시 후 다시, 그 외는 저장된 워드 그대로.
-      console.error(`저장된 완료본 PDF 변환 실패(${viewOnly ? "열람 전용 — 503" : "워드 원본 제공"}):`, convStatus);
-      if (viewOnly)
+      console.error(`저장된 완료본 PDF 변환 실패(${viewOnly || financeView ? "PDF 전용 — 503" : "워드 원본 제공"}):`, convStatus);
+      if (viewOnly || financeView)   // 재무 열람 계정도 워드 원본은 주지 않는다(검증 1)
         return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
       return new NextResponse(asBody(sbuf), {
         headers: {
@@ -217,8 +225,8 @@ export async function GET(
         }
       }
       // 열람만 허용된 문서는 워드로 폴백하지 않는다 — 브라우저가 못 그려 결국 저장되므로
-      // "열람만"이 무너진다. original-document 와 같은 규칙(변환 실패면 실패시킨다).
-      if (viewOnly)
+      // "열람만"이 무너진다. original-document 와 같은 규칙(변환 실패면 실패시킨다). 재무 열람 계정도 PDF 만(검증 1)
+      if (viewOnly || financeView)
         return NextResponse.json({ error: "지금은 문서를 열 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
       return new NextResponse(asBody(buf), {
         headers: {

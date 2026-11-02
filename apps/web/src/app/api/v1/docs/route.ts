@@ -68,7 +68,7 @@ curl -X POST ${base}/submissions \\
 
 ## 마케팅 자료 — 회사 연동 키 전용 (scope: marketing:read / marketing:publish)
 
-본부가 \`/admin/api-keys\` 에서 발급한 **회사 연동 키**로만 됩니다(개인 키 불가). 큐브마케팅이 지점이 올린 마케팅 자료를 가져가 블로그에 발행하고 결과를 되돌려주는 창구입니다.
+본부가 \`/admin/integration-keys\`(설정 › 연동 키)에서 발급한 **회사 연동 키**로만 됩니다(개인 키 불가). 큐브마케팅이 지점이 올린 마케팅 자료를 가져가 블로그에 발행하고 결과를 되돌려주는 창구입니다.
 
 ### 가져가기
 \`GET /marketing/materials?status=new|published|all&since=<ISO 시각>&limit=50&cursor=<id>\` (기본 status=new — 아직 발행되지 않은 것)
@@ -83,7 +83,7 @@ curl -X POST ${base}/submissions \\
 
 ## 직원에게 1:1 DM 보내기 — 회사 연동 키 전용 (scope: dm:send)
 
-본부가 \`/admin/api-keys\` 에서 발급한 **회사 연동 키**로만 됩니다. 직영 포털 같은 서버가 사번으로 직원에게 알림을 보내는 창구입니다.
+본부가 \`/admin/integration-keys\`(설정 › 연동 키)에서 발급한 **회사 연동 키**로만 됩니다. 직영 포털 같은 서버가 사번으로 직원에게 알림을 보내는 창구입니다.
 보내는 사람은 **「에듀플렉스 알림」** 시스템 계정이고, 직원 앱에 푸시가 갑니다.
 
 \`POST /dm\` JSON \`{ "empNo": "06582", "text": "○○ 학생 START SETTING 완료 — START CHECK 진행해 주세요", "refId": "start-setting-123" }\`

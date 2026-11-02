@@ -5,7 +5,7 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, Clock, CheckCircle, FileSignature, TreePalm, Users, SlidersHorizontal,
   Calendar, BarChart3, GitBranch, Send, FileText, Building2, ShieldCheck, CalendarDays, History,
-  Settings, Lightbulb, Wrench, Wallet, Archive,
+  Settings, Lightbulb, Wrench, Wallet, Archive, Bot, KeyRound,
 } from "lucide-react";
 
 export type Icon = ComponentType<{ size?: number; className?: string }>;
@@ -93,13 +93,16 @@ export const ADMIN_NAV: NavGroup[] = [
     { href: "/admin/attendance-rules", label: "근태 규칙", icon: Clock },
     { href: "/admin/holidays", label: "공휴일", icon: CalendarDays },
     { href: "/admin/audit", label: "변경 로그", icon: History },
+    // 봇 브리핑 · 연동 키 — 모든 관리자(2026-11-02 디렉터 회의 3 · 4번 「관리자 설정으로 빼기」). 봇 알림 담당자 · 직원 개인 API 키는 아래 「개발자」에 남는다
+    { href: "/admin/bot-briefings", label: "봇 브리핑", icon: Bot },
+    { href: "/admin/integration-keys", label: "연동 키", icon: KeyRound },
     { href: "/admin/settings", label: "환경설정", icon: Settings, superOnly: true, also: ["/admin/storage", "/admin/system-logs"] },
     // 개선 제안은 상단 바(휴대폰은 이름 메뉴)에 있어 패널에서 뺀다 — 메뉴 찾기로는 찾힌다(2026-10-21 본부 이예지 재요청 H)
     { href: "/admin/suggestions", label: "개선 제안", icon: Lightbulb, hidden: true },
     // 운영 도구는 「개발자」 한 메뉴의 탭으로 묶어 맨 아래 옅게(재요청 H) — **최고 관리자에게만**(2026-10-23 본부 요청 ■0-3, API 키는 남이 보면 안 되는 정보).
     // 화면은 각 layout, API 는 각 라우트가 isSuperAdmin 으로 다시 막는다. 이모티콘 관리는 「큐브티워크 › 이모티콘」(/work/emoticons)으로 옮겼다(옛 주소는 그쪽으로 보냄)
     { href: "/admin/bot", label: "개발자", icon: Wrench, dim: true, superOnly: true, tabs: [
-      { href: "/admin/bot", label: "봇 브리핑" },
+      { href: "/admin/bot", label: "봇 알림 담당자" },
       { href: "/admin/api-keys", label: "API 키" },
       { href: "/admin/test-api", label: "API 테스트" },
     ] },

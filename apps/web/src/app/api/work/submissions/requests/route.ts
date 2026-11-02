@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { resolveSubmissionViewer } from "@/lib/submission-access";
 import { eligibleTargetWhere, isTargeted, requestsTargetingWhere, targetLabel, targetUsersFor } from "@/lib/submission-targets";
-import { pickBranches, pickJobGroups, pickTargetUsers, serializeRequest } from "@/lib/submission-server";
+import { pickBranches, pickJobGroups, pickNotifyAdmins, pickTargetUsers, serializeRequest } from "@/lib/submission-server";
 import { parseDateStr } from "@/lib/submissions";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         const submitted = targets.filter((t) => done.has(t.id)).length;
         // 직접 지정이면 이름 몇 개를 같이 실어 목록에 "직접 지정 7명 (김○○·이○○·박○○ 외 4명)" 로 보인다
         const names = r.targetUserIds.length ? pool.filter((u) => r.targetUserIds.includes(u.id)).map((u) => u.name) : []; // 원장은 담당 지점 사람 이름만
-        return { ...serializeRequest(r), targetCount: targets.length, submittedCount: submitted, targetLabel: targetLabel(r, names) };
+        return { ...serializeRequest(r, { withNotify: true }), targetCount: targets.length, submittedCount: submitted, targetLabel: targetLabel(r, names) };
       }),
     });
   }
@@ -115,17 +115,20 @@ export async function POST(request: NextRequest) {
     dueDate = parseDateStr(body.dueDate);
     if (!dueDate) return NextResponse.json({ error: "마감일이 올바르지 않습니다." }, { status: 400 });
   }
+  // 이 요청 알림을 함께 받을 관리자(요청을 건 사람은 늘 받는다 — 2026-11-02 디렉터 회의 1번)
+  const notifyUserIds = await pickNotifyAdmins(body.notifyUserIds, session.userId);
+  if (!notifyUserIds) return NextResponse.json({ error: "알림 받을 관리자가 올바르지 않습니다(재직 중인 관리자만 고를 수 있습니다)." }, { status: 400 });
   const row = await prisma.submissionRequest.create({
-    data: { title, description: description || null, categoryId: category.id, ...spec, dueDate, createdBy: session.userId, createdByName: session.name },
+    data: { title, description: description || null, categoryId: category.id, ...spec, notifyUserIds, dueDate, createdBy: session.userId, createdByName: session.name },
     include: { category: true },
   });
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "SUBMISSION_REQUEST_CREATE",
     targetType: "SUBMISSION_REQUEST", targetId: row.id, targetName: title,
-    detail: `${category.name} · 대상 ${targetLabel(spec, picked.users.map((u) => u.name))} · 마감 ${body.dueDate || "없음"}`,
+    detail: `${category.name} · 대상 ${targetLabel(spec, picked.users.map((u) => u.name))} · 마감 ${body.dueDate || "없음"} · 알림 함께 받는 관리자 ${notifyUserIds.length}명`,
   });
   // 알림은 응답을 막지 않는다
   const { notifyRequestCreated } = await import("@/lib/submission-notify");
   void notifyRequestCreated(row.id);
-  return NextResponse.json({ request: serializeRequest(row) });
+  return NextResponse.json({ request: serializeRequest(row, { withNotify: true }) });
 }

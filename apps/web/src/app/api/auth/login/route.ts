@@ -112,6 +112,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 재무팀 전자계약 열람 전용 계정은 웹에서만(2026-11-02 디렉터 회의 5번, lib/contract-viewer) — 앱은 직원 화면(출퇴근 · 메신저)뿐이라 막는다.
+    // 기기 등록보다 먼저 막아 그 계정에 기기가 묶이지 않게 한다
+    if (deviceId) {
+      const { isContractViewer } = await import("@/lib/contract-viewer");
+      if (await isContractViewer({ userId: user.id, role: user.role }))
+        return NextResponse.json({ error: "이 계정은 웹(cubetee.co.kr)에서만 쓸 수 있습니다." }, { status: 403 });
+    }
+
     // 기기 등록 검사 (앱 로그인만 — deviceId를 보내는 클라이언트). 관리자(ADMIN)는 예외.
     // 첫 앱 로그인 시 그 기기를 자동 등록, 이후 다른 기기에서는 로그인 차단(대리 출퇴근 방지).
     // 기기 변경 시 관리자가 직원관리에서 "기기 초기화" 후 재로그인하면 새 기기로 등록된다.

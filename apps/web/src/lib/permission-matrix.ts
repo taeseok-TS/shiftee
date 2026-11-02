@@ -78,6 +78,8 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "고치기 · 다시 보내기 · 회수 · 지우기", admin: "all", manager: "no", employee: "no", note: "체결된 계약서는 지울 수 없음(시험 서류 빼고)", basis: "api/contracts/[id] PATCH·DELETE" },
     { feature: "결재자 바꾸기", admin: "all", manager: "branch", employee: "no", note: "원장은 자기 자신으로는 안 됨", basis: "api/contracts/[id]/approval-steps/[stepId]" },
     { feature: "체결본 묶음(ZIP) · 입력값 엑셀", admin: "all", manager: "no", employee: "no", basis: "api/contracts/export" },
+    // 2026-11-02 디렉터 회의 5번 — 재무팀 계정(직원 계정 + 「전자계약 열람 전용」 지정, AppSetting contractViewers)
+    { feature: "전 직원 계약서 보기 · PDF 받기(재무팀 열람 전용 계정)", admin: "na", manager: "na", employee: "지정한 계정만", note: "보내기 · 결재 · 고치기 · 지우기는 안 됨. 이 계정은 계약서 화면만 열림", basis: "lib/contract-viewer, app/finance/contracts, api/finance/contracts, api/contracts/[id]/signed-document" },
     { feature: "계약서 양식 관리", admin: "all", manager: "no", employee: "no", basis: "api/contract-templates" },
   ] },
   { title: "지점 · 설정", rows: [
@@ -87,7 +89,8 @@ export const PERMISSION_MATRIX: PermSection[] = [
     { feature: "변경 로그", admin: "all", manager: "no", employee: "no", note: "로그인 · 보안 기록은 최고 관리자만", basis: "app/admin/audit, api/admin/audit" },
     { feature: "큐브티워크 이모티콘 관리", admin: "all", manager: "no", employee: "no", note: "큐브티워크 › 이모티콘", basis: "app/work/emoticons, api/admin/emoticons" },
     // 2026-10-23 ■0-3 — 개발자 메뉴(봇 브리핑 · API 키 · API 테스트) · 환경설정은 메인 관리자만
-    { feature: "환경설정 · 봇 브리핑 · 외부 연동 키", admin: "최고 관리자만", manager: "no", employee: "no", note: "관리자 계정 관리 · 로그인 실패 기록도 최고 관리자만", basis: "app/admin/settings·bot·api-keys·test-api (layout isSuperAdmin), api/admin/bot-briefings·notify-policy·api-keys" },
+    { feature: "환경설정 · 봇 알림 담당자 · 직원 개인 API 키", admin: "최고 관리자만", manager: "no", employee: "no", note: "관리자 계정 관리 · 로그인 실패 기록도 최고 관리자만", basis: "app/admin/settings·bot·api-keys·test-api (layout isSuperAdmin), api/admin/notify-policy·api-keys" },
+    { feature: "봇 브리핑 · 회사 연동 키", admin: "all", manager: "no", employee: "no", note: "2026-11-02 디렉터 회의 3·4번 — 설정 › 봇 브리핑 · 연동 키", basis: "app/admin/bot-briefings·integration-keys, api/admin/bot-briefings · api/admin/api-keys/org · api/admin/api-keys/[id](ORG 만)" },
     { feature: "개선 제안", admin: "보내기 · 관리", manager: "보내기", employee: "보내기", basis: "api/suggestions" },
   ] },
 ];

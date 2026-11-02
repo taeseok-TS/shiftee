@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSuperAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { seedDefaultBriefing } from "@/lib/bot";
 
@@ -10,7 +10,8 @@ const REPEATS = new Set(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"]);
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
+  // 모든 관리자(2026-11-02 디렉터 회의 4번 — 설정 › 봇 브리핑). 봇 알림 담당자(notify-policy)는 그대로 최고 관리자
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
 
   await seedDefaultBriefing();
   const [briefings, channels, branches] = await Promise.all([
@@ -29,7 +30,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
-  if (session.role !== "ADMIN" || !(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "최고 관리자만 접근할 수 있습니다." }, { status: 403 });
+  // 모든 관리자(2026-11-02 디렉터 회의 4번 — 설정 › 봇 브리핑). 봇 알림 담당자(notify-policy)는 그대로 최고 관리자
+  if (session.role !== "ADMIN") return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
 
   const { name, time, repeat, repeatValue, channelId, branch, folder } = (await request.json()) as {
     name?: string; time?: string; repeat?: string; repeatValue?: string; channelId?: string | null; branch?: string | null; folder?: string | null;
@@ -37,6 +39,9 @@ export async function POST(request: NextRequest) {
   if (!name?.trim()) return NextResponse.json({ error: "브리핑 이름을 입력해주세요." }, { status: 400 });
   if (!time || !TIME_RE.test(time)) return NextResponse.json({ error: "시간은 HH:mm 형식이어야 합니다." }, { status: 400 });
   if (repeat && !REPEATS.has(repeat)) return NextResponse.json({ error: "반복 주기가 올바르지 않습니다." }, { status: 400 });
+  // 발송 채널은 공개 채널 · 숨김 아님만(2026-11-02 검증 9 — [id] PATCH 와 같은 규칙)
+  if (channelId && !(await prisma.workChannel.findFirst({ where: { id: channelId, type: "CHANNEL", hidden: false, deletedAt: null }, select: { id: true } })))
+    return NextResponse.json({ error: "발송 채널이 올바르지 않습니다." }, { status: 400 });
 
   const briefing = await prisma.botBriefing.create({
     data: {
