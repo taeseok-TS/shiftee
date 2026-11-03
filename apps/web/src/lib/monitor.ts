@@ -292,6 +292,19 @@ export async function runHealthCheck(opts?: { heal?: boolean }): Promise<{ issue
     issues.push({ text: `⚠️ 계약 서명본 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["signedDocUnknown"] });
   }
 
+  // 포털 연봉 연동(11/3) — 완료 때 못 보낸 근로·연봉계약서를 다시 보낸다(서명본 고정 뒤라 같은 봇 점검에서). 실패가 남으면 알린다(유형별 하루 1회)
+  if (opts?.heal) try {
+    const { retryPortalPushes } = await import("@/lib/portal-contract-push");
+    const p = await retryPortalPushes();
+    if (p.failed > 0)
+      issues.push({ text: `🟠 포털 연봉 전송 실패 ${p.failed}건 — 계약 id: ${p.failedIds.slice(0, 5).join(", ")}${p.failedIds.length > 5 ? " 외" : ""}`, keys: ["portalContractFail"] });
+    if (p.gaveUp > 0)
+      issues.push({ text: `🟠 포털 연봉 전송을 멈춘 계약 ${p.gaveUp}건(최근 14일) — 포털이 내용을 거절했거나 사번 확인이 필요합니다. 계약 기록의 「포털 전송 실패」 사유 확인 필요`, keys: ["portalContractGaveUp"] });
+    if (p.sent > 0) console.log(`[monitor] 포털 연봉 전송 ${p.sent}건`);
+  } catch (e) {
+    issues.push({ text: `⚠️ 포털 연봉 전송 점검을 하지 못했습니다 (${e instanceof Error ? e.message : String(e)}).`, keys: ["portalContractUnknown"] });
+  }
+
   // 프록시가 본 실패 응답 (2026-09-03) — try/catch 로 처리된 오류는 systemErrorLog 에 안 남는다.
   // 감시기가 멈춘 경우도 여기서 함께 알린다("조용한 것"과 "고장난 것"을 구별해야 한다).
   try {

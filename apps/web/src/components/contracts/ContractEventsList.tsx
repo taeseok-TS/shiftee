@@ -16,6 +16,8 @@ const LABEL: Record<string, string> = {
   COMPLETED: "계약 완료", REJECTED: "반려", REVOKED: "회수", FROZEN: "완료본 고정", TSA: "제3자 시각 인증",
   // 2026-10-07 QA #45 #21 #66
   REMINDED: "미서명 알림", DEADLINE_CHANGED: "기한 변경", EXPIRED: "기한 만료", DELIVERED: "교부(완료 알림)", DOWNLOADED: "완료본 내려받기", IMPORTED: "모두싸인 이관",
+  // 2026-11-03 포털 연봉 연동(lib/portal-contract-push)
+  PORTAL_SENT: "포털 연봉 전송", PORTAL_FAIL: "포털 전송 실패",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다
@@ -37,6 +39,8 @@ function detail(e: Ev): string {
   if (e.type === "VERIFY_OK" && typeof m.via === "string") return m.via;
   if (e.type === "TSA" && typeof m.url === "string") return `발급 ${tsaName(m.url)}`;
   if (e.type === "FROZEN" && typeof m.docNo === "string") return `문서번호 ${m.docNo}`;
+  if (e.type === "PORTAL_SENT") return `문서번호 ${String(m.docKey ?? "")}${typeof m.annual === "number" ? ` · 연봉 ${m.annual.toLocaleString()}원` : ""}${m.alert ? ` · 포털 알림: ${String(m.alert)}` : ""}`;
+  if (e.type === "PORTAL_FAIL" && typeof m.error === "string") return `${m.error}${m.permanent ? " (다시 보내지 않음)" : ""}`;
   if (e.type === "RESET" && Array.isArray(m.signers)) return `초기화된 서명: ${(m.signers as string[]).join(", ") || "없음"}`;
   if (e.type === "REMINDED") return `${typeof m.to === "string" ? `${m.to} · ` : ""}${typeof m.days === "number" ? `${m.days}일째` : ""}`;
   if (e.type === "DEADLINE_CHANGED") return `${typeof m.from === "string" ? m.from : "없음"} → ${typeof m.to === "string" ? m.to : ""}`;
