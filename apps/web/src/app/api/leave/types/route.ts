@@ -15,6 +15,7 @@ export async function GET() {
   const pack = (t: (typeof all)[number]) => ({
     code: t.code, label: t.label, group: t.group, unit: t.unit, paidHours: t.paidHours,
     deducts: t.deducts, attachRequired: t.attachRequired ?? null, notice: t.notice ?? null, selectable: t.selectable, adminOnly: !!t.adminOnly, custom: !!t.custom,
+    calendarDays: !!t.calendarDays,   // 휴가 유형 바꾸기 창(#238)이 셈법을 서버와 같게 거른다 — 빠지면 주말 포함 유형이 선택지에 섞였다
   });
   return NextResponse.json({
     types: all.filter((t) => t.selectable).map(pack),
