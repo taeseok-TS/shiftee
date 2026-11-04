@@ -215,10 +215,15 @@ export async function createWorkCalendarEvent(payload: {
 
 /** 「이달의 지점 공유」 글(웹 캘린더 오른쪽 칸과 같은 데이터, #234) — branch 를 안 주면 볼 수 있는 첫 지점 */
 export type CalendarNotePost = { id: string; content: string; pinned: boolean; authorName: string | null; createdAt: string; edited: boolean };
-export async function getCalendarNotes(ym: string, branch?: string | null): Promise<{ branches: string[]; branch: string | null; posts: CalendarNotePost[] }> {
+export async function getCalendarNotes(ym: string, branch?: string | null): Promise<{ branches: string[]; branch: string | null; posts: CalendarNotePost[]; canManage: boolean }> {
   const res = await axios.get(`${API_URL}/work/calendar/note`, {
     params: branch ? { ym, branch } : { ym },
     headers: await authHeaders(),
   });
-  return { branches: res.data?.branches || [], branch: res.data?.branch ?? null, posts: res.data?.posts || [] };
+  return { branches: res.data?.branches || [], branch: res.data?.branch ?? null, posts: res.data?.posts || [], canManage: !!res.data?.canManage };
+}
+
+/** 「이달의 지점 공유」 순서 바꾸기(#240) — 원장·관리자. 그 지점·달의 모든 글 id 를 보이는 순서대로(웹 끌어 옮기기와 같은 서버) */
+export async function reorderCalendarNotes(ym: string, branch: string, ids: string[]): Promise<void> {
+  await axios.put(`${API_URL}/work/calendar/note/order`, { ym, branch, ids }, { headers: await authHeaders() });
 }

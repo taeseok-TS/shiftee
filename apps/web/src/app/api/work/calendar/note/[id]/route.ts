@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { post, canEdit, canManage } = r;
 
   const body = await request.json().catch(() => null);
-  const data: { content?: string; pinned?: boolean; editedAt?: Date } = {};
+  const data: { content?: string; pinned?: boolean; editedAt?: Date; sortOrder?: number | null } = {};
   if (body?.content !== undefined) {
     if (!(canManage || (canEdit && post.authorId === session.userId)))
       return NextResponse.json({ error: "이 글을 고칠 권한이 없습니다." }, { status: 403 });
@@ -37,6 +37,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!canManage) return NextResponse.json({ error: "고정은 원장·관리자만 할 수 있습니다." }, { status: 403 });
     if (typeof body.pinned !== "boolean") return NextResponse.json({ error: "입력값이 올바르지 않습니다." }, { status: 400 });
     data.pinned = body.pinned;
+    // 고정하거나 풀면 정해 둔 순서를 비운다 — 옮겨 간 묶음의 맨 위로(새 글과 같은 자리, #240 검증 1). 안 비우면 옛 번호대로 묶음 중간에 끼었다
+    if (body.pinned !== post.pinned) data.sortOrder = null;
   }
   if (data.content === undefined && data.pinned === undefined) return NextResponse.json({ error: "바꿀 내용이 없습니다." }, { status: 400 });
 

@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator, Linking, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator, Linking, StyleSheet, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { C } from "../../services/fmt";
-import { getCalendarNotes, type CalendarNotePost } from "../../services/schedule";
+import { getCalendarNotes, reorderCalendarNotes, type CalendarNotePost } from "../../services/schedule";
 
 /* 「이달의 지점 공유」 — 웹 캘린더 오른쪽 칸(#222)을 앱에서도(#234 권경욱 원장). 보기 전용: 올리기 · 고치기 · 고정은 웹 캘린더에서.
-   볼 수 있는 지점은 서버가 정한다(관리자 = 전 지점, 원장 = 담당 지점, 직원 = 자기 지점) */
+   볼 수 있는 지점은 서버가 정한다(관리자 = 전 지점, 원장 = 담당 지점, 직원 = 자기 지점).
+   순서 바꾸기(#240)는 원장·관리자에게 ▲▼ — 고정 글은 고정 글끼리, 나머지는 나머지끼리(웹은 끌어 옮기기, 같은 서버) */
 
 // 웹 「이달의 지점 공유」(CalendarNotePanel)와 같은 기준 — 주소 바로 뒤에 붙은 한글 · 닫는 괄호는 링크에서 뺀다
 const URL_RE = /(https?:\/\/[^\s<>"'ㄱ-ㅎㅏ-ㅣ가-힣)\]]+)/gi;
@@ -35,6 +36,8 @@ export default function BranchShareView() {
   const [refreshing, setRefreshing] = useState(false);
   const [failed, setFailed] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [moving, setMoving] = useState(false);
   const seq = useRef(0);   // 빨리 넘길 때 늦게 온 옛 응답이 덮지 않게
 
   const load = useCallback(async () => {
@@ -42,7 +45,7 @@ export default function BranchShareView() {
     try {
       const d = await getCalendarNotes(ym, ask);
       if (my !== seq.current) return;
-      setBranches(d.branches); setBranch(d.branch); setPosts(d.posts); setFailed(false);
+      setBranches(d.branches); setBranch(d.branch); setPosts(d.posts); setCanManage(d.canManage); setFailed(false);
     } catch {
       if (my === seq.current) setFailed(true);
     } finally {
@@ -50,6 +53,22 @@ export default function BranchShareView() {
     }
   }, [ym, ask]);
   useEffect(() => { load(); }, [load]);
+
+  // 한 칸 위·아래로 — 화면을 먼저 바꾸고 저장, 실패하면 다시 불러온다
+  const move = async (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (!branch || moving || j < 0 || j >= posts.length || posts[i].pinned !== posts[j].pinned) return;
+    const next = [...posts];
+    [next[i], next[j]] = [next[j], next[i]];
+    setPosts(next);
+    setMoving(true);
+    try {
+      await reorderCalendarNotes(ym, branch, next.map((p) => p.id));
+    } catch (e: any) {
+      Alert.alert("순서를 바꾸지 못했어요", e?.response?.data?.error || "잠시 후 다시 시도해 주세요.");
+      load();
+    } finally { setMoving(false); }
+  };
 
   const [y, m] = ym.split("-").map(Number);
   return (
@@ -77,7 +96,7 @@ export default function BranchShareView() {
           )}
         </View>
       )}
-      {!!branch && <Text style={s.hint}>{branch} 구성원에게만 보이는 글입니다 · 올리기 · 고치기는 웹 캘린더에서</Text>}
+      {!!branch && <Text style={s.hint}>{branch} 구성원에게만 보이는 글입니다 · 올리기 · 고치기는 웹 캘린더에서{canManage && posts.length > 1 ? " · ▲▼로 순서 바꾸기" : ""}</Text>}
       {loading ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={C.ind} />
       ) : failed ? (
@@ -87,13 +106,29 @@ export default function BranchShareView() {
       ) : posts.length === 0 ? (
         <Text style={s.empty}>이 달에 올라온 지점 공유가 없습니다.</Text>
       ) : (
-        posts.map((p) => (
+        posts.map((p, i) => {
+          const upOk = i > 0 && posts[i - 1].pinned === p.pinned;
+          const downOk = i < posts.length - 1 && posts[i + 1].pinned === p.pinned;
+          return (
           <View key={p.id} style={[s.card, p.pinned && s.cardPinned]}>
             {p.pinned && <View style={s.pinRow}><Ionicons name="pin" size={13} color={C.amb} /><Text style={s.pinText}>고정</Text></View>}
             <Linked text={p.content} />
-            <Text style={s.meta}>{[p.authorName, fmtAt(p.createdAt), p.edited ? "수정됨" : ""].filter(Boolean).join(" · ")}</Text>
+            <View style={s.metaRow}>
+              <Text style={[s.meta, { flex: 1 }]}>{[p.authorName, fmtAt(p.createdAt), p.edited ? "수정됨" : ""].filter(Boolean).join(" · ")}</Text>
+              {canManage && (upOk || downOk) && (
+                <View style={s.moveRow}>
+                  <TouchableOpacity style={s.moveBtn} disabled={!upOk || moving} onPress={() => move(i, -1)} hitSlop={6} accessibilityLabel="위로">
+                    <Ionicons name="chevron-up" size={18} color={upOk && !moving ? C.ind : "#d1d5db"} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.moveBtn} disabled={!downOk || moving} onPress={() => move(i, 1)} hitSlop={6} accessibilityLabel="아래로">
+                    <Ionicons name="chevron-down" size={18} color={downOk && !moving ? C.ind : "#d1d5db"} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
-        ))
+          );
+        })
       )}
       <View style={{ height: 24 }} />
     </ScrollView>
@@ -112,7 +147,10 @@ const s = StyleSheet.create({
   pinText: { fontSize: 12, fontWeight: "700", color: C.amb },
   body: { fontSize: 15, lineHeight: 22, color: C.ink },
   link: { color: C.ind, textDecorationLine: "underline" },
-  meta: { fontSize: 12, color: C.muted, marginTop: 10 },
+  meta: { fontSize: 12, color: C.muted },
+  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 10, gap: 8 },
+  moveRow: { flexDirection: "row", gap: 4 },
+  moveBtn: { width: 34, height: 30, borderRadius: 8, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
   pick: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderWidth: 1, borderColor: C.line, borderRadius: 10, paddingHorizontal: 12, minHeight: 44 },
   pickText: { fontSize: 15, fontWeight: "600", color: C.ink },
   pickList: { backgroundColor: "#fff", borderWidth: 1, borderColor: C.line, borderRadius: 10, marginTop: 4, overflow: "hidden" },

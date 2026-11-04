@@ -3,7 +3,9 @@ import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, ScrollView,
   KeyboardAvoidingView, } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import DatePicker from "./DatePicker";
+import * as storage from "../services/storage";
 import * as attendance from "../services/attendance";
 import { fmtDay } from "../services/fmt";
 
@@ -22,7 +24,16 @@ export type RequestDraft = {
   pressedAt?: string;                                  // 출퇴근 버튼을 누른 순간
   location?: { latitude: number; longitude: number; accuracy?: number | null } | null;
   workDate?: string;                                   // MISSED_OUT·CORRECTION 기본 날짜
+  photo?: { uri: string; name: string; mimeType?: string | null } | null;   // 사진기에서 돌아올 때 앱이 다시 켜져 되살린 사진(아래 PENDING_PHOTO_KEY)
+  memo?: string;                                       // 되살릴 때 창에 적어 둔 메모
 };
+
+/**
+ * 안드로이드는 사진기를 여는 동안 메모리가 모자라면 큐브티를 껐다가 다시 띄운다 — 그러면 찍은 사진과 이 창이 사라져
+ * 「사진 찍기가 안 눌린다」로 보였다(2026-11-04 고잔 김유현). 사진기를 열기 전에 요청 내용을 저장해 두고,
+ * 출퇴근 화면이 켜질 때 ImagePicker.getPendingResultAsync 로 찍은 사진을 받아 창을 다시 연다(AttendanceScreen).
+ */
+export const PENDING_PHOTO_KEY = "attendance.pendingPhotoDraft";
 
 const OUTSIDE_REASONS = ["본사 방문", "서점(교재 구입)", "외근", "기타"] as const;
 // 출퇴근 기록 요청 — 쓰는 곳(본부가 알아보기 쉽게). 「기타」는 직접 적는다
@@ -83,8 +94,8 @@ export default function AttendanceRequestModal({
     setAction(draft.action ?? "IN");
     setReason("본사 방문");
     setOtherReason("");
-    setMemo("");
-    setPhoto(null);
+    setMemo(draft.memo ?? "");
+    setPhoto(draft.photo ?? null);
     setWorkDate(draft.workDate ?? (draft.kind === "CORRECTION" ? yesterdayYmd() : todayYmd()));
     setInTime("");
     setOutTime("");
@@ -106,7 +117,12 @@ export default function AttendanceRequestModal({
         Alert.alert("카메라 권한이 필요해요", "설정에서 큐브티의 카메라 권한을 허용해 주세요.");
         return;
       }
+      if (draft) {
+        const me = await storage.getUser().catch(() => null);
+        await AsyncStorage.setItem(PENDING_PHOTO_KEY, JSON.stringify({ draft: { ...draft, action, memo, photo: null }, userId: me?.id ?? null, savedAt: Date.now() })).catch(() => {});
+      }
       const r = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6, exif: false });
+      AsyncStorage.removeItem(PENDING_PHOTO_KEY).catch(() => {});   // 앱이 안 꺼지고 돌아왔으면 되살릴 것이 없다
       if (r.canceled || !r.assets?.[0]) return;
       const a = r.assets[0];
       setPhoto({ uri: a.uri, name: a.fileName || `branch-${Date.now()}.jpg`, mimeType: a.mimeType || "image/jpeg" });

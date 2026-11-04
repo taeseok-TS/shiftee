@@ -7,7 +7,7 @@ import { POST_MAX, POSTS_PER_MONTH_MAX, YM, noteScope, postView } from "@/lib/wo
 // 지점·달별로 모인다. 쓰기 = 관리자·원장(담당 지점)·원장이 지정한 직원, 보기 = 그 지점 구성원(다른 지점엔 안 보임).
 
 // GET ?ym=2026-10&branch=대치 — branch 를 안 주면(또는 볼 수 없는 지점이면) 볼 수 있는 첫 지점.
-// 글 순서: 고정 글 먼저, 그다음 최신 글이 위
+// 글 순서: 고정 글 먼저, 그 안에서 원장·관리자가 정한 순서(#240 — note/order), 순서가 없는 새 글은 맨 위·최신 글이 위
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
   const posts = await prisma.workCalendarPost.findMany({
     where: { branch, ym },
-    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ pinned: "desc" }, { sortOrder: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }],
   });
   return NextResponse.json({
     branches,

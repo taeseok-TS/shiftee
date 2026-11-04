@@ -19,7 +19,9 @@ import { getMySchedulesRange, getMyPermissions, type MyShift } from "../../servi
 import BranchScheduleBulkScreen from "../schedule/BranchScheduleBulkScreen";
 import { LEAVE_LABELS } from "../../services/leaveLabels";
 import { C, addDaysYmd, fmtDay, fmtShort, fmtTime, isWeekend, todayYmd, wd, weekOfYmd, ymd } from "../../services/fmt";
-import AttendanceRequestModal, { RequestDraft } from "../../components/AttendanceRequestModal";
+import AttendanceRequestModal, { RequestDraft, PENDING_PHOTO_KEY } from "../../components/AttendanceRequestModal";
+import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // 출퇴근(2026-10-23 본부 요청 앱 4 · ■0-7 · ■0-11, 시안 S1-1)
 //  · 맨 위 「오늘 내 근무 13:00 – 22:00」 + 지점 이름(좌표 숫자 대신), 상태 점은 출근 전 = 회색
@@ -96,6 +98,23 @@ export default function AttendanceScreen() {
   };
   const [requests, setRequests] = useState<attendance.AttendanceRequestRow[]>([]);
   const [draft, setDraft] = useState<RequestDraft | null>(null);
+  // 사진기 도중 앱이 다시 켜졌으면(안드로이드) 찍은 사진으로 사진 요청 창을 다시 연다 — 저장해 둔 요청이 30분 안 것일 때만
+  useEffect(() => {
+    (async () => {
+      const raw = await AsyncStorage.getItem(PENDING_PHOTO_KEY).catch(() => null);
+      if (!raw) return;
+      await AsyncStorage.removeItem(PENDING_PHOTO_KEY).catch(() => {});
+      const pending = await ImagePicker.getPendingResultAsync().catch(() => null);
+      const res = pending && "assets" in pending && !pending.canceled ? pending.assets?.[0] : null;
+      let saved: { draft?: RequestDraft; savedAt?: number; userId?: string | null } | null = null;
+      try { saved = JSON.parse(raw); } catch { saved = null; }
+      if (!res || !saved?.draft || !saved.savedAt || Date.now() - saved.savedAt > 30 * 60_000) return;
+      // 같은 사람일 때만 — 그 사이 로그아웃하고 다른 사람이 들어왔으면 남의 사진·위치로 창을 열지 않는다
+      const me = await storage.getUser().catch(() => null);
+      if (!saved.userId || saved.userId !== me?.id) return;
+      setDraft({ ...saved.draft, photo: { uri: res.uri, name: res.fileName || `branch-${Date.now()}.jpg`, mimeType: res.mimeType || "image/jpeg" } });
+    })();
+  }, []);
   // 홈 「어제 퇴근 기록이 없어요」 창의 「수정 요청」 → 그 날짜의 퇴근 처리 요청을 바로 연다(2026-10-29 이예지)
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
@@ -441,7 +460,7 @@ export default function AttendanceScreen() {
           <View style={styles.failCard}>
             <Text style={styles.failTitle}>{word} 위치를 확인하지 못했어요 ({fail.count}번째)</Text>
             <Text style={styles.failText}>{FAIL_TEXT[fail.reason]}{fail.detail ? ` ${fail.detail}` : ""}</Text>
-            {fail.reason === "outside" && (location?.accuracy ?? 0) > 100 && (
+            {fail.reason === "outside" && (location?.accuracy ?? 0) >= 100 && (
               <>
                 <Text style={styles.failText}>위치가 정확하지 않아요(오차 약 {Math.round(location?.accuracy ?? 0)}m). 폰 설정에서 큐브티 위치를 「정확한 위치」로 켜 주세요.{"\n"}아이폰: 설정 › 큐브티 › 위치 › 「정확한 위치」 켬 · 안드로이드: 설정 › 위치 › 「정확한 위치 사용」 켬(절전 모드도 꺼 주세요)</Text>
                 <TouchableOpacity style={styles.outlineBtn} onPress={() => Linking.openSettings().catch(() => {})}>

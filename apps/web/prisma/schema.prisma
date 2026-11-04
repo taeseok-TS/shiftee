@@ -1084,6 +1084,7 @@ model WorkCalendarPost {
   ym         String // "2026-10"
   content    String
   pinned     Boolean  @default(false) // 원장·관리자가 맨 위에 고정
+  sortOrder  Int? // 원장·관리자가 끌어 정한 순서(#240, 2026-11-04) — 비어 있으면(새 글) 그 묶음 맨 위. deploy/ddl_calendar_post_sort.sql
   authorId   String
   authorName String?
   editedAt   DateTime? // 내용을 고친 때만 — 「(수정됨)」 표시(고정·지점명 변경은 updatedAt 만 바뀐다)
