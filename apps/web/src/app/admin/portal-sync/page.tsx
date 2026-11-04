@@ -208,8 +208,9 @@ export default function PortalSyncPage() {
 
       {/* 확인 대기 */}
       <section className="space-y-2">
-        <h2 className="font-semibold">확인 대기 {confirms.length}건</h2>
-        {!confirms.length ? <p className="text-sm text-gray-500">확인할 항목이 없습니다.</p> : confirms.map((c) => (
+        {/* 봇·위 요약의 「확인 대기 N건」은 아래 정보 변경까지 합친 수 — 여기도 같은 수로 보여 「0건」과 어긋나지 않게(#241 이예지) */}
+        <h2 className="font-semibold">확인 대기 {confirms.length + pendingUpdates.length}건{pendingUpdates.length > 0 ? <span className="ml-1 text-xs font-normal text-gray-500">(한 건씩 확인 {confirms.length} · 정보 변경 {pendingUpdates.length})</span> : null}</h2>
+        {!confirms.length ? <p className="text-sm text-gray-500">{pendingUpdates.length > 0 ? `한 건씩 확인할 항목은 없습니다. 바로 아래 「정보 변경 ${pendingUpdates.length}건」에서 「반영」 또는 「모두 반영」을 눌러 주세요.` : "확인할 항목이 없습니다."}</p> : confirms.map((c) => (
           <div key={c.id} className="bg-white border rounded-lg p-3 flex items-start gap-3">
             <span className={`text-[12px] px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
             <div className="flex-1 min-w-0">
@@ -236,6 +237,7 @@ export default function PortalSyncPage() {
               <div key={c.id} className="p-2.5 flex items-start gap-3">
                 <p className="text-sm w-32 shrink-0">{c.name} <span className="block text-[12px] text-gray-400">사번 {c.portalId}</span></p>
                 <div className="flex-1"><Detail c={c} /></div>
+                <Button size="sm" className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700" disabled={busy === c.id} onClick={() => decide(c, "apply")}>반영</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy === c.id} onClick={() => decide(c, "dismiss")}>무시</Button>
               </div>
             ))}

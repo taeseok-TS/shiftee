@@ -170,6 +170,11 @@ export default function LeavePage() {
   const [rejectOpen, setRejectOpen]     = useState(false);
   const [rejectTarget, setRejectTarget] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  // 유형 바꾸기(#238) — 본부만. 같은 셈법(하루·반차·반반차, 주말 포함 여부) 유형끼리만 고를 수 있다(서버가 다시 본다)
+  const [typeTarget, setTypeTarget] = useState<LeaveRequest | null>(null);
+  const [typeTo, setTypeTo]         = useState("");
+  const [typeNote, setTypeNote]     = useState("");
+  const [typeBusy, setTypeBusy]     = useState(false);
 
   /* 잔여 조정 */
   const [editOpen, setEditOpen]     = useState(false);
@@ -337,6 +342,24 @@ export default function LeavePage() {
     toast.success("반려되었습니다.");
     setRejectOpen(false);
     fetchRequests(); fetchMySteps();
+  }
+
+  /* ── 유형 바꾸기(#238) ── */
+  function openTypeChange(r: LeaveRequest) { setTypeTarget(r); setTypeTo(""); setTypeNote(""); }
+  async function handleTypeChange() {
+    if (!typeTarget || !typeTo) return;
+    setTypeBusy(true);
+    try {
+      const res = await fetch(`/api/leave/${typeTarget.id}/type`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: typeTo, reason: typeNote }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "유형을 바꾸지 못했습니다."); return; }
+      toast.success("유형을 바꿨습니다.");
+      setTypeTarget(null);
+      fetchRequests();
+    } finally { setTypeBusy(false); }
   }
 
   /* ── 취소 ── */
@@ -617,6 +640,7 @@ export default function LeavePage() {
     const pendingAdmin = isAdmin && r.status === "PENDING";
     const more: MoreItem[] = [
       { label: "첨부 보기", onClick: () => window.open(r.attachmentUrl!, "_blank", "noopener"), hidden: !r.attachmentUrl },
+      { label: "유형 바꾸기", onClick: () => openTypeChange(r), hidden: role !== "ADMIN" || r.user.id === myId || (r.status !== "APPROVED" && r.status !== "PENDING") },   // #238 본부만 · 본인 건 제외
       { label: "취소 요청", onClick: () => handleRequestCancel(r.id), hidden: !r.canRequestCancel },   // 승인된 휴가는 취소 결재로만
       { label: "취소 요청 철회", onClick: () => handleWithdrawCancel(r.pendingCancel!.id), hidden: !r.pendingCancel?.mine },
       { label: "반려", onClick: () => openReject(r.id), danger: true, hidden: !pendingAdmin },
@@ -1090,6 +1114,50 @@ export default function LeavePage() {
               <Button variant="destructive" onClick={handleReject}><X size={14} className="mr-1" />반려 확정</Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ 유형 바꾸기 다이얼로그(#238) ═══ */}
+      <Dialog open={!!typeTarget} onOpenChange={(o) => { if (!o) setTypeTarget(null); }}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader><DialogTitle>휴가 유형 바꾸기</DialogTitle></DialogHeader>
+          {typeTarget && (() => {
+            const cur = leaveInfo(typeTarget.type);
+            // 서버(api/leave/[id]/type sameCounting)와 같은 판정 — 셈법·연차 차감·보상/대체 그룹이 같은 유형만(잔여가 바뀌지 않게)
+            const grant = (g: string) => (g === "보상휴가" || g === "대체휴일" ? g : null);
+            const options = leaveCat.catalog.filter((t) => t.code !== typeTarget.type && (t.selectable || t.adminOnly)
+              && !!cur && t.unit === cur.unit && !!t.calendarDays === !!cur.calendarDays
+              && t.deducts === cur.deducts && grant(t.group) === grant(cur.group));
+            return (
+              <div className="space-y-4 min-w-0">
+                <p className="text-sm text-gray-700">
+                  {typeTarget.user.name} · {typeTarget.startDate.slice(0, 10)} ~ {typeTarget.endDate.slice(0, 10)} · {typeTarget.days}일<br />
+                  지금 유형: <b>{TYPE_LABEL[typeTarget.type] ?? typeTarget.type}</b> ({typeTarget.status === "APPROVED" ? "승인" : "대기"})
+                </p>
+                <div className="space-y-2">
+                  <Label>바꿀 유형</Label>
+                  {options.length ? (
+                    <Select value={typeTo} onValueChange={(v) => v && setTypeTo(v)}>
+                      <SelectTrigger className="w-full"><SelectValue>{typeTo ? (TYPE_LABEL[typeTo] ?? typeTo) : "유형 고르기"}</SelectValue></SelectTrigger>
+                      <SelectContent>
+                        {options.map((t) => <SelectItem key={t.code} value={t.code}>{t.label} <span className="text-gray-400 text-xs">· {t.group}{t.deducts ? " · 연차 차감" : ""}</span></SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : <p className="text-xs text-gray-500">바꿀 수 있는 유형이 없습니다. 취소한 뒤 새로 등록해 주세요.</p>}
+                  <p className="text-[12px] text-gray-500">일수와 연차 잔여는 그대로 둡니다 — 일수 셈법(하루·반차·반반차, 주말 포함)과 연차 차감 여부가 같은 유형만 보입니다.
+                    연차 ↔ 다른 휴가처럼 잔여가 바뀌는 변경은 취소한 뒤 새로 등록해 주세요. 직원에게 봇으로 알립니다.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>사유 <span className="text-gray-400 font-normal text-xs">(선택 — 직원 알림에 함께 갑니다)</span></Label>
+                  <Textarea value={typeNote} onChange={(e) => setTypeNote(e.target.value)} rows={2} placeholder="예: 포상휴가인데 기타휴가(유급)로 잘못 신청됨" />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setTypeTarget(null)}>닫기</Button>
+                  <Button disabled={!typeTo || typeBusy} onClick={handleTypeChange} className="bg-indigo-600 hover:bg-indigo-700">바꾸기</Button>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
