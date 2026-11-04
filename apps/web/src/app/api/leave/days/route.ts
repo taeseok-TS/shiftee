@@ -6,7 +6,6 @@ import { ensureLeaveCatalog } from "@/lib/leave-catalog-db";
 import { isRealDate } from "@/lib/schedule-payload";
 import { countLeaveDays, splitWorkdaysByYear } from "@/lib/leave-days";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
-import { canSeeLeaveBalance } from "@/lib/permission-settings";
 import { ledgerAccess } from "@/lib/leave-ledger";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +47,7 @@ export async function GET(request: NextRequest) {
     if (access === "forbidden") return NextResponse.json({ error: "이 직원의 휴가 일수를 볼 권한이 없습니다." }, { status: 403 });
   }
 
-  const visible = await canSeeLeaveBalance(session.role);
+  const visible = await (await import("@/lib/leave-balance-hide")).canSeeLeaveBalanceOf(session.role, userId);   // 사람별 숨김까지(2026-11-04)
   const counted = await countLeaveDays(prisma, userId, info.unit, start, end, !!info.calendarDays);
   const base = { start, end, type, unit: info.unit, workdays: counted.workdays, balanceHidden: !visible };
   if (counted.error) {

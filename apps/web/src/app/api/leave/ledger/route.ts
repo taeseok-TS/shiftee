@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { currentLeaveYear } from "@/lib/leave-calc";
 import { ledgerAccess, buildLedger } from "@/lib/leave-ledger";
-import { canSeeLeaveBalance } from "@/lib/permission-settings";
 
 /**
  * 연차 대장 조회 — 관리자 = 전 직원 · 원장 = 담당 지점 직원(+본인) · 직원 = 본인(디렉터 9/11).
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (!ledger) return NextResponse.json({ error: "직원을 찾을 수 없습니다." }, { status: 404 });
   // 잔여 숫자 숨김(2026-10-16 #219-1) — 직원·원장이 볼 때는 총·사용·잔여와 잔여 조정 이력(「총 15→…일」 문구)을 빼고
   // balanceHidden 을 준다(화면 「연차 정리 중」). 휴가 기록·결재 기록은 그대로. 본부는 언제나 본다
-  if (!(await canSeeLeaveBalance(session.role))) {
+  if (!(await (await import("@/lib/leave-balance-hide")).canSeeLeaveBalanceOf(session.role, userId))) {   // 사람별 숨김까지(2026-11-04)
     const hidden = {
       ...ledger,
       balance: null,

@@ -9,7 +9,6 @@ import { logAudit } from "@/lib/audit";
 import { botNotifyDecision } from "@/lib/bot";
 import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
-import { canSeeLeaveBalance } from "@/lib/permission-settings";
 
 /** 최종 승인 때 잔여가 모자라면 던진다 — 트랜잭션이 통째로 되돌아가 결재 단계·상태도 그대로 남는다(#219-11).
  *  canOverride = 관리자(본부)라 한 번 더 확인하면 예외 승인할 수 있다(2026-10-22 본부 이예지 요청 4 — 원장 단계는 종전처럼 막는다) */
@@ -39,7 +38,7 @@ async function assertBalanceForApproval(
   if (!limit.blocked) return null;
   // 본인 휴가는 예외 승인하지 않는다 — 관리자는 본인 결재 금지에서 빠져 있어 자기 연차를 마이너스로 승인할 수 있었다(검증 A)
   const admin = approverRole === "ADMIN" && approverId !== req.userId;
-  const msg = limitMessage(limit, { visible: await canSeeLeaveBalance(approverRole), when: "approve", overridable: admin });
+  const msg = limitMessage(limit, { visible: await (await import("@/lib/leave-balance-hide")).canSeeLeaveBalanceOf(approverRole, req.userId), when: "approve", overridable: admin });   // 사람별 숨김까지(2026-11-04)
   // 관리자가 확인을 한 번 더 누른 승인 — 막지 않고 그대로 차감한다(잔여는 마이너스로 남는다). 무엇을 넘겼는지 감사 로그에 남기려고 문구를 돌려준다
   if (admin && override) return msg;
   throw new ShortBalance(msg, admin);

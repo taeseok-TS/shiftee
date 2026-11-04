@@ -9,6 +9,11 @@ export async function recalcYearBalanceForHire(
   user: { id: string; name: string }, hireDate: Date, actor: { id: string; name: string }, reason: string,
 ): Promise<{ total: number; used: number; remaining: number; warning: string | null }> {
   const year = currentLeaveYear();
+  // 회사 정산 기준으로 「올해 총 연차 확정」한 사람은 입사일이 바뀌어도 총 연차를 다시 세지 않는다(2026-11-04 검증 2)
+  if ((await (await import("@/lib/leave-balance-hide")).accrualLockedUserIds(year)).has(user.id)) {
+    const cur = await prisma.leaveBalance.findUnique({ where: { userId_year: { userId: user.id, year } }, select: { total: true, used: true, remaining: true } });
+    return { total: cur?.total ?? 0, used: cur?.used ?? 0, remaining: cur?.remaining ?? 0, warning: `${user.name}: ${year}년 총 연차가 확정돼 있어 입사일이 바뀌어도 다시 세지 않았습니다 — 필요하면 연차 조정에서 확정을 풀고 고쳐 주세요` };
+  }
   const u = await prisma.user.findUnique({ where: { id: user.id }, select: { resignDate: true } });
   const total = yearTotalAsOf(kstDate(hireDate), year, undefined, u?.resignDate ? kstDate(u.resignDate) : null);   // 회계연도 기준 오늘까지 발생(2026-10-16 #31)
   const bal = await prisma.leaveBalance.findUnique({ where: { userId_year: { userId: user.id, year } }, select: { used: true, total: true } });

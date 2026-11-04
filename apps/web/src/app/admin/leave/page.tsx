@@ -65,6 +65,7 @@ type EmpBalance = {
   userId: string; name: string; email?: string; department: string | null; position: string | null;
   branch?: string | null; hireDate?: string | null; tenure?: string; recommended?: number | null; accrualBasis?: string | null; leaveNote?: string | null;
   balanceId: string | null; year: number; total: number; used: number; remaining: number;
+  balanceHiddenForStaff?: boolean; accrualLocked?: boolean;   // 사람별 숨김 · 자동 맞춤 제외(2026-11-04, 본부 화면에만 온다)
 };
 type LineStep = { order: number; approver: { id: string; name: string; position: string | null; department: string | null; branch?: string | null } };
 type LineUser = {
@@ -179,7 +180,7 @@ export default function LeavePage() {
   /* 잔여 조정 */
   const [editOpen, setEditOpen]     = useState(false);
   const [editTarget, setEditTarget] = useState<EmpBalance | null>(null);
-  const [editForm, setEditForm]     = useState<{ total: number; used: number; leaveNote: string }>({ total: 15, used: 0, leaveNote: "" });
+  const [editForm, setEditForm]     = useState<{ total: number; used: number; leaveNote: string; hide: boolean; lock: boolean }>({ total: 15, used: 0, leaveNote: "", hide: false, lock: false });
   // #7 연차 자동계산 / #8 연차수당 계산
   const [recalcing, setRecalcing]   = useState(false);
   const [allowTarget, setAllowTarget] = useState<EmpBalance | null>(null);
@@ -398,7 +399,10 @@ export default function LeavePage() {
     if (!editTarget) return;
     const res = await fetch("/api/leave/balance", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: editTarget.userId, total: editForm.total, used: editForm.used, leaveNote: editForm.leaveNote }),
+      // 숨김·확정은 창을 열 때와 달라졌을 때만 보낸다 — 낡은 목록에서 저장해 다른 본부가 켠 표시를 끄지 않게(검증 4)
+      body: JSON.stringify({ userId: editTarget.userId, total: editForm.total, used: editForm.used, leaveNote: editForm.leaveNote,
+        ...(editForm.hide !== !!editTarget.balanceHiddenForStaff ? { hideForStaff: editForm.hide } : {}),
+        ...(editForm.lock !== !!editTarget.accrualLocked ? { lockAccrual: editForm.lock } : {}) }),
     });
     if (!res.ok) { toast.error((await res.json()).error); return; }
     toast.success("잔여 휴가가 조정되었습니다.");
@@ -483,7 +487,7 @@ export default function LeavePage() {
       const res = await fetch("/api/leave/balance/recalc", { method: "POST" });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error || "자동계산 실패"); return; }
-      toast.success(`${d.updated}명 연차를 자동 계산했습니다.`);
+      toast.success(`${d.updated}명 연차를 자동 계산했습니다.${d.skipped ? ` (총 연차 확정 ${d.skipped}명은 그대로 둠)` : ""}`);
       fetchBalance();
     } finally { setRecalcing(false); }
   }
@@ -948,7 +952,7 @@ export default function LeavePage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <Button variant="ghost" size="sm" className="h-7 gap-1 text-gray-400 hover:text-gray-700"
-                              onClick={() => { setEditTarget(b); setEditForm({ total: b.total, used: b.used, leaveNote: b.leaveNote ?? "" }); setEditOpen(true); }}>
+                              onClick={() => { setEditTarget(b); setEditForm({ total: b.total, used: b.used, leaveNote: b.leaveNote ?? "", hide: !!b.balanceHiddenForStaff, lock: !!b.accrualLocked }); setEditOpen(true); }}>
                               <Pencil size={12} />조정
                             </Button>
                             <Button variant="ghost" size="sm" className="h-7 gap-1 text-indigo-500 hover:text-indigo-700"
@@ -1253,6 +1257,15 @@ export default function LeavePage() {
               <Input placeholder="예: 2023.03~2024.02 육아휴직" value={editForm.leaveNote}
                 onChange={e => setEditForm(f => ({ ...f, leaveNote: e.target.value }))} />
             </div>
+            {/* 사람별 숨김 · 자동 맞춤 제외(2026-11-04 정인 연차 정리) */}
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="checkbox" className="mt-1" checked={editForm.hide} onChange={e => setEditForm(f => ({ ...f, hide: e.target.checked }))} />
+              <span>직원·원장에게 연차 숫자 숨김<span className="block text-[12px] text-gray-500">휴직·퇴사 예정·잔여 마이너스 등. 본부는 그대로 봅니다</span></span>
+            </label>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="checkbox" className="mt-1" checked={editForm.lock} onChange={e => setEditForm(f => ({ ...f, lock: e.target.checked }))} />
+              <span>올해 총 연차 확정(자동 맞춤 제외)<span className="block text-[12px] text-gray-500">회사 정산 기준으로 맞춘 값 — 월차 자동 맞춤이 더하지 않습니다</span></span>
+            </label>
             <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm">
               <span className="text-gray-500">조정 후 잔여</span>
               <span className="font-bold text-blue-700">{Math.max(editForm.total - editForm.used, 0)}일</span>

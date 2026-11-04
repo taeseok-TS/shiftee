@@ -23,9 +23,13 @@ export async function GET(request: NextRequest) {
   // 잔여 숫자 숨김(2026-10-16 #219-1, 디렉터 결정 (a)) — 시프티 사용 내역 이관 전까지 직원·원장에게는 **서버 응답에서도** 숫자를 빼고
   // balanceHidden:true 를 준다(화면은 「연차 정리 중」). 본부(ADMIN)는 언제나 본다. 켜기는 권한 설정 「잔여 연차 숫자 보기」
   const visible = await canSeeLeaveBalance(session.role);
+  // 사람별 숨김(2026-11-04 정인 연차 정리) — 본부가 아닌 사람에게는 숨김 대상 직원의 숫자를 뺀다(lib/leave-balance-hide)
+  const { hiddenBalanceUserIds, accrualLockedUserIds } = await import("@/lib/leave-balance-hide");
+  const hiddenIds = session.role === "ADMIN" ? new Set<string>() : await hiddenBalanceUserIds();
 
   // 본인 잔여 휴가만: EMPLOYEE는 항상, 그 외 역할은 scope=self 요청 시
   if (session.role === "EMPLOYEE" || searchParams.get("scope") === "self") {
+    const selfVisible = visible && !hiddenIds.has(session.userId);
     // 신청 화면: 내년 날짜를 고르면 "N년 잔여"를 따로 보여준다(9/11 디렉터). 신청 검사와 **같은 함수**라 그 해 행이
     // 없어도 서버가 검사할 값(근속 기준 총연차)이 나온다. 조회만 한다(행을 만들지 않는다 — GET 은 순수하게).
     if (searchParams.get("forLeave") === "1") {
@@ -37,11 +41,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         year,
         deductible: type ? isLeaveDeductible(type) : true,
-        balance: visible ? await yearBalanceFor(prisma, session.userId, year) : null,
-        balanceHidden: !visible,
+        balance: selfVisible ? await yearBalanceFor(prisma, session.userId, year) : null,
+        balanceHidden: !selfVisible,
       });
     }
-    if (!visible) return NextResponse.json({ balance: null, balanceHidden: true });
+    if (!selfVisible) return NextResponse.json({ balance: null, balanceHidden: true });
     const balance = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: session.userId, year } },
     });
@@ -90,9 +94,12 @@ export async function GET(request: NextRequest) {
 
   const balanceMap = new Map(balances.map(b => [b.userId, b]));
   const now = new Date();
+  // 본부 화면에는 숨김·자동 맞춤 제외 표시를 함께 준다(조정 창 체크박스)
+  const [hideSet, lockSet] = session.role === "ADMIN" ? await Promise.all([hiddenBalanceUserIds(), accrualLockedUserIds(year)]) : [null, null];
 
   const result = employees.map(emp => {
     const b: any = balanceMap.get(emp.id);
+    const shown = visible && !hiddenIds.has(emp.id);
     return {
       userId:    emp.id,
       name:      emp.name,
@@ -105,15 +112,16 @@ export async function GET(request: NextRequest) {
       tenure:    emp.hireDate ? tenureLabel(new Date(emp.hireDate), now) : "-",
       // 회계연도 기준 계산값(오늘까지 발생)과 산정 근거(2026-10-16 #31 — 직원별 산정 근거 표시)
       // 숨김(#219-1 — 원장이 볼 때)이면 계산값·근거도 숫자라 뺀다
-      recommended: visible && emp.hireDate ? yearTotalAsOf(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
-      accrualBasis: visible && emp.hireDate ? accrualBasisText(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
+      recommended: shown && emp.hireDate ? yearTotalAsOf(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
+      accrualBasis: shown && emp.hireDate ? accrualBasisText(kstDate(emp.hireDate), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null) : null,
       leaveNote: emp.leaveNote ?? null,
       balanceId: b?.id       ?? null,
       year:      b?.year     ?? year,
       // 둘째 자리까지(2026-10-27 이예지 ④ — 「7.800000000000001」). 저장값은 lib/leave-balance tidyBalance 가 맞추고, 보일 때도 한 번 더
-      total:     visible ? r2(b?.total    ?? 15) : null,
-      used:      visible ? r2(b?.used     ?? 0) : null,
-      remaining: visible ? r2(b?.remaining ?? 15) : null,
+      total:     shown ? r2(b?.total    ?? 15) : null,
+      used:      shown ? r2(b?.used     ?? 0) : null,
+      remaining: shown ? r2(b?.remaining ?? 15) : null,
+      ...(hideSet ? { balanceHiddenForStaff: hideSet.has(emp.id), accrualLocked: lockSet!.has(emp.id) } : {}),
     };
   });
 
@@ -127,7 +135,7 @@ export async function PATCH(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   if (session.role !== "ADMIN") return NextResponse.json({ error: "연차 조정은 본부만 할 수 있습니다." }, { status: 403 });
 
-  const { userId, total, used, leaveNote } = await request.json();
+  const { userId, total, used, leaveNote, hideForStaff, lockAccrual } = await request.json();
   if (!userId || total === undefined) {
     return NextResponse.json({ error: "필수 항목을 입력해주세요." }, { status: 400 });
   }
@@ -153,6 +161,21 @@ export async function PATCH(request: NextRequest) {
     await prisma.user.update({ where: { id: userId }, data: { leaveNote: leaveNote || null } });
   }
 
+  // 사람별 숨김 · 자동 맞춤 제외(2026-11-04) — 보낸 것만 바꾼다
+  const flagNotes: string[] = [];
+  if (typeof hideForStaff === "boolean" || typeof lockAccrual === "boolean") {
+    const { HIDE_KEY, lockKey, setListed, resetAccruedAuto } = await import("@/lib/leave-balance-hide");
+    if (typeof hideForStaff === "boolean" && (await setListed(HIDE_KEY, userId, hideForStaff))) flagNotes.push(`직원·원장 숫자 숨김 ${hideForStaff ? "켬" : "끔"}`);
+    if (typeof lockAccrual === "boolean") {
+      // 풀 때는 자동 몫을 먼저 맞춘 뒤 목록에서 뺀다 — 그 사이 자동 맞춤이 옛 몫으로 더하지 않게(재검증). 켤 때는 넣은 뒤 맞춘다
+      if (!lockAccrual) await resetAccruedAuto(userId, year);
+      if (await setListed(lockKey(year), userId, lockAccrual)) {
+        if (lockAccrual) await resetAccruedAuto(userId, year);
+        flagNotes.push(`${year}년 총 연차 확정(자동 맞춤 제외) ${lockAccrual ? "켬" : "끔"}`);
+      }
+    }
+  }
+
   await logAudit({
     actorId: session.userId,
     actorName: session.name,
@@ -160,7 +183,7 @@ export async function PATCH(request: NextRequest) {
     targetType: "USER",
     targetId: userId,
     targetName: targetUser?.name ?? null,
-    detail: `연차 총 ${prev?.total ?? "-"}→${total}일, 사용 ${prev?.used ?? "-"}→${usedVal}일`,
+    detail: `연차 총 ${prev?.total ?? "-"}→${total}일, 사용 ${prev?.used ?? "-"}→${usedVal}일${flagNotes.length ? ` · ${flagNotes.join(" · ")}` : ""}`,
   });
 
   return NextResponse.json({ success: true, balance });

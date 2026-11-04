@@ -23,7 +23,12 @@ export async function runAccrualSync(): Promise<{ changed: number; initialized: 
     select: { id: true, year: true, total: true, remaining: true, accruedAuto: true, user: { select: { id: true, name: true, hireDate: true, resignDate: true } } },
   });
   let changed = 0, initialized = 0, failed = 0;
+  // 회사 정산 기준으로 그 해 총 연차를 확정한 사람은 건너뛴다(2026-11-04 정인 연차 정리 — lib/leave-balance-hide)
+  const { accrualLockedUserIds } = await import("@/lib/leave-balance-hide");
+  const locked = new Map<number, Set<string>>();
+  for (const y of years) locked.set(y, await accrualLockedUserIds(y));
   for (const r of rows) {
+    if (locked.get(r.year)?.has(r.user.id)) continue;
     try {
       const hire = kstDate(r.user.hireDate!);
       const resign = r.user.resignDate ? kstDate(r.user.resignDate) : null;

@@ -20,9 +20,12 @@ export async function POST() {
   });
 
   const year = currentLeaveYear();
-  let updated = 0;
+  let updated = 0, skipped = 0;
+  // 회사 정산 기준으로 「올해 총 연차 확정」한 사람은 계산값으로 덮지 않는다(2026-11-04 검증 2 — lib/leave-balance-hide)
+  const locked = await (await import("@/lib/leave-balance-hide")).accrualLockedUserIds(year);
 
   for (const emp of employees) {
+    if (locked.has(emp.id)) { skipped++; continue; }
     const total = yearTotalAsOf(kstDate(emp.hireDate!), year, undefined, emp.resignDate ? kstDate(emp.resignDate) : null);
     const bal = await prisma.leaveBalance.findUnique({
       where: { userId_year: { userId: emp.id, year } },
@@ -51,5 +54,5 @@ export async function POST() {
     updated++;
   }
 
-  return NextResponse.json({ success: true, updated });
+  return NextResponse.json({ success: true, updated, skipped });
 }

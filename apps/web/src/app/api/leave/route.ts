@@ -13,7 +13,6 @@ import { isLeaveDeductible } from "@/lib/leave-types";
 import { ymdUTC } from "@/lib/holidays";
 import { countLeaveDays, splitWorkdaysByYear } from "@/lib/leave-days";
 import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
-import { canSeeLeaveBalance } from "@/lib/permission-settings";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { LeaveRequest, LeaveApprovalStep } from "@shiftee/api";
 import { LEAVE_STATUSES, pick } from "@/lib/enums";
@@ -251,7 +250,7 @@ export async function POST(request: NextRequest) {
   //  · 보상휴가·대체휴일: 그 그룹 부여 합 − 승인된 사용(디렉터 결정 (c) — 10/8 「막지 않음」을 바꿈).
   //  · **결재 대기 중인 신청까지 합산**한다 — 종전에는 대기분을 안 세어 여러 건을 올리면 잔여를 넘겼다.
   //  · 잔여 숫자 숨김(#219-1)이면 거절 문구에서 숫자를 뺀다(막기는 그대로). 본부는 숫자를 본다.
-  const balanceVisible = await canSeeLeaveBalance(session.role);
+  const balanceVisible = await (await import("@/lib/leave-balance-hide")).canSeeLeaveBalanceOf(session.role, subject.id);   // 사람별 숨김까지(2026-11-04)
   {
     const limit = await checkLeaveLimit(prisma, { userId: subject.id, type: leaveType, startDate: start, endDate: end, days, byYear, includePending: true });
     if (limit.blocked) {
