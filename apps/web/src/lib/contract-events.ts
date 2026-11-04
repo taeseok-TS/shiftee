@@ -15,7 +15,8 @@ export type ContractEventType =
   // 2026-10-07 QA #45 #21 #66 — 미서명 알림·기한 변경·기한 만료·교부(완료 알림)·완료본 내려받기
   | "REMINDED" | "DEADLINE_CHANGED" | "EXPIRED" | "DELIVERED" | "DOWNLOADED"
   | "IMPORTED"   // 모두싸인 체결본 이관(2026-10-08 #4)
-  | "PORTAL_SENT" | "PORTAL_FAIL";   // 포털 연봉 연동(2026-11-03, lib/portal-contract-push)
+  | "PORTAL_SENT" | "PORTAL_FAIL"   // 포털 연봉 연동(2026-11-03, lib/portal-contract-push)
+  | "LOCKED_OPENED";   // 비밀번호가 걸린 이관본을 본부가 열었다(2026-11-04, lib/contract-locked)
 
 /** 요청에서 IP·브라우저·기기 — 프록시(Caddy)가 x-forwarded-for 에 실제 접속 IP 를 넣는다(첫 값). 앱은 x-device-id 를 싣는다. */
 export function requestInfo(req?: Request | null) {

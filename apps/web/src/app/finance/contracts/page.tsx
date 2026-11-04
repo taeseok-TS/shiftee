@@ -10,7 +10,7 @@ import { Eye, Download, FileSignature } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
-type Row = { id: string; title: string; status: string; createdAt: string; signedAt: string | null; docNo: string | null; name: string; branch: string | null; empNo: number | null; external: boolean; resigned: boolean };
+type Row = { id: string; title: string; status: string; createdAt: string; signedAt: string | null; docNo: string | null; name: string; branch: string | null; empNo: number | null; external: boolean; resigned: boolean; pdfLocked?: boolean };
 
 const STATUS_LABEL: Record<string, string> = { SENT: "서명 진행 중", APPROVED: "서명 진행 중", SIGNED: "체결 완료", REJECTED: "반려", EXPIRED: "기한 만료", REVOKED: "회수" };
 const selectCls = "h-9 rounded-md border border-gray-300 bg-white px-2 text-sm";
@@ -102,7 +102,7 @@ export default function FinanceContractsPage() {
                   <td className="p-2 whitespace-nowrap text-gray-600">{r.signedAt ? format(new Date(r.signedAt), "yyyy-MM-dd") : "-"}</td>
                   <td className="p-2 whitespace-nowrap text-gray-600">{format(new Date(r.createdAt), "yyyy-MM-dd")}</td>
                   <td className="p-2 whitespace-nowrap text-right space-x-1">
-                    {r.status !== "REJECTED" && (
+                    {r.pdfLocked ? <span className="text-xs text-amber-700" title="비밀번호가 걸린 문서입니다">🔒 본부에 요청</span> : r.status !== "REJECTED" && (
                       <>
                         <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => window.open(`/api/contracts/${r.id}/signed-document?pdf=1&inline=1`, "_blank", "noopener")}><Eye size={12} />보기</Button>
                         <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={busy === r.id} onClick={() => download(r)}><Download size={12} />{busy === r.id ? "받는 중…" : "PDF"}</Button>

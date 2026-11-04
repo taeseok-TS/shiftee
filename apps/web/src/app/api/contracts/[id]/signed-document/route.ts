@@ -61,6 +61,11 @@ export async function GET(
   }
   const allowed = ticketOk || session!.role === "ADMIN" || contract.userId === session!.userId || managerView || financeView;
   if (!allowed) return NextResponse.json({ error: "서명본은 관리자·계약 당사자·담당 원장만 볼 수 있습니다." }, { status: 403 });
+  // 비밀번호가 걸린 이관 체결본은 본부만(lib/contract-locked, 2026-11-04 이예지) — 원장·직원·재무 열람 계정·티켓에는 파일을 주지 않는다
+  if (session?.role !== "ADMIN") {
+    const { isLockedPdf, LOCKED_PDF_MESSAGE } = await import("@/lib/contract-locked");
+    if (await isLockedPdf(id)) return NextResponse.json({ error: LOCKED_PDF_MESSAGE, code: "PDF_LOCKED" }, { status: 403 });
+  }
 
   // 문서별 정책은 lib/contract-access 에서 판정한다.
   // ⚠ 티켓(st)은 "당사자임"의 증명일 뿐 **정책 면제가 아니다**. 면제하면 앱이 받은 링크에서

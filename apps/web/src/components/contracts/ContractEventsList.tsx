@@ -18,6 +18,7 @@ const LABEL: Record<string, string> = {
   REMINDED: "미서명 알림", DEADLINE_CHANGED: "기한 변경", EXPIRED: "기한 만료", DELIVERED: "교부(완료 알림)", DOWNLOADED: "완료본 내려받기", IMPORTED: "모두싸인 이관",
   // 2026-11-03 포털 연봉 연동(lib/portal-contract-push)
   PORTAL_SENT: "포털 연봉 전송", PORTAL_FAIL: "포털 전송 실패",
+  LOCKED_OPENED: "잠긴 문서 열람(본부)",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다

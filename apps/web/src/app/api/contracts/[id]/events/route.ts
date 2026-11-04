@@ -33,8 +33,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as { type?: string };
-  if (body.type !== "VIEWED" && body.type !== "DOWNLOADED") return NextResponse.json({ error: "지원하지 않는 기록입니다." }, { status: 400 });
+  if (body.type !== "VIEWED" && body.type !== "DOWNLOADED" && body.type !== "LOCKED_OPENED") return NextResponse.json({ error: "지원하지 않는 기록입니다." }, { status: 400 });
   const type = body.type;
+  // 비밀번호가 걸린 이관본 열람(lib/contract-locked) — 본부만, 그 목록에 든 문서만. 열 때마다 남긴다(누가·언제, 아래 10분 중복은 건너뜀)
+  if (type === "LOCKED_OPENED") {
+    if (session.role !== "ADMIN") return NextResponse.json({ error: "본부만 열 수 있습니다." }, { status: 403 });
+    if (!(await (await import("@/lib/contract-locked")).isLockedPdf(id))) return NextResponse.json({ error: "잠긴 문서가 아닙니다." }, { status: 400 });
+    await recordContractEvent({ contractId: id, type, actorId: session.userId, actorName: session.name, request });
+    return NextResponse.json({ ok: true });
+  }
   const { canAccessContractFile } = await import("@/lib/contract-access");
   const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
   if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });

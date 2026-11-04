@@ -33,6 +33,7 @@ type Contract = {
   employeeOnly?: boolean; // 직원전용 문서(비밀유지·개인정보동의서) — 원장은 진행본을 못 연다
   isTest?: boolean;
   importBatch?: string | null; // 모두싸인 이관본 — 「지난 서류」(2026-10-23 본부 ■2)
+  pdfLocked?: boolean;          // 비밀번호가 걸린 이관본 — 원장은 못 연다(본부에 요청, lib/contract-locked)
   startDate: string | null;
   endDate: string | null;
   signDeadline?: string | null; // 서명 기한(표 「기한」 칸 — 보기만)
@@ -317,7 +318,8 @@ export default function ManagerContractsPage() {
 
   // 문서 보기 링크 — 서명이 있으면 지금까지의 서명 반영본(진행본)·완료본으로(원본을 열면 원장이 서명한 뒤에도 서명이 안 보였다, 2026-10-17).
   // 원장은 열람만(서버가 inline·PDF 로만 준다) — 내려받기 버튼은 두지 않는다(개인정보 보관 방지)
-  const docLinkOf = (c: Contract) => progressHref(c) || (getFileUrl(c.fileUrl) ? viewHref(getFileUrl(c.fileUrl)) : null);
+  // 잠긴 이관본은 본부만 연다(2026-11-04, lib/contract-locked) — 원본 주소로도 열지 않고 「본부에 요청해 주세요」
+  const docLinkOf = (c: Contract) => c.pdfLocked ? null : progressHref(c) || (getFileUrl(c.fileUrl) ? viewHref(getFileUrl(c.fileUrl)) : null);
   const openDoc = (c: Contract) => {
     const href = docLinkOf(c);
     if (!href) return;
@@ -411,6 +413,7 @@ export default function ManagerContractsPage() {
                     <StatusPill tone={r.pill.tone}>{r.pill.label}</StatusPill>
                     <ApprovalChain steps={c.approvalLine?.steps} userId={c.externalName ? undefined : c.userId} />
                   </div>
+                  {c.pdfLocked && !r.mine && <p className="text-[12.5px] font-semibold text-[#b45309]">🔒 비밀번호가 걸린 문서 — 본부에 요청해 주세요</p>}
                   {(r.mine || r.link) && (
                     <div className="flex items-center gap-2 pt-0.5">
                       {r.mine ? (
@@ -458,7 +461,7 @@ export default function ManagerContractsPage() {
                             <Btn kind="primary" className="px-3.5 py-1.5" onClick={r.openMine}>열기</Btn>
                           ) : r.link ? (
                             <a href={r.link} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title={r.viewTitle} onClick={r.onView}>보기</a>
-                          ) : null}
+                          ) : c.pdfLocked ? <span className="text-[12.5px] text-[#b45309]" title="비밀번호가 걸린 문서입니다">🔒 본부에 요청</span> : null}
                           {/* 원장 차례인 줄 — 승인 창 밖에서 문서만 먼저 볼 때(옛 「내 결재 대기」 판의 「보기」) */}
                           <MoreMenu items={[{ label: "문서 보기", hidden: !r.mine || !r.link, onClick: () => openDoc(c) }]} />
                         </span>

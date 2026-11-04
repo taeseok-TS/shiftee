@@ -27,6 +27,11 @@ export async function GET(
   const allowed = session.role === "ADMIN" || contract.userId === session.userId;
   if (!allowed)
     return NextResponse.json({ error: "서명 완료본은 관리자와 계약 당사자만 볼 수 있습니다." }, { status: 403 });
+  // 비밀번호가 걸린 이관 체결본은 본부만(lib/contract-locked, 2026-11-04) — 앱은 이 문구를 그대로 알림으로 보인다
+  if (session.role !== "ADMIN") {
+    const { isLockedPdf, LOCKED_PDF_MESSAGE } = await import("@/lib/contract-locked");
+    if (await isLockedPdf(id)) return NextResponse.json({ error: LOCKED_PDF_MESSAGE, code: "PDF_LOCKED" }, { status: 403 });
+  }
 
   // 반려된 계약은 내주지 않는다 — 죽은 계약의 부분 서명본이 "진행 중"으로 읽힌다
   // (2026-09-04 검증관 F7, signed-document 와 같은 규칙).

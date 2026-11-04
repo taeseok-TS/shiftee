@@ -199,6 +199,8 @@ export async function GET(request: NextRequest) {
       const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { name: true, branch: true, address: true, birthDate: true, phone: true } });
       if (me) portalFillable = await (await import("@/lib/portal-hr-contact")).portalFillableFields(me).catch(() => []);
     }
+    // 비밀번호가 걸린 이관 체결본(lib/contract-locked, 2026-11-04) — 목록에 「🔒 비밀번호 필요」
+    const lockedPdf = await (await import("@/lib/contract-locked")).lockedPdfIds();
     const filteredContracts = contracts.map(({ template, ...contract }) => {
       const access = template?.postSignAccess || "full";
       // 열람 금지 문서는 **서명을 마친 뒤에만** 파일 주소를 감춘다.
@@ -225,6 +227,7 @@ export async function GET(request: NextRequest) {
       ...(hideFiles ? { fileUrl: null, signedUrl: null, signedPdfUrl: null } : {}),
       // 서명 완료 후 근로자 접근 (#129) — 템플릿 미사용 계약은 기본 full
       postSignAccess: access,
+      pdfLocked: lockedPdf.has(contract.id),
       // 양식의 결재 순서(#213-2) — 없으면 null(발송 창은 본부→원장→근로자). 재계약이고 양식에 재계약 순서가 있으면 그 순서(2026-10-15)
       approvalSteps: templateStepsFor(template, isRenewalContract(contract.extraFields)) ?? null,
       approvalRenewal: !!template?.approvalStepsRenewal && isRenewalContract(contract.extraFields),

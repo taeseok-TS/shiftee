@@ -53,12 +53,14 @@ export async function GET(request: NextRequest) {
     prisma.contract.count({ where }),
     prisma.branch.findMany({ where: { isActive: true }, select: { name: true }, orderBy: { name: "asc" } }),
   ]);
+  const lockedPdf = await (await import("@/lib/contract-locked")).lockedPdfIds();
   return NextResponse.json(
     {
       total,
       branches: branchRows.map((b) => b.name),
       limit: LIMIT,
       contracts: rows.map((c) => ({
+        pdfLocked: lockedPdf.has(c.id),   // 비밀번호가 걸린 이관본 — 열람 계정은 못 연다(lib/contract-locked)
         id: c.id, title: c.title, status: c.status, createdAt: c.createdAt, signedAt: c.signedAt, docNo: c.docNo,
         name: c.externalName ?? c.user.name,
         branch: c.externalName ? null : c.user.branch,

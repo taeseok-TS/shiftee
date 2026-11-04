@@ -64,6 +64,7 @@ type Contract = {
   approvalRenewal?: boolean;                 // 이 계약에 양식의 재계약 순서가 적용됨
   approvalLocked?: boolean;                  // 발송 때 순서 변경 불가(기본)
   importBatch?: string | null;     // 모두싸인 이관본(#4)
+  pdfLocked?: boolean;             // 비밀번호가 걸린 이관본(lib/contract-locked, 2026-11-04) — 본부만 브라우저 비밀번호 칸으로 연다
   certificateUrl?: string | null;  // 이관본의 감사추적 인증서(#4)
   user: { name: string; department: string | null; branch?: string | null };
   approvalLine?: {
@@ -2078,6 +2079,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     else if (needsSalary && salaryOk[uid] !== String(bulkMode ? p?.rowSalary : effSalary)) out.push("연봉 확인 체크");   // 2026-10-23 본부 — 사람마다 확인해야 만든다
     for (const f of dynamicFields.filter(x => fieldSettings[x]?.required))
       if (!(extraFields[f] || "").trim() && !(bulkMode && (bulkValues[uid]?.[f] || "").trim())) out.push(f);
+    if (dynamicFields.includes("기타사유") && extraFields["선택_기타"] === "☑" && !(extraFields["기타사유"] || "").trim() && !out.includes("기타사유")) out.push("기타 사유");   // #242
     return out;
   }
   /** 신입인가 — 입사일이 기준일(계약 시작일, 없으면 오늘)로부터 330일 안. 입사일 없으면 모른다(null) */
@@ -2137,6 +2139,7 @@ export default function ContractsScreen({ flow = false }: { flow?: boolean }) {
     if (needsSalary && !String(effSalary || "").trim()) out.push("연봉");
     else if (needsSalary && salaryOk["__ext__"] !== effSalary) out.push("연봉 확인 체크");   // 2026-10-23 본부
     for (const f of dynamicFields.filter(x => fieldSettings[x]?.required)) if (!(extraFields[f] || "").trim()) out.push(f);
+    if (dynamicFields.includes("기타사유") && extraFields["선택_기타"] === "☑" && !(extraFields["기타사유"] || "").trim() && !out.includes("기타사유")) out.push("기타 사유");   // #242
     if (extBundleMode) for (const f of ["생년월일", "주소", "원장명"]) if (templateFields.includes(f) && !(extraFields[f] || "").trim() && !out.includes(f)) out.push(f);
     return out;
   }
@@ -3623,6 +3626,7 @@ ${url}`;
                     setExtraFields(prev => {
                       const next = { ...prev };
                       for (const f of pickFields) next[f] = f === chosen ? "☑" : "□";
+                      if (chosen !== "선택_기타" && "기타사유" in next) next["기타사유"] = "";   // 기타를 풀면 적어 둔 사유도 지운다(#242)
                       return next;
                     });
 
@@ -3631,6 +3635,7 @@ ${url}`;
                     "지급희망일": "퇴직금·연차수당 정산 신청서",
                     "금품청산 지급희망일": "금품청산 지급기일연장 동의서",
                     "지급기타내용": "금품청산 동의서 — '기타' 체크 시 괄호 안",
+                    "기타사유": "임신기 신청서 — 신청구분 '기타' 선택 시 괄호 안(예: 고위험 임신)",   // #242 박정인
                     "퇴사일자": "사직원·금품청산·퇴직금 (공통)",
                     "미소진연차일수": "연차수당 정산 신청서",
                     "근무시작일": "연차수당 정산 신청서", "근무종료일": "연차수당 정산 신청서",
@@ -3694,6 +3699,15 @@ ${url}`;
                             </label>
                           ))}
                         </div>
+                      </div>
+                    ) :
+                    f === "기타사유" ? (
+                      // 임신기 신청구분 '기타' 를 골랐을 때만 입력·필수(#242 박정인 — 12~32주 고위험 임신부의 근거가 서류에 남게)
+                      <div key={f} className="space-y-1">
+                        <Label className="text-sm flex-wrap gap-x-1.5 gap-y-0.5 leading-tight">기타 사유{extraFields["선택_기타"] === "☑" && <span className="text-red-500">*</span>}{docHint(f)}</Label>
+                        <Input value={extraFields[f] || ""} disabled={extraFields["선택_기타"] !== "☑"} maxLength={100}
+                          placeholder={extraFields["선택_기타"] === "☑" ? "예: 고위험 임신(의사 소견) — 서류 신청구분 괄호 안에 들어갑니다" : "신청구분 '기타' 선택 시에만 입력"}
+                          onChange={e => setExtraFields(prev => ({ ...prev, [f]: e.target.value }))} />
                       </div>
                     ) :
                     f === "지급기타내용" ? (
@@ -4549,6 +4563,7 @@ ${url}`;
                         <span className="text-[#0f172a]">{c.title}</span>
                         {/* 둘째 줄 회색(시안 R12) — 초록 「패키지」 배지 대신 「묶음 서류」 · 직원 서명만 · 테스트 문서는 글자로.
                             모두싸인 이관본은 작은 회색 알약 「이관」 하나(옛 서류마다 「모두싸인 이관본 · 인증서」가 반복됐다 — 2026-10-23 ■3), 인증서가 있으면 그 알약이 인증서 링크(새 창) */}
+                        {c.pdfLocked && <span className="block text-[12.5px] font-semibold text-[#b45309]" title="문서에 비밀번호가 걸려 있습니다. 본부가 열면 브라우저가 비밀번호를 묻습니다(비밀번호는 저장하지 않습니다).">🔒 비밀번호 필요</span>}
                         {(c.bundleId || c.employeeOnly || c.isTest || c.importBatch) && (
                           <span className="block text-[12.5px] text-[#596578]">
                             {[c.bundleId && "묶음 서류", c.employeeOnly && "직원 서명만", c.isTest && "테스트 문서(7일 뒤 삭제)"].filter(Boolean).join(" · ")}
@@ -4580,6 +4595,12 @@ ${url}`;
                         <span className="inline-flex items-center gap-1">
                           {mine ? (
                             <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => setFullTarget(mine)}>열기</Btn>
+                          ) : c.pdfLocked ? (
+                            // 잠긴 이관본(2026-11-04) — 본부: 새 탭의 브라우저 PDF 화면이 비밀번호를 묻는다(서버로 안 감) + 열람 기록 / 그 밖: 본부에 요청
+                            role === "ADMIN"
+                              ? <a href={`${signedPdf}&inline=1`} target="_blank" rel="noreferrer" className={btnClass("secondary", "px-3.5 py-1.5")} title="새 창에서 비밀번호를 넣으면 열립니다"
+                                  onClick={() => { fetch(`/api/contracts/${c.id}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "LOCKED_OPENED" }) }).catch(() => {}); }}>🔒 열기</a>
+                              : <span className="text-[12.5px] text-[#94a3b8]">본부에 요청해 주세요</span>
                           ) : c.status === "SIGNED" ? (
                             <a href={signedPdf} target="_blank" rel="noreferrer" onClick={markDownloaded} className={btnClass("secondary", "px-3.5 py-1.5")} title="체결본 받기(PDF)">받기</a>
                           ) : (
@@ -4589,8 +4610,8 @@ ${url}`;
                             <span className="text-[12px] text-[#94a3b8]">근로계약서와 함께 발송</span>
                           )}
                           <MoreMenu items={[
-                            { label: "미리보기", hidden: !mine && c.status !== "SIGNED", onClick: () => window.open(viewHref, "_blank") },
-                            { label: c.status === "SIGNED" ? "체결본 받기" : "원본 받기(PDF)", hidden: !mine && c.status === "SIGNED", onClick: () => { markDownloaded(); window.open(c.status === "SIGNED" ? signedPdf : `/api/contracts/${c.id}/original-document`, "_blank"); } },
+                            { label: "미리보기", hidden: (!mine && c.status !== "SIGNED") || !!c.pdfLocked, onClick: () => window.open(viewHref, "_blank") },
+                            { label: c.status === "SIGNED" ? "체결본 받기" : "원본 받기(PDF)", hidden: (!mine && c.status === "SIGNED") || !!c.pdfLocked, onClick: () => { markDownloaded(); window.open(c.status === "SIGNED" ? signedPdf : `/api/contracts/${c.id}/original-document`, "_blank"); } },
                             { label: "이력", onClick: () => { setVersionsTarget(c); fetchVersions(c.id); setVersionsOpen(true); } },
                             { label: "수정", hidden: !canEdit, onClick: () => {
                                 setEditingContract(c);

@@ -32,6 +32,7 @@ type ApprovalItem = {
 type Contract = {
   id: string;
   postSignAccess?: string; // 서명 완료 후 근로자 접근: full | view | none (#129)
+  pdfLocked?: boolean;     // 비밀번호가 걸린 이관본 — 본부만 연다(lib/contract-locked, 2026-11-04)
   userId: string;
   externalName?: string | null; // 외부(게스트) 계약이면 게스트 이름 — userId 는 작성 관리자라 본인 서명과 구별해야 한다
   title: string;
@@ -655,7 +656,7 @@ export default function ContractsPage() {
     // 완료된 계약은 서명·직인이 들어간 완료본 다운로드, 진행 중엔 브라우저 열람만
     // 완료본은 PDF로 — 다운로드 후 수정 방지 (디렉터 지시 2026-08-24)
     // 진행 중이라도 내 서명이 반영된 진행본으로 열람 (#110) · 완료 후 접근은 문서별 정책 (#129)
-    const noAccess = c.status === "SIGNED" && c.postSignAccess === "none";
+    const noAccess = (c.status === "SIGNED" && c.postSignAccess === "none") || !!c.pdfLocked;
     // 본인 서명 차례 문서는 [서명하기] 창에서 비밀번호를 넣어야 열린다(#20) — 따로 여는 [보기]는 두지 않는다
     const lockedSelf = c.status !== "SIGNED" && !c.employeeSignedAt && c.userId === myId && !c.externalName
       && (c.approvalLine?.steps || []).some(s => s.approverId === myId && s.status === "PENDING");
@@ -775,7 +776,7 @@ export default function ContractsPage() {
                 </div>
                 <div className="flex gap-2 pt-0.5">
                   {r.noAccess ? (
-                    <span className="flex-1 py-2 text-center text-[13px] text-[#94a3b8]">제출 완료</span>
+                    <span className="flex-1 py-2 text-center text-[13px] text-[#94a3b8]">{c.pdfLocked ? "🔒 본부에 요청해 주세요" : "제출 완료"}</span>
                   ) : r.lockedSelf ? (
                     r.mineToSign ? null : <span className="flex-1 py-2 text-center text-[13px] text-[#94a3b8]">서명하기에서 열기</span>
                   ) : (
@@ -836,7 +837,7 @@ export default function ContractsPage() {
                     <td className="whitespace-nowrap text-right">
                       <span className="inline-flex items-center justify-end gap-1.5">
                         {noAccess ? (
-                          <span className="text-[12.5px] text-[#94a3b8]" title="사본이 필요하면 관리자에게 요청해주세요">제출 완료</span>
+                          <span className="text-[12.5px] text-[#94a3b8]" title={c.pdfLocked ? "비밀번호가 걸린 문서입니다" : "사본이 필요하면 관리자에게 요청해주세요"}>{c.pdfLocked ? "🔒 본부에 요청해 주세요" : "제출 완료"}</span>
                         ) : lockedSelf ? (
                           mineToSign ? null : <span className="text-[12.5px] text-[#94a3b8]" title="「서명하기」에서 비밀번호를 넣으면 열립니다">서명하기에서 열기</span>
                         ) : (

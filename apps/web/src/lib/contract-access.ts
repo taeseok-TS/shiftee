@@ -173,6 +173,17 @@ export async function canAccessContractFile(
   }
   if (rows.length === 0)
     return { allowed: false, viewOnly: false, status: 404, error: "문서를 찾을 수 없습니다." };
+  // 비밀번호가 걸린 이관 체결본은 본부만(lib/contract-locked, 2026-11-04) — 원본 주소·uploads 직링크로도 직원·원장에게 주지 않는다
+  {
+    const { lockedPdfIds, LOCKED_PDF_MESSAGE } = await import("@/lib/contract-locked");
+    // 잠금 목록을 못 읽으면 막는다 — 위 「판정 실패 시 막는다」와 같은 원칙(검증 1)
+    let locked: Set<string>;
+    try { locked = await lockedPdfIds(); } catch (e) {
+      console.error("[contract-access] 잠금 목록 조회 실패:", e);
+      return { allowed: false, viewOnly: false, status: 403, error: "접근 권한을 확인할 수 없습니다." };
+    }
+    if (rows.some((r) => locked.has(r.id))) return { allowed: false, viewOnly: false, status: 403, error: LOCKED_PDF_MESSAGE };
+  }
 
   let best: ContractAccess = DENY_OTHER;
   for (const row of rows) {
