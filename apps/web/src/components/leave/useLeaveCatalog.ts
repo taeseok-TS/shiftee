@@ -15,6 +15,7 @@ async function load(): Promise<LeaveTypeInfo[] | null> {
       code: String(t.code), label: String(t.label), group: t.group as LeaveTypeInfo["group"], unit: t.unit as LeaveTypeInfo["unit"],
       paidHours: Number(t.paidHours), deducts: !!t.deducts, attachRequired: (t.attachRequired as string | null) ?? undefined,
       notice: (t.notice as string | null) ?? undefined, selectable: !!t.selectable, adminOnly: !!t.adminOnly, custom: !!t.custom,
+      calendarDays: !!t.calendarDays,   // 휴가 유형 바꾸기 창(#238)이 주말 포함 유형을 거른다 — API 와 여기 둘 다 빠져 있었다
     }));
     Object.assign(LEAVE_LABELS, d.labels || {});
     applyLiveCatalog(all);
