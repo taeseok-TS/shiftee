@@ -16,7 +16,7 @@ const OPTIONS: { v: Rule; title: string; tag?: string; desc: (fb: string) => str
   { v: "SCHEDULE", title: "근무일정 퇴근 시각",
     desc: (fb) => `그날 근무일정의 퇴근 시각으로(13:00~22:00 일정이면 22:00). 일정이 없는 날은 출근 + ${fb}` },
   { v: "IN_10_5", title: "출근 + 10.5시간",
-    desc: () => "13:20 출근 → 23:50 퇴근으로 기록됨(실제 일하지 않은 시간이 들어갈 수 있음)" },
+    desc: () => "13:20 출근 → 23:50 퇴근으로 기록됨(실제 일하지 않은 시간이 들어갈 수 있음). 평일 근무일정이 있으면 일정 종료 + 30분에서 잘림" },
   { v: "IN_FALLBACK", title: "보정 시간 기준",
     desc: (fb) => `출근 시각 + ${fb}으로 자동 보정(보정 시간은 환경설정)` },
 ];
@@ -78,7 +78,7 @@ export default function AttendanceRulesPage() {
           <div className="space-y-6">
             <section className="bg-white rounded-xl border p-5">
               <h2 className="font-semibold mb-1">퇴근 기록이 없는 날 처리 <span className="text-xs font-normal text-gray-400">· 모든 화면에 같은 규칙이 적용돼요</span></h2>
-              <p className="text-xs text-gray-400 mb-4">어느 규칙이든 근무 상한(평일 10.5시간, 주말·공휴일 승인 근무 + 45분)이나 퇴근 가능 시각을 넘으면: 직원 본인 동의는 막히고 「퇴근 처리 요청」(결재)으로 받으며, 관리자 보정·전일 미마감은 상한 시각까지만 기록합니다(조퇴로 보지 않음).</p>
+              <p className="text-xs text-gray-400 mb-4">어느 규칙이든 근무 상한(평일 근무일정 종료 + 30분 · 일정 없으면 출근 + 10.5시간, 주말·공휴일 승인 근무 + 45분)이나 퇴근 가능 시각을 넘으면: 직원 본인 동의는 막히고 「퇴근 처리 요청」(결재)으로 받으며, 관리자 보정·전일 미마감은 상한 시각까지만 기록합니다(조퇴로 보지 않음).</p>
               <div className="space-y-3" role="radiogroup">
                 {OPTIONS.map((o) => {
                   const on = pick === o.v;

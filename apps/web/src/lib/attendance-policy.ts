@@ -68,7 +68,7 @@ export async function saveAutoFillHours(hours: number): Promise<void> {
 //   SCHEDULE    — 그날 근무일정 퇴근 시각(없으면 출근 + 보정 시간) — 2026-10-17 디렉터 결정 방식
 //   IN_10_5     — 출근 + 10시간 30분(평일 상한과 같은 시간)
 //   IN_FALLBACK — 출근 + 보정 시간(환경설정, 기본 9시간)
-// 어느 규칙이든 상한(평일 10.5시간 / 주말·공휴일 승인 근무 + 45분)과 퇴근 가능 시각·23:59 자르기는 그대로다.
+// 어느 규칙이든 상한(평일 근무일정 종료 + 30분 · 일정 없으면 10.5시간 / 주말·공휴일 승인 근무 + 45분, capMsOf)과 퇴근 가능 시각·23:59 자르기는 그대로다.
 export const MISSING_OUT_RULE_KEY = "attendance.missingOutRule";
 export type MissingOutRule = "FIXED_2200" | "SCHEDULE" | "IN_10_5" | "IN_FALLBACK";
 export const MISSING_OUT_RULES: readonly MissingOutRule[] = ["FIXED_2200", "SCHEDULE", "IN_10_5", "IN_FALLBACK"];
@@ -107,7 +107,7 @@ export async function saveMissingOutRule(rule: MissingOutRule): Promise<void> {
 // 직원 본인 동의 api/attendance-requests/missed-out(+consent), 화면 안내 문구)이 모두 아래 함수 하나를 쓴다:
 //   1) 그날 근무일정(WORK)의 퇴근 시각(endTime). 퇴근 시각 ≤ 출근 시각인 일정(22:00~06:00 같은 야간)은 다음 날로 본다.
 //   2) 일정이 없거나, 일정 퇴근이 실제 출근보다 앞이면(늦게 와서 일정이 이미 끝난 경우 등) → 출근 + 보정 시간(기본 9시간).
-//   3) 퇴근 상한(평일 10.5시간 / 주말·공휴일 승인 근무시간 + 45분, clock-out 과 같은 규칙)을 넘기면 상한으로 자른다.
+//   3) 퇴근 상한(평일 = 근무일정 종료 + 30분, 일정 없으면 출근 + 10.5시간 / 주말·공휴일 승인 근무시간 + 45분, clock-out 과 같은 규칙 capMsOf)을 넘기면 상한으로 자른다.
 //   4) 그날 퇴근 가능 시각(앱 퇴근 차단 readClockOutLimit, 켜져 있을 때)과 23:59 중 이른 시각을 넘기면 거기서 자른다
 //      (10-17 디렉터 결정 — 기록 날짜를 넘기는 퇴근이 자동으로 생기지 않게, 앱 퇴근 차단을 우회하지 않게. 검증 F1).
 // 3)·4) 로 잘리면 basis = "CAP" — 시스템이 자른 시각이라 「조퇴」로 판정하지 않는다(statusForAutoFill, 검증 F4).
@@ -136,7 +136,7 @@ function kstAt(ymd: string, hhmm: string): Date {
 
 type DaySched = { start: string | null; end: string | null; startMin: number | null; endMin: number | null };
 
-async function workScheduleOf(userId: string, ymd: string): Promise<DaySched | null> {
+export async function workScheduleOf(userId: string, ymd: string): Promise<DaySched | null> {
   const row = await prisma.schedule.findFirst({
     where: { userId, date: new Date(`${ymd}T00:00:00Z`), type: "WORK" },   // @db.Date = UTC 자정
     select: { startTime: true, endTime: true },
@@ -150,17 +150,31 @@ async function workScheduleOf(userId: string, ymd: string): Promise<DaySched | n
   };
 }
 
-/** 그날 근무 상한(ms) — api/attendance/clock-out 의 차단 규칙과 같다 */
-async function capMsOf(ymd: string, sched: DaySched | null): Promise<number> {
+/**
+ * 그날 근무 상한(출근부터 ms) — 앱 퇴근 차단(api/attendance/clock-out)·전일 미마감·퇴근 동의가 모두 이 값을 쓴다.
+ *  · 주말·공휴일: 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분(일정 없으면 평일 규칙).
+ *  · 평일(2026-11-04 이예지 답 — 11/3 양수진 11:40 출근 → 13:00~22:00 일정인데 22:10 에 막힘): **근무일정 종료 + 30분**까지.
+ *    일정 퇴근 ≤ 출근 시각인 야간 일정은 다음 날로 본다. 일정이 없거나(clockIn 을 모르는 거울 계산 포함) 그 시각이 출근보다 앞이면 출근 + 10.5시간.
+ */
+export async function capMsOf(ymd: string, sched: DaySched | null, clockIn?: Date): Promise<number> {
   const dow = new Date(`${ymd}T00:00:00Z`).getUTCDay();   // ymd 는 KST 날짜 — UTC 자정으로 만들면 요일이 그대로
   if (dow === 0 || dow === 6 || (await isHoliday(ymd))) {
     if (sched?.startMin != null && sched.endMin != null) {
       const workMin = sched.endMin - sched.startMin;
       if (workMin > 0) return (workMin + 30 + 15) * 60 * 1000;   // 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분
     }
+    return WEEKDAY_CAP_MS;
+  }
+  if (clockIn && sched?.end) {
+    let endAt = kstAt(ymd, sched.end);
+    if (sched.startMin != null && sched.endMin != null && sched.endMin <= sched.startMin) endAt = new Date(endAt.getTime() + 24 * HOUR_MS);
+    const ms = endAt.getTime() + WEEKDAY_AFTER_SCHEDULE_MS - clockIn.getTime();
+    if (ms > 0) return ms;
   }
   return WEEKDAY_CAP_MS;
 }
+/** 평일 근무일정 종료 뒤 여유(2026-11-04 이예지) */
+export const WEEKDAY_AFTER_SCHEDULE_MS = 30 * 60 * 1000;
 
 /** 그날 자동 퇴근의 마지막 시각 "HH:mm" — 퇴근 가능 시각(켜져 있을 때)과 23:59 중 이른 것 */
 async function lastOutHhmm(): Promise<string> {
@@ -215,7 +229,7 @@ export async function autoCloseTime(
   }
   if (!at) at = new Date(clockIn.getTime() + fallbackHours * HOUR_MS);
   // 3) 근무 상한
-  const capMs = await capMsOf(dateYmd, sched).catch(() => WEEKDAY_CAP_MS);
+  const capMs = await capMsOf(dateYmd, sched, clockIn).catch(() => WEEKDAY_CAP_MS);
   if (at.getTime() - clockIn.getTime() > capMs) {
     at = new Date(clockIn.getTime() + capMs); basis = "CAP"; label = `${label} → 상한 ${fmtHourMin(capMs / 60000)}으로 자름`;
   }
@@ -247,7 +261,8 @@ export async function autoOpenTime(
     }
   }
   if (!at) at = new Date(clockOut.getTime() - fallbackHours * HOUR_MS);
-  const capMs = await capMsOf(dateYmd, sched).catch(() => WEEKDAY_CAP_MS);
+  // 평일 상한은 출근 시각에 달려 있다(일정 종료 + 30분 − 출근) — 채울 출근 후보(at)로 계산해야 autoCloseTime·퇴근 차단과 어긋나지 않는다(11/4 검증)
+  const capMs = await capMsOf(dateYmd, sched, at).catch(() => WEEKDAY_CAP_MS);
   if (clockOut.getTime() - at.getTime() > capMs) {
     at = new Date(clockOut.getTime() - capMs); basis = "CAP"; label = `${label} → 상한 ${fmtHourMin(capMs / 60000)}으로 자름`;
   }

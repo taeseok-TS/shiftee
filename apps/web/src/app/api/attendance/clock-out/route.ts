@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { judgeGeofence, logGeofenceAttempt, parseAccuracy } from "@/lib/geofence-log";
 import { verifyAttendanceDevice } from "@/lib/device";
 import { kstHour, kstMinute, kstTodayDateUTC } from "@/lib/kst";
-import { readClockOutLimit, parseHhmm, WEEKDAY_CAP_MS, WEEKDAY_CAP_HOURS } from "@/lib/attendance-policy";
+import { readClockOutLimit, parseHhmm, WEEKDAY_CAP_MS, capMsOf, workScheduleOf } from "@/lib/attendance-policy";
 import { isHoliday, kstTodayYmd } from "@/lib/holidays";
 import { getManagerBranches } from "@/lib/manager-branches";
 import type { Attendance } from "@shiftee/api";
@@ -70,30 +70,15 @@ export async function POST(request: NextRequest) {
   }
 
   // 퇴근 시간 상한 (주 52시간 리스크 방지) — 초과 시 앱 퇴근 차단, 관리자가 수동 처리
-  // 평일: 출근 후 10시간 30분까지.
+  // 평일: 근무일정 종료 + 30분까지, 일정이 없으면 출근 후 10시간 30분까지(2026-11-04 이예지 — 종전 언제나 10.5h 라 일찍 출근하면 일정 전에 막혔다).
   // 휴일(주말·공휴일): 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분까지.
+  // 계산은 lib/attendance-policy capMsOf 하나 — 전일 미마감·퇴근 동의가 같은 상한을 쓴다(종전 이 파일에 따로 있었다).
+  // 공휴일 근무도 주말과 같은 규칙 — 평일 상한을 씌우면 승인받은 연휴 근무가 막힌다(기준 날짜는 출근일, KST)
   if (session.role !== "ADMIN") {
     const elapsedMs = Date.now() - clockInAt.getTime();
-    const kstIn = new Date(clockInAt.getTime() + 9 * 60 * 60 * 1000); // 출근 시각의 KST
-    const kstDay = kstIn.getUTCDay(); // 0=일, 6=토
-    // 공휴일 근무도 주말과 같은 규칙 — 평일 10.5h 캡을 씌우면 승인받은 연휴 근무가 막힌다
-    const isHolidayIn = await isHoliday(kstIn.toISOString().slice(0, 10));
-    let capMs = WEEKDAY_CAP_MS;
-    if (kstDay === 0 || kstDay === 6 || isHolidayIn) {
-      const schedDate = new Date(Date.UTC(kstIn.getUTCFullYear(), kstIn.getUTCMonth(), kstIn.getUTCDate()));
-      const sched = await prisma.schedule.findFirst({
-        where: { userId: session.userId, date: schedDate, type: "WORK" },
-      });
-      if (sched) {
-        const [sh, sm] = sched.startTime.split(":").map(Number);
-        const [eh, em] = sched.endTime.split(":").map(Number);
-        const workMin = eh * 60 + em - (sh * 60 + sm);
-        if (workMin > 0) {
-          const capMin = workMin + 30 + 15; // 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분
-          capMs = capMin * 60 * 1000;
-        }
-      }
-    }
+    const inYmd = new Date(clockInAt.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sched = await workScheduleOf(session.userId, inYmd).catch(() => null);
+    const capMs = await capMsOf(inYmd, sched, clockInAt).catch(() => WEEKDAY_CAP_MS);
     if (elapsedMs > capMs) {
       // ⚠ 메시지를 바꾸지 말 것 (2026-09-07 디렉터 지시). 근무 시간이나 초과분을 화면에
       //   적으면 그 문구가 **노무 분쟁의 기록**이 될 수 있다. 직원에게는 막혔다는 사실만

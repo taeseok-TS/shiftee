@@ -658,7 +658,7 @@ export default function AttendancePage() {
                 <Btn kind="primary" className="px-3.5 py-1.5" onClick={() => setUnclosedOpen(v => !v)}>{unclosedOpen ? "접기" : `${unclosed.length}건 확인`}</Btn>
               </>}>
               <p className="px-6 py-3 text-[13px] text-[#596578]">
-                줄마다 「보정」을 누르면 보정 창이 열립니다. 퇴근 시각은 <b>설정 › 근태 규칙</b> 기준값(「기준」 칸, 보정 시간 {fallbackHours}시간 · 상한 {capHours}시간)으로 미리 채워 두기만 하고,
+                줄마다 「보정」을 누르면 보정 창이 열립니다. 퇴근 시각은 <b>설정 › 근태 규칙</b> 기준값(「기준」 칸, 보정 시간 {fallbackHours}시간 · 상한 평일 근무일정 종료 + 30분, 일정 없으면 {capHours}시간)으로 미리 채워 두기만 하고,
                 실제 시각과 사유를 넣어 저장합니다. 저장하면 수정 이력과 변경 로그에 고친 사람 · 시각 · 값이 남습니다.
               </p>
               {unclosedOpen && (
