@@ -40,8 +40,8 @@ export type MedicalAttachment = {
 type Meta = { attId?: string; key?: string; name?: string; size?: number; mime?: string; byAdmin?: boolean };
 
 /** 지금 첨부(올린 순) + 재신청 체크 여부 — 이벤트에서 계산 */
-export async function medicalState(contractId: string): Promise<{ attachments: MedicalAttachment[]; reapply: boolean }> {
-  const rows = await prisma.contractEvent.findMany({
+export async function medicalState(contractId: string, db: Pick<Prisma.TransactionClient, "contractEvent"> = prisma): Promise<{ attachments: MedicalAttachment[]; reapply: boolean }> {
+  const rows = await db.contractEvent.findMany({
     where: { contractId, type: { in: [MEDICAL_ADD, MEDICAL_REMOVE, MEDICAL_REAPPLY] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],   // 같은 시각이면 id 로 — 개수 넘침 되돌리기(route POST)가 어느 요청에서 계산해도 같은 순서를 본다
     select: { type: true, actorName: true, meta: true, createdAt: true },
@@ -74,11 +74,12 @@ export async function removeMedicalDirs(contractIds: string[]): Promise<void> {
   }
 }
 
-/** 파일 저장 + ATTACH_ADDED 기록. 이름에 경로 문자가 섞여도 서버 파일 이름은 무작위로 만든다 */
+/** 파일 저장 + ATTACH_ADDED 기록. 이름에 경로 문자가 섞여도 서버 파일 이름은 무작위로 만든다.
+ *  개수 확인과 기록은 계약별 잠금(pg_advisory_xact_lock) 안에서 — 동시에 올려도 5개를 넘지 않는다(11/5 검증 1). 넘으면 파일을 지우고 null */
 export async function saveMedicalFile(input: {
   contractId: string; buf: Buffer; name: string; ext: string; mime: string;
   actorId: string; actorName: string; byAdmin: boolean; request: Request;
-}): Promise<MedicalAttachment> {
+}): Promise<MedicalAttachment | null> {
   const attId = randomBytes(9).toString("base64url");
   const key = `${Date.now()}-${attId}${input.ext}`;
   const dir = medicalDir(input.contractId);
@@ -88,10 +89,15 @@ export async function saveMedicalFile(input: {
   const meta: Meta = { attId, key, name: input.name, size: input.buf.length, mime: input.mime, byAdmin: input.byAdmin };
   try {
     const r = requestInfo(input.request);
-    const ev = await prisma.contractEvent.create({
-      data: { contractId: input.contractId, type: MEDICAL_ADD, actorId: input.actorId, actorName: input.actorName, ip: r.ip, userAgent: r.userAgent, deviceId: r.deviceId, meta: meta as Prisma.InputJsonValue },
-      select: { createdAt: true },
+    const ev = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"contract-attach:" + input.contractId}))`;
+      if ((await medicalState(input.contractId, tx)).attachments.length >= MEDICAL_MAX_FILES) return null;
+      return tx.contractEvent.create({
+        data: { contractId: input.contractId, type: MEDICAL_ADD, actorId: input.actorId, actorName: input.actorName, ip: r.ip, userAgent: r.userAgent, deviceId: r.deviceId, meta: meta as Prisma.InputJsonValue },
+        select: { createdAt: true },
+      });
     });
+    if (!ev) { await fs.unlink(full).catch(() => {}); return null; }
     return { attId, key, name: input.name, size: input.buf.length, mime: input.mime, uploadedAt: ev.createdAt.toISOString(), uploadedBy: input.actorName, byAdmin: input.byAdmin };
   } catch (e) {
     await fs.unlink(full).catch(() => {});   // 기록이 없으면 아무도 못 여는 파일 — 남기지 않는다
@@ -99,15 +105,15 @@ export async function saveMedicalFile(input: {
   }
 }
 
-/** ATTACH_REMOVED 기록 + 파일 삭제 — 본부 삭제(attachments/[attId] DELETE)·개수 넘침 자동 취소(reason OVER_LIMIT)가 같이 쓴다 */
+/** ATTACH_REMOVED 기록 + 파일 삭제 — 본부 삭제(attachments/[attId] DELETE) */
 export async function removeMedicalFile(input: {
-  contractId: string; att: MedicalAttachment; actorId: string; actorName: string; request: Request; reason?: "OVER_LIMIT";
+  contractId: string; att: MedicalAttachment; actorId: string; actorName: string; request: Request;
 }): Promise<void> {
   const r = requestInfo(input.request);
   await prisma.contractEvent.create({
     data: {
       contractId: input.contractId, type: MEDICAL_REMOVE, actorId: input.actorId, actorName: input.actorName, ip: r.ip, userAgent: r.userAgent, deviceId: r.deviceId,
-      meta: { attId: input.att.attId, name: input.att.name, size: input.att.size, ...(input.reason ? { reason: input.reason } : {}) } as Prisma.InputJsonValue,
+      meta: { attId: input.att.attId, name: input.att.name, size: input.att.size } as Prisma.InputJsonValue,
     },
   });
   if (path.basename(input.att.key) === input.att.key) await fs.unlink(path.join(medicalDir(input.contractId), input.att.key)).catch(() => {});

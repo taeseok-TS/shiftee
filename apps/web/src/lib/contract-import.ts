@@ -189,7 +189,10 @@ export async function applyContractImport(rowsIn: unknown[], zips: Buffer[], act
 
 /** 되돌리기 — 배치의 계약(FK cascade)과 파일을 지운다 */
 export async function rollbackContractImport(batch: string, actor: { userId: string; name: string }) {
+  const ids = (await prisma.contract.findMany({ where: { importBatch: batch }, select: { id: true } })).map((c) => c.id);
   const r = await prisma.contract.deleteMany({ where: { importBatch: batch } });
+  const { removeMedicalDirs } = await import("@/lib/contract-medical");   // 본부가 이관본에 붙인 진단서 폴더(#242)
+  await removeMedicalDirs(ids);
   const dir = path.join(process.cwd(), "uploads", "contracts");
   let files = 0;
   for (const f of await fs.readdir(dir).catch(() => [] as string[])) if (f.startsWith(`${batch}_`)) { await fs.unlink(path.join(dir, f)).catch(() => {}); files++; }

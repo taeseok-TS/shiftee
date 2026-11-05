@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decodeFileName, extOf, magicMatches } from "@/lib/submissions";
 import {
-  isMedicalTemplateName, medicalState, saveMedicalFile, removeMedicalFile, forClient, sniffMime,
+  isMedicalTemplateName, medicalState, saveMedicalFile, forClient, sniffMime,
   MEDICAL_EXT, MEDICAL_MAX_BYTES, MEDICAL_MAX_FILES,
 } from "@/lib/contract-medical";
 
@@ -63,18 +63,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const c = await load(id);
   if (!c) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
+  const isAdmin = session.role === "ADMIN";
+  // 본인·본부 확인이 대상 판정보다 먼저 — 순서가 반대면 400/403 차이로 남의 계약이 임신기 신청서인지 드러난다(11/5 재검증)
+  if (!isAdmin && c.userId !== session.userId) return NextResponse.json({ error: "본인 신청서에만 올릴 수 있습니다." }, { status: 403 });
   if (c.externalName || !isMedicalTemplateName(c.template?.name))
     return NextResponse.json({ error: "진단서를 첨부하는 서류가 아닙니다." }, { status: 400 });
-  const isAdmin = session.role === "ADMIN";
   if (!isAdmin) {
-    if (c.userId !== session.userId) return NextResponse.json({ error: "본인 신청서에만 올릴 수 있습니다." }, { status: 403 });
     if (!ownerMayUpload(c)) return NextResponse.json({ error: "서명을 마친 뒤에는 올릴 수 없습니다. 추가로 낼 서류는 본부에 보내 주세요." }, { status: 409 });
   }
   const st = await medicalState(id);
   if (st.attachments.length >= MEDICAL_MAX_FILES)
     return NextResponse.json({ error: `진단서는 ${MEDICAL_MAX_FILES}개까지 올릴 수 있습니다.` }, { status: 400 });
 
-  // 크기는 본문을 받기 전에 — formData() 는 본문 전체(프록시 상한 110MB)를 메모리에 올린다(11/5 검증 2). 머리글이 없으면 아래 file.size 로 본다
+  // 머리글로 먼저 거른다 — formData() 해석을 아낄 뿐, 본문은 proxy(src/proxy.ts)가 이미 다 받아 둔 뒤다(상한 110MB). 머리글이 없으면 아래 file.size 로 본다
   const declared = Number(request.headers.get("content-length") || 0);
   if (declared > MEDICAL_MAX_BYTES + 512 * 1024) return NextResponse.json({ error: "파일당 10MB 이하만 올릴 수 있습니다." }, { status: 413 });
   const form = await request.formData().catch(() => null);
@@ -95,13 +96,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const realExt = mime === "application/pdf" ? ".pdf" : mime === "image/png" ? ".png" : mime === "image/heic" ? ".heic" : ".jpg";
   try {
     const att = await saveMedicalFile({ contractId: id, buf, name, ext: realExt, mime, actorId: session.userId, actorName: session.name, byAdmin: isAdmin, request });
-    // 동시에 올리면 위 개수 확인을 둘 다 지난다(11/5 검증 1) — 저장 뒤 다시 세어 상한 밖으로 밀린 것이 이 파일이면 되돌린다.
-    // 순서는 (시각, id) 로 고정이라 어느 요청에서 세어도 같은 파일이 밀려난다
-    const after = await medicalState(id);
-    if (after.attachments.findIndex((a) => a.attId === att.attId) >= MEDICAL_MAX_FILES) {
-      await removeMedicalFile({ contractId: id, att, actorId: session.userId, actorName: session.name, request, reason: "OVER_LIMIT" });
-      return NextResponse.json({ error: `진단서는 ${MEDICAL_MAX_FILES}개까지 올릴 수 있습니다.` }, { status: 400 });
-    }
+    if (!att) return NextResponse.json({ error: `진단서는 ${MEDICAL_MAX_FILES}개까지 올릴 수 있습니다.` }, { status: 400 });
     return NextResponse.json({ attachment: forClient(att) });
   } catch (e) {
     console.error("[contract-medical] 첨부 저장 실패:", id, e);
