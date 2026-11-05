@@ -36,10 +36,12 @@ export default function MarketingPage() {
   const [scope, setScope] = useState<"mine" | "branch" | "all">("mine");
   const [reloadKey, setReloadKey] = useState(0);
   const [open, setOpen] = useState(false);
+  const [canManage, setCanManage] = useState(false);   // 관리자 · 지정 계정(블로그 담당) — 전체 보기 · 발행 처리(lib/marketing-viewer)
   useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((d) => setMe(d.user)).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/work/submissions/marketing-access").then((r) => r.json()).then((d) => setCanManage(!!d.canManage)).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/work/submissions/categories").then((r) => r.json()).then((d) => setCategories((d.categories || []).filter((c: Category) => c.group === "MARKETING"))).catch(() => {}); }, []);
   if (!me) return <div className="p-8 text-sm text-gray-500">불러오는 중…</div>;
-  const scopes: [typeof scope, string][] = [["mine", "내 자료"], ...(me.role === "MANAGER" ? [["branch", "우리 지점"] as [typeof scope, string]] : []), ...(me.role === "ADMIN" ? [["all", "전체"] as [typeof scope, string]] : [])];
+  const scopes: [typeof scope, string][] = [["mine", "내 자료"], ...(me.role === "MANAGER" ? [["branch", "우리 지점"] as [typeof scope, string]] : []), ...(me.role === "ADMIN" || canManage ? [["all", "전체"] as [typeof scope, string]] : [])];
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -54,15 +56,20 @@ export default function MarketingPage() {
           ))}
         </div>
       )}
-      <MaterialList me={me} scope={scope} categories={categories} reloadKey={reloadKey} onChanged={() => setReloadKey((k) => k + 1)} />
+      <MaterialList me={me} scope={scope} categories={categories} canManage={canManage} reloadKey={reloadKey} onChanged={() => setReloadKey((k) => k + 1)} />
       {open && <UploadDialog categories={categories} onClose={() => setOpen(false)} onDone={() => { setOpen(false); setReloadKey((k) => k + 1); }} />}
     </div>
   );
 }
 
-function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me; scope: "mine" | "branch" | "all"; categories: Category[]; reloadKey: number; onChanged: () => void }) {
+// 발행 상태 탭(2026-11-05 디렉터 「발행 대기 옆에 블로그 발행 완료 탭」)
+const PUB_TABS: [string, string][] = [["", "전체"], ["no", "발행 대기"], ["yes", "블로그 발행 완료"]];
+
+function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }: { me: Me; scope: "mine" | "branch" | "all"; categories: Category[]; canManage: boolean; reloadKey: number; onChanged: () => void }) {
   const [categoryId, setCategoryId] = useState("");
-  const stamp = `${scope}|${categoryId}|${reloadKey}`;
+  const [pub, setPub] = useState("");
+  const [marking, setMarking] = useState<Sub | null>(null);   // 「발행 완료」 창
+  const stamp = `${scope}|${categoryId}|${pub}|${reloadKey}`;
   const [data, setData] = useState<{ stamp: string; rows: Sub[] } | null>(null);
   const rows = data && data.stamp === stamp ? data.rows : null;
   useEffect(() => {
@@ -70,10 +77,11 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
     // 마케팅 구분만 — 분류 필터가 없으면 MARKETING 분류 전부를 받아 화면에서 거른다
     const qs = new URLSearchParams({ scope, group: "MARKETING" });
     if (categoryId) qs.set("categoryId", categoryId);
+    if (pub) qs.set("published", pub);
     fetch(`/api/work/submissions?${qs}`).then((r) => r.json())
       .then((d) => setData({ stamp: my, rows: (d.submissions || []).filter((s: Sub) => s.category?.group === "MARKETING") }))
       .catch(() => setData({ stamp: my, rows: [] }));
-  }, [scope, categoryId, reloadKey, stamp]);
+  }, [scope, categoryId, pub, reloadKey, stamp]);
   async function remove(s: Sub) {
     // 발행된 자료는 본부만 지울 수 있고, 지우면 큐브마케팅이 파일을 다시 가져갈 수 없다 — 확인창으로 한 번 더 (2026-09-14 디렉터 결정: 잠금 대신 확인창)
     const msg = s.publishedAt
@@ -85,8 +93,21 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
     if (!res.ok) { toast.error(d.error || "지우지 못했습니다."); return; }
     toast.success("지웠습니다."); onChanged();
   }
+  async function unpublish(s: Sub) {
+    if (!confirm(`「${s.title}」을(를) 발행 대기로 되돌릴까요?
+되돌리면 큐브마케팅이 가져갈 자료 목록에 다시 올라가고, 올린 분이 자료를 다시 고치거나 지울 수 있습니다.`)) return;
+    const res = await fetch(`/api/work/submissions/${s.id}/published`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "되돌리지 못했습니다."); return; }
+    toast.success("발행 대기로 되돌렸습니다."); onChanged();
+  }
   return (
     <div className="space-y-3">
+      <div className="flex gap-1">
+        {PUB_TABS.map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setPub(k)} className={`px-3 py-1 text-xs rounded-full border ${pub === k ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>{label}</button>
+        ))}
+      </div>
       <div className="flex gap-2 items-center flex-wrap">
         <select className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
           <option value="">모든 유형</option>
@@ -113,10 +134,19 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
                 </div>
                 <div className="shrink-0 flex flex-col items-end gap-1.5">
                   {s.publishedAt ? (
-                    <a href={s.publishedUrl ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-green-50 text-green-700 border-green-200 hover:underline">
-                      <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}<ExternalLink size={10} />
-                    </a>
+                    s.publishedUrl ? (
+                      <a href={s.publishedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-green-50 text-green-700 border-green-200 hover:underline">
+                        <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}<ExternalLink size={10} />
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-green-50 text-green-700 border-green-200">
+                        <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}
+                      </span>
+                    )
                   ) : <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-100 text-gray-600 border-gray-200">발행 대기</span>}
+                  {canManage && (s.publishedAt
+                    ? <button type="button" onClick={() => void unpublish(s)} className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline">발행 대기로 되돌리기</button>
+                    : <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-700 border-green-300" onClick={() => setMarking(s)}><CheckCircle2 size={12} />발행 완료</Button>)}
                   {((isOwner && !s.publishedAt) || me.role === "ADMIN") && <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-600" onClick={() => remove(s)}><Trash2 size={12} /></Button>}
                 </div>
               </div>
@@ -142,6 +172,7 @@ function MaterialList({ me, scope, categories, reloadKey, onChanged }: { me: Me;
             </div>
           );
         })}
+      {marking && <PublishDialog sub={marking} onClose={() => setMarking(null)} onDone={() => { setMarking(null); onChanged(); }} />}
     </div>
   );
 }
@@ -231,6 +262,48 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={!!uploading || saving}>취소</Button>
           <Button disabled={saving || uploading > 0 || !files.length || !consent || !categoryId} onClick={submit} className="bg-indigo-600 hover:bg-indigo-700">{saving ? "올리는 중…" : "올리기"}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// 「발행 완료」 창 — 담당자가 이 자료로 따로 블로그를 쓴 경우(2026-11-05). 주소는 비워도 되고, 올린 분께 봇 알림을 보낼지 고른다
+function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void; onDone: () => void }) {
+  const [url, setUrl] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (busy) return;
+    const u = url.trim();
+    if (u && !/^https?:\/\/\S+$/i.test(u)) { toast.error("블로그 주소는 http:// 또는 https:// 로 시작해야 합니다."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/work/submissions/${sub.id}/published`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, notify }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.error || "처리하지 못했습니다."); return; }
+      toast.success("블로그 발행 완료로 표시했습니다."); onDone();
+    } catch { toast.error("연결이 끊겨 처리하지 못했습니다."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>블로그 발행 완료</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">「{sub.title}」 <span className="text-gray-500">· {sub.userBranch} {sub.userName}</span></p>
+          <div>
+            <label className="text-xs text-gray-500">블로그 글 주소 <span className="text-gray-400">(선택 — 넣으면 목록에서 눌러 열 수 있습니다)</span></label>
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://blog.naver.com/…" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+            올린 분께 「블로그에 발행되었습니다」 봇 알림 보내기
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>취소</Button>
+            <Button onClick={() => void save()} disabled={busy} className="bg-green-600 hover:bg-green-700">{busy ? "처리 중…" : "발행 완료로 표시"}</Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

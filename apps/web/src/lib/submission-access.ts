@@ -137,6 +137,12 @@ export async function canAccessSubmissionFile(
     return { allowed: false, status: 404, error: "파일을 찾을 수 없습니다." };
   }
   if (rows.some((r) => canViewSubmission(r, v))) return { allowed: true, status: 200, error: "" };
+  // 마케팅 자료 지정 계정(lib/marketing-viewer) — 마케팅 자료(미삭제)의 파일만 더 본다
+  const { canManageMarketing } = await import("@/lib/marketing-viewer");
+  if (await canManageMarketing(v)) {
+    const mk = await prisma.submission.findFirst({ where: { ...fileWhere, deletedAt: null, category: { group: "MARKETING" } }, select: { id: true } });
+    if (mk) return { allowed: true, status: 200, error: "" };
+  }
   return { allowed: false, status: 403, error: "이 자료를 볼 권한이 없습니다." };
 }
 

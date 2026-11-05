@@ -22,8 +22,11 @@ export async function GET(request: NextRequest) {
   const scope = sp.get("scope") || "mine";
 
   let where: Prisma.SubmissionWhereInput;
+  // 마케팅 자료 지정 계정(lib/marketing-viewer, 2026-11-05 디렉터 — 블로그 담당 노현영 주임)은 마케팅 구분에 한해 전체를 본다
+  const marketingAll = scope === "all" && sp.get("group") === "MARKETING" && v.role !== "ADMIN"
+    && (await (await import("@/lib/marketing-viewer")).canManageMarketing(v));
   if (scope === "all") {
-    if (v.role !== "ADMIN") return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+    if (v.role !== "ADMIN" && !marketingAll) return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
     where = { deletedAt: null };
   } else if (scope === "branch") {
     if (v.role === "ADMIN") where = { deletedAt: null };
@@ -42,6 +45,10 @@ export async function GET(request: NextRequest) {
   // 구분 필터 — 마케팅 자료(/work/marketing)와 자료제출(/work/submissions)은 같은 표를 쓰되 화면을 나눈다(2026-09-14)
   // group 을 명시하지 않으면 마케팅 자료는 늘 뺀다 — 앱(옛 번들 포함)·자료제출 화면이 같은 목록 API 를 쓰기 때문(검증관 5)
   const group = sp.get("group"); where.category = group ? { group } : { group: { not: "MARKETING" } };
+  // 발행 상태(마케팅 자료 「발행 대기 · 블로그 발행 완료」 탭, 2026-11-05) — published=no | yes
+  const published = sp.get("published");
+  if (published === "no") where.publishedAt = null;
+  else if (published === "yes") where.publishedAt = { not: null };
   const q = (sp.get("q") || "").trim();
   if (q) where.OR = [{ title: { contains: q, mode: "insensitive" } }, { userName: { contains: q, mode: "insensitive" } }];
 
