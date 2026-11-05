@@ -18,6 +18,12 @@ export async function getMedical(contractId: string): Promise<MedicalInfo> {
   return res.data as MedicalInfo;
 }
 
+// 열기 — 서버가 이 첨부 1개에만 통하는 10분 티켓 주소를 준다(웹 attachments/[attId]/link). 화면은 그 주소를 기기 브라우저로 연다
+export async function medicalLink(contractId: string, attId: string): Promise<string> {
+  const res = await axios.get(`${API_URL}/contracts/${contractId}/attachments/${encodeURIComponent(attId)}/link`, { headers: await authHeaders() });
+  return res.data.url as string;
+}
+
 // 올리기 — 자료제출(submissions.ts)과 같은 XHR 방식. Content-Type 은 직접 넣지 않는다(경계가 빠진다)
 export async function uploadMedical(contractId: string, file: { uri: string; name: string; mimeType?: string | null }): Promise<void> {
   const form = new FormData();

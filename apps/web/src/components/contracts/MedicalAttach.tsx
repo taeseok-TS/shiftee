@@ -1,7 +1,7 @@
 "use client";
 
 // 임신기 신청서 진단서 첨부(#242, lib/contract-medical) — 대상 서류가 아니면 아무것도 그리지 않는다(서버가 required:false)
-//  · MedicalAttachBox  — 근로자 서명 창·본부 결재 히스토리 창. 올리기·열기(본부·본인), 지우기(본부)
+//  · MedicalAttachBox  — 근로자 서명 창·본부 결재 히스토리 창·재무 전자계약 화면. 올리기(본부·본인)·열기(본부·본인·재무), 지우기(본부)
 //  · MedicalAttachBadge — 결재 전체 창(원장 등). 「진단서 첨부됨」 표시만, 파일·이름 없음
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -75,7 +75,7 @@ export function MedicalAttachBox({ contractId, signer = false, reapply, onReappl
   return (
     <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
       <p className="text-sm font-bold text-gray-900">진단서 첨부 {signer && <span className="text-red-500">*</span>}</p>
-      <p className="text-xs text-gray-600">임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. 본부와 본인만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</p>
+      <p className="text-xs text-gray-600">임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. 본부·본인·재무팀만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</p>
       {full.attachments.map((a) => (
         <div key={a.attId} className="flex items-center gap-2 rounded border bg-white px-2 py-1.5 text-xs">
           <a href={`/api/contracts/${contractId}/attachments/${a.attId}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-medium text-indigo-700 hover:underline">{a.name}</a>
@@ -113,7 +113,7 @@ export function MedicalAttachBadge({ contractId }: { contractId: string }) {
       <p className={count ? "text-green-700" : "text-amber-800"}>
         {count ? `✓ 진단서 첨부됨${count > 1 ? ` (${count}건)` : ""}` : st.reapply ? "진단서 없음 — 같은 임신 재신청" : "아직 첨부되지 않음(근로자 서명 때 올립니다)"}
       </p>
-      <p className="mt-0.5 text-[12px] text-gray-500">진단서 내용은 본부와 본인만 볼 수 있습니다.</p>
+      <p className="mt-0.5 text-[12px] text-gray-500">진단서 내용은 본부·본인·재무팀만 볼 수 있습니다.</p>
     </section>
   );
 }

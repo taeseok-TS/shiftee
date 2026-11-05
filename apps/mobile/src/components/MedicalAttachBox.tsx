@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, Linking, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { getMedical, uploadMedical, type MedicalInfo } from "../services/contractMedical";
+import { getMedical, uploadMedical, medicalLink, type MedicalInfo } from "../services/contractMedical";
 
 // 임신기 신청서 진단서 첨부(#242) — 대상 서류가 아니면 아무것도 그리지 않는다(서버가 required:false)
+//  · 본부·본인: 첨부를 누르면 기기 브라우저로 연다(2026-11-05 디렉터 「앱에서도 열리게」 — 10분 티켓 주소)
 //  · signer: 근로자 본인 서명 — 올리기 + 「같은 임신으로 다시 신청」 체크. 서명 단추 막기는 부모가 onStatus 로
 //  · 결재자(원장 등): 「진단서 첨부됨」 표시만 — 서버가 파일·이름을 주지 않는다
 export type MedicalStatus = { required: boolean; count: number };
@@ -33,6 +34,10 @@ export default function MedicalAttachBox({ contractId, signer = false, reapply, 
     catch (e: any) { Alert.alert("진단서", e?.message || "올리지 못했습니다."); }
     finally { setBusy(false); load(); }
   };
+  const open = async (attId: string) => {
+    try { await Linking.openURL(await medicalLink(contractId, attId)); }
+    catch (e: any) { Alert.alert("진단서", e?.response?.data?.error || "진단서를 열지 못했습니다."); }
+  };
   const pickPhoto = async () => {
     if (busy) return;
     const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
@@ -58,20 +63,21 @@ export default function MedicalAttachBox({ contractId, signer = false, reapply, 
         <Text style={{ fontSize: 13, color: count ? "#15803d" : "#92400e" }}>
           {count ? `✓ 진단서 첨부됨${count > 1 ? ` (${count}건)` : ""}` : info.reapply ? "진단서 없음 — 같은 임신 재신청" : "아직 첨부되지 않음(근로자 서명 때 올립니다)"}
         </Text>
-        <Text style={s.hint}>진단서 내용은 본부와 본인만 볼 수 있습니다.</Text>
+        <Text style={s.hint}>진단서 내용은 본부·본인·재무팀만 볼 수 있습니다.</Text>
       </View>
     );
   }
   return (
     <View style={s.box}>
       <Text style={s.title}>진단서 첨부{signer ? " *" : ""}</Text>
-      <Text style={s.hint}>임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. 본부와 본인만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</Text>
+      <Text style={s.hint}>임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. 본부·본인·재무팀만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</Text>
       {info.attachments.map((a) => (
-        <View key={a.attId} style={s.row}>
+        <TouchableOpacity key={a.attId} style={s.row} onPress={() => open(a.attId)}>
           <Ionicons name="document-attach-outline" size={16} color="#4338ca" />
-          <Text style={{ flex: 1, fontSize: 13, color: "#111827" }} numberOfLines={1}>{a.name}</Text>
+          <Text style={{ flex: 1, fontSize: 13, color: "#4338ca" }} numberOfLines={1}>{a.name}</Text>
           {a.byAdmin && <Text style={{ fontSize: 12, color: "#9ca3af" }}>본부</Text>}
-        </View>
+          <Text style={{ fontSize: 12, color: "#4338ca", fontWeight: "600" }}>열기</Text>
+        </TouchableOpacity>
       ))}
       {info.canUpload && (
         busy ? <ActivityIndicator style={{ marginVertical: 8 }} color="#b45309" /> : (

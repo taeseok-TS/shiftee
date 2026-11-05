@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isContractViewer } from "@/lib/contract-viewer";
 import type { Prisma } from "@prisma/client";
+import { isMedicalTemplateName } from "@/lib/contract-medical";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     prisma.contract.findMany({
       where,
       select: {
-        id: true, title: true, status: true, createdAt: true, signedAt: true, docNo: true, externalName: true,
+        id: true, title: true, status: true, createdAt: true, signedAt: true, docNo: true, externalName: true, template: { select: { name: true } },
         user: { select: { name: true, branch: true, empNo: true, employmentStatus: true } },
       },
       orderBy: [{ signedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
       limit: LIMIT,
       contracts: rows.map((c) => ({
         pdfLocked: lockedPdf.has(c.id),   // 비밀번호가 걸린 이관본 — 열람 계정은 못 연다(lib/contract-locked)
+        medical: !c.externalName && isMedicalTemplateName(c.template?.name),   // 임신기 신청서 — 진단서 보기 단추(#242, 2026-11-05 디렉터)
         id: c.id, title: c.title, status: c.status, createdAt: c.createdAt, signedAt: c.signedAt, docNo: c.docNo,
         name: c.externalName ?? c.user.name,
         branch: c.externalName ? null : c.user.branch,

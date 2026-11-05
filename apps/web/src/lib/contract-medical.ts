@@ -9,7 +9,8 @@ import { requestInfo } from "@/lib/contract-events";
 //  · 대상: 양식 이름에 「임신기」·「단축」이 들어간 계약(원장용·매니저·교실장용 v3 — 버전이 바뀌어도 이름으로 맞춘다)
 //  · 모든 신청에 필수(근로기준법 시행령 제43조의2, 이예지 11/5). 같은 임신으로 다시 신청할 때만 근로자가 「재신청」에 체크하고 생략한다
 //  · 올리기: 근로자 본인(서명 전, 웹·앱) + 본부(언제든). 지우기: 본부만
-//  · 파일 보기: 본부·본인만. 원장(결재자)·재무는 「진단서 첨부됨」 표시만 — 파일·이름을 주지 않는다(건강 정보)
+//  · 파일 보기: 본부·본인 + 재무 열람 계정(2026-11-05 디렉터 「재무 화면에서도 서류 볼 수 있게」). 원장(결재자)은 「진단서 첨부됨」 표시만 — 파일·이름을 주지 않는다(건강 정보)
+//  · 앱은 외부 브라우저로 연다 — attachments/[attId]/link 가 첨부 1개에만 통하는 10분 티켓 주소를 준다(lib/upload-ticket issueAttachTicket)
 //  · 칸을 새로 만들지 않는다(DDL 없음) — 계약 이벤트(ContractEvent)가 원천: ATTACH_ADDED − ATTACH_REMOVED = 지금 첨부.
 //    이벤트 기록은 recordContractEvent 처럼 삼키지 않는다 — 이 기록이 곧 첨부 목록이라 실패하면 실패로 돌려준다.
 //  · 파일은 uploads/private/contract-attach/<계약 id>/ — 일반 /api/uploads 는 private 를 403 으로 막는다. 여는 문은 attachments/[attId] 하나
@@ -30,6 +31,20 @@ export function isMedicalTemplateName(name: string | null | undefined): boolean 
 export async function isMedicalContract(contractId: string): Promise<boolean> {
   const c = await prisma.contract.findUnique({ where: { id: contractId }, select: { externalName: true, template: { select: { name: true } } } });
   return !!c && !c.externalName && isMedicalTemplateName(c.template?.name);
+}
+
+/** 진단서 파일을 볼 수 있는 사람 — 본부·본인·재무 열람 계정. 재무는 재무 목록(api/finance/contracts)과 같은 범위: 초안·시험 문서 제외 */
+export async function medicalViewer(
+  session: { userId: string; role: string },
+  c: { userId: string; status: string; isTest: boolean },
+): Promise<"admin" | "owner" | "finance" | null> {
+  if (session.role === "ADMIN") return "admin";
+  if (c.userId === session.userId) return "owner";
+  if (c.status !== "DRAFT" && !c.isTest) {
+    const { isContractViewer } = await import("@/lib/contract-viewer");
+    if (await isContractViewer(session)) return "finance";
+  }
+  return null;
 }
 
 export type MedicalAttachment = {

@@ -6,11 +6,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Download, FileSignature } from "lucide-react";
+import { Eye, Download, FileSignature, Paperclip } from "lucide-react";
+import { MedicalAttachBox } from "@/components/contracts/MedicalAttach";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
-type Row = { id: string; title: string; status: string; createdAt: string; signedAt: string | null; docNo: string | null; name: string; branch: string | null; empNo: number | null; external: boolean; resigned: boolean; pdfLocked?: boolean };
+type Row = { id: string; title: string; status: string; createdAt: string; signedAt: string | null; docNo: string | null; name: string; branch: string | null; empNo: number | null; external: boolean; resigned: boolean; pdfLocked?: boolean; medical?: boolean };
 
 const STATUS_LABEL: Record<string, string> = { SENT: "서명 진행 중", APPROVED: "서명 진행 중", SIGNED: "체결 완료", REJECTED: "반려", EXPIRED: "기한 만료", REVOKED: "회수" };
 const selectCls = "h-9 rounded-md border border-gray-300 bg-white px-2 text-sm";
@@ -26,6 +27,7 @@ export default function FinanceContractsPage() {
   const [limit, setLimit] = useState(500);
   const [branches, setBranches] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [medical, setMedical] = useState<Row | null>(null);   // 진단서 보기 창(#242)
 
   const load = useCallback(() => {
     const sp = new URLSearchParams({ status });
@@ -102,6 +104,7 @@ export default function FinanceContractsPage() {
                   <td className="p-2 whitespace-nowrap text-gray-600">{r.signedAt ? format(new Date(r.signedAt), "yyyy-MM-dd") : "-"}</td>
                   <td className="p-2 whitespace-nowrap text-gray-600">{format(new Date(r.createdAt), "yyyy-MM-dd")}</td>
                   <td className="p-2 whitespace-nowrap text-right space-x-1">
+                    {r.medical && <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setMedical(r)}><Paperclip size={12} />진단서</Button>}
                     {r.pdfLocked ? <span className="text-xs text-amber-700" title="비밀번호가 걸린 문서입니다">🔒 본부에 요청</span> : r.status !== "REJECTED" && (
                       <>
                         <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => window.open(`/api/contracts/${r.id}/signed-document?pdf=1&inline=1`, "_blank", "noopener")}><Eye size={12} />보기</Button>
@@ -118,6 +121,18 @@ export default function FinanceContractsPage() {
         </div>
         <p className="text-xs text-gray-400">서명 진행 중인 계약서는 지금까지 된 서명까지만 담긴 「서명진행본」으로 열립니다. 아직 서명이 하나도 없으면 열리지 않습니다.</p>
       </CardContent></Card>
+      {medical && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMedical(null)}>
+          <div className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-gray-900">{medical.name} · {medical.title}</p>
+              <button type="button" className="text-sm text-gray-500 hover:text-gray-800" onClick={() => setMedical(null)}>닫기</button>
+            </div>
+            <MedicalAttachBox contractId={medical.id} />
+            <p className="text-xs text-gray-400">파일 이름을 누르면 새 창에서 열립니다. 건강 정보이니 내려받은 파일은 업무에만 써 주세요.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
