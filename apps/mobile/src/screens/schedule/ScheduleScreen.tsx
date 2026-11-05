@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
+import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, compareDayEvents, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import CalendarEventAddScreen from "./CalendarEventAddScreen";
@@ -464,9 +464,11 @@ export default function ScheduleScreen() {
     : evFilter === "branch" ? events.filter((e) => !!e.branch)
     : evFilter === "managers" ? events.filter((e) => e.managersOnly)
     : events.filter((e) => !(e.managersOnly || !e.branch) || !events.some((x) => isCopyOf(x, e)));
-  const eventsOnDay = (d: string) => shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= d && d <= String(ev.endDate).slice(0, 10));
-  const listEvents = (unit === "month" ? (listDays[0] ? eventsOnDay(listDays[0]) : []) : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart))
-    .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+  const eventsOnDay = (d: string) => shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= d && d <= String(ev.endDate).slice(0, 10)).sort(compareDayEvents);   // 웹에서 끌어 정한 순서(#243)
+  // 하루 목록(월 보기에서 고른 날)은 그날 순서 그대로(#243), 여러 날 목록은 시작일 순 → 같은 시작일은 그날 순서
+  const listEvents = unit === "month" ? (listDays[0] ? eventsOnDay(listDays[0]) : [])
+    : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart)
+      .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)) || compareDayEvents(a, b));
   const fmtRangeLong = (a: string, b: string) => (a.slice(0, 10) === b.slice(0, 10) ? fmtDayLong(a.slice(0, 10)) : `${fmtDayLong(a.slice(0, 10))} ~ ${fmtDayLong(b.slice(0, 10))}`);
 
   // 월 달력 칸에 넣을 줄(#232) — 공휴일 · 휴가 · 내 근무 · 지점 일정 순. 색은 아래 날짜 줄 꼬리표와 같게, 지점 일정은 웹 캘린더 색

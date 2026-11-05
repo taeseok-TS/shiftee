@@ -20,6 +20,18 @@ export function parseEventTimes(
   return { startTime: s, endTime: e };
 }
 
+/** 일정 고치기 권한 — 관리자 / 등록자 본인 / 그 지점 원장(원장 전용 제외). 목록 canEdit · 수정 · 삭제와 같은 규칙.
+ *  끌어 옮기기(#243 [id]/move) · 순서(#243 order)도 이 규칙 — myBranches 는 원장이면 getManagerBranches(대표+겸직), 아니면 [] */
+export function canEditCalendarEvent(
+  session: { userId: string; role: string },
+  event: { createdBy: string; managersOnly: boolean; branch: string | null },
+  myBranches: string[]
+): boolean {
+  return session.role === "ADMIN" ||
+    event.createdBy === session.userId ||
+    (session.role === "MANAGER" && !event.managersOnly && !!event.branch && myBranches.includes(event.branch));
+}
+
 export const POST_MAX = 2000; // 「이달의 지점 공유」 한 건 글자 수
 export const POSTS_PER_MONTH_MAX = 200; // 지점·달마다 글 수 상한
 

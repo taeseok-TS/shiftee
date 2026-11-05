@@ -1068,6 +1068,7 @@ model WorkCalendarEvent {
   branch       String? // null = 전사 공통, 값 있으면 해당 지점 전용
   managersOnly Boolean  @default(false) // 원장 전용 일정 (원장·관리자만 조회, 직원 비노출)
   color        String   @default("indigo")
+  sortOrder    Int? // 같은 날 안에서 끌어 정한 순서(#243, 2026-11-05) — 비어 있으면 끌어 정한 일정 뒤에 종일 먼저 · 이른 시각 순. deploy/ddl_calendar_event_sort.sql
   createdBy    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

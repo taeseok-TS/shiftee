@@ -26,7 +26,16 @@ export type WorkCalendarEvent = {
   branch: string | null; // null = 전사
   managersOnly?: boolean; // 원장 전용 (서버가 원장·관리자에게만 내려줌)
   color: string | null;
+  sortOrder?: number | null; // 웹에서 끌어 정한 같은 날 순서(#243) — 있으면 먼저 그 순서대로
 };
+
+/** 같은 날 일정 순서 — 웹 캘린더와 같게: 끌어 정한 순서가 있는 일정이 먼저, 나머지는 종일 먼저 · 이른 시각(#243) */
+export function compareDayEvents(a: WorkCalendarEvent, b: WorkCalendarEvent): number {
+  const sa = a.sortOrder ?? null, sb = b.sortOrder ?? null;
+  if (sa !== null && sb !== null && sa !== sb) return sa - sb;
+  if ((sa === null) !== (sb === null)) return sa === null ? 1 : -1;
+  return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+}
 
 export async function getWorkCalendar(year: number, month: number): Promise<WorkCalendarEvent[]> {
   const res = await axios.get(`${API_URL}/work/calendar`, {

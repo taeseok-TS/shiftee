@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       branch: e.branch, // null = 전사
       managersOnly: e.managersOnly,
       color: e.color,
+      sortOrder: e.sortOrder, // 같은 날 안에서 끌어 정한 순서(#243) — 비어 있으면 그 뒤에 종일 먼저 · 이른 시각
       canEdit:
         session.role === "ADMIN" ||
         e.createdBy === session.userId ||
