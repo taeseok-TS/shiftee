@@ -75,13 +75,13 @@ export function verifySignedDocTicket(contractId: string, t: string | null | und
   try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good)); } catch { return false; }
 }
 
-// 진단서 열람 티켓(#242, 2026-11-05 디렉터 「앱에서도 열리게」) — 계약 1건의 첨부 1개에만, 10분.
+// 진단서 열람 티켓(#242, 2026-11-05 디렉터 「앱에서도 열리게」) — 계약 1건의 첨부 1개에만, 3분(앱이 받자마자 바로 연다).
 // 앱은 외부 브라우저로 여는데 브라우저에는 세션이 없다 → attachments/[attId]/link 가 세션으로 권한을 본 뒤 이 티켓을 붙인 주소를 준다.
-// 건강 정보라 완료본 티켓(30분)보다 짧게 둔다.
+// 건강 정보라 완료본 티켓(30분)보다 훨씬 짧게 둔다 — 사람에 묶이지 않아 브라우저 기록에 남은 주소가 그동안은 열린다(11/5 검증 5).
 const attachSig = (contractId: string, attId: string, exp: number) =>
   crypto.createHmac("sha256", secret()).update(`attach:${contractId}:${attId}:${exp}`).digest("hex").slice(0, 32);
 
-export function issueAttachTicket(contractId: string, attId: string, ttlMs = 10 * 60 * 1000): string {
+export function issueAttachTicket(contractId: string, attId: string, ttlMs = 3 * 60 * 1000): string {
   if (!secret()) throw new Error("JWT_SECRET 미설정");
   const exp = Date.now() + ttlMs;
   return `${exp}.${attachSig(contractId, attId, exp)}`;

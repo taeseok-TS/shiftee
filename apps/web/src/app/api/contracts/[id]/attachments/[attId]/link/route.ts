@@ -6,7 +6,7 @@ import { issueAttachTicket } from "@/lib/upload-ticket";
 import { medicalState, medicalViewer } from "@/lib/contract-medical";
 
 // 진단서 열람 링크 발급(#242, 2026-11-05 디렉터 「앱에서도 진단서 열리게」) — signed-link 와 같은 방식.
-// 앱은 외부 브라우저로 여는데 브라우저에는 세션이 없다 → 여기서 세션으로 본부·본인·재무를 확인하고, 이 첨부 1개에만 통하는 10분 티켓 주소를 준다.
+// 앱은 외부 브라우저로 여는데 브라우저에는 세션이 없다 → 여기서 세션으로 본부·본인·재무를 확인하고, 이 첨부 1개에만 통하는 3분 티켓 주소를 준다.
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string; attId: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });

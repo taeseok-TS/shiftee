@@ -20,7 +20,7 @@ const LABEL: Record<string, string> = {
   PORTAL_SENT: "포털 연봉 전송", PORTAL_FAIL: "포털 전송 실패",
   LOCKED_OPENED: "잠긴 문서 열람(본부)",
   // #242 임신기 신청서 진단서(lib/contract-medical) — 이 목록은 본부만 본다(events GET 이 ADMIN 전용)
-  ATTACH_ADDED: "진단서 첨부", ATTACH_REMOVED: "진단서 삭제(본부)", ATTACH_SKIPPED_REAPPLY: "진단서 생략 — 같은 임신 재신청",
+  ATTACH_ADDED: "진단서 첨부", ATTACH_REMOVED: "진단서 삭제(본부)", ATTACH_SKIPPED_REAPPLY: "진단서 생략 — 같은 임신 재신청", ATTACH_VIEWED: "진단서 열람(재무)",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다

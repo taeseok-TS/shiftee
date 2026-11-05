@@ -6,7 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { getMedical, uploadMedical, medicalLink, type MedicalInfo } from "../services/contractMedical";
 
 // 임신기 신청서 진단서 첨부(#242) — 대상 서류가 아니면 아무것도 그리지 않는다(서버가 required:false)
-//  · 본부·본인: 첨부를 누르면 기기 브라우저로 연다(2026-11-05 디렉터 「앱에서도 열리게」 — 10분 티켓 주소)
+//  · 본부·본인: 첨부를 누르면 기기 브라우저로 연다(2026-11-05 디렉터 「앱에서도 열리게」 — 3분 티켓 주소)
 //  · signer: 근로자 본인 서명 — 올리기 + 「같은 임신으로 다시 신청」 체크. 서명 단추 막기는 부모가 onStatus 로
 //  · 결재자(원장 등): 「진단서 첨부됨」 표시만 — 서버가 파일·이름을 주지 않는다
 export type MedicalStatus = { required: boolean; count: number };

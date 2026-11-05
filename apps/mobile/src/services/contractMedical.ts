@@ -18,7 +18,7 @@ export async function getMedical(contractId: string): Promise<MedicalInfo> {
   return res.data as MedicalInfo;
 }
 
-// 열기 — 서버가 이 첨부 1개에만 통하는 10분 티켓 주소를 준다(웹 attachments/[attId]/link). 화면은 그 주소를 기기 브라우저로 연다
+// 열기 — 서버가 이 첨부 1개에만 통하는 3분 티켓 주소를 준다(웹 attachments/[attId]/link). 화면은 그 주소를 기기 브라우저로 연다
 export async function medicalLink(contractId: string, attId: string): Promise<string> {
   const res = await axios.get(`${API_URL}/contracts/${contractId}/attachments/${encodeURIComponent(attId)}/link`, { headers: await authHeaders() });
   return res.data.url as string;

@@ -33,14 +33,15 @@ export async function isMedicalContract(contractId: string): Promise<boolean> {
   return !!c && !c.externalName && isMedicalTemplateName(c.template?.name);
 }
 
-/** 진단서 파일을 볼 수 있는 사람 — 본부·본인·재무 열람 계정. 재무는 재무 목록(api/finance/contracts)과 같은 범위: 초안·시험 문서 제외 */
+/** 진단서 파일을 볼 수 있는 사람 — 본부·본인·재무 열람 계정. 재무는 재무 목록(api/finance/contracts)과 같은 범위(초안·시험 문서 제외)에서
+ *  반려 건도 뺀다 — 같은 반려 건의 계약서 「보기」(signed-document)도 막혀 있고, 건강 정보는 꼭 필요한 것만(11/5 검증 4) */
 export async function medicalViewer(
   session: { userId: string; role: string },
   c: { userId: string; status: string; isTest: boolean },
 ): Promise<"admin" | "owner" | "finance" | null> {
   if (session.role === "ADMIN") return "admin";
   if (c.userId === session.userId) return "owner";
-  if (c.status !== "DRAFT" && !c.isTest) {
+  if (c.status !== "DRAFT" && c.status !== "REJECTED" && !c.isTest) {
     const { isContractViewer } = await import("@/lib/contract-viewer");
     if (await isContractViewer(session)) return "finance";
   }

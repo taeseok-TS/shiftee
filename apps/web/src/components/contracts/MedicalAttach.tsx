@@ -75,7 +75,7 @@ export function MedicalAttachBox({ contractId, signer = false, reapply, onReappl
   return (
     <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
       <p className="text-sm font-bold text-gray-900">진단서 첨부 {signer && <span className="text-red-500">*</span>}</p>
-      <p className="text-xs text-gray-600">임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. 본부·본인·재무팀만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</p>
+      <p className="text-xs text-gray-600">{full.canUpload ? "임신 사실·주수를 확인할 수 있는 진단서(의사 소견서)를 올려 주세요. " : ""}본부·본인·재무팀만 볼 수 있습니다(원장님께는 「첨부됨」만 보입니다).</p>
       {full.attachments.map((a) => (
         <div key={a.attId} className="flex items-center gap-2 rounded border bg-white px-2 py-1.5 text-xs">
           <a href={`/api/contracts/${contractId}/attachments/${a.attId}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-medium text-indigo-700 hover:underline">{a.name}</a>

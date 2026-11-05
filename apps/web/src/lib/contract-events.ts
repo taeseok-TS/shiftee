@@ -17,7 +17,8 @@ export type ContractEventType =
   | "IMPORTED"   // 모두싸인 체결본 이관(2026-10-08 #4)
   | "PORTAL_SENT" | "PORTAL_FAIL"   // 포털 연봉 연동(2026-11-03, lib/portal-contract-push)
   | "LOCKED_OPENED"   // 비밀번호가 걸린 이관본을 본부가 열었다(2026-11-04, lib/contract-locked)
-  | "ATTACH_ADDED" | "ATTACH_REMOVED" | "ATTACH_SKIPPED_REAPPLY";   // 임신기 신청서 진단서 첨부·삭제·재신청 생략(#242, lib/contract-medical)
+  | "ATTACH_ADDED" | "ATTACH_REMOVED" | "ATTACH_SKIPPED_REAPPLY"   // 임신기 신청서 진단서 첨부·삭제·재신청 생략(#242, lib/contract-medical)
+  | "ATTACH_VIEWED";   // 재무 열람 계정이 진단서를 열었다(2026-11-05 — 건강 정보 열람 기록, attachments/[attId] GET)
 
 /** 요청에서 IP·브라우저·기기 — 프록시(Caddy)가 x-forwarded-for 에 실제 접속 IP 를 넣는다(첫 값). 앱은 x-device-id 를 싣는다. */
 export function requestInfo(req?: Request | null) {
