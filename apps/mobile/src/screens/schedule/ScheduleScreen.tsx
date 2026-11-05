@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScheduleEntry, ScheduleRequest, LeaveRequest } from "@shiftee/api";
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
-import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, compareDayEvents, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
+import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, compareDayEvents, saveCalendarDayOrder, createScheduleRequest, getHolidays, cancelMyScheduleRequest, WorkCalendarEvent, Holiday, getMySchedulesRange, getMyCalendarUnit, setMyCalendarUnit, type CalendarUnit } from "../../services/schedule";
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import CalendarEventAddScreen from "./CalendarEventAddScreen";
@@ -469,6 +469,33 @@ export default function ScheduleScreen() {
   const listEvents = unit === "month" ? (listDays[0] ? eventsOnDay(listDays[0]) : [])
     : shownEvents.filter((ev) => String(ev.startDate).slice(0, 10) <= rangeEnd && String(ev.endDate).slice(0, 10) >= rangeStart)
       .slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)) || compareDayEvents(String(a.startDate).slice(0, 10))(a, b));
+  // 같은 날 순서 바꾸기(#243 앱) — 월 보기에서 고른 하루 목록에서만, 원장 · 관리자에게 「순서 바꾸기」 단추.
+  // 누르는 동안만 줄마다 ▲▼ 가 나오고 날짜 칸을 숨긴다(하루 목록이라 날짜가 다 같다 — 제목 자리가 줄지 않게, 디렉터 11/5).
+  // 저장은 웹 끌기와 같다 — 그날 일정 전부(보기 필터로 숨긴 것까지)를 새 순서로 보낸다(지점 · 본부마다 따로)
+  const orderDay = unit === "month" && listDays.length === 1 ? listDays[0] : null;
+  const canReorder = (role === "ADMIN" || (role === "MANAGER" && !!myBranch)) && !!orderDay && listEvents.length > 1;
+  const [reordering, setReordering] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+  useEffect(() => { setReordering(false); }, [orderDay]);
+  const moveEvent = async (id: string, dir: -1 | 1) => {
+    if (!orderDay || orderBusy) return;
+    const shown = listEvents.map((e) => e.id);
+    const i = shown.indexOf(id), j = i + dir;
+    if (i < 0 || j < 0 || j >= shown.length) return;
+    const full = events.filter((ev) => String(ev.startDate).slice(0, 10) <= orderDay && orderDay <= String(ev.endDate).slice(0, 10))
+      .sort(compareDayEvents(orderDay)).map((e) => e.id).filter((x) => x !== id);
+    const at = full.indexOf(shown[j]);
+    full.splice(dir < 0 ? at : at + 1, 0, id);
+    // 화면부터 바꾼다(서버 답을 기다리지 않게) — 실패하면 다시 불러온다
+    const rank = new Map(full.map((x, k) => [x, k]));
+    setEvents((prev) => prev.map((e) => (rank.has(e.id) ? { ...e, dayRank: { ...(e.dayRank || {}), [orderDay]: rank.get(e.id)! } } : e)));
+    setOrderBusy(true);
+    const ids = full.slice(0, 100);
+    if (!ids.includes(id)) ids[ids.length - 1] = id;   // 100개가 넘는 날(본부 전체 보기) — 옮긴 일정은 빠지지 않게
+    try { await saveCalendarDayOrder(orderDay, ids); }
+    catch (e: any) { Alert.alert("순서", e?.response?.data?.error || "순서를 바꾸지 못했습니다."); load(); }
+    finally { setOrderBusy(false); }
+  };
   const fmtRangeLong = (a: string, b: string) => (a.slice(0, 10) === b.slice(0, 10) ? fmtDayLong(a.slice(0, 10)) : `${fmtDayLong(a.slice(0, 10))} ~ ${fmtDayLong(b.slice(0, 10))}`);
 
   // 월 달력 칸에 넣을 줄(#232) — 공휴일 · 휴가 · 내 근무 · 지점 일정 순. 색은 아래 날짜 줄 꼬리표와 같게, 지점 일정은 웹 캘린더 색
@@ -653,20 +680,40 @@ export default function ScheduleScreen() {
           {/* 지점 일정 — 한 줄 묶음(회사 · 지점 공통 일정, 큐브티워크 캘린더) */}
           {listEvents.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>지점 일정</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={styles.sectionTitle}>지점 일정</Text>
+                {canReorder && (
+                  <TouchableOpacity onPress={() => setReordering((v) => !v)} style={{ paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, borderRadius: 8, backgroundColor: reordering ? "#4f46e5" : "#eef2ff" }}>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: reordering ? "#fff" : "#4338ca" }}>{reordering ? "완료" : "순서 바꾸기"}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
               <View style={styles.dayList}>
                 {listEvents.map((ev, i) => {
                   const sd = String(ev.startDate).slice(0, 10);
+                  const editing = reordering && canReorder;
                   return (
                     <View key={ev.id} style={[styles.dayRow2, i > 0 && styles.dayLine]}>
-                      <View style={styles.dy}>
-                        <Text style={styles.dyDow}>{Number(sd.slice(5, 7))}/{Number(sd.slice(8, 10))}</Text>
-                        <Text style={[styles.dyNum, isWeekend(sd) && { color: C.weekend }]}>{wd(sd)}</Text>
-                      </View>
+                      {!editing && (
+                        <View style={styles.dy}>
+                          <Text style={styles.dyDow}>{Number(sd.slice(5, 7))}/{Number(sd.slice(8, 10))}</Text>
+                          <Text style={[styles.dyNum, isWeekend(sd) && { color: C.weekend }]}>{wd(sd)}</Text>
+                        </View>
+                      )}
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={styles.eventTitle} numberOfLines={1}>{ev.title}</Text>
                         <Text style={styles.eventSub} numberOfLines={1}>{[fmtEventRange(ev), ev.managersOnly ? "원장 전용" : ev.branch || "전사"].filter(Boolean).join(" · ")}</Text>
                       </View>
+                      {editing && (
+                        <View style={{ flexDirection: "row", gap: 4 }}>
+                          <TouchableOpacity disabled={i === 0 || orderBusy} onPress={() => moveEvent(ev.id, -1)} style={{ padding: 6, opacity: i === 0 ? 0.25 : 1 }}>
+                            <Ionicons name="chevron-up" size={20} color="#4338ca" />
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={i === listEvents.length - 1 || orderBusy} onPress={() => moveEvent(ev.id, 1)} style={{ padding: 6, opacity: i === listEvents.length - 1 ? 0.25 : 1 }}>
+                            <Ionicons name="chevron-down" size={20} color="#4338ca" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
                   );
                 })}

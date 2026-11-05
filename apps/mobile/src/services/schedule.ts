@@ -222,6 +222,11 @@ export async function createWorkCalendarEvent(payload: {
   await axios.post(`${API_URL}/work/calendar`, payload, { headers: await authHeaders() });
 }
 
+/** 그날 일정 순서 저장(#243 앱 ▲▼) — 웹 캘린더 끌기와 같은 서버(PUT /api/work/calendar/order). 원장 · 관리자만, 그날 일정 전부(걸러 둔 것까지)를 새 순서대로 */
+export async function saveCalendarDayOrder(date: string, ids: string[]): Promise<void> {
+  await axios.put(`${API_URL}/work/calendar/order`, { date, ids }, { headers: await authHeaders() });
+}
+
 /** 「이달의 지점 공유」 글(웹 캘린더 오른쪽 칸과 같은 데이터, #234) — branch 를 안 주면 볼 수 있는 첫 지점 */
 export type CalendarNotePost = { id: string; content: string; pinned: boolean; authorName: string | null; createdAt: string; edited: boolean };
 export async function getCalendarNotes(ym: string, branch?: string | null): Promise<{ branches: string[]; branch: string | null; posts: CalendarNotePost[]; canManage: boolean }> {
