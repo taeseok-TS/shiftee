@@ -218,7 +218,7 @@ export async function unlockContract(id: string, password: string) {
 
 export async function signContractAsEmployee(
   id: string, signatureData: string, password: string,
-  extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string>; agree?: boolean },
+  extra?: { consent?: Record<string, string>; profile?: Record<string, string>; fields?: Record<string, string>; agree?: boolean; medicalReapply?: boolean },
   version?: number
 ) {
   const token = await getToken();
@@ -229,6 +229,7 @@ export async function signContractAsEmployee(
       ...(extra?.consent ? { consent: extra.consent } : {}),
       ...(extra?.profile ? { profile: extra.profile } : {}),
       ...(extra?.fields ? { fields: extra.fields } : {}),
+      ...(extra?.medicalReapply ? { medicalReapply: true } : {}),   // 임신기 신청서 진단서 생략 — 같은 임신 재신청(#242)
     },
     { headers: await signHeaders(token, version) });
 }

@@ -1,6 +1,7 @@
 ﻿"use client";
 import { ReauthPasswordInput } from "@/components/ui/reauth-password-input";
 import ContractEventsList from "@/components/contracts/ContractEventsList";
+import { MedicalAttachBox } from "@/components/contracts/MedicalAttach";
 
 import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
 import FlowExternalSend from "@/components/contracts/FlowExternalSend";
@@ -5474,6 +5475,8 @@ ${url}`;
                 </div>
               )}
 
+              {/* 임신기 신청서 진단서(#242) — 본부는 언제든 올리고·열고·지운다. 대상 서류가 아니면 그리지 않는다 */}
+              <MedicalAttachBox contractId={approvalDetailsTarget.id} />
               {/* 감사 기록(#205-4) — 발송·열람·본인 확인·동의·서명·반려·회수·수정의 시각·IP·기기 */}
               <ContractEventsList contractId={approvalDetailsTarget.id} />
             </div>

@@ -90,7 +90,7 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault, password, agree, readToEnd } = body;
+  const { signatureData, isApprover, consent, profile, fields, useSaved, saveAsDefault, password, agree, readToEnd, medicalReapply } = body;
 
   const contract = await prisma.contract.findUnique({
     where: { id },
@@ -122,6 +122,16 @@ export async function POST(
         code: "CONSENT_REQUIRED",
         error: "전자서명 동의에 체크해 주세요. 동의 칸이 보이지 않으면 — 웹: 페이지를 새로고침(F5)한 뒤, 관리자·원장은 사이드바 아래 [직원 모드로 전환] → [전자계약]에서, 앱: 완전히 닫았다가 다시 열어 업데이트한 뒤 서명해 주세요.",
       }, { status: 400 });
+  }
+  // 임신기 신청서 진단서(#242, lib/contract-medical) — 모든 신청에 필수, 같은 임신 재신청만 근로자 체크로 생략. 비밀번호 시도로 세기 전에 본다
+  let medicalSkipped = false;
+  if (isEmployeeSignStep) {
+    const { isMedicalContract, medicalState, MEDICAL_REQUIRED_MESSAGE } = await import("@/lib/contract-medical");
+    if (await isMedicalContract(id)) {
+      const n = (await medicalState(id)).attachments.length;
+      if (!n && medicalReapply !== true) return NextResponse.json({ code: "MEDICAL_REQUIRED", error: MEDICAL_REQUIRED_MESSAGE }, { status: 400 });
+      medicalSkipped = !n;
+    }
   }
   // ── 본인 확인 — 비밀번호 재확인 (근로자 #205-1 + 사내 결재자 전원 #220-3, 2026-10-16 본부 결정) ──
   // 종전에는 근로자만 확인하고 본부·원장 등 결재자는 로그인만으로 승인됐다(이예지 대리 10/16). 이제 **이 계약에서 내 차례인
@@ -295,6 +305,7 @@ export async function POST(
     if (pwCheckedAtSign) await recordContractEvent({ contractId: id, type: "VERIFY_OK", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request, meta: { via: "서명 때 비밀번호" } });
     await recordContractEvent({ contractId: id, type: "SIGNED", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request,
       meta: { role: "근로자 본인", docVersion: contract.version } });
+    if (medicalSkipped) await recordContractEvent({ contractId: id, type: "ATTACH_SKIPPED_REAPPLY", actorId: session.userId, actorName: session.name, stepOrder: myStep.order, request });
     if (!nextStep) await recordContractEvent({ contractId: id, type: "COMPLETED", actorId: session.userId, actorName: session.name, request });
 
     // 계약 완료 시 서명본(서명+직인 포함) 파일 생성·저장 → 뷰어·앱 완료본 보기에 사용

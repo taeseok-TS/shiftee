@@ -22,6 +22,7 @@ import * as api from "../../services/api";
 import { API_URL } from "../../config";
 import { fileUri, useUploadsTicketVersion } from "../../services/work";
 import { refreshBadges } from "../../services/badges";
+import MedicalAttachBox, { type MedicalStatus } from "../../components/MedicalAttachBox";
 import { C, fmtDay, ymd } from "../../services/fmt";
 
 // 계약 기간 「2026년 11월 1일 ~ 2027년 10월 31일」(요일 없이 — 긴 기간이라 연도가 먼저)
@@ -104,6 +105,9 @@ export default function ContractListScreen() {
   const [saveSigDefault, setSaveSigDefault] = useState(false); // 기본 해제 — 체크한 결재자만 저장(#205-2, 2026-09-11)
   const [signPw, setSignPw] = useState(""); // 서명·승인 비밀번호 재확인 — 근로자 본인(#205-1) + 결재자(#220-3, 2026-10-16 본부 결정)
   const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
+  // 임신기 신청서 진단서(#242) — 첨부 칸이 알려 주는 대상 여부·첨부 수, 같은 임신 재신청 체크
+  const [medical, setMedical] = useState<MedicalStatus>({ required: false, count: 0 });
+  const [medicalReapply, setMedicalReapply] = useState(false);
   const sigRef = useRef<SignatureViewRef>(null);
   // 휴대폰 서명 진행(#32, 본부 답변 #36 「크게 보기 + 다음 칸·남은 칸 수」) — 입력 칸을 이름으로 찾아 「다음 칸」에서 바로 옮겨 간다
   const fieldRefs = useRef<Record<string, TextInput | null>>({});
@@ -220,6 +224,8 @@ export default function ContractListScreen() {
     const own = isOwnSign;
     if (own && !unlocked && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     if (own && !signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
+    if (own && medical.required && medical.count === 0 && !medicalReapply) { Alert.alert("진단서", "진단서를 올려 주세요. 같은 임신으로 다시 신청하는 경우에는 「같은 임신으로 다시 신청합니다」에 체크해 주세요."); return; }
+    const reapplySend = own && medical.required && medical.count === 0 && medicalReapply;
     // 결재자 본인 확인(#220-3) — 결재자는 문서 열기 관문이 없어 승인할 때마다 비밀번호를 받는다. 서버도 다시 확인한다
     if (!own && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     const approverPw = signPw;
@@ -228,7 +234,7 @@ export default function ContractListScreen() {
     setSigning(true);
     try {
       if (own) {
-        await api.signContractAsEmployee(id, sig, ownPw, { consent: hasConsent ? choices : undefined, profile, fields, agree: true }, ver);
+        await api.signContractAsEmployee(id, sig, ownPw, { consent: hasConsent ? choices : undefined, profile, fields, agree: true, medicalReapply: reapplySend }, ver);
         if (profile) setMyProfile(p => ({ address: profile!.주소 ?? p.address, birthDate: profile!.생년월일 ?? p.birthDate }));
         setSignPw("");
       } else if (hasConsent || profile || fields) {
@@ -302,7 +308,7 @@ export default function ContractListScreen() {
     );
   };
   // 서명 창 열기(카드 버튼 · 아래 고정 띠 같은 동작)
-  const openSign = (c: any) => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setUnlocked(false); setUnlockPw(""); setSignTarget(c); };
+  const openSign = (c: any) => { setConsentChoices({ 동의고유식별: c.extraFields?.동의고유식별 || "동의", 동의채용정보: c.extraFields?.동의채용정보 || "동의" }); setProfileInput({ 주소: "", 생년월일: "" }); setEmpFieldInput({}); setDrawNewSig(false); setSignStep(1); setSignPw(""); setSignAgree(false); setUnlocked(false); setUnlockPw(""); setMedical({ required: false, count: 0 }); setMedicalReapply(false); setSignTarget(c); };
   const [moreOpen, setMoreOpen] = useState<string | null>(null);
 
   if (isLoading) {
@@ -554,6 +560,7 @@ export default function ContractListScreen() {
                 }
                 if (isOwnSign && !unlocked && !signPw) left.push({ key: "pw", label: "비밀번호", focus: true });
                 if (isOwnSign && !signAgree) left.push({ key: "agree", label: "전자서명 동의 체크" });
+                if (isOwnSign && medical.required && medical.count === 0 && !medicalReapply) left.push({ key: "medical", label: "진단서 첨부" });
                 const goNext = () => {
                   const next = left[0];
                   if (!next) { Alert.alert("남은 칸 없음", "아래 칸에 서명한 뒤 [확인]을 누르세요."); return; }
@@ -671,6 +678,8 @@ export default function ContractListScreen() {
                   })}
                 </View>
               )}
+              {/* 임신기 신청서 진단서(#242) — 본인은 올리기·재신청 체크, 결재자는 「첨부됨」 표시만. 대상 서류가 아니면 그리지 않는다 */}
+              {signTarget && <MedicalAttachBox contractId={signTarget.id} signer={isOwnSign} reapply={medicalReapply} onReapply={setMedicalReapply} onStatus={setMedical} />}
               {/* 본인 확인 — 근로자 본인 서명만(#205-1). 문서 열기 전에 확인했으면(#20) 비밀번호 칸은 숨긴다 */}
               {isOwnSign && (
                 <View style={[styles.consentBox, { borderColor: "#fde68a", backgroundColor: "#fffbeb" }]}>

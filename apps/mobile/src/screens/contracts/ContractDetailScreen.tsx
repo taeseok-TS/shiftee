@@ -18,6 +18,7 @@ import { Contract } from "@shiftee/api";
 import * as api from "../../services/api";
 import { fileUri, useUploadsTicketVersion } from "../../services/work";
 import { refreshBadges } from "../../services/badges";
+import MedicalAttachBox, { type MedicalStatus } from "../../components/MedicalAttachBox";
 
 // 상태 알약 — 서명 대기 = 주황, 완료 = 파랑(초록 금지, 2026-10-23 ■4)
 const STATUS: Record<string, { label: string; color: string; bg: string }> = {
@@ -81,6 +82,9 @@ export default function ContractDetailScreen() {
     } finally { setUnlocking(false); }
   };
   const [signAgree, setSignAgree] = useState(false); // 전자서명 동의(#205-3)
+  // 임신기 신청서 진단서(#242) — 첨부 칸이 알려 주는 대상 여부·첨부 수, 같은 임신 재신청 체크
+  const [medical, setMedical] = useState<MedicalStatus>({ required: false, count: 0 });
+  const [medicalReapply, setMedicalReapply] = useState(false);
 
   async function submitReject() {
     const reason = rejectReason.trim();
@@ -117,12 +121,13 @@ export default function ContractDetailScreen() {
     // 본인 확인 — 서명 창을 닫기 전에 본다(#205-1). 서버도 다시 확인한다.
     if (!unlocked && !signPw) { Alert.alert("본인 확인", "로그인 비밀번호를 입력해주세요."); return; }
     if (!signAgree) { Alert.alert("전자서명 동의", "전자서명 동의에 체크해주세요."); return; }
+    const reapplySend = medical.required && medical.count === 0 && medicalReapply;
     setShowSign(false);
     setSigning(true);
     try {
       // 연 문서의 버전을 함께 보낸다 — 그 사이 관리자가 고쳤으면 서버가 거절한다(#206 검증 F2)
       // 문서 열기 전에 확인했으면 비밀번호를 비워 보낸다 — 서버가 확인 기록(30분)으로 본다. 그 사이 만료됐으면 비밀번호를 다시 묻는다
-      await api.signContractAsEmployee(id, sig, unlocked ? "" : signPw, { agree: true }, (contract as { version?: number } | null)?.version);
+      await api.signContractAsEmployee(id, sig, unlocked ? "" : signPw, { agree: true, medicalReapply: reapplySend }, (contract as { version?: number } | null)?.version);
       setSignPw("");
       setSignAgree(false);
       Alert.alert("완료", "서명이 제출되었습니다.");
@@ -196,7 +201,12 @@ export default function ContractDetailScreen() {
   };
 
   const signReady = canSign && (isAdmin || unlocked || steps.length === 0);
-  const openSignPad = () => { /* 열 때마다 새로 — 실패·문서 변경 뒤 체크가 남지 않게(묶음 ② 검증 4) */ setSignPw(""); setSignAgree(false); setShowSign(true); };
+  const openSignPad = () => {
+    /* 열 때마다 새로 — 실패·문서 변경 뒤 체크가 남지 않게(묶음 ② 검증 4) */
+    // 임신기 신청서 진단서(#242) — 서명 창을 열기 전에 본다(서버도 다시 본다)
+    if (!isAdmin && medical.required && medical.count === 0 && !medicalReapply) { Alert.alert("진단서", "아래 「진단서 첨부」에서 진단서를 올려 주세요. 같은 임신으로 다시 신청하는 경우에는 「같은 임신으로 다시 신청합니다」에 체크해 주세요."); return; }
+    setSignPw(""); setSignAgree(false); setShowSign(true);
+  };
   return (
     <View style={{ flex: 1, backgroundColor: "#f3f4f6" }}>
     <ScrollView style={styles.container}>
@@ -305,6 +315,12 @@ export default function ContractDetailScreen() {
         </View>
       ) : null}
 
+      {/* 임신기 신청서 진단서(#242) — 근로자 본인 서명 차례(문서를 연 뒤)에만. 대상 서류가 아니면 그리지 않는다 */}
+      {signReady && !isAdmin && (
+        <View style={{ marginHorizontal: 16 }}>
+          <MedicalAttachBox contractId={contract.id} signer reapply={medicalReapply} onReapply={setMedicalReapply} onStatus={setMedical} />
+        </View>
+      )}
     </ScrollView>
       {signReady && (
         <View style={styles.dock}>

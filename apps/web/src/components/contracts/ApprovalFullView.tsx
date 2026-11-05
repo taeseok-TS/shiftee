@@ -15,6 +15,7 @@ import { X } from "lucide-react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 import PagedPdfViewer from "@/components/contracts/PagedPdfViewer";
 import { cn } from "@/lib/utils";
+import { MedicalAttachBadge } from "@/components/contracts/MedicalAttach";
 
 export type FullViewStep = {
   id: string; order: number; status: string; approverId: string | null; decidedAt?: string | null;
@@ -170,6 +171,8 @@ export default function ApprovalFullView({ c, myId, myRole, docUrl, docErr, docI
                   : <span className="font-normal text-gray-400">대기</span>))}
             </div>
           </section>
+          {/* 임신기 신청서 진단서(#242) — 결재자에게는 「첨부됨」 표시만. 근로자 본인 서명 창은 부모가 extra 로 첨부 칸을 넣는다 */}
+          {!signMode && <MedicalAttachBadge contractId={c.id} />}
           {extra}
           <section className="mt-auto space-y-2 pt-2">
             <h2 className="border-b pb-2 text-base font-bold text-gray-900">서명</h2>

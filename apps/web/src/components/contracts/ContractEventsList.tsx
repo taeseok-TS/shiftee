@@ -19,6 +19,8 @@ const LABEL: Record<string, string> = {
   // 2026-11-03 포털 연봉 연동(lib/portal-contract-push)
   PORTAL_SENT: "포털 연봉 전송", PORTAL_FAIL: "포털 전송 실패",
   LOCKED_OPENED: "잠긴 문서 열람(본부)",
+  // #242 임신기 신청서 진단서(lib/contract-medical) — 이 목록은 본부만 본다(events GET 이 ADMIN 전용)
+  ATTACH_ADDED: "진단서 첨부", ATTACH_REMOVED: "진단서 삭제(본부)", ATTACH_SKIPPED_REAPPLY: "진단서 생략 — 같은 임신 재신청",
 };
 
 // 사람이 읽을 수 있는 접속 기기 — 앱은 기기 번호를 싣는다
@@ -39,6 +41,7 @@ function detail(e: Ev): string {
   // 본인 확인은 확인할 때 + 서명 제출·동반 문서에서 한 번 더 남는다 — 어느 것인지 적어 두 번 입력한 것처럼 보이지 않게
   if (e.type === "VERIFY_OK" && typeof m.via === "string") return m.via;
   if (e.type === "TSA" && typeof m.url === "string") return `발급 ${tsaName(m.url)}`;
+  if ((e.type === "ATTACH_ADDED" || e.type === "ATTACH_REMOVED") && typeof m.name === "string") return `${m.name}${m.byAdmin ? " · 본부가 올림" : ""}`;
   if (e.type === "FROZEN" && typeof m.docNo === "string") return `문서번호 ${m.docNo}`;
   if (e.type === "PORTAL_SENT") return `문서번호 ${String(m.docKey ?? "")}${typeof m.annual === "number" ? ` · 연봉 ${m.annual.toLocaleString()}원` : ""}${m.alert ? ` · 포털 알림: ${String(m.alert)}` : ""}`;
   if (e.type === "PORTAL_FAIL" && typeof m.error === "string") return `${m.error}${m.permanent ? " (다시 보내지 않음)" : ""}`;

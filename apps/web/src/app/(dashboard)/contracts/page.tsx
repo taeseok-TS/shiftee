@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import PdfViewer from "@/components/PdfViewer";
 import ApprovalFullView from "@/components/contracts/ApprovalFullView";
+import { MedicalAttachBox, type MedicalStatus } from "@/components/contracts/MedicalAttach";
 import ApprovalFullViewHost, { type HostContract } from "@/components/contracts/ApprovalFullViewHost";
 
 const DOC_LABEL: Record<string, string> = { EMPLOYMENT: "근로계약서", PART_TIME: "단시간근로계약서", CONFIDENTIAL: "비밀유지", OTHER: "기타" };
@@ -394,9 +395,13 @@ export default function ContractsPage() {
   }
   // 전자서명 동의(#205-3) + 문서를 끝까지 내려 봤는가(뷰어가 알려준다) — 서명 때 함께 기록된다
   const [signAgree, setSignAgree] = useState(false);
+  // 임신기 신청서 진단서(#242) — 첨부 칸이 알려 주는 대상 여부·첨부 수, 같은 임신 재신청 체크
+  const [medical, setMedical] = useState<MedicalStatus>({ required: false, count: 0 });
+  const [medicalReapply, setMedicalReapply] = useState(false);
   const [docReadToEnd, setDocReadToEnd] = useState(false);
   // 외부 계약은 소유자가 작성 관리자라 userId 만 보면 본인 서명으로 오판된다 — 서버 sign 라우트와 같은 기준(검증관 F1)
   const isEmpSign = !!signTarget && signTarget.userId === myId && !signTarget.externalName;
+  const medicalMissing = isEmpSign && medical.required && medical.count === 0 && !medicalReapply;
   // 근로자 본인 서명 — 원장 승인과 같은 전체 창(2026-10-21 본부 이예지 재요청 C): 비밀번호로 문서를 연 뒤 한 쪽씩 보고 마지막 쪽 서명란에 서명.
   // 동의·주소·직접 입력·전자서명 동의는 창 오른쪽(확인할 것)에. 본문은 종전 미리보기와 같은 변환 PDF
   const empFull = signOpen && !!signTarget && isEmpSign && unlocked;
@@ -420,7 +425,7 @@ export default function ContractsPage() {
   }, [empFull, signTarget]);
   /* eslint-enable react-hooks/set-state-in-effect */
   // 창을 닫으면 본인 확인·동의·열람 표시를 모두 비운다 — 다음 문서가 이전 문서의 "끝까지 봄"을 물려받지 않게(묶음 ② 검증 2)
-  useEffect(() => { if (!signOpen) { setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); setNeedPw(false); } }, [signOpen]);
+  useEffect(() => { if (!signOpen) { setMedical({ required: false, count: 0 }); setMedicalReapply(false); setSignPassword(""); setSignAgree(false); setDocReadToEnd(false); setViewerAtBottom(false); setUnlocked(false); setUnlockPw(""); setNeedPw(false); } }, [signOpen]);
   // 열람 알림(#205-4) — 서명 창을 열면 서버에 한 번 알린다(10분 안 중복은 서버가 하나로)
   useEffect(() => {
     // 본인 서명이면 비밀번호 확인 뒤에 문서가 열리므로 그때 남긴다(#20 검증 D5)
@@ -441,6 +446,7 @@ export default function ContractsPage() {
     if ((!isEmpSign || !unlocked || needPw) && !pwv) { toast.error("본인 확인을 위해 비밀번호를 입력해주세요."); return; }
     if (ov && consentKeys.length && !consentRequired) { toast.error("필수 개인정보 항목에 동의해 주세요."); return; }
     if (isEmpSign && !signAgree) { toast.error("전자서명 동의에 체크해주세요."); return; }
+    if (medicalMissing) { toast.error("진단서를 올려 주세요. 같은 임신으로 다시 신청하는 경우에는 「같은 임신으로 다시 신청합니다」에 체크해 주세요."); return; }
     // 프로필 미입력 항목이 있으면 입력 확인
     let profile: Record<string, string> | undefined;
     if (missingProfile.length) {
@@ -487,7 +493,7 @@ export default function ContractsPage() {
         method: "POST",
         // 서명 창을 연 뒤 문서가 수정됐으면 서버가 거절한다(문서 버전 묶기, #206 검증 F2)
         headers: { "Content-Type": "application/json", ...(signTarget?.id === id ? (typeof (signTarget as { version?: number } | null)?.version === "number" ? { "x-doc-version": String((signTarget as { version?: number }).version) } : {}) : {}) },
-        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigData || sigRef.current!.toDataURL(), saveAsDefault: ov ? false : saveSig }), isApprover, ...(pwv ? { password: pwv } : {}), ...(isEmpSign ? { agree: true, readToEnd: !!ov || docReadToEnd || viewerAtBottom } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
+        body: JSON.stringify({ ...(useSaved ? { useSaved: true } : { signatureData: sigData || sigRef.current!.toDataURL(), saveAsDefault: ov ? false : saveSig }), isApprover, ...(pwv ? { password: pwv } : {}), ...(isEmpSign ? { agree: true, readToEnd: !!ov || docReadToEnd || viewerAtBottom } : {}), ...(isEmpSign && medicalReapply && medical.count === 0 ? { medicalReapply: true } : {}), ...(consentKeys.length ? { consent: { ...consentChoices, 동의필수: "동의" } } : {}), ...(profile ? { profile } : {}), ...(fields ? { fields } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -592,6 +598,7 @@ export default function ContractsPage() {
     : consentKeys.some(k => consentChoices[k] !== "동의" && consentChoices[k] !== "미동의") ? "선택 동의 항목의 동의 여부를 골라 주세요"
     : missingProfile.includes("주소") && !profileInput.주소.trim() ? "주소를 넣어 주세요"
     : missingProfile.includes("생년월일") && !/^\d{4}-\d{2}-\d{2}$/.test(profileInput.생년월일) ? "생년월일을 넣어 주세요"
+    : medicalMissing ? "진단서를 올리거나 「같은 임신으로 다시 신청」에 체크해 주세요"
     : empFieldsMissing() || (!signAgree ? "전자서명 동의에 체크해 주세요" : null);
   const empExtra = empFull ? (
     <section className="space-y-3 rounded-xl border bg-white p-4">
@@ -636,6 +643,7 @@ export default function ContractsPage() {
         </div>
       )}
       {empFieldsBox}
+      {signTarget && <MedicalAttachBox contractId={signTarget.id} signer reapply={medicalReapply} onReapply={setMedicalReapply} onStatus={setMedical} />}
       {/* 전자서명 동의(#205-3) — 문구는 서버 기록과 같은 상수 */}
       <label className="flex cursor-pointer items-start gap-2 rounded border border-indigo-200 bg-indigo-50 p-2 text-xs text-gray-700">
         <input type="checkbox" className="mt-0.5" checked={signAgree} onChange={e => setSignAgree(e.target.checked)} />
@@ -1083,6 +1091,8 @@ export default function ContractsPage() {
                       <p className="text-[12px] text-gray-400">{isEmpSign ? "본인이 직접 서명하는지 확인합니다." : "결재자 본인이 직접 승인하는지 확인합니다."} 비밀번호는 저장되지 않습니다.</p>
                     </div>
                   )}
+                  {/* 임신기 신청서 진단서(#242) — 근로자 본인 서명만 */}
+                  {isEmpSign && <MedicalAttachBox contractId={signTarget.id} signer reapply={medicalReapply} onReapply={setMedicalReapply} onStatus={setMedical} />}
                   {/* 전자서명 동의(#205-3) — 근로자 본인 서명만. 문구는 서버 기록과 같은 상수 */}
                   {isEmpSign && (
                     <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer rounded border border-indigo-200 bg-indigo-50 p-2">
