@@ -9,6 +9,7 @@ import {
   Linking,
   ScrollView,
   RefreshControl,
+  AppState,
 } from "react-native";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import * as Location from "expo-location";
@@ -181,11 +182,17 @@ export default function AttendanceScreen() {
   };
 
   // 화면에 들어올 때마다 오늘 출퇴근 상태를 다시 불러온다(위치는 누르는 순간 새로 잰다)
+  // 앱을 켜 둔 채 다음 날 다시 열면(하단 탭 화면은 살아 있어 포커스가 다시 오지 않는다) 어제 불러 둔 지난 기록이 남아
+  // 어제 퇴근을 찍었는데도 「퇴근 누락」으로 보였다(2026-11-05 지점 원장 문의) — 앱이 앞으로 돌아올 때도 다시 불러온다
   useFocusEffect(
     useCallback(() => {
       loadStatus();
       loadExtras();
       refreshShownLocation();
+      const sub = AppState.addEventListener("change", (st) => {
+        if (st === "active") { loadStatus(); loadExtras(); }
+      });
+      return () => sub.remove();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
@@ -288,6 +295,7 @@ export default function AttendanceScreen() {
         setPhase("IN");
       }
       setFail(null);
+      loadExtras();   // 지난 기록 · 안내도 방금 찍은 것에 맞춘다(퇴근 뒤에도 옛 「퇴근 누락」이 남지 않게)
     } catch (error: any) {
       const d = error?.response?.data;
       if (d?.outsideGeofence) {
@@ -596,7 +604,7 @@ export default function AttendanceScreen() {
         </TouchableOpacity>
       </View>
 
-      <AttendanceRequestModal draft={draft} onClose={() => setDraft(null)} onDone={onRequestDone} />
+      <AttendanceRequestModal draft={draft} onClose={() => { setDraft(null); loadExtras(); }} onDone={onRequestDone} />   {/* 닫을 때도 다시 — 「이미 퇴근 기록이 있습니다」로 거절됐으면 화면이 실제 기록으로 바뀐다 */}
     </View>
   );
 }
