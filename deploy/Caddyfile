@@ -45,6 +45,16 @@ cubetee.co.kr, www.cubetee.co.kr {
         Permissions-Policy "camera=(self), microphone=(self), geolocation=(self)"
         -Server
     }
+    # 진단서 올리기 앞단 상한 (2026-11-05 디렉터, 개선 제안 #242) — 앱은 파일당 10MB 까지만 받는데,
+    # 상한이 없으면 큰 본문을 앱이 다 받아 둔 뒤에야 거절한다. 입구에서 11MB(10MB + 양식 머리 여유)를 넘으면 413 으로 끊는다.
+    # 이 주소(POST /api/contracts/<id>/attachments)에만 건다 — 큐브티워크 영상(500MB) 같은 다른 업로드는 그대로.
+    @medicalUpload {
+        method POST
+        path_regexp medup ^/api/contracts/[^/]+/attachments$
+    }
+    request_body @medicalUpload {
+        max_size 11MB
+    }
     @trace method TRACE TRACK CONNECT
     handle @trace {
         header Allow "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
