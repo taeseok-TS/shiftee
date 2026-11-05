@@ -1,4 +1,5 @@
 // 큐브티워크 캘린더 공통 — 일정 시각(#221)·「이달의 지점 공유」 메모(#222), 2026-10-20
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getManagerBranches } from "@/lib/manager-branches";
 import { kstTodayMidnight } from "@/lib/resign";
@@ -30,6 +31,47 @@ export function canEditCalendarEvent(
   return session.role === "ADMIN" ||
     event.createdBy === session.userId ||
     (session.role === "MANAGER" && !event.managersOnly && !!event.branch && myBranches.includes(event.branch));
+}
+
+/** 이 사람이 보는 캘린더 일정 — 관리자 전체, 원장은 전사 + 담당 지점(대표+겸직, 원장 전용 포함), 직원은 전사 + 자기 지점(원장 전용 제외) */
+export function calendarVisibleWhere(
+  session: { role: string; branch?: string | null },
+  myBranches: string[]
+): Prisma.WorkCalendarEventWhereInput {
+  return session.role === "ADMIN"
+    ? {}
+    : session.role === "MANAGER"
+    ? { OR: [{ branch: null }, { branch: { in: myBranches } }] }
+    : { AND: [{ OR: [{ branch: null }, { branch: session.branch ?? null }] }, { managersOnly: false }] };
+}
+
+// ── 같은 날 일정 순서(#243, 2026-11-05 권경욱 제안 · 디렉터 「추천대로」) ──
+// 일정 칸에 순서를 두면 지점마다 보는 일정이 달라(전사 + 자기 지점) 남의 일정 아래로 못 놓고, 여러 날 일정은 날마다 순서가 엉켰다(11/5 검증).
+// 그래서 **지점(관리자는 본부)마다 · 날짜마다** 그날 일정 id 를 순서대로 AppSetting 에 둔다 — 키 calendar.dayOrder:<지점>:<YYYY-MM-DD>.
+// 바꾸는 사람은 원장(대표 지점) · 관리자(본부) — 「이달의 지점 공유」 순서(#240)와 같다. 지점 구성원은 그 순서로 본다.
+// 목록에 없는 일정(새 일정 등)은 순서 있는 일정 뒤에 종일 먼저 · 이른 시각 순.
+export const DAY_ORDER_PREFIX = "calendar.dayOrder:";
+export const DAY_ORDER_MAX = 100;
+export const HQ_SCOPE = "본부";
+
+/** 순서를 읽는 묶음 — 관리자는 본부, 그 밖에는 대표 지점(토큰 값이 아니라 지금 DB 값) */
+export async function dayOrderScope(session: { userId: string; role: string }): Promise<string | null> {
+  if (session.role === "ADMIN") return HQ_SCOPE;
+  return myBranch(session.userId);
+}
+
+/** 그 묶음의 날짜별 순서 — 날짜 → (일정 id → 자리) */
+export async function dayRanks(scope: string): Promise<Map<string, Map<string, number>>> {
+  const rows = await prisma.appSetting.findMany({ where: { key: { startsWith: `${DAY_ORDER_PREFIX}${scope}:` } }, select: { key: true, value: true } });
+  const out = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const date = r.key.slice(`${DAY_ORDER_PREFIX}${scope}:`.length);
+    try {
+      const ids = JSON.parse(r.value);
+      if (Array.isArray(ids)) out.set(date, new Map(ids.filter((x): x is string => typeof x === "string").map((id, i) => [id, i])));
+    } catch { /* 깨진 값은 순서 없음으로 */ }
+  }
+  return out;
 }
 
 export const POST_MAX = 2000; // 「이달의 지점 공유」 한 건 글자 수

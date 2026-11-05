@@ -12,7 +12,7 @@ import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import CalendarNotePanel from "./CalendarNotePanel";
 
-type Ev = { id: string; title: string; description: string | null; startDate: string; endDate: string; startTime?: string | null; endTime?: string | null; branch: string | null; managersOnly?: boolean; color: string; sortOrder?: number | null; canEdit: boolean };
+type Ev = { id: string; title: string; description: string | null; startDate: string; endDate: string; startTime?: string | null; endTime?: string | null; branch: string | null; managersOnly?: boolean; color: string; dayRank?: Record<string, number>; canEdit: boolean };
 const COLORS: Record<string, string> = { indigo: "bg-indigo-500", blue: "bg-blue-500", green: "bg-green-500", red: "bg-red-500", amber: "bg-amber-500" };
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const EMPTY_FORM = { title: "", description: "", startDate: "", endDate: "", startTime: "", endTime: "", branch: "__ALL__", color: "indigo" };
@@ -95,23 +95,46 @@ export default function WorkCalendarPage() {
 
   function eventsOn(day: Date) {
     const d = format(day, "yyyy-MM-dd");
-    // 끌어 정한 순서(#243)가 있는 일정이 먼저 그 순서대로, 나머지는 종일 일정 먼저 · 시각 있는 일정은 이른 순(#221)
-    return visibleEvents
-      .filter((e) => format(new Date(e.startDate), "yyyy-MM-dd") <= d && d <= format(new Date(e.endDate), "yyyy-MM-dd"))
-      .sort((a, b) => {
-        const sa = a.sortOrder ?? null, sb = b.sortOrder ?? null;
-        if (sa !== null && sb !== null && sa !== sb) return sa - sb;
-        if ((sa === null) !== (sb === null)) return sa === null ? 1 : -1;
-        return (a.startTime ?? "").localeCompare(b.startTime ?? "");
-      });
+    return sortDay(visibleEvents.filter((e) => format(new Date(e.startDate), "yyyy-MM-dd") <= d && d <= format(new Date(e.endDate), "yyyy-MM-dd")), d);
+  }
+  // 같은 날 순서 — 우리 지점(관리자는 본부)이 끌어 정한 자리(#243)가 있는 일정이 먼저, 나머지는 종일 먼저 · 이른 시각(#221)
+  function sortDay(list: Ev[], d: string) {
+    return list.slice().sort((a, b) => {
+      const ra = a.dayRank?.[d], rb = b.dayRank?.[d];
+      if (ra !== undefined && rb !== undefined && ra !== rb) return ra - rb;
+      if ((ra === undefined) !== (rb === undefined)) return ra === undefined ? 1 : -1;
+      return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+    });
   }
 
-  // ── 끌어 옮기기(#243, 2026-11-05 권경욱 제안) — 고칠 수 있는 일정만 끈다 ──
-  //  · 같은 날 다른 일정 위에 놓으면 그 앞으로 순서가 바뀐다(그날 내가 고칠 수 있는 일정 순서를 서버에 저장)
-  //  · 다른 날 칸에 놓으면 그 날로 옮긴다(여러 날 일정은 끈 칸과 놓은 칸의 차이만큼 통째로)
+  // ── 끌어 옮기기(#243, 2026-11-05 권경욱 제안) ──
+  //  · 같은 날 다른 일정 위에 놓으면 그 앞으로, 빈 곳에 놓으면 맨 뒤로 — 원장 · 관리자(지점 · 본부 순서, 남의 일정도 자리를 정한다)
+  //  · 다른 날 칸에 놓으면 그 날로 옮긴다 — 그 일정을 고칠 수 있는 사람(여러 날 일정은 끈 칸과 놓은 칸의 차이만큼 통째로)
+  //    다른 날 일정 위에 놓았고 순서를 바꿀 수 있으면 그 앞 자리까지 정한다
+  const canReorder = role === "ADMIN" || (role === "MANAGER" && !!myBranch);
   const dragRef = useRef<{ id: string; from: string } | null>(null);
   const [dropAt, setDropAt] = useState<string | null>(null);   // 놓일 자리 표시 — 일정이면 「id@날짜」, 날짜 칸이면 「@날짜」
   const [moving, setMoving] = useState(false);
+  // 그날 새 순서 — 걸러 둔(안 보이는) 일정까지 전부 넣어 보낸다(보기 필터를 바꿔도 자리가 섞이지 않게)
+  function orderWith(day: string, id: string, beforeId: string | null) {
+    const onDay = events.filter((x) => x.id !== id && format(new Date(x.startDate), "yyyy-MM-dd") <= day && day <= format(new Date(x.endDate), "yyyy-MM-dd"));
+    const full = sortDay(onDay, day).map((x) => x.id);
+    let at = beforeId ? full.indexOf(beforeId) : -1;
+    if (at < 0) {
+      // 빈 곳 — 보이는 일정 중 마지막 바로 뒤
+      const shown = eventsOn(new Date(`${day}T00:00:00`)).filter((x) => x.id !== id);
+      const last = shown.length ? full.indexOf(shown[shown.length - 1].id) : -1;
+      at = last < 0 ? full.length : last + 1;
+    }
+    full.splice(at, 0, id);
+    return full.slice(0, 100);
+  }
+  async function saveOrder(day: string, ids: string[]) {
+    const res = await fetch("/api/work/calendar/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: day, ids }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data.error || "순서를 바꾸지 못했습니다."); return false; }
+    return true;
+  }
   async function dropEvent(targetDay: string, beforeId: string | null) {
     const drag = dragRef.current;
     dragRef.current = null;
@@ -119,6 +142,9 @@ export default function WorkCalendarPage() {
     if (!drag || moving) return;
     const ev = events.find((x) => x.id === drag.id);
     if (!ev) return;
+    if (targetDay === drag.from && beforeId === drag.id) return;
+    if (targetDay !== drag.from && !ev.canEdit) { toast.error("이 일정은 다른 날로 옮길 수 없습니다(만든 사람 · 지점 원장 · 본부만)."); return; }
+    if (targetDay === drag.from && !canReorder) { toast.error("같은 날 일정 순서는 원장 · 본부가 바꿀 수 있습니다."); return; }
     setMoving(true);
     try {
       if (targetDay !== drag.from) {
@@ -127,21 +153,19 @@ export default function WorkCalendarPage() {
         const res = await fetch(`/api/work/calendar/${ev.id}/move`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startDate: start }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { toast.error(data.error || "옮기지 못했습니다."); return; }
+        if (beforeId && canReorder) await saveOrder(targetDay, orderWith(targetDay, ev.id, beforeId));
         toast.success(`${format(new Date(`${start}T00:00:00`), "M월 d일")}로 옮겼습니다.`);
       } else {
-        if (beforeId === drag.id) return;
-        const list = eventsOn(new Date(`${targetDay}T00:00:00`)).map((x) => x.id).filter((id) => id !== drag.id);
-        const at = beforeId ? list.indexOf(beforeId) : -1;
-        list.splice(at < 0 ? list.length : at, 0, drag.id);
-        const editable = new Set(events.filter((x) => x.canEdit).map((x) => x.id));
-        const res = await fetch("/api/work/calendar/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: targetDay, ids: list.filter((id) => editable.has(id)) }) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) { toast.error(data.error || "순서를 바꾸지 못했습니다."); return; }
+        await saveOrder(targetDay, orderWith(targetDay, ev.id, beforeId));
       }
+    } catch {
+      toast.error("연결이 끊겨 반영하지 못했습니다. 다시 시도해 주세요.");
+    } finally {
+      setMoving(false);
       await fetchEvents();
-    } finally { setMoving(false); }
+    }
   }
-  const chipDrag = (e: Ev, ds: string) => e.canEdit && !moving ? {
+  const chipDrag = (e: Ev, ds: string) => (e.canEdit || canReorder) && !moving ? {
     draggable: true,
     onDragStart: (ev: React.DragEvent) => { ev.stopPropagation(); dragRef.current = { id: e.id, from: ds }; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", e.id); },
     onDragEnd: () => { dragRef.current = null; setDropAt(null); },
@@ -149,6 +173,7 @@ export default function WorkCalendarPage() {
   // 일정 위 — 같은 날이면 그 앞에 끼우고, 다른 날이면 그 날로 옮긴다
   const chipDrop = (e: Ev, ds: string) => ({
     onDragOver: (ev: React.DragEvent) => { if (!dragRef.current || dragRef.current.id === e.id) return; ev.preventDefault(); ev.stopPropagation(); setDropAt(`${e.id}@${ds}`); },
+    onDragLeave: (ev: React.DragEvent) => { if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node | null)) setDropAt((d) => (d === `${e.id}@${ds}` ? null : d)); },
     onDrop: (ev: React.DragEvent) => { if (!dragRef.current) return; ev.preventDefault(); ev.stopPropagation(); void dropEvent(ds, e.id); },
   });
   // 날짜 칸 빈 곳 — 같은 날이면 맨 뒤로, 다른 날이면 그 날로
@@ -306,8 +331,8 @@ export default function WorkCalendarPage() {
                       <div key={e.id + ds} className={`group relative ${dropAt === `${e.id}@${ds}` ? "border-t-2 border-indigo-600 pt-0.5" : ""}`} {...chipDrop(e, ds)}>
                         <div
                           {...chipDrag(e, ds)}
-                          className={`text-xs text-white rounded-md px-2 py-1.5 ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-grab" : ""}`}
-                          title={e.canEdit ? "더블클릭: 편집 · 끌어서 순서 바꾸기 · 다른 날로 옮기기" : undefined}
+                          className={`text-xs text-white rounded-md px-2 py-1.5 ${COLORS[e.color] || COLORS.indigo} ${e.canEdit || canReorder ? "cursor-grab" : ""}`}
+                          title={e.canEdit ? "더블클릭: 편집 · 끌어서 순서 바꾸기 · 다른 날로 옮기기" : canReorder ? "끌어서 같은 날 순서 바꾸기" : undefined}
                           onClick={(ev) => ev.stopPropagation()}
                           onDoubleClick={(ev) => { ev.stopPropagation(); if (e.canEdit) openEdit(e); }}
                         >
@@ -368,8 +393,8 @@ export default function WorkCalendarPage() {
                     <div key={e.id + day.toISOString()} className={`group relative ${dropAt === `${e.id}@${format(day, "yyyy-MM-dd")}` ? "border-t-2 border-indigo-600 pt-0.5" : ""}`} {...chipDrop(e, format(day, "yyyy-MM-dd"))}>
                       <div
                         {...chipDrag(e, format(day, "yyyy-MM-dd"))}
-                        className={`text-[11px] text-white rounded px-1.5 py-0.5 line-clamp-2 break-words leading-snug ${COLORS[e.color] || COLORS.indigo} ${e.canEdit ? "cursor-grab" : ""}`}
-                        title={`${timeLabel(e) ? timeLabel(e) + " " : ""}${e.title}${e.canEdit ? " (더블클릭: 편집 · 끌어서 순서 바꾸기 · 다른 날로 옮기기)" : ""}`}
+                        className={`text-[11px] text-white rounded px-1.5 py-0.5 line-clamp-2 break-words leading-snug ${COLORS[e.color] || COLORS.indigo} ${e.canEdit || canReorder ? "cursor-grab" : ""}`}
+                        title={`${timeLabel(e) ? timeLabel(e) + " " : ""}${e.title}${e.canEdit ? " (더블클릭: 편집 · 끌어서 순서 바꾸기 · 다른 날로 옮기기)" : canReorder ? " (끌어서 같은 날 순서 바꾸기)" : ""}`}
                         onClick={(ev) => ev.stopPropagation()}
                         onDoubleClick={(ev) => { ev.stopPropagation(); if (e.canEdit) openEdit(e); }}
                       >
@@ -395,7 +420,7 @@ export default function WorkCalendarPage() {
       <CalendarNotePanel key={`${year}-${month}`} ym={`${year}-${String(month).padStart(2, "0")}`} />
       </div>
 
-      <p className="text-xs text-gray-400 mt-3">※ 회사 전체(전사)와 우리 지점 일정만 표시됩니다. 지점 일정은 그 지점 구성원만 봅니다. 개인 근무일정·휴가와는 별개입니다. 내가 고칠 수 있는 일정은 끌어서 같은 날 안에서 순서를 바꾸거나 다른 날로 옮길 수 있습니다.</p>
+      <p className="text-xs text-gray-400 mt-3">※ 회사 전체(전사)와 우리 지점 일정만 표시됩니다. 지점 일정은 그 지점 구성원만 봅니다. 개인 근무일정·휴가와는 별개입니다. 내가 고칠 수 있는 일정은 끌어서 다른 날로 옮길 수 있고, 원장 · 본부는 같은 날 일정 순서를 끌어서 정할 수 있습니다(지점마다 따로).</p>
 
       <Dialog open={open && !!role} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm(EMPTY_FORM); } }}>
         <DialogContent className="max-w-lg">

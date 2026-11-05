@@ -7,7 +7,7 @@ import { canEditCalendarEvent } from "@/lib/work-calendar";
 // 일정을 다른 날로 끌어 옮기기(#243, 2026-11-05 권경욱 제안 · 디렉터 「추천대로」)
 //  · body { startDate: "YYYY-MM-DD" } — 여러 날 일정은 기간을 그대로 두고 통째로 옮긴다(끝 날짜도 같은 만큼)
 //  · 권한은 수정과 같다(관리자 · 등록자 · 그 지점 원장). 제목 · 시각 · 대상은 그대로
-//  · 옮긴 날에서는 끌어 정한 순서를 비운다(그날 종일 먼저 · 이른 시각 순 자리로)
+//  · 옮긴 날의 자리는 화면이 이어서 순서(order)로 정한다(원장 · 관리자). 아니면 그날 종일 먼저 · 이른 시각 순
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const DAY = 86400_000;
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const length = Math.round((event.endDate.getTime() - event.startDate.getTime()) / DAY);
   const updated = await prisma.workCalendarEvent.update({
     where: { id },
-    data: { startDate: to, endDate: new Date(to.getTime() + Math.max(0, length) * DAY), sortOrder: null },
+    data: { startDate: to, endDate: new Date(to.getTime() + Math.max(0, length) * DAY) },
   });
   return NextResponse.json({ success: true, event: updated });
 }
