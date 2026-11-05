@@ -127,12 +127,14 @@ export default function WorkCalendarPage() {
       at = last < 0 ? full.length : last + 1;
     }
     full.splice(at, 0, id);
-    return full.slice(0, 100);
+    const out = full.slice(0, 100);
+    if (!out.includes(id)) out[out.length - 1] = id;   // 100개가 넘는 날 — 끈 일정은 빠지지 않게
+    return out;
   }
-  async function saveOrder(day: string, ids: string[]) {
+  async function saveOrder(day: string, ids: string[], loud = true) {
     const res = await fetch("/api/work/calendar/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: day, ids }) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(data.error || "순서를 바꾸지 못했습니다."); return false; }
+    if (!res.ok) { if (loud) toast.error(data.error || "순서를 바꾸지 못했습니다."); return false; }
     return true;
   }
   async function dropEvent(targetDay: string, beforeId: string | null) {
@@ -153,8 +155,8 @@ export default function WorkCalendarPage() {
         const res = await fetch(`/api/work/calendar/${ev.id}/move`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startDate: start }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { toast.error(data.error || "옮기지 못했습니다."); return; }
-        if (beforeId && canReorder) await saveOrder(targetDay, orderWith(targetDay, ev.id, beforeId));
-        toast.success(`${format(new Date(`${start}T00:00:00`), "M월 d일")}로 옮겼습니다.`);
+        const placed = beforeId && canReorder ? await saveOrder(targetDay, orderWith(targetDay, ev.id, beforeId), false) : true;
+        toast.success(`${format(new Date(`${start}T00:00:00`), "M월 d일")}로 옮겼습니다.${placed ? "" : " (그날 순서는 저장하지 못했습니다)"}`);
       } else {
         await saveOrder(targetDay, orderWith(targetDay, ev.id, beforeId));
       }
@@ -172,7 +174,8 @@ export default function WorkCalendarPage() {
   } : {};
   // 일정 위 — 같은 날이면 그 앞에 끼우고, 다른 날이면 그 날로 옮긴다
   const chipDrop = (e: Ev, ds: string) => ({
-    onDragOver: (ev: React.DragEvent) => { if (!dragRef.current || dragRef.current.id === e.id) return; ev.preventDefault(); ev.stopPropagation(); setDropAt(`${e.id}@${ds}`); },
+    // 순서를 못 바꾸는 사람(직원)에게는 「이 앞에」 선 대신 날짜 칸 표시만 — 다른 날로 옮기면 그날 기본 자리로 간다
+    onDragOver: (ev: React.DragEvent) => { if (!dragRef.current || dragRef.current.id === e.id) return; ev.preventDefault(); ev.stopPropagation(); setDropAt(canReorder ? `${e.id}@${ds}` : `@${ds}`); },
     onDragLeave: (ev: React.DragEvent) => { if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node | null)) setDropAt((d) => (d === `${e.id}@${ds}` ? null : d)); },
     onDrop: (ev: React.DragEvent) => { if (!dragRef.current) return; ev.preventDefault(); ev.stopPropagation(); void dropEvent(ds, e.id); },
   });

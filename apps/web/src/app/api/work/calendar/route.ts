@@ -32,7 +32,17 @@ export async function GET(request: NextRequest) {
 
   // 같은 날 순서(#243) — 내 지점(관리자는 본부)이 정한 자리. 일정마다 { 날짜: 자리 } 로 싣는다
   const scope = await dayOrderScope(session);
-  const ranks = scope ? await dayRanks(scope) : new Map<string, Map<string, number>>();
+  const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
+  const from = events.length ? ymdOf(new Date(Math.min(...events.map((e) => e.startDate.getTime())))) : "";
+  const to = events.length ? ymdOf(new Date(Math.max(...events.map((e) => e.endDate.getTime())))) : "";
+  const stored = scope && events.length ? await dayRanks(scope, from, to) : new Map<string, Map<string, number>>();
+  // 저장된 목록에는 이 사람이 못 보는 일정(원장 전용 · 다른 겸직 지점)도 있다 — 보이는 것만 남겨 0, 1, 2… 로 다시 매긴다(11/5 재검증)
+  const visibleIds = new Set(events.map((e) => e.id));
+  const ranks = new Map<string, Map<string, number>>();
+  for (const [d, m] of stored) {
+    const ids = [...m.entries()].filter(([id]) => visibleIds.has(id)).sort((a, b) => a[1] - b[1]).map(([id]) => id);
+    ranks.set(d, new Map(ids.map((id, i) => [id, i])));
+  }
   const rankOf = (id: string, from: Date, to: Date) => {
     const out: Record<string, number> = {};
     for (const [d, m] of ranks) {

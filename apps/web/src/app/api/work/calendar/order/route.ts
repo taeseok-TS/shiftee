@@ -36,7 +36,18 @@ export async function PUT(request: NextRequest) {
   if (found !== ids.length) return NextResponse.json({ error: "그날 일정이 아닌 것이 있습니다. 새로고침 후 다시 해 주세요." }, { status: 409 });
 
   const key = `${DAY_ORDER_PREFIX}${scope}:${date}`;
-  const value = JSON.stringify(ids);
+  // 같은 대표 지점 원장이라도 겸직 지점이 다르면 보는 일정이 다르다 — 앞서 저장된 것 중 내가 못 보는 일정은 지우지 않고 뒤에 남긴다(11/5 재검증)
+  const prev = await prisma.appSetting.findUnique({ where: { key }, select: { value: true } });
+  let kept: string[] = [];
+  try {
+    const old = prev ? JSON.parse(prev.value) : [];
+    const oldIds = Array.isArray(old) ? old.filter((x): x is string => typeof x === "string" && !ids.includes(x)) : [];
+    if (oldIds.length) {
+      const seen = new Set((await prisma.workCalendarEvent.findMany({ where: { AND: [{ id: { in: oldIds } }, calendarVisibleWhere(session, myBranches)] }, select: { id: true } })).map((e) => e.id));
+      kept = oldIds.filter((id) => !seen.has(id));
+    }
+  } catch { /* 깨진 값은 버린다 */ }
+  const value = JSON.stringify([...ids, ...kept].slice(0, DAY_ORDER_MAX * 2));
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
   return NextResponse.json({ success: true });
 }

@@ -52,7 +52,7 @@ export function calendarVisibleWhere(
 // 목록에 없는 일정(새 일정 등)은 순서 있는 일정 뒤에 종일 먼저 · 이른 시각 순.
 export const DAY_ORDER_PREFIX = "calendar.dayOrder:";
 export const DAY_ORDER_MAX = 100;
-export const HQ_SCOPE = "본부";
+export const HQ_SCOPE = "@HQ";   // 지점 이름과 겹칠 수 없는 값 — 「본부」는 실제 지점 이름이라 관리자 순서와 본부 소속 순서가 섞였다(11/5 재검증)
 
 /** 순서를 읽는 묶음 — 관리자는 본부, 그 밖에는 대표 지점(토큰 값이 아니라 지금 DB 값) */
 export async function dayOrderScope(session: { userId: string; role: string }): Promise<string | null> {
@@ -60,9 +60,10 @@ export async function dayOrderScope(session: { userId: string; role: string }): 
   return myBranch(session.userId);
 }
 
-/** 그 묶음의 날짜별 순서 — 날짜 → (일정 id → 자리) */
-export async function dayRanks(scope: string): Promise<Map<string, Map<string, number>>> {
-  const rows = await prisma.appSetting.findMany({ where: { key: { startsWith: `${DAY_ORDER_PREFIX}${scope}:` } }, select: { key: true, value: true } });
+/** 그 묶음의 날짜별 순서(from~to, "YYYY-MM-DD") — 날짜 → (일정 id → 자리) */
+export async function dayRanks(scope: string, from: string, to: string): Promise<Map<string, Map<string, number>>> {
+  const p = `${DAY_ORDER_PREFIX}${scope}:`;
+  const rows = await prisma.appSetting.findMany({ where: { AND: [{ key: { gte: `${p}${from}` } }, { key: { lte: `${p}${to}` } }] }, select: { key: true, value: true } });
   const out = new Map<string, Map<string, number>>();
   for (const r of rows) {
     const date = r.key.slice(`${DAY_ORDER_PREFIX}${scope}:`.length);
