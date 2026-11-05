@@ -514,7 +514,7 @@ export default function AdminSettingsPage() {
           </div>
 
           <p className="text-xs text-gray-400">
-            상한(평일 근무일정 종료 + 30분, 일정 없으면 출근 + 10.5시간)을 넘겨 직원이 퇴근을 못 찍은 기록은 <b>출퇴근 관리</b> 화면의
+            상한(평일 근무일정 종료 + 30분, 최대 출근 + 12시간, 일정 없으면 출근 + 10.5시간)을 넘겨 직원이 퇴근을 못 찍은 기록은 <b>출퇴근 관리</b> 화면의
             &ldquo;전일 미마감&rdquo;에서 확인합니다. 마감 기준은 <b>설정 › 근태 규칙</b>입니다(상한·퇴근 가능 시각·23:59 를 넘으면 거기까지). 앱의 &ldquo;퇴근 기록이 없어요&rdquo; 본인 동의도 같은 규칙입니다.
           </p>
           <p className="text-xs text-gray-400">

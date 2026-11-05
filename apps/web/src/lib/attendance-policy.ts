@@ -155,6 +155,7 @@ export async function workScheduleOf(userId: string, ymd: string): Promise<DaySc
  *  · 주말·공휴일: 승인 근무시간 + 휴게 30분 + 조기출근 여유 15분(일정 없으면 평일 규칙).
  *  · 평일(2026-11-04 이예지 답 — 11/3 양수진 11:40 출근 → 13:00~22:00 일정인데 22:10 에 막힘): **근무일정 종료 + 30분**까지.
  *    일정 퇴근 ≤ 출근 시각인 야간 일정은 다음 날로 본다. 일정이 없거나(clockIn 을 모르는 거울 계산 포함) 그 시각이 출근보다 앞이면 출근 + 10.5시간.
+ *    단, **출근 + 12시간을 넘지 않는다**(2026-11-05 디렉터 — 일찍 출근하면 15시간 넘게 열려 주 52시간 방어가 약해졌다).
  */
 export async function capMsOf(ymd: string, sched: DaySched | null, clockIn?: Date): Promise<number> {
   const dow = new Date(`${ymd}T00:00:00Z`).getUTCDay();   // ymd 는 KST 날짜 — UTC 자정으로 만들면 요일이 그대로
@@ -169,12 +170,15 @@ export async function capMsOf(ymd: string, sched: DaySched | null, clockIn?: Dat
     let endAt = kstAt(ymd, sched.end);
     if (sched.startMin != null && sched.endMin != null && sched.endMin <= sched.startMin) endAt = new Date(endAt.getTime() + 24 * HOUR_MS);
     const ms = endAt.getTime() + WEEKDAY_AFTER_SCHEDULE_MS - clockIn.getTime();
-    if (ms > 0) return ms;
+    if (ms > 0) return Math.min(ms, WEEKDAY_MAX_MS);
   }
   return WEEKDAY_CAP_MS;
 }
 /** 평일 근무일정 종료 뒤 여유(2026-11-04 이예지) */
 export const WEEKDAY_AFTER_SCHEDULE_MS = 30 * 60 * 1000;
+/** 평일 상한의 최대(출근 + 12시간, 2026-11-05 디렉터) — 일정 종료 + 30분이 이보다 늦어도 여기서 막는다 */
+export const WEEKDAY_MAX_HOURS = 12;
+export const WEEKDAY_MAX_MS = WEEKDAY_MAX_HOURS * 60 * 60 * 1000;
 
 /** 그날 자동 퇴근의 마지막 시각 "HH:mm" — 퇴근 가능 시각(켜져 있을 때)과 23:59 중 이른 것 */
 async function lastOutHhmm(): Promise<string> {
