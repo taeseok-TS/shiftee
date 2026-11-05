@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decodeFileName, extOf, magicMatches } from "@/lib/submissions";
 import {
-  isMedicalTemplateName, medicalState, saveMedicalFile, forClient, sniffMime,
+  isMedicalTemplateName, medicalState, saveMedicalFile, removeMedicalFile, forClient, sniffMime,
   MEDICAL_EXT, MEDICAL_MAX_BYTES, MEDICAL_MAX_FILES,
 } from "@/lib/contract-medical";
 
@@ -35,9 +35,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const c = await load(id);
   if (!c) return NextResponse.json({ error: "계약서를 찾을 수 없습니다." }, { status: 404 });
   const required = !c.externalName && isMedicalTemplateName(c.template?.name);
-  if (!required) return NextResponse.json({ required: false });
   const isAdmin = session.role === "ADMIN";
   const isOwner = c.userId === session.userId;
+  // 접근 확인을 대상 판정보다 먼저 — 먼저 답하면 남의 계약 id 로 「임신기 신청서인지」(=임신 사실)를 알아낼 수 있었다(11/5 검증 3)
+  const isApprover = (c.approvalLine?.steps || []).some((s) => s.approverId === session.userId);
+  if (!isAdmin && !isOwner && !isApprover) {
+    const { canAccessContractFile } = await import("@/lib/contract-access");
+    const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
+    if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
+  }
+  if (!required) return NextResponse.json({ required: false });
   const st = await medicalState(id);
   if (isAdmin || isOwner) {
     return NextResponse.json({
@@ -47,12 +54,6 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     });
   }
   // 결재자(원장 등)·지점 문서를 볼 수 있는 사람 — 표시만(이예지 11/5 「원장 결재 화면에는 진단서 첨부됨 표시만」)
-  const isApprover = (c.approvalLine?.steps || []).some((s) => s.approverId === session.userId);
-  if (!isApprover) {
-    const { canAccessContractFile } = await import("@/lib/contract-access");
-    const acc = await canAccessContractFile({ contractId: id }, { userId: session.userId, role: session.role });
-    if (!acc.allowed) return NextResponse.json({ error: acc.error }, { status: acc.status });
-  }
   return NextResponse.json({ required, count: st.attachments.length, reapply: st.reapply });
 }
 
@@ -73,6 +74,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (st.attachments.length >= MEDICAL_MAX_FILES)
     return NextResponse.json({ error: `진단서는 ${MEDICAL_MAX_FILES}개까지 올릴 수 있습니다.` }, { status: 400 });
 
+  // 크기는 본문을 받기 전에 — formData() 는 본문 전체(프록시 상한 110MB)를 메모리에 올린다(11/5 검증 2). 머리글이 없으면 아래 file.size 로 본다
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MEDICAL_MAX_BYTES + 512 * 1024) return NextResponse.json({ error: "파일당 10MB 이하만 올릴 수 있습니다." }, { status: 413 });
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!file || typeof file === "string") return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
@@ -91,6 +95,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const realExt = mime === "application/pdf" ? ".pdf" : mime === "image/png" ? ".png" : mime === "image/heic" ? ".heic" : ".jpg";
   try {
     const att = await saveMedicalFile({ contractId: id, buf, name, ext: realExt, mime, actorId: session.userId, actorName: session.name, byAdmin: isAdmin, request });
+    // 동시에 올리면 위 개수 확인을 둘 다 지난다(11/5 검증 1) — 저장 뒤 다시 세어 상한 밖으로 밀린 것이 이 파일이면 되돌린다.
+    // 순서는 (시각, id) 로 고정이라 어느 요청에서 세어도 같은 파일이 밀려난다
+    const after = await medicalState(id);
+    if (after.attachments.findIndex((a) => a.attId === att.attId) >= MEDICAL_MAX_FILES) {
+      await removeMedicalFile({ contractId: id, att, actorId: session.userId, actorName: session.name, request, reason: "OVER_LIMIT" });
+      return NextResponse.json({ error: `진단서는 ${MEDICAL_MAX_FILES}개까지 올릴 수 있습니다.` }, { status: 400 });
+    }
     return NextResponse.json({ attachment: forClient(att) });
   } catch (e) {
     console.error("[contract-medical] 첨부 저장 실패:", id, e);

@@ -43,7 +43,7 @@ type Meta = { attId?: string; key?: string; name?: string; size?: number; mime?:
 export async function medicalState(contractId: string): Promise<{ attachments: MedicalAttachment[]; reapply: boolean }> {
   const rows = await prisma.contractEvent.findMany({
     where: { contractId, type: { in: [MEDICAL_ADD, MEDICAL_REMOVE, MEDICAL_REAPPLY] } },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],   // 같은 시각이면 id 로 — 개수 넘침 되돌리기(route POST)가 어느 요청에서 계산해도 같은 순서를 본다
     select: { type: true, actorName: true, meta: true, createdAt: true },
   });
   const live = new Map<string, MedicalAttachment>();
@@ -64,6 +64,14 @@ export async function medicalState(contractId: string): Promise<{ attachments: M
 
 export function medicalDir(contractId: string) {
   return path.join(process.cwd(), "uploads", "private", "contract-attach", contractId);
+}
+
+/** 계약을 지울 때 진단서 폴더도 지운다(이벤트는 FK cascade 로 사라져 남은 파일은 아무도 못 연다 — 건강 정보를 서버에 남기지 않는다, 11/5 검증 4) */
+export async function removeMedicalDirs(contractIds: string[]): Promise<void> {
+  for (const id of contractIds) {
+    if (!/^[a-z0-9]+$/i.test(id)) continue;
+    await fs.rm(medicalDir(id), { recursive: true, force: true }).catch((e) => console.error("[contract-medical] 폴더 삭제 실패:", id, e));
+  }
 }
 
 /** 파일 저장 + ATTACH_ADDED 기록. 이름에 경로 문자가 섞여도 서버 파일 이름은 무작위로 만든다 */
@@ -89,6 +97,20 @@ export async function saveMedicalFile(input: {
     await fs.unlink(full).catch(() => {});   // 기록이 없으면 아무도 못 여는 파일 — 남기지 않는다
     throw e;
   }
+}
+
+/** ATTACH_REMOVED 기록 + 파일 삭제 — 본부 삭제(attachments/[attId] DELETE)·개수 넘침 자동 취소(reason OVER_LIMIT)가 같이 쓴다 */
+export async function removeMedicalFile(input: {
+  contractId: string; att: MedicalAttachment; actorId: string; actorName: string; request: Request; reason?: "OVER_LIMIT";
+}): Promise<void> {
+  const r = requestInfo(input.request);
+  await prisma.contractEvent.create({
+    data: {
+      contractId: input.contractId, type: MEDICAL_REMOVE, actorId: input.actorId, actorName: input.actorName, ip: r.ip, userAgent: r.userAgent, deviceId: r.deviceId,
+      meta: { attId: input.att.attId, name: input.att.name, size: input.att.size, ...(input.reason ? { reason: input.reason } : {}) } as Prisma.InputJsonValue,
+    },
+  });
+  if (path.basename(input.att.key) === input.att.key) await fs.unlink(path.join(medicalDir(input.contractId), input.att.key)).catch(() => {});
 }
 
 /** 응답용 — 서버 파일 이름(key)은 빼고 보낸다 */

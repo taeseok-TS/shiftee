@@ -742,6 +742,9 @@ export async function DELETE(
       where: { id: { in: targetIds } },
     });
   });
+  // 진단서 첨부 폴더(#242) — 이벤트는 cascade 로 지워져 남은 파일은 아무도 못 연다. 건강 정보라 같이 지운다
+  const { removeMedicalDirs } = await import("@/lib/contract-medical");
+  await removeMedicalDirs(targetIds);
 
   // 하드 삭제라 지운 뒤에는 무엇이 있었는지 알 길이 없다 — 감사 로그가 유일한 흔적.
   // (2026-08-19 계약 전체가 비었을 때 누가 지웠는지 추적 불가했던 사고의 재발 방지)

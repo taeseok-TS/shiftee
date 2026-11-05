@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import type { Prisma } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { requestInfo } from "@/lib/contract-events";
-import { medicalState, medicalDir, sniffMime, MEDICAL_REMOVE } from "@/lib/contract-medical";
+import { medicalState, medicalDir, sniffMime, removeMedicalFile } from "@/lib/contract-medical";
 
 // 진단서 한 건 열기·지우기(#242, lib/contract-medical)
 //  GET    — 본부·본인만. 원장·재무는 열 수 없다(표시만). 파일 형식은 앞 바이트로 다시 본다(HEIC 스위퍼가 JPEG 로 바꿔 둘 수 있다)
@@ -49,13 +47,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id, attId } = await params;
   const hit = await find(id, attId);
   if (!hit) return NextResponse.json({ error: "첨부를 찾을 수 없습니다." }, { status: 404 });
-  const r = requestInfo(request);
-  await prisma.contractEvent.create({
-    data: {
-      contractId: id, type: MEDICAL_REMOVE, actorId: session.userId, actorName: session.name, ip: r.ip, userAgent: r.userAgent, deviceId: r.deviceId,
-      meta: { attId, name: hit.att.name, size: hit.att.size } as Prisma.InputJsonValue,
-    },
-  });
-  if (path.basename(hit.att.key) === hit.att.key) await fs.unlink(path.join(medicalDir(id), hit.att.key)).catch(() => {});
+  await removeMedicalFile({ contractId: id, att: hit.att, actorId: session.userId, actorName: session.name, request });
   return NextResponse.json({ ok: true });
 }

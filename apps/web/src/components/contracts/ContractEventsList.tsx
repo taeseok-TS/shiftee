@@ -41,7 +41,7 @@ function detail(e: Ev): string {
   // 본인 확인은 확인할 때 + 서명 제출·동반 문서에서 한 번 더 남는다 — 어느 것인지 적어 두 번 입력한 것처럼 보이지 않게
   if (e.type === "VERIFY_OK" && typeof m.via === "string") return m.via;
   if (e.type === "TSA" && typeof m.url === "string") return `발급 ${tsaName(m.url)}`;
-  if ((e.type === "ATTACH_ADDED" || e.type === "ATTACH_REMOVED") && typeof m.name === "string") return `${m.name}${m.byAdmin ? " · 본부가 올림" : ""}`;
+  if ((e.type === "ATTACH_ADDED" || e.type === "ATTACH_REMOVED") && typeof m.name === "string") return `${m.name}${m.byAdmin ? " · 본부가 올림" : ""}${m.reason === "OVER_LIMIT" ? " · 개수 초과로 자동 취소" : ""}`;
   if (e.type === "FROZEN" && typeof m.docNo === "string") return `문서번호 ${m.docNo}`;
   if (e.type === "PORTAL_SENT") return `문서번호 ${String(m.docKey ?? "")}${typeof m.annual === "number" ? ` · 연봉 ${m.annual.toLocaleString()}원` : ""}${m.alert ? ` · 포털 알림: ${String(m.alert)}` : ""}`;
   if (e.type === "PORTAL_FAIL" && typeof m.error === "string") return `${m.error}${m.permanent ? " (다시 보내지 않음)" : ""}`;

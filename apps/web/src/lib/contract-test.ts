@@ -58,6 +58,8 @@ export async function purgeTestContracts(): Promise<number> {
   });
   if (!olds.length) return 0;
   const r = await prisma.contract.deleteMany({ where: { id: { in: olds.map((c) => c.id) }, isTest: true } });
+  const { removeMedicalDirs } = await import("@/lib/contract-medical");   // 시험 문서에 올린 진단서 폴더(#242)
+  await removeMedicalDirs(olds.map((c) => c.id));
   await logAudit({
     actorId: "cubetee-bot", actorName: "큐브티 봇", action: "CONTRACT_TEST_PURGE", targetType: "Contract",
     detail: `${TEST_RETENTION_DAYS}일 지난 테스트 문서 ${r.count}건 삭제 — ${olds.slice(0, 10).map((c) => `${c.user.name} 「${c.title}」`).join(", ")}${olds.length > 10 ? ` 외 ${olds.length - 10}건` : ""}`,
