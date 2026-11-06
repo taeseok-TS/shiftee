@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authenticateApiKey, v1Error } from "@/lib/api-key";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { addPublish, PUBLISH_NOTE_MAX } from "@/lib/marketing-publish";
+import { addPublish, lockSubmission, PUBLISH_NOTE_MAX } from "@/lib/marketing-publish";
 import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -19,16 +19,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const url = typeof body.url === "string" ? body.url.trim().slice(0, 500) : "";
   if (!/^https?:\/\/\S+$/i.test(url)) return v1Error(400, "url 은 http(s) 주소여야 합니다.", "BAD_URL");
   const note = typeof body.note === "string" ? body.note.trim().slice(0, PUBLISH_NOTE_MAX) : "";
-  const s = await prisma.submission.findFirst({ where: { id, deletedAt: null, category: { group: "MARKETING" } }, include: { category: true } });
-  if (!s) return v1Error(404, "마케팅 자료를 찾을 수 없습니다.", "NOT_FOUND");
-  // 발행 기록에 더한다(lib/marketing-publish, 2026-11-06) — 다른 주소면 새 글(2회 · 3회…), 같은 주소면 덧붙일 말만 고치고 알림은 다시 보내지 않는다
-  const { history, isNew } = addPublish(s, { url, note: note || null, by: a.p.key.name });
-  const row = await prisma.submission.update({
-    where: { id },
-    data: isNew
-      ? { publishHistory: history as unknown as Prisma.InputJsonValue, publishedAt: new Date(), publishedUrl: url, publishedBy: a.p.key.name }
-      : { publishHistory: history as unknown as Prisma.InputJsonValue },
+  // 발행 기록에 더한다(lib/marketing-publish, 2026-11-06) — 다른 주소면 새 글(2회 · 3회…), 같은 주소면 덧붙일 말만 고치고 알림은 다시 보내지 않는다.
+  // 읽고-고치고-쓰기는 행 잠금 안에서 — 화면 직접 표시와 겹쳐도 한 줄이 사라지거나 알림이 두 번 가지 않게(11/6 검증 4)
+  const done = await prisma.$transaction(async (tx) => {
+    await lockSubmission(tx, id);
+    const s = await tx.submission.findFirst({ where: { id, deletedAt: null, category: { group: "MARKETING" } } });
+    if (!s) return null;
+    const { history, isNew } = addPublish(s, { url, note: note || null, by: a.p.key.name });
+    const row = await tx.submission.update({
+      where: { id },
+      data: isNew
+        ? { publishHistory: history as unknown as Prisma.InputJsonValue, publishedAt: new Date(), publishedUrl: url, publishedBy: a.p.key.name }
+        : { publishHistory: history as unknown as Prisma.InputJsonValue, publishedUrl: history[history.length - 1].url },   // 주소 없던 마지막 줄을 채웠으면 그 주소로
+    });
+    return { s, row, history, isNew };
   });
+  if (!done) return v1Error(404, "마케팅 자료를 찾을 수 없습니다.", "NOT_FOUND");
+  const { s, row, history, isNew } = done;
   await logAudit({ actorId: a.p.user.id, actorName: a.p.user.name, action: "MARKETING_PUBLISHED", targetType: "SUBMISSION", targetId: id, targetName: s.title, detail: `연동 키 「${a.p.key.name}」 · ${url}${note ? ` · ${note}` : ""}${isNew ? ` · ${history.length}회` : " · 같은 주소(메모만)"}` });
   if (isNew) {
     const { botSendDM } = await import("@/lib/bot");

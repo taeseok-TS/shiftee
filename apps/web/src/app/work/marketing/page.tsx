@@ -100,7 +100,8 @@ function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }
       if (!confirm(`「${s.title}」의 마지막 발행(${n}번째 글) 기록을 지울까요?`)) return;
     } else if (!confirm(`「${s.title}」을(를) 발행 대기로 되돌릴까요?
 되돌리면 큐브마케팅이 가져갈 자료 목록에 다시 올라가고, 올린 분이 자료를 다시 고치거나 지울 수 있습니다.`)) return;
-    const res = await fetch(`/api/work/submissions/${s.id}/published`, { method: "DELETE" });
+    // 화면이 본 줄 수를 함께 보낸다 — 그 사이 큐브마케팅이 새 줄을 더했으면 서버가 지우지 않는다(엉뚱한 줄 삭제 방지)
+    const res = await fetch(`/api/work/submissions/${s.id}/published?count=${s.publishHistory?.length ?? 0}`, { method: "DELETE" });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(d.error || "되돌리지 못했습니다."); return; }
     toast.success(n > 1 ? "마지막 발행 기록을 지웠습니다." : "발행 대기로 되돌렸습니다."); onChanged();
@@ -303,7 +304,7 @@ function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void
       const res = await fetch(`/api/work/submissions/${sub.id}/published`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, note: note.trim(), notify }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "처리하지 못했습니다."); return; }
-      toast.success("블로그 발행 완료로 표시했습니다."); onDone();
+      toast.success(d.isNew === false ? "이미 기록된 글이라 주소 · 덧붙일 말만 고쳤습니다(알림은 보내지 않았습니다)." : "블로그 발행 완료로 표시했습니다."); onDone();
     } catch { toast.error("연결이 끊겨 처리하지 못했습니다."); }
     finally { setBusy(false); }
   }
