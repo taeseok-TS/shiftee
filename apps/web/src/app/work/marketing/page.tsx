@@ -271,6 +271,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
 // 「발행 완료」 창 — 담당자가 이 자료로 따로 블로그를 쓴 경우(2026-11-05). 주소는 비워도 되고, 올린 분께 봇 알림을 보낼지 고른다
 function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void; onDone: () => void }) {
   const [url, setUrl] = useState("");
+  const [note, setNote] = useState("");   // 덧붙일 말(선택) — 알림 아래에 함께 간다(11/6 디렉터 「1·2회차로 합쳐서 발행했습니다」 같은 짧은 글)
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   async function save() {
@@ -279,7 +280,7 @@ function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void
     if (u && !/^https?:\/\/\S+$/i.test(u)) { toast.error("블로그 주소는 http:// 또는 https:// 로 시작해야 합니다."); return; }
     setBusy(true);
     try {
-      const res = await fetch(`/api/work/submissions/${sub.id}/published`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, notify }) });
+      const res = await fetch(`/api/work/submissions/${sub.id}/published`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, note: note.trim(), notify }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "처리하지 못했습니다."); return; }
       toast.success("블로그 발행 완료로 표시했습니다."); onDone();
@@ -295,6 +296,10 @@ function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void
           <div>
             <label className="text-xs text-gray-500">블로그 글 주소 <span className="text-gray-400">(선택 — 넣으면 목록에서 눌러 열 수 있습니다)</span></label>
             <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://blog.naver.com/…" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">덧붙일 말 <span className="text-gray-400">(선택 — 알림에 함께 갑니다. 비우면 알림만 갑니다)</span></label>
+            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="예: 이 자료는 1 · 2회차로 합쳐서 발행했습니다." />
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
