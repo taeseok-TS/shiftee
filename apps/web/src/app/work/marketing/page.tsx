@@ -69,10 +69,14 @@ const PUB_TABS: [string, string][] = [["", "전체"], ["no", "발행 대기"], [
 function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }: { me: Me; scope: "mine" | "branch" | "all"; categories: Category[]; canManage: boolean; reloadKey: number; onChanged: () => void }) {
   const [categoryId, setCategoryId] = useState("");
   const [pub, setPub] = useState("");
+  const [branch, setBranch] = useState("");   // 지점별로 모아 보기(11/7 노현영 「분당서현 고르면 분당서현 자료만」) — 불러온 목록에서 거른다
   const [marking, setMarking] = useState<Sub | null>(null);   // 「발행 완료」 창
   const stamp = `${scope}|${categoryId}|${pub}|${reloadKey}`;
   const [data, setData] = useState<{ stamp: string; rows: Sub[] } | null>(null);
-  const rows = data && data.stamp === stamp ? data.rows : null;
+  const loaded = data && data.stamp === stamp ? data.rows : null;
+  // 지점 고르기 목록은 불러온 자료의 지점으로(직원 계정은 지점 목록 API 를 못 쓴다). 고른 지점이 지금 탭에 없어도 목록에 남긴다
+  const branchOptions = [...new Set([...(loaded ?? []).map((s) => s.userBranch).filter((b): b is string => !!b), ...(branch ? [branch] : [])])].sort((a, b) => a.localeCompare(b, "ko"));
+  const rows = loaded && branch && scope !== "mine" ? loaded.filter((s) => s.userBranch === branch) : loaded;   // 「내 자료」에서는 지점 고르기를 안 보이므로 거르지 않는다
   useEffect(() => {
     const my = stamp;
     // 마케팅 구분만 — 분류 필터가 없으면 MARKETING 분류 전부를 받아 화면에서 거른다
@@ -118,6 +122,12 @@ function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }
           <option value="">모든 유형</option>
           {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {scope !== "mine" && (
+          <select className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm" value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value="">모든 지점</option>
+            {branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        )}
         {rows && <span className="text-xs text-gray-500 ml-auto">{rows.length}건</span>}
       </div>
       {!rows ? <p className="text-sm text-gray-500 py-6">불러오는 중…</p>
