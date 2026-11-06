@@ -1192,6 +1192,7 @@ model Submission {
   publishedAt  DateTime? // 큐브마케팅이 블로그 발행 뒤 되돌려준 시각
   publishedUrl String?
   publishedBy  String? // 되돌려준 연동 키 이름
+  publishHistory Json? // 블로그 발행 기록 [{ url, note, at, by }] 오래된 것부터(2026-11-06 — 여러 번 · 합쳐 발행). 비어 있으면 publishedUrl 하나. deploy/ddl_submission_publish_history.sql
   deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

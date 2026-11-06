@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { CATEGORY_GROUPS, JOB_GROUPS, SHARE_ALL, SHARE_BRANCH_MANAGER, dateStr, type SubmissionFile } from "@/lib/submissions";
 import type { Submission, SubmissionRequest, SubmissionCategory } from "@prisma/client";
 import { targetUsersFor, type TargetUser } from "@/lib/submission-targets";
+import { publishHistoryOf } from "@/lib/marketing-publish";
 
 export { CATEGORY_GROUPS };
 
@@ -114,6 +115,7 @@ export function serializeSubmission(s: Submission & { category?: SubmissionCateg
     consent: s.consent,
     publishedAt: s.publishedAt,
     publishedUrl: s.publishedUrl,
+    publishHistory: publishHistoryOf(s),   // 블로그 발행 기록(여러 번 · 합쳐 발행, lib/marketing-publish)
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
   };

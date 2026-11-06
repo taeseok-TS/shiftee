@@ -3,6 +3,7 @@ import { authenticateApiKey, v1Error } from "@/lib/api-key";
 import { prisma } from "@/lib/db";
 import { getAppUrl } from "@/lib/app-url";
 import type { SubmissionFile } from "@/lib/submissions";
+import { publishHistoryOf } from "@/lib/marketing-publish";
 import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
         files: removedAt ? [] : ((Array.isArray(s.files) ? s.files : []) as SubmissionFile[]).map((f) => ({ ...f, url: base + f.url })),
         publishedAt: s.publishedAt,
         publishedUrl: s.publishedUrl,
+        publishHistory: publishHistoryOf(s),   // [{ url, note, at, by }] 오래된 것부터 — 발행 2회 · 3회(2026-11-06)
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
         removedAt,

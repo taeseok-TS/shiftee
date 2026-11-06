@@ -20,6 +20,7 @@ type Sub = {
   userId: string; userName: string; userBranch: string | null; userJobGroup: string | null; userPosition: string | null;
   yearMonth: string; title: string; memo: string | null; files: SubmissionFile[]; consent: boolean;
   publishedAt: string | null; publishedUrl: string | null; createdAt: string;
+  publishHistory?: { url: string | null; note: string | null; at: string; by: string | null }[];   // 발행 기록(여러 번 · 합쳐 발행, 2026-11-06)
 };
 
 const fmtBytes = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : n >= 1024 ? `${Math.round(n / 1024)}KB` : `${n}B`);
@@ -94,12 +95,15 @@ function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }
     toast.success("지웠습니다."); onChanged();
   }
   async function unpublish(s: Sub) {
-    if (!confirm(`「${s.title}」을(를) 발행 대기로 되돌릴까요?
+    const n = s.publishHistory?.length ?? 1;
+    if (n > 1) {
+      if (!confirm(`「${s.title}」의 마지막 발행(${n}번째 글) 기록을 지울까요?`)) return;
+    } else if (!confirm(`「${s.title}」을(를) 발행 대기로 되돌릴까요?
 되돌리면 큐브마케팅이 가져갈 자료 목록에 다시 올라가고, 올린 분이 자료를 다시 고치거나 지울 수 있습니다.`)) return;
     const res = await fetch(`/api/work/submissions/${s.id}/published`, { method: "DELETE" });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(d.error || "되돌리지 못했습니다."); return; }
-    toast.success("발행 대기로 되돌렸습니다."); onChanged();
+    toast.success(n > 1 ? "마지막 발행 기록을 지웠습니다." : "발행 대기로 되돌렸습니다."); onChanged();
   }
   return (
     <div className="space-y-3">
@@ -131,21 +135,35 @@ function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }
                     {s.category?.name} · {format(new Date(s.createdAt), "M/d HH:mm")}
                   </p>
                   {s.memo && <p className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">{s.memo}</p>}
+                  {(s.publishHistory?.length ?? 0) > 0 && (
+                    <ul className="mt-1.5 space-y-0.5 rounded bg-green-50/60 border border-green-100 px-2 py-1">
+                      {s.publishHistory!.map((h, i) => (
+                        <li key={i} className="text-[11px] text-gray-700 break-words">
+                          <span className="font-medium text-green-700">{i + 1}회 · {format(new Date(h.at), "M/d")}</span>
+                          {h.url && <> · <a href={h.url} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline">블로그 글<ExternalLink size={9} className="inline ml-0.5" /></a></>}
+                          {h.note && <> · {h.note}</>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="shrink-0 flex flex-col items-end gap-1.5">
                   {s.publishedAt ? (
                     s.publishedUrl ? (
                       <a href={s.publishedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-green-50 text-green-700 border-green-200 hover:underline">
-                        <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}<ExternalLink size={10} />
+                        <CheckCircle2 size={11} />{(s.publishHistory?.length ?? 1) > 1 ? `블로그 발행 ${s.publishHistory!.length}회` : `블로그 발행됨 ${format(new Date(s.publishedAt), "M/d")}`}<ExternalLink size={10} />
                       </a>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-green-50 text-green-700 border-green-200">
-                        <CheckCircle2 size={11} />블로그 발행됨 {format(new Date(s.publishedAt), "M/d")}
+                        <CheckCircle2 size={11} />{(s.publishHistory?.length ?? 1) > 1 ? `블로그 발행 ${s.publishHistory!.length}회` : `블로그 발행됨 ${format(new Date(s.publishedAt), "M/d")}`}
                       </span>
                     )
                   ) : <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-100 text-gray-600 border-gray-200">발행 대기</span>}
                   {canManage && (s.publishedAt
-                    ? <button type="button" onClick={() => void unpublish(s)} className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline">발행 대기로 되돌리기</button>
+                    ? <>
+                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-700 border-green-300" onClick={() => setMarking(s)}><Plus size={12} />발행 추가</Button>
+                        <button type="button" onClick={() => void unpublish(s)} className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline">{(s.publishHistory?.length ?? 1) > 1 ? "마지막 발행 지우기" : "발행 대기로 되돌리기"}</button>
+                      </>
                     : <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-700 border-green-300" onClick={() => setMarking(s)}><CheckCircle2 size={12} />발행 완료</Button>)}
                   {((isOwner && !s.publishedAt) || me.role === "ADMIN") && <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-600" onClick={() => remove(s)}><Trash2 size={12} /></Button>}
                 </div>
@@ -274,9 +292,11 @@ function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void
   const [note, setNote] = useState("");   // 덧붙일 말(선택) — 알림 아래에 함께 간다(11/6 디렉터 「1·2회차로 합쳐서 발행했습니다」 같은 짧은 글)
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
+  const again = !!sub.publishedAt;   // 이미 발행된 자료에 다른 글을 더한다(발행 2회 · 3회, 2026-11-06)
   async function save() {
     if (busy) return;
     const u = url.trim();
+    if (again && !u) { toast.error("또 발행한 블로그 글 주소를 넣어 주세요."); return; }
     if (u && !/^https?:\/\/\S+$/i.test(u)) { toast.error("블로그 주소는 http:// 또는 https:// 로 시작해야 합니다."); return; }
     setBusy(true);
     try {
@@ -290,11 +310,11 @@ function PublishDialog({ sub, onClose, onDone }: { sub: Sub; onClose: () => void
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>블로그 발행 완료</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{again ? `블로그 발행 추가 (${(sub.publishHistory?.length ?? 1) + 1}번째 글)` : "블로그 발행 완료"}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-gray-700">「{sub.title}」 <span className="text-gray-500">· {sub.userBranch} {sub.userName}</span></p>
           <div>
-            <label className="text-xs text-gray-500">블로그 글 주소 <span className="text-gray-400">(선택 — 넣으면 목록에서 눌러 열 수 있습니다)</span></label>
+            <label className="text-xs text-gray-500">블로그 글 주소 <span className="text-gray-400">{again ? "(필수 — 또 발행한 글)" : "(선택 — 넣으면 목록에서 눌러 열 수 있습니다)"}</span></label>
             <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://blog.naver.com/…" />
           </div>
           <div>

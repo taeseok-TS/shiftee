@@ -72,14 +72,17 @@ curl -X POST ${base}/submissions \\
 
 ### 가져가기
 \`GET /marketing/materials?status=new|published|all&since=<ISO 시각>&limit=50&cursor=<id>\` (기본 status=new — 아직 발행되지 않은 것)
-→ \`{ materials: [{ id, title, description, category: {id,name}, branch, uploader: {name, jobGroup, position}, yearMonth, consent: true, files: [{url(절대 주소), name, size, type}], publishedAt, publishedUrl, createdAt }], nextCursor }\`
+→ \`{ materials: [{ id, title, description, category: {id,name}, branch, uploader: {name, jobGroup, position}, yearMonth, consent: true, files: [{url(절대 주소), name, size, type}], publishedAt, publishedUrl, publishHistory: [{url, note, at, by}], createdAt }], nextCursor }\`
+- \`publishHistory\` 는 발행 기록(오래된 것부터). \`publishedAt\`·\`publishedUrl\` 은 마지막 발행입니다.
 - 개인정보 동의 체크가 된 자료만 나옵니다. 검수(얼굴·이름·성적 가림 확인)는 가져가는 쪽 책임입니다.
 - 파일은 \`files[].url\` 에 같은 Authorization 헤더로 GET. 워드·PPT·엑셀 PDF 미리보기는 \`GET ${getAppUrl()}/api/docs/pdf?src=<url>\`.
 - 오래된 순(createdAt 오름차순). \`nextCursor\` 가 있으면 \`cursor=\` 로 이어서 받습니다. 주기 폴링은 마지막으로 본 \`createdAt\` 을 \`since\` 로.
 
 ### 발행 결과 되돌려주기
-\`POST /marketing/materials/{id}/published\` JSON \`{ "url": "https://blog…", "note": "선택" }\`
-→ 자료에 발행 시각·주소가 기록되고, 올린 직원에게 봇 DM "블로그에 발행되었습니다 + 주소"가 갑니다. 같은 자료에 다시 보내면 주소를 갱신합니다.
+\`POST /marketing/materials/{id}/published\` JSON \`{ "url": "https://blog…", "note": "선택, 300자" }\`
+→ 발행 기록에 한 줄이 더해지고(발행 1회·2회…), 올린 직원에게 봇 DM "블로그에 발행되었습니다 + 주소 + note"가 갑니다.
+- 같은 자료를 **다른 글 주소**로 다시 보내면 2번째·3번째 발행으로 쌓이고 DM 도 다시 갑니다("또 발행되었습니다(N번째 글)").
+- **같은 주소**를 다시 보내면 그 줄의 note 만 고치고 DM 은 보내지 않습니다. 응답 \`{ id, publishedAt, publishedUrl, publishCount, isNew }\`.
 
 ## 직원에게 1:1 DM 보내기 — 회사 연동 키 전용 (scope: dm:send)
 
