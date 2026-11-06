@@ -80,10 +80,12 @@ export async function POST(request: NextRequest) {
     const sched = await workScheduleOf(session.userId, inYmd).catch(() => null);
     const capMs = await capMsOf(inYmd, sched, clockInAt).catch(() => WEEKDAY_CAP_MS);
     if (elapsedMs > capMs) {
-      // ⚠ 메시지를 바꾸지 말 것 (2026-09-07 디렉터 지시). 근무 시간이나 초과분을 화면에
-      //   적으면 그 문구가 **노무 분쟁의 기록**이 될 수 있다. 직원에게는 막혔다는 사실만
-      //   알리고, 실제 처리는 관리자 화면의 "전일 미마감" 에서 한다.
-      return NextResponse.json({ error: "관리자에게 문의해주세요." }, { status: 403 });
+      // ⚠ 근무 시간 · 초과분 · 시각을 문구에 넣지 말 것 (2026-09-07 디렉터 지시). 그 문구가
+      //   **노무 분쟁의 기록**이 될 수 있다. 실제 처리는 다음 날 직원 앱 「어제 퇴근 기록이 없어요」
+      //   또는 관리자 화면 「전일 미마감」에서 한다.
+      // 2026-11-06 디렉터 · 이예지 「바꾸는 것 좋습니다」: 종전 「관리자에게 문의해주세요.」만으로는
+      //   오류인지 · 다시 눌러야 하는지 몰랐다 — 숫자 없이 다음에 무슨 일이 생기는지만 알린다
+      return NextResponse.json({ error: "퇴근 가능 시간이 지났어요.\n오늘 퇴근은 내일 앱에서 확인하거나 관리자가 처리해 드립니다." }, { status: 403 });
     }
   }
 
