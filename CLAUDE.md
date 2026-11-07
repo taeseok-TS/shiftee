@@ -99,6 +99,12 @@ packages/db    — (레거시) 실제 활성 스키마는 apps/web/prisma/schema
   **배포 직후 캐시 정리 필수**: `docker builder prune -af` — `--no-cache` 빌드 1회당 약 4GB 쌓인다.
   하루 8회 배포로 37.9GB까지 차서 디스크 80% 경고가 떴다(2026-08-18). 정리 cron 은 새벽 4시 1회뿐이라
   그 사이 배포가 몰리면 하루 만에 찬다.
+  **되돌리기 이미지는 최근 2개만 남긴다(2026-11-07 디렉터)**: 배포 전 `docker tag <현재 이미지> qubetee-web:pre-<이름>` 으로 남기고,
+  배포가 끝나 정상 확인한 뒤 오래된 것을 지운다(이미지 하나 3.7GB — 11/5~7 에 21GB 가 쌓여 79%까지 찼다):
+  ```bash
+  docker images --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' | grep 'qubetee-web:pre-' | sort -r | tail -n +3 | cut -f2 | xargs -r docker rmi
+  ```
+  `cubetee:*`(판매용 설치 키트)는 지우지 않는다.
 - **DB(운영)**: 컨테이너 `qubetee-db-1`, user `postgres`, db `qubetee`
   ```bash
   docker exec -i qubetee-db-1 psql -U postgres -d qubetee
