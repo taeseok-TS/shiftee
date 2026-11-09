@@ -5214,50 +5214,6 @@ ${url}`;
           <DialogHeader>
             <div className="flex items-center justify-between w-full gap-2">
               <DialogTitle>결재 히스토리</DialogTitle>
-              <div className="flex gap-2">
-                {/* 삭제 버튼 - ADMIN && 결재 완료 아님 */}
-                {role === "ADMIN" && approvalDetailsTarget && (approvalDetailsTarget.status !== "SIGNED" || approvalDetailsTarget.isTest) && (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="text-xs h-7"
-                    onClick={() => {
-                      setDeleteTarget({ id: approvalDetailsTarget.id, title: approvalDetailsTarget.title, bundleId: approvalDetailsTarget.bundleId });
-                      setDeleteConfirmOpen(true);
-                    }}
-                  >
-                    삭제
-                  </Button>
-                )}
-                {/* 숨기기 버튼 - 회수된 결재가 있을 때만 표시 */}
-                {role === "ADMIN" && approvalDetailsTarget &&
-                  Array.isArray(approvalDetailsTarget.revocationLog) &&
-                  approvalDetailsTarget.revocationLog.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs h-7"
-                    onClick={async () => {
-                      try {
-                        const res = await fetch(`/api/contracts/${approvalDetailsTarget.id}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ hideRevoked: !approvalDetailsTarget.hideRevoked }),
-                        });
-                        if (!res.ok) throw new Error("숨김 상태 변경 실패");
-                        const data = await res.json();
-                        setApprovalDetailsTarget(data.contract);
-                        toast.success(data.contract.hideRevoked ? "숨겨졌습니다." : "표시됩니다.");
-                        fetchContracts();
-                      } catch (err) {
-                        toast.error("숨김 상태 변경에 실패했습니다.");
-                      }
-                    }}
-                  >
-                    {approvalDetailsTarget.hideRevoked ? "표시" : "숨기기"}
-                  </Button>
-                )}
-              </div>
             </div>
           </DialogHeader>
           {approvalDetailsTarget && (
@@ -5481,6 +5437,52 @@ ${url}`;
               <ContractEventsList contractId={approvalDetailsTarget.id} />
             </div>
           )}
+          {/* 삭제 · 숨기기는 창 아래로(개선 제안 #245, 2026-11-09 이예지) — 오른쪽 위 닫기(X) 바로 밑에 「삭제」가 붙어 있어
+              닫으려다 삭제를 누를 수 있었다. 삭제는 왼쪽 아래 끝, 닫기와 가장 먼 자리에 둔다. 삭제는 확인 창을 한 번 더 거친다 */}
+          <div className="flex items-center gap-2 border-t pt-3 empty:hidden">
+            {/* 삭제 버튼 - ADMIN && 결재 완료 아님 */}
+            {role === "ADMIN" && approvalDetailsTarget && (approvalDetailsTarget.status !== "SIGNED" || approvalDetailsTarget.isTest) && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="text-xs h-7"
+                onClick={() => {
+                  setDeleteTarget({ id: approvalDetailsTarget.id, title: approvalDetailsTarget.title, bundleId: approvalDetailsTarget.bundleId });
+                  setDeleteConfirmOpen(true);
+                }}
+              >
+                삭제
+              </Button>
+            )}
+            {/* 숨기기 버튼 - 회수된 결재가 있을 때만 표시 */}
+            {role === "ADMIN" && approvalDetailsTarget &&
+              Array.isArray(approvalDetailsTarget.revocationLog) &&
+              approvalDetailsTarget.revocationLog.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7 ml-auto"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/contracts/${approvalDetailsTarget.id}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ hideRevoked: !approvalDetailsTarget.hideRevoked }),
+                    });
+                    if (!res.ok) throw new Error("숨김 상태 변경 실패");
+                    const data = await res.json();
+                    setApprovalDetailsTarget(data.contract);
+                    toast.success(data.contract.hideRevoked ? "숨겨졌습니다." : "표시됩니다.");
+                    fetchContracts();
+                  } catch (err) {
+                    toast.error("숨김 상태 변경에 실패했습니다.");
+                  }
+                }}
+              >
+                {approvalDetailsTarget.hideRevoked ? "표시" : "숨기기"}
+              </Button>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
