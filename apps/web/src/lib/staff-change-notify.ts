@@ -10,7 +10,7 @@
 import { prisma } from "@/lib/db";
 import { kstTodayMidnight } from "@/lib/resign";
 
-export type StaffChangeKind = "hire" | "resign" | "deactivate" | "rehire" | "resignCancel";
+export type StaffChangeKind = "hire" | "resign" | "deactivate" | "rehire" | "resignCancel" | "unresign";
 export type StaffChange = {
   kind: StaffChangeKind;
   userId: string;
@@ -31,6 +31,8 @@ function lineOf(c: StaffChange): string {
   switch (c.kind) {
     case "hire": return `입사 등록됐습니다${day ? `(입사일 ${day})` : ""}`;
     case "rehire": return "재입사로 다시 등록됐습니다(퇴사 해제)";
+    // 퇴직자 현황 「재직으로 되돌리기」 — 잘못 넣은 퇴사를 바로잡은 것이라 재입사가 아니다(2026-11-09 검증 7)
+    case "unresign": return "퇴사 처리가 취소됐습니다(잘못 입력된 퇴사를 되돌림 — 계속 근무)";
     // 퇴사일 당일까지는 재직(lib/resign 기준) — 앞날이면 「퇴사 예정」
     case "resign":
       if (c.prevDate && ymd(c.prevDate) !== day) {

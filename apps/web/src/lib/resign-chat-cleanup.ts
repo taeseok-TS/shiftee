@@ -96,8 +96,12 @@ export async function cleanupResignedUserChannels(userId: string): Promise<{
   hiddenDms: number;
   handovers: Handover[];
 }> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, employmentStatus: true, resignDate: true, deletedAt: true } });
   const name = user?.name || "(이름 없음)";
+  // 정리 직전에 다시 확인한다 — 매일 쓸이가 대상을 뽑은 뒤 「재직으로 되돌리기」가 끝나면, 방금 되돌린 방에서 다시 내보내고 DM 을 또 숨겼다(2026-11-09 검증 6)
+  if (!user || (!user.deletedAt && user.employmentStatus !== "RESIGNED" && !isResigned(user.resignDate))) {
+    return { name, removed: 0, trashed: 0, hiddenDms: 0, handovers: [] };
+  }
 
   // 회의 전용 방(숨김)은 그룹 채팅방이 아니다 — 멤버행만 조용히 지운다. 방장 승계·생성자 이전·봇 DM·휴지통 보관자는 하지 않는다.
   // (2026-09-30 회의 참여자가 회의방 멤버가 되면서, 목록에도 없는 「회의: …」 방의 방장을 맡았다는 DM 이 나갈 수 있었다 — 검증관 C-1)

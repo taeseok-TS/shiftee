@@ -93,6 +93,14 @@ export default function EmployeeStatsPage() {
       if (!res.ok) { toast.error(data.error || "되돌리지 못했습니다."); return; }
       const extra = [data.rejoined ? `채팅방 ${data.rejoined}곳 다시 참여` : "", data.dmShown ? `DM ${data.dmShown}건 다시 보임` : ""].filter(Boolean).join(" · ");
       toast.success(`${unresignTarget.name} 님을 재직으로 되돌렸습니다.${extra ? `\n(${extra})` : ""}\n직원 관리 목록에서 다시 보입니다.`);
+      // 되돌리지 못한 것은 따로 알린다(2026-11-09 검증 3·4·5)
+      const misses = [
+        data.trashedRooms ? `휴지통으로 간 채팅방 ${data.trashedRooms}곳 — 큐브티워크 휴지통에서 복구한 뒤 초대해 주세요` : "",
+        data.omitted ? `기록에서 빠진 채팅방 ${data.omitted}곳 — 필요한 방에 다시 초대해 주세요` : "",
+        data.chatError ? "채팅방 되돌리기 중 오류 — 필요한 방에 다시 초대해 주세요" : "",
+        data.mainManagerEmpty?.length ? `메인 원장 지정이 비어 있습니다(${data.mainManagerEmpty.join(" · ")}) — 지점 관리에서 다시 골라 주세요` : "",
+      ].filter(Boolean);
+      if (misses.length) toast.warning(misses.join("\n"), { duration: 15000 });
       setUnresignTarget(null);
       fetchResignedMonthly();
     } catch {
@@ -706,7 +714,7 @@ export default function EmployeeStatsPage() {
                 <li>퇴사일{unresignTarget.resignDate ? `(${format(new Date(unresignTarget.resignDate), "yy.MM.dd")})` : ""}·사유를 지우고 재직으로 바꿉니다</li>
                 <li>계정이 다시 켜져 바로 로그인할 수 있습니다</li>
                 <li>퇴사 때 빠진 큐브티워크 채팅방에 다시 넣고, 숨겨진 DM 도 다시 보이게 합니다</li>
-                <li>지점 원장에게 「퇴사 해제」 알림이 갑니다</li>
+                <li>지점 원장에게 「퇴사 처리 취소」 알림이 갑니다</li>
               </ul>
               <div className="flex gap-2 justify-end pt-2">
                 <Button type="button" variant="outline" onClick={() => setUnresignTarget(null)}>취소</Button>

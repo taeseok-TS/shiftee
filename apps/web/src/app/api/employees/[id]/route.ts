@@ -236,9 +236,12 @@ export async function PATCH(
     await cleanupResignedUserChannels(id).catch((e) => console.error("[퇴사 채팅 정리] 실패:", id, e));
   }
 
+  // 지난 퇴사일을 지워 재직으로 돌린 경우 「퇴사 해제」를 남긴다 — 퇴직자 현황 「재직으로 되돌리기」가
+  // 이전 근무 때의 퇴사 채팅 정리 기록을 구분하는 기준점이다(2026-11-09 검증 2)
+  const rehired = resignVal === null && !!before?.resignDate && before.resignDate < todayMidnight;
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
-    targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body),
+    targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body) + (rehired ? " · 퇴사 해제(재직 복귀)" : ""),
   });
 
   // 지점 원장에게 퇴사 처리 · 퇴사일 변경 · 퇴사 예정 취소 · 재입사(지난 퇴사일 해제) 알림(원장 환경설정 「지점 직원 변동 알림」, 2026-10-23).
