@@ -102,12 +102,13 @@ curl -X POST ${base}/submissions \\
 ## 휴가 신청 읽기 — 회사 연동 키 전용 (scope: leave:read)
 \`GET /leave/requests?since=<ISO 시각>&jobGroup=원장&limit=200\`
 - \`since\`: 이 시각 이후에 **신청된** 건(신청 시각 기준, 없으면 24시간 전부터). 상태가 바뀐 건(승인 · 반려 · 취소)을 보려면 \`updatedSince=<ISO>\` 를 대신 줍니다.
-- \`jobGroup\`: 직무(원장 · CM · 코디 …), 없으면 전체. \`limit\` 기본 200 · 최대 500, 더 있으면 \`nextSince\`(또는 \`nextUpdatedSince\`)로 이어 받습니다.
-→ \`{ requests: [{ id, empNo, name, branch, jobGroup, type, typeCode, startDate, endDate, days, reason, status, requestedAt, updatedAt, substitute?, balance? }], nextSince }\`
+- \`jobGroup\`: 직무(원장 · CM · 코디 …), 없으면 전체. \`limit\` 기본 200 · 최대 500.
+- 더 있으면 응답의 \`nextSince\`(또는 \`nextUpdatedSince\`)와 \`nextCursor\` 를 그대로 \`since\`(또는 \`updatedSince\`) · \`cursor\` 로 다시 보내 이어 받습니다. 더 없으면 둘 다 null 이고, 다음 호출의 since 는 포털이 정합니다(예: 이번 호출 시각).
+→ \`{ requests: [{ id, empNo, name, branch, jobGroup, type, typeCode, startDate, endDate, days, reason, status, requestedAt, updatedAt, substitute?, balance? }], nextSince, nextCursor }\`
 - \`type\` 은 화면 이름 그대로(「연차」 · 「오전 반차」 · 「오후 반차」 · 「대체휴일」 · 「포상휴가」 …). \`status\`: 대기 · 승인 · 반려 · 취소.
 - 대체휴일: \`substitute: { workDate, checkIn, checkOut, basis: "부여 순서 추정" }\` — 신청에 「어느 근무일 대신」이 따로 저장되지 않아, 그 사람의 대체휴일 부여 근무일을 먼저 부여된 순서로 맞춘 추정입니다. 출퇴근 기록이 없으면 시각은 null, 맞출 근무일이 없으면 substitute 가 null.
-- 포상휴가: \`balance: { granted: 5, used, remaining }\` — used 는 이번 신청까지(대기 · 승인)의 합.
-- 시프티에서 옮겨 온 기록은 나오지 않습니다.
+- 포상휴가: \`balance: { granted: 5, used, remaining }\` — used 는 이번 신청까지(대기 · 승인)의 합이고 시프티 때 쓴 것도 셉니다. 5일은 10년 근속 기준 고정값입니다(대상자인지는 보지 않습니다).
+- 시프티에서 옮겨 온 신청 기록과 지운 계정은 목록에 나오지 않습니다.
 
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
