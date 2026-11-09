@@ -190,7 +190,7 @@ export default function PortalSyncPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <span className={`text-xs px-2 py-0.5 rounded-full border ${data.configured ? "bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe]" : "bg-gray-100 text-gray-600 border-gray-200"}`}>{data.configured ? "연결됨" : "연결 정보 없음"}</span>
         <div className="ml-auto flex gap-2">
-          <Button variant="outline" disabled={!data.configured || busy === "auto"} onClick={() => setAuto(!data.autoApply)}>일반 칸 자동 반영: {data.autoApply ? "켜짐" : "꺼짐"}</Button>
+          <Button variant="outline" disabled={!data.configured || busy === "auto" || !data.canEditConnection} title={data.canEditConnection ? undefined : "자동 반영 설정은 메인 관리자만 바꿀 수 있습니다"} onClick={() => setAuto(!data.autoApply)}>일반 칸 자동 반영: {data.autoApply ? "켜짐" : "꺼짐"}</Button>
           <Button className="gap-1 bg-indigo-600 hover:bg-indigo-700" disabled={!data.configured || busy === "run"} onClick={run}><RefreshCw size={15} className={busy === "run" ? "animate-spin" : ""} />지금 가져오기</Button>
         </div>
       </div>
@@ -281,7 +281,7 @@ export default function PortalSyncPage() {
                 <span className={`px-2 py-0.5 rounded-full shrink-0 ${KIND_TONE[c.kind] ?? ""}`}>{KIND_LABEL[c.kind] ?? c.kind}</span>
                 <span className="w-28 shrink-0">{c.name}</span>
                 <div className="flex-1"><Detail c={c} /></div>
-                <span className="text-gray-500 shrink-0">{STATUS_LABEL[c.status] ?? c.status}{c.decidedBy ? ` · ${c.decidedBy}` : ""}</span>
+                <span className="text-gray-500 shrink-0 text-right">{STATUS_LABEL[c.status] ?? c.status}{c.decidedBy ? <> · 처리 <b className="text-gray-700">{c.decidedBy}</b>{c.decidedAt ? ` ${format(new Date(c.decidedAt), "M/d HH:mm")}` : ""}</> : ""}</span>
               </div>
             ))}
           </div>

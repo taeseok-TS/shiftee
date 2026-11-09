@@ -81,6 +81,27 @@ export default function EmployeeStatsPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ResignedStatsMonthly['employees'][0] | null>(null);
 
+  // 재직으로 되돌리기 — 퇴사를 잘못 넣은 경우(2026-11-09 박정인 요청)
+  const [unresignTarget, setUnresignTarget] = useState<ResignedStatsMonthly['employees'][0] | null>(null);
+  const [unresignBusy, setUnresignBusy] = useState(false);
+  async function confirmUnresign() {
+    if (!unresignTarget || unresignBusy) return;
+    setUnresignBusy(true);
+    try {
+      const res = await fetch(`/api/employees/${unresignTarget.id}/unresign`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || "되돌리지 못했습니다."); return; }
+      const extra = [data.rejoined ? `채팅방 ${data.rejoined}곳 다시 참여` : "", data.dmShown ? `DM ${data.dmShown}건 다시 보임` : ""].filter(Boolean).join(" · ");
+      toast.success(`${unresignTarget.name} 님을 재직으로 되돌렸습니다.${extra ? `\n(${extra})` : ""}\n직원 관리 목록에서 다시 보입니다.`);
+      setUnresignTarget(null);
+      fetchResignedMonthly();
+    } catch {
+      toast.error("되돌리는 중 오류가 발생했습니다.");
+    } finally {
+      setUnresignBusy(false);
+    }
+  }
+
   // 직원 삭제 열기
   function handleDeleteEmployee(emp: ResignedStatsMonthly['employees'][0]) {
     setDeleteTarget(emp);
@@ -613,7 +634,16 @@ export default function EmployeeStatsPage() {
                         <td className="py-2 px-3 text-gray-600">
                           {emp.resignReason || "-"}
                         </td>
-                        <td className="text-center py-2 px-3">
+                        <td className="text-center py-2 px-3 whitespace-nowrap">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-indigo-600 hover:bg-indigo-50"
+                            onClick={() => setUnresignTarget(emp)}
+                            title="퇴사를 잘못 넣었을 때 — 퇴사일을 지우고 계정을 다시 켭니다"
+                          >
+                            재직으로 되돌리기
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -660,6 +690,32 @@ export default function EmployeeStatsPage() {
             : renderResignedMonthly()}
         </TabsContent>
       </Tabs>
+
+      {/* ═══ 재직으로 되돌리기 확인 ═══ */}
+      <Dialog open={!!unresignTarget} onOpenChange={(o) => { if (!o) setUnresignTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>재직으로 되돌리기</DialogTitle>
+          </DialogHeader>
+          {unresignTarget && (
+            <div className="space-y-4">
+              <p className="text-sm">
+                <strong>{unresignTarget.name}</strong>{unresignTarget.branch ? ` (${unresignTarget.branch})` : ""} 님의 퇴사를 되돌립니다.
+              </p>
+              <ul className="text-xs text-gray-600 space-y-1 ml-4 list-disc">
+                <li>퇴사일{unresignTarget.resignDate ? `(${format(new Date(unresignTarget.resignDate), "yy.MM.dd")})` : ""}·사유를 지우고 재직으로 바꿉니다</li>
+                <li>계정이 다시 켜져 바로 로그인할 수 있습니다</li>
+                <li>퇴사 때 빠진 큐브티워크 채팅방에 다시 넣고, 숨겨진 DM 도 다시 보이게 합니다</li>
+                <li>지점 원장에게 「퇴사 해제」 알림이 갑니다</li>
+              </ul>
+              <div className="flex gap-2 justify-end pt-2">
+                <Button type="button" variant="outline" onClick={() => setUnresignTarget(null)}>취소</Button>
+                <Button type="button" className="bg-indigo-600 hover:bg-indigo-700" disabled={unresignBusy} onClick={confirmUnresign}>되돌리기</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ═══ 직원 삭제 확인 모달 ═══ */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

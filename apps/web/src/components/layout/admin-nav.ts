@@ -83,7 +83,7 @@ export const ADMIN_NAV: NavGroup[] = [
       find: [
         { href: "/admin/employee-stats", label: "현황" },
         { href: "/admin/hire-dates", label: "입사일 대조", superOnly: true },
-        { href: "/admin/portal-sync", label: "인원명부 연동", superOnly: true },
+        { href: "/admin/portal-sync", label: "인원명부 연동" },   // 서브 관리자도(2026-11-09 디렉터)
       ] },
     { href: "/admin/branches", label: "지점 관리", icon: Building2 },
     { href: "/admin/salary", label: "연봉", icon: Wallet, salaryOnly: true },

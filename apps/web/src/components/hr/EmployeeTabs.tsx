@@ -61,8 +61,9 @@ export default function EmployeeTabs({ active, note, children }: { active: Emplo
     { key: "stats", label: "현황", href: "/admin/employee-stats" },
     ...(isSuper ? [
       { key: "hire", label: "입사일 대조", href: "/admin/hire-dates", count: hire, hot: true },
-      { key: "sync", label: "인원명부 연동", href: "/admin/portal-sync" },
     ] : []),
+    // 인원명부 연동은 서브 관리자도 — 확인 대기 · 정보 변경을 함께 처리하고 처리자가 기록에 남는다(2026-11-09 디렉터)
+    { key: "sync", label: "인원명부 연동", href: "/admin/portal-sync" },
   ];
   return (
     <>

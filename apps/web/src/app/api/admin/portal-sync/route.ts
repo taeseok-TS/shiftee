@@ -65,6 +65,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "setAuto") {
+    // 자동 반영 켜고 끄기는 정책이라 메인 관리자만(서브 관리자에게 화면을 연 2026-11-09 부터)
+    if (!(await isSuperAdmin(session.userId))) return NextResponse.json({ error: "자동 반영 설정은 메인 관리자만 바꿀 수 있습니다." }, { status: 403 });
     if (typeof body.value !== "boolean") return NextResponse.json({ error: "값이 올바르지 않습니다." }, { status: 400 });
     await prisma.appSetting.upsert({ where: { key: PORTAL_SETTING.auto }, create: { key: PORTAL_SETTING.auto, value: body.value ? "1" : "0" }, update: { value: body.value ? "1" : "0" } });
     await logAudit({ actorId: actor.id, actorName: actor.name, action: "PORTAL_SYNC_SETTING", detail: `인사명부 일반 칸 자동 반영 ${body.value ? "켬" : "끔"}` });
