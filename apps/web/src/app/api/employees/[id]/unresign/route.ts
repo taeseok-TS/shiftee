@@ -55,8 +55,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   await syncMainManagerFor(id).catch(() => {});
 
   // 채팅 되돌리기 — **이번 퇴사** 때 생긴 정리 기록만 쓴다. 예전 근무 때 기록까지 쓰면 지난번에 나간 방에 옛 값으로 다시 들어간다(검증 2).
-  //   ① 마지막 「퇴사 해제」(이 되돌리기 · 직원 수정으로 지난 퇴사일 지움 · 인사명부 재입사 반영) 뒤의 기록만
-  //   ② 그리고 이번 퇴사일 이후의 기록만(정리는 퇴사일이 지나야 돈다) — 「퇴사 해제」 표시가 없던 11/9 이전 재입사도 걸러진다
+  //   마지막 「퇴사 해제」(이 되돌리기 · 직원 수정으로 지난 퇴사일을 지우거나 앞날로 미룸 · 인사명부 재입사 반영) 뒤의 기록만
   //   휴지통 「복구」(EMPLOYEE_RESTORE · 직원 복구)는 퇴사 상태를 그대로 두므로 기준점이 아니다(검증 1)
   let rejoined = 0, trashedRooms = 0, goneRooms = 0, omitted = 0, dmShown = 0, chatError = false;
   try {
@@ -71,7 +70,9 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       },
       orderBy: { createdAt: "desc" }, select: { createdAt: true },
     });
-    const from = [lastBack?.createdAt, u.resignDate].filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0];
+    // 퇴사일은 기준으로 쓰지 않는다 — 정리 뒤 퇴사일을 더 늦은 과거로 고치면 이번 퇴사 기록이 통째로 빠졌다(재검증 A).
+    // 11/9 운영 확인: 지금 재직자 중 예전 퇴사 정리 기록이 남은 사람은 0명이라, 「퇴사 해제」 기준점만으로 충분하다
+    const from = lastBack?.createdAt;
     const logs = await prisma.auditLog.findMany({
       where: { targetId: id, action: "RESIGN_CHAT_CLEANUP", ...(from ? { createdAt: { gt: from } } : {}) },
       orderBy: { createdAt: "asc" }, select: { detail: true },

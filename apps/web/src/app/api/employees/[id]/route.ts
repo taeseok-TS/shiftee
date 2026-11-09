@@ -238,7 +238,8 @@ export async function PATCH(
 
   // 지난 퇴사일을 지워 재직으로 돌린 경우 「퇴사 해제」를 남긴다 — 퇴직자 현황 「재직으로 되돌리기」가
   // 이전 근무 때의 퇴사 채팅 정리 기록을 구분하는 기준점이다(2026-11-09 검증 2)
-  const rehired = resignVal === null && !!before?.resignDate && before.resignDate < todayMidnight;
+  //   지난 퇴사일을 앞날로 미뤄 다시 재직이 된 경우도 같다(재검증 B)
+  const rehired = resignVal !== undefined && (resignVal === null || resignVal >= todayMidnight) && !!before?.resignDate && before.resignDate < todayMidnight;
   await logAudit({
     actorId: session.userId, actorName: session.name, action: "EMPLOYEE_UPDATE",
     targetType: "USER", targetId: id, targetName: updated.name, detail: diffSummary(before, body) + (rehired ? " · 퇴사 해제(재직 복귀)" : ""),
