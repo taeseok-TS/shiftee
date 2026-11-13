@@ -131,6 +131,11 @@ export async function canAccessSubmissionFile(
     select: { userId: true, userBranch: true, shared: true, shareJobGroups: true, deletedAt: true },
     take: 5,
   });
+  // 합격 · 성적 사례(2026-11-13)의 첨부도 같은 저장 구역을 쓴다 — 사례를 볼 수 있는 사람(튜터 빼고 전 직원)은 연다.
+  // 「마케팅 자료로도 보내기」로 같은 파일이 마케팅 자료에도 매여 있을 수 있어, 제출물 판정과 따로 먼저 본다.
+  // 개인 API 키 주체(u:<id> — ~ 없음)는 키 범위(자료제출 · 채팅) 밖이라 사례 첨부를 열지 않는다(검증관 P6). 세션 · 앱 티켓(u:<id>~tv)만.
+  const viaApiKey = !session && !!ticketSubject && ticketSubject.startsWith("u:") && !ticketSubject.includes("~");
+  if (!viaApiKey && (await canAccessCaseFile(urls, v))) return { allowed: true, status: 200, error: "" };
   if (rows.length === 0) {
     // 아직 제출하지 않은 파일은 올린 본인에게만 보인다 — 올리기 창의 사진 미리보기용(검증관 2). 파일명의 업로더 표식으로 판정.
     if (fileBelongsTo(url, v.userId)) return { allowed: true, status: 200, error: "" };
@@ -144,6 +149,18 @@ export async function canAccessSubmissionFile(
     if (mk) return { allowed: true, status: 200, error: "" };
   }
   return { allowed: false, status: 403, error: "이 자료를 볼 권한이 없습니다." };
+}
+
+/** 합격 · 성적 사례 첨부 — 지워지지 않은 사례에 매인 파일이고 사례 열람 권한(lib/success-cases canViewCasesBy)이 있으면 true.
+ *  지운 사례의 첨부는 본부만(제출물 규칙과 같다). */
+async function canAccessCaseFile(urls: string[], v: SubmissionViewer): Promise<boolean> {
+  const { canViewCasesBy } = await import("@/lib/success-cases");
+  if (!canViewCasesBy(v.role, v.jobGroup, v.position)) return false;
+  const hit = await prisma.successCase.findFirst({
+    where: { OR: urls.map((u) => ({ files: { array_contains: [{ url: u }] } })), ...(v.role === "ADMIN" ? {} : { deletedAt: null }) },
+    select: { id: true },
+  });
+  return !!hit;
 }
 
 /**

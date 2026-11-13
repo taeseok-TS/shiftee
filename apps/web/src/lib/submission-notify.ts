@@ -157,6 +157,9 @@ export async function sweepOrphanUploads(now: Date = new Date()) {
   const rows = await prisma.submission.findMany({ select: { files: true } });
   const used = new Set<string>();
   for (const r of rows) for (const f of (Array.isArray(r.files) ? r.files : []) as { url?: unknown }[]) if (typeof f?.url === "string") used.add(f.url);
+  // 합격 · 성적 사례(2026-11-13)의 첨부도 같은 저장 구역 — 사례에 매인 파일(지운 사례 포함)은 남긴다
+  const caseRows = await prisma.successCase.findMany({ select: { files: true } });
+  for (const r of caseRows) for (const f of (Array.isArray(r.files) ? r.files : []) as { url?: unknown }[]) if (typeof f?.url === "string") used.add(f.url);
   let removed = 0;
   for (const name of old) {
     if (used.has(`/api/uploads/submissions/${name}`) || used.has(`/api/uploads/submissions/${encodeURIComponent(name)}`)) continue;
