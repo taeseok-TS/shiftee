@@ -110,6 +110,22 @@ curl -X POST ${base}/submissions \\
 - 포상휴가: \`balance: { granted: 5, used, remaining }\` — used 는 이번 신청까지(대기 · 승인)의 합이고 시프티 때 쓴 것도 셉니다. 5일은 10년 근속 기준 고정값입니다(대상자인지는 보지 않습니다).
 - 시프티에서 옮겨 온 신청 기록과 지운 계정은 목록에 나오지 않습니다.
 
+## 주말 · 휴일 근무 읽기 — 회사 연동 키 전용 (scope: attendance:weekend:read)
+\`GET /attendance/weekend?from=2026-10-20&to=2026-11-19\`
+- \`from\` · \`to\`: 근무 날짜(YYYY-MM-DD) 기준, 둘 다 필수. 한 번에 93일까지. 대상 날짜는 토 · 일 · 공휴일입니다.
+- 한 줄 = (직원, 날짜). 근무일정 · 출근 기록 · 그날이 들어 있는 근무일정 신청(상태 무관) 중 하나라도 있으면 나옵니다.
+→ \`{ from, to, rows: [{ id, empNo, name, branch, jobGroup, workDate, dayType, holidayName, scheduleId, scheduleSource, scheduledStart, scheduledEnd, breakMinutes, recognizedMinutes, checkIn, checkOut, checkOutNextDay, clockInPlace, requestId, requestKind, approvalStatus, requestedStart, requestedEnd, requestedAt, pendingRequestId, pendingRequestKind, pendingStart, pendingEnd }] }\`
+- **확정 여부는 \`scheduleId\` 로 판단하세요.** \`scheduled*\` · \`breakMinutes\` · \`recognizedMinutes\` 는 지금 확정된 근무일정 기준이고, 주말 근무 엑셀의 「근무일정」 · 「휴게시간」 · 「근무인정시간」과 같은 값입니다(휴게 4.5시간↑ 30분, 9시간↑ 60분). \`scheduleSource\`: 「신청 승인」 · 「직접 수정」(승인 뒤 원장 · 본부가 시간을 고침 — \`requested*\` 와 \`scheduled*\` 가 다르면 \`scheduled*\` 가 맞습니다) · 「직접 등록」(원장 · 본부가 신청 없이 넣은 일정 — 이때 \`requestId\` · \`approvalStatus\` 는 null).
+- \`requestId\` · \`requestKind\`(신규 · 수정 · 삭제) · \`approvalStatus\`(대기 · 승인 · 반려 · 취소) · \`requested*\`:
+  - 근무일정이 있으면 그 일정을 만든 신청(승인된 신규 · 수정 중 승인이 가장 늦은 것)입니다. 나중에 반려 · 취소된 신청이 있어도 이 값은 바뀌지 않습니다.
+  - 근무일정이 없으면 가장 최근 신청입니다(반려 · 취소 · 대기, 또는 승인된 삭제). 삭제 신청은 \`requested*\` 가 null 입니다. 원장 · 본부가 일정을 직접 지운 날은 \`approvalStatus\` 가 「승인」이어도 \`scheduleId\` 가 null 입니다 — 확정이 아닙니다.
+  - 신청 없이 출근만 한 날은 모두 null 입니다.
+- \`pending*\`: 그날 아직 결재를 기다리는 신청 중 가장 최근 것(위 \`requestId\` 와 다른 건)입니다. 승인되면 근무일정이 바뀝니다. 없으면 null.
+- \`dayType\`: 토 · 일 · 공휴일(공휴일이 먼저). \`*Start\` · \`*End\` · \`checkIn\` · \`checkOut\` 은 KST "HH:mm"(분까지), 없으면 null. \`checkOutNextDay\` 가 true 면 자정을 넘겨 퇴근한 것입니다. \`requestedAt\` 은 ISO 시각(UTC)입니다.
+- 출퇴근 기록은 한 사람 하루 한 건이라 하루 두 번 출퇴근은 생기지 않습니다(한 줄).
+- \`branch\` 는 **지금 소속 지점**입니다(지점 이동 이력은 저장되지 않음). 그날 실제로 찍은 곳은 \`clockInPlace\`(지점명 · 「지점 밖 (원장 승인)」 · 「본부 처리」 등)로 확인하세요. 지점 밖 사유 원문은 나가지 않습니다.
+- 관리자 · 통계 제외 지점 · 테스트 계정 · 지운 계정은 나오지 않습니다(주말 근무 엑셀과 같은 범위).
+
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
 - 한도(429)에 걸린 요청이 1시간에 600회를 넘으면 — 즉 한도를 넘겨도 계속 두드리면 — 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다. 429 를 받으면 기다렸다가 다시 보내세요.

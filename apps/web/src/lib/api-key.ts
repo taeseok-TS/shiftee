@@ -12,13 +12,14 @@ import { isResigned } from "@/lib/resign";
 import { maskIp } from "@/lib/mask-ip";
 import type { ApiKey } from "@prisma/client";
 
-export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish", "dm:send", "leave:read"] as const;
+export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read"] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 /** 직원 본인이 만드는 개인 키에 허용되는 범위 — marketing:* 는 본부가 발급하는 회사 연동 키(ORG)에만 */
 export const PERSONAL_SCOPES: readonly ApiScope[] = ["submissions:read", "submissions:write", "chat:read", "chat:write"];
 /** dm:send — 직영 포털 서버가 사번으로 직원에게 1:1 알림을 보낸다(2026-10-20 이예지 요청 「START SETTING 완료 → 담당 매니저 DM」) */
 /** leave:read — 직영 포털이 원장 휴가 신청을 모아 매일 보고(2026-11-09 이예지 요청, 디렉터 「처리해 주자」) */
-export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish", "dm:send", "leave:read"];
+/** attendance:weekend:read — 직영 포털 급여 작업용 주말 · 휴일 근무 내역(2026-11-13 이예지 요청, 디렉터 「처리해 줘」) */
+export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read"];
 export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "submissions:read": "자료제출 읽기 — 내야 할 것·내 제출·공유 자료",
   "submissions:write": "자료제출 쓰기 — 파일 올리고 제출",
@@ -28,6 +29,7 @@ export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "marketing:publish": "마케팅 발행 결과 — 블로그 발행 주소 되돌려주기 (회사 연동)",
   "dm:send": "DM 보내기 — 사번으로 직원에게 1:1 알림(「에듀플렉스 알림」 계정, 회사 연동)",
   "leave:read": "휴가 신청 읽기 — 신청 내역 · 대체휴일 근무일 출퇴근 · 포상휴가 남은 일수(회사 연동)",
+  "attendance:weekend:read": "주말 · 휴일 근무 읽기 — 토 · 일 · 공휴일 근무일정 · 출퇴근 기록 · 신청 결재 상태(회사 연동)",
 };
 export const KEY_PREFIX = "cbt_pk_";
 export const MAX_TTL_DAYS = 365;

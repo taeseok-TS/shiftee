@@ -15,12 +15,13 @@ type KeyRow = { id: string; name: string; prefix: string; scopes: string[]; expi
 
 const statusLabel: Record<string, string> = { active: "사용 중", suspended: "멈춤", expired: "만료", revoked: "꺼짐" };
 
-// 범위는 마케팅 자료 읽기·발행 결과 · DM 보내기 · 휴가 신청 읽기뿐(lib/api-key ORG_SCOPES). 원문은 발급 직후 한 번만.
+// 범위는 마케팅 자료 읽기·발행 결과 · DM 보내기 · 휴가 신청 읽기 · 주말 근무 읽기뿐(lib/api-key ORG_SCOPES). 원문은 발급 직후 한 번만.
 const ORG_SCOPE_OPTS = [
   { id: "marketing:read", label: "마케팅 자료 읽기", hint: "지점이 올린 마케팅 자료·파일 가져가기" },
   { id: "marketing:publish", label: "발행 결과 되돌려주기", hint: "블로그 발행 주소를 기록하고 올린 직원에게 알림" },
   { id: "dm:send", label: "DM 보내기", hint: "사번으로 직원에게 1:1 알림 — 「에듀플렉스 알림」 계정으로(직영 포털 등)" },
   { id: "leave:read", label: "휴가 신청 읽기", hint: "휴가 신청 내역(사번·지점·유형·기간·사유·상태) — 직영 포털 원장 휴가 보고 등" },
+  { id: "attendance:weekend:read", label: "주말 · 휴일 근무 읽기", hint: "토·일·공휴일 근무일정·출퇴근 기록·신청 결재 상태 — 직영 포털 급여(주말근로수당) 작업" },
 ];
 
 export default function IntegrationKeysPage() {
