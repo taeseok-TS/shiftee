@@ -126,6 +126,15 @@ curl -X POST ${base}/submissions \\
 - \`branch\` 는 **지금 소속 지점**입니다(지점 이동 이력은 저장되지 않음). 그날 실제로 찍은 곳은 \`clockInPlace\`(지점명 · 「지점 밖 (원장 승인)」 · 「본부 처리」 등)로 확인하세요. 지점 밖 사유 원문은 나가지 않습니다.
 - 관리자 · 통계 제외 지점 · 테스트 계정 · 지운 계정은 나오지 않습니다(주말 근무 엑셀과 같은 범위).
 
+## 휴가 승인 · 반려 — 회사 연동 키 전용 (scope: leave:approve, 쓰기)
+- \`POST /api/v1/leave/requests/{id}/approve\` — 본문 \`{ "approverEmpNo": "00000", "memo": "팀즈 보고에서 확인" }\`
+- \`POST /api/v1/leave/requests/{id}/reject\` — 본문 \`{ "approverEmpNo": "00000", "reason": "반려 사유" }\` (reason 필수)
+- id 는 휴가 신청 읽기에서 받은 신청 번호. approverEmpNo 는 실제로 확인한 분의 사번 — **재직 중인 본부 관리자만** 받는다(아니면 403 APPROVER_NOT_ADMIN · 없으면 404 APPROVER_NOT_FOUND). 결재 기록 · 신청자 알림에 이분 이름이 남는다. 신청자 본인은 403 SELF_APPROVAL.
+- 결재 규칙은 **화면 결재와 같다**: 관리자 단계가 차례면 그 단계만 넘어간다(다음 단계가 남으면 status 「대기」, finalized false). 원장 단계가 차례이면 화면의 관리자 직접 처리처럼 남은 단계를 모두 닫고 최종 처리한다. 최종 승인이면 연차가 차감되고, 최종 승인 · 반려면 신청자에게 큐브티 알림이 평소처럼 간다.
+- 응답: \`{ id, status: "승인" | "반려" | "대기", finalized, remainingSteps, decidedAt(ISO), approver: { empNo, name } }\`
+- 이미 승인 · 반려 · 취소된 건: 409 \`ALREADY_DECIDED\` + \`status\`. 잔여 부족: 400 \`SHORT_BALANCE\`(예외 승인은 화면에서만). 같은 단계를 다른 결재자가 먼저 처리했고 신청은 다음 단계에 있으면 409 \`STEP_ALREADY_TAKEN\`(status 「대기」). 본문 오류 400 \`BAD_BODY\` · 사번 형식 400 \`BAD_APPROVER\` · 반려 사유 없음 400 \`REASON_REQUIRED\` · 신청 없음 404 \`NOT_FOUND\` · 개인 키 403 \`ORG_KEY_ONLY\`. 409 \`ALREADY_DECIDED\` 는 다시 보낼 필요가 없다(두 번 보내도 한 번만 처리된다).
+- memo(승인)는 감사 기록에만 남고 신청자 알림에는 넣지 않는다. 모든 처리는 「연동 키로 결재」 감사 기록이 따로 남는다.
+
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
 - 한도(429)에 걸린 요청이 1시간에 600회를 넘으면 — 즉 한도를 넘겨도 계속 두드리면 — 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다. 429 를 받으면 기다렸다가 다시 보내세요.

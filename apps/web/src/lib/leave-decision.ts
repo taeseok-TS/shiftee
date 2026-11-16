@@ -1,0 +1,374 @@
+// 휴가 결재 본체 — api/leave/[id]/approve/route.ts 에서 옮겨 왔다(2026-11-16, 내용 변경 없음 · 연동 키 승인 창구와 같이 쓰려고)
+import { leaveLabels } from "@/lib/leave-catalog";
+import { NextResponse } from "next/server";
+import { botNotifyApprovalRequest } from "@/lib/bot";
+import { prisma } from "@/lib/db";
+import { isLeaveDeductible } from "@/lib/leave-types";
+import { deductLeave } from "@/lib/leave-balance";
+import { logAudit } from "@/lib/audit";
+import { botNotifyDecision } from "@/lib/bot";
+import { approverScopeFor, isMyStep } from "@/lib/approval-delegate";
+import { checkLeaveLimit, limitMessage } from "@/lib/leave-limit";
+
+/** 최종 승인 때 잔여가 모자라면 던진다 — 트랜잭션이 통째로 되돌아가 결재 단계·상태도 그대로 남는다(#219-11).
+ *  canOverride = 관리자(본부)라 한 번 더 확인하면 예외 승인할 수 있다(2026-10-22 본부 이예지 요청 4 — 원장 단계는 종전처럼 막는다) */
+class ShortBalance extends Error { constructor(message: string, readonly canOverride: boolean) { super(message); } }
+const shortBalanceResponse = (e: ShortBalance) =>
+  NextResponse.json({ error: e.message, code: "SHORT_BALANCE", canOverride: e.canOverride }, { status: 400 });
+/** 트랜잭션 오류 중 잔여 부족만 골라 돌려준다(그 밖의 오류는 그대로 던진다) */
+const shortBalanceOf = (e: unknown): ShortBalance => { if (e instanceof ShortBalance) return e; throw e; };
+
+/**
+ * 최종 승인 직전 잔여 재검사(2026-10-16 #219-11) — 신청 뒤 다른 휴가가 먼저 승인되거나 본부가 잔여를 줄였으면 여기서 막는다.
+ * 종전에는 승인 때 다시 보지 않아 잔여가 음수가 될 수 있었다. 이때는 **자기 자신 외의 대기 건은 빼고 지금 잔여만** 본다
+ * (다른 대기 건이 이 승인을 막지 않게). 판정은 신청 검사와 같은 lib/leave-limit. 숫자는 결재자가 볼 수 있을 때만 문구에 넣는다.
+ */
+async function assertBalanceForApproval(
+  tx: Parameters<typeof checkLeaveLimit>[0],
+  req: { id: string; userId: string; type: string; startDate: Date; endDate: Date; days: number },
+  approverRole: string,
+  override = false,
+  approverId?: string,
+): Promise<string | null> {
+  // 같은 직원의 다른 휴가를 동시에 최종 승인하면 둘 다 같은 잔여를 읽고 통과해 음수가 될 수 있었다(검증 5) — 직원 단위로 줄 세운다.
+  // 본부 대리 등록(api/leave POST)도 같은 키(leave-bal:<직원>)를 잡는다(2026-10-19 통일)
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"leave-bal:" + req.userId}))`;
+  // 연도를 걸친 휴가는 해마다 그 해 잔여로(차감과 같은 나눔 — lib/leave-days leaveDaysByYear, 2026-10-19)
+  const limit = await checkLeaveLimit(tx, { userId: req.userId, type: req.type, startDate: req.startDate, endDate: req.endDate, days: req.days, includePending: false, excludeRequestId: req.id });
+  if (!limit.blocked) return null;
+  // 본인 휴가는 예외 승인하지 않는다 — 관리자는 본인 결재 금지에서 빠져 있어 자기 연차를 마이너스로 승인할 수 있었다(검증 A)
+  const admin = approverRole === "ADMIN" && approverId !== req.userId;
+  const msg = limitMessage(limit, { visible: await (await import("@/lib/leave-balance-hide")).canSeeLeaveBalanceOf(approverRole, req.userId), when: "approve", overridable: admin });   // 사람별 숨김까지(2026-11-04)
+  // 관리자가 확인을 한 번 더 누른 승인 — 막지 않고 그대로 차감한다(잔여는 마이너스로 남는다). 무엇을 넘겼는지 감사 로그에 남기려고 문구를 돌려준다
+  if (admin && override) return msg;
+  throw new ShortBalance(msg, admin);
+}
+
+// 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
+async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
+
+/** 휴가 결재(승인 · 반려)의 본체 — 화면 라우트(api/leave/[id]/approve)와 회사 연동 키 라우트(api/v1/leave/requests/[id]/approve · reject)가
+ *  **같은 규칙**을 쓰도록 여기 한 곳에 둔다(2026-11-16 이예지 요청 — 연동 키 승인 창구). session 은 실제 결재자(연동 키 경로는 approverEmpNo 의 계정).
+ *  body = { action: "approve" | "reject", reason?, overrideShortBalance? } — 화면 라우트가 받던 그대로. 응답도 화면 라우트가 돌려주던 그대로. */
+export type LeaveDecisionActor = { userId: string; role: string; name: string };
+export async function decideLeave(session: LeaveDecisionActor, id: string, body: unknown): Promise<NextResponse> {
+  await catalogReady();
+  // 원장 단계 결재 범위 — 담당 지점 + 원장대행 중인 지점(2026-10-07 본부 답변 #3)
+  const scope = await approverScopeFor(session);
+  const myBranches = scope.all;
+  const rawAction = (body as { action?: unknown } | null)?.action;
+  const rawReason = (body as { reason?: unknown } | null)?.reason;
+  // ⚠ action 을 검증한다. 종전에는 `action === "approve" ? 승인 : 반려` 라서
+  //   오타.누락.대소문자가 다르면 **조용히 반려**되고 신청자에게 반려 알림이 나갔다.
+  if (rawAction !== "approve" && rawAction !== "reject") {
+    return NextResponse.json({ error: "요청이 올바르지 않습니다. (approve 또는 reject)" }, { status: 400 });
+  }
+  if (rawReason !== undefined && rawReason !== null && typeof rawReason !== "string") {
+    return NextResponse.json({ error: "사유 형식이 올바르지 않습니다." }, { status: 400 });
+  }
+  const action: "approve" | "reject" = rawAction;
+  // 잔여 부족 예외 승인 — 관리자만 의미가 있다(원장·직원이 보내도 assertBalanceForApproval 이 막는다)
+  const override = (body as { overrideShortBalance?: unknown } | null)?.overrideShortBalance === true;
+  const reason: string | undefined = typeof rawReason === "string" ? rawReason : undefined; // action: 'approve' | 'reject'
+
+  const leaveRequest = await prisma.leaveRequest.findUnique({
+    where: { id },
+    include: {
+      user: { select: { id: true, name: true, email: true, branch: true, role: true } },
+      approvalSteps: {
+        orderBy: { order: "asc" },
+        include: { approver: { select: { id: true, name: true, email: true } } },
+      },
+    },
+  });
+  if (!leaveRequest)
+    return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+
+  // ⚠ 이미 끝난 신청은 어느 경로로도 다시 처리하지 않는다. 종전에는 우회 경로에만
+  //   검사가 있어서, **취소된 휴가가 결재함에 남아 있다가 승인되면 되살아나고
+  //   연차까지 깎였다**(2026-09-09 검증에서 적발). 근무일정에는 넣고 휴가만 빠뜨렸다.
+  if (leaveRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${leaveRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
+  }
+
+  const steps = leaveRequest.approvalSteps;
+
+  // ── 결재라인이 있는 경우: 단계별 처리 ──────────────────────
+  if (steps.length > 0) {
+    // 내가 결재해야 할 PENDING 스텝 찾기
+    // ⚠ 사람을 못박은 단계(메인 원장 지정 등)는 **그 사람만**(+그 지점 대행자) 결재한다 — lib/approval-delegate.ts isMyStep
+    const myStep = steps.find((s) => isMyStep(s, session, scope, leaveRequest.user.role));
+
+    // ⚠ **원장은 자기 휴가를 스스로 결재할 수 없다** (2026-09-08 디렉터 지시 — 근무일정과 같은 규칙).
+    //   원장 신청의 결재선은 [관리자]인데, 종전에는 아래 우회 경로로 빠져 본인이
+    //   본인 것을 최종 승인할 수 있었다. 원장끼리 품앗이도 가능했다.
+    //   원장대행(직원)도 같다 — 자기 지점 대행 중이어도 자기 신청은 결재하지 못한다.
+    if (session.role !== "ADMIN" && leaveRequest.userId === session.userId) {
+      return NextResponse.json(
+        { error: "본인 휴가 신청은 직접 결재할 수 없습니다. 관리자 승인이 필요합니다." },
+        { status: 403 }
+      );
+    }
+
+    // 관리자가 아니고 결재 차례도 아닌 경우
+    if (!myStep && session.role === "EMPLOYEE") {
+      return NextResponse.json({ error: "결재 권한이 없습니다." }, { status: 403 });
+    }
+
+    // 결재 차례가 아닌데 처리하려는 경우 = 결재라인 우회.
+    // ⚠ **관리자에게만 허용한다.** 종전에는 원장도 여기로 빠져, 2일 이상 휴가의
+    //   [원장 → 관리자] 에서 원장이 1단계를 승인한 뒤 다시 부르면 관리자 단계를
+    //   건너뛰고 최종 승인됐다(2026-09-08 검증에서 적발).
+    if (!myStep && session.role === "MANAGER") {
+      return NextResponse.json(
+        { error: "결재 차례가 아닙니다. 관리자 결재가 남아 있습니다." },
+        { status: 403 }
+      );
+    }
+    if (!myStep && session.role === "ADMIN") {
+      return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches, override);
+    }
+
+    // 단계별 처리
+    let emailAction: "approve" | "reject" | "next_approver" | null = null;
+    let nextApprover: any = null;
+    let alreadyDone = false;
+    let notifyNext: { approverRole: string | null; branch: string | null; approverId: string | null } | null = null;
+    let overdrawn: string | null = null;   // 잔여 부족 예외 승인이면 그때 문구(감사 로그용)
+
+    const short = await prisma.$transaction(async (tx) => {
+      // ⚠ **조건부로** 쓴다. 종전에는 무조건 update 라, 결재자가 두 번 누르거나 두 사람이
+      //   동시에 처리하면 같은 단계가 두 번 처리되고 마지막 단계면 **연차가 두 번 깎였다**
+      //   (2026-09-09 검증에서 적발). 근무일정에는 넣고 휴가만 빠뜨렸다.
+      //   이 updateMany 가 트랜잭션의 첫 문장이므로, 못 잡았으면 아무것도 쓰지 않은 상태다.
+      const claimed = await tx.leaveApprovalStep.updateMany({
+        where: { id: myStep!.id, status: "PENDING" },
+        data: {
+          status:     action === "approve" ? "APPROVED" : "REJECTED",
+          approverId: session.userId, // 실제 결재자 기록
+          comment:    reason ?? null,
+          decidedAt:  new Date(),
+        },
+      });
+      if (claimed.count === 0) { alreadyDone = true; return; }
+
+      if (action === "reject") {
+        // 반려: 전체 요청 반려
+        await tx.leaveRequest.update({
+          where: { id },
+          data: {
+            status:         "REJECTED",
+            approverId:     session.userId,
+            rejectedReason: reason ?? null,
+          },
+        });
+        // 나머지 WAITING 스텝 취소
+        await tx.leaveApprovalStep.updateMany({
+          where: { leaveRequestId: id, status: "WAITING" },
+          data:  { status: "REJECTED" },
+        });
+        emailAction = "reject";
+      } else {
+        // 승인: 다음 WAITING 스텝을 PENDING으로
+        const nextStep = steps.find(
+          (s) => s.order === myStep!.order + 1 && s.status === "WAITING"
+        );
+        if (nextStep) {
+          await tx.leaveApprovalStep.update({
+            where: { id: nextStep.id },
+            data:  { status: "PENDING" },
+          });
+          emailAction = "next_approver";
+          nextApprover = nextStep.approver;
+          // 알림은 **트랜잭션이 커밋된 뒤** 보낸다(롤백돼도 DM 은 이미 나가 있으면 안 된다)
+          notifyNext = nextStep;
+          // 아직 다음 결재자가 있으면 전체 상태는 PENDING 유지
+        } else {
+          // 모든 단계 승인 완료 → 전체 승인. 그 전에 잔여 재검사(#219-11) — 모자라면 던져 이 결재 전체를 되돌린다
+          overdrawn = await assertBalanceForApproval(tx, leaveRequest, session.role, override, session.userId);
+          await tx.leaveRequest.update({
+            where: { id },
+            data:  { status: "APPROVED", approverId: session.userId },
+          });
+          // 잔여 휴가 차감 (연차 차감 유형만 — 대체휴무/특별휴가/민방위/예비군은 미차감)
+          if (isLeaveDeductible(leaveRequest.type)) {
+            // 날짜별로 해마다(연도를 걸치면 나눠, 2026-10-19). 차감은 lib/leave-balance.ts 한 곳 — 행이 없으면 이월과 같은 계산
+            await deductLeave(tx, leaveRequest);
+          }
+          emailAction = "approve";
+        }
+      }
+    }).then(() => null, shortBalanceOf);
+    if (short) return shortBalanceResponse(short);
+
+    if (alreadyDone) {
+      return NextResponse.json({ error: "이미 처리된 결재입니다." }, { status: 409 });
+    }
+
+    // 다음 결재자에게 차례가 왔음을 알린다
+    if (notifyNext) {
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      botNotifyApprovalRequest(notifyNext, {
+        kind: "휴가",
+        requesterName: leaveRequest.user.name,
+        period: `${ymd(leaveRequest.startDate)} ~ ${ymd(leaveRequest.endDate)}`,
+        requesterId: leaveRequest.userId,
+        prevApprover: session.name,
+      }).catch(() => {});
+    }
+
+    // 결과 알림은 **봇 DM 으로 통일**한다(2026-09-10 디렉터 지시). 메일은 걷어냈다 —
+    // 같은 내용이 두 경로로 나가면 한쪽만 실패했을 때 무엇이 갔는지 알 수 없다.
+    const requesterName = leaveRequest.user.name;
+    const approverName = (await prisma.user.findUnique({ where: { id: session.userId } }))?.name || "관리자";
+    const leaveTypeLabel: Record<string, string> = leaveLabels();   // 본부 유형 포함(#216-1)
+    const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
+    const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
+    const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
+
+    await logAudit({
+      actorId: session.userId, actorName: session.name, action: "LEAVE_DECISION",
+      targetType: "LEAVE", targetId: id, targetName: requesterName,
+      detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}${overdrawn ? ` · 잔여 부족 예외 승인 — ${overdrawn}` : ""}`,
+    });
+
+    // 최종 결정(전체 승인/반려) 시 신청자에게 봇 DM (중간 단계 승인은 발송 안 함)
+    // (다음 결재자 알림은 위 notifyNext 에서 이미 봇으로 나간다 — 메일이 하던 일을 대신한다)
+    if (emailAction === "approve" || emailAction === "reject") {
+      botNotifyDecision(
+        leaveRequest.userId,
+        `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
+        emailAction === "approve",
+        approverName,
+        reason,
+        { actorId: session.userId, actorRole: session.role },
+      ).catch(() => {});
+    }
+
+    return NextResponse.json({ success: true });
+  }
+
+  // ── 결재라인 없음: 관리자만 처리한다(주석대로 "관리자만" — 종전에는 원장도 통과했다) ──
+  if (session.role !== "ADMIN")
+    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+
+  return await adminOverride(id, leaveRequest.userId, leaveRequest.days, action, reason, session.userId, session.role, myBranches, override);
+}
+
+// 관리자 직접 승인/반려 (결재라인 우회)
+async function adminOverride(
+  id: string,
+  userId: string,
+  days: number,
+  action: string,
+  reason: string | undefined,
+  approverId: string,
+  role?: string,
+  branches?: string[],
+  override = false,
+) {
+  const leaveRequest = await prisma.leaveRequest.findUnique({
+    where: { id },
+    include: { user: { select: { id: true, name: true, email: true, branch: true } } },
+  });
+
+  if (!leaveRequest) {
+    return NextResponse.json({ error: "신청 내역을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  // MANAGER의 담당 지점(대표+겸직) 검증
+  if (role === "MANAGER" && (!leaveRequest.user.branch || !(branches ?? []).includes(leaveRequest.user.branch))) {
+    return NextResponse.json({ error: "다른 지점 직원의 휴가는 승인할 수 없습니다." }, { status: 403 });
+  }
+
+  // ⚠ 이미 끝난 신청은 다시 처리하지 않는다. 종전에는 검사가 없어서 승인된 휴가에
+  //   승인을 다시 부르면 **부를 때마다 연차가 또 깎였다**(used += days). 반려를
+  //   승인으로 되살리는 것도 됐다. 근무일정 쪽에는 넣고 여기만 빠뜨렸다
+  //   (2026-09-09 검증에서 적발).
+  if (leaveRequest.status !== "PENDING") {
+    return NextResponse.json(
+      { error: `이미 ${leaveRequest.status === "APPROVED" ? "승인" : "처리"}된 신청입니다.` },
+      { status: 409 }
+    );
+  }
+
+  // ⚠ 세 가지(단계 마감 · 신청 상태 · 연차 차감)를 **한 트랜잭션 + CAS** 로 묶는다.
+  //   종전에는 셋이 따로 실행돼서, 관리자 둘이 동시에(또는 한 명이 더블클릭) 승인하면
+  //   둘 다 위 상태 검사를 통과해 **연차가 두 번 깎였다**. 근무일정 쪽은 반영이
+  //   upsert 라 멱등인데 휴가의 `used += days` 는 멱등이 아니다
+  //   (2026-09-09 검증에서 적발 — 단계별 경로에서 막은 사고가 이 경로에 남아 있었다).
+  //   트랜잭션이 없으면 차감만 실패했을 때 "승인됐는데 안 깎임"도 남는다.
+  let claimed = false;
+  let overdrawn: string | null = null;   // 잔여 부족 예외 승인이면 그때 문구(감사 로그용)
+  const short = await prisma.$transaction(async (tx) => {
+    const won = await tx.leaveRequest.updateMany({
+      where: { id, status: "PENDING" },   // 먼저 잡는 쪽만 처리한다
+      data: {
+        status:         action === "approve" ? "APPROVED" : "REJECTED",
+        approverId,
+        rejectedReason: action === "reject" ? reason : null,
+      },
+    });
+    if (won.count === 0) return;
+    claimed = true;
+    // 승인이면 차감 전에 잔여 재검사(#219-11, 단계 최종 승인과 같은 함수) — 모자라면 던져 이 트랜잭션 전체(상태·단계)를 되돌린다
+    if (action === "approve") overdrawn = await assertBalanceForApproval(tx, leaveRequest, role ?? "ADMIN", override, approverId);
+
+    // 남아 있는 결재 단계도 함께 닫는다. 안 닫으면 신청=승인인데 단계=대기로 남아
+    // 결재함에 영원히 뜨고, 나중에 처리되면 연차가 한 번 더 깎인다.
+    await tx.leaveApprovalStep.updateMany({
+      where: { leaveRequestId: id, status: { in: ["PENDING", "WAITING"] } },
+      data: {
+        status: action === "approve" ? "APPROVED" : "REJECTED",
+        approverId,
+        comment: reason ?? "관리자 직접처리",
+        decidedAt: new Date(),
+      },
+    });
+
+    // 잔여 휴가 차감 (연차 차감 유형만)
+    if (action === "approve" && isLeaveDeductible(leaveRequest.type)) {
+      // 날짜별로 해마다(2026-10-19) — 단계 최종승인과 같은 함수
+      await deductLeave(tx, { id, userId, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, days });
+    }
+  }).then(() => null, shortBalanceOf);
+  if (short) return shortBalanceResponse(short);
+
+  if (!claimed) {
+    return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
+  }
+
+  // 결과 알림 — 봇 DM 으로 통일(2026-09-10 디렉터 지시)
+  const approver = await prisma.user.findUnique({ where: { id: approverId } });
+  const approverName = approver?.name || "관리자";
+  const requesterName = leaveRequest.user.name;
+  const leaveTypeLabel: Record<string, string> = leaveLabels();   // 본부 유형 포함(#216-1)
+  const leaveTypeStr = leaveTypeLabel[leaveRequest.type] || leaveRequest.type;
+  const startDateStr = leaveRequest.startDate ? leaveRequest.startDate.toISOString().split('T')[0] : '';
+  const endDateStr = leaveRequest.endDate ? leaveRequest.endDate.toISOString().split('T')[0] : '';
+
+  if (action === "approve") {
+  } else {
+  }
+
+  await logAudit({
+    actorId: approverId, actorName: approverName, action: "LEAVE_DECISION",
+    targetType: "LEAVE", targetId: id, targetName: requesterName,
+    detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"} (직접처리)${overdrawn ? ` · 잔여 부족 예외 승인 — ${overdrawn}` : ""}`,
+  });
+
+  // 신청자에게 봇 DM
+  botNotifyDecision(
+    userId,
+    `${leaveTypeStr} 휴가 (${startDateStr} ~ ${endDateStr})`,
+    action === "approve",
+    approverName,
+    reason,
+    { actorId: approverId, actorRole: role ?? "ADMIN" },
+  ).catch(() => {});
+
+  return NextResponse.json({ success: true });
+}
