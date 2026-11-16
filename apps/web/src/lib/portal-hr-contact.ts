@@ -5,15 +5,22 @@
 //  · 쓰임: 계약 문서를 만들 때(buildContractMergeData) 프로필(User.address·birthDate·phone)이 비어 있는 칸만 채운다.
 //    **어디에도 저장하지 않고 화면에 목록으로 보여 주지 않는다**(본부 요청: 자동 채움에만 쓰고 따로 저장·노출 금지).
 //  · 사람 맞추기: 이름(공백 제거) + 지점(큐브티 지점명으로 맞춘 뒤) 이 같은 사람. 그래도 하나가 아니면 이름만 유일할 때.
-//  · 응답은 10분 동안 기억한다(계약 한 건 렌더마다 포털을 부르지 않게). 키가 없거나 포털이 죽어도 계약 작성은 그대로 된다(빈 칸으로).
+//  · 응답은 1시간 동안 기억한다 — 포털 DB 전송량 한도 때문에 **1시간에 한 번 이하**로 부른다(2026-11-16 이예지 요청: 종전 10분 기억 → 하루 약 220회).
+//    실패하면 바로 다시 부르지 않고 다음 주기(1시간 뒤)에 다시 시도한다. 업무 시간(KST 09~21시) 밖에는 기억이 있으면 오래돼도 그대로 쓴다.
+//    포털도 결과를 15분 저장하므로 인사 정보 수정은 최대 1시간 15분 뒤에 반영된다. 키가 없거나 포털이 죽어도 계약 작성은 그대로 된다(빈 칸으로).
 import { prisma } from "@/lib/db";
 import { mapBranch } from "@/lib/portal-roster";
 
 export type HrContact = { address: string; birthDate: string; phone: string };   // 비면 ""
 type Row = { name: string; branch: string; address: string; birthDate: string; phone: string; branchAssignDate: string; employmentType: string };
 
-const TTL_MS = 10 * 60 * 1000;
-const FAIL_TTL_MS = 60 * 1000;   // 실패도 1분은 기억 — 포털이 죽었을 때 렌더마다 8초씩 기다리지 않게(143693e 검증 P1)
+const TTL_MS = 60 * 60 * 1000;   // 1시간에 한 번 이하(2026-11-16 이예지 요청 1번)
+const FAIL_TTL_MS = 60 * 60 * 1000;   // 실패하면 다음 주기에 다시(요청 2번) — 종전 1분은 포털이 죽었을 때 1분마다 다시 불렀다
+/** 업무 시간(KST 09:00~20:59)인가 — 밖에는 기억이 있으면 오래돼도 새로 부르지 않는다(요청 1번 「업무 시간에만」) */
+function inBusinessHoursKST(now: number): boolean {
+  const h = new Date(now + 9 * 3600 * 1000).getUTCHours();
+  return h >= 9 && h < 21;
+}
 let cache: { at: number; rows: Row[] } | null = null;
 let failedAt = 0;
 let inflight: Promise<Row[]> | null = null;
@@ -43,6 +50,7 @@ async function loadRows(): Promise<Row[]> {
   const now = Date.now();
   if (cache && now - cache.at < TTL_MS) return cache.rows;
   if (failedAt && now - failedAt < FAIL_TTL_MS) return cache?.rows ?? [];
+  if (cache && !inBusinessHoursKST(now)) return cache.rows;   // 밤에는 기억으로(서버를 다시 띄워 기억이 없을 때만 부른다)
   if (inflight) return inflight;
   inflight = (async () => {
     try {
@@ -88,7 +96,7 @@ export async function portalHrContactFor(user: { name: string; branch: string | 
 }
 
 /**
- * 지점 발령일(YYYY-MM-DD) — 여러 사람을 한 번에(출퇴근 집계가 매 화면마다 부른다 — 응답은 10분 기억이라 포털을 자주 부르지 않는다).
+ * 지점 발령일(YYYY-MM-DD) — 여러 사람을 한 번에(출퇴근 집계가 매 화면마다 부른다 — 응답은 1시간 기억이라 포털을 자주 부르지 않는다).
  * 사람 맞추기는 portalHrContactFor 와 같은 규칙(이름 + 지점). 없거나 못 가르면 빈 값 → 호출부가 입사일 · 수료일 규칙으로 돌아간다.
  * 창구가 꺼져 있으면(키 없음 · 실패) 빈 Map.
  */
