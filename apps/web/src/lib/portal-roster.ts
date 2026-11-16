@@ -145,9 +145,10 @@ export function mapJobGroup(job: string, position: string): string | null {
   return null;
 }
 
-/** 직급 — 큐브티는 원장의 직급을 비워 두고, 교육생은 직급 체계에 없다 → 이 둘은 반영하지 않는다 */
+/** 직급 — 큐브티는 원장의 직급을 비워 두므로 「원장」은 반영하지 않는다.
+ *  「교육생」은 2026-11-16 직급 목록에 들어가(#246) 그대로 반영한다 — 루트코스 수료 · 지점 발령 뒤 포털 직급이 바뀌면 그 값을 따라간다(이예지 요청) */
 export function mapPosition(position: string): string | null {
-  if (!position || position === "원장" || position === "교육생") return null;
+  if (!position || position === "원장") return null;
   return position;
 }
 
