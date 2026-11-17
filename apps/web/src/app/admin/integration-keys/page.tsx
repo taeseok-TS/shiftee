@@ -30,7 +30,7 @@ export default function IntegrationKeysPage() {
   const [open, setOpen] = useState(false);
   // 용도는 비워 두고 예시만 보인다 — 기본값이 채워져 있으면 그대로 발급돼 다른 용도의 키가 같은 이름이 된다(11/17 「큐브마케팅 블로그 발행」 이름의 휴가 승인 키)
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<string[]>(["marketing:read", "marketing:publish"]);
+  const [scopes, setScopes] = useState<string[]>([]); // 권한도 미리 체크하지 않는다 — 필요한 것만 골라 체크(11/17 디렉터)
   const [ttl, setTtl] = useState("365");
   const [saving, setSaving] = useState(false);
   const [secret, setSecret] = useState<{ raw: string; name: string } | null>(null);
@@ -45,7 +45,7 @@ export default function IntegrationKeysPage() {
       const res = await fetch("/api/admin/api-keys/org", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scopes, ttlDays: Number(ttl) }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "발급하지 못했습니다."); return; }
-      setSecret({ raw: d.secret, name }); setName(""); setOpen(false); load();
+      setSecret({ raw: d.secret, name }); setName(""); setScopes([]); setOpen(false); load();
     } finally { setSaving(false); }
   }
   async function revoke(k: KeyRow) {
