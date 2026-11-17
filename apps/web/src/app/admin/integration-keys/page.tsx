@@ -28,7 +28,8 @@ const ORG_SCOPE_OPTS = [
 export default function IntegrationKeysPage() {
   const [keys, setKeys] = useState<KeyRow[] | null>(null);
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("큐브마케팅 블로그 발행");
+  // 용도는 비워 두고 예시만 보인다 — 기본값이 채워져 있으면 그대로 발급돼 다른 용도의 키가 같은 이름이 된다(11/17 「큐브마케팅 블로그 발행」 이름의 휴가 승인 키)
+  const [name, setName] = useState("");
   const [scopes, setScopes] = useState<string[]>(["marketing:read", "marketing:publish"]);
   const [ttl, setTtl] = useState("365");
   const [saving, setSaving] = useState(false);
@@ -44,7 +45,7 @@ export default function IntegrationKeysPage() {
       const res = await fetch("/api/admin/api-keys/org", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scopes, ttlDays: Number(ttl) }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(d.error || "발급하지 못했습니다."); return; }
-      setSecret({ raw: d.secret, name }); setOpen(false); load();
+      setSecret({ raw: d.secret, name }); setName(""); setOpen(false); load();
     } finally { setSaving(false); }
   }
   async function revoke(k: KeyRow) {
@@ -80,7 +81,7 @@ export default function IntegrationKeysPage() {
         {open && (
           <div className="border rounded-lg p-3 space-y-3 bg-gray-50">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="md:col-span-2"><label className="text-xs text-gray-500">용도</label><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></div>
+              <div className="md:col-span-2"><label className="text-xs text-gray-500">용도</label><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="예: 직영 포털 연동 · 큐브마케팅 블로그 발행" /></div>
               <div><label className="text-xs text-gray-500">만료</label>
                 <select className="block h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm" value={ttl} onChange={(e) => setTtl(e.target.value)}>
                   <option value="90">90일</option><option value="180">180일</option><option value="365">1년</option>
