@@ -77,6 +77,11 @@ export async function DELETE(
     // 디스크 파일 삭제
     const p = m.fileUrl ? diskPath(m.fileUrl) : null;
     if (p) { try { await fs.unlink(p); } catch { /* 이미 없으면 무시 */ } }
+    // 사진 축소본(uploads/.variants/work)도 함께 — 원본이 없으면 어차피 내주지 않지만 디스크에 남지 않게(2026-11-18)
+    if (p && path.basename(path.dirname(p)) === "work") {
+      const { removeImageVariants } = await import("@/lib/image-variant");
+      await removeImageVariants(path.dirname(path.dirname(p)), "work", path.basename(p));
+    }
     // 첨부만 있던 메시지는 삭제, 텍스트가 있으면 첨부만 제거
     if (!m.content || !m.content.trim()) {
       await prisma.workMessage.delete({ where: { id: m.id } }).catch(() => {});

@@ -98,6 +98,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "파일 저장 중 오류가 발생했습니다." }, { status: 500 });
   }
 
+  // 마케팅 자료 · 합격 사례 목록용 사진 축소본을 미리 만든다(기다리지 않음, lib/image-variant 2026-11-18)
+  if (fileTypeOf(ext) === "image") {
+    const { warmImageVariants } = await import("@/lib/image-variant");
+    warmImageVariants(path.dirname(dir), "submissions", result.safeName);
+  }
+
   return NextResponse.json({
     url: `/api/uploads/submissions/${result.safeName}`,
     name: result.fileName,

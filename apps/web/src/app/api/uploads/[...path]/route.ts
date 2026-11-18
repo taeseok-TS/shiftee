@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import { getSession } from "@/lib/auth";
 import { uploadGateGroups } from "@/lib/upload-gate";
+import { getImageVariant, isVariantSource, parseVariantWidth, VARIANT_GROUPS, VARIANT_MIN_BYTES } from "@/lib/image-variant";
 
 // 업로드 파일은 요청 시점에 디스크에서 읽어야 하므로 정적 프리렌더 금지(항상 동적 실행)
 export const dynamic = "force-dynamic";
@@ -35,6 +36,14 @@ export async function GET(
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
   const baseDir = path.join(process.cwd(), "uploads");
+
+  // 점(.)으로 시작하는 경로군은 서버 내부용(.variants = 사진 축소본, lib/image-variant) — 주소로 받으면 원본 권한 검사를 건너뛰게 된다
+  if (decoded[0].startsWith(".") || pathParts[0].startsWith("."))
+    return NextResponse.json({ error: "파일을 찾을 수 없습니다." }, { status: 404 });
+
+  // 세션은 요청 하나에 한 번만 읽는다 — 게이트 · 채팅 첨부 판정이 각각 읽어 사진 한 장에 DB 조회가 겹쳤다(11/17 연결 부족)
+  let sessionP: ReturnType<typeof getSession> | null = null;
+  const getSessionOnce = () => (sessionP ??= getSession());
 
   // 비공개 자산(회사 직인 등)은 URL로 절대 서빙하지 않음 — 서버 내부 코드만 접근
   if (decoded[0] === "private" || pathParts[0] === "private")
@@ -82,7 +91,7 @@ export async function GET(
     const tk0 = verifyUploadTicket(ticket);
     // 뷰어 전용 티켓(v:, 오피스 뷰어 주소에 노출됨)은 **채팅 첨부(work)에만** 통한다 — 서명·계약서 경로군에서는 티켓이 없는 것으로 본다(2026-10-12)
     const tk = tk0?.subject.startsWith("v:") && !(decoded[0] === "work" || pathParts[0] === "work") ? null : tk0;   // work 가 게이트 목록에 들어와도 뷰어는 열리게(검증 권고)
-    const session = await getSession();
+    const session = await getSessionOnce();
     if (!tk && !session)
       return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
 
@@ -125,7 +134,7 @@ export async function GET(
     try {
       const p = path.join(baseDir, ...parts);
       const st = await fs.stat(p);
-      return st.isFile() ? { filePath: p, size: st.size } : null;
+      return st.isFile() ? { filePath: p, size: st.size, mtimeMs: st.mtimeMs } : null;
     } catch { return null; }
   }
 
@@ -144,7 +153,7 @@ export async function GET(
     const tk = verifyUploadTicket(new URL(_request.url).searchParams.get("t"));
     // 세션 조회가 던지는 건 DB 장애다 — null 로 삼키면 쿠키 사용자가 401(로그아웃처럼)을 받는다. 잠시 뒤 다시(503)로(2026-10-12 재점검)
     let session: Awaited<ReturnType<typeof getSession>>;
-    try { session = await getSession(); } catch { return NextResponse.json({ error: "잠시 후 다시 시도해주세요." }, { status: 503 }); }
+    try { session = await getSessionOnce(); } catch { return NextResponse.json({ error: "잠시 후 다시 시도해주세요." }, { status: 503 }); }
     const j = await judgeWorkFileRequest({
       segments: decoded.slice(1), session, ticketSubject: tk?.subject ?? null,
       userAgent: _request.headers.get("user-agent") || "", via: "uploads",
@@ -205,6 +214,38 @@ export async function GET(
 
   const toBody = (stream: import("fs").ReadStream) =>
     Readable.toWeb(stream) as unknown as BodyInit;
+
+  // 사진 부하 줄이기(2026-11-18, 11/17 월례회의 사진 몰림 — lib/image-variant 머리말). 채팅 첨부(work) · 자료제출 · 마케팅 자료 · 합격 사례(submissions).
+  //  ① 브라우저 · 앱이 한 번 받은 파일을 다시 받지 않게 한다(아래 캐시 길이). 파일 이름에 올린 시각 · 무작위 값이 들어 있어 같은 주소의 내용이 바뀌지 않는다
+  //     (영상 압축은 새 이름으로 만든다). private — 공용 캐시(프록시)에는 남기지 않는다. 권한 거부 응답(401·403)은 여기까지 오지 않는다.
+  //     예외: HEIC 와 **올린 지 15분 안 된 파일**은 캐시하지 않는다 — 1분 변환기(/opt/heic-sweep)가 HEIC 내용을 같은 이름으로 JPG 로 바꾼다(검증관 2).
+  //  ② ?w=640(목록) · ?w=1600(크게 보기) 이면 축소본(WebP)을 준다 — 권한 검사는 원본과 똑같이 위에서 끝났다. 다운로드(?download=1)는 늘 원본.
+  //     축소본을 못 줘 원본으로 넘어간 응답은 짧게만 캐시한다 — 그 주소에 원본이 7일 붙어 있지 않게(검증관 1).
+  //     하위 폴더(work/recordings 등)는 축소본 이름이 겹칠 수 있어 경로군 바로 아래 파일만(검증관 5).
+  //     캐시 길이: 채팅 첨부 7일 · 자료제출(마케팅 자료 · 사례) 1시간 — 자료는 동의 철회 · 삭제 · 공유 범위로 볼 수 있는지가 바뀐다(재검증관 3).
+  //     축소본은 sharp 가 실제로 풀 수 있었던 그림에서만 만들어져 HEIC 변환기가 건드리지 않는다 — 올린 직후(15분 안)에도 캐시한다(재검증관 1).
+  const group = VARIANT_GROUPS.has(decoded[0]) ? decoded[0] : VARIANT_GROUPS.has(pathParts[0]) ? pathParts[0] : null;
+  if (group) {
+    const longCache = `private, max-age=${group === "work" ? 604800 : 3600}`;
+    const fresh = Date.now() - hit.mtimeMs < 15 * 60 * 1000;
+    const cacheable = !fresh && ext !== ".heic" && ext !== ".heif";
+    if (cacheable) baseHeaders["Cache-Control"] = longCache;
+    const variantW = !forceDownload && decoded.length === 2 ? parseVariantWidth(url.searchParams.get("w")) : null;
+    if (variantW && isVariantSource(usedName)) {
+      const vp = await getImageVariant(baseDir, group, hit.filePath, usedName, variantW);
+      const vs = vp ? await fs.stat(vp).catch(() => null) : null;
+      if (vp && vs?.isFile()) {
+        hit = { filePath: vp, size: vs.size, mtimeMs: vs.mtimeMs };
+        const vName = encodeURIComponent(downloadName.replace(/\.[^.]+$/, "") + ".webp").replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+        baseHeaders["Content-Type"] = "image/webp";
+        baseHeaders["Content-Disposition"] = `inline; filename="image.webp"; filename*=UTF-8''${vName}`;
+        baseHeaders["Cache-Control"] = longCache;
+      } else if (cacheable && hit.size >= VARIANT_MIN_BYTES) {
+        // 축소본이 아직 없음(만드는 중 · 실패) — 5분 뒤 다시 물어본다. 원본이 작아 축소본을 만들지 않는 파일은 위의 긴 캐시 그대로(재검증관 2)
+        baseHeaders["Cache-Control"] = "private, max-age=300";
+      }
+    }
+  }
 
   // Range 요청 처리 (iOS Safari/AVPlayer는 동영상에 필수 — 무시하면 재생 거부/탐색 불가)
   const range = _request.headers.get("range");

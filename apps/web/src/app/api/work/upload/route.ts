@@ -82,6 +82,12 @@ export async function POST(request: NextRequest) {
   const fileUrl = `/api/uploads/work/${result.safeName}`;
   const fileType = IMAGE_EXT.has(ext) ? "image" : VIDEO_EXT.has(ext) ? "video" : AUDIO_EXT.has(ext) ? "audio" : "file";
 
+  // 채팅 목록용 · 크게 보기용 사진 축소본을 미리 만든다(기다리지 않음) — 보는 순간 여러 명이 한꺼번에 만들지 않게(lib/image-variant, 2026-11-18)
+  if (fileType === "image") {
+    const { warmImageVariants } = await import("@/lib/image-variant");
+    warmImageVariants(path.dirname(dir), "work", result.safeName);
+  }
+
   // 100MB 초과 영상은 백그라운드 압축 큐에 등록 (스케줄러가 1080p로 변환 후 교체)
   if (fileType === "video") {
     const st = await fs.stat(path.join(dir, result.safeName)).catch(() => null);

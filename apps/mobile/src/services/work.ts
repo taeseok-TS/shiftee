@@ -95,6 +95,13 @@ export function clearUploadsTicket(): void {
 //  · 게이트 밖 경로(채팅 첨부·아바타)에 붙으면 얻는 것 없이 URL 만 매번 달라져
 //    RN 이미지·영상 캐시가 통째로 무효화되고(티켓은 갱신마다 문자열이 바뀐다),
 //    Linking.openURL 로 외부 브라우저 주소창·히스토리에 티켓이 박힌다.
+/** 사진 축소본 주소 — 목록 640px · 크게 보기 1600px(서버 lib/image-variant, 2026-11-18 11/17 월례회의 사진 몰림).
+ *  채팅 첨부(/api/uploads/work/…) · 자료제출 · 마케팅 자료(/api/uploads/submissions/…)에만 붙인다. 저장(다운로드)은 원본 주소(fileUri)를 쓴다. 서버가 축소할 수 없는 형식이면 원본이 온다. */
+export function sizedFileUri(path: string | null | undefined, w: 640 | 1600): string {
+  if (path && /^\/api\/uploads\/(work|submissions)\/[^/?#]+$/.test(path)) return fileUri(`${path}?w=${w}`);
+  return fileUri(path);
+}
+
 export function fileUri(path: string | null | undefined): string {
   if (!path) return "";
   const isAbsolute = /^https?:\/\//.test(path);

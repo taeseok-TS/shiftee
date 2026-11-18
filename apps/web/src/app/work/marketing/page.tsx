@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Camera, Plus, X, Paperclip, Trash2, Loader2, ExternalLink, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { ALLOWED_EXT, IMAGE_EXT, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, type SubmissionFile } from "@/lib/submissions";
+import { ALLOWED_EXT, IMAGE_EXT, MAX_FILES, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, thumbSrc, type SubmissionFile } from "@/lib/submissions";
 
 type Me = { id: string; name: string; role: "ADMIN" | "MANAGER" | "EMPLOYEE"; branch: string | null; jobGroup: string | null };
 type Category = { id: string; group: string; name: string; active: boolean };
@@ -184,7 +184,7 @@ function MaterialList({ me, scope, categories, canManage, reloadKey, onChanged }
                   {images.map((f) => (
                     <button key={f.url} type="button" onClick={() => openFile(f)} className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={f.url} alt={f.name} className="h-24 w-24 object-cover rounded border" />
+                      <img loading="lazy" src={thumbSrc(f.url)} alt={f.name} className="h-24 w-24 object-cover rounded border" />
                     </button>
                   ))}
                 </div>
@@ -264,7 +264,7 @@ function UploadDialog({ categories, onClose, onDone }: { categories: Category[];
               <div key={f.url} className="relative">
                 {IMAGE_EXT.has(extOf(f.name))
                   // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={f.url} alt={f.name} className="h-20 w-20 object-cover rounded border" />
+                  ? <img loading="lazy" src={thumbSrc(f.url)} alt={f.name} className="h-20 w-20 object-cover rounded border" />
                   : <div className="h-20 w-40 rounded border bg-gray-50 p-2 text-xs overflow-hidden"><Paperclip size={12} className="inline mr-1" />{decodeFileName(f.name)}</div>}
                 <button type="button" onClick={() => setFiles((cur) => cur.filter((x) => x.url !== f.url))} className="absolute -top-2 -right-2 bg-gray-700 text-white rounded-full p-0.5"><X size={12} /></button>
               </div>

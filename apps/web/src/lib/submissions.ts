@@ -178,3 +178,9 @@ export function normalizeFiles(raw: unknown): SubmissionFile[] | null {
   }
   return out;
 }
+
+/** 목록 썸네일 주소 — 서버가 만든 사진 축소본(긴 변 640px, lib/image-variant 2026-11-18). 누르면 원본(f.url) 그대로.
+ *  우리 서버 첨부(/api/uploads/submissions/… · /api/uploads/work/…)에만 붙인다. 축소할 수 없는 형식이면 서버가 원본을 준다. */
+export function thumbSrc(url: string): string {
+  return /^\/api\/uploads\/(work|submissions)\/[^/?#]+$/.test(url) ? `${url}?w=640` : url;
+}

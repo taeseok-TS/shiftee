@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Trophy, Plus, X, Paperclip, Loader2, Search, PartyPopper, MessageCircle, Pencil, Trash2, Send, Megaphone, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { IMAGE_EXT, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, type SubmissionFile } from "@/lib/submissions";
+import { IMAGE_EXT, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, thumbSrc, type SubmissionFile } from "@/lib/submissions";
 import {
   CASE_KINDS, CASE_KIND_LABEL, CASE_MAX_FILES, COMMENT_MAX, GENDERS, GRADE_BASES, OUTCOMES, RESULTS_MAX, SCHOOL_TYPES, STRATEGY_MIN, STUDENT_GRADES,
   caseFileAllowed, type CaseKind, type CaseResult,
@@ -248,7 +248,7 @@ function CaseDetail({ id, onClose, onChanged, onEdit }: { id: string; onClose: (
                   <button key={f.url} type="button" onClick={() => openFile(f)} className="text-left">
                     {IMAGE_EXT.has(extOf(f.name))
                       // eslint-disable-next-line @next/next/no-img-element
-                      ? <img src={f.url} alt={f.name} className="h-20 w-20 object-cover rounded border" />
+                      ? <img loading="lazy" src={thumbSrc(f.url)} alt={f.name} className="h-20 w-20 object-cover rounded border" />
                       : <div className="h-20 w-40 rounded border bg-gray-50 p-2 text-xs overflow-hidden hover:bg-gray-100"><Paperclip size={12} className="inline mr-1" />{decodeFileName(f.name)}</div>}
                   </button>
                 ))}
@@ -433,7 +433,7 @@ function CaseForm({ initial, onClose, onDone }: { initial: CaseItem | null; onCl
                   <div key={f.url} className="relative">
                     {IMAGE_EXT.has(extOf(f.name))
                       // eslint-disable-next-line @next/next/no-img-element
-                      ? <img src={f.url} alt={f.name} className="h-16 w-16 object-cover rounded border" />
+                      ? <img loading="lazy" src={thumbSrc(f.url)} alt={f.name} className="h-16 w-16 object-cover rounded border" />
                       : <div className="h-16 w-36 rounded border bg-gray-50 p-2 text-xs overflow-hidden"><Paperclip size={12} className="inline mr-1" />{decodeFileName(f.name)}</div>}
                     <button type="button" onClick={() => setFiles((cur) => cur.filter((x) => x.url !== f.url))} className="absolute -top-2 -right-2 bg-gray-700 text-white rounded-full p-0.5" aria-label="첨부 빼기"><X size={12} /></button>
                   </div>

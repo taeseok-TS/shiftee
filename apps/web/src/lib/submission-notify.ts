@@ -164,6 +164,8 @@ export async function sweepOrphanUploads(now: Date = new Date()) {
   for (const name of old) {
     if (used.has(`/api/uploads/submissions/${name}`) || used.has(`/api/uploads/submissions/${encodeURIComponent(name)}`)) continue;
     await fs.unlink(path.join(dir, name)).catch(() => {});
+    const { removeImageVariants } = await import("@/lib/image-variant");
+    await removeImageVariants(path.dirname(dir), "submissions", name);   // 사진 축소본(2026-11-18)
     removed++;
   }
   if (removed) console.log(`[submissions] 미제출 고아 파일 ${removed}개 정리`);

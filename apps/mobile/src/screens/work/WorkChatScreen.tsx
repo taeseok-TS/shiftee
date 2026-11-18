@@ -40,7 +40,7 @@ import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, s
 import * as api from "../../services/api";
 import * as storage from "../../services/storage";
 import { useUploadsTicketVersion } from "../../services/work";
-import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri, getEmoticonSets, sendStickerMessage, EmoticonSet } from "../../services/work";
+import { uploadFile, sendFileMessage, sendAlbumMessage, toggleReaction, sendTextMessage, deleteMessage, editMessage, getMessageReaders, ReaderEntry, toggleBookmark, forwardMessage, createScheduledMessage, getScheduledMessages, cancelScheduledMessage, ScheduledItem, createReminder, fileUri, sizedFileUri, getEmoticonSets, sendStickerMessage, EmoticonSet } from "../../services/work";
 import DatePicker from "../../components/DatePicker";
 import { getMembers, addChannelMembers, setChannelNotify, getChannelMemberIds, getChannelMembersList, ChannelMemberInfo, Member, postTyping, getTypingUsers, getLinkPreview, LinkPreviewData, renameChannel, leaveChannel, hideChannel, setChannelNotice, clearChannelNotice, getNoticeReaders, getChannelLinks, SharedLink, createPoll, votePoll, closePoll, createChannel } from "../../services/channels";
 
@@ -1324,7 +1324,7 @@ export default function WorkChatScreen() {
                         const rest = item.albumUrls!.length - shown;
                         return (
                           <TouchableOpacity key={i} onPress={() => openImageViewer(item.id, i, u)} onLongPress={() => setReactionTarget(item.id)}>
-                            <Image source={{ uri: fileUri(u) }} style={styles.albumCell} resizeMode="cover" />
+                            <Image source={{ uri: sizedFileUri(u, 640) }} style={styles.albumCell} resizeMode="cover" />
                             {i === shown - 1 && rest > 0 ? (
                               <View style={styles.albumMore}><Text style={styles.albumMoreText}>+{rest}</Text></View>
                             ) : null}
@@ -1340,7 +1340,7 @@ export default function WorkChatScreen() {
                       </Pressable>
                     ) : item.fileType === "image" ? (
                       <BubbleImage
-                        uri={fileUri(item.fileUrl)}
+                        uri={sizedFileUri(item.fileUrl, 1600)}
                         onPress={() => openImageViewer(item.id, 0, item.fileUrl!)}
                         onLongPress={() => setReactionTarget(item.id)}
                       />
@@ -2342,7 +2342,7 @@ export default function WorkChatScreen() {
               onScroll={(e) => setViewerIndex(Math.round(e.nativeEvent.contentOffset.x / winW))}
               scrollEventThrottle={16}
               scrollEnabled={!viewerZoomed}
-              renderItem={({ item: u, index: pi }) => <ViewerPage uri={fileUri(u)} width={winW} height={winH} active={pi === viewerIndex} onZoomChange={setViewerZoomed} />}
+              renderItem={({ item: u, index: pi }) => <ViewerPage uri={sizedFileUri(u, 1600)} width={winW} height={winH} active={pi === viewerIndex} onZoomChange={setViewerZoomed} />}
             />
             <View style={styles.viewerHead}>
               <Text style={styles.viewerCount}>{viewerIndex + 1} / {imageViewer.urls.length}</Text>

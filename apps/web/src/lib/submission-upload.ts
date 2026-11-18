@@ -92,5 +92,8 @@ export async function receiveSubmissionMultipart(request: NextRequest, userId: s
     for (const s of saved) await fs.unlink(path.join(dir, s.safeName)).catch(() => {});
     return { fields, files: [], error };
   }
+  // 사진 축소본 미리 만들기(기다리지 않음, lib/image-variant 2026-11-18)
+  const { warmImageVariants } = await import("@/lib/image-variant");
+  for (const f of files) if (f.type === "image") warmImageVariants(path.dirname(dir), "submissions", f.url.slice("/api/uploads/submissions/".length));
   return { fields, files };
 }

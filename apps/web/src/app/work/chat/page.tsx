@@ -120,6 +120,12 @@ const LABEL_COLORS = ["#eab308", "#ef4444", "#3b82f6", "#10b981", "#8b5cf6", "#e
 type ChannelMember = { userId: string; name: string; branch?: string | null; position?: string | null; isCreator: boolean; isManager: boolean };
 type ChannelFile = { messageId: string; fileUrl: string; fileName: string | null; fileType: string | null; userName: string; createdAt: string };
 type Reaction = { emoji: string; count: number; mine: boolean; names?: string[] };
+// 채팅 사진은 축소본으로 그린다 — 목록 640px · 크게 보기 1600px, 다운로드는 원본(lib/image-variant, 2026-11-18 11/17 월례회의 사진 몰림).
+// 우리 서버 채팅 첨부(/api/uploads/work/…) · 자료제출 · 마케팅 자료(/api/uploads/submissions/…)에만 붙인다. 크게 보기에서 확대하면 원본으로 바꾼다(1600px 은 400% 확대에 부족). 서버가 축소할 수 없는 형식(HEIC·GIF 등)이면 원본을 그대로 준다.
+function sizedImg(u: string, w: 640 | 1600): string {
+  return /^\/api\/uploads\/(work|submissions)\/[^/?#]+$/.test(u) ? `${u}?w=${w}` : u;
+}
+
 type Message = { id: string; userId: string; userName: string; userAvatar?: string | null; userBranch?: string | null; system?: boolean; content: string; fileUrl: string | null; fileName: string | null; fileType: string | null; albumUrls?: string[] | null; attachFirst?: boolean; createdAt: string; mine: boolean; reactions: Reaction[]; replyCount: number; editedAt?: string | null; deleted?: boolean; replyTo?: { id: string; userName: string; content: string; deleted: boolean } | null; unreadBy?: number; bookmarked?: boolean; poll?: { id: string; question: string; options: string[]; multiple: boolean; closed: boolean; closesAt?: string | null; counts: number[]; myVotes: number[]; totalVoters: number; creatorId: string; creatorName: string } | null };
 type Employee = { id: string; name: string; branch?: string | null; position?: string | null; role?: string | null };
 
@@ -1336,7 +1342,7 @@ export default function WorkChatPage() {
           {shown.map((u, i) => (
             <button key={i} type="button" onClick={() => openLightbox(m.id, i, u)} className="relative block cursor-zoom-in">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={u} alt="" className="w-full h-[124px] object-cover rounded-lg" />
+              <img src={sizedImg(u, 640)} alt="" loading="lazy" className="w-full h-[124px] object-cover rounded-lg" />
               {i === shown.length - 1 && urls.length > shown.length && (
                 <span className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center text-white font-bold text-lg">
                   +{urls.length - shown.length}
@@ -1361,7 +1367,7 @@ export default function WorkChatPage() {
         {isImg ? (
           <button type="button" onClick={() => openLightbox(m.id, 0, m.fileUrl!)} className="cursor-zoom-in">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={m.fileUrl} alt={m.fileName || ""} className="max-w-[220px] rounded-lg" />
+            <img src={sizedImg(m.fileUrl!, 640)} alt={m.fileName || ""} loading="lazy" className="max-w-[220px] rounded-lg" />
           </button>
         ) : m.fileType === "video" ? (
           <video controls preload="metadata" className="max-w-[280px] rounded-lg" src={m.fileUrl} />
@@ -2674,7 +2680,7 @@ export default function WorkChatPage() {
         <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center" onClick={() => setLightbox(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={lightbox.urls[lightbox.index]}
+            src={lightboxZoom > 1 ? lightbox.urls[lightbox.index] : sizedImg(lightbox.urls[lightbox.index], 1600)}
             alt=""
             className={`max-w-[92vw] max-h-[88vh] object-contain select-none ${lightboxZoom > 1 ? "cursor-grab" : ""}`}
             style={{ transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})` }}

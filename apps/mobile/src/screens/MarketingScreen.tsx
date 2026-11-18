@@ -6,7 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { FILE_ORIGIN, fileUri, useUploadsTicketVersion } from "../services/work";
+import { FILE_ORIGIN, fileUri, sizedFileUri, useUploadsTicketVersion } from "../services/work";
 import { getUser } from "../services/storage";
 import { Category, Submission, SubmissionFile, createSubmission, deleteSubmission, getCategories, getMarketing, uploadSubmissionFile } from "../services/submissions";
 
@@ -143,7 +143,7 @@ export default function MarketingScreen() {
                 <View style={styles.thumbRow}>
                   {images.map((f) => (
                     <TouchableOpacity key={f.url} onPress={() => openFile(f)}>
-                      <Image source={{ uri: fileUri(f.url) }} style={styles.thumb} />
+                      <Image source={{ uri: sizedFileUri(f.url, 640) }} style={styles.thumb} />
                     </TouchableOpacity>
                   ))}
                 </View>

@@ -38,6 +38,9 @@ export async function GET(request: NextRequest) {
   if (!m) return NextResponse.json({ error: "잘못된 문서 경로입니다." }, { status: 400 });
   const group = decodeURIComponent(m[1]);
   const filename = decodeURIComponent(m[2]);
+  // 경로군은 영문 소문자만 — 이중 인코딩(contracts%252F)으로 "contracts/" 같은 이름을 만들면 아래 경로군별 판정(계약서 · 템플릿 ·
+  // 자료제출 · 채팅 첨부)을 건너뛰고 path.join 은 같은 폴더로 풀려 파일이 그대로 나갔다(2026-11-18 검증관 10)
+  if (!/^[a-z]+$/.test(group)) return NextResponse.json({ error: "잘못된 문서 경로입니다." }, { status: 400 });
   if (group.includes("..") || filename.includes("..") || filename.includes("/") || filename.includes("\\"))
     return NextResponse.json({ error: "잘못된 문서 경로입니다." }, { status: 400 });
   if (group === "private") return NextResponse.json({ error: "접근할 수 없습니다." }, { status: 403 });
