@@ -82,13 +82,22 @@ async function userScope(): Promise<Prisma.UserWhereInput> {
 
 type Doc = { id: string; docNo: string | null; title: string; status: string; userId: string; createdAt: Date; signedAt: Date | null; extraFields: Prisma.JsonValue };
 
-/** 한 사람의 퇴사 서류 중 대표 하나 — 퇴사일자가 직원 관리 퇴사일과 같은 것 > 퇴사일자를 읽을 수 있는 것 > 서명 완료 > 서명 대기 > 작성 중
- *  > 연차수당 정산 신청서 > 사직원 > 최근 작성(검증 5). 조회 기간은 보지 않는다 — 달마다 다른 서류가 뽑혀 두 달에 나오지 않게(재검증 A) */
+/** 한 사람의 퇴사 서류 중 대표 하나. 조회 기간은 보지 않는다 — 달마다 다른 서류가 뽑혀 두 달에 나오지 않게(재검증 A)
+ *  · 직원 관리 퇴사일이 있으면: 퇴사일자가 그날과 같은 것 > 퇴사일자를 읽을 수 있는 것 > 서명 완료 > 서명 대기 > 작성 중 > 연차수당 정산 신청서 > 사직원 > 최근 작성(검증 5)
+ *  · 없으면(퇴사 예정): 퇴사일자를 읽을 수 있는 서류 중 **가장 최근에 만든 것의 퇴사일자**를 기준 날짜로 삼고, 위와 같은 순위로 고른다
+ *    — 날짜를 고쳐 새 서류를 쓰는 중이면 새 날짜를 따른다(서명된 옛 서류 날짜에 묶여 새 달 조회에서 빠지지 않게 — 3차 검증 A).
+ *    같은 날짜 서류끼리는 서명 완료가 먼저(퇴사 서류는 묶음으로 몇 ms 차이로 만들어진다 — 최근 순만 보면 서명 전 서류가 뽑힌다) */
 function pickDoc(docs: Doc[], leaveDate: string | null): Doc | null {
+  const dateOf = (d: Doc) => parseKoDate((d.extraFields as Record<string, unknown> | null)?.["퇴사일자"]);
+  let target = leaveDate;
+  if (!target) {
+    let at = -1;
+    for (const d of docs) { const ld = dateOf(d); if (ld && d.createdAt.getTime() > at) { at = d.createdAt.getTime(); target = ld; } }
+  }
   const rank = (d: Doc) => {
     const st = d.status === "SIGNED" ? 3 : d.status === "SENT" || d.status === "APPROVED" ? 2 : 1;
-    const ld = parseKoDate((d.extraFields as Record<string, unknown> | null)?.["퇴사일자"]);
-    return [ld && leaveDate && ld === leaveDate ? 1 : 0, ld ? 1 : 0, st, /연차\s*수당/.test(d.title) ? 1 : 0, d.createdAt.getTime()];
+    const ld = dateOf(d);
+    return [ld && target && ld === target ? 1 : 0, ld ? 1 : 0, st, /연차\s*수당/.test(d.title) ? 1 : 0, d.createdAt.getTime()];
   };
   const greater = (a: number[], b: number[]) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
   let best: Doc | null = null, bestR: number[] = [];

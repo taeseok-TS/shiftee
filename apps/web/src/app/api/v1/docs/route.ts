@@ -151,13 +151,13 @@ curl -X POST ${base}/submissions \\
 - \`GET /contracts/salary\` — 지금 유효한 계약 전체(실제 적용 끝(effectiveEndDate)이 없거나 오늘 이후, 「취소」 제외 — 작성 중 · 서명 대기 포함)
 - \`GET /contracts/salary?signedSince=2026-11-01T00:00:00+09:00\` — 이 시각 이후 체결됐거나 내용 · 상태가 바뀐 계약(취소 포함). 시각대(Z 또는 +09:00) 필수
 - \`GET /contracts/salary?empNo=6790\` — 한 사람의 계약 전부(지난 계약 · 퇴사자 포함)
-→ \`{ mode, contracts: [{ id, docNo, title, empNo, emsId, name, branch, jobGroup, resignDate, startDate, endDate, effectiveEndDate, payUnit, annualSalary, monthlySalary, employmentType, weeklyHours, monthlyHours, contractKind, status, statusCode, signedAt, updatedAt, superseded, supersededBy }], nextCursor }\`
+→ \`{ mode, contracts: [{ id, docNo, title, empNo, emsId, name, branch, jobGroup, resignDate, startDate, endDate, effectiveEndDate, payUnit, annualSalary, monthlySalary, employmentType, weeklyHours, monthlyHours, dailyHours, contractKind, status, statusCode, signedAt, updatedAt, superseded, supersededBy }], nextCursor }\`
 - **금액 단위는 \`payUnit\` 으로 가르세요.** \`"year"\` 면 \`annualSalary\`(연액, 원) · \`"month"\` 면 \`monthlySalary\`(월액, 원 — 계약직 월급 양식). 다른 쪽은 null 이고, 큐브티가 12 를 곱하거나 나누지 않습니다.
 - \`status\`: 작성 중 · 서명 대기 · 체결 완료 · 취소(\`statusCode\`: DRAFT · SENT · APPROVED · SIGNED · EXPIRED · REJECTED). **급여에는 「체결 완료」이면서 \`superseded\` 가 false 인 계약만** 쓰세요.
 - \`superseded\`: 같은 사람 · 같은 시작일로 다시 체결한 계약(금액 정정)이 있으면 옛 계약이 true, \`supersededBy\` 에 새 계약 id. 큐브티는 옛 계약을 자동으로 취소하지 않아 둘 다 「체결 완료」로 남습니다.
 - **적용 기간은 \`startDate\` ~ \`effectiveEndDate\` 로 보세요.** \`effectiveEndDate\` = \`endDate\` 와 「그 사람의 다음 체결 계약(시작일이 더 늦은 것) 시작 전날」 중 이른 날(끝나는 날이 빈 옛 계약이 재계약 뒤에도 계속 유효하게 보이지 않게). 둘 다 없으면 null(끝 미정).
 - \`resignDate\`: 직원 관리 퇴사일(있으면). 퇴사한 사람의 계약도 퇴사한 달 급여 계산을 위해 「지금 유효」 목록에 남습니다 — 퇴사일 뒤 달에는 쓰지 마세요.
-- \`employmentType\`: 계약직(월급 양식 · 제목에 계약직 · 파트타임) / 정규직(그 밖). \`weeklyHours\` · \`monthlyHours\` 는 양식에 있을 때만(계약직 양식).
+- \`employmentType\`: 계약직(월급 양식 · 제목에 계약직 · 파트타임) / 정규직(그 밖). \`weeklyHours\`(주) · \`monthlyHours\`(월) · \`dailyHours\`(1일 소정근로시간, 계약서 「일근무시간」) 는 양식에 있을 때만(계약직 양식) — 단시간 연차수당 = 급여 ÷ monthlyHours × dailyHours × 잔여연차.
 - 대상: 큐브티에서 작성한 근로 · 고용 · 파트타임 · 연봉 계약서 중 금액 칸이 있는 것. **원장 · 본부 계약은 오지 않습니다.** 시험 발송 · 외부(미가입) 계약자 · 테스트 계정 · 통계 제외 지점도 빠집니다. 모두싸인에서 옮겨 온 지난 계약(11/9 이전)은 금액 칸이 없어 오지 않습니다.
 - 한 번에 1,000건까지. \`nextCursor\` 가 null 이 아니면 **같은 질의에** \`&cursor=<nextCursor>\` 를 붙여 다시 부르면 이어서 옵니다(모든 모드 공통, null 이면 끝). 날짜는 "YYYY-MM-DD", 시각은 KST(+09:00) ISO.
 

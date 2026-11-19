@@ -41,6 +41,9 @@ function won(v: unknown, min: number, max: number): number | null {
 /** "22.5" · "117.32" · "약 209 H" → 시간(숫자). 없으면 null */
 function hours(v: unknown): number | null {
   if (typeof v !== "string" && typeof v !== "number") return null;
+  // 「4시간 30분」처럼 손으로 고쳐 적은 값 → 4.5(첫 숫자만 읽으면 4 — 4차 검증)
+  const hm = /(\d+)\s*시간\s*(\d+)\s*분/.exec(String(v));
+  if (hm) { const n = Number(hm[1]) + Number(hm[2]) / 60; return n > 0 && n <= 400 ? Math.round(n * 100) / 100 : null; }
   const m = /\d+(?:\.\d+)?/.exec(String(v).replace(/,/g, ""));
   if (!m) return null;
   const n = Number(m[0]);
@@ -70,6 +73,7 @@ export type SalaryContractRow = {
   payUnit: "year" | "month"; annualSalary: number | null; monthlySalary: number | null;
   employmentType: "정규직" | "계약직";
   weeklyHours: number | null; monthlyHours: number | null;
+  dailyHours: number | null;        // 1일 소정근로시간 — 계약서 「일근무시간」(계약직 양식, 예 4.5). 단시간 연차수당 계산용(11/19 이예지 추가 요청)
   contractKind: string | null;      // 신규입사 · 재계약(양식에 있으면)
   status: string; statusCode: string;
   signedAt: string | null; updatedAt: string;
@@ -190,6 +194,7 @@ export async function salaryContracts(q: SalaryQuery, cursor?: { at: Date; id: s
       employmentType: amt.payUnit === "month" || CONTRACT_JOB.test(c.title) ? "계약직" : "정규직",
       weeklyHours: hours(e["주근무시간"]),
       monthlyHours: hours(e["월근로시간"]),
+      dailyHours: hours(e["일근무시간"]),
       contractKind: typeof e["계약구분"] === "string" ? (e["계약구분"] as string) : null,
       status: STATUS[c.status] ?? c.status, statusCode: c.status,
       signedAt: kstIso(c.signedAt), updatedAt: kstIso(c.updatedAt)!,
