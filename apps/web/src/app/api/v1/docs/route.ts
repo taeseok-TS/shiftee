@@ -135,6 +135,32 @@ curl -X POST ${base}/submissions \\
 - 이미 승인 · 반려 · 취소된 건: 409 \`ALREADY_DECIDED\` + \`status\`. 잔여 부족: 400 \`SHORT_BALANCE\`(예외 승인은 화면에서만). 같은 단계를 다른 결재자가 먼저 처리했고 신청은 다음 단계에 있으면 409 \`STEP_ALREADY_TAKEN\`(status 「대기」). 본문 오류 400 \`BAD_BODY\` · 사번 형식 400 \`BAD_APPROVER\` · 반려 사유 없음 400 \`REASON_REQUIRED\` · 신청 없음 404 \`NOT_FOUND\` · 개인 키 403 \`ORG_KEY_ONLY\`. 409 \`ALREADY_DECIDED\` 는 다시 보낼 필요가 없다(두 번 보내도 한 번만 처리된다).
 - memo(승인)는 감사 기록에만 남고 신청자 알림에는 넣지 않는다. 모든 처리는 「연동 키로 결재」 감사 기록이 따로 남는다.
 
+## 퇴사자 잔여연차 읽기 — 회사 연동 키 전용 (scope: leave:read)
+\`GET /leave/balance?leaveFrom=2026-11-01&leaveTo=2026-11-30\` · 한 사람은 \`GET /leave/balance?empNo=6210\`
+- 기간에 **퇴사일이 든** 사람(한 번에 366일까지). 퇴사일은 직원 관리의 퇴사일, 아직 없으면 퇴사 서류(사직원 · 연차수당 정산 신청서)의 「퇴사일자」 — 퇴사 예정자도 나옵니다(\`leaveDateSource\`: employee · document).
+→ \`{ rows: [{ empNo, name, branch, jobGroup, hireDate, leaveDate, leaveDateSource, asOf, granted, used, remaining, substituteRemaining, compensatoryRemaining, basis, document, documentIncludes, settlementDays, settlementSource, needsCheck, notes }] }\`
+- \`granted\` · \`used\` · \`remaining\`: **연차만**, 큐브티 계산값(본부 「연차 정산」 퇴사자 탭과 같은 계산 — 입사일 기준 발생 − 회계 기준 전년도까지 발생 − 퇴사 연도 사용, 퇴사일 기준). 반차 0.5 · 반반차 0.25 라 소수. 입사일이 없으면 null.
+- \`substituteRemaining\`(대체휴일) · \`compensatoryRemaining\`(보상휴가 — 근로자의 날 보상 등): 연차와 **따로** 옵니다(부여 − 승인 사용, 일). 부여 기록이 부족해 음수로 계산되면 0 으로 주고 \`needsCheck\` · \`notes\` 로 알립니다.
+- \`document\`: 큐브티 퇴사 서류에 적힌 값 \`{ documentId, docNo, title, status, statusCode, leaveDate, remaining, used, confirmedAt }\` — 서류가 없으면 null. \`confirmedAt\` 은 서명 완료 시각.
+- \`documentIncludes\`: 서류의 미소진 일수가 무엇을 합친 값인지 계산값과 맞춰 본 결과 — 「연차만」 · 「연차+대체휴일」 · 「연차+대체휴일+보상휴가」 · 「연차+보상휴가」 · 「계산과 다름」.
+- **\`settlementDays\` 를 정산 일수로 쓰세요**(연차 · 대체휴일 · 보상휴가 합계). 서명 완료된 서류가 있으면 서류 값 기준(서류가 연차만 적었으면 대체 · 보상 잔여를 더함, \`settlementSource: "document"\`), 없거나 서명 전이면 계산값 합계(\`"calculated"\`).
+- \`needsCheck\` true 면 \`notes\` 를 보고 사람이 확인하세요(서류와 계산이 다름 · 퇴사일 불일치 · 퇴사일 뒤 승인 휴가 · 입사일 없음 등).
+- 본부 · 휴지통 · 테스트 계정 · 통계 제외 지점은 나오지 않습니다. empNo 로 퇴사일이 없는 사람을 부르면 404 \`NOT_FOUND\`.
+
+## 연봉 계약 읽기 — 회사 연동 키 전용 (scope: contract:read)
+- \`GET /contracts/salary\` — 지금 유효한 계약 전체(실제 적용 끝(effectiveEndDate)이 없거나 오늘 이후, 「취소」 제외 — 작성 중 · 서명 대기 포함)
+- \`GET /contracts/salary?signedSince=2026-11-01T00:00:00+09:00\` — 이 시각 이후 체결됐거나 내용 · 상태가 바뀐 계약(취소 포함). 시각대(Z 또는 +09:00) 필수
+- \`GET /contracts/salary?empNo=6790\` — 한 사람의 계약 전부(지난 계약 · 퇴사자 포함)
+→ \`{ mode, contracts: [{ id, docNo, title, empNo, emsId, name, branch, jobGroup, resignDate, startDate, endDate, effectiveEndDate, payUnit, annualSalary, monthlySalary, employmentType, weeklyHours, monthlyHours, contractKind, status, statusCode, signedAt, updatedAt, superseded, supersededBy }], nextCursor }\`
+- **금액 단위는 \`payUnit\` 으로 가르세요.** \`"year"\` 면 \`annualSalary\`(연액, 원) · \`"month"\` 면 \`monthlySalary\`(월액, 원 — 계약직 월급 양식). 다른 쪽은 null 이고, 큐브티가 12 를 곱하거나 나누지 않습니다.
+- \`status\`: 작성 중 · 서명 대기 · 체결 완료 · 취소(\`statusCode\`: DRAFT · SENT · APPROVED · SIGNED · EXPIRED · REJECTED). **급여에는 「체결 완료」이면서 \`superseded\` 가 false 인 계약만** 쓰세요.
+- \`superseded\`: 같은 사람 · 같은 시작일로 다시 체결한 계약(금액 정정)이 있으면 옛 계약이 true, \`supersededBy\` 에 새 계약 id. 큐브티는 옛 계약을 자동으로 취소하지 않아 둘 다 「체결 완료」로 남습니다.
+- **적용 기간은 \`startDate\` ~ \`effectiveEndDate\` 로 보세요.** \`effectiveEndDate\` = \`endDate\` 와 「그 사람의 다음 체결 계약(시작일이 더 늦은 것) 시작 전날」 중 이른 날(끝나는 날이 빈 옛 계약이 재계약 뒤에도 계속 유효하게 보이지 않게). 둘 다 없으면 null(끝 미정).
+- \`resignDate\`: 직원 관리 퇴사일(있으면). 퇴사한 사람의 계약도 퇴사한 달 급여 계산을 위해 「지금 유효」 목록에 남습니다 — 퇴사일 뒤 달에는 쓰지 마세요.
+- \`employmentType\`: 계약직(월급 양식 · 제목에 계약직 · 파트타임) / 정규직(그 밖). \`weeklyHours\` · \`monthlyHours\` 는 양식에 있을 때만(계약직 양식).
+- 대상: 큐브티에서 작성한 근로 · 고용 · 파트타임 · 연봉 계약서 중 금액 칸이 있는 것. **원장 · 본부 계약은 오지 않습니다.** 시험 발송 · 외부(미가입) 계약자 · 테스트 계정 · 통계 제외 지점도 빠집니다. 모두싸인에서 옮겨 온 지난 계약(11/9 이전)은 금액 칸이 없어 오지 않습니다.
+- 한 번에 1,000건까지. \`nextCursor\` 가 null 이 아니면 **같은 질의에** \`&cursor=<nextCursor>\` 를 붙여 다시 부르면 이어서 옵니다(모든 모드 공통, null 이면 끝). 날짜는 "YYYY-MM-DD", 시각은 KST(+09:00) ISO.
+
 ## 주의
 - 키가 새면 프로필에서 즉시 끄고 새로 만드세요. 키를 남에게 주면 그 사람이 내 이름으로 행동하게 됩니다.
 - 한도(429)에 걸린 요청이 1시간에 600회를 넘으면 — 즉 한도를 넘겨도 계속 두드리면 — 이상 사용으로 보고 키를 멈추고 본인·본부에 알립니다. 429 를 받으면 기다렸다가 다시 보내세요.

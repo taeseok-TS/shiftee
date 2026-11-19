@@ -12,7 +12,7 @@ import { isResigned } from "@/lib/resign";
 import { maskIp } from "@/lib/mask-ip";
 import type { ApiKey } from "@prisma/client";
 
-export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read", "leave:approve"] as const;
+export const API_SCOPES = ["submissions:read", "submissions:write", "chat:read", "chat:write", "marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read", "leave:approve", "contract:read"] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 /** 직원 본인이 만드는 개인 키에 허용되는 범위 — marketing:* 는 본부가 발급하는 회사 연동 키(ORG)에만 */
 export const PERSONAL_SCOPES: readonly ApiScope[] = ["submissions:read", "submissions:write", "chat:read", "chat:write"];
@@ -20,7 +20,8 @@ export const PERSONAL_SCOPES: readonly ApiScope[] = ["submissions:read", "submis
 /** leave:read — 직영 포털이 원장 휴가 신청을 모아 매일 보고(2026-11-09 이예지 요청, 디렉터 「처리해 주자」) */
 /** attendance:weekend:read — 직영 포털 급여 작업용 주말 · 휴일 근무 내역(2026-11-13 이예지 요청, 디렉터 「처리해 줘」) */
 /** leave:approve — 직영 포털 팀즈 보고에서 「확인했어요」를 누르면 그 휴가 신청을 승인 · 반려(2026-11-16 이예지 요청, 디렉터 「처리해 주고」) — 결재자는 본부 관리자 사번만 */
-export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read", "leave:approve"];
+/** contract:read — 직영 포털 급여 관리가 큐브티에서 체결한 연봉 · 월급 계약을 읽는다(2026-11-19 이예지 요청, 디렉터 「진행해」) — 원장 · 본부 계약은 빼고 준다 */
+export const ORG_SCOPES: readonly ApiScope[] = ["marketing:read", "marketing:publish", "dm:send", "leave:read", "attendance:weekend:read", "leave:approve", "contract:read"];
 export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "submissions:read": "자료제출 읽기 — 내야 할 것·내 제출·공유 자료",
   "submissions:write": "자료제출 쓰기 — 파일 올리고 제출",
@@ -29,9 +30,10 @@ export const API_SCOPE_LABEL: Record<ApiScope, string> = {
   "marketing:read": "마케팅 자료 읽기 — 지점이 올린 마케팅 자료·파일 가져가기 (회사 연동)",
   "marketing:publish": "마케팅 발행 결과 — 블로그 발행 주소 되돌려주기 (회사 연동)",
   "dm:send": "DM 보내기 — 사번으로 직원에게 1:1 알림(「에듀플렉스 알림」 계정, 회사 연동)",
-  "leave:read": "휴가 신청 읽기 — 신청 내역 · 대체휴일 근무일 출퇴근 · 포상휴가 남은 일수(회사 연동)",
+  "leave:read": "휴가 신청 읽기 — 신청 내역 · 대체휴일 근무일 출퇴근 · 포상휴가 남은 일수 · 퇴사자 잔여연차(회사 연동)",
   "attendance:weekend:read": "주말 · 휴일 근무 읽기 — 토 · 일 · 공휴일 근무일정 · 출퇴근 기록 · 신청 결재 상태(회사 연동)",
   "leave:approve": "휴가 승인 · 반려 — 본부 관리자 사번으로 휴가 신청을 결재(회사 연동, 화면 결재와 같은 규칙)",
+  "contract:read": "연봉 계약 읽기 — 큐브티에서 체결한 근로 · 연봉 계약의 연봉 · 월급 · 기간 · 상태(회사 연동, 원장 · 본부 계약 제외)",
 };
 export const KEY_PREFIX = "cbt_pk_";
 export const MAX_TTL_DAYS = 365;
