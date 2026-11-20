@@ -129,6 +129,31 @@ export async function clearLateForAmLeave(leave: { userId: string; type: string;
   return n;
 }
 
+/**
+ * 오전 반차 · 반반차가 **없어지면**(취소 결재 최종 승인 · 다른 유형으로 변경) 그 기간 큐브티 출근을 휴가 없이 다시 재서,
+ * 원래 시작보다 늦었으면 「지각」으로 되돌린다(2026-11-20 디렉터 「승인한 뒤 취소하거나 반려하면 지각으로 돌아가는 게 맞다」).
+ * 부르는 쪽은 휴가 상태가 바뀐 **뒤**(커밋 뒤)에 부른다. 공휴일 · 시프티 이관 기록 · 시스템이 출근 시각을 채운 기록(AUTO_FILL · AUTO_CLOSE)은 건드리지 않는다.
+ */
+export async function restoreLateAfterAmLeaveRemoved(leave: { userId: string; type: string; startDate: Date; endDate: Date }): Promise<number> {
+  if (!(AM_LEAVE_TYPES as readonly string[]).includes(leave.type)) return 0;
+  const rows = await prisma.attendance.findMany({
+    where: { userId: leave.userId, importBatch: null, clockIn: { not: null }, status: { in: ["NORMAL", "EARLY_LEAVE"] }, date: { gte: leave.startDate, lte: leave.endDate } },
+    select: { id: true, date: true, clockIn: true, status: true },
+  });
+  let n = 0;
+  for (const r of rows) {
+    const ymd = r.date.toISOString().slice(0, 10);
+    if (await isHoliday(ymd)) continue;
+    const win = await workWindowFor(leave.userId, ymd);
+    if (!isLateAt(r.clockIn, await lateBaseMin(leave.userId, ymd, win))) continue;   // 같은 날 다른 오전 휴가가 남아 있으면 그 기준으로 잰다
+    const sys = await prisma.attendanceEdit.findFirst({ where: { attendanceId: r.id, kind: { in: ["AUTO_FILL", "AUTO_CLOSE"] } }, select: { id: true } });
+    if (sys) continue;
+    const res = await prisma.attendance.updateMany({ where: { id: r.id, status: r.status }, data: { status: "LATE" } });
+    n += res.count;
+  }
+  return n;
+}
+
 export async function calcStatus(
   clockIn: Date | null,
   clockOut: Date | null,

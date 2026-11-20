@@ -142,6 +142,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     detail: `${cr.user.name} ${typeLabel} 휴가 취소 결재 ${action === "approve" ? "승인" : "반려"}${override ? " (직접처리)" : ""} (${period})`,
   });
   if (out.restored) {
+    // 오전 반차 · 반반차가 취소되면 그날 늦은 출근을 지각으로 되돌린다(디렉터 11/20) — 기다리지 않는다
+    (await import("@/lib/leave-decision")).restoreLateAfterAmLeaveRemovedLater({ userId: lr.userId, type: lr.type, startDate: lr.startDate, endDate: lr.endDate });
     await logAudit({
       actorId: session.userId, actorName: session.name, action: "LEAVE_CANCEL",
       targetType: "LEAVE", targetId: lr.id, targetName: cr.user.name,

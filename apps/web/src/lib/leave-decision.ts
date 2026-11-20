@@ -52,6 +52,13 @@ export function clearLateForAmLeaveLater(leave: { userId: string; type: string; 
     .catch((e) => console.error("[leave-decision] 반차 지각 다시 매기기 실패:", e));
 }
 
+/** 오전 반차 · 반반차가 없어진 뒤(취소 · 유형 변경) 그날 늦은 출근을 「지각」으로 되돌린다(lib/attendance-status). 기다리지 않는다 */
+export function restoreLateAfterAmLeaveRemovedLater(leave: { userId: string; type: string; startDate: Date; endDate: Date }): void {
+  import("@/lib/attendance-status")
+    .then((m) => m.restoreLateAfterAmLeaveRemoved(leave))
+    .catch((e) => console.error("[leave-decision] 반차 취소 뒤 지각 되돌리기 실패:", e));
+}
+
 async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
 
 /** 휴가 결재(승인 · 반려)의 본체 — 화면 라우트(api/leave/[id]/approve)와 회사 연동 키 라우트(api/v1/leave/requests/[id]/approve · reject)가

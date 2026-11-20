@@ -77,8 +77,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   // 승인된 휴가를 오전 반차 · 반반차로 바꾸면 그날 「지각」 출근을 다시 매긴다(#247 검증) — 기다리지 않는다
   if (leave.status === "APPROVED") {
-    const { clearLateForAmLeaveLater } = await import("@/lib/leave-decision");
-    clearLateForAmLeaveLater({ userId: leave.userId, type: to, startDate: leave.startDate, endDate: leave.endDate });
+    const { clearLateForAmLeaveLater, restoreLateAfterAmLeaveRemovedLater } = await import("@/lib/leave-decision");
+    const span = { userId: leave.userId, startDate: leave.startDate, endDate: leave.endDate };
+    clearLateForAmLeaveLater({ ...span, type: to });
+    // 오전 반차 · 반반차에서 다른 유형으로 바뀌면 그날 늦은 출근을 지각으로 되돌린다(디렉터 11/20)
+    restoreLateAfterAmLeaveRemovedLater({ ...span, type: leave.type });
   }
 
   const { botSendDM, botNotifyAdminsProgress } = await import("@/lib/bot");
