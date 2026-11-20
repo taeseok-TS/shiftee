@@ -266,8 +266,27 @@ export default function AttendanceScreen() {
       setLocation({ latitude: f.latitude, longitude: f.longitude, accuracy: f.accuracy });
       // 서버 판정 — 지점 밖(403)이면 바로 실패로 두지 않고 「위치를 다시 잡는 중」으로 정밀 측위 한 번 더(2026-10-27 이예지:
       //  건물 안에서는 첫 위치가 수백 m 튀어 지점 안인데 지점 밖으로 떴다). 두 번째도 밖이면 그때 실패 카드
-      const send = async (fix: typeof f & { ok: true }) =>
-        phase === "IN" ? attendance.clockOut(fix.latitude, fix.longitude, fix.accuracy) : attendance.clockIn(fix.latitude, fix.longitude, fix.accuracy);
+      // 출근하고 30분 안의 퇴근은 서버가 한 번 더 확인을 요구한다(409 CONFIRM_SHORT, 2026-11-20 디렉터 — 출근하며 퇴근까지 같이 눌렀다).
+      // 「퇴근하기」를 고르면 confirmShort 로 다시 보내고, 「취소」면 아무것도 남기지 않는다(null)
+      let confirmShort = false;
+      const sendRaw = async (fix: typeof f & { ok: true }) =>
+        phase === "IN" ? attendance.clockOut(fix.latitude, fix.longitude, fix.accuracy, confirmShort) : attendance.clockIn(fix.latitude, fix.longitude, fix.accuracy);
+      const askShort = (msg: string) => new Promise<boolean>((resolve) => {
+        Alert.alert("퇴근할까요?", msg, [
+          { text: "취소", style: "cancel", onPress: () => resolve(false) },
+          { text: "퇴근하기", style: "destructive", onPress: () => resolve(true) },
+        ], { cancelable: true, onDismiss: () => resolve(false) });
+      });
+      const send = async (fix: typeof f & { ok: true }) => {
+        try {
+          return await sendRaw(fix);
+        } catch (e: any) {
+          if (phase !== "IN" || confirmShort || e?.response?.data?.code !== "CONFIRM_SHORT") throw e;
+          if (!(await askShort(e.response.data.error || "출근한 지 30분이 안 됐어요. 정말 퇴근할까요?"))) return null;
+          confirmShort = true;
+          return await sendRaw(fix);
+        }
+      };
       let r: any;
       try {
         r = await send(f);
@@ -284,6 +303,7 @@ export default function AttendanceScreen() {
           setRelocating(false);
         }
       }
+      if (r === null) return;   // 30분 안 퇴근 확인에서 「취소」 — 그대로 근무 중
       if (phase === "IN") {
         // 출근 요청 승인 대기 중이면 퇴근은 요청에 담겨, 승인될 때 함께 기록된다
         setInsideNow(true);

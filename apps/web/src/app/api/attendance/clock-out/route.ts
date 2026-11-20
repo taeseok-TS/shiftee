@@ -93,6 +93,13 @@ export async function POST(request: NextRequest) {
   const { latitude, longitude } = body;
   const accuracy = parseAccuracy(body.accuracy);
 
+  // 출근하고 30분 안의 퇴근은 한 번 더 확인한다(2026-11-20 디렉터 — 이강숙 코디가 출근하며 퇴근까지 같이 눌렀다).
+  // 앱이 확인창을 띄우고 「퇴근하기」면 confirmShort:true 로 다시 보낸다. 시각은 문구에 넣지 않는다(찍은 시각은 본부만 — ■0-11).
+  // 출근이 요청(지점 밖 · 사진 · 본부)으로 들어가 승인 대기여도 그 요청 시각으로 같이 묻는다(검증)
+  if (Date.now() - clockInAt.getTime() < 30 * 60 * 1000 && body?.confirmShort !== true) {
+    return NextResponse.json({ error: "출근한 지 30분이 안 됐어요.\n정말 퇴근할까요?", code: "CONFIRM_SHORT" }, { status: 409 });
+  }
+
   // 퇴근 장소(#36) — 출근과 같은 규칙
   let place: string | null = null;
 

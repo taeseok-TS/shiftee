@@ -50,10 +50,11 @@ export async function clockIn(latitude: number, longitude: number, accuracy?: nu
   return res.data;
 }
 
-export async function clockOut(latitude: number, longitude: number, accuracy?: number | null) {
+/** confirmShort — 출근하고 30분 안의 퇴근을 사용자가 확인했다(서버 409 CONFIRM_SHORT 뒤 다시 보낼 때, 2026-11-20) */
+export async function clockOut(latitude: number, longitude: number, accuracy?: number | null, confirmShort?: boolean) {
   const res = await axios.post(
     `${API_URL}/attendance/clock-out`,
-    { latitude, longitude, accuracy: accuracy ?? undefined },
+    { latitude, longitude, accuracy: accuracy ?? undefined, ...(confirmShort ? { confirmShort: true } : {}) },
     { headers: await clockHeaders() }
   );
   return res.data;
