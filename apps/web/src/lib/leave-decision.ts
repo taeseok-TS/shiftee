@@ -45,6 +45,13 @@ async function assertBalanceForApproval(
 }
 
 // 본부가 만든 휴가 유형(#216-1)의 차감 여부를 알려면 기준표가 적재돼 있어야 한다 — 결재 전에 보장
+/** 오전 반차 · 반반차 최종 승인 뒤 그날 「지각」 출근 기록을 다시 매긴다(#247, lib/attendance-status). 결재 응답을 기다리게 하지 않는다 */
+export function clearLateForAmLeaveLater(leave: { userId: string; type: string; startDate: Date; endDate: Date }): void {
+  import("@/lib/attendance-status")
+    .then((m) => m.clearLateForAmLeave(leave))
+    .catch((e) => console.error("[leave-decision] 반차 지각 다시 매기기 실패:", e));
+}
+
 async function catalogReady() { await (await import("@/lib/leave-catalog-db")).ensureLeaveCatalog().catch(() => {}); }
 
 /** 휴가 결재(승인 · 반려)의 본체 — 화면 라우트(api/leave/[id]/approve)와 회사 연동 키 라우트(api/v1/leave/requests/[id]/approve · reject)가
@@ -235,6 +242,9 @@ export async function decideLeave(session: LeaveDecisionActor, id: string, body:
       detail: `${requesterName} ${leaveTypeStr} ${action === "approve" ? "승인" : "반려"}${overdrawn ? ` · 잔여 부족 예외 승인 — ${overdrawn}` : ""}`,
     });
 
+    // 오전 반차 · 반반차가 최종 승인되면 그날 이미 「지각」으로 찍힌 출근을 다시 매긴다(#247) — 기다리지 않는다
+    if (emailAction === "approve") clearLateForAmLeaveLater(leaveRequest);
+
     // 최종 결정(전체 승인/반려) 시 신청자에게 봇 DM (중간 단계 승인은 발송 안 함)
     // (다음 결재자 알림은 위 notifyNext 에서 이미 봇으로 나간다 — 메일이 하던 일을 대신한다)
     if (emailAction === "approve" || emailAction === "reject") {
@@ -340,6 +350,9 @@ async function adminOverride(
   if (!claimed) {
     return NextResponse.json({ error: "이미 처리된 신청입니다." }, { status: 409 });
   }
+
+  // 오전 반차 · 반반차 직접 승인 → 그날 「지각」 출근 다시 매기기(#247) — 기다리지 않는다
+  if (action === "approve") clearLateForAmLeaveLater({ userId, type: leaveRequest.type, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate });
 
   // 결과 알림 — 봇 DM 으로 통일(2026-09-10 디렉터 지시)
   const approver = await prisma.user.findUnique({ where: { id: approverId } });

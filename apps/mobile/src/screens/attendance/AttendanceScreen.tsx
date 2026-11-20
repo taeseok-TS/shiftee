@@ -400,7 +400,11 @@ export default function AttendanceScreen() {
     else if (rec) {
       if (rec.status === "ABSENT") { pills.push({ text: "미출근", tone: "red" }); fix = { kind: "CORRECTION", workDate: d }; }
       else {
-        pills.push(rec.status === "LATE" ? { text: "지각", tone: "red" } : { text: "출근", tone: "gray" });
+        // 오전 반차 · 반반차(승인) 날은 「지각」 대신 「반차 출근」 · 「반반차 출근」(2026-11-20 개선 제안 #247)
+        // 같은 날 다른 휴가(대기 중 등)가 앞에 있어도 놓치지 않게 승인된 오전 휴가를 따로 찾는다(검증)
+        const amLv = myLeaves.find((l) => l.start <= d && d <= l.end && l.status === "APPROVED" && (l.type === "HALF_AM" || l.type === "QUARTER_AM"));
+        const am = amLv ? (amLv.type === "HALF_AM" ? "반차 출근" : "반반차 출근") : null;
+        pills.push(am ? { text: am, tone: "blue" } : rec.status === "LATE" ? { text: "지각", tone: "red" } : { text: "출근", tone: "gray" });
         if (isMissed || rec.hasOut === false) { pills.push({ text: "퇴근 누락", tone: "red" }); fix = { kind: "MISSED_OUT", workDate: d }; }
         else if (rec.hasOut) pills.push(rec.status === "EARLY_LEAVE" ? { text: "조퇴", tone: "red" } : { text: "퇴근", tone: "gray" });
       }

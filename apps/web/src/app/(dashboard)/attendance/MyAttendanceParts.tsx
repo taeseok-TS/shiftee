@@ -64,6 +64,9 @@ function pastPills(r: MyRecord | null, info: PastDay | null | undefined, today: 
   const leave = info?.leaveType ? LEAVE_LABELS[info.leaveType] ?? info.leaveType : info?.status === "LEAVE" ? "휴가" : null;
   if (r) {
     const out = pillsOf(r, today);
+    // 오전 반차 · 반반차 날의 출근은 「지각」 · 「출근」 대신 「반차 출근」 · 「반반차 출근」(2026-11-20 개선 제안 #247)
+    const am = info?.leaveType === "HALF_AM" ? "반차 출근" : info?.leaveType === "QUARTER_AM" ? "반반차 출근" : null;
+    if (am && out[0] && (out[0].label === "지각" || out[0].label === "출근")) return [{ label: am, tone: "ind" }, ...out.slice(1)];
     return leave ? [...out, { label: leave, tone: "done" }] : out;
   }
   if (leave) return [{ label: leave, tone: "done" }];

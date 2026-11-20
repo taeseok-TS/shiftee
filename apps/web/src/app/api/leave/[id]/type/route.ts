@@ -75,6 +75,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     detail: `휴가 유형 변경 ${change} (${span}, ${leave.status === "APPROVED" ? "승인" : "대기"}, 연차 변동 없음)${paid ? ` · ${paid}` : ""}${note ? ` · 사유: ${note}` : ""}`,
   });
 
+  // 승인된 휴가를 오전 반차 · 반반차로 바꾸면 그날 「지각」 출근을 다시 매긴다(#247 검증) — 기다리지 않는다
+  if (leave.status === "APPROVED") {
+    const { clearLateForAmLeaveLater } = await import("@/lib/leave-decision");
+    clearLateForAmLeaveLater({ userId: leave.userId, type: to, startDate: leave.startDate, endDate: leave.endDate });
+  }
+
   const { botSendDM, botNotifyAdminsProgress } = await import("@/lib/bot");
   botSendDM(leave.userId, `휴가 유형이 바뀌었습니다.\n\n${change}\n기간: ${span}\n연차 잔여는 바뀌지 않습니다.${paid ? `\n${paid}` : ""}${note ? `\n사유: ${note}` : ""}\n처리: ${session.name}`).catch(() => {});
   botNotifyAdminsProgress(`${leave.user?.name ?? "직원"} · 휴가 유형 변경 ${change} (${span}, 처리: ${session.name})`, [session.userId]).catch(() => {});

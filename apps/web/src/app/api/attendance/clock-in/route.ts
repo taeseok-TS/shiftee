@@ -111,9 +111,10 @@ export async function POST(request: NextRequest) {
   // 근무일정이 없는 날은 지각 판정을 하지 않는다(2026-10-16 #219-2, 본부 10/7 답변 12번 — 종전 09:00 기본값).
   // 공휴일에도 판정하지 않는다.
   const holiday = await isHoliday(kstTodayYmd());
-  const { workWindowFor, isLateAt } = await import("@/lib/attendance-status");
+  const { workWindowFor, isLateAt, amLeaveOn } = await import("@/lib/attendance-status");
   const { startMin } = await workWindowFor(session.userId, kstTodayYmd());
-  const isLate = !holiday && isLateAt(now, startMin);
+  // 오전 반차 · 반반차(승인)가 있는 날은 늦게 와도 지각이 아니다(2026-11-20 개선 제안 #247) — 늦은 경우에만 휴가를 조회한다
+  const isLate = !holiday && isLateAt(now, startMin) && !(await amLeaveOn(session.userId, kstTodayYmd()));
 
   const attendance = await prisma.attendance.upsert({
     where: { userId_date: { userId: session.userId, date: today } },

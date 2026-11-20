@@ -335,6 +335,12 @@ export async function POST(request: NextRequest) {
       return created;
     });
 
+    // 결재 없이 바로 승인된 오전 반차 · 반반차(본부 대리 등록 등)도 그날 「지각」 출근을 다시 매긴다(#247) — 기다리지 않는다
+    if (policySteps.length === 0) {
+      const { clearLateForAmLeaveLater } = await import("@/lib/leave-decision");
+      clearLateForAmLeaveLater({ userId: leaveRequest.userId, type: leaveRequest.type, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate });
+    }
+
     // 1단계 결재자에게 알린다 — 결재 차례인 사람에게만, 본부는 진행 알림(2026-10-07 본부 답변 #8).
     // 종전에는 휴가에 결재 요청 알림이 아예 없어, 결재자가 화면에 직접 들어가야만 알았다.
     if (policySteps.length > 0) {
