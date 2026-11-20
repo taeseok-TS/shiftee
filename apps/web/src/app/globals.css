@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn-tailwind.css"; /* shadcn CSS 사본(2026-11-20 — 패키지 제거, 파일 머리말 참고) */
 
 @custom-variant dark (&:is(.dark *));
 
