@@ -17,7 +17,7 @@ import { pastDayStatus } from "@/lib/attendance-day";
 //  · 야간 = 22:00~06:00(KST)에 걸친 출퇴근 간격(휴게는 빼지 않는다)
 //  · 주 52시간 = 주(월~일) 실근로 전부(휴일근로 포함). 최대 주·52시간 잔여(52 − 최대 주, 음수면 초과)·초과 주 수
 //  · 연장·주 52시간은 기간에 걸친 주 **전체**(월~일)로 계산한다 — 기간이 주 중간에서 시작·끝나도 그 주는 통째로 본다
-//  · 지각 = 기록 상태 LATE(오전 반차 날은 제외), 누락 = 지난 날 출근·퇴근 한쪽만, 결근 = 지난 날 근무일정이 있는데 기록·휴가 없음
+//  · 지각 = 기록 상태 LATE(오전 반차 날은 늦춘 기준으로 매겨진 값 — #247, 시프티 이관 기록의 오전 반차 날은 제외), 누락 = 지난 날 출근·퇴근 한쪽만, 결근 = 지난 날 근무일정이 있는데 기록·휴가 없음
 //    (출퇴근 보드와 같은 규칙. 조퇴는 세지 않는다 — #52)
 const DAY_MIN = 8 * 60, WEEK_REG_MIN = 40 * 60, WEEK_52_MIN = 52 * 60, KST_MS = 9 * 3600_000;
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
@@ -79,7 +79,7 @@ export async function workReport(opts: {
 
   const [schedules, atts, leaves, holidays, pendings] = await Promise.all([
     prisma.schedule.findMany({ where: { userId: { in: ids }, date: { gte: fromD, lte: toD }, type: "WORK" }, select: { userId: true, date: true } }),
-    prisma.attendance.findMany({ where: { userId: { in: ids }, date: { gte: extFromD, lte: extToD } }, select: { userId: true, date: true, clockIn: true, clockOut: true, status: true } }),
+    prisma.attendance.findMany({ where: { userId: { in: ids }, date: { gte: extFromD, lte: extToD } }, select: { userId: true, date: true, clockIn: true, clockOut: true, status: true, importBatch: true } }),
     prisma.leaveRequest.findMany({ where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: toD }, endDate: { gte: fromD } }, select: { userId: true, type: true, startDate: true, endDate: true } }),
     getHolidaySet(extFromD, extToD),
     prisma.attendanceRequest.findMany({ where: { userId: { in: ids }, workDate: { gte: fromD, lte: toD }, status: "PENDING", action: { in: ["IN", "OUT"] } }, select: { userId: true, workDate: true } }),
@@ -125,7 +125,8 @@ export async function workReport(opts: {
     if (inPeriod) {
       attDays.set(`${a.userId}|${y}`, { in: !!a.clockIn, out: !!a.clockOut });
       if (a.clockIn) r.workDays++;
-      if (a.status === "LATE" && !leaveDay.get(`${a.userId}|${y}`)?.am) r.late++;
+      // 오전 반차 날 큐브티 기록은 늦춘 기준으로 이미 매겨졌다(#247) — 휴가를 모르고 매겨진 시프티 이관 기록만 종전처럼 뺀다
+      if (a.status === "LATE" && !(a.importBatch && leaveDay.get(`${a.userId}|${y}`)?.am)) r.late++;
     }
     if (!a.clockIn || !a.clockOut || a.clockOut <= a.clockIn) continue;
     const net = netMin(a.clockIn, a.clockOut);

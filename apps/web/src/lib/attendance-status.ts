@@ -1,6 +1,7 @@
 import { kstHour, kstMinute } from "@/lib/kst";
 import { isHoliday } from "@/lib/holidays";
 import { prisma } from "@/lib/db";
+import { breakHours } from "@/lib/schedule-payload";
 
 // 출퇴근 상태 판정 — 한국시간 기준.
 // 우선순위: LATE > EARLY_LEAVE (지각+조퇴면 LATE).
@@ -65,10 +66,15 @@ export function isEarlyLeaveAt(clockOut: Date | null, endMin: number | null): bo
   return !!clockOut && endMin != null && kstHour(clockOut) * 60 + kstMinute(clockOut) < endMin;
 }
 
-// 오전 반차 · 오전 반반차(승인)가 있는 날은 지각을 판정하지 않는다(2026-11-20 개선 제안 #247 동탄 안효섭 「오전 반차 출근이 지각으로 뜬다 — 반차 출근으로」,
-// 디렉터 「반영해 주자」). 출퇴근 보드(api/attendance/board)와 근태 보고서(lib/work-report)가 이미 쓰는 규칙과 같다 — 반차만큼 늦춘 시작으로
-// 다시 재지 않는다(휴게 위치를 알 수 없다). 조퇴 판정은 그대로. 시간 단위가 없는 보상 · 대체휴일(반차)은 오전 · 오후를 몰라 넣지 않는다.
+// 오전 반차 · 오전 반반차(승인)가 있는 날은 출근 기준 시각을 늦춰 지각을 판정한다(2026-11-20 개선 제안 #247 동탄 안효섭
+// 「오전 반차 출근이 지각으로 뜬다 — 반차 출근으로」, 디렉터 「반영해 주자」 · 「17:30(휴게 30분)으로 정해 놓자」).
+//  · 기준 = 퇴근 시각 − (남은 근무 + 휴게 30분). 남은 근무 = 그날 근무일정의 실근무(휴게 뺀) − 휴가 시간(반차 4 · 반반차 2).
+//    13:00~22:00 → 오전 반차 17:30 · 오전 반반차 15:30, 09:00~18:00 → 오전 반차 13:30(고용노동부 예시와 같다).
+//  · 휴게 30분은 근로기준법 54조(4시간 근무 30분 이상)를 지키는 회사 기준 — 남은 근무가 4시간 미만이면 휴게를 넣지 않는다.
+//  · 조퇴 판정은 그대로. 시간 단위가 없는 보상 · 대체휴일(반차)은 오전 · 오후를 몰라 넣지 않는다.
 export const AM_LEAVE_TYPES = ["HALF_AM", "QUARTER_AM"] as const;
+const AM_LEAVE_MIN: Record<string, number> = { HALF_AM: 240, QUARTER_AM: 120 };
+const AM_LEAVE_BREAK_MIN = 30;
 const ymdToDate = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };
 
 /** 그날 승인된 오전 반차 · 반반차 종류(없으면 null) — 조회가 깨지면 null(종전처럼 판정) */
@@ -83,21 +89,40 @@ export async function amLeaveOn(userId: string, dateYmd: string): Promise<string
   } catch { return null; }
 }
 
+/** 지각 기준 시각(분) — 오전 반차 · 반반차(승인) 날은 늦춘 기준(위 설명), 아니면 근무일정 시작. 기준을 알 수 없으면 null(판정 안 함) */
+export async function lateBaseMin(userId: string, dateYmd: string, win: WorkWindow): Promise<number | null> {
+  if (win.startMin == null) return null;
+  const type = await amLeaveOn(userId, dateYmd);
+  if (!type) return win.startMin;
+  if (win.endMin == null || win.endMin <= win.startMin) return null;   // 퇴근 시각을 모르거나 자정을 넘는 일정 — 판정하지 않는다
+  const span = win.endMin - win.startMin;
+  const fullWork = span - Math.round(breakHours(span / 60) * 60);
+  const leaveMin = AM_LEAVE_MIN[type] ?? 0;
+  // 원장이 그날 근무일정을 이미 반차만큼 줄여 두었으면(예: 17:00~22:00 · 17:30~22:00 · 13:00~18:00) 그 시작이 기준 — 반차를 두 번 빼지 않는다.
+  // 휴게 1시간까지 그대로 남겨 시작만 미룬 일정도 줄인 일정으로 본다(검증: 휴게를 뺀 시간으로만 비교하면 17:00~22:00 을 못 알아봐 기준이 21:30 이 됐다)
+  if (span <= 480 - leaveMin + 60) return win.startMin;
+  const work = Math.max(fullWork - leaveMin, 0);
+  const brk = work >= 240 ? AM_LEAVE_BREAK_MIN : 0;
+  return Math.max(win.endMin - work - brk, win.startMin);
+}
+
 /**
- * 오전 반차 · 반반차가 **나중에** 최종 승인되면, 그 기간에 이미 「지각」으로 저장된 큐브티 출퇴근 기록을 다시 매긴다(조퇴 아니면 정상).
+ * 오전 반차 · 반반차가 **나중에** 최종 승인되면, 그 기간에 이미 「지각」으로 저장된 큐브티 출퇴근 기록을 늦춘 기준으로 다시 매긴다
+ * (기준 안이면 조퇴 아니면 정상, 기준도 넘겼으면 지각 그대로).
  * 결재 응답을 막지 않게 부르는 쪽은 기다리지 않는다(실패해도 결재는 그대로). 시프티에서 옮겨 온 기록(importBatch)은 건드리지 않는다.
  */
 export async function clearLateForAmLeave(leave: { userId: string; type: string; startDate: Date; endDate: Date }): Promise<number> {
   if (!(AM_LEAVE_TYPES as readonly string[]).includes(leave.type)) return 0;
   const rows = await prisma.attendance.findMany({
     where: { userId: leave.userId, status: "LATE", importBatch: null, date: { gte: leave.startDate, lte: leave.endDate } },
-    select: { id: true, date: true, clockOut: true },
+    select: { id: true, date: true, clockIn: true, clockOut: true },
   });
   let n = 0;
   for (const r of rows) {
     const ymd = r.date.toISOString().slice(0, 10);
-    const { endMin } = await workWindowFor(leave.userId, ymd);
-    const next = isEarlyLeaveAt(r.clockOut, endMin) ? "EARLY_LEAVE" : "NORMAL";
+    const win = await workWindowFor(leave.userId, ymd);
+    if (isLateAt(r.clockIn, await lateBaseMin(leave.userId, ymd, win))) continue;   // 늦춘 기준도 넘겼다 — 지각 그대로
+    const next = isEarlyLeaveAt(r.clockOut, win.endMin) ? "EARLY_LEAVE" : "NORMAL";
     const res = await prisma.attendance.updateMany({ where: { id: r.id, status: "LATE" }, data: { status: next } });
     n += res.count;
   }
@@ -114,10 +139,12 @@ export async function calcStatus(
   if (holiday) return "NORMAL";
 
   // userId 가 없으면 일정을 알 수 없다 — 판정하지 않는다(#219-2, 종전에는 09:00/18:00 으로 판정)
-  const { startMin, endMin } = userId ? await workWindowFor(userId, dateYmd) : NO_WINDOW;
+  const win = userId ? await workWindowFor(userId, dateYmd) : NO_WINDOW;
+  const { startMin, endMin } = win;
 
-  // 늦게 왔더라도 그날 오전 반차 · 반반차(승인)가 있으면 지각이 아니다(#247) — 늦은 경우에만 휴가를 조회한다
-  const isLate = isLateAt(clockIn, startMin) && !(userId && (await amLeaveOn(userId, dateYmd)));
+  // 오전 반차 · 반반차(승인) 날은 늦춘 기준으로 다시 잰다(#247) — 원래 시작보다 늦은 경우에만 휴가를 조회한다
+  let isLate = isLateAt(clockIn, startMin);
+  if (isLate && userId) isLate = isLateAt(clockIn, await lateBaseMin(userId, dateYmd, win));
   const isEarlyLeave = isEarlyLeaveAt(clockOut, endMin);
   return isLate ? "LATE" : isEarlyLeave ? "EARLY_LEAVE" : "NORMAL";
 }

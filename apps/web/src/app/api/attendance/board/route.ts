@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
     prisma.schedule.findMany({ where: { userId: { in: ids }, date: { gte: fromD, lte: toD }, type: "WORK" }, select: { userId: true, date: true, startTime: true, endTime: true } }),
     prisma.attendance.findMany({
       where: { userId: { in: ids }, date: { gte: fromD, lte: toD } },
-      select: { id: true, userId: true, date: true, clockIn: true, clockOut: true, status: true, clockInPlace: true, clockOutPlace: true },
+      select: { id: true, userId: true, date: true, clockIn: true, clockOut: true, status: true, clockInPlace: true, clockOutPlace: true, importBatch: true },
     }),
     prisma.leaveRequest.findMany({
       where: { userId: { in: ids }, status: "APPROVED", startDate: { lte: toD }, endDate: { gte: fromD } },
@@ -133,7 +133,9 @@ export async function GET(request: NextRequest) {
     if (a.clockOut) c.out = kstHHmm(a.clockOut);
     c.inPlace = a.clockInPlace;
     c.outPlace = a.clockOutPlace;
-    c.late = a.status === "LATE";
+    // 큐브티 기록의 지각은 오전 반차 · 반반차 날 늦춘 기준(17:30 등)으로 이미 매겨져 저장된다(#247, lib/attendance-status) — 그대로 쓴다.
+    // 시프티에서 옮겨 온 기록(importBatch)은 휴가를 모르고 매겨졌으니 오전 반차 날 지각을 종전처럼 보이지 않게 한다
+    c.late = a.status === "LATE" && !(c.leaveAm && a.importBatch);
     const e = edits.get(a.id);
     if (e) c.edit = e;
     if (a.clockIn && a.clockOut && a.clockOut > a.clockIn) {
@@ -150,14 +152,13 @@ export async function GET(request: NextRequest) {
   // 누락·결근은 지난 날만 판정한다(오늘은 아직 진행 중).
   // 결근은 근무일정이 있는 날만 — 공휴일·휴직(임시휴무)·입사 전·퇴사일 다음 날부터는 결근으로 보지 않는다.
   // 승인 대기 중인 출퇴근 요청이 있는 날은 결근·누락 대신 「승인 대기」.
-  // 오전 반차(반반차)가 있는 날은 늦게 출근해도 지각으로 보이지 않는다(저장된 상태는 휴가를 모른다).
+  // 오전 반차(반반차) 날 지각은 저장된 상태(늦춘 기준 17:30 등, #247)대로 — 시프티 이관 기록만 보이지 않게 한다(위 atts 반복).
   for (const u of users) {
     const row = cells[u.id];
     if (!row) continue;
     const hire = u.hireDate ? ymdOf(u.hireDate) : null;
     const resign = u.resignDate ? ymdOf(u.resignDate) : null;
     for (const [d, c] of Object.entries(row)) {
-      if (c.leaveAm) c.late = false;
       if (d >= todayYmd || c.pending) continue;
       const hasIn = !!c.in, hasOut = !!c.out;
       if (hasIn !== hasOut) c.missing = true;
