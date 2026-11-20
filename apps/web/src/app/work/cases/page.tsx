@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Trophy, Plus, X, Paperclip, Loader2, Search, PartyPopper, MessageCircle, Pencil, Trash2, Send, Megaphone, ArrowRight } from "lucide-react";
+import { Trophy, Plus, X, Paperclip, Loader2, Search, PartyPopper, MessageCircle, Pencil, Trash2, Send, Megaphone, ArrowRight, BookOpen } from "lucide-react";
+import { CASE_SAMPLE } from "@/lib/case-sample";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { IMAGE_EXT, MAX_FILE_BYTES, PREVIEW_EXT, decodeFileName, extOf, thumbSrc, type SubmissionFile } from "@/lib/submissions";
@@ -299,6 +300,46 @@ function CaseDetail({ id, onClose, onChanged, onEdit }: { id: string; onClose: (
 
 const emptyResult = (): CaseResult => ({ school: "", track: "", major: "", outcome: "합격" });
 
+/** 「사례 쓰기」 화면의 작성 예시(2026-11-20 디렉터) — 칸 이름 그대로, 무엇을 어떻게 적는지 보여 준다. 읽기만(채워 넣지 않음 — 예시를 그대로 올리는 일을 막는다) */
+function CaseSamplePanel({ onClose }: { onClose: () => void }) {
+  const s = CASE_SAMPLE;
+  const row = (label: string, value: string, hint?: string) => (
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1 border-b border-amber-100 last:border-0">
+      <div className="text-xs text-gray-500 pt-0.5">{label}</div>
+      <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">{value || <span className="text-gray-400">(비워 둠)</span>}{hint && <div className="text-xs text-amber-700 mt-0.5">{hint}</div>}</div>
+    </div>
+  );
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2" role="region" aria-label="작성 예시">
+      <div className="flex items-start gap-2">
+        <BookOpen size={16} className="text-amber-600 mt-0.5 shrink-0" />
+        <div className="text-sm text-gray-700 flex-1"><b>작성 예시</b> — {s.source} 칸마다 이렇게 채우면 됩니다.</div>
+        <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="예시 닫기"><X size={16} /></button>
+      </div>
+      <div className="bg-white rounded-md border border-amber-100 px-3 py-1">
+        {row("종류", CASE_KIND_LABEL[s.kind])}
+        {row("한 줄 제목", s.title, "성적 변화 + 결과를 한 줄로")}
+        {row("학년", s.studentGrade, "합격 · 결과가 나온 때의 학년")}
+        {row("학생 성", s.studentSurname, "이름은 적지 않고 성만")}
+        {row("성별", s.studentGender, "모르면 비워 둡니다")}
+        {row("지역", s.region)}
+        {row("학교 유형", s.schoolType, "학교 이름 대신 유형")}
+        {row("관리 기간(개월)", String(s.periodMonths), "등원 2014년 8월 ~ 2016년 11월")}
+        {row("성적 기준", s.gradeBasis, "가장 크게 바뀐 기준 하나")}
+        {row("시작 → 지원 시점 등급", `${s.gradeFrom} → ${s.gradeTo}`)}
+        {row("시작 성적 자세히", s.beforeText)}
+        {row("결과 성적 자세히", s.afterText)}
+        <div className="py-1 border-b border-amber-100">
+          <div className="text-xs text-gray-500 mb-1">지원 결과(학교 · 전형 · 학과 · 결과)</div>
+          <div className="space-y-0.5">{s.results.map((r, i) => <div key={i} className="text-sm text-gray-800">{r.school} · {r.track} · {r.major} — <b className="text-indigo-700">{r.outcome}</b></div>)}</div>
+        </div>
+        {row("전략 · 노하우", s.strategy, "다른 지점 매니저가 따라 할 수 있게 — 처음 상태 · 바꾼 관리 · 원서 전략 · 아쉬운 점")}
+        {row("첨부", "", s.filesNote)}
+      </div>
+    </div>
+  );
+}
+
 function CaseForm({ initial, onClose, onDone }: { initial: CaseItem | null; onClose: () => void; onDone: (id: string) => void }) {
   const [kind, setKind] = useState<CaseKind>(initial?.kind ?? "UNIV");
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -321,6 +362,7 @@ function CaseForm({ initial, onClose, onDone }: { initial: CaseItem | null; onCl
   const [mkConsent, setMkConsent] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [showSample, setShowSample] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const initialUrls = new Set((initial?.files ?? []).map((f) => f.url));
   const hasNewFile = files.some((f) => !initialUrls.has(f.url));
@@ -372,8 +414,17 @@ function CaseForm({ initial, onClose, onDone }: { initial: CaseItem | null; onCl
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !uploading && !saving) onClose(); }}>
       <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto grid-cols-[minmax(0,1fr)]">
-        <DialogHeader><DialogTitle>{initial ? "사례 고치기" : "사례 쓰기"}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <div className="flex items-center gap-2 pr-6">
+            <DialogTitle>{initial ? "사례 고치기" : "사례 쓰기"}</DialogTitle>
+            <button type="button" onClick={() => setShowSample((v) => !v)} aria-expanded={showSample}
+              className={`ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${showSample ? "border-amber-400 bg-amber-50 text-amber-800" : "border-gray-300 bg-white text-gray-600 hover:border-amber-400 hover:text-amber-700"}`}>
+              <BookOpen size={13} />{showSample ? "예시 닫기" : "작성 예시 보기"}
+            </button>
+          </div>
+        </DialogHeader>
         <div className="space-y-3">
+          {showSample && <CaseSamplePanel onClose={() => setShowSample(false)} />}
           <div className="flex gap-1.5">
             {CASE_KINDS.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className={`px-3 py-1.5 rounded-md border text-sm ${kind === k ? "border-indigo-500 bg-indigo-50 text-indigo-700 font-medium" : "border-gray-300 bg-white text-gray-700"}`}>{CASE_KIND_LABEL[k]}</button>)}
           </div>
