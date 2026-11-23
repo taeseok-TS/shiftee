@@ -41,13 +41,13 @@ export default function WorkCalendarPage() {
   const [view, setView] = useState<"month" | "week">("month");
   const weekStart = startOfWeek(cursor);
   const weekEnd = endOfWeek(cursor);
-  // 가져올 달·해 — 주간이 두 달(두 해)에 걸치면 둘 다
-  const monthsKey = view === "week"
-    ? Array.from(new Set([format(weekStart, "yyyy-M"), format(weekEnd, "yyyy-M")])).join(",")
-    : `${year}-${month}`;
-  const yearsKey = view === "week"
-    ? Array.from(new Set([weekStart.getFullYear(), weekEnd.getFullYear()])).join(",")
-    : String(year);
+  // 월간 칸 — 1일이 든 주 일요일부터 말일이 든 주 토요일까지(#249 권경욱 — 12월 달력 첫 줄에 11/29 · 11/30 일정도 같이)
+  const gridStart = startOfWeek(startOfMonth(cursor));
+  const gridEnd = endOfWeek(endOfMonth(cursor));
+  // 가져올 달·해 — 보이는 칸이 걸친 달(두 해)을 모두
+  const [rangeStart, rangeEnd] = view === "week" ? [weekStart, weekEnd] : [gridStart, gridEnd];
+  const monthsKey = Array.from(new Set([format(rangeStart, "yyyy-M"), ...(view === "week" ? [] : [`${year}-${month}`]), format(rangeEnd, "yyyy-M")])).join(",");
+  const yearsKey = Array.from(new Set([rangeStart.getFullYear(), rangeEnd.getFullYear()])).join(",");
 
   const fetchSeq = useRef(0); // 빨리 넘길 때 늦게 온 옛 응답이 덮어쓰지 않게
   const fetchEvents = useCallback(async () => {
@@ -58,8 +58,17 @@ export default function WorkCalendarPage() {
       return res.ok ? ((await res.json()).events as Ev[]) || [] : null;
     }));
     if (seq !== fetchSeq.current || lists.some((l) => l === null)) return;
+    // 두 달에 걸친 일정은 한 번만. 같은 날 순서(dayRank)는 그 날짜가 속한 달 응답 것만 쓴다 —
+    // 서버는 달마다 「그 달에 보이는 일정」끼리 0, 1, 2… 로 다시 매기므로, 앞달 말일 순서를 다음 달 응답(일부만 들어 있음)으로 덮으면 섞인다(#249)
     const byId = new Map<string, Ev>();
-    for (const l of lists) for (const e of l ?? []) byId.set(e.id, e); // 두 달에 걸친 일정은 한 번만
+    monthsKey.split(",").forEach((k, i) => {
+      const prefix = `${k.split("-")[0]}-${k.split("-")[1].padStart(2, "0")}-`;
+      for (const e of lists[i] ?? []) {
+        const own = Object.fromEntries(Object.entries(e.dayRank ?? {}).filter(([d]) => d.startsWith(prefix)));
+        const prev = byId.get(e.id);
+        byId.set(e.id, { ...e, dayRank: { ...(prev?.dayRank ?? {}), ...own } });
+      }
+    });
     setEvents(Array.from(byId.values()));
   }, [monthsKey]);
 
@@ -77,9 +86,8 @@ export default function WorkCalendarPage() {
     fetch("/api/branches").then(r => r.ok ? r.json() : { branches: [] }).then(d => setBranches(d.branches || [])).catch(() => {});
   }, []);
 
-  const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(cursor), end: endOfMonth(cursor) }), [cursor]);
+  const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(cursor)), end: endOfWeek(endOfMonth(cursor)) }), [cursor]);
   const weekDays = useMemo(() => eachDayOfInterval({ start: startOfWeek(cursor), end: endOfWeek(cursor) }), [cursor]);
-  const startPad = getDay(startOfMonth(cursor));
 
   // 상단 필터: 전체 / 전사 / 지점 / 원장
   const [viewFilter, setViewFilter] = useState<"all" | "company" | "branch" | "managers">("all");
@@ -366,16 +374,17 @@ export default function WorkCalendarPage() {
           ))}
         </div>
         <div className="grid grid-cols-7">
-          {/* 칸 높이 110 → 150(#224) — 시각 붙은 일정이 두 줄까지 보이게 */}
-          {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} className="min-h-[150px] border-b border-r bg-gray-50/40" />)}
+          {/* 칸 높이 110 → 150(#224) — 시각 붙은 일정이 두 줄까지 보이게.
+              앞 · 뒤 달 날짜(#249)도 빈칸 대신 그날 일정과 함께 — 바탕을 옅게, 날짜는 「11/30」처럼. 등록 · 끌어 옮기기도 같은 칸처럼 된다 */}
           {days.map((day) => {
             const evs = eventsOn(day);
             const dow = getDay(day);
             const holidayName = holidays.get(format(day, "yyyy-MM-dd"));
+            const other = !isSameMonth(day, cursor);
             return (
               <div
                 key={day.toISOString()}
-                className={`min-h-[150px] border-b border-r p-1.5 cursor-pointer hover:bg-indigo-50/70 transition-colors ${isToday(day) ? "bg-indigo-50/50" : holidayName ? "bg-red-50/40" : ""} ${dropAt === `@${format(day, "yyyy-MM-dd")}` ? "ring-2 ring-inset ring-indigo-400" : ""}`}
+                className={`min-h-[150px] border-b border-r p-1.5 cursor-pointer hover:bg-indigo-50/70 transition-colors ${isToday(day) ? "bg-indigo-50/50" : other ? "bg-gray-50" : holidayName ? "bg-red-50/40" : ""} ${dropAt === `@${format(day, "yyyy-MM-dd")}` ? "ring-2 ring-inset ring-indigo-400" : ""}`}
                 title="클릭: 이 날짜로 일정 등록"
                 {...dayDrop(format(day, "yyyy-MM-dd"))}
                 onClick={() => {
@@ -387,11 +396,11 @@ export default function WorkCalendarPage() {
                   setOpen(true);
                 }}
               >
-                <div className={`text-xs font-medium mb-1 ${dow === 0 || holidayName ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-600"}`}>
-                  {day.getDate()}
+                <div className={`text-xs font-medium mb-1 ${dow === 0 || holidayName ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-gray-600"} ${other ? "opacity-50" : ""}`}>
+                  {other ? `${day.getMonth() + 1}/${day.getDate()}` : day.getDate()}
                   {holidayName && <span className="ml-1 font-normal text-[10px] text-red-400">{holidayName}</span>}
                 </div>
-                <div className="space-y-1">
+                <div className={`space-y-1 ${other ? "opacity-75" : ""}`}>
                   {evs.map((e) => (
                     <div key={e.id + day.toISOString()} className={`group relative ${dropAt === `${e.id}@${format(day, "yyyy-MM-dd")}` ? "border-t-2 border-indigo-600 pt-0.5" : ""}`} {...chipDrop(e, format(day, "yyyy-MM-dd"))}>
                       <div

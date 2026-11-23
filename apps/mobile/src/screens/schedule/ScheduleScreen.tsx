@@ -20,7 +20,7 @@ import { getScheduleTemplates, ScheduleTemplate, getWorkCalendar, compareDayEven
 import DatePicker from "../../components/DatePicker";
 import BranchDayView from "../../components/BranchDayView";
 import CalendarEventAddScreen from "./CalendarEventAddScreen";
-import MonthGrid, { type DayChip } from "./MonthGrid";
+import MonthGrid, { type DayChip, monthGridDays } from "./MonthGrid";
 import BranchShareView from "./BranchShareView";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { C, fmtDay as fmtDayLong, fmtShort as fmtShortD, fmtTime, isWeekend, stripTimes, wd } from "../../services/fmt";
@@ -93,6 +93,9 @@ export default function ScheduleScreen() {
   const setUnit = (u: CalendarUnit) => { setUnitState(u); setMyCalendarUnit(u); };
   const loadSeq = useRef(0);   // 늦게 온 옛 조회(월↔주 전환·빠른 이동)가 화면을 덮지 않게(#81 검증 1)
   const period = unit === "week" ? weekOf(focusDay) : unit === "day" ? { start: focusDay, end: focusDay } : null;
+  // 불러올 기간 — 월 보기는 달력 칸 전체(앞 · 뒤 달 날짜까지, #249)
+  const monthGrid = useMemo(() => monthGridDays(cursor.year, cursor.month), [cursor.year, cursor.month]);
+  const fetchRange = period ?? { start: monthGrid[0], end: monthGrid[monthGrid.length - 1] };
   const [requests, setRequests] = useState<ScheduleRequest[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [events, setEvents] = useState<WorkCalendarEvent[]>([]);
@@ -178,15 +181,25 @@ export default function ScheduleScreen() {
     if (!branchLoaded.current) api.getMyProfile().then((p) => { branchLoaded.current = true; setMyBranch(p?.branch ?? null); }).catch(() => {});
     try {
       // 공휴일은 보기 기간이 걸친 해를 모두(연말 주는 두 해)
-      const years = [...new Set([cursor.year, ...(period ? [Number(period.start.slice(0, 4)), Number(period.end.slice(0, 4))] : [])])];
+      const years = [...new Set([cursor.year, Number(fetchRange.start.slice(0, 4)), Number(fetchRange.end.slice(0, 4))])];
       const [s, r, l, ev, hdList] = await Promise.all([
-        period ? getMySchedulesRange(period.start, period.end) : api.getMySchedules(cursor.year, cursor.month),
+        getMySchedulesRange(fetchRange.start, fetchRange.end),
         api.getScheduleRequests(),
         api.getLeaveRequests(),   // 내 휴가 전부 — 달을 걸치는 주도 날짜 칸에 연차가 보이게(10/23 앱 6)
         // 지점 일정은 보기 기간이 걸친 달을 모두(주가 두 달에 걸치면 둘 다 — 월 이동 뒤 주로 바꾸면 앞달 일정이 비던 것, #232 검증 M2)
-        Promise.all([...new Set([`${cursor.year}-${cursor.month}`, ...(period ? [period.start, period.end].map((x) => `${Number(x.slice(0, 4))}-${Number(x.slice(5, 7))}`) : [])])]
-          .map((k) => getWorkCalendar(Number(k.split("-")[0]), Number(k.split("-")[1])).catch(() => [] as WorkCalendarEvent[])))
-          .then((ls) => [...new Map(ls.flat().map((e) => [e.id, e])).values()]),
+        // 같은 날 순서(dayRank)는 그 날짜가 속한 달 응답 것만 — 서버가 달마다 보이는 일정끼리 다시 매겨, 다음 달 응답으로 앞달 말일 순서를 덮으면 섞인다(#249)
+        (async () => {
+          const keys = [...new Set([fetchRange.start, `${cursor.year}-${String(cursor.month).padStart(2, "0")}`, fetchRange.end].map((x) => x.slice(0, 7)))];
+          const ls = await Promise.all(keys.map((k) => getWorkCalendar(Number(k.slice(0, 4)), Number(k.slice(5, 7))).catch(() => [] as WorkCalendarEvent[])));
+          const byId = new Map<string, WorkCalendarEvent>();
+          keys.forEach((k, i) => {
+            for (const e of ls[i]) {
+              const own = Object.fromEntries(Object.entries(e.dayRank ?? {}).filter(([d]) => d.startsWith(`${k}-`)));
+              byId.set(e.id, { ...e, dayRank: { ...(byId.get(e.id)?.dayRank ?? {}), ...own } });
+            }
+          });
+          return [...byId.values()];
+        })(),
         Promise.all(years.map((y) => getHolidays(y).catch(() => [] as Holiday[]))),
       ]);
       if (seq !== loadSeq.current) return;   // 그 사이 다른 기간을 요청했다
@@ -205,7 +218,7 @@ export default function ScheduleScreen() {
     } finally {
       if (seq === loadSeq.current) { setLoading(false); setRefreshing(false); }
     }
-  }, [cursor, myId, period?.start, period?.end]);
+  }, [cursor, myId, fetchRange.start, fetchRange.end]);
 
   useEffect(() => {
     load();
@@ -448,11 +461,10 @@ export default function ScheduleScreen() {
   };
 
   // 날짜 줄 — 주 = 월~일 7줄, 일 = 그날, 월 = 달력 칸에서 고른 날 하나(#232 — 달 전체는 위 달력 칸으로 본다)
-  const monthKey = `${cursor.year}-${String(cursor.month).padStart(2, "0")}`;
   const listDays: string[] = (() => {
     if (unit === "week" && period) return weekDays(period.start);
     if (unit === "day") return [focusDay];
-    return focusDay.slice(0, 7) === monthKey ? [focusDay] : [];
+    return monthGrid.includes(focusDay) ? [focusDay] : [];   // 앞 · 뒤 달 칸을 눌러도 그날 상세(#249)
   })();
   const rangeStart = listDays[0] ?? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-01`;
   const rangeEnd = unit === "month" ? `${cursor.year}-${String(cursor.month).padStart(2, "0")}-31` : listDays[listDays.length - 1] ?? rangeStart;

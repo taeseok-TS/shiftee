@@ -8,6 +8,20 @@ import { C } from "../../services/fmt";
 export type DayChip = { key: string; label: string; bg: string; fg: string; striped?: boolean };
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 월 달력 칸에 보일 날짜(YYYY-MM-DD) — 1일이 든 주 일요일부터 말일이 든 주 토요일까지(달력 날짜 기준, TZ 무관) */
+export function monthGridDays(year: number, month: number): string[] {
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const cur = new Date(year, month - 1, 1 - first.getDay());
+  const end = new Date(year, month - 1, last.getDate() + (6 - last.getDay()));
+  const out: string[] = [];
+  while (cur <= end) {
+    out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
 const MAX_CHIPS = 3;
 
 export default function MonthGrid({ year, month, today, selected, onSelect, chipsOf, isRedDay }: {
@@ -19,14 +33,9 @@ export default function MonthGrid({ year, month, today, selected, onSelect, chip
   chipsOf: (ymd: string) => DayChip[];
   isRedDay: (ymd: string) => boolean;   // 일요일 · 공휴일 — 날짜 숫자를 빨강으로
 }) {
+  // 칸 = 1일이 든 주 일요일 ~ 말일이 든 주 토요일. 앞 · 뒤 달 날짜도 빈칸 대신 그날 일정과 함께(#249 권경욱 — 12월 달력에서 11/30 일정도)
+  const cells = monthGridDays(year, month);
   const mm = String(month).padStart(2, "0");
-  const last = new Date(year, month, 0).getDate();
-  const lead = new Date(year, month - 1, 1).getDay();   // 1일 앞 빈칸(일요일 시작)
-  const cells: (string | null)[] = [
-    ...Array.from({ length: lead }, () => null),
-    ...Array.from({ length: last }, (_, i) => `${year}-${mm}-${String(i + 1).padStart(2, "0")}`),
-  ];
-  while (cells.length % 7) cells.push(null);
   const weeks = Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
 
   return (
@@ -39,19 +48,19 @@ export default function MonthGrid({ year, month, today, selected, onSelect, chip
       {weeks.map((wk, wi) => (
         <View key={wi} style={[s.weekRow, wi > 0 && s.weekLine]}>
           {wk.map((d, di) => {
-            if (!d) return <View key={`e${di}`} style={[s.cell, s.cellEmpty]} />;
+            const other = d.slice(0, 7) !== `${year}-${mm}`;   // 앞 · 뒤 달 — 바탕 옅게, 날짜는 「11/30」
             const chips = chipsOf(d);
             const more = chips.length - MAX_CHIPS;
             const isToday = d === today;
             const isSel = d === selected;
             const red = di === 0 || isRedDay(d);
             return (
-              <TouchableOpacity key={d} style={[s.cell, isSel && s.cellSel]} onPress={() => onSelect(d)} activeOpacity={0.6}>
-                <View style={[s.num, isToday && s.numToday]}>
-                  <Text style={[s.numText, red && { color: "#e11d48" }, di === 6 && !red && { color: C.blue }, isToday && { color: "#fff" }]}>{Number(d.slice(8, 10))}</Text>
+              <TouchableOpacity key={d} style={[s.cell, other && s.cellEmpty, isSel && s.cellSel]} onPress={() => onSelect(d)} activeOpacity={0.6}>
+                <View style={[s.num, isToday && s.numToday, other && !isToday && { opacity: 0.45 }]}>
+                  <Text style={[s.numText, red && { color: "#e11d48" }, di === 6 && !red && { color: C.blue }, isToday && { color: "#fff" }]}>{other ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : Number(d.slice(8, 10))}</Text>
                 </View>
                 {chips.slice(0, MAX_CHIPS).map((c) => (
-                  <View key={c.key} style={[s.chip, { backgroundColor: c.bg }, c.striped && s.chipStriped]}>
+                  <View key={c.key} style={[s.chip, { backgroundColor: c.bg }, c.striped && s.chipStriped, other && { opacity: 0.7 }]}>
                     <Text style={[s.chipText, { color: c.fg }]} numberOfLines={1}>{c.label}</Text>
                   </View>
                 ))}
