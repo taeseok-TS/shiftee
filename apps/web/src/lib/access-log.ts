@@ -15,6 +15,8 @@ import { promisify } from "util";
 const gunzip = promisify(zlib.gunzip);
 
 const MAX_READ = 40 * 1024 * 1024; // 로그가 커도 메모리를 넘기지 않게 끝에서부터만 읽는다
+/** 한 IP 가 서로 다른 경로에서 404 를 이만큼 받으면 스캐너로 본다(우리 앱은 없는 API 를 안 부른다) */
+const SCANNER_DISTINCT_404 = 5;
 
 /** 이 조각의 가장 이른 줄이 창 시작(since)보다 앞서면 true — 더 거슬러 올라갈 필요가 없다. */
 function reachesBack(text: string, since: number): boolean {
@@ -52,6 +54,8 @@ export type FailureStats = {
   server: number;   // 5xx
   client: number;   // 4xx (401.403 제외)
   malformed: number; // 주소 자체가 깨진 요청 - 우리 잘못이 아니다(아래 설명)
+  /** 없는 API 를 훑은 IP 의 4xx — 집계에서 뺐다(2026-11-23) */
+  scanner?: number;
   rows: FailureRow[];
   newestAt: Date | null;   // 로그가 살아 있는지 판단용
   lines: number;
@@ -195,7 +199,10 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
   const agg = new Map<string, FailureRow>();
   let newestBeat = 0;
   const distinctUris = new Map<string, Set<string>>();
-  let total = 0, server = 0, client = 0, malformed = 0, lines = 0, uploadsUnauthorized = 0;
+  let total = 0, server = 0, client = 0, malformed = 0, lines = 0, uploadsUnauthorized = 0, scanner = 0;
+  // 창 안의 실패 응답(소음 제외) — 스캐너 IP 를 다 본 뒤에 집계하려고 잠깐 모아 둔다(보통 수십 건)
+  const hits: { ip: string; status: number; method: string; path: string; uriOnly: string }[] = [];
+  const ip404 = new Map<string, Set<string>>();
   let newest = 0, oldest = 0;
 
   // ⚠ split 은 수십만 개 문자열을 **한꺼번에** 만들어 들고 있는다. 한 줄씩 잘라 쓰면
@@ -210,7 +217,7 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
     //   중간중간 양보하면 그 1초 동안 사용자 요청이 계속 처리된다.
     if (++scanned % 2000 === 0) await new Promise((r) => setImmediate(r));
     if (!line || line[0] !== "{") continue; // 끝에서 잘라 읽어 첫 줄이 깨질 수 있다
-    let e: { ts?: number; status?: number; request?: { uri?: string; method?: string } };
+    let e: { ts?: number; status?: number; request?: { uri?: string; method?: string; client_ip?: string; remote_ip?: string } };
     try { e = JSON.parse(line); } catch { continue; }
     lines++;
     const tsMs = (e.ts ?? 0) * 1000;
@@ -230,18 +237,35 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
     if (status === 401 && path.startsWith("/api/uploads/")) uploadsUnauthorized++;
     if (isNoise(status, path)) continue;
     const method = e.request?.method ?? "?";
+    const ip = e.request?.client_ip || e.request?.remote_ip || "?";
+    if (status === 404) {
+      const s = ip404.get(ip) ?? new Set<string>();
+      if (s.size < SCANNER_DISTINCT_404) s.add(path);
+      ip404.set(ip, s);
+    }
+    hits.push({ ip, status, method, path, uriOnly: rawUri.split("?")[0] });
+  }
+
+  // ⚠ 경로만으로는 스캐너를 다 못 거른다 — `/api/config` `/api/.env` `/api/v1/keys` 처럼
+  //   **우리 접두사(/api/)를 달고** 훑으면 위 isNoise 를 통과한다(2026-11-23 22·23시 알림:
+  //   4xx 42건 중 40건이 한 IP 가 봇 이름만 바꿔 가며 찌른 것, 실제 앱 실패는 2건).
+  //   UA 는 위조되지만 **IP 는 응답을 받으려면 진짜여야** 한다. 우리 앱은 없는 API 를 부르지
+  //   않으므로, 한 IP 가 서로 다른 없는 경로를 여러 개 찔렀으면 그 IP 의 4xx 는 전부 뺀다.
+  //   5xx 는 누가 일으켰든 서버가 터진 것이므로 그대로 센다.
+  const scannerIps = new Set([...ip404].filter(([, s]) => s.size >= SCANNER_DISTINCT_404).map(([ip]) => ip));
+  for (const h of hits) {
+    if (h.status < 500 && scannerIps.has(h.ip)) { scanner++; continue; }
     total++;
-    if (status >= 500) server++; else client++;
-    const key = `${status} ${method} ${path}`;
+    if (h.status >= 500) server++; else client++;
+    const key = `${h.status} ${h.method} ${h.path}`;
     const row = agg.get(key);
-    const uriOnly = rawUri.split("?")[0];
     if (row) {
       row.count++;
       const set = distinctUris.get(key)!;
-      if (set.size < 200) set.add(uriOnly); // 가짓수만 알면 되므로 상한을 둔다
+      if (set.size < 200) set.add(h.uriOnly); // 가짓수만 알면 되므로 상한을 둔다
     } else {
-      agg.set(key, { status, method, path, count: 1, sample: uriOnly, distinct: 1 });
-      distinctUris.set(key, new Set([uriOnly]));
+      agg.set(key, { status: h.status, method: h.method, path: h.path, count: 1, sample: h.uriOnly, distinct: 1 });
+      distinctUris.set(key, new Set([h.uriOnly]));
     }
   }
 
@@ -250,7 +274,7 @@ async function collectFailuresUncached(hours: number): Promise<FailureStats | nu
   // 로그가 회전하면 파일에 남은 것이 24시간보다 짧다. 그걸 "최근 24시간"이라고 말하면 거짓이다.
   const coveredHours = oldest ? Math.min(hours, (Date.now() - Math.max(oldest, since)) / 3600000) : 0;
   return { coveredHours: Math.round(coveredHours * 10) / 10, uploadsUnauthorized, total, server,
-           client, malformed, rows, newestAt: newest ? new Date(newest) : null,
+           client, malformed, scanner, rows, newestAt: newest ? new Date(newest) : null,
            lastBeatAt: newestBeat ? new Date(newestBeat) : null, lines };
 }
 
