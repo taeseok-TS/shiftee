@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
     prisma.successCase.findMany({
       where: { AND: and },
       include: { cheers: { where: { userId: v.userId }, select: { userId: true } } },
-      orderBy: { createdAt: "desc" },
+      // 본부가 고정한 글(작성 예시 등)이 맨 위 — 고정 글끼리는 나중에 고정한 것부터(2026-11-26 디렉터)
+      orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: 200,
     }),
     prisma.successCase.findMany({ where: { deletedAt: null, authorBranch: { not: null } }, distinct: ["authorBranch"], select: { authorBranch: true } }),

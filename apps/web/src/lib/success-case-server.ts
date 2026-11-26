@@ -84,6 +84,8 @@ export function serializeCase(c: CaseRow, v: SubmissionViewer, opts: { summary?:
     cheerCount: c.cheerCount, commentCount: c.commentCount,
     cheeredByMe: !!c.cheers?.some((x) => x.userId === v.userId),
     canEdit: canEditCase(c, v),
+    pinned: !!c.pinnedAt,
+    canPin: v.role === "ADMIN",
     deleted: !!c.deletedAt,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   };

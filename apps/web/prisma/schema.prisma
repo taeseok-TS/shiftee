@@ -1236,6 +1236,7 @@ model SuccessCase {
   marketingSubmissionId String? // 「마케팅 자료로도 보내기」로 만든 Submission
   cheerCount     Int       @default(0)
   commentCount   Int       @default(0)
+  pinnedAt       DateTime? // 목록 맨 위 고정(본부만, 2026-11-26 디렉터 — 「작성 예시」 글용). deploy/ddl_success_case_pin.sql
   deletedAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

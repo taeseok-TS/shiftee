@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Trophy, Plus, X, Paperclip, Loader2, Search, PartyPopper, MessageCircle, Pencil, Trash2, Send, Megaphone, ArrowRight, BookOpen } from "lucide-react";
+import { Trophy, Plus, X, Paperclip, Loader2, Search, PartyPopper, MessageCircle, Pencil, Trash2, Send, Megaphone, ArrowRight, BookOpen, Pin, PinOff } from "lucide-react";
 import { CASE_SAMPLE } from "@/lib/case-sample";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -27,6 +27,7 @@ type CaseItem = {
   files: SubmissionFile[]; fileCount: number;
   authorId: string; authorName: string; authorBranch: string | null; authorJobGroup: string | null;
   marketingSent: boolean; cheerCount: number; commentCount: number; cheeredByMe: boolean; canEdit: boolean;
+  pinned: boolean; canPin: boolean;
   createdAt: string; updatedAt: string;
 };
 type Comment = { id: string; userId: string; userName: string; userBranch: string | null; content: string; createdAt: string; canDelete: boolean };
@@ -113,8 +114,9 @@ export default function CasesPage() {
         : (
           <div className="grid gap-3 md:grid-cols-2">
             {cases.map((c) => (
-              <button key={c.id} type="button" onClick={() => setOpenId(c.id)} className="text-left border rounded-lg bg-white p-4 hover:shadow-md hover:border-indigo-300 transition space-y-2">
+              <button key={c.id} type="button" onClick={() => setOpenId(c.id)} className={`text-left border rounded-lg p-4 hover:shadow-md hover:border-indigo-300 transition space-y-2 ${c.pinned ? "bg-amber-50/50 border-amber-300" : "bg-white"}`}>
                 <div className="flex items-center gap-2 flex-wrap text-xs">
+                  {c.pinned && <span className="flex items-center gap-0.5 px-2 py-0.5 rounded border border-amber-300 bg-amber-100 text-amber-800"><Pin size={11} />고정</span>}
                   <span className={`px-2 py-0.5 rounded border ${KIND_STYLE[c.kind] ?? ""}`}>{c.kindLabel}</span>
                   <span className="text-gray-700 font-medium">{c.student}</span>
                   {c.schoolType && <span className="text-gray-400">{c.schoolType}</span>}
@@ -184,6 +186,13 @@ function CaseDetail({ id, onClose, onChanged, onEdit }: { id: string; onClose: (
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(d.error || "지우지 못했습니다."); return; }
     setComments((cur) => cur.filter((m) => m.id !== cid)); setC((cur) => (cur ? { ...cur, commentCount: d.commentCount } : cur)); onChanged();
+  }
+  async function togglePin() {
+    if (!c) return;
+    const res = await fetch(`/api/work/cases/${id}/pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on: !c.pinned }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(d.error || "실패했습니다."); return; }
+    setC({ ...c, pinned: d.pinned }); toast.success(d.pinned ? "목록 맨 위에 고정했습니다." : "고정을 풀었습니다."); onChanged();
   }
   async function del() {
     if (!c || !confirm("이 사례를 지울까요? (마케팅 자료로 보낸 것은 따로 남습니다)")) return;
@@ -261,6 +270,11 @@ function CaseDetail({ id, onClose, onChanged, onEdit }: { id: string; onClose: (
               {c.marketingSent
                 ? <span className="text-xs text-indigo-600 flex items-center gap-1"><Megaphone size={14} />마케팅 자료로 보냄</span>
                 : c.canEdit && <Button variant="outline" onClick={() => { setMkConsent(false); setMkOpen((o) => !o); }} className="gap-1"><Megaphone size={16} />마케팅 자료로도 보내기</Button>}
+              {c.canPin && (
+                <Button variant="outline" onClick={togglePin} className={`gap-1 ${c.pinned ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" : ""}`}>
+                  {c.pinned ? <><PinOff size={14} />고정 풀기</> : <><Pin size={14} />맨 위 고정</>}
+                </Button>
+              )}
               {c.canEdit && (
                 <div className="ml-auto flex gap-1">
                   <Button variant="outline" onClick={() => onEdit(c)} className="gap-1"><Pencil size={14} />고치기</Button>
